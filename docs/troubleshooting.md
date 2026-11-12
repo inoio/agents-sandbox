@@ -355,6 +355,9 @@ Docker build failures are usually due to:
     curl -fsSL https://debian.org | head -c 100
     ```
 
+    If the failure is apt's `returned a non-zero code: 100`, see
+    [Package downloads fail](#package-downloads-fail-with-returned-a-non-zero-code-100).
+
 2. **Docker daemon memory** — Large builds may need more memory:
 
     ```console
@@ -371,6 +374,34 @@ If an older image or updater state reports `Release vuser-provided not found`, u
 runner image. `user-provided` identifies an agent that was previously found in a custom base; it is not a valid release
 version. A rebuilt image will keep an agent supplied by the base, or install a real resolved release if that binary is
 no longer present.
+
+### Package downloads fail with "returned a non-zero code: 100"
+
+`100` is apt's general error code. When the build log also shows `Temporary failure resolving ...`,
+`Some index files failed to download`, or `Failed to fetch`, the build could not reach its package mirror. The build
+runs on your host's engine, so a broken or IPv6-only resolver there causes this. agents-sandbox prints the failing
+step's last output after such an error, so the apt message appears in the failure.
+
+Reproduce it outside agents-sandbox:
+
+```console
+docker run --rm debian:trixie-slim apt-get update
+```
+
+If that also fails, give the engine a working resolver. Add one to your Docker Engine's `daemon.json` and restart the
+engine:
+
+```json
+{ "dns": ["1.1.1.1", "8.8.8.8"] }
+```
+
+This applies to both builders agents-sandbox uses, and it is the fix for the managed step that installs the base tools
+(the one that failed in the example), which you cannot edit. If only the IPv6 path is broken and the failing `apt-get`
+is one you wrote in your project Dockerfile, ask apt to use IPv4 there instead: add `-o Acquire::ForceIPv4=true` to
+each `apt-get` line in that Dockerfile.
+
+apt already retries a transient failure three times, so raising `Acquire::Retries` rarely helps. On `apt-get update`,
+a `W:` line marks a failure apt tolerates; the build then fails in the `apt-get install` step that follows.
 
 ### The base image cannot be found
 

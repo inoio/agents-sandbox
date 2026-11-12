@@ -330,9 +330,23 @@ func TestBuildImagePassesAgentVersionBuildArg(t *testing.T) {
 }
 
 func TestScanBuildOutputRejectsNonJSONOutput(t *testing.T) {
-	err := scanBuildOutput(strings.NewReader("{not json"), func(string) {})
+	err := scanBuildOutput(strings.NewReader("{not json"), func(string) {}, func(string) {})
 	if err == nil || !strings.Contains(err.Error(), "unexpected Docker build output") {
 		t.Errorf("scanBuildOutput error = %v, want an unexpected-output error", err)
+	}
+}
+
+// TestScanBuildOutputRecordsTheRawChunk pins that the recorder sees a chunk's
+// raw bytes, so a line split across two stream messages can be rejoined.
+func TestScanBuildOutputRecordsTheRawChunk(t *testing.T) {
+	body := strings.NewReader(`{"stream":"Temporary fail"}` + "\n" + `{"stream":"ure resolving\n"}`)
+
+	var raw []string
+	if err := scanBuildOutput(body, func(string) {}, func(s string) { raw = append(raw, s) }); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if want := []string{"Temporary fail", "ure resolving\n"}; !reflect.DeepEqual(raw, want) {
+		t.Errorf("recorded chunks = %q, want the raw chunks %q", raw, want)
 	}
 }
 
@@ -342,7 +356,7 @@ func TestScanBuildOutputForwardsStreamLines(t *testing.T) {
 {"stream":"Successfully built abc123\n"}`)
 
 	var got []string
-	if err := scanBuildOutput(body, func(s string) { got = append(got, s) }); err != nil {
+	if err := scanBuildOutput(body, func(s string) { got = append(got, s) }, func(string) {}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -357,7 +371,7 @@ func TestScanBuildOutputReturnsErrorMessage(t *testing.T) {
 		`{"errorDetail":{"message":"pull access denied for base"},"error":"pull access denied for base"}`,
 	)
 
-	err := scanBuildOutput(body, func(string) {})
+	err := scanBuildOutput(body, func(string) {}, func(string) {})
 	if err == nil {
 		t.Fatal("expected scanBuildOutput to return an error")
 	}
@@ -664,5 +678,245 @@ func TestBuildDockerImageRefusesAfterAnUnapprovedRead(t *testing.T) {
 	)
 	if !errors.Is(err, projectguard.ErrNotApproved) {
 		t.Errorf("buildDockerImage = %v, want ErrNotApproved", err)
+	}
+}
+
+func TestBuildOutputTailKeepsTheLastLines(t *testing.T) {
+	var tail buildOutputTail
+	for i := range 25 {
+		tail.add(fmt.Sprintf("line %d\n", i))
+	}
+	// The cap is 20, so 25 recorded lines leave line 5 through line 24. The
+	// bounds are literals: an expectation written against the constant would move
+	// with a mutated cap and never fail.
+	var wantLines []string
+	for i := 5; i < 25; i++ {
+		wantLines = append(wantLines, fmt.Sprintf("line %d", i))
+	}
+	if got, want := tail.String(), strings.Join(wantLines, "\n"); got != want {
+		t.Errorf("String() = %q, want the last 20 lines %q", got, want)
+	}
+}
+
+func TestBuildOutputTailIgnoresBlankLines(t *testing.T) {
+	var tail buildOutputTail
+	tail.add("\n")
+	tail.add("kept\n\n")
+	if got := tail.String(); got != "kept" {
+		t.Errorf("String() = %q, want %q", got, "kept")
+	}
+	if got := (&buildOutputTail{}).String(); got != "" {
+		t.Errorf("empty tail String() = %q, want %q", got, "")
+	}
+}
+
+// TestBuildOutputTailJoinsALineSplitAcrossChunks pins that a chunk boundary in
+// the middle of a line does not turn one line into two, so a DNS signal split
+// across two log chunks still reaches the classifier and the tail.
+func TestBuildOutputTailJoinsALineSplitAcrossChunks(t *testing.T) {
+	var tail buildOutputTail
+	tail.add("Temporary fail")
+	tail.add("ure resolving 'deb.debian.org'\n")
+	if got, want := tail.String(), "Temporary failure resolving 'deb.debian.org'"; got != want {
+		t.Errorf("String() = %q, want the rejoined line %q", got, want)
+	}
+}
+
+// TestBuildOutputTailStripsCarriageReturns pins that a CRLF line loses its
+// trailing carriage return, so the tail never renders a stray \r.
+func TestBuildOutputTailStripsCarriageReturns(t *testing.T) {
+	var tail buildOutputTail
+	tail.add("line one\r\nline two\r\n")
+	if got, want := tail.String(), "line one\nline two"; got != want {
+		t.Errorf("String() = %q, want the CR-stripped lines %q", got, want)
+	}
+}
+
+// TestBuildOutputTailBoundsALineWithoutNewlines pins that a stream that never
+// emits a newline (carriage-return progress, a very long line) cannot grow the
+// recorder without bound: the unfinished line is capped at 4096 bytes.
+func TestBuildOutputTailBoundsALineWithoutNewlines(t *testing.T) {
+	var tail buildOutputTail
+	for range 100 {
+		tail.add(strings.Repeat("x", 1000))
+	}
+	if got := tail.String(); len(got) != 4096 {
+		t.Errorf("tail rendered %d bytes, want the 4096-byte cap", len(got))
+	}
+}
+
+// TestBuildOutputTailBoundsARecordedLine pins the same cap on a complete line.
+func TestBuildOutputTailBoundsARecordedLine(t *testing.T) {
+	var tail buildOutputTail
+	tail.add(strings.Repeat("y", 10000) + "\n")
+	if got := tail.String(); len(got) != 4096 {
+		t.Errorf("tail rendered %d bytes, want the 4096-byte cap", len(got))
+	}
+}
+
+func TestBuildOutputTailKeepsAnUnterminatedFinalLine(t *testing.T) {
+	var single buildOutputTail
+	single.add("only")
+	if got, want := single.String(), "only"; got != want {
+		t.Errorf("single-chunk String() = %q, want %q", got, want)
+	}
+
+	var tail buildOutputTail
+	tail.add("first\nsecond")
+	if got, want := tail.String(), "first\nsecond"; got != want {
+		t.Errorf("String() = %q, want %q", got, want)
+	}
+}
+
+// TestBuildFailureErrorClassifiesNetworkDownloadFailure pins that a failure whose
+// error or streamed output names a download/DNS problem gets the troubleshooting
+// link and carries the captured output.
+func TestBuildFailureErrorClassifiesNetworkDownloadFailure(t *testing.T) {
+	err := buildFailureError(
+		errors.New("The command '/bin/sh -c apt-get update' returned a non-zero code: 100"),
+		"W: Failed to fetch http://deb.debian.org/debian/dists/trixie/InRelease\n"+
+			"W: Temporary failure resolving 'deb.debian.org'",
+	)
+	for _, want := range []string{
+		"troubleshooting.html#image-build-fails",
+		"Last build output:",
+		"Temporary failure resolving 'deb.debian.org'",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %v, want it to contain %q", err, want)
+		}
+	}
+}
+
+// TestBuildFailureErrorAppendsBuildOutputWithoutANetworkHint pins that a
+// non-network failure still reports its output, without the network link.
+func TestBuildFailureErrorAppendsBuildOutputWithoutANetworkHint(t *testing.T) {
+	err := buildFailureError(errors.New("some other failure"), "E: step exited 2")
+	for _, want := range []string{"Last build output:", "E: step exited 2"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %v, want it to contain %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "image-build-fails") {
+		t.Errorf("error = %v, must not carry the network hint", err)
+	}
+}
+
+func TestBuildFailureErrorOmitsEmptyBuildOutput(t *testing.T) {
+	err := buildFailureError(errors.New("some other failure"), "")
+	if strings.Contains(err.Error(), "Last build output") {
+		t.Errorf("error = %v, must not add a block for empty output", err)
+	}
+}
+
+// TestBuildFailureErrorKeepsTheBaseImageCaseFirst pins that a base-image failure
+// wins over a network signal the stream also happens to carry.
+func TestBuildFailureErrorKeepsTheBaseImageCaseFirst(t *testing.T) {
+	err := buildFailureError(
+		errors.New("pull access denied for private-base"),
+		"W: Temporary failure resolving 'deb.debian.org'",
+	)
+	if !strings.Contains(err.Error(), "base image not found or not logged in") {
+		t.Errorf("error = %v, want the base-image hint", err)
+	}
+	if strings.Contains(err.Error(), "image-build-fails") {
+		t.Errorf("error = %v, want no network hint for a base-image failure", err)
+	}
+}
+
+// TestBuildFailureErrorPreservesTheCause pins that the extra wrapping keeps the
+// cause reachable through errors.Is.
+// TestBuildFailureErrorPreservesTheCause pins that every classification branch,
+// and the appended output block, wrap the engine error with %w so errors.Is
+// still reaches the cause.
+func TestBuildFailureErrorPreservesTheCause(t *testing.T) {
+	sentinel := errors.New("engine boom")
+	for _, tc := range []struct {
+		name    string
+		message string
+	}{
+		{name: "default", message: "boom"},
+		{name: "base image", message: "pull access denied for private-base"},
+		{
+			name:    "unresolved name",
+			message: "short-name x did not resolve to an alias and no unqualified search registries are defined",
+		},
+		{name: "network", message: "Temporary failure resolving 'deb.debian.org'"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := buildFailureError(fmt.Errorf("%s: %w", tc.message, sentinel), "step output")
+			if !errors.Is(err, sentinel) {
+				t.Errorf("errors.Is(%v, sentinel) = false, want true", err)
+			}
+		})
+	}
+}
+
+// TestBuildDockerImageReportsTheStreamedOutputOnFailure pins that a classic
+// build failure carries the lines the failing step streamed, so the apt/DNS
+// message is visible without --log-level verbose.
+func TestBuildDockerImageReportsTheStreamedOutputOnFailure(t *testing.T) {
+	a := agentOpencode(t)
+	body := `{"stream":"W: Temporary failure resolving 'deb.debian.org'\n"}` + "\n" +
+		`{"errorDetail":{"message":"The command '/bin/sh -c apt-get update' returned a non-zero code: 100"}}`
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
+		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(body))}, nil
+		},
+	})
+	err := buildDockerImage(
+		context.Background(), docker.Get(), a,
+		testBuildRequest([]byte("FROM debian:trixie-slim\n"), "v", "base", "id", imageIdentity{}),
+		"tag", "label", false, &termiotest.Mock{},
+	)
+	if err == nil {
+		t.Fatal("expected buildDockerImage to return an error when the build fails")
+	}
+	for _, want := range []string{"Temporary failure resolving 'deb.debian.org'", "image-build-fails"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %v, want it to contain %q", err, want)
+		}
+	}
+}
+
+// TestBuildFailureErrorClassifiesResolverFailures pins that the resolver
+// wordings a base-image pull, npm, or glibc emit are classified as network
+// failures, and that the hint does not claim the failure downloaded packages.
+func TestBuildFailureErrorClassifiesResolverFailures(t *testing.T) {
+	for _, message := range []string{
+		"npm ERR! network getaddrinfo EAI_AGAIN registry.npmjs.org",
+		"dial tcp: lookup registry-1.docker.io: Temporary failure in name resolution",
+		"npm ERR! network getaddrinfo ENOTFOUND registry.npmjs.org",
+	} {
+		err := buildFailureError(errors.New(message), "")
+		if !strings.Contains(err.Error(), "image-build-fails") {
+			t.Errorf("error for %q = %v, want the network hint", message, err)
+		}
+	}
+	err := buildFailureError(errors.New("npm ERR! network getaddrinfo EAI_AGAIN registry.npmjs.org"), "")
+	if !strings.Contains(err.Error(), "could not reach the network") {
+		t.Errorf("error = %v, want the network hint worded for any download, not only packages", err)
+	}
+}
+
+// TestBuildFailureErrorIgnoresANonNetworkResolveError pins that a bundler's
+// module-resolution error is not misreported as a network failure.
+func TestBuildFailureErrorIgnoresANonNetworkResolveError(t *testing.T) {
+	err := buildFailureError(
+		errors.New(`error during build: RollupError: Could not resolve "./module" from "src/main.js"`), "",
+	)
+	if strings.Contains(err.Error(), "image-build-fails") {
+		t.Errorf("error = %v, must not carry the network hint for a module-resolution error", err)
+	}
+}
+
+// TestBuildOutputTailSplitsMultiLineChunks pins that a chunk carrying several
+// lines records each of them, so the cap counts lines rather than chunks.
+func TestBuildOutputTailSplitsMultiLineChunks(t *testing.T) {
+	var tail buildOutputTail
+	tail.add("first\nsecond\n")
+	tail.add("third\n\nfourth")
+	if got, want := tail.String(), "first\nsecond\nthird\nfourth"; got != want {
+		t.Errorf("String() = %q, want %q", got, want)
 	}
 }

@@ -69,12 +69,12 @@ func localBaseImage(ctx context.Context, dclient docker.Client, baseRef string) 
 func pullBaseImage(ctx context.Context, dclient docker.Client, baseRef string) error {
 	pull, err := dclient.ImagePull(ctx, baseRef, client.ImagePullOptions{})
 	if err != nil {
-		return buildFailureError(fmt.Errorf("pull base image %s: %w", baseRef, err))
+		return buildFailureError(fmt.Errorf("pull base image %s: %w", baseRef, err), "")
 	}
 	waitErr := pull.Wait(ctx)
 	_ = pull.Close()
 	if waitErr != nil {
-		return buildFailureError(fmt.Errorf("pull base image %s: %w", baseRef, waitErr))
+		return buildFailureError(fmt.Errorf("pull base image %s: %w", baseRef, waitErr), "")
 	}
 	return nil
 }

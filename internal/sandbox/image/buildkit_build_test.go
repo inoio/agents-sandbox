@@ -403,6 +403,38 @@ func TestBuildImageBuildKitStreamsStatus(t *testing.T) {
 	}
 }
 
+// TestBuildImageBuildKitReportsTheStreamedLogOnFailure pins that a BuildKit
+// solve failure carries the log lines the failing step emitted, including a DNS
+// signal split across two log chunks.
+func TestBuildImageBuildKitReportsTheStreamedLogOnFailure(t *testing.T) {
+	stubBuildKitClient(t, &fakeBuildKitSolver{
+		solve: func(
+			_ context.Context, _ *llb.Definition, _ buildkitclient.SolveOpt, ch chan *buildkitclient.SolveStatus,
+		) {
+			ch <- &buildkitclient.SolveStatus{
+				Logs: []*buildkitclient.VertexLog{
+					{Data: []byte("Temporary fail")},
+					{Data: []byte("ure resolving 'deb.debian.org'\n")},
+				},
+			}
+		},
+		solveErr: errors.New("did not complete successfully: exit code: 100"),
+	})
+	err := buildImageBuildKit(
+		context.Background(), &dockertest.MockDockerClient{}, agentOpencode(t),
+		testBuildRequest([]byte("FROM scratch\n"), "", "", "", imageIdentity{}),
+		"tag", false, func(string) {},
+	)
+	if err == nil {
+		t.Fatal("buildImageBuildKit error = nil, want a build failure")
+	}
+	for _, want := range []string{"Temporary failure resolving 'deb.debian.org'", "image-build-fails"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %v, want it to contain %q", err, want)
+		}
+	}
+}
+
 // TestStreamSolveStatusReportsCacheHits pins the BuildKit cache-hit signal: a
 // cached vertex emits a CACHED line immediately after its name (BuildKit writes
 // no log for a cached step), while a non-cached vertex emits none. This is what
@@ -415,7 +447,7 @@ func TestStreamSolveStatusReportsCacheHits(t *testing.T) {
 			{Name: "install node", Cached: true},
 			{Name: "install agent"},
 		},
-	}, func(s string) { lines = append(lines, s) })
+	}, func(s string) { lines = append(lines, s) }, func(string) {})
 
 	index := slices.Index(lines, "CACHED")
 	if index < 0 {

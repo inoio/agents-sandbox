@@ -114,6 +114,7 @@ func buildImageClassic(
 	noCache bool,
 	line func(string),
 ) error {
+	tail := new(buildOutputTail)
 	buildResp, err := dclient.ImageBuild(ctx, buildContextTar(req.plan.rendered), client.ImageBuildOptions{
 		Tags:      []string{tag},
 		Remove:    true,
@@ -121,43 +122,91 @@ func buildImageClassic(
 		BuildArgs: userBuildArgs(os.Getuid(), os.Getgid(), a.ImageSpec(), req),
 	})
 	if err != nil {
-		return buildFailureError(err)
+		return buildFailureError(err, tail.String())
 	}
 	defer buildResp.Body.Close()
 
-	buildErr := scanBuildOutput(buildResp.Body, line)
+	buildErr := scanBuildOutput(buildResp.Body, line, tail.add)
 	if buildErr != nil {
-		return buildFailureError(buildErr)
+		return buildFailureError(buildErr, tail.String())
 	}
 
 	return nil
 }
 
 // buildFailureError classifies an engine build failure and tailors the message
-// for the two a user can act on: a base image the registry refused (Docker
+// for the cases a user can act on: a base image the registry refused (Docker
 // Engine reports "pull access denied", a registry "unauthorized" or "denied"),
-// and an image name with no
-// registry that the engine refused to resolve at all — podman does this when it
-// has no unqualified-search-registries, which Docker Engine never needs because
-// it assumes Docker Hub. Both point at the troubleshooting section naming the
-// remedies. Any other failure stays a plain wrap.
-func buildFailureError(err error) error {
+// an image name with no registry that the engine refused to resolve at all —
+// podman does this when it has no unqualified-search-registries, which Docker
+// Engine never needs because it assumes Docker Hub — and a network/DNS failure
+// while downloading packages. Each points at the troubleshooting section naming
+// its remedy. Any other failure stays a plain wrap. The captured build output is
+// appended last, so the failing step's own message is visible.
+func buildFailureError(err error, buildOutput string) error {
+	var failure error
 	switch msg := err.Error(); {
 	case isRegistryAccessDenied(msg):
-		return fmt.Errorf(
+		failure = fmt.Errorf(
 			"docker image build failed (base image not found or not logged in): %w\n  Docs: %s",
 			err,
 			docslink.SectionURL("troubleshooting", "the-base-image-cannot-be-found"),
 		)
 	case isUnresolvedImageName(msg):
-		return fmt.Errorf(
+		failure = fmt.Errorf(
 			"docker image build failed (the engine could not resolve an image name that has no registry): %w\n  Docs: %s",
 			err,
 			docslink.SectionURL("troubleshooting", "the-base-image-cannot-be-found"),
 		)
+	case isNetworkDownloadFailure(msg, buildOutput):
+		failure = fmt.Errorf(
+			"docker image build failed (the build could not reach the network; check the host resolver and the build's network settings): %w\n  Docs: %s",
+			err,
+			docslink.SectionURL("troubleshooting", "image-build-fails"),
+		)
 	default:
-		return fmt.Errorf("docker image build failed: %w", err)
+		failure = fmt.Errorf("docker image build failed: %w", err)
 	}
+	if buildOutput == "" {
+		return failure
+	}
+	return fmt.Errorf(
+		"%w\n  Last build output:\n    %s",
+		failure,
+		strings.ReplaceAll(buildOutput, "\n", "\n    "),
+	)
+}
+
+// networkDownloadFailureSignals are the resolver-level messages that identify a
+// download that failed on DNS resolution rather than on the request. They are
+// deliberately resolver-specific: apt's "Failed to fetch" also appears for a
+// 404 from a reachable mirror, which is not a network problem. "Could not
+// resolve host" is curl/git's wording; a bundler's bare "Could not resolve" is a
+// module-resolution error, not a network one.
+var networkDownloadFailureSignals = []string{
+	"Temporary failure resolving",
+	"Temporary failure in name resolution",
+	"Could not resolve host",
+	"getaddrinfo",
+	"EAI_AGAIN",
+	"ENOTFOUND",
+	"server misbehaving",
+	"no such host",
+}
+
+// isNetworkDownloadFailure reports whether any message names a network or DNS
+// download failure. It matches on the failure text rather than on apt's exit
+// code alone, so a user step that exits non-zero for another reason is not
+// misreported as a network problem.
+func isNetworkDownloadFailure(messages ...string) bool {
+	for _, signal := range networkDownloadFailureSignals {
+		for _, message := range messages {
+			if strings.Contains(message, signal) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // isRegistryAccessDenied reports whether a registry refused the image: the
@@ -170,6 +219,75 @@ func isRegistryAccessDenied(msg string) bool {
 		strings.Contains(msg, "denied: ")
 }
 
+// buildOutputTailMaxLines bounds how much engine build output a failure reports.
+const buildOutputTailMaxLines = 20
+
+// buildOutputTail records the most recent lines of engine build output, so a
+// build failure can report what the failing step printed and not only its exit
+// status.
+type buildOutputTail struct {
+	lines   []string
+	pending string
+}
+
+// buildOutputTailMaxLineBytes bounds one retained line and the unfinished line,
+// so a build streaming a very long line or carriage-return progress cannot grow
+// the recorder without bound.
+const buildOutputTailMaxLineBytes = 4096
+
+// clampLine keeps at most buildOutputTailMaxLineBytes of one line.
+func clampLine(line string) string {
+	// At len == buildOutputTailMaxLineBytes the guard's body keeps the same bytes,
+	// so the > to >= boundary cannot change behaviour.
+	// gomutants:disable-next-line CONDITIONALS_BOUNDARY reason="at len == max the slice keeps the same bytes, so > and >= are equivalent"
+	if len(line) > buildOutputTailMaxLineBytes {
+		return line[:buildOutputTailMaxLineBytes]
+	}
+	return line
+}
+
+// add records one raw streamed chunk. A chunk is an arbitrary byte boundary, so
+// a line may be split across two chunks; the trailing partial line is held in
+// pending until the next chunk completes it, rather than counted as a line of
+// its own. Blank lines are dropped and at most buildOutputTailMaxLines complete
+// lines are kept. The unfinished line is bounded so a stream without newlines
+// cannot grow it without bound.
+func (t *buildOutputTail) add(chunk string) {
+	parts := strings.Split(t.pending+chunk, "\n")
+	t.pending = clampLine(parts[len(parts)-1])
+	for _, line := range parts[:len(parts)-1] {
+		t.record(line)
+	}
+}
+
+// record keeps one complete line, dropping a blank one.
+func (t *buildOutputTail) record(line string) {
+	line = clampLine(strings.TrimSuffix(line, "\r"))
+	if line == "" {
+		return
+	}
+	t.lines = append(t.lines, line)
+	// At len == buildOutputTailMaxLines the guard's body keeps the same lines, so
+	// the > to >= boundary cannot change behaviour.
+	// gomutants:disable-next-line CONDITIONALS_BOUNDARY reason="at len == max the trim keeps the same lines, so > and >= are equivalent"
+	if len(t.lines) > buildOutputTailMaxLines {
+		t.lines = t.lines[len(t.lines)-buildOutputTailMaxLines:]
+	}
+}
+
+// String renders the recorded lines, keeping an unterminated final line, or the
+// empty string when nothing was kept.
+func (t *buildOutputTail) String() string {
+	rendered := strings.Join(t.lines, "\n")
+	if t.pending == "" {
+		return rendered
+	}
+	if rendered == "" {
+		return t.pending
+	}
+	return rendered + "\n" + t.pending
+}
+
 // isUnresolvedImageName reports whether the engine refused an unqualified image
 // name for want of a registry to resolve it against.
 func isUnresolvedImageName(msg string) bool {
@@ -177,8 +295,9 @@ func isUnresolvedImageName(msg string) bool {
 }
 
 // scanBuildOutput decodes the Docker build API stream and returns errors,
-// forwarding each non-empty line of output to the given callback.
-func scanBuildOutput(r io.Reader, line func(string)) error {
+// forwarding each non-empty line of output to line for display and each raw
+// chunk to record, so a recorder can rejoin a line split across chunks.
+func scanBuildOutput(r io.Reader, line, record func(string)) error {
 	dec := json.NewDecoder(r)
 	for {
 		var msg dockerBuildMessage
@@ -194,6 +313,7 @@ func scanBuildOutput(r io.Reader, line func(string)) error {
 		if msg.ErrorDetail.Message != "" {
 			return fmt.Errorf("%s", msg.ErrorDetail.Message)
 		}
+		record(msg.Stream)
 		trimmedMsg := strings.Trim(msg.Stream, " \n")
 		if trimmedMsg != "" {
 			line(trimmedMsg)

@@ -110,13 +110,13 @@ func buildImageBuildKit(
 ) error {
 	solver, err := newBuildKitClient(ctx, dclient)
 	if err != nil {
-		return buildFailureError(err)
+		return buildFailureError(err, "")
 	}
 	defer func() { _ = solver.Close() }()
 
 	opt, cleanup, err := buildKitSolveOpt(req, tag, noCache)
 	if err != nil {
-		return buildFailureError(err)
+		return buildFailureError(err, "")
 	}
 	defer cleanup()
 
@@ -125,30 +125,34 @@ func buildImageBuildKit(
 	}
 	opt.Session = newBuildKitSession()
 
+	tail := new(buildOutputTail)
 	statusCh := make(chan *buildkitclient.SolveStatus)
 	var pump sync.WaitGroup
 	pump.Go(func() {
 		for status := range statusCh {
-			streamSolveStatus(status, line)
+			streamSolveStatus(status, line, tail.add)
 		}
 	})
 
 	// Client.Solve closes statusCh itself (a deferred close on every return
 	// path), so the build must not close it again; it only waits for the pump to
-	// drain the closed channel before reporting the outcome.
+	// drain the closed channel before reporting the outcome. The tail is written
+	// by the pump and read only after pump.Wait.
 	_, solveErr := solver.Solve(ctx, nil, opt, statusCh)
 	pump.Wait()
 	if solveErr != nil {
-		return buildFailureError(solveErr)
+		return buildFailureError(solveErr, tail.String())
 	}
 	return nil
 }
 
 // streamSolveStatus forwards each solve status's vertex names and log data to
-// line, so a BuildKit build reports its progress the way the classic build does.
-// A cached vertex emits no log, so its cache hit is surfaced as a CACHED line
-// after the vertex name — the BuildKit counterpart of the classic "Using cache".
-func streamSolveStatus(status *buildkitclient.SolveStatus, line func(string)) {
+// line for display and each raw log chunk to record, so a BuildKit build reports
+// its progress the way the classic build does and a recorder can rejoin a line
+// split across chunks. A cached vertex emits no log, so its cache hit is
+// surfaced as a CACHED line after the vertex name — the BuildKit counterpart of
+// the classic "Using cache".
+func streamSolveStatus(status *buildkitclient.SolveStatus, line, record func(string)) {
 	for _, vertex := range status.Vertexes {
 		if vertex.Name != "" {
 			line(vertex.Name)
@@ -162,6 +166,7 @@ func streamSolveStatus(status *buildkitclient.SolveStatus, line func(string)) {
 		}
 	}
 	for _, log := range status.Logs {
+		record(string(log.Data))
 		if data := strings.TrimRight(string(log.Data), "\n"); data != "" {
 			line(data)
 		}
