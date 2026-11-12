@@ -330,9 +330,23 @@ func TestBuildImagePassesAgentVersionBuildArg(t *testing.T) {
 }
 
 func TestScanBuildOutputRejectsNonJSONOutput(t *testing.T) {
-	err := scanBuildOutput(strings.NewReader("{not json"), func(string) {})
+	err := scanBuildOutput(strings.NewReader("{not json"), func(string) {}, func(string) {})
 	if err == nil || !strings.Contains(err.Error(), "unexpected Docker build output") {
 		t.Errorf("scanBuildOutput error = %v, want an unexpected-output error", err)
+	}
+}
+
+// TestScanBuildOutputRecordsTheRawChunk pins that the recorder sees a chunk's
+// raw bytes, so a line split across two stream messages can be rejoined.
+func TestScanBuildOutputRecordsTheRawChunk(t *testing.T) {
+	body := strings.NewReader(`{"stream":"Temporary fail"}` + "\n" + `{"stream":"ure resolving\n"}`)
+
+	var raw []string
+	if err := scanBuildOutput(body, func(string) {}, func(s string) { raw = append(raw, s) }); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if want := []string{"Temporary fail", "ure resolving\n"}; !reflect.DeepEqual(raw, want) {
+		t.Errorf("recorded chunks = %q, want the raw chunks %q", raw, want)
 	}
 }
 
@@ -342,7 +356,7 @@ func TestScanBuildOutputForwardsStreamLines(t *testing.T) {
 {"stream":"Successfully built abc123\n"}`)
 
 	var got []string
-	if err := scanBuildOutput(body, func(s string) { got = append(got, s) }); err != nil {
+	if err := scanBuildOutput(body, func(s string) { got = append(got, s) }, func(string) {}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -357,7 +371,7 @@ func TestScanBuildOutputReturnsErrorMessage(t *testing.T) {
 		`{"errorDetail":{"message":"pull access denied for base"},"error":"pull access denied for base"}`,
 	)
 
-	err := scanBuildOutput(body, func(string) {})
+	err := scanBuildOutput(body, func(string) {}, func(string) {})
 	if err == nil {
 		t.Fatal("expected scanBuildOutput to return an error")
 	}
@@ -670,7 +684,7 @@ func TestBuildDockerImageRefusesAfterAnUnapprovedRead(t *testing.T) {
 func TestBuildOutputTailKeepsTheLastLines(t *testing.T) {
 	var tail buildOutputTail
 	for i := range 25 {
-		tail.add(fmt.Sprintf("line %d", i))
+		tail.add(fmt.Sprintf("line %d\n", i))
 	}
 	// The cap is 20, so 25 recorded lines leave line 5 through line 24. The
 	// bounds are literals: an expectation written against the constant would move
@@ -684,16 +698,41 @@ func TestBuildOutputTailKeepsTheLastLines(t *testing.T) {
 	}
 }
 
-func TestBuildOutputTailIgnoresEmptyLines(t *testing.T) {
+func TestBuildOutputTailIgnoresBlankLines(t *testing.T) {
 	var tail buildOutputTail
-	tail.add("")
-	tail.add("kept")
-	tail.add("")
+	tail.add("\n")
+	tail.add("kept\n\n")
 	if got := tail.String(); got != "kept" {
 		t.Errorf("String() = %q, want %q", got, "kept")
 	}
 	if got := (&buildOutputTail{}).String(); got != "" {
 		t.Errorf("empty tail String() = %q, want %q", got, "")
+	}
+}
+
+// TestBuildOutputTailJoinsALineSplitAcrossChunks pins that a chunk boundary in
+// the middle of a line does not turn one line into two, so a DNS signal split
+// across two log chunks still reaches the classifier and the tail.
+func TestBuildOutputTailJoinsALineSplitAcrossChunks(t *testing.T) {
+	var tail buildOutputTail
+	tail.add("Temporary fail")
+	tail.add("ure resolving 'deb.debian.org'\n")
+	if got, want := tail.String(), "Temporary failure resolving 'deb.debian.org'"; got != want {
+		t.Errorf("String() = %q, want the rejoined line %q", got, want)
+	}
+}
+
+func TestBuildOutputTailKeepsAnUnterminatedFinalLine(t *testing.T) {
+	var single buildOutputTail
+	single.add("only")
+	if got, want := single.String(), "only"; got != want {
+		t.Errorf("single-chunk String() = %q, want %q", got, want)
+	}
+
+	var tail buildOutputTail
+	tail.add("first\nsecond")
+	if got, want := tail.String(), "first\nsecond"; got != want {
+		t.Errorf("String() = %q, want %q", got, want)
 	}
 }
 
@@ -743,7 +782,7 @@ func TestBuildFailureErrorOmitsEmptyBuildOutput(t *testing.T) {
 func TestBuildFailureErrorKeepsTheBaseImageCaseFirst(t *testing.T) {
 	err := buildFailureError(
 		errors.New("pull access denied for private-base"),
-		"W: Failed to fetch http://deb.debian.org/debian/dists/trixie/InRelease",
+		"W: Temporary failure resolving 'deb.debian.org'",
 	)
 	if !strings.Contains(err.Error(), "base image not found or not logged in") {
 		t.Errorf("error = %v, want the base-image hint", err)
@@ -839,9 +878,8 @@ func TestBuildFailureErrorIgnoresANonNetworkResolveError(t *testing.T) {
 	}
 }
 
-// TestBuildOutputTailSplitsMultiLineChunks pins that a streamed chunk carrying
-// several lines is counted and rendered per line, so the cap is line-true and
-// an internal blank line leaves no indented gap.
+// TestBuildOutputTailSplitsMultiLineChunks pins that a chunk carrying several
+// lines records each of them, so the cap counts lines rather than chunks.
 func TestBuildOutputTailSplitsMultiLineChunks(t *testing.T) {
 	var tail buildOutputTail
 	tail.add("first\nsecond\n")

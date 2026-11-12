@@ -126,10 +126,7 @@ func buildImageClassic(
 	}
 	defer buildResp.Body.Close()
 
-	buildErr := scanBuildOutput(buildResp.Body, func(s string) {
-		tail.add(s)
-		line(s)
-	})
+	buildErr := scanBuildOutput(buildResp.Body, line, tail.add)
 	if buildErr != nil {
 		return buildFailureError(buildErr, tail.String())
 	}
@@ -180,11 +177,12 @@ func buildFailureError(err error, buildOutput string) error {
 	)
 }
 
-// networkDownloadFailureSignals are the resolver, apt, curl, git, and npm
-// messages that identify a download that failed on network or DNS resolution
-// rather than on the request. "Could not resolve host" is deliberate: a
-// bundler's bare "Could not resolve" is a module-resolution error, not a
-// network one.
+// networkDownloadFailureSignals are the resolver-level messages that identify a
+// download that failed on DNS resolution rather than on the request. They are
+// deliberately resolver-specific: apt's "Failed to fetch" also appears for a
+// 404 from a reachable mirror, which is not a network problem. "Could not
+// resolve host" is curl/git's wording; a bundler's bare "Could not resolve" is a
+// module-resolution error, not a network one.
 var networkDownloadFailureSignals = []string{
 	"Temporary failure resolving",
 	"Temporary failure in name resolution",
@@ -194,8 +192,6 @@ var networkDownloadFailureSignals = []string{
 	"ENOTFOUND",
 	"server misbehaving",
 	"no such host",
-	"Some index files failed to download",
-	"Failed to fetch",
 }
 
 // isNetworkDownloadFailure reports whether any message names a network or DNS
@@ -230,19 +226,30 @@ const buildOutputTailMaxLines = 20
 // build failure can report what the failing step printed and not only its exit
 // status.
 type buildOutputTail struct {
-	lines []string
+	lines   []string
+	pending string
 }
 
-// add records the lines of one streamed chunk, ignoring blank lines and keeping
-// only the most recent buildOutputTailMaxLines. A chunk may carry several lines,
-// so it is split; the cap counts lines, not chunks.
+// add records one raw streamed chunk. A chunk is an arbitrary byte boundary, so
+// a line may be split across two chunks; the trailing partial line is held in
+// pending until the next chunk completes it, rather than counted as a line of
+// its own. Blank lines are dropped and at most buildOutputTailMaxLines complete
+// lines are kept.
 func (t *buildOutputTail) add(chunk string) {
-	for line := range strings.SplitSeq(chunk, "\n") {
-		if line == "" {
-			continue
-		}
-		t.lines = append(t.lines, line)
+	parts := strings.Split(t.pending+chunk, "\n")
+	t.pending = parts[len(parts)-1]
+	for _, line := range parts[:len(parts)-1] {
+		t.record(line)
 	}
+}
+
+// record keeps one complete line, dropping a blank one.
+func (t *buildOutputTail) record(line string) {
+	line = strings.TrimSuffix(line, "\r")
+	if line == "" {
+		return
+	}
+	t.lines = append(t.lines, line)
 	// At len == buildOutputTailMaxLines the guard's body keeps the same lines, so
 	// the > to >= boundary cannot change behaviour.
 	// gomutants:disable-next-line CONDITIONALS_BOUNDARY reason="at len == max the trim keeps the same lines, so > and >= are equivalent"
@@ -251,9 +258,17 @@ func (t *buildOutputTail) add(chunk string) {
 	}
 }
 
-// String renders the recorded lines, or the empty string when none were kept.
+// String renders the recorded lines, keeping an unterminated final line, or the
+// empty string when nothing was kept.
 func (t *buildOutputTail) String() string {
-	return strings.Join(t.lines, "\n")
+	rendered := strings.Join(t.lines, "\n")
+	if t.pending == "" {
+		return rendered
+	}
+	if rendered == "" {
+		return t.pending
+	}
+	return rendered + "\n" + t.pending
 }
 
 // isUnresolvedImageName reports whether the engine refused an unqualified image
@@ -263,8 +278,9 @@ func isUnresolvedImageName(msg string) bool {
 }
 
 // scanBuildOutput decodes the Docker build API stream and returns errors,
-// forwarding each non-empty line of output to the given callback.
-func scanBuildOutput(r io.Reader, line func(string)) error {
+// forwarding each non-empty line of output to line for display and each raw
+// chunk to record, so a recorder can rejoin a line split across chunks.
+func scanBuildOutput(r io.Reader, line, record func(string)) error {
 	dec := json.NewDecoder(r)
 	for {
 		var msg dockerBuildMessage
@@ -280,6 +296,7 @@ func scanBuildOutput(r io.Reader, line func(string)) error {
 		if msg.ErrorDetail.Message != "" {
 			return fmt.Errorf("%s", msg.ErrorDetail.Message)
 		}
+		record(msg.Stream)
 		trimmedMsg := strings.Trim(msg.Stream, " \n")
 		if trimmedMsg != "" {
 			line(trimmedMsg)

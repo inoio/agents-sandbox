@@ -395,8 +395,10 @@ engine:
 { "dns": ["1.1.1.1", "8.8.8.8"] }
 ```
 
-This applies to both builders agents-sandbox uses. If only the IPv6 path is broken, ask apt to use IPv4 only: add
-`-o Acquire::ForceIPv4=true` to each `apt-get` line in your project Dockerfile.
+This applies to both builders agents-sandbox uses, and it is the fix for the managed step that installs the base tools
+(the one that failed in the example), which you cannot edit. If only the IPv6 path is broken and the failing `apt-get`
+is one you wrote in your project Dockerfile, ask apt to use IPv4 there instead: add `-o Acquire::ForceIPv4=true` to
+each `apt-get` line in that Dockerfile.
 
 apt already retries a transient failure three times, so raising `Acquire::Retries` rarely helps. On `apt-get update`,
 a `W:` line marks a failure apt tolerates; the build then fails in the `apt-get install` step that follows.
