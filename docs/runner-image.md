@@ -387,7 +387,7 @@ RUN install -Dm755 /usr/local/bin/docker-buildx /usr/libexec/docker/cli-plugins/
 
 ## Node and the agent
 
-The `agents-sandbox-node` stage installs Node.js (`v24.22.1`, official tarball) into `/opt/agents-sandbox`, and it is
+The `agents-sandbox-node` stage installs Node.js (`v24.22.3`, official tarball) into `/opt/agents-sandbox`, and it is
 emitted only when the selected agent requires node — today only `pi`. The `agents-sandbox-agent` stage installs the
 selected agent into `/opt/agents-sandbox`. Both build on the tool base, so they do not depend on your base; whether the
 base already provides node, the agent, or `dockerd` is resolved after the user body by the `/etc/agents-sandbox/agent-source`

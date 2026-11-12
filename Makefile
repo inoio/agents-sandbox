@@ -9,7 +9,7 @@ PLANTUML ?= plantuml
 # keep in sync with versions in .agents-sandbox/Dockerfile
 GO_VERSION = $(shell cat .go-version)
 GOLANGCI_LINT_VERSION = 2.15.0
-ZIG_VERSION ?= 0.17.0
+ZIG_VERSION ?= 0.17.1
 # zig's install root (the dir holding lib/libc/...), following a symlink to the binary so
 # it resolves whether zig is reached via ~/.local/bin or the ~/.local/zig install-root
 # symlink. Empty when zig is absent. Assumes a flat tarball layout: the binary's directory
@@ -21,7 +21,7 @@ ZIG_ROOT = $(shell f="$$(command -v zig)"; [ -n "$$f" ] || exit 0; cd "$$(dirnam
 ZIG_MANAGED_ROOT = $(shell cd "$$HOME/.local/zig" 2>/dev/null && pwd -P)
 GOTESTSUM_VERSION = 1.13.0
 GOVULNCHECK_VERSION = v1.9.0
-GOMUTANTS_VERSION = v0.7.2
+GOMUTANTS_VERSION = v0.7.3
 DEADCODE_VERSION = v0.52.0
 # Per-binary cap for the unit suite: a wedged test panics with a stack dump
 # instead of blocking for go test's default 10m. Override for a slow machine.
