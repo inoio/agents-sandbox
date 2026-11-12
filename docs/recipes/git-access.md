@@ -8,28 +8,57 @@ nav_order: 55
 
 # Access Git Servers Without an SSH Key
 
-Give the agent working git access — clone, fetch, push — to GitHub, GitLab, and other git hosts from inside the
-sandbox. No SSH key is involved: a [secret]({% link configuration/secrets.md %}) hands git a placeholder, and the
-proxy swaps in the real token only for the host you allow. The token itself never enters the sandbox.
+Give the agent working git access to GitHub, GitLab, and other git hosts from inside the
+sandbox without provisioning SSH keys, but by using the secret mechanism.
 
-> **Note:** These setups authenticate over **HTTPS**. A remote that still uses SSH (`git@host:...`) is rewritten to
-> HTTPS at the end of this page.
+## Common steps
 
-## How it works
+### Rewriting SSH remotes to HTTPS
 
-A [secret]({% link configuration/secrets.md %}) puts the placeholder `$MSB_<NAME>` into the sandbox instead of the
-real value. When git sends that placeholder to an allowed host, the proxy replaces it with the real token on the way
-out. This includes `Authorization: Basic` headers: the proxy decodes the credentials, substitutes, and re-encodes.
-That is why a git credential helper works here — git sends the placeholder as a password, encoded into Basic, and the
-proxy fixes it up.
+All approaches below authenticate over HTTPS. A repository cloned over SSH keeps an `git@host:owner/repo` remote, which git would try over SSH. The examples below include snippets for rewriting SSH access to HTTPS access.
 
-Replacing a placeholder requires the proxy to see into the request, so the credential only travels over intercepted
-HTTPS to a host in the secret's `hosts`. SSH is not intercepted, and plain HTTP is not suitable.
+### Network access
+
+Sandboxes need to be able to reach the git server hosts. Under the default `public` profile, the public git hosts are already reachable. Under non-public profiles, add each host so it is both allowed and resolvable:
+
+```yaml
+# .agents-sandbox/config.yaml
+network:
+  profile: none
+  egress-allow:
+    - github.com
+    - api.github.com
+    - gitlab.com
+```
+
+### Secrets
+
+Secrets should not be stored in the project config, but in the project-specific user config. Determine the path and
+create the directory if it's missing:
+
+```bash
+asb config paths|grep "per-project user config"
+# output e.g. "  per-project user config  /home/user/.config/agents-sandbox/example-project-123456789abcde  (missing)"
+mkdir -p /home/user/.config/agents-sandbox/example-project-123456789abcde
+```
+
+For all approaches below, edit secrets under the respective path, e.g. `/home/user/.config/agents-sandbox/example-project-123456789abcde/env.secret.yaml`.
 
 ## GitHub
 
-GitHub uses the `gh` CLI, which is installed in the runner image. A startup hook logs `gh` in on every VM start and
-wires git to ask `gh` for credentials. Provision the hook through the `home:` key in your project config:
+GitHub uses the `gh` CLI. Install it via a custom Dockerfile and initialize it via a startup hook.
+
+When using the managed base image (Debian), add this snippet to your project Dockerfile (for custom base images, adapt
+the snippet):
+
+```Dockerfile
+# .agents-sandbox/Dockerfile
+RUN curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_$(dpkg --print-architecture).deb" -o /tmp/gh.deb \
+ && dpkg -i /tmp/gh.deb \
+ && rm -f /tmp/gh.deb
+```
+
+Configure the startup hook:
 
 ```yaml
 # .agents-sandbox/config.yaml
@@ -45,17 +74,20 @@ home:
 if [ -n "${GITHUB_PAT:-}" ]; then
   printf '%s\n' "$GITHUB_PAT" | gh auth login --with-token
   gh auth setup-git
+  git config --global url."https://github.com/".insteadOf "git@github.com:"
+  git config --global --add url."https://github.com/".insteadOf "ssh://git@github.com/"
 fi
+
 ```
 
-Define the token as a secret. The name and the two hosts are both significant:
+Define the token as secret. The name and the two hosts are both significant:
 
 ```yaml
-# .agents-sandbox/env.secret.yaml
+# in project-specific user-config directory
 GITHUB_PAT:
   value: ghp_xxxxxxxx
-  hosts: [github.com, api.github.com]
-  header_fields: [authorization]
+  hosts: [ github.com, api.github.com ]
+  header_fields: [ authorization ]
 ```
 
 > **Warning:** Do not name the secret `GITHUB_TOKEN` or `GH_TOKEN`. When either of those is set, `gh auth login
@@ -65,15 +97,17 @@ GITHUB_PAT:
 alongside `github.com`. `gh auth setup-git` then configures git to ask `gh` for the credential, and `gh` returns the
 placeholder.
 
+A nice side-effect of this setup is that agents can use the cli to broadly interact with github, e.g. open/merge/close
+PRs.
+
 ## GitLab
 
-GitLab has no equivalent of `gh auth setup-git`. Configure git's credential store directly and write the placeholder
-into `~/.git-credentials` from a startup hook:
+Configure git's credential store directly and write the placeholder into `~/.git-credentials` from a startup hook:
 
 ```yaml
 # .agents-sandbox/config.yaml
 home:
-  .github/gitlab-auth.sh:
+  .gitlab/gitlab-auth.sh:
     source: gitlab-auth.sh
     hook: startup
 ```
@@ -85,19 +119,23 @@ if [ -n "${GITLAB_TOKEN:-}" ]; then
   git config --global credential.helper store
   umask 077
   printf 'https://oauth2:%s@gitlab.com\n' "$GITLAB_TOKEN" > "$HOME/.git-credentials"
+  git config --global url."https://gitlab.com/".insteadOf "git@gitlab.com:"
+  git config --global --add url."https://gitlab.com/".insteadOf "ssh://git@gitlab.com/"  
 fi
 ```
 
+Then, configure the secret with a GitLab token:
+
 ```yaml
-# .agents-sandbox/env.secret.yaml
+# in project-specific user-config directory
 GITLAB_TOKEN:
   value: glpat-xxxxxxxx
-  hosts: [gitlab.com]
-  header_fields: [authorization]
+  hosts: [ gitlab.com ]
+  header_fields: [ authorization ]
 ```
 
 GitLab accepts a personal, project, or group access token as the password with any username; `oauth2` is the
-convention. The token needs the `read_repository` scope, and `write_repository` as well to push.
+convention. The token needs the `read_repository` scope, and `write_repository` for pushing.
 
 ## Other HTTPS git hosts
 
@@ -112,37 +150,46 @@ home:
     hook: startup
 ```
 
+Here's an example hook that you can adapt to your git host:
+
 ```sh
 #!/bin/sh
 # .agents-sandbox/git-auth.sh
 git config --global credential.helper store
 umask 077
 : > "$HOME/.git-credentials"
-[ -n "${GITLAB_TOKEN:-}" ] && printf 'https://oauth2:%s@gitlab.com\n' "$GITLAB_TOKEN" >> "$HOME/.git-credentials"
-[ -n "${GITHUB_PAT:-}" ]   && printf 'https://x-access-token:%s@github.com\n' "$GITHUB_PAT" >> "$HOME/.git-credentials"
+if [ -n "${GITLAB_TOKEN:-}" ]; then
+  printf 'https://oauth2:%s@gitlab.com\n' "$GITLAB_TOKEN" >> "$HOME/.git-credentials"
+  git config --global url."https://gitlab.com/".insteadOf "git@gitlab.com:"
+  git config --global --add url."https://gitlab.com/".insteadOf "ssh://git@gitlab.com/" # with port: ssh://git@gitlab<.com:23/
+fi  
+if [ -n "${GITHUB_PAT:-}" ]; then
+  printf 'https://x-access-token:%s@github.com\n' "$GITHUB_PAT" >> "$HOME/.git-credentials"
+  git config --global url."https://github.com/".insteadOf "git@github.com:"
+  git config --global --add url."https://github.com/".insteadOf "ssh://git@github.com/" # with port: ssh://git@github.com:23/
+fi
 ```
 
 The username in each line is ignored by most hosts; any non-empty value works. Give each host its own secret so the
 proxy only ever substitutes that host's token.
 
-### Rewrite SSH remotes to HTTPS
+Then, define the necessary secrets:
 
-A repository cloned over SSH keeps an `git@host:owner/repo` remote, which git would try over SSH. Tell git to use
-HTTPS for those URLs instead:
-
-```sh
-git config --global url."https://github.com/".insteadOf "git@github.com:"
-git config --global --add url."https://github.com/".insteadOf "ssh://git@github.com/"
-git config --global url."https://gitlab.com/".insteadOf "git@gitlab.com:"
-git config --global --add url."https://gitlab.com/".insteadOf "ssh://git@gitlab.com/"
+```yaml
+# in project-specific user-config directory
+GITLAB_TOKEN:
+  value: glpat-xxxxxxxx
+  hosts: [ gitlab.com ]
+  header_fields: [ authorization ]
+GITHUB_PAT:
+  value: ghp_xxxxxxxx
+  hosts: [ github.com, api.github.com ]
+  header_fields: [ authorization ]
 ```
-
-This rewrites the remote as git uses it, so the repository's own `.git/config` is untouched and every checkout in the
-sandbox benefits.
 
 ### Send a raw header instead
 
-If a host needs the credential in a specific header rather than basic auth, set it per URL:
+If a host needs the credential in a specific header rather than basic auth, set it per URL (in your hook):
 
 ```sh
 git config --global http."https://gitlab.com/".extraHeader 'Authorization: Bearer $MSB_GITLAB_TOKEN'
@@ -151,25 +198,3 @@ git config --global http."https://gitlab.com/".extraHeader 'Authorization: Beare
 This avoids the credentials file, but the server has to accept the `Bearer` scheme. GitLab's and GitHub's git
 endpoints expect basic auth, which the credential store sends, so prefer the credential store unless the host
 documents otherwise.
-
-## Network access
-
-Under the default `public` profile, the public git hosts are already reachable. Under `profile: none`, add each host
-so it is both allowed and resolvable:
-
-```yaml
-# .agents-sandbox/config.yaml
-network:
-  profile: none
-  egress-allow:
-    - github.com
-    - api.github.com
-    - gitlab.com
-```
-
-## Keep tokens out of the agent's context
-
-A placeholder that reaches the agent's model request blocks every later turn: the agent sends its whole conversation
-with each completion request, and the proxy refuses to forward a placeholder to a host that secret does not allow.
-Keep tokens in `env.secret` or `env.secret.yaml`, never in `env`, and out of any file the agent reads back. See
-[Secrets]({% link configuration/secrets.md %}).
