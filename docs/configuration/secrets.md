@@ -297,3 +297,88 @@ drop-in candidates, but does not show `home:` mappings or files already present 
 > cat ~/.local/share/opencode/auth.json
 > ```
 > to see the credentials stored in the sandbox (to store them outside in `env.secret.yaml`).
+
+### GitHub Copilot with opencode2
+
+`opencode2` keeps its credentials in its database (`~/.local/share/opencode/opencode.db`) instead of `auth.json`. It
+imports `auth.json` only when it upgrades a database an earlier version created; a fresh database, which every new
+sandbox home volume starts with, ignores the file. A provisioned `auth.json` therefore leaves GitHub Copilot without a
+connection in every new project, while API-key providers configured in `opencode.jsonc` keep working.
+
+Register the placeholder with the `opencode2` daemon instead, from a startup hook. Once the daemon is up, the hook stores
+the value of `$GH_COPILOT_REFRESH_TOKEN` (the placeholder, not your token) as the Copilot credential. It does nothing
+when a Copilot credential already exists or the sandbox runs another agent. `opencode2` sends that token to
+`copilot-api.<domain>`, which `GH_COPILOT_REFRESH_TOKEN` must list in its `hosts`, as in
+[GitHub Copilot on GitHub Enterprise (GHE.com)](#github-copilot-on-github-enterprise-ghecom). The script is written for
+GitHub Enterprise (GHE.com); set `ENTERPRISE_DOMAIN` to your domain.
+
+The hook stores the same token as the credential's `refresh` and `access`, as `opencode2`'s own Copilot login does:
+`opencode2` sends the GitHub OAuth token (the one `opencode` keeps in `refresh`) directly to Copilot, and no longer
+exchanges it for the short-lived token `opencode` keeps in `access`. `GH_COPILOT_ACCESS_TOKEN` is therefore not used.
+
+The hook calls the daemon's credential API (`GET`/`POST /api/credential`), which `opencode2` does not document as
+stable. It was tested with `opencode2` 2.2.6; a later version may change the route or the credential's fields.
+
+```sh
+#!/bin/sh
+# ~/.config/agents-sandbox/opencode2-copilot-credential.sh
+ENTERPRISE_DOMAIN="example.ghe.com"
+SERVER="http://127.0.0.1:4096"
+# The runner image bakes the daemon's password into OPENCODE_SERVER_PASSWORD.
+AUTH="opencode:${OPENCODE_SERVER_PASSWORD:-opencode}"
+
+command -v opencode2 >/dev/null 2>&1 || exit 0
+[ -n "$GH_COPILOT_REFRESH_TOKEN" ] || exit 0
+
+register() {
+	attempts=0
+	until status=$(curl -sS -m 5 -u "$AUTH" -o /tmp/opencode2-credentials.json -w '%{http_code}' \
+		"$SERVER/api/credential") && [ "$status" = 200 ]; do
+		if [ "$status" = 401 ]; then
+			echo "error: the opencode2 daemon rejected the password" >&2
+			return 1
+		fi
+		attempts=$((attempts + 1))
+		if [ "$attempts" -ge 120 ]; then
+			echo "error: the opencode2 daemon did not answer at $SERVER (last status: ${status:-none})" >&2
+			return 1
+		fi
+		sleep 2
+	done
+	if jq -e '.data[] | select(.integrationID == "github-copilot")' /tmp/opencode2-credentials.json >/dev/null; then
+		return 0
+	fi
+	jq -n --arg domain "$ENTERPRISE_DOMAIN" '{
+		integrationID: "github-copilot", label: "msb secret", activate: true,
+		value: {type: "oauth", methodID: "device",
+			refresh: env.GH_COPILOT_REFRESH_TOKEN, access: env.GH_COPILOT_REFRESH_TOKEN, expires: 0,
+			metadata: {enterpriseUrl: $domain}}
+	}' | curl -fsS -m 30 -u "$AUTH" -H "Content-Type: application/json" \
+		-X POST --data @- "$SERVER/api/credential" >/dev/null
+}
+
+if [ "$1" = "--foreground" ]; then
+	register
+	exit $?
+fi
+# The daemon starts after the hooks, so wait for it in a new session.
+setsid -f "$0" --foreground </dev/null >/tmp/opencode2-copilot-credential.log 2>&1
+```
+
+```yaml
+# ~/.config/agents-sandbox/config.yaml
+home:
+  .local/bin/opencode2-copilot-credential.sh:
+    source: opencode2-copilot-credential.sh
+    hook: startup
+```
+
+The hook needs `curl`, `jq`, and `setsid` in the runner image. The managed base provides all three; a custom base must
+install them (`setsid` is part of util-linux). Startup hooks run only when the sandbox boots, so after adding the hook,
+stop the sandbox with `agents-sandbox stop` and start it again. If Copilot still has no connection, the hook's output
+is in `/tmp/opencode2-copilot-credential.log` inside the sandbox. The credential is kept in the home volume's database,
+so a **reset** home volume gets it again from the hook on its next start.
+
+The credential holds the placeholder like a provisioned `auth.json` does, and the same caution applies: if the agent
+reads it into a conversation, the placeholder is in the transcript (see
+[Placeholders in request bodies](#placeholders-in-request-bodies)).
