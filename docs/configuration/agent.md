@@ -247,10 +247,10 @@ The login is stored in `~/.codex/auth.json` on the home volume, so you sign in o
 
 Opencode permissions are configured through opencode config snippets, which agents-sandbox merges (user-first, then
 project). The snippet file name must match the agent's snippet pattern `opencode*.json*`; a file such as
-`permission.json5` is not merged. The two examples in this section allow everything except reading `.env` and
-`.envrc` files.
+`permission.json5` is not merged. Both examples in this section deny reading `.env` and `.envrc` files.
 
-**opencode** (v1) uses the `permission` object, keyed by tool, in `.agents-sandbox/opencode/`:
+**opencode** (v1) uses the `permission` object, keyed by tool, in `.agents-sandbox/opencode/`. This example allows
+everything else:
 
 ```json5
 {
@@ -266,17 +266,21 @@ project). The snippet file name must match the agent's snippet pattern `opencode
 }
 ```
 
-**opencode2** (v2) uses the `permissions` rule list, in `.agents-sandbox/opencode2/`. The last matching rule wins, so
-put the specific rules after the broad one:
+**opencode2** (v2) uses the `permissions` rule list, in `.agents-sandbox/opencode2/`. Its default policy already allows
+every action and only asks before reading `.env` files; your rules are appended after the defaults, and the last
+matching rule wins. This example also allows directories outside the project and web search without asking, and lets
+opencode pick a web search provider instead of prompting for one:
 
 ```json5
 {
   // .agents-sandbox/opencode2/opencode-permissions.json5
   permissions: [
-    { action: "*", resource: "*", effect: "allow" },
+    { action: "external_directory", resource: "*", effect: "allow" },
+    { action: "websearch", resource: "*", effect: "allow" },
     { action: "read", resource: "*.env", effect: "deny" },
     { action: "read", resource: "*.envrc", effect: "deny" },
   ],
+  websearch: { provider: "random" },
 }
 ```
 
