@@ -25,6 +25,8 @@ The `maintain` skill's state machine maps onto these actual repo labels:
 - **State** (exactly one): `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`,
   `wontfix`.
 - **Marker** (at most one): `upstream` — depends on an external project (microsandbox, opencode, …).
+  An `upstream`-marked issue **may omit the state role**: the maintainer does not require one for it
+  (an external dependency is not a triage stage). Issues that do carry a state keep it.
 - **Priority** (orthogonal, not part of the state machine): `priority:critical`, `priority:high`,
   `priority:medium`, `priority:low` (rubric in `.agents/skills/maintain/PRIORITIES.md`).
 - **Maintainer-only**: `security`.
