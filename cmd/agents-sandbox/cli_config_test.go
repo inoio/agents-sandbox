@@ -171,10 +171,10 @@ func TestConfigAgentNoSnippetFiles(t *testing.T) {
 	}
 }
 
-// TestConfigAgentWarnsAboutUnparsableSnippet pins that a snippet which cannot be
-// parsed is named and warned about, and the report does not claim no snippet
-// exists.
-func TestConfigAgentWarnsAboutUnparsableSnippet(t *testing.T) {
+// TestConfigAgentErrorsAboutUnparsableSnippet pins that a snippet which cannot
+// be parsed is named in an error (not a warning) and the report does not claim
+// no snippet exists.
+func TestConfigAgentErrorsAboutUnparsableSnippet(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, "config", "agent", "opencode")
 	a, _ := agent.Lookup("opencode")
 	snippetPath := filepath.Join(
@@ -193,15 +193,23 @@ func TestConfigAgentWarnsAboutUnparsableSnippet(t *testing.T) {
 	if !strings.Contains(joined, "No snippet file could be merged") {
 		t.Errorf("expected the all-skipped message, got:\n%s", joined)
 	}
-	if !strings.Contains(strings.Join(ui.WarnCalls, "\n"), snippetPath) {
-		t.Errorf("WarnCalls = %v, want a warning naming %s", ui.WarnCalls, snippetPath)
+	if !strings.Contains(joined, "see the errors above") {
+		t.Errorf("expected the all-skipped message to point at the errors, got:\n%s", joined)
+	}
+	if !slices.ContainsFunc(ui.ErrorCalls, func(c termiotest.ErrorCall) bool {
+		return strings.Contains(c.Msg, snippetPath)
+	}) {
+		t.Errorf("ErrorCalls = %v, want an error naming %s", ui.ErrorCalls, snippetPath)
+	}
+	if strings.Contains(strings.Join(ui.WarnCalls, "\n"), snippetPath) {
+		t.Errorf("WarnCalls = %v, want no warning naming %s", ui.WarnCalls, snippetPath)
 	}
 }
 
 // TestConfigAgentPrintsMergedDespiteSkippedSnippet pins the mixed case behind
 // the docs claim: when one matching snippet parses and another does not, the
-// unparsable one is warned about and skipped, and the merged config is still
-// printed rather than reported as no snippet merged.
+// unparsable one is reported as an error and skipped, and the merged config is
+// still printed rather than reported as no snippet merged.
 func TestConfigAgentPrintsMergedDespiteSkippedSnippet(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, "config", "agent", "opencode")
 	snippetDir := configpathstest.CreateDir(
@@ -221,8 +229,10 @@ func TestConfigAgentPrintsMergedDespiteSkippedSnippet(t *testing.T) {
 	if strings.Contains(joined, "No snippet file could be merged") {
 		t.Errorf("report claims no snippet merged though one did:\n%s", joined)
 	}
-	if !strings.Contains(strings.Join(ui.WarnCalls, "\n"), badSnippet) {
-		t.Errorf("WarnCalls = %v, want a warning naming %s", ui.WarnCalls, badSnippet)
+	if !slices.ContainsFunc(ui.ErrorCalls, func(c termiotest.ErrorCall) bool {
+		return strings.Contains(c.Msg, badSnippet)
+	}) {
+		t.Errorf("ErrorCalls = %v, want an error naming %s", ui.ErrorCalls, badSnippet)
 	}
 }
 

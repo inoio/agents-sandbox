@@ -265,7 +265,8 @@ func resolveConfigSubject(a agent.Resolved, vmHome string) configSubject {
 
 // LoadConfigFiles builds the desired VM state for the given agent using the
 // host home from the config-paths seam. The agent determines its own config
-// directories.
+// directories. It warns once per agent config snippet skipped on read or parse,
+// naming the file, and does not fail.
 func LoadConfigFiles(
 	a agent.Resolved,
 	configSlug string,
@@ -273,7 +274,14 @@ func LoadConfigFiles(
 	provisionHostConfig bool,
 ) (*ConfigFiles, error) {
 	hostHome, _ := cp.Get().UserHomeDir()
-	return LoadConfigFilesForHost(a, configSlug, hostHome, VMHomeDir, ui, provisionHostConfig)
+	cf, err := LoadConfigFilesForHost(a, configSlug, hostHome, VMHomeDir, ui, provisionHostConfig)
+	if err != nil {
+		return nil, err
+	}
+	for _, s := range cf.Skipped {
+		ui.Warnf("skipping agent config snippet %s: %v", s.Path, s.Err)
+	}
+	return cf, nil
 }
 
 // LoadConfigFilesForHost builds the desired VM state for the given agent with
@@ -304,9 +312,6 @@ func LoadConfigFilesForHost(
 	merged, err := subject.buildMergedConfig(src)
 	if err != nil {
 		return nil, err
-	}
-	for _, s := range merged.skipped {
-		ui.Warnf("skipping agent config snippet %s: %v", s.Path, s.Err)
 	}
 	reserved, err := reservedHomeTargets(merged.path, vmHome)
 	if err != nil {

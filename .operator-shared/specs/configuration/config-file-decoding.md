@@ -107,8 +107,10 @@ decodes the bytes as `FormatYAML` and extracts `home` through the same helper
   `settings.json.bak` snippet is best-effort parsed as JSON5 and skipped on failure); the launcher
   never reaches the case because `FindConfigFile` gates on `supportedExts`.
 - **Parse failure.** `homeconfig` and `viperconfig` fail the read; `configmerge` skips the snippet and
-  records it as a `SkippedSnippet` on `MergedConfig.Skipped`, which `reprovision.LoadConfigFilesForHost`
-  reports as a warning (one per skipped file). This is caller error handling, not a primitive concern.
+  records it as a `SkippedSnippet` on `MergedConfig.Skipped`. `reprovision.LoadConfigFilesForHost` records
+  it on `ConfigFiles.Skipped` without a diagnostic; the run path (`LoadConfigFiles`) warns once per skipped
+  file, and the `config agent` command reports each as an error. This is caller error handling, not a
+  primitive concern.
 - **Error label.** `DecodeFile`'s `label` preserves each loader's prefix (`config`, `launcher config`)
   and each loader keeps wrapping the failure in its own message.
 

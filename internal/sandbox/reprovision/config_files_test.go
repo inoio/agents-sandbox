@@ -2175,10 +2175,11 @@ func TestChangedAgentConfigPathsNamesEveryDifferingFile(t *testing.T) {
 	}
 }
 
-// TestLoadConfigFilesWarnsAboutSkippedSnippet pins that a matching-but-unparsable
-// snippet is not dropped in silence: the load records it on ConfigFiles.Skipped
-// and warns once, naming the file, without failing.
-func TestLoadConfigFilesWarnsAboutSkippedSnippet(t *testing.T) {
+// TestLoadConfigFilesForHostRecordsSkippedSnippet pins that a matching-but-
+// unparsable snippet is not dropped in silence: the load records it on
+// ConfigFiles.Skipped without emitting a diagnostic of its own, leaving the
+// severity to the caller.
+func TestLoadConfigFilesForHostRecordsSkippedSnippet(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	hostHome := t.TempDir()
@@ -2201,6 +2202,32 @@ func TestLoadConfigFilesWarnsAboutSkippedSnippet(t *testing.T) {
 	}
 	if len(cf.Skipped) != 1 || cf.Skipped[0].Path != snippet || cf.Skipped[0].Err == nil {
 		t.Errorf("Skipped = %+v, want the bad snippet with a parse error", cf.Skipped)
+	}
+	if len(ui.WarnCalls) != 0 || len(ui.ErrorCalls) != 0 {
+		t.Errorf("WarnCalls = %v, ErrorCalls = %v, want the load to emit no diagnostic", ui.WarnCalls, ui.ErrorCalls)
+	}
+}
+
+// TestLoadConfigFilesWarnsAboutSkippedSnippet pins that the run path warns once,
+// naming the file, for a snippet skipped on read or parse, and does not fail.
+func TestLoadConfigFilesWarnsAboutSkippedSnippet(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+
+	a, _ := agent.Lookup("opencode")
+	snippet := filepath.Join(
+		configpathstest.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())),
+		"opencode-bad.json5",
+	)
+	testutil.WritePath(t, snippet, "{ this is not valid json5")
+
+	ui := termiotest.NewTestMock(t)
+	cf, err := LoadConfigFiles(agent.Resolve(a), "", &ui, true)
+	if err != nil {
+		t.Fatalf("LoadConfigFiles: %v", err)
+	}
+	if len(cf.Skipped) != 1 || cf.Skipped[0].Path != snippet {
+		t.Errorf("Skipped = %+v, want the bad snippet", cf.Skipped)
 	}
 	if !slices.ContainsFunc(ui.WarnCalls, func(w string) bool {
 		return strings.Contains(w, snippet) && strings.Contains(w, "skipping agent config snippet")
