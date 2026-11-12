@@ -83,7 +83,7 @@
 #### `specs/ci/` - CI pipeline and quality gates
 
 - `specs/ci/`
-  - Description: CI and gate contracts: `ci-pipeline.md` (workflows, required checks, merge queue, changelog fragments), `mutation-testing.md` (the on-demand `make mutation` practice), `quality-gates.md` (golangci-lint, dead-code, doc-link gates).
+  - Description: CI and gate contracts: `ci-pipeline.md` (workflows, required checks, merge queue, changelog fragments, the integration build cache), `mutation-testing.md` (the on-demand `make mutation` practice), `quality-gates.md` (golangci-lint, dead-code, doc-link gates).
   - Read If: Changing `.github/workflows/*.yml`, CI triggers, the merge queue/`merge_group`, the required-check set or `protect main` ruleset, the `changes` gate, the `run-integration*` labels, or changelog authoring; the `make mutation` target/`GOMUTANTS_VERSION`/triage convention or the advisory `mutation` workflow; `.golangci.yml`, the `lint` build-tag set, the dead-code gate (`make deadcode`/`//deadcode:ignore`), or the doc-link gate.
 
 #### `specs/configuration/` - Config scopes, keys, decoding, validation, project-config root and trust

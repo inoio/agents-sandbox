@@ -46,7 +46,7 @@ func TestBuildImageBuildKitRealDocker(t *testing.T) {
 
 	var lines []string
 	req := testBuildRequest([]byte("FROM scratch\nCOPY Dockerfile /Dockerfile\n"), "", "", "", imageIdentity{})
-	req.cacheFrom, req.cacheTo = imageCacheEnv()
+	req.cacheFrom, req.cacheTo = imageCacheEnv(sanitizeTag(tag))
 	buildErr := buildImageBuildKit(
 		ctx,
 		docker.Get(),
