@@ -15,7 +15,7 @@ sandbox without provisioning SSH keys, but by using the secret mechanism.
 
 ### Rewriting SSH remotes to HTTPS
 
-All approaches below authenticate over HTTPS. A repository cloned over SSH keeps an `git@host:owner/repo` remote, which git would try over SSH. The examples below include snippets for rewriting SSH access to HTTPS access.
+All approaches in this recipe authenticate over HTTPS. A repository cloned over SSH keeps an `git@host:owner/repo` remote, which git would try over SSH; each example includes a snippet that rewrites SSH access to HTTPS access.
 
 ### Network access
 
@@ -42,7 +42,7 @@ asb config paths|grep "per-project user config"
 mkdir -p /home/user/.config/agents-sandbox/example-project-123456789abcde
 ```
 
-For all approaches below, edit secrets under the respective path, e.g. `/home/user/.config/agents-sandbox/example-project-123456789abcde/env.secret.yaml`.
+For every approach in this recipe, edit secrets under the respective path, e.g. `/home/user/.config/agents-sandbox/example-project-123456789abcde/env.secret.yaml`.
 
 ## GitHub
 
@@ -136,6 +136,60 @@ GITLAB_TOKEN:
 
 GitLab accepts a personal, project, or group access token as the password with any username; `oauth2` is the
 convention. The token needs the `read_repository` scope, and `write_repository` for pushing.
+
+### Optional: enable GitLab API access
+
+The credential store covers only `git` operations. To let the agent call the GitLab REST API — with `curl`, or from
+code it writes — widen the token's header scope to include GitLab's `PRIVATE-TOKEN` header:
+
+```yaml
+# in project-specific user-config directory
+GITLAB_TOKEN:
+  value: glpat-xxxxxxxx
+  hosts: [ gitlab.com ]
+  header_fields: [ authorization, private-token ]
+```
+
+The API shares the git host (`gitlab.com/api/v4`), so no extra `hosts` or egress entry is needed, but the token now
+also needs the `api` scope. Because header scoping is baked into the VM at creation, this change recreates the
+sandbox once.
+
+The agent can then authenticate either way:
+
+```sh
+curl --fail --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "https://gitlab.com/api/v4/user"
+curl --fail --header "Authorization: Bearer $GITLAB_TOKEN" "https://gitlab.com/api/v4/user"
+```
+
+Project paths in API URLs are URL-encoded (`group%2Fsubgroup%2Fproject`), and `jq` is preinstalled for parsing
+responses.
+
+### Optional: add the glab CLI
+
+[`glab`](https://gitlab.com/gitlab-org/cli) wraps the same API in merge-request, issue, and CI commands (`glab mr`,
+`glab issue`, `glab ci`) — the counterpart of the GitHub `gh` route. It depends on the API access from the previous
+step: glab sends the token in the `PRIVATE-TOKEN` header, so with `header_fields: [ authorization ]` alone its
+requests carry an unsubstituted placeholder and fail.
+
+Install it via the project Dockerfile (`glab` publishes a Debian package per architecture):
+
+```Dockerfile
+# .agents-sandbox/Dockerfile
+RUN curl -fsSL "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/glab_${GLAB_VERSION}_linux_$(dpkg --print-architecture).deb" -o /tmp/glab.deb \
+ && dpkg -i /tmp/glab.deb \
+ && rm -f /tmp/glab.deb
+```
+
+No startup hook is needed: glab reads the `GITLAB_TOKEN` environment variable and sends it to the host it resolves
+from the repository's Git remote (`gitlab.com` by default). For a self-managed instance, add its host to the secret's
+`hosts` and set it in the project env file:
+
+```sh
+# .agents-sandbox/env
+GITLAB_HOST=gitlab.example.com
+```
+
+`glab api <path>` also calls endpoints the CLI doesn't wrap.
 
 ## Other HTTPS git hosts
 
