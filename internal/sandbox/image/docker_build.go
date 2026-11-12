@@ -163,7 +163,7 @@ func buildFailureError(err error, buildOutput string) error {
 		)
 	case isNetworkDownloadFailure(msg, buildOutput):
 		failure = fmt.Errorf(
-			"docker image build failed (the build could not download packages; check the build's network and DNS): %w\n  Docs: %s",
+			"docker image build failed (the build could not reach the network; check the host resolver and the build's network settings): %w\n  Docs: %s",
 			err,
 			docslink.SectionURL("troubleshooting", "image-build-fails"),
 		)
@@ -180,12 +180,20 @@ func buildFailureError(err error, buildOutput string) error {
 	)
 }
 
-// networkDownloadFailureSignals are the engine/apt/curl messages that identify a
-// download that failed on network or DNS resolution rather than on the request.
+// networkDownloadFailureSignals are the resolver, apt, curl, git, and npm
+// messages that identify a download that failed on network or DNS resolution
+// rather than on the request. "Could not resolve host" is deliberate: a
+// bundler's bare "Could not resolve" is a module-resolution error, not a
+// network one.
 var networkDownloadFailureSignals = []string{
 	"Temporary failure resolving",
 	"Temporary failure in name resolution",
-	"Could not resolve",
+	"Could not resolve host",
+	"getaddrinfo",
+	"EAI_AGAIN",
+	"ENOTFOUND",
+	"server misbehaving",
+	"no such host",
 	"Some index files failed to download",
 	"Failed to fetch",
 }
@@ -225,13 +233,16 @@ type buildOutputTail struct {
 	lines []string
 }
 
-// add records one streamed line, ignoring an empty one and keeping only the
-// most recent buildOutputTailMaxLines lines.
-func (t *buildOutputTail) add(line string) {
-	if line == "" {
-		return
+// add records the lines of one streamed chunk, ignoring blank lines and keeping
+// only the most recent buildOutputTailMaxLines. A chunk may carry several lines,
+// so it is split; the cap counts lines, not chunks.
+func (t *buildOutputTail) add(chunk string) {
+	for line := range strings.SplitSeq(chunk, "\n") {
+		if line == "" {
+			continue
+		}
+		t.lines = append(t.lines, line)
 	}
-	t.lines = append(t.lines, line)
 	if len(t.lines) > buildOutputTailMaxLines {
 		t.lines = t.lines[len(t.lines)-buildOutputTailMaxLines:]
 	}

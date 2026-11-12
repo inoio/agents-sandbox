@@ -789,3 +789,46 @@ func TestBuildDockerImageReportsTheStreamedOutputOnFailure(t *testing.T) {
 		}
 	}
 }
+
+// TestBuildFailureErrorClassifiesResolverFailures pins that the resolver
+// wordings a base-image pull, npm, or glibc emit are classified as network
+// failures, and that the hint does not claim the failure downloaded packages.
+func TestBuildFailureErrorClassifiesResolverFailures(t *testing.T) {
+	for _, message := range []string{
+		"npm ERR! network getaddrinfo EAI_AGAIN registry.npmjs.org",
+		"dial tcp: lookup registry-1.docker.io: Temporary failure in name resolution",
+		"npm ERR! network getaddrinfo ENOTFOUND registry.npmjs.org",
+	} {
+		err := buildFailureError(errors.New(message), "")
+		if !strings.Contains(err.Error(), "image-build-fails") {
+			t.Errorf("error for %q = %v, want the network hint", message, err)
+		}
+	}
+	err := buildFailureError(errors.New("npm ERR! network getaddrinfo EAI_AGAIN registry.npmjs.org"), "")
+	if !strings.Contains(err.Error(), "could not reach the network") {
+		t.Errorf("error = %v, want the network hint worded for any download, not only packages", err)
+	}
+}
+
+// TestBuildFailureErrorIgnoresANonNetworkResolveError pins that a bundler's
+// module-resolution error is not misreported as a network failure.
+func TestBuildFailureErrorIgnoresANonNetworkResolveError(t *testing.T) {
+	err := buildFailureError(
+		errors.New(`error during build: RollupError: Could not resolve "./module" from "src/main.js"`), "",
+	)
+	if strings.Contains(err.Error(), "image-build-fails") {
+		t.Errorf("error = %v, must not carry the network hint for a module-resolution error", err)
+	}
+}
+
+// TestBuildOutputTailSplitsMultiLineChunks pins that a streamed chunk carrying
+// several lines is counted and rendered per line, so the cap is line-true and
+// an internal blank line leaves no indented gap.
+func TestBuildOutputTailSplitsMultiLineChunks(t *testing.T) {
+	var tail buildOutputTail
+	tail.add("first\nsecond\n")
+	tail.add("third\n\nfourth")
+	if got, want := tail.String(), "first\nsecond\nthird\nfourth"; got != want {
+		t.Errorf("String() = %q, want %q", got, want)
+	}
+}
