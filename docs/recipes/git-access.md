@@ -140,8 +140,8 @@ convention. The token needs the `read_repository` scope, and `write_repository` 
 
 ### Optional: enable GitLab API access
 
-The credential store covers only `git` operations. To let the agent call the GitLab REST API — with `curl`, or from
-code it writes — widen the token's header scope to include GitLab's `PRIVATE-TOKEN` header:
+The credential store covers only `git` operations. To enable agents to call the GitLab REST API, widen the token's
+header scope to include GitLab's `PRIVATE-TOKEN` header:
 
 ```yaml
 # in project-specific user-config directory
@@ -162,13 +162,10 @@ curl --fail --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "https://gitlab.com/api/v4/u
 curl --fail --header "Authorization: Bearer $GITLAB_TOKEN" "https://gitlab.com/api/v4/user"
 ```
 
-Project paths in API URLs are URL-encoded (`group%2Fsubgroup%2Fproject`), and `jq` is preinstalled for parsing
-responses.
-
 ### Optional: add the glab CLI
 
 [`glab`](https://gitlab.com/gitlab-org/cli) wraps the same API in merge-request, issue, and CI commands (`glab mr`,
-`glab issue`, `glab ci`) — the counterpart of the GitHub `gh` route. It depends on the API access from the previous
+`glab issue`, `glab ci`), the counterpart of the GitHub `gh` route. It depends on the API access from the previous
 step: glab sends the token in the `PRIVATE-TOKEN` header, so with `header_fields: [ authorization ]` alone its
 requests carry an unsubstituted placeholder and fail.
 
