@@ -132,9 +132,9 @@ HTTPS for those URLs instead:
 
 ```sh
 git config --global url."https://github.com/".insteadOf "git@github.com:"
-git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+git config --global --add url."https://github.com/".insteadOf "ssh://git@github.com/"
 git config --global url."https://gitlab.com/".insteadOf "git@gitlab.com:"
-git config --global url."https://gitlab.com/".insteadOf "ssh://git@gitlab.com/"
+git config --global --add url."https://gitlab.com/".insteadOf "ssh://git@gitlab.com/"
 ```
 
 This rewrites the remote as git uses it, so the repository's own `.git/config` is untouched and every checkout in the
@@ -145,7 +145,7 @@ sandbox benefits.
 If a host needs the credential in a specific header rather than basic auth, set it per URL:
 
 ```sh
-git config --global http."https://gitlab.com/".extraHeader "Authorization: Bearer $MSB_GITLAB_TOKEN"
+git config --global http."https://gitlab.com/".extraHeader 'Authorization: Bearer $MSB_GITLAB_TOKEN'
 ```
 
 This avoids the credentials file, but the server has to accept the `Bearer` scheme. GitLab's and GitHub's git
