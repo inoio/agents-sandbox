@@ -53,6 +53,7 @@ the snippet):
 
 ```Dockerfile
 # .agents-sandbox/Dockerfile
+ARG GH_VERSION=2.103.3
 RUN curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_$(dpkg --print-architecture).deb" -o /tmp/gh.deb \
  && dpkg -i /tmp/gh.deb \
  && rm -f /tmp/gh.deb
@@ -171,10 +172,12 @@ responses.
 step: glab sends the token in the `PRIVATE-TOKEN` header, so with `header_fields: [ authorization ]` alone its
 requests carry an unsubstituted placeholder and fail.
 
-Install it via the project Dockerfile (`glab` publishes a Debian package per architecture):
+Install it the same way as `gh`: on the managed base image (Debian), add this snippet to your project Dockerfile (for
+custom base images, adapt the snippet to install `glab` from its release tarball or another package):
 
 ```Dockerfile
 # .agents-sandbox/Dockerfile
+ARG GLAB_VERSION=1.130.0
 RUN curl -fsSL "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/glab_${GLAB_VERSION}_linux_$(dpkg --print-architecture).deb" -o /tmp/glab.deb \
  && dpkg -i /tmp/glab.deb \
  && rm -f /tmp/glab.deb
