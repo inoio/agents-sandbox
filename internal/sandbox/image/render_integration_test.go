@@ -637,7 +637,9 @@ func buildDockerfileTagOutput(
 		t.Skipf("docker daemon not available: %v", err)
 	}
 
+	var captured []string
 	line := func(s string) {
+		captured = append(captured, s)
 		if lines != nil {
 			*lines = append(*lines, s)
 		}
@@ -656,7 +658,10 @@ func buildDockerfileTagOutput(
 		false,
 		line,
 	); err != nil {
-		t.Fatalf("docker image build failed: %v", err)
+		// The engine's build log carries the failing step's own stderr (for
+		// example pi's npm error); surface it, since the solve error alone
+		// names only the step.
+		t.Fatalf("docker image build failed: %v\nstreamed build output:\n%s", err, strings.Join(captured, "\n"))
 	}
 }
 
