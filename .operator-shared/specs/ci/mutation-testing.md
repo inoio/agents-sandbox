@@ -74,8 +74,8 @@ Facts the design leans on:
   this VM's Go 1.27.1).
 - **`--changed-since <ref>`** runs `git diff --unified=0 --merge-base <ref>` and keeps only mutants on added/modified
   lines. It includes uncommitted edits to tracked files; a **new** file is invisible to the diff until `git add`ed.
-  (The flag name is `--changed-since` in the pinned v0.7.2 — an earlier draft of this spec and the survey said `-n`,
-  which v0.7.2 rejects; verified by running the pinned tool.)
+  (The flag name is `--changed-since` in the pinned v0.7.3 — an earlier draft of this spec and the survey said `-n`,
+  which v0.7.3 rejects; verified by running the pinned tool.)
 - **`-detect-equivalent`** recompiles each survivor and marks it `EQUIVALENT` when the assembly is byte-identical to the
   original (trivial compiler equivalence). Enabled by default in the target. `EQUIVALENT` mutants drop out of the efficacy
   denominator, so they need no record.
