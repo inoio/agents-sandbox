@@ -100,7 +100,7 @@ jobs:
           curl -fsSL "https://github.com/plantuml/plantuml/releases/download/v${PLANTUML_VERSION}/plantuml.jar" -o /tmp/plantuml.jar
           cd diagrams && java -jar /tmp/plantuml.jar -DRELATIVE_INCLUDE -tsvg -o . $(find . -maxdepth 1 -name '*.puml' ! -name 'C4*' -printf '%f ')
         env:
-          PLANTUML_VERSION: 1.2026.9
+          PLANTUML_VERSION: 1.2026.10
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1
         with:
