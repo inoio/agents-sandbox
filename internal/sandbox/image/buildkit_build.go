@@ -125,21 +125,26 @@ func buildImageBuildKit(
 	}
 	opt.Session = newBuildKitSession()
 
+	tail := new(buildOutputTail)
 	statusCh := make(chan *buildkitclient.SolveStatus)
 	var pump sync.WaitGroup
 	pump.Go(func() {
 		for status := range statusCh {
-			streamSolveStatus(status, line)
+			streamSolveStatus(status, func(s string) {
+				tail.add(s)
+				line(s)
+			})
 		}
 	})
 
 	// Client.Solve closes statusCh itself (a deferred close on every return
 	// path), so the build must not close it again; it only waits for the pump to
-	// drain the closed channel before reporting the outcome.
+	// drain the closed channel before reporting the outcome. The tail is written
+	// by the pump and read only after pump.Wait.
 	_, solveErr := solver.Solve(ctx, nil, opt, statusCh)
 	pump.Wait()
 	if solveErr != nil {
-		return buildFailureError(solveErr, "")
+		return buildFailureError(solveErr, tail.String())
 	}
 	return nil
 }

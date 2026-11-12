@@ -114,6 +114,7 @@ func buildImageClassic(
 	noCache bool,
 	line func(string),
 ) error {
+	tail := new(buildOutputTail)
 	buildResp, err := dclient.ImageBuild(ctx, buildContextTar(req.plan.rendered), client.ImageBuildOptions{
 		Tags:      []string{tag},
 		Remove:    true,
@@ -121,13 +122,16 @@ func buildImageClassic(
 		BuildArgs: userBuildArgs(os.Getuid(), os.Getgid(), a.ImageSpec(), req),
 	})
 	if err != nil {
-		return buildFailureError(err, "")
+		return buildFailureError(err, tail.String())
 	}
 	defer buildResp.Body.Close()
 
-	buildErr := scanBuildOutput(buildResp.Body, line)
+	buildErr := scanBuildOutput(buildResp.Body, func(s string) {
+		tail.add(s)
+		line(s)
+	})
 	if buildErr != nil {
-		return buildFailureError(buildErr, "")
+		return buildFailureError(buildErr, tail.String())
 	}
 
 	return nil

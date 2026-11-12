@@ -762,3 +762,30 @@ func TestBuildFailureErrorPreservesTheCause(t *testing.T) {
 		t.Errorf("errors.Is(%v, sentinel) = false, want true", err)
 	}
 }
+
+// TestBuildDockerImageReportsTheStreamedOutputOnFailure pins that a classic
+// build failure carries the lines the failing step streamed, so the apt/DNS
+// message is visible without --log-level verbose.
+func TestBuildDockerImageReportsTheStreamedOutputOnFailure(t *testing.T) {
+	a := agentOpencode(t)
+	body := `{"stream":"W: Temporary failure resolving 'deb.debian.org'\n"}` + "\n" +
+		`{"errorDetail":{"message":"The command '/bin/sh -c apt-get update' returned a non-zero code: 100"}}`
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
+		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(body))}, nil
+		},
+	})
+	err := buildDockerImage(
+		context.Background(), docker.Get(), a,
+		testBuildRequest([]byte("FROM debian:trixie-slim\n"), "v", "base", "id", imageIdentity{}),
+		"tag", "label", false, &termiotest.Mock{},
+	)
+	if err == nil {
+		t.Fatal("expected buildDockerImage to return an error when the build fails")
+	}
+	for _, want := range []string{"Temporary failure resolving 'deb.debian.org'", "image-build-fails"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %v, want it to contain %q", err, want)
+		}
+	}
+}
