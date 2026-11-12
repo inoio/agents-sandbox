@@ -195,7 +195,9 @@ type MergedConfig struct {
 func BuildMerged(configPath, pattern string, dirs []string) (MergedConfig, error) {
 	merged, sources, skipped := scanSnippets(dirs, pattern)
 	if len(sources) == 0 {
-		return MergedConfig{Skipped: skipped}, nil
+		// No snippet merged: still report the matching files that could not be
+		// read or parsed.
+		return MergedConfig{Content: nil, Sources: nil, Skipped: skipped, HasSnippets: false}, nil
 	}
 	data, err := marshalConfig(configPath, merged)
 	if err != nil {

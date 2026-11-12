@@ -663,14 +663,14 @@ func Describe(
 	configSlug, hostHome, vmHome string,
 	ui termio.Logger,
 	provisionHostConfig bool,
-) (merged []byte, sources []string, hostFiles []HostFile, mirrorFiles []MirrorFile, skipped []config.SkippedSnippet, source ConfigSource, err error) {
+) ([]byte, []string, []HostFile, []MirrorFile, []config.SkippedSnippet, ConfigSource, error) {
 	resolved := agent.Resolve(a)
 	cf, err := LoadConfigFilesForHost(resolved, configSlug, hostHome, vmHome, ui, provisionHostConfig)
 	if err != nil {
 		return nil, nil, nil, nil, nil, ConfigSource{}, err
 	}
 	subject := resolveConfigSubject(resolved, vmHome)
-	hostFiles = subject.hostFilesFromProvisioner(hostHome, cf)
+	hostFiles := subject.hostFilesFromProvisioner(hostHome, cf)
 	return cf.Merged, cf.Sources, hostFiles, subject.mirrorFilesFromConfig(cf.Source), cf.Skipped, cf.Source, nil
 }
 
