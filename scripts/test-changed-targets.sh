@@ -27,7 +27,7 @@ assert_set() {
   if [[ "$got" == "$expected" ]]; then ok "$name"; else bad "$name (got: '$got' want: '$expected')"; fi
 }
 
-ALL="changelog-check changelog-check-test cleanup-branches-test compile-all deadcode-test docs-linkcheck docs-linkcheck-test envelope-test lint rebase-status-test test upstream-drift-test validate-fmt"
+ALL="changed-targets-test changelog-check changelog-check-test cleanup-branches-test compile-all deadcode-test docs-linkcheck docs-linkcheck-test envelope-test lint rebase-status-test test upstream-drift-test validate-fmt"
 GO="compile-all lint test validate-fmt"
 GO_DOCS="compile-all docs-linkcheck lint test validate-fmt"
 

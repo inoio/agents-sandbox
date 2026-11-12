@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-reuse compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint fmt validate-fmt run cleanup-branches cleanup-branches-test test-scrubbed test-hermetic envelope-test check verify all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test docs-serve
+.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-reuse compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint fmt validate-fmt run cleanup-branches cleanup-branches-test test-scrubbed test-hermetic envelope-test check verify check-local-changes check-branch-changes changed-targets-test all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test docs-serve
 
 VERSION ?= dev
 
@@ -325,13 +325,19 @@ rebase-status-test:
 	./scripts/test-rebase-status.sh
 
 # The gates' targets are independent and read-only, so `check` and `verify` run
-# them as parallel jobs by re-entering make with -j. nproc on Linux, hw.ncpu on
-# macOS, with a fixed fallback. A user's own `-j` still bounds the jobserver.
-# -O groups each parallel job's output; it needs GNU Make 4.0+ (macOS ships 3.81,
-# so build with Homebrew's gmake — see CONTRIBUTING.md).
-JOBS ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
+# them as parallel jobs by re-entering make with -j. -O groups each parallel
+# job's output; it needs GNU Make 4.0+ (macOS ships 3.81, so build with
+# Homebrew's gmake — see CONTRIBUTING.md).
+#
+# Each selected target also parallelizes internally (~GOMAXPROCS workers), so
+# running all of them at once with -j=nproc oversubscribes the box: on 16 cores
+# a one-leaf edit took 33s at -j16, 26s at -j8, and 20s at -j4. A single run is
+# flat over -j4..-j8, and -j4 also fits four concurrent agent runs in 16 cores,
+# so default to a quarter of the cores (floored at 2). nproc on Linux, hw.ncpu
+# on macOS, with a fixed fallback; a user's own -j still bounds the jobserver.
+JOBS ?= $(shell n=$$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2); q=$$((n / 4)); [ "$$q" -lt 2 ] && q=2; echo "$$q")
 
-CHECK_TARGETS = validate-fmt lint test compile-all docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test deadcode-test cleanup-branches-test envelope-test upstream-drift-test rebase-status-test
+CHECK_TARGETS = validate-fmt lint test compile-all docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test deadcode-test changed-targets-test cleanup-branches-test envelope-test upstream-drift-test rebase-status-test
 VERIFY_TARGETS = $(CHECK_TARGETS) test-race vulncheck deadcode
 
 # Read-only local gate (does not modify files): formatter check + lint + test +
@@ -344,6 +350,27 @@ check:
 # Read-only check for CI parity: fmt-check + lint + test + race + vulncheck (does not modify files).
 verify:
 	@$(MAKE) --no-print-directory -j$(JOBS) -O $(VERIFY_TARGETS)
+
+# Fast per-change inner loop. The map lives in scripts/changed-targets.sh. Like
+# check/verify these are read-only, and unlike check they are NOT the gate: run
+# `make check` before finalizing. check-local-changes covers the uncommitted
+# working tree; check-branch-changes covers everything since the merge base with
+# origin/main (override with BASE=<ref>).
+check-local-changes:
+	@targets="$$(./scripts/changed-targets.sh local)"; \
+	if [ -z "$$targets" ]; then echo "check-local-changes: no changed files"; exit 0; fi; \
+	echo "check-local-changes: $$(printf '%s ' $$targets)"; \
+	$(MAKE) --no-print-directory -j$(JOBS) -O $$targets
+
+check-branch-changes:
+	@targets="$$(./scripts/changed-targets.sh branch $${BASE:+--base $$BASE})"; \
+	if [ -z "$$targets" ]; then echo "check-branch-changes: no changed files"; exit 0; fi; \
+	echo "check-branch-changes: $$(printf '%s ' $$targets)"; \
+	$(MAKE) --no-print-directory -j$(JOBS) -O $$targets
+
+# Test the changed-file map script itself (fixtures only: never touches this repo).
+changed-targets-test:
+	./scripts/test-changed-targets.sh
 
 all: fmt lint test docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test build cleanup-branches-test upstream-drift-test rebase-status-test
 

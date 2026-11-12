@@ -63,7 +63,7 @@ all_targets=(
   validate-fmt lint test compile-all
   docs-linkcheck docs-linkcheck-test
   changelog-check changelog-check-test
-  deadcode-test
+  deadcode-test changed-targets-test
   cleanup-branches-test envelope-test upstream-drift-test rebase-status-test
 )
 
