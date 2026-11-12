@@ -198,6 +198,34 @@ func TestConfigAgentWarnsAboutUnparsableSnippet(t *testing.T) {
 	}
 }
 
+// TestConfigAgentPrintsMergedDespiteSkippedSnippet pins the mixed case behind
+// the docs claim: when one matching snippet parses and another does not, the
+// unparsable one is warned about and skipped, and the merged config is still
+// printed rather than reported as no snippet merged.
+func TestConfigAgentPrintsMergedDespiteSkippedSnippet(t *testing.T) {
+	cmd, ui := setupCommandFixtures(t, "config", "agent", "opencode")
+	snippetDir := configpathstest.CreateDir(
+		filepath.Join(configpaths.Get().UserConfigDir(), mustOpencode(t).ConfigDirName()),
+	)
+	testutil.WriteFile(t, snippetDir, "opencode-model.json5", `{"model":"x"}`)
+	badSnippet := filepath.Join(snippetDir, "opencode-bad.json5")
+	testutil.WritePath(t, badSnippet, "{ this is not valid json5")
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config agent: %v", err)
+	}
+	joined := strings.Join(ui.OutCalls, "\n")
+	if !strings.Contains(joined, `"model": "x"`) {
+		t.Errorf("expected the merged config of the valid snippet, got:\n%s", joined)
+	}
+	if strings.Contains(joined, "No snippet file could be merged") {
+		t.Errorf("report claims no snippet merged though one did:\n%s", joined)
+	}
+	if !strings.Contains(strings.Join(ui.WarnCalls, "\n"), badSnippet) {
+		t.Errorf("WarnCalls = %v, want a warning naming %s", ui.WarnCalls, badSnippet)
+	}
+}
+
 // TestConfigAgentRejectsTwoArgs pins the config-agent arity bound with two
 // otherwise-valid agent names, so the error can only be the arity check.
 func TestConfigAgentRejectsTwoArgs(t *testing.T) {

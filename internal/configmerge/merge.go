@@ -179,7 +179,7 @@ type SkippedSnippet struct {
 
 // MergedConfig is the outcome of merging snippet files: the marshaled config
 // document and the ordered list of snippet files it came from. When no snippet
-// existed, HasSnippets is false and Content and Sources are nil. Skipped names
+// merged, HasSnippets is false and Content and Sources are nil. Skipped names
 // the matching snippets that could not be read or parsed.
 type MergedConfig struct {
 	Content     []byte
