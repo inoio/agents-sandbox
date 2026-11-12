@@ -87,6 +87,8 @@ func (realDockerClient) DialHijack(
 	return mobyClient.DialHijack(ctx, url, protocol, meta)
 }
 
+// ImageBuild sends the docker CLI credentials of every registry with the build,
+// as docker build does for the classic builder.
 func (realDockerClient) ImageBuild(
 	ctx context.Context,
 	buildContext io.Reader,
@@ -95,6 +97,7 @@ func (realDockerClient) ImageBuild(
 	if err := ensureMobyClient(); err != nil {
 		return client.ImageBuildResult{}, err
 	}
+	options.AuthConfigs = buildRegistryAuths()
 	return mobyClient.ImageBuild(ctx, buildContext, options)
 }
 
@@ -130,6 +133,8 @@ func (realDockerClient) ImageSave(
 	return mobyClient.ImageSave(ctx, imageIDs, saveOpts...)
 }
 
+// ImagePull sends the docker CLI credentials for the registry ref names, as
+// docker pull does.
 func (realDockerClient) ImagePull(
 	ctx context.Context,
 	ref string,
@@ -138,6 +143,7 @@ func (realDockerClient) ImagePull(
 	if err := ensureMobyClient(); err != nil {
 		return nil, err
 	}
+	opts.RegistryAuth = pullRegistryAuth(ref)
 	return mobyClient.ImagePull(ctx, ref, opts)
 }
 
