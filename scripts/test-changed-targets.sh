@@ -88,6 +88,28 @@ printf 'package new\n' >"$proj/internal/new/new.go"
 assert_set "untracked new Go" "$proj" local "$GO_DOCS"
 rm -rf "$proj/internal/new"
 
+# A failing `git ls-files` must surface as a script error, not be swallowed by
+# the surrounding printf: otherwise the map returns an empty selection and the
+# Makefile skips every check as if nothing had changed.
+shim_dir="$(mktemp -d "$fixture_root/shim.XXXXXX")"
+real_git="$(command -v git)"
+cat >"$shim_dir/git" <<EOF
+#!/usr/bin/env bash
+for arg in "\$@"; do
+  if [[ "\$arg" == "ls-files" ]]; then
+    printf 'simulated ls-files failure\n' >&2
+    exit 1
+  fi
+done
+exec "$real_git" "\$@"
+EOF
+chmod +x "$shim_dir/git"
+if PATH="$shim_dir:$PATH" "$MAP" --repo "$proj" local >/dev/null 2>&1; then
+  bad "failing ls-files is an error"
+else
+  ok "failing ls-files is an error"
+fi
+
 # A rename is reported at both endpoints (`--no-renames`), so the source class
 # still selects; plain `git diff` would collapse it to the destination only.
 git -C "$proj" mv docs/guide.md .operator-shared/guide.md

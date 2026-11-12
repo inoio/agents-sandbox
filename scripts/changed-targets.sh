@@ -25,8 +25,8 @@
 #                Ignored in local mode.
 #   -h, --help   Show this help.
 #
-# Exit status: 0 on success (including an empty selection), 2 on a usage or
-# repository error.
+# Exit status: 0 on success (including an empty selection), 2 on a usage error
+# or a non-repository --repo; a git failure propagates git's non-zero status.
 
 set -euo pipefail
 
@@ -87,7 +87,10 @@ if [[ -z "$selected" ]]; then
   else
     files="$(git -C "$repo" diff --no-renames --name-only HEAD)"
   fi
-  files="$(printf '%s\n%s\n' "$files" "$(git -C "$repo" ls-files --others --exclude-standard)")"
+  # Assigned separately so a `git ls-files` failure aborts the script (set -e)
+  # instead of being swallowed by the printf, which would silently select nothing.
+  untracked="$(git -C "$repo" ls-files --others --exclude-standard)"
+  files="$(printf '%s\n%s\n' "$files" "$untracked")"
 
   while IFS= read -r path; do
     [[ -n "$path" ]] || continue
