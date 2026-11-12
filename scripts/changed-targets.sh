@@ -67,8 +67,8 @@ all_targets=(
   cleanup-branches-test envelope-test upstream-drift-test rebase-status-test
 )
 
-declare -A selected=()
-add_targets() { local t; for t in "$@"; do selected["$t"]=1; done; }
+selected=""
+add_targets() { local t; for t in "$@"; do selected="$selected$t"$'\n'; done; }
 select_all() { add_targets "${all_targets[@]}"; }
 
 # An unresolvable base means we cannot know what changed, so fall back to the
@@ -81,11 +81,11 @@ elif ! git -C "$repo" rev-parse --verify --quiet HEAD >/dev/null; then
   select_all
 fi
 
-if ((${#selected[@]} == 0)); then
+if [[ -z "$selected" ]]; then
   if [[ "$mode" == "branch" ]]; then
-    files="$(git -C "$repo" diff --name-only "$branch_merge_base")"
+    files="$(git -C "$repo" diff --no-renames --name-only "$branch_merge_base")"
   else
-    files="$(git -C "$repo" diff --name-only HEAD)"
+    files="$(git -C "$repo" diff --no-renames --name-only HEAD)"
   fi
   files="$(printf '%s\n%s\n' "$files" "$(git -C "$repo" ls-files --others --exclude-standard)")"
 
@@ -127,7 +127,7 @@ if ((${#selected[@]} == 0)); then
   done <<<"$files"
 fi
 
-if ((${#selected[@]})); then
-  printf '%s\n' "${!selected[@]}" | sort
+if [[ -n "$selected" ]]; then
+  printf '%s' "$selected" | LC_ALL=C sort -u
 fi
 exit 0

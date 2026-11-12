@@ -355,15 +355,16 @@ verify:
 # check/verify these are read-only, and unlike check they are NOT the gate: run
 # `make check` before finalizing. check-local-changes covers the uncommitted
 # working tree; check-branch-changes covers everything since the merge base with
-# origin/main (override with BASE=<ref>).
+# origin/main (override with BASE=<ref>). A map-script failure is an error, never
+# "no changed files": an empty selection means the script succeeded and found none.
 check-local-changes:
-	@targets="$$(./scripts/changed-targets.sh local)"; \
+	@targets="$$(./scripts/changed-targets.sh local)" || { echo "check-local-changes: scripts/changed-targets.sh failed" >&2; exit 1; }; \
 	if [ -z "$$targets" ]; then echo "check-local-changes: no changed files"; exit 0; fi; \
 	echo "check-local-changes: $$(printf '%s ' $$targets)"; \
 	$(MAKE) --no-print-directory -j$(JOBS) -O $$targets
 
 check-branch-changes:
-	@targets="$$(./scripts/changed-targets.sh branch $${BASE:+--base $$BASE})"; \
+	@targets="$$(./scripts/changed-targets.sh branch $${BASE:+--base $$BASE})" || { echo "check-branch-changes: scripts/changed-targets.sh failed" >&2; exit 1; }; \
 	if [ -z "$$targets" ]; then echo "check-branch-changes: no changed files"; exit 0; fi; \
 	echo "check-branch-changes: $$(printf '%s ' $$targets)"; \
 	$(MAKE) --no-print-directory -j$(JOBS) -O $$targets

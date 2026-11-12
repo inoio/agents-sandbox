@@ -88,6 +88,13 @@ printf 'package new\n' >"$proj/internal/new/new.go"
 assert_set "untracked new Go" "$proj" local "$GO_DOCS"
 rm -rf "$proj/internal/new"
 
+# A rename is reported at both endpoints (`--no-renames`), so the source class
+# still selects; plain `git diff` would collapse it to the destination only.
+git -C "$proj" mv docs/guide.md .operator-shared/guide.md
+assert_set "rename selects the source class" "$proj" local "docs-linkcheck"
+git -C "$proj" reset -q --hard HEAD
+git -C "$proj" clean -fdq
+
 echo "# changed-targets.sh: branch"
 bproj="$(new_repo)"
 # feature diverges from main; main advances after the divergence.
