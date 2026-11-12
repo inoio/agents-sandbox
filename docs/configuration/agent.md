@@ -246,31 +246,42 @@ The login is stored in `~/.codex/auth.json` on the home volume, so you sign in o
 ## Example: permissions
 
 Opencode permissions are configured through opencode config snippets, which agents-sandbox merges (user-first, then
-project). Place a snippet in your project, e.g. `.agents-sandbox/opencode/permission.json5`.
+project). The snippet file name must match the agent's snippet pattern `opencode*.json*`; a file such as
+`permission.json5` is not merged. The two examples in this section allow everything except reading `.env` and
+`.envrc` files.
 
-**Quasi-auto:** allow everything except what is explicitly denied:
+**opencode** (v1) uses the `permission` object, keyed by tool, in `.agents-sandbox/opencode/`:
 
 ```json5
 {
-  // .agents-sandbox/opencode/permission.json5
+  // .agents-sandbox/opencode/opencode-permissions.json5
   permission: {
     "*": "allow",
+    read: {
+      "*": "allow",
+      "*.env": "deny",
+      "*.envrc": "deny",
+    },
   },
 }
 ```
 
-**Protect secrets:** deny reads of `.env` and `.envrc` files:
+**opencode2** (v2) uses the `permissions` rule list, in `.agents-sandbox/opencode2/`. The last matching rule wins, so
+put the specific rules after the broad one:
 
 ```json5
 {
-  // .agents-sandbox/opencode/permission.json5
-  permission: {
-    denylist: [
-      { tool: "read", files: [".env", ".envrc"] },
-    ],
-  },
+  // .agents-sandbox/opencode2/opencode-permissions.json5
+  permissions: [
+    { action: "*", resource: "*", effect: "allow" },
+    { action: "read", resource: "*.env", effect: "deny" },
+    { action: "read", resource: "*.envrc", effect: "deny" },
+  ],
 }
 ```
+
+opencode2 still reads the v1 `permission` object, but marks it deprecated. See the
+[opencode v1 migration guide](https://opencode.ai/docs/migrate-v1/#permissions-and-tools).
 
 > **Warning:** these rules are advisory for opencode's own Q&A tools. The `bash` tool executes arbitrary commands inside
 > the VM and can read any file regardless of these deny rules, so they are not a security boundary — keep secrets out of
