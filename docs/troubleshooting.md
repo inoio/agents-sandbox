@@ -355,6 +355,9 @@ Docker build failures are usually due to:
     curl -fsSL https://debian.org | head -c 100
     ```
 
+    If the failure is apt's `returned a non-zero code: 100`, see
+    [Package downloads fail](#package-downloads-fail-with-returned-a-non-zero-code-100).
+
 2. **Docker daemon memory** — Large builds may need more memory:
 
     ```console
