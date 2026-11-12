@@ -18,6 +18,7 @@ self-contained, so you can jump straight to the one you need.
 - [Trust the Sandbox CA in Java]({% link recipes/java-ca-trust.md %})
 - [Install Opencode Plugin Dependencies]({% link recipes/opencode-plugin-dependencies.md %})
 - [Connect OpenChamber]({% link recipes/openchamber.md %})
+- [Access Git Servers Without an SSH Key]({% link recipes/git-access.md %})
 
 ## Agent context (AGENTS.md)
 
@@ -35,7 +36,7 @@ You are running inside a sandbox VM, not on the host. Filesystem layout:
 
 Common CLI tools are preinstalled: git, node, npm, jq, yq etc. Don't install additional tools yourself without permission.
 
-No SSH keys in the VM, git cmds against remotes won't work.
+No SSH keys in the VM. Git remotes use HTTPS with a configured token.
 ```
 
 When you launch from inside a git worktree or a repository subdirectory, `/workspace` is bound to the enclosing
