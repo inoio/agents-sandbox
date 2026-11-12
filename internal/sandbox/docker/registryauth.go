@@ -43,19 +43,15 @@ func pullRegistryAuth(imageRef string) string {
 
 // buildRegistryAuths returns the credentials of every registry the docker CLI
 // knows, keyed by registry, for the classic builder's X-Registry-Config. It is
-// nil when there are none or the credential store cannot be read: a failed read
-// returns no entries.
+// empty when there are none or the credential store cannot be read: a failed
+// read returns no entries.
 func buildRegistryAuths() map[string]registry.AuthConfig {
 	all, _ := loadCLIConfig().GetAllCredentials()
-	var auths map[string]registry.AuthConfig
+	auths := make(map[string]registry.AuthConfig)
 	for registryHost, credentials := range all {
-		if !hasCredentials(credentials) {
-			continue
+		if hasCredentials(credentials) {
+			auths[registryHost] = registry.AuthConfig(credentials)
 		}
-		if auths == nil {
-			auths = make(map[string]registry.AuthConfig)
-		}
-		auths[registryHost] = registry.AuthConfig(credentials)
 	}
 	return auths
 }
