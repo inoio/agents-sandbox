@@ -171,6 +171,33 @@ func TestConfigAgentNoSnippetFiles(t *testing.T) {
 	}
 }
 
+// TestConfigAgentWarnsAboutUnparsableSnippet pins that a snippet which cannot be
+// parsed is named and warned about, and the report does not claim no snippet
+// exists.
+func TestConfigAgentWarnsAboutUnparsableSnippet(t *testing.T) {
+	cmd, ui := setupCommandFixtures(t, "config", "agent", "opencode")
+	a, _ := agent.Lookup("opencode")
+	snippetPath := filepath.Join(
+		configpathstest.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName())),
+		"opencode-bad.json5",
+	)
+	testutil.WritePath(t, snippetPath, "{ this is not valid json5")
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config agent: %v", err)
+	}
+	joined := strings.Join(ui.OutCalls, "\n")
+	if strings.Contains(joined, "No snippet files found") {
+		t.Errorf("report claims no snippet exists though one was found and skipped:\n%s", joined)
+	}
+	if !strings.Contains(joined, "No snippet file could be merged") {
+		t.Errorf("expected the all-skipped message, got:\n%s", joined)
+	}
+	if !strings.Contains(strings.Join(ui.WarnCalls, "\n"), snippetPath) {
+		t.Errorf("WarnCalls = %v, want a warning naming %s", ui.WarnCalls, snippetPath)
+	}
+}
+
 // TestConfigAgentRejectsTwoArgs pins the config-agent arity bound with two
 // otherwise-valid agent names, so the error can only be the arity check.
 func TestConfigAgentRejectsTwoArgs(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	config "github.com/inoio/agents-sandbox/internal/configmerge"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
@@ -157,7 +158,7 @@ func buildConfigAgentCmd(ui termio.UI) *cobra.Command {
 			}
 			provision := provisionHostConfigEnabled(c)
 			hostHome, _ := configpaths.Get().UserHomeDir()
-			merged, sources, hostFiles, mirrorFiles, source, err := reprovision.Describe(
+			merged, sources, hostFiles, mirrorFiles, skipped, source, err := reprovision.Describe(
 				a,
 				configSlugFromContext(c.Context()),
 				hostHome,
@@ -168,7 +169,7 @@ func buildConfigAgentCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			printConfigAgent(ui, a, source, merged, sources, hostFiles, mirrorFiles, provision)
+			printConfigAgent(ui, a, source, merged, sources, skipped, hostFiles, mirrorFiles, provision)
 			return nil
 		},
 	}
@@ -207,6 +208,7 @@ func printConfigAgent(
 	source reprovision.ConfigSource,
 	merged []byte,
 	sources []string,
+	skipped []config.SkippedSnippet,
 	hostFiles []reprovision.HostFile,
 	mirrorFiles []reprovision.MirrorFile,
 	provision bool,
@@ -223,7 +225,13 @@ func printConfigAgent(
 	}
 	ui.Outf("  project: %s", describeConfigDir(projectDir))
 	if len(sources) == 0 {
-		ui.Out("No snippet files found; no merged config is provisioned.")
+		if len(skipped) > 0 {
+			ui.Out(
+				"No snippet file could be merged; every matching snippet failed to read or parse (see the warnings above).",
+			)
+		} else {
+			ui.Out("No snippet files found; no merged config is provisioned.")
+		}
 	} else {
 		ui.Out("merged files:")
 		for _, src := range sources {
