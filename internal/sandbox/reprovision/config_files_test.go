@@ -2235,3 +2235,21 @@ func TestLoadConfigFilesWarnsAboutSkippedSnippet(t *testing.T) {
 		t.Errorf("WarnCalls = %v, want a warning naming %s", ui.WarnCalls, snippet)
 	}
 }
+
+// TestLoadConfigFilesPropagatesLoadError pins that the run-path wrapper
+// returns the underlying LoadConfigFilesForHost error instead of emitting the
+// skipped-snippet warnings and reporting success.
+func TestLoadConfigFilesPropagatesLoadError(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	ui := termiotest.NewTestMock(t)
+	cf, err := LoadConfigFiles(agent.Resolve(relMergedConfigAgent{}), "", &ui, true)
+	if err == nil {
+		t.Fatal("LoadConfigFiles: want an error when the merged-config path cannot be made relative to the VM home")
+	}
+	if cf != nil {
+		t.Errorf("ConfigFiles = %+v, want nil on error", cf)
+	}
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("WarnCalls = %v, want no warnings on an error path", ui.WarnCalls)
+	}
+}
