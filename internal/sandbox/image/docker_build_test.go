@@ -142,6 +142,28 @@ func TestBuildImageClassifiesBuildFailures(t *testing.T) {
 			want:  []string{"base image not found or not logged in"},
 		},
 		{
+			name:  "registry unauthorized",
+			build: streamed("unauthorized: The client does not have permission for manifest"),
+			want: []string{
+				"base image not found or not logged in",
+				"troubleshooting.html#the-base-image-cannot-be-found",
+			},
+		},
+		{
+			name:  "registry denied",
+			build: returned("denied: requested access to the resource is denied"),
+			want: []string{
+				"base image not found or not logged in",
+				"troubleshooting.html#the-base-image-cannot-be-found",
+			},
+		},
+		{
+			name:       "local permission denied",
+			build:      returned("permission denied while trying to connect to the docker API"),
+			want:       []string{"docker image build failed"},
+			wantAbsent: "not found or not logged in",
+		},
+		{
 			name:       "other streamed error",
 			build:      streamed("some other failure"),
 			want:       []string{"some other failure"},

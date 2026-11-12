@@ -134,15 +134,16 @@ func buildImageClassic(
 }
 
 // buildFailureError classifies an engine build failure and tailors the message
-// for the two a user can act on: a base image the engine could not resolve
-// (Docker Engine reports "pull access denied"), and an image name with no
+// for the two a user can act on: a base image the registry refused (Docker
+// Engine reports "pull access denied", a registry "unauthorized" or "denied"),
+// and an image name with no
 // registry that the engine refused to resolve at all — podman does this when it
 // has no unqualified-search-registries, which Docker Engine never needs because
 // it assumes Docker Hub. Both point at the troubleshooting section naming the
 // remedies. Any other failure stays a plain wrap.
 func buildFailureError(err error) error {
 	switch msg := err.Error(); {
-	case strings.Contains(msg, "pull access denied"):
+	case isRegistryAccessDenied(msg):
 		return fmt.Errorf(
 			"docker image build failed (base image not found or not logged in): %w\n  Docs: %s",
 			err,
@@ -157,6 +158,16 @@ func buildFailureError(err error) error {
 	default:
 		return fmt.Errorf("docker image build failed: %w", err)
 	}
+}
+
+// isRegistryAccessDenied reports whether a registry refused the image: the
+// engine's "pull access denied", or a registry error code such as
+// "unauthorized: ..." or "denied: ...". A local "permission denied" (the engine
+// socket) carries no error code and does not match.
+func isRegistryAccessDenied(msg string) bool {
+	return strings.Contains(msg, "pull access denied") ||
+		strings.Contains(msg, "unauthorized") ||
+		strings.Contains(msg, "denied: ")
 }
 
 // isUnresolvedImageName reports whether the engine refused an unqualified image

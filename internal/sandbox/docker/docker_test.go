@@ -2,6 +2,8 @@ package docker
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -9,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/moby/moby/api/types/registry"
 	"github.com/moby/moby/client"
 )
 
@@ -122,4 +125,82 @@ func TestRealClientDialHijackSuccess(t *testing.T) {
 		t.Fatalf("DialHijack: %v", err)
 	}
 	_ = conn.Close()
+}
+
+// useStubDaemon points the shared moby client at a stub HTTP daemon that
+// records each request and answers with an empty JSON stream.
+func useStubDaemon(t *testing.T) *http.Request {
+	t.Helper()
+	recorded := &http.Request{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*recorded = *r.Clone(r.Context())
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("{}"))
+	}))
+	t.Cleanup(server.Close)
+
+	mobyClientForTest, err := client.New(client.WithHost(server.URL))
+	if err != nil {
+		t.Fatalf("client.New: %v", err)
+	}
+	origEnsure := ensureMobyClient
+	origClient := mobyClient
+	ensureMobyClient = func() error {
+		mobyClient = mobyClientForTest
+		return nil
+	}
+	t.Cleanup(func() {
+		ensureMobyClient = origEnsure
+		mobyClient = origClient
+	})
+	return recorded
+}
+
+// TestRealClientImagePullSendsRegistryCredentials pins that a pull carries the
+// docker CLI credentials for the image's registry, so a private base image
+// pulls without a prior manual docker pull.
+func TestRealClientImagePullSendsRegistryCredentials(t *testing.T) {
+	useDockerConfig(t, `{"auths":{"registry.example.com":{"auth":"`+basicAuth("user", "secret")+`"}}}`)
+	recorded := useStubDaemon(t)
+
+	pull, err := (realDockerClient{}).ImagePull(
+		context.Background(), "registry.example.com/team/base:1.0", client.ImagePullOptions{},
+	)
+	if err != nil {
+		t.Fatalf("ImagePull: %v", err)
+	}
+	_ = pull.Close()
+
+	auth := decodeRegistryAuth(t, recorded.Header.Get("X-Registry-Auth"))
+	if auth.Username != "user" || auth.Password != "secret" {
+		t.Errorf("X-Registry-Auth credentials = %q/%q, want user/secret", auth.Username, auth.Password)
+	}
+}
+
+// TestRealClientImageBuildSendsRegistryCredentials pins that a classic build
+// carries every registry's docker CLI credentials, so a FROM naming a private
+// registry resolves.
+func TestRealClientImageBuildSendsRegistryCredentials(t *testing.T) {
+	useDockerConfig(t, `{"auths":{"registry.example.com":{"auth":"`+basicAuth("user", "secret")+`"}}}`)
+	recorded := useStubDaemon(t)
+
+	build, err := (realDockerClient{}).ImageBuild(
+		context.Background(), strings.NewReader(""), client.ImageBuildOptions{},
+	)
+	if err != nil {
+		t.Fatalf("ImageBuild: %v", err)
+	}
+	_ = build.Body.Close()
+
+	data, err := base64.URLEncoding.DecodeString(recorded.Header.Get("X-Registry-Config"))
+	if err != nil {
+		t.Fatalf("decode X-Registry-Config: %v", err)
+	}
+	var auths map[string]registry.AuthConfig
+	if err := json.Unmarshal(data, &auths); err != nil {
+		t.Fatalf("unmarshal X-Registry-Config: %v", err)
+	}
+	if got := auths["registry.example.com"]; got.Username != "user" || got.Password != "secret" {
+		t.Errorf("X-Registry-Config[registry.example.com] = %q/%q, want user/secret", got.Username, got.Password)
+	}
 }

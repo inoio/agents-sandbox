@@ -394,5 +394,12 @@ unqualified-search-registries = ["docker.io"]
 `short_name_mode = "permissive"` on its own does not help while that list is empty.
 
 When the build reports `base image not found or not logged in` for a name that already carries a registry, the registry
-rejected the pull instead: the image does not exist, it is private, or the engine is not logged in. Fix the name and
-retry, or log in to that registry (`docker login <registry>`) before building again.
+rejected the pull instead: the image does not exist, it is private, or you are not logged in to it. The registry's own
+message follows, such as `pull access denied`, `unauthorized: …`, or `denied: …`. Fix the name and retry, or log in to
+that registry (`docker login <registry>`) before building again.
+
+A base image in a private registry (Artifactory, GitHub Container Registry, a company mirror) needs no manual
+`docker pull`. The launcher sends the registry credentials the `docker` CLI would use: it reads the Docker CLI config
+(`~/.docker/config.json`, or the directory `DOCKER_CONFIG` names), including a `credsStore` such as `desktop.exe` on WSL
+or `osxkeychain` on macOS and per-registry `credHelpers`. If `docker pull <image>` works in your shell, the build can
+pull the image too.
