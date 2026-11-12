@@ -666,3 +666,33 @@ func TestBuildDockerImageRefusesAfterAnUnapprovedRead(t *testing.T) {
 		t.Errorf("buildDockerImage = %v, want ErrNotApproved", err)
 	}
 }
+
+func TestBuildOutputTailKeepsTheLastLines(t *testing.T) {
+	var tail buildOutputTail
+	for i := range buildOutputTailMaxLines + 5 {
+		tail.add(fmt.Sprintf("line %d", i))
+	}
+	got := tail.String()
+	if strings.Contains(got, "line 0\n") {
+		t.Errorf("tail %q kept an evicted line", got)
+	}
+	if !strings.Contains(got, fmt.Sprintf("line %d", buildOutputTailMaxLines+4)) {
+		t.Errorf("tail %q dropped the most recent line", got)
+	}
+	if lines := strings.Count(got, "\n") + 1; lines != buildOutputTailMaxLines {
+		t.Errorf("tail holds %d lines, want %d", lines, buildOutputTailMaxLines)
+	}
+}
+
+func TestBuildOutputTailIgnoresEmptyLines(t *testing.T) {
+	var tail buildOutputTail
+	tail.add("")
+	tail.add("kept")
+	tail.add("")
+	if got := tail.String(); got != "kept" {
+		t.Errorf("String() = %q, want %q", got, "kept")
+	}
+	if got := (&buildOutputTail{}).String(); got != "" {
+		t.Errorf("empty tail String() = %q, want %q", got, "")
+	}
+}

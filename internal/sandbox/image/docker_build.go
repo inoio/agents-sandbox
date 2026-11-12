@@ -170,6 +170,33 @@ func isRegistryAccessDenied(msg string) bool {
 		strings.Contains(msg, "denied: ")
 }
 
+// buildOutputTailMaxLines bounds how much engine build output a failure reports.
+const buildOutputTailMaxLines = 20
+
+// buildOutputTail records the most recent lines of engine build output, so a
+// build failure can report what the failing step printed and not only its exit
+// status.
+type buildOutputTail struct {
+	lines []string
+}
+
+// add records one streamed line, ignoring an empty one and keeping only the
+// most recent buildOutputTailMaxLines lines.
+func (t *buildOutputTail) add(line string) {
+	if line == "" {
+		return
+	}
+	t.lines = append(t.lines, line)
+	if len(t.lines) > buildOutputTailMaxLines {
+		t.lines = t.lines[len(t.lines)-buildOutputTailMaxLines:]
+	}
+}
+
+// String renders the recorded lines, or the empty string when none were kept.
+func (t *buildOutputTail) String() string {
+	return strings.Join(t.lines, "\n")
+}
+
 // isUnresolvedImageName reports whether the engine refused an unqualified image
 // name for want of a registry to resolve it against.
 func isUnresolvedImageName(msg string) bool {
