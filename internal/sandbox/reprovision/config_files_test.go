@@ -1594,7 +1594,8 @@ func TestEnsureHookExecutable(t *testing.T) {
 }
 
 // TestDescribe verifies Describe returns the merged config, snippet sources,
-// host drop-in files and mirror files without touching a VM.
+// host drop-in files, mirror files and the snippets skipped on read or parse
+// without touching a VM.
 func TestDescribe(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
@@ -1608,6 +1609,11 @@ func TestDescribe(t *testing.T) {
 		"opencode-model.json",
 		`{"model":"x"}`,
 	)
+	badSnippet := filepath.Join(
+		configpathstest.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())),
+		"opencode-bad.json5",
+	)
+	testutil.WritePath(t, badSnippet, "{ this is not valid json5")
 	testutil.WriteFile(
 		t,
 		configpathstest.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())),
@@ -1621,7 +1627,7 @@ func TestDescribe(t *testing.T) {
 	testutil.WriteFile(t, ocConfig, "opencode.json", `{"a":1}`)
 
 	ui := termiotest.NewTestMock(t)
-	merged, sources, hostFiles, mirrorFiles, _, source, err := Describe(a, "", hostHome, vmHome, &ui, true)
+	merged, sources, hostFiles, mirrorFiles, skipped, source, err := Describe(a, "", hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("Describe: %v", err)
 	}
@@ -1650,6 +1656,9 @@ func TestDescribe(t *testing.T) {
 	}
 	if !slices.Equal(mirrorFiles, []MirrorFile{wantMirror}) {
 		t.Errorf("Describe mirror files = %+v, want exactly %+v", mirrorFiles, wantMirror)
+	}
+	if len(skipped) != 1 || skipped[0].Path != badSnippet || skipped[0].Err == nil {
+		t.Errorf("Describe skipped = %+v, want the unparsable %s", skipped, badSnippet)
 	}
 }
 
