@@ -732,6 +732,28 @@ func TestBuildOutputTailStripsCarriageReturns(t *testing.T) {
 	}
 }
 
+// TestBuildOutputTailBoundsALineWithoutNewlines pins that a stream that never
+// emits a newline (carriage-return progress, a very long line) cannot grow the
+// recorder without bound: the unfinished line is capped at 4096 bytes.
+func TestBuildOutputTailBoundsALineWithoutNewlines(t *testing.T) {
+	var tail buildOutputTail
+	for range 100 {
+		tail.add(strings.Repeat("x", 1000))
+	}
+	if got := tail.String(); len(got) != 4096 {
+		t.Errorf("tail rendered %d bytes, want the 4096-byte cap", len(got))
+	}
+}
+
+// TestBuildOutputTailBoundsARecordedLine pins the same cap on a complete line.
+func TestBuildOutputTailBoundsARecordedLine(t *testing.T) {
+	var tail buildOutputTail
+	tail.add(strings.Repeat("y", 10000) + "\n")
+	if got := tail.String(); len(got) != 4096 {
+		t.Errorf("tail rendered %d bytes, want the 4096-byte cap", len(got))
+	}
+}
+
 func TestBuildOutputTailKeepsAnUnterminatedFinalLine(t *testing.T) {
 	var single buildOutputTail
 	single.add("only")

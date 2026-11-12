@@ -230,14 +230,31 @@ type buildOutputTail struct {
 	pending string
 }
 
+// buildOutputTailMaxLineBytes bounds one retained line and the unfinished line,
+// so a build streaming a very long line or carriage-return progress cannot grow
+// the recorder without bound.
+const buildOutputTailMaxLineBytes = 4096
+
+// clampLine keeps at most buildOutputTailMaxLineBytes of one line.
+func clampLine(line string) string {
+	// At len == buildOutputTailMaxLineBytes the guard's body keeps the same bytes,
+	// so the > to >= boundary cannot change behaviour.
+	// gomutants:disable-next-line CONDITIONALS_BOUNDARY reason="at len == max the slice keeps the same bytes, so > and >= are equivalent"
+	if len(line) > buildOutputTailMaxLineBytes {
+		return line[:buildOutputTailMaxLineBytes]
+	}
+	return line
+}
+
 // add records one raw streamed chunk. A chunk is an arbitrary byte boundary, so
 // a line may be split across two chunks; the trailing partial line is held in
 // pending until the next chunk completes it, rather than counted as a line of
 // its own. Blank lines are dropped and at most buildOutputTailMaxLines complete
-// lines are kept.
+// lines are kept. The unfinished line is bounded so a stream without newlines
+// cannot grow it without bound.
 func (t *buildOutputTail) add(chunk string) {
 	parts := strings.Split(t.pending+chunk, "\n")
-	t.pending = parts[len(parts)-1]
+	t.pending = clampLine(parts[len(parts)-1])
 	for _, line := range parts[:len(parts)-1] {
 		t.record(line)
 	}
@@ -245,7 +262,7 @@ func (t *buildOutputTail) add(chunk string) {
 
 // record keeps one complete line, dropping a blank one.
 func (t *buildOutputTail) record(line string) {
-	line = strings.TrimSuffix(line, "\r")
+	line = clampLine(strings.TrimSuffix(line, "\r"))
 	if line == "" {
 		return
 	}
