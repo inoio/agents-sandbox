@@ -66,6 +66,9 @@ Common development commands (run from the Go module root):
   runs). It and `make verify` run their independent targets as parallel jobs by default (`JOBS=<n>`
   overrides the count). Execute `make check` when finalizing work; if it reports unformatted files, run
   `make fmt` to fix them. `make verify` adds `test-race` and `vulncheck`.
+- `make check-local-changes` / `make check-branch-changes` — a fast inner loop while iterating:
+  run only the `check` targets a change can affect (the map lives in `scripts/changed-targets.sh`).
+  Use `make check` before finalizing.
 - `go run ./cmd/agents-sandbox --dry-run` — build and run locally without producing a binary or starting interactively
   (skips launching the agent)
 - `make test`/`go test ./...` — run all tests. `make test` passes `-tags microsandbox_ffi_path`, which keeps the

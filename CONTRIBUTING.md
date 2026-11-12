@@ -69,6 +69,8 @@ Run these from the module root:
 | `make lint`          | Run the linter                                             |
 | `make fmt`           | Format all source files                                    |
 | `make check`         | Format, lint, and test — run before finalizing any change  |
+| `make check-local-changes` | Fast inner loop: run only the checks the uncommitted working tree affects |
+| `make check-branch-changes` | Fast inner loop: run only the checks the branch (since `origin/main`) affects |
 | `make verify`        | Read-only CI-parity check: format-check, lint, test, race, vulncheck |
 | `make build`         | Build the `agents-sandbox` binary                        |
 | `make coverage`      | Run tests and print the coverage total                     |

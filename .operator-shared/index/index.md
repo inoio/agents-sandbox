@@ -21,7 +21,7 @@ read_if: Navigating the codebase.
 - `GLOSSARY.md` — Project terminology.
 - `CHANGELOG.md`, `CHANGELOG` fragments in `changelog.d/`, `ROADMAP.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `LICENSE.md`, `SECURITY.md` — Project metadata and policy.
 - `Makefile` — fmt/lint/test/build targets.
-- `scripts/` — Repo-maintenance shell scripts: `cleanup-merged-branches.sh` (`make cleanup-branches`), `upstream-drift.sh`, `rebase-status.sh`, and the hermetic envelope driver `test-envelope.sh` (`make test-scrubbed`/`test-hermetic`; see `specs/testing/test-isolation.md`); each has a `test-*.sh` harness.
+- `scripts/` — Repo-maintenance shell scripts: `cleanup-merged-branches.sh` (`make cleanup-branches`), `upstream-drift.sh`, `rebase-status.sh`, the hermetic envelope driver `test-envelope.sh` (`make test-scrubbed`/`test-hermetic`; see `specs/testing/test-isolation.md`), and `changed-targets.sh` (the changed-file→`check`-target map behind `make check-local-changes`/`check-branch-changes`; see `specs/ci/quality-gates.md`); each has a `test-*.sh` harness.
 - `go.mod`, `go.sum`, `.go-version` — Module deps (cobra, viper, go-git, msb SDK, docker/moby, testify) and the pinned Go toolchain.
 - `opencode.jsonc` — opencode config for this repo.
 - `.golangci.yml`, `.gitignore` — Lint config and ignore rules.
