@@ -300,6 +300,10 @@ cleanup-branches:
 cleanup-branches-test:
 	./scripts/test-cleanup-merged-branches.sh
 
+# Test the release-surface sweep isolation helper itself (fixtures only: no VM, no real state).
+surface-sweep-test:
+	./scripts/test-surface-sweep.sh
+
 # Run the default suite in a hermetic envelope: a module copy outside any git
 # checkout and a scrubbed environment. See specs/testing/test-isolation.md.
 test-scrubbed:
@@ -337,7 +341,7 @@ rebase-status-test:
 # on macOS, with a fixed fallback; a user's own -j still bounds the jobserver.
 JOBS ?= $(shell n=$$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2); q=$$((n / 4)); [ "$$q" -lt 2 ] && q=2; echo "$$q")
 
-CHECK_TARGETS = validate-fmt lint test compile-all docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test deadcode-test changed-targets-test cleanup-branches-test envelope-test upstream-drift-test rebase-status-test
+CHECK_TARGETS = validate-fmt lint test compile-all docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test deadcode-test changed-targets-test cleanup-branches-test surface-sweep-test envelope-test upstream-drift-test rebase-status-test
 VERIFY_TARGETS = $(CHECK_TARGETS) test-race vulncheck deadcode
 
 # Read-only local gate (does not modify files): formatter check + lint + test +
