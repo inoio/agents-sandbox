@@ -58,7 +58,9 @@ out="$(ASB_SURFACE_ROOT="$root" bash "$sweep" init)"
 assert_eq "init prints the root" "$root" "$out"
 assert_dir "init creates data/" "$root/data"
 assert_dir "init creates runs/" "$root/runs"
-assert_eq "init protects the root 0700" "700" "$(stat -c '%a' "$root")"
+# GNU stat -c with a BSD stat -f fallback, like scripts/cleanup-merged-branches.sh.
+mode="$(stat -c '%a' "$root" 2>/dev/null || stat -f '%Lp' "$root" 2>/dev/null)"
+assert_eq "init protects the root 0700" "700" "$mode"
 
 # --- env creates the per-run tree and exports the isolated vars -------------
 env_out="$(ASB_SURFACE_ROOT="$root" bash "$sweep" env foo)"
@@ -84,37 +86,81 @@ set -e
 assert_nonzero "env without a name fails" "$missing_status"
 
 # --- sweep removes sandboxes and volumes, with --yes ------------------------
+# The stub also logs the env each asb call runs under, so a future edit that
+# drops the envfile sourcing (letting sweep operate on the real data home) fails
+# the isolation assertions below instead of passing. The run inherits
+# AGENTS_SANDBOX_QUIET, and the stub emulates the real volume list -q /
+# quiet-mode bare volume list (identifiers only, no header), so a revert to the
+# old `awk 'NR > 1'` header skip would drop vol-a and fail below.
 export ASB_STUB_LOG="$tmp/asb.log"
 cat >"$stub" <<'EOF'
 #!/usr/bin/env bash
+printf 'home=%s xdg_data=%s\n' "$HOME" "$XDG_DATA_HOME" >>"${ASB_STUB_LOG:?}"
 printf '%s\n' "$*" >>"${ASB_STUB_LOG:?}"
 case "$*" in
   "sandbox list -q") printf 'sandbox-a\nsandbox-b\n' ;;
-  "volume list") printf 'NAME  KIND  SIZE\nvol-a  dir  -\nvol-b  dir  -\n' ;;
+  "volume list -q") printf 'vol-a\nvol-b\n' ;;
+  "volume list") printf 'vol-a\nvol-b\n' ;;
 esac
 EOF
 chmod +x "$stub"
 : >"$ASB_STUB_LOG"
-ASB_SURFACE_ROOT="$root" bash "$sweep" sweep
+ASB_SURFACE_ROOT="$root" AGENTS_SANDBOX_QUIET=true bash "$sweep" sweep
 log="$(cat "$ASB_STUB_LOG")"
 assert_contains "sweep removes sandbox-a" "sandbox remove --force --yes sandbox-a" "$log"
 assert_contains "sweep removes sandbox-b" "sandbox remove --force --yes sandbox-b" "$log"
 assert_contains "sweep removes vol-a" "volume remove --force --yes vol-a" "$log"
 assert_contains "sweep removes vol-b" "volume remove --force --yes vol-b" "$log"
+assert_contains "sweep lists volumes in quiet mode" "volume list -q" "$log"
+assert_contains "sweep keeps XDG_DATA_HOME under the root" "$root/data" "$log"
+assert_contains "sweep keeps HOME under the root" "$root/runs/coordinator/home" "$log"
 
 # --- sweep with nothing present prints nothing and exits 0 ------------------
 cat >"$stub" <<'EOF'
 #!/usr/bin/env bash
+printf 'home=%s xdg_data=%s\n' "$HOME" "$XDG_DATA_HOME" >>"${ASB_STUB_LOG:?}"
 printf '%s\n' "$*" >>"${ASB_STUB_LOG:?}"
 case "$*" in
   "sandbox list -q") : ;;
-  "volume list") printf 'NAME  KIND  SIZE\n' ;;
+  "volume list -q") : ;;
 esac
 EOF
 chmod +x "$stub"
 : >"$ASB_STUB_LOG"
 sweep_out="$(ASB_SURFACE_ROOT="$root" bash "$sweep" sweep)"
 assert_eq "empty sweep prints nothing" "" "$sweep_out"
+
+# --- sweep fails loudly when a list command fails ---------------------------
+cat >"$stub" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  "sandbox list -q") exit 1 ;;
+esac
+EOF
+chmod +x "$stub"
+: >"$ASB_STUB_LOG"
+set +e
+ASB_SURFACE_ROOT="$root" bash "$sweep" sweep >/dev/null 2>"$tmp/sweep.err"
+sandbox_list_status=$?
+set -e
+assert_nonzero "sweep fails when sandbox list fails" "$sandbox_list_status"
+assert_contains "sweep names the failing sandbox list" "sandbox list failed" "$(cat "$tmp/sweep.err")"
+
+cat >"$stub" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  "sandbox list -q") : ;;
+  "volume list -q") exit 1 ;;
+esac
+EOF
+chmod +x "$stub"
+: >"$ASB_STUB_LOG"
+set +e
+ASB_SURFACE_ROOT="$root" bash "$sweep" sweep >/dev/null 2>"$tmp/sweep.err"
+volume_list_status=$?
+set -e
+assert_nonzero "sweep fails when volume list fails" "$volume_list_status"
+assert_contains "sweep names the failing volume list" "volume list failed" "$(cat "$tmp/sweep.err")"
 
 if [[ "$failures" -gt 0 ]]; then
   echo "$failures test(s) failed"

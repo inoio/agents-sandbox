@@ -72,7 +72,8 @@ Failure modes the surface implies; each is pinned by a check in the task named.
 - **Run env** (`<root>/runs/<journey>`): `home/`, `config/`, `state/`, `cache/`, `tmp/`, `project/`.
 - **Findings**: `<run>/findings.md` per journey, one per finding; the coordinator copies them into the report.
 - **Report**: `<root>/report.md`, throwaway, not committed.
-- **Lock**: the coordinator holds `flock -n <root>.lock` for the whole run.
+- **Lock**: the coordinator holds an exclusive `flock` on fd 9 (`exec 9>/tmp/asb-surface.lock; flock -n 9`) for the whole
+  run; releasing it is `exec 9>&-`.
 
 ## Task 0 [I]: Sweep scaffolding (isolation helper + spine root)
 
@@ -87,12 +88,13 @@ Failure modes the surface implies; each is pinned by a check in the task named.
 - `surface-sweep.sh env <journey>` → creates `<root>/runs/<journey>/{home,config,state,cache,tmp,project}` and prints
   shell `export` lines for `HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME` (the shared `data/`), `XDG_STATE_HOME`,
   `XDG_CACHE_HOME`, `TMPDIR`; `PATH`/`TERM`/etc. are inherited from the caller.
-- `surface-sweep.sh sweep` → `sandbox list -q` / `sandbox remove --force --yes` and `volume list` / `volume remove
+- `surface-sweep.sh sweep` → `sandbox list -q` / `sandbox remove --force --yes` and `volume list -q` / `volume remove
   --force --yes` over the shared data home.
 
 - [ ] **Step 1 [I]: Create the spine root and acquire the lock.**
-  `flock -n /tmp/asb-surface.lock -c 'bash -lc "bash scripts/surface-sweep.sh init"'`. Expected: prints `/tmp/asb-surface`;
-  the lock is held by the coordinator shell for the whole run. Record the root in every journey's environment.
+  `exec 9>/tmp/asb-surface.lock; flock -n 9; bash scripts/surface-sweep.sh init`. Expected: prints `/tmp/asb-surface`;
+  fd 9 holds the lock for the whole coordinator shell, so a second coordinator sharing `/tmp/asb-surface` is excluded
+  from sweeping the first's live sandboxes/volumes. Record the root in every journey's environment.
 - [ ] **Step 2 [I]: Warm the cache (spine).** Run Task 2 (core first run) first, serially, so the BuildKit build and the
   multi-GB image transfer are paid once in the shared `data/` home before Tasks 3–14 and 18 fan out.
 
@@ -366,5 +368,5 @@ Real state only; `~/.microsandbox` is read, never written.
 - [ ] **Step 2: Record the unexercised.** List each surface that could not be exercised and why (no egress, no
   credentials, `[M]` not run, `oh-my-pi` wizard, …).
 - [ ] **Step 3: Sweep the shared home.** `surface-sweep.sh sweep` (coordinator only, once, at the very end; it removes
-  every sandbox and home volume in the shared data home), then release the lock. Confirm `list`/`volume list` are empty
-  and no real artifact was touched.
+  every sandbox and home volume in the shared data home), then release the lock (`exec 9>&-`). Confirm
+  `list`/`volume list` are empty and no real artifact was touched.

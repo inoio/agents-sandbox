@@ -61,9 +61,20 @@ EOF
 
 cmd_sweep() {
   local asb="${ASB_BIN:-asb}"
-  local envfile name volume
+  local envfile name volume sandboxes volumes
   envfile="$(mktemp)"
   cmd_env coordinator >"$envfile"
+  # Capture each list first so a failing list aborts the sweep with a
+  # diagnostic instead of silently reporting success having removed nothing.
+  # shellcheck disable=SC1090
+  sandboxes="$(
+    . "$envfile"
+    "$asb" sandbox list -q
+  )" || {
+    echo "sweep: sandbox list failed" >&2
+    rm -f "$envfile"
+    exit 1
+  }
   # shellcheck disable=SC1090
   while read -r name; do
     [ -n "$name" ] || continue
@@ -72,10 +83,18 @@ cmd_sweep() {
       "$asb" sandbox remove --force --yes "$name"
     ) ||
       echo "sweep: failed to remove sandbox $name" >&2
-  done < <((
+  done <<<"$sandboxes"
+  # `volume list -q` prints one identifier per line (no header), so it is immune
+  # to an inherited AGENTS_SANDBOX_QUIET dropping a line-1 volume.
+  # shellcheck disable=SC1090
+  volumes="$(
     . "$envfile"
-    "$asb" sandbox list -q
-  ))
+    "$asb" volume list -q
+  )" || {
+    echo "sweep: volume list failed" >&2
+    rm -f "$envfile"
+    exit 1
+  }
   # `volume remove` refuses non-interactively without --yes, so pass it too.
   # shellcheck disable=SC1090
   while read -r volume; do
@@ -85,10 +104,7 @@ cmd_sweep() {
       "$asb" volume remove --force --yes "$volume"
     ) ||
       echo "sweep: failed to remove volume $volume" >&2
-  done < <((
-    . "$envfile"
-    "$asb" volume list 2>/dev/null | awk 'NR > 1 && $1 != "" { print $1 }'
-  ))
+  done <<<"$volumes"
   rm -f "$envfile"
 }
 
