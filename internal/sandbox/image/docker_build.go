@@ -134,18 +134,54 @@ func buildImageClassic(
 	return nil
 }
 
+// rootlessPrerequisiteSignal prefixes the stderr line the injected docker
+// adoption block emits when a base omits a rootless runtime prerequisite, so a
+// failed build can name the missing package as the leading line instead of
+// duplicating the injected RUN script in the tail block.
+const rootlessPrerequisiteSignal = "error: rootless docker prerequisite missing: "
+
+// missingRootlessPrerequisite extracts the prerequisite a captured build output
+// names, matching the adoption block's stderr line. It scans lines rather than
+// the whole output, so the signal inside a logged Dockerfile or script echo
+// cannot be mistaken for the check's verdict. The output is stripped of ANSI
+// escapes first: the classic builder colorizes a failing step's stderr, which
+// would otherwise prefix the marker and defeat the match.
+func missingRootlessPrerequisite(buildOutput string) (string, bool) {
+	for line := range strings.SplitSeq(termio.StripANSICodes(buildOutput), "\n") {
+		line = strings.TrimSpace(line)
+		if rest, ok := strings.CutPrefix(line, rootlessPrerequisiteSignal); ok {
+			return strings.TrimSpace(rest), true
+		}
+	}
+	return "", false
+}
+
 // buildFailureError classifies an engine build failure and tailors the message
 // for the cases a user can act on: a base image the registry refused (Docker
-// Engine reports "pull access denied", a registry "unauthorized" or "denied"),
+// Engine reports "pull access denied" or "no basic auth credentials", a registry
+// "unauthorized" or "denied"),
 // an image name with no registry that the engine refused to resolve at all —
 // podman does this when it has no unqualified-search-registries, which Docker
-// Engine never needs because it assumes Docker Hub — and a network/DNS failure
-// while downloading packages. Each points at the troubleshooting section naming
-// its remedy. Any other failure stays a plain wrap. The captured build output is
-// appended last, so the failing step's own message is visible.
+// Engine never needs because it assumes Docker Hub — a network/DNS failure
+// while downloading packages, and a base that omits a rootless docker
+// prerequisite. The prerequisite case names the missing package as the leading
+// line and drops the duplicated tail block; each other case points at the
+// troubleshooting section naming its remedy. Any other failure stays a plain
+// wrap. The captured build output is appended last, so the failing step's own
+// message is visible.
 func buildFailureError(err error, buildOutput string) error {
+	prereq, isPrereqFailure := missingRootlessPrerequisite(buildOutput)
 	var failure error
 	switch msg := err.Error(); {
+	case isPrereqFailure:
+		// Name the prerequisite as the leading line and drop the duplicate
+		// tail block, which only re-dumps the injected script the wrapped
+		// engine error already echoes.
+		return fmt.Errorf(
+			"docker image build failed (the base image is missing the rootless docker prerequisite %q; install it in the project Dockerfile): %w",
+			prereq,
+			err,
+		)
 	case isRegistryAccessDenied(msg):
 		failure = fmt.Errorf(
 			"docker image build failed (base image not found or not logged in): %w\n  Docs: %s",
@@ -210,11 +246,13 @@ func isNetworkDownloadFailure(messages ...string) bool {
 }
 
 // isRegistryAccessDenied reports whether a registry refused the image: the
-// engine's "pull access denied", or a registry error code such as
-// "unauthorized: ..." or "denied: ...". A local "permission denied" (the engine
-// socket) carries no error code and does not match.
+// engine's "pull access denied", a registry error code such as
+// "unauthorized: ..." or "denied: ...", or the HTTP 401 the engine reports
+// when the client holds no credentials. A local "permission denied" (the
+// engine socket) carries no error code and does not match.
 func isRegistryAccessDenied(msg string) bool {
 	return strings.Contains(msg, "pull access denied") ||
+		strings.Contains(msg, "no basic auth credentials") ||
 		strings.Contains(msg, "unauthorized") ||
 		strings.Contains(msg, "denied: ")
 }
