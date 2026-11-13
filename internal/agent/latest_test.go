@@ -237,6 +237,37 @@ func TestFetchReleaseJSONDoesNotRetryAnAnonymousRequest(t *testing.T) {
 	}
 }
 
+func TestFetchReleaseJSONReportsTheRetryTransportError(t *testing.T) {
+	t.Setenv("GH_TOKEN", "ghp_expired")
+	t.Setenv("GITHUB_TOKEN", "")
+
+	requests := 0
+	var server *httptest.Server
+	server = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		// Close the listener and refuse to pool the connection (the transport
+		// is the shared default one), so the unauthenticated retry cannot
+		// connect: it exercises the retry's transport-error return.
+		w.Header().Set("Connection", "close")
+		_ = server.Listener.Close()
+		http.Error(w, "bad credentials", http.StatusUnauthorized)
+	}))
+	server.Start()
+	t.Cleanup(server.Close)
+	overrideGitHubAPIHost(t, server.URL)
+
+	_, err := latestVersionFromJSON(context.Background(), server.URL, "test")
+	if err == nil {
+		t.Fatal("want the retry's transport error, got nil")
+	}
+	if _, ok := errors.AsType[*url.Error](err); !ok {
+		t.Fatalf("error = %v, want it to wrap the retry's *url.Error", err)
+	}
+	if requests != 1 {
+		t.Errorf("requests = %d, want 1: the retry must not reach the closed server", requests)
+	}
+}
+
 func TestFetchReleaseJSONReportsTheRetryStatus(t *testing.T) {
 	t.Setenv("GH_TOKEN", "ghp_expired")
 	t.Setenv("GITHUB_TOKEN", "")
