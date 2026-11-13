@@ -59,32 +59,40 @@ func githubToken() string {
 var githubAPIHost = "api.github.com"
 
 // authorizeGitHubRequest authenticates req with the environment's GitHub token
-// when req targets the GitHub API. Scoping to the host keeps the token off the
-// other agents' release endpoints (npm, pi.dev, opencode.ai).
-func authorizeGitHubRequest(req *http.Request) {
+// when req targets the GitHub API, reporting whether it did. Scoping to the host
+// keeps the token off the other agents' release endpoints (npm, pi.dev,
+// opencode.ai).
+func authorizeGitHubRequest(req *http.Request) bool {
 	if req.URL.Host != githubAPIHost {
-		return
+		return false
 	}
-	if token := githubToken(); token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
+	token := githubToken()
+	if token == "" {
+		return false
 	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	return true
 }
 
 // fetchReleaseJSON decodes the JSON document at url into target, labeling
 // errors with the given agent name.
+//
+// It authenticates GitHub requests with the environment's token, then retries
+// once without it when the authenticated request fails: an expired token, a
+// fine-grained token without access to the repository, or an org IP allow list
+// can make GitHub reject a request that anonymous access would serve, so a bad
+// token degrades to the anonymous read rather than failing the lookup.
 func fetchReleaseJSON(ctx context.Context, url, agentName string, target any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	resp, authenticated, err := sendReleaseRequest(ctx, url, agentName, true)
 	if err != nil {
-		return fmt.Errorf("build latest-version request: %w", err)
+		return err
 	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "agents-sandbox")
-	authorizeGitHubRequest(req)
-	// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT,ARITHMETIC_BASE reason="a defensive request timeout is unobservable against a local test server that answers immediately"
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("latest %s release: %w", agentName, err)
+	if resp.StatusCode != http.StatusOK && authenticated {
+		_ = resp.Body.Close()
+		resp, _, err = sendReleaseRequest(ctx, url, agentName, false)
+		if err != nil {
+			return err
+		}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -94,4 +102,24 @@ func fetchReleaseJSON(ctx context.Context, url, agentName string, target any) er
 		return fmt.Errorf("decode latest %s release: %w", agentName, err)
 	}
 	return nil
+}
+
+// sendReleaseRequest builds and sends the latest-release request. When withToken
+// is true and a GitHub token is available for a GitHub host, the request is
+// authenticated; the boolean reports whether it was.
+func sendReleaseRequest(ctx context.Context, url, agentName string, withToken bool) (*http.Response, bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, false, fmt.Errorf("build latest-version request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "agents-sandbox")
+	authenticated := withToken && authorizeGitHubRequest(req)
+	// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT,ARITHMETIC_BASE reason="a defensive request timeout is unobservable against a local test server that answers immediately"
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, authenticated, fmt.Errorf("latest %s release: %w", agentName, err)
+	}
+	return resp, authenticated, nil
 }

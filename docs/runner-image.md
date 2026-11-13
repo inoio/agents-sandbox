@@ -420,8 +420,9 @@ reinstalling its dependencies. All seven resolve their latest version for an unp
 and oh-my-pi via the GitHub API, opencode2 via the opencode update API (`/update/api/latest/cli/npm`, the installer's
 own source), pi via `pi.dev`, and claude-code via the npm registry's `latest` dist-tag — as a host-side HTTP query,
 never inside the image. The GitHub queries authenticate with a `GH_TOKEN` or `GITHUB_TOKEN` from the launcher's
-environment when one is set (`GH_TOKEN` wins), which lifts the anonymous API rate limit; the token is sent only to
-`api.github.com`. JS-based LSP servers are expected to run on the agent's
+environment when one is set (`GH_TOKEN` wins), which lifts the anonymous API rate limit; a token GitHub rejects is
+retried once without it, so an expired or under-scoped token falls back to the anonymous lookup instead of failing the
+build. The token is sent only to `api.github.com`. JS-based LSP servers are expected to run on the agent's
 embedded JS runtime (Bun) or on node that a project installs in its own Dockerfile.
 
 ## Labels and provenance
