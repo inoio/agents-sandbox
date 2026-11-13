@@ -72,12 +72,13 @@ func collectChecks(ctx context.Context, dclient docker.Client) checkResults {
 	return results
 }
 
-// realCheckDocker pings the Docker daemon, describing how to fix it on failure.
+// realCheckDocker pings the container engine's Docker API, describing how to
+// fix it on failure.
 func realCheckDocker(ctx context.Context, dclient docker.Client) error {
 	_, err := dclient.Ping(ctx, client.PingOptions{})
 	if err != nil {
 		return fmt.Errorf(
-			"docker API unreachable: %w\n%s",
+			"container engine (Docker API) unreachable: %w\n%s",
 			err, dockerRemedyHint(),
 		)
 	}

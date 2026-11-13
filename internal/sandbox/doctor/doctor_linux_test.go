@@ -47,12 +47,16 @@ func TestKVMUnavailableErrorDescribesRemedy(t *testing.T) {
 	}
 }
 
-func TestDockerRemedyHintNamesSystemctl(t *testing.T) {
+func TestDockerRemedyHintNamesContainerEngines(t *testing.T) {
 	hint := dockerRemedyHint()
 	for _, want := range []string{
+		"Start your container engine",
 		"sudo systemctl start docker",
 		"docker info",
-		"troubleshooting.html#docker-not-running",
+		"systemctl --user start podman.socket",
+		"DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock",
+		"podman info",
+		"troubleshooting.html#container-engine-not-running",
 	} {
 		if !strings.Contains(hint, want) {
 			t.Errorf("dockerRemedyHint() = %q, want it to contain %q", hint, want)

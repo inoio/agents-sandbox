@@ -26,10 +26,13 @@ func appleSiliconRequiredError(arch string) error {
 		"  Docs: " + docslink.SectionURL("troubleshooting", "not-apple-silicon"))
 }
 
-// dockerRemedyHint is the macOS way to start the Docker daemon.
+// dockerRemedyHint is the macOS way to start a container engine.
 func dockerRemedyHint() string {
-	return "  Start Docker Desktop or colima, then verify:\n" +
-		"    open -a Docker   # or: colima start\n" +
-		"    docker info\n" +
-		"  Docs: " + docslink.SectionURL("troubleshooting", "docker-not-running")
+	return "  Start your container engine, then verify it serves the Docker API:\n" +
+		"    Docker Desktop:  open -a Docker  &&  docker info\n" +
+		"    colima:          colima start  &&  docker info\n" +
+		"    podman:          podman machine start  &&  podman info\n" +
+		"                     then point the launcher at it:\n" +
+		"                     export DOCKER_HOST=\"unix://$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}')\"\n" +
+		"  Docs: " + docslink.SectionURL("troubleshooting", "container-engine-not-running")
 }
