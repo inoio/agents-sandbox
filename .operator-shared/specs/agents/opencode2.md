@@ -65,7 +65,7 @@ The signal is binary: once a primary dir exists in any scope, the legacy dir is 
 
 ## Daemon authentication
 
-v2's `serve` enforces HTTP basic auth on every `/api/*` route; when `OPENCODE_SERVER_PASSWORD` is unset it generates a random password and prints it to the log, so the server is never unauthenticated. A health probe without credentials gets 401, so `ensureDaemon` polled until its 60s timeout even though the daemon was healthy.
+v2's `serve` enforces HTTP basic auth on every `/api/*` route and on the `/openapi.json` document (the root path and the static web UI are served without credentials); when `OPENCODE_SERVER_PASSWORD` is unset it generates a random password and prints it to the log, so the server is never unauthenticated. A health probe without credentials gets 401, so `ensureDaemon` polled until its 60s timeout even though the daemon was healthy.
 
 - The opencode2 runner image bakes a fixed `OPENCODE_SERVER_PASSWORD` (`ImageSpec.AgentEnv`). The value is a constant in the profile, not a secret: it only gates a loopback/tunnel-exposed dev server, and a known value is what lets the launcher and client agree without a state round-trip.
 - v2 hardcodes the basic-auth username to `opencode`; `OPENCODE_SERVER_USERNAME` no longer exists. The effective credential is `opencode:<password>`.
