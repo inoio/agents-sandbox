@@ -74,14 +74,14 @@ improved sharply on the families the baseline missed:
 | 618 | Release cleanup fails CI | P1 | off-sample | found |
 | 618 | Rebase target changes mid-report | P2 | pinned | found |
 | 650 | Build output grows without bounds | P1 | pinned | found |
-| 650 | Download errors wrongly blame DNS | P2 | pinned | found |
+| 650 | Download errors wrongly blame DNS | P2 | off-sample | found |
 
 The baseline caught one of PR604's four pinned findings and none of PR590's. GREEN caught PR650's
-only target, all four of PR618's pinned findings, PR590's raw-string P2, and two of PR604's pinned
-four — but the two it caught in PR604 were `Large files skip approval` and the off-sample
-`Unapproved files exhaust host memory`, while it missed the pinned P1 `Reused files lose content
-checks` and both pinned P2s. Off-sample rows are real Greptile findings on the PR's other review
-commits, not in that PR's frozen row.
+only target, all three of PR618's pinned findings, and PR590's raw-string P2, plus one of PR604's
+pinned four — `Large files skip approval` — while missing the pinned P1 `Reused files lose content
+checks` and both pinned P2s. It also reached the off-sample `Unapproved files exhaust host memory`
+on PR604 and `Release cleanup fails CI` on PR618. Off-sample rows are real Greptile findings on the
+PR's other review commits, not in that PR's frozen row.
 
 The miss is a dedupe: the collector keys an input by path *and* kind, but the verbatim-content check
 is recorded in a path-keyed map, so a path used as both an `env`/`secret` source and a `home:`
@@ -113,8 +113,11 @@ the improvement target — rather than held back.
 To refresh the corpus (new PRs, a ruleset re-tune):
 
 ```bash
-bash .agents/skills/greptile-review/mine.sh > .agents/skills/greptile-review/corpus.tsv
+bash .agents/skills/greptile-review/mine.sh
 ```
+
+`mine.sh` writes `corpus.tsv` beside itself and replaces it only once the fetch succeeds, so a
+failed run leaves the committed corpus intact. Pass a second argument to write elsewhere.
 
 The endpoint yields 377 findings across 161 PRs, `p1`×140 / `p2`×237. When the counts move,
 re-check whether a new family has appeared before extending `RULES.md`.

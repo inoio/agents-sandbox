@@ -22,7 +22,9 @@ The output is a report a maintainer reads, not a posted review. Nothing reaches 
 
 ### 1. Pin the fixed point
 
-The argument is a PR number or a git ref:
+Run from a worktree checked out at the branch under review — the reviewer reads the specs and the
+consuming code from this working tree, so a mismatched checkout has it trace the wrong callers. The
+argument is a PR number or a git ref:
 
 - a number — `gh pr diff <n>`; use `gh pr view <n> --json baseRefName,headRefOid` if you need the
   base to compute a merge-base locally.
