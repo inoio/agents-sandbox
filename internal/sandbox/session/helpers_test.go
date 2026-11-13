@@ -106,12 +106,13 @@ func (nonAttachAgent) ConfigDirName() string { return "nonattach" }
 func (nonAttachAgent) ImageSpec() agent.ImageSpec { return agent.ImageSpec{} }
 
 type fakePrepared struct {
-	sb            msb.Sandbox
-	target        string
-	serveHostPort int
-	guestCWD      string
-	key           state.Key
-	homeVolume    string
+	sb                msb.Sandbox
+	target            string
+	serveHostPort     int
+	servePortDeferred bool
+	guestCWD          string
+	key               state.Key
+	homeVolume        string
 }
 
 func (f *fakePrepared) Cleanup() {}
@@ -121,6 +122,8 @@ func (f *fakePrepared) Sandbox() msb.Sandbox { return f.sb }
 func (f *fakePrepared) Target() string { return f.target }
 
 func (f *fakePrepared) ServeHostPort() int { return f.serveHostPort }
+
+func (f *fakePrepared) ServePortDeferred() bool { return f.servePortDeferred }
 
 func (f *fakePrepared) GuestCWD() string { return f.guestCWD }
 

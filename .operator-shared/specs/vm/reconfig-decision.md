@@ -7,10 +7,20 @@ read_if: Changing readLiveProjectVM/resolveReconfigDecision/applyReconfigHomeAct
 
 `PrepareSandbox` calls `resolveReconfigDecision` (`internal/sandbox/prepare/reconfig.go`) once per startup to choose between
 recreating the project VM, restarting the agent daemon, or doing nothing. It returns a named `reconfigDecision`
-(`Recreate`/`Restart`/`HomeAction`/`ServeHostPort`) instead of a positional tuple; the home-volume action it resolves
-is applied separately by `applyReconfigHomeAction`, keeping plan resolution free of home-volume side effects. The
-decision is computed by `reconfig.PlanReconfig` and resolved by `reconfig.ResolveReconfig` (applied with a warning when alone, a
-keep/quit[/restart] prompt when other clients are attached; see Change visibility).
+(`Recreate`/`Restart`/`HomeAction`/`ServeHostPort`/`ServePortDeferred`) instead of a positional tuple; the home-volume
+action it resolves is applied separately by `applyReconfigHomeAction`, keeping plan resolution free of home-volume side
+effects. The decision is computed by `reconfig.PlanReconfig` and resolved by `reconfig.ResolveReconfig` (applied with a warning when alone, a
+keep/quit[/restart] prompt when other clients are attached; see Change visibility). `ServePortDeferred` is set when a
+kept VM in serve-only mode has *no reachable serve binding*: `ports.LiveServeHostPort` (the live-config rule
+`ResolveServeHostPort` reuses before probing — a tag-matched serve binding, or, for a binding that records no guest port,
+the fallback for a binding no user-published host port claims; a binding naming another guest port targets a different
+service and is never accepted) finds none, or the config could not be read. A differing but published host port is not deferred —
+`existingServeHostPort` resolves the live port, which stays reachable — so the serve-only message hands out that URL;
+when deferred, `serveOnlyMessage` states the agent server is unreachable and withholds the connect URL until the next
+recreate.
+
+An unreadable config counts as deferred: no binding can be confirmed, so a freshly probed port is not printed for a kept
+VM that does not carry it.
 
 Reading the live VM is a separate step that runs first (#341). `readLiveProjectVM` looks the project VM up once,
 reads its persisted config and live mounts, and reads the agent config files through one attach that it detaches
