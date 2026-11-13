@@ -2,6 +2,7 @@ package vm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -18,32 +19,58 @@ var (
 	memoryConvergeTimeout  = 10 * time.Second
 )
 
-// waitForMemoryLimit polls read until the live memory limit equals wantMiB or
-// the bounded deadline elapses. A live resize is asynchronous — Modify returns
-// before the limit catches up — so a single read never proves convergence, and
-// only the exact requested limit counts: a live limit above wantMiB is the old,
-// larger value a decrease never unplugs, not convergence. A read error is
-// terminal; hitting the deadline reports the resize as unconverged (not applied).
+// errMemoryLimitNotApplied marks a staged live memory change the runtime did not
+// apply. The runtime never unplugs memory, so a decrease never converges; a raise
+// that does not reach the requested limit before the deadline does not either.
+var errMemoryLimitNotApplied = errors.New("not applied")
+
+// waitForMemoryLimit confirms a staged live memory change against read.
+//
+// A live resize is asynchronous — Modify returns before the limit catches up —
+// so a raise polls until the live limit reaches wantMiB; a live limit already at
+// or above wantMiB satisfies it (another client may hold a larger limit, which is
+// still at least what was asked). A decrease never converges — the runtime never
+// unplugs memory — so it is reported not applied from the first read instead of
+// polling to the deadline. A read error is terminal and reported as a read
+// error, never as not applied: Modify returned a conflict-free plan, so the
+// change was planned and only the read failed.
 func waitForMemoryLimit(
 	ctx context.Context,
 	read func(context.Context) (*msb.Metrics, error),
 	wantMiB uint32,
+	raising bool,
 ) error {
+	wantBytes := uint64(wantMiB) << 20
+	if !raising {
+		metrics, err := read(ctx)
+		if err != nil {
+			return fmt.Errorf("read VM metrics: %w", err)
+		}
+		if metrics != nil && metrics.MemoryLimitBytes <= wantBytes {
+			return nil
+		}
+		return fmt.Errorf(
+			"%w: the runtime does not unplug memory, so a decrease to %d MiB never takes effect",
+			errMemoryLimitNotApplied, wantMiB,
+		)
+	}
 	ctx, cancel := context.WithTimeout(ctx, memoryConvergeTimeout)
 	defer cancel()
-	wantBytes := uint64(wantMiB) << 20
 	for {
 		metrics, err := read(ctx)
 		if err != nil {
-			return err
+			return fmt.Errorf("read VM metrics: %w", err)
 		}
-		if metrics != nil && metrics.MemoryLimitBytes == wantBytes {
+		if metrics != nil && metrics.MemoryLimitBytes >= wantBytes {
 			return nil
 		}
 		select {
 		case <-ctx.Done():
 			if ctx.Err() == context.DeadlineExceeded {
-				return fmt.Errorf("memory resize to %d MiB did not converge; not applied", wantMiB)
+				return fmt.Errorf(
+					"%w: the live limit did not reach %d MiB before the deadline",
+					errMemoryLimitNotApplied, wantMiB,
+				)
 			}
 			return ctx.Err()
 		case <-time.After(memoryConvergeInterval):
@@ -52,8 +79,9 @@ func waitForMemoryLimit(
 }
 
 // reconcileResourceConfig applies requested CPUs/memory changes to an existing
-// (reused) VM via the SDK Modify API. A staged memory change is then waited on
-// until the live limit converges, because a live resize is asynchronous.
+// (reused) VM via the SDK Modify API. A staged memory change is then confirmed
+// against the live limit: a raise is polled until it converges, while a decrease
+// is reported not applied (the runtime never unplugs memory).
 //
 //nolint:nilerr // Returning nil when config read fails is intentional — treat as no-op
 func reconcileResourceConfig(
@@ -66,7 +94,7 @@ func reconcileResourceConfig(
 	if err != nil || cfg == nil {
 		return nil
 	}
-	mo := buildModifyOptions(cfg, opts, ui)
+	mo, memoryRaise := buildModifyOptions(cfg, opts, ui)
 	if mo.CPUs == 0 && mo.MemoryMiB == 0 && mo.RootDiskSizeMiB == 0 {
 		return nil
 	}
@@ -79,8 +107,11 @@ func reconcileResourceConfig(
 		return fmt.Errorf("resource change not applied: %s", summarizeConflicts(plan.Conflicts))
 	}
 	if mo.MemoryMiB != 0 {
-		if err := waitForMemoryLimit(ctx, handle.Metrics, mo.MemoryMiB); err != nil {
-			return fmt.Errorf("live memory change to %d MiB not applied: %w", mo.MemoryMiB, err)
+		if err := waitForMemoryLimit(ctx, handle.Metrics, mo.MemoryMiB, memoryRaise); err != nil {
+			if errors.Is(err, errMemoryLimitNotApplied) {
+				return fmt.Errorf("live memory change to %d MiB: %w", mo.MemoryMiB, err)
+			}
+			return fmt.Errorf("could not confirm the live memory change to %d MiB: %w", mo.MemoryMiB, err)
 		}
 	}
 	return nil
@@ -91,8 +122,13 @@ func reconcileResourceConfig(
 // warning. A zero CPUs means "all CPUs" (left unchanged); a zero MemoryMiB
 // means "unchanged". A root disk grows to a larger requested size; a smaller
 // one is a recreate (reconfig.PlanReconfig), never staged here.
-func buildModifyOptions(cfg *msb.SandboxConfig, opts options.RunOptions, ui termio.Logger) msb.ModifyOptions {
+//
+// The returned bool reports whether the requested memory is a raise above the
+// boot limit (the runtime applies a raise live but never unplugs memory, so a
+// decrease can never converge).
+func buildModifyOptions(cfg *msb.SandboxConfig, opts options.RunOptions, ui termio.Logger) (msb.ModifyOptions, bool) {
 	var mo msb.ModifyOptions
+	memoryRaise := false
 	if opts.CPUs != 0 {
 		want := opts.CPUs
 		if cfg.MaxCPUs > 0 && want > cfg.MaxCPUs {
@@ -105,6 +141,7 @@ func buildModifyOptions(cfg *msb.SandboxConfig, opts options.RunOptions, ui term
 	}
 	if opts.Memory != "" {
 		want := options.ParseMemory(opts.Memory)
+		memoryRaise = want > cfg.MemoryMiB
 		if cfg.MaxMemoryMiB > 0 && want > cfg.MaxMemoryMiB {
 			ui.Warnf("memory limited to %d MiB (boot maximum); requested %d MiB", cfg.MaxMemoryMiB, want)
 			want = cfg.MaxMemoryMiB
@@ -117,7 +154,7 @@ func buildModifyOptions(cfg *msb.SandboxConfig, opts options.RunOptions, ui term
 	if want, _ := options.ParseMemoryOK(opts.DiskSize); cfg.RootDisk != nil && want > cfg.RootDisk.SizeMiB {
 		mo.RootDiskSizeMiB = want
 	}
-	return mo
+	return mo, memoryRaise
 }
 
 func summarizeConflicts(cs []msb.ModificationConflict) string {

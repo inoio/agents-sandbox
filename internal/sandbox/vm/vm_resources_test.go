@@ -59,6 +59,13 @@ func TestReconcileResourceConfig(t *testing.T) {
 			wantModify:       &msb.ModifyOptions{MemoryMiB: 4096},
 		},
 		{
+			name:             "a raise satisfied by a larger live limit",
+			handle:           reconcileHandle(8, 8192),
+			opts:             options.RunOptions{Memory: "4G"},
+			metricsMemoryMiB: 8192,
+			wantModify:       &msb.ModifyOptions{MemoryMiB: 4096},
+		},
+		{
 			name:             "both clamped to the boot maximum",
 			handle:           reconcileHandle(4, 4096),
 			opts:             options.RunOptions{CPUs: 16, Memory: "16G"},
@@ -257,10 +264,10 @@ func setMemoryConvergeSeams(t *testing.T, timeout time.Duration) {
 	})
 }
 
-// TestWaitForMemoryLimitMemoryConvergesOnSequentialRead pins the convergence
-// contract: an old limit reported first, then the requested limit, succeeds
-// once the second read lands — a single read is never enough.
-func TestWaitForMemoryLimitMemoryConvergesOnSequentialRead(t *testing.T) {
+// TestWaitForMemoryLimitRaiseConvergesOnSequentialRead pins the convergence
+// contract for a raise: an old limit reported first, then the requested limit,
+// succeeds once the second read lands — a single read is never enough.
+func TestWaitForMemoryLimitRaiseConvergesOnSequentialRead(t *testing.T) {
 	setMemoryConvergeSeams(t, time.Second)
 	calls := 0
 	read := func(context.Context) (*msb.Metrics, error) {
@@ -271,7 +278,7 @@ func TestWaitForMemoryLimitMemoryConvergesOnSequentialRead(t *testing.T) {
 		return &msb.Metrics{MemoryLimitBytes: 4 << 20}, nil
 	}
 
-	err := waitForMemoryLimit(context.Background(), read, 4)
+	err := waitForMemoryLimit(context.Background(), read, 4, true)
 	if err != nil {
 		t.Fatalf("waitForMemoryLimit() error = %v, want nil", err)
 	}
@@ -280,42 +287,80 @@ func TestWaitForMemoryLimitMemoryConvergesOnSequentialRead(t *testing.T) {
 	}
 }
 
-// TestWaitForMemoryLimitALargerLimitDoesNotConverge pins that a live limit
-// above the requested one is not convergence: a decrease leaves the guest at
-// its old, larger limit, so a `>=` check would report a resize that never
-// happened. The wait must poll to the deadline and fail instead.
-func TestWaitForMemoryLimitALargerLimitDoesNotConverge(t *testing.T) {
-	setMemoryConvergeSeams(t, 5*time.Millisecond)
+// TestWaitForMemoryLimitRaiseSatisfiedByLargerLiveLimit pins that a raise is
+// satisfied by a live limit at or above the request: another client may hold a
+// larger limit, and the VM then has at least what was asked, so the first read
+// proves it without polling.
+func TestWaitForMemoryLimitRaiseSatisfiedByLargerLiveLimit(t *testing.T) {
+	setMemoryConvergeSeams(t, time.Second)
+	calls := 0
 	read := func(context.Context) (*msb.Metrics, error) {
+		calls++
 		return &msb.Metrics{MemoryLimitBytes: 8 << 20}, nil
 	}
 
-	err := waitForMemoryLimit(context.Background(), read, 4)
-	if err == nil || !strings.Contains(err.Error(), "did not converge") {
-		t.Fatalf("err = %v, want a non-convergence error for a larger live limit", err)
+	if err := waitForMemoryLimit(context.Background(), read, 4, true); err != nil {
+		t.Fatalf("waitForMemoryLimit() error = %v, want nil", err)
+	}
+	if calls != 1 {
+		t.Errorf("read called %d times, want exactly 1 (a larger limit already satisfies the raise)", calls)
+	}
+}
+
+// TestWaitForMemoryLimitDecreaseReportsNotAppliedWithoutPolling pins the
+// direction rule: the runtime never unplugs memory, so a decrease cannot
+// converge. It is reported not applied from the first read instead of polling
+// to the deadline.
+func TestWaitForMemoryLimitDecreaseReportsNotAppliedWithoutPolling(t *testing.T) {
+	setMemoryConvergeSeams(t, time.Second)
+	calls := 0
+	read := func(context.Context) (*msb.Metrics, error) {
+		calls++
+		return &msb.Metrics{MemoryLimitBytes: 8 << 20}, nil
+	}
+
+	err := waitForMemoryLimit(context.Background(), read, 4, false)
+	if !errors.Is(err, errMemoryLimitNotApplied) {
+		t.Fatalf("err = %v, want errMemoryLimitNotApplied", err)
+	}
+	if calls != 1 {
+		t.Errorf("read called %d times, want exactly 1 (no polling for a decrease)", calls)
+	}
+}
+
+// TestWaitForMemoryLimitDecreaseAlreadyApplied pins the decrease success case:
+// a live limit at or below the request means the VM already holds no more than
+// asked, so the decrease is satisfied.
+func TestWaitForMemoryLimitDecreaseAlreadyApplied(t *testing.T) {
+	setMemoryConvergeSeams(t, time.Second)
+	read := func(context.Context) (*msb.Metrics, error) {
+		return &msb.Metrics{MemoryLimitBytes: 3 << 20}, nil
+	}
+
+	if err := waitForMemoryLimit(context.Background(), read, 4, false); err != nil {
+		t.Fatalf("waitForMemoryLimit() error = %v, want nil", err)
 	}
 }
 
 // TestWaitForMemoryLimitMemoryConvergeTimeout pins the deadline contract: a
-// limit that never reaches the requested value errors instead of hanging.
+// raise whose limit never reaches the requested value errors instead of hanging.
 func TestWaitForMemoryLimitMemoryConvergeTimeout(t *testing.T) {
 	setMemoryConvergeSeams(t, 5*time.Millisecond)
 	read := func(context.Context) (*msb.Metrics, error) {
 		return &msb.Metrics{MemoryLimitBytes: 1 << 20}, nil
 	}
 
-	err := waitForMemoryLimit(context.Background(), read, 4)
-	if err == nil {
-		t.Fatal("expected a timeout error, got nil")
-	}
-	if !strings.Contains(err.Error(), "did not converge") {
-		t.Errorf("error = %v, want a 'did not converge' message", err)
+	err := waitForMemoryLimit(context.Background(), read, 4, true)
+	if !errors.Is(err, errMemoryLimitNotApplied) {
+		t.Fatalf("error = %v, want errMemoryLimitNotApplied", err)
 	}
 }
 
-// TestWaitForMemoryLimitMemoryConvergeReadErrorTerminal pins that a metrics
-// read error aborts the wait immediately instead of polling on.
-func TestWaitForMemoryLimitMemoryConvergeReadErrorTerminal(t *testing.T) {
+// TestWaitForMemoryLimitReadErrorIsTerminalAndNotNotApplied pins that a metrics
+// read error aborts the wait immediately and is reported as a read error, never
+// as "not applied" (Modify returned a conflict-free plan, so the change was
+// planned; the read only failed to confirm it).
+func TestWaitForMemoryLimitReadErrorIsTerminalAndNotNotApplied(t *testing.T) {
 	setMemoryConvergeSeams(t, time.Second)
 	sentinel := errors.New("metrics boom")
 	calls := 0
@@ -324,12 +369,30 @@ func TestWaitForMemoryLimitMemoryConvergeReadErrorTerminal(t *testing.T) {
 		return nil, sentinel
 	}
 
-	err := waitForMemoryLimit(context.Background(), read, 4)
+	err := waitForMemoryLimit(context.Background(), read, 4, true)
 	if !errors.Is(err, sentinel) {
 		t.Errorf("error = %v, want the metrics read error", err)
 	}
+	if errors.Is(err, errMemoryLimitNotApplied) {
+		t.Errorf("error = %v, must not be marked not-applied", err)
+	}
 	if calls != 1 {
 		t.Errorf("read called %d times, want exactly 1 (terminal)", calls)
+	}
+}
+
+// TestWaitForMemoryLimitDecreaseReadErrorIsReadError pins that the decrease path
+// reports a failed read as a read error too, not as the decrease not applied.
+func TestWaitForMemoryLimitDecreaseReadErrorIsReadError(t *testing.T) {
+	setMemoryConvergeSeams(t, time.Second)
+	sentinel := errors.New("metrics boom")
+	read := func(context.Context) (*msb.Metrics, error) {
+		return nil, sentinel
+	}
+
+	err := waitForMemoryLimit(context.Background(), read, 4, false)
+	if !errors.Is(err, sentinel) || errors.Is(err, errMemoryLimitNotApplied) {
+		t.Fatalf("error = %v, want the read error and not not-applied", err)
 	}
 }
 
@@ -372,7 +435,7 @@ func TestWaitForMemoryLimitMemoryConvergeCanceled(t *testing.T) {
 		return &msb.Metrics{MemoryLimitBytes: 1 << 20}, nil
 	}
 
-	err := waitForMemoryLimit(ctx, read, 4)
+	err := waitForMemoryLimit(ctx, read, 4, true)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("waitForMemoryLimit() error = %v, want context.Canceled", err)
 	}
@@ -420,6 +483,26 @@ func TestReconcileResourceConfigMemoryDecreaseNotApplied(t *testing.T) {
 	}
 }
 
+// TestReconcileResourceConfigMemoryReadErrorNeutral pins the finding: a failed
+// metrics read during a staged memory change is surfaced as an unconfirmed
+// read, not as the change being not applied (Modify planned it conflict-free).
+func TestReconcileResourceConfigMemoryReadErrorNeutral(t *testing.T) {
+	handle := reconcileHandle(8, 8192)
+	handle.MetricsErr = errors.New("metrics boom")
+	ui := termiotest.NewTestMock(t)
+
+	err := reconcileResourceConfig(context.Background(), handle, options.RunOptions{Memory: "4G"}, &ui)
+	if err == nil {
+		t.Fatal("expected a read error, got nil")
+	}
+	if !strings.Contains(err.Error(), "could not confirm") {
+		t.Errorf("error = %v, want the neutral could-not-confirm wrap", err)
+	}
+	if strings.Contains(err.Error(), "not applied") {
+		t.Errorf("error = %v, must not claim the change was not applied", err)
+	}
+}
+
 // TestMemoryConvergeSeamDefaults pins the convergence poll interval and
 // deadline, wall-clock constants the tests otherwise shrink through the seam.
 func TestMemoryConvergeSeamDefaults(t *testing.T) {
@@ -439,9 +522,9 @@ func TestWaitForMemoryLimitUsesMiB(t *testing.T) {
 		return &msb.Metrics{MemoryLimitBytes: 4 << 19}, nil
 	}
 
-	err := waitForMemoryLimit(context.Background(), read, 4)
-	if err == nil || !strings.Contains(err.Error(), "did not converge") {
-		t.Fatalf("err = %v, want a non-convergence error", err)
+	err := waitForMemoryLimit(context.Background(), read, 4, true)
+	if !errors.Is(err, errMemoryLimitNotApplied) {
+		t.Fatalf("err = %v, want errMemoryLimitNotApplied", err)
 	}
 }
 
@@ -454,8 +537,8 @@ func TestWaitForMemoryLimitNilMetricsKeepsPolling(t *testing.T) {
 		return nil, nil
 	}
 
-	err := waitForMemoryLimit(context.Background(), read, 4)
-	if err == nil || !strings.Contains(err.Error(), "did not converge") {
-		t.Fatalf("err = %v, want a non-convergence error without a nil dereference", err)
+	err := waitForMemoryLimit(context.Background(), read, 4, true)
+	if !errors.Is(err, errMemoryLimitNotApplied) {
+		t.Fatalf("err = %v, want errMemoryLimitNotApplied without a nil dereference", err)
 	}
 }
