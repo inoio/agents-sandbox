@@ -7,9 +7,9 @@ read_if: Verifying a release before tagging; running the surface sweep; adding o
 
 > **For agentic workers:** This is an executable runbook, not code. Tasks are journeys. Each step has a command (or a
 > `tmux` interaction), an expected outcome, and an evidence command. Track progress with `- [ ]`. Execution method is
-> **H**: a serial spine (Task 0 + Task 2) warms a shared image cache, then Tasks 3–14 and 18 are dispatched to
-> parallel journey agents under one coordinator; Tasks 1 and 15–17 and 19 are maintainer-run. Steps the coordinator and
-> subagents run are labelled **[I]**; maintainer-run steps are **[M]**.
+> **H**: a serial spine (Task 0 + Task 2) warms a shared image cache, then Tasks 3–14 are dispatched to parallel journey
+> agents under one coordinator; Task 18 is the coordinator's consolidation; Tasks 1 and 15–17 are maintainer-run. Steps
+> the coordinator and subagents run are labelled **[I]**; maintainer-run steps are **[M]**.
 >
 > **Execution notes (learned the hard way):**
 > - Drive `tmux` on a **private socket** (`tmux -L <journey>`), never the default one: a `tmux kill-server` on the
@@ -72,31 +72,39 @@ Failure modes the surface implies; each is pinned by a check in the task named.
 - **Run env** (`<root>/runs/<journey>`): `home/`, `config/`, `state/`, `cache/`, `tmp/`, `project/`.
 - **Findings**: `<run>/findings.md` per journey, one per finding; the coordinator copies them into the report.
 - **Report**: `<root>/report.md`, throwaway, not committed.
-- **Lock**: the coordinator holds an exclusive `flock` on fd 9 (`exec 9>/tmp/asb-surface.lock; flock -n 9`) for the whole
-  run; releasing it is `exec 9>&-`.
+- **Lock**: the coordinator holds `<root>.lock` for the whole run via `surface-sweep.sh lock` (an atomic `mkdir`, portable
+  to macOS, where `flock(1)` is absent); `surface-sweep.sh unlock` releases it. A crashed coordinator leaves the
+  directory behind — remove it once no coordinator is running.
 
 ## Task 0 [I]: Sweep scaffolding (isolation helper + spine root)
 
 **Files:**
-- `scripts/surface-sweep.sh` — the isolation helper (committed; mirrors `test/harness/harness.go`'s
-  `isolatedEnv`/`rootFitsSandboxSocket` pattern, but is sourced, not imported — that package is `msb`-tagged test-only).
+- `scripts/surface-sweep.sh` — the isolation helper (committed; follows `test/harness/harness.go`'s isolation intent —
+  the `rootFitsSandboxSocket` budget check and dropping the ambient `HOME`/`XDG_*`/`AGENTS_SANDBOX_*`/`OPENCODE_SANDBOX_*`/
+  `MSB_*` — but is sourced, not imported; that package is `msb`-tagged test-only. Unlike `isolatedEnv`'s strict
+  allow-list it keeps the caller's wider shell env (`PATH`/`TERM`/`tmux`/…), because its `env` snippet is sourced into an
+  interactive journey shell).
 - `scripts/test-surface-sweep.sh` — its tests, runnable without a VM or a real `asb`.
 
 **Interfaces:**
 - `surface-sweep.sh init` → prints the root path, creating `<root>/{data,runs}`, `chmod 700`-ing the root, and
-  validating the socket-path budget (`len("<root>/data/agents-sandbox/msb") + 50 < 104`).
+  validating the socket-path budget (`len("<root>/data/agents-sandbox/msb") + 50 < 104`); the budget is re-checked for
+  every subcommand, and a relative `ASB_SURFACE_ROOT` is resolved absolute first.
 - `surface-sweep.sh env <journey>` → creates `<root>/runs/<journey>/{home,config,state,cache,tmp,project}` and prints
   shell `export` lines for `HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME` (the shared `data/`), `XDG_STATE_HOME`,
-  `XDG_CACHE_HOME`, `TMPDIR`; `PATH`/`TERM`/etc. are inherited from the caller.
+  `XDG_CACHE_HOME`, `TMPDIR`, prefixed by `unset`s of the ambient `AGENTS_SANDBOX_*`/`OPENCODE_SANDBOX_*`/`MSB_*`;
+  `PATH`/`TERM`/etc. are inherited from the caller.
 - `surface-sweep.sh sweep` → `sandbox list -q` / `sandbox remove --force --yes` and `volume list -q` / `volume remove
   --force --yes` over the shared data home.
+- `surface-sweep.sh lock` / `unlock` → take/release `<root>.lock` (an atomic `mkdir`/`rmdir`, portable to macOS where
+  `flock(1)` is absent) for the whole run.
 
 - [ ] **Step 1 [I]: Create the spine root and acquire the lock.**
-  `exec 9>/tmp/asb-surface.lock; flock -n 9; bash scripts/surface-sweep.sh init`. Expected: prints `/tmp/asb-surface`;
-  fd 9 holds the lock for the whole coordinator shell, so a second coordinator sharing `/tmp/asb-surface` is excluded
+  `bash scripts/surface-sweep.sh lock; bash scripts/surface-sweep.sh init`. Expected: prints the lock directory then
+  `/tmp/asb-surface`; the lock holds for the whole run, so a second coordinator sharing `/tmp/asb-surface` is excluded
   from sweeping the first's live sandboxes/volumes. Record the root in every journey's environment.
 - [ ] **Step 2 [I]: Warm the cache (spine).** Run Task 2 (core first run) first, serially, so the BuildKit build and the
-  multi-GB image transfer are paid once in the shared `data/` home before Tasks 3–14 and 18 fan out.
+  multi-GB image transfer are paid once in the shared `data/` home before Tasks 3–14 fan out.
 
 ## Task 1 [M]: Real-state section — safety net
 
@@ -368,5 +376,5 @@ Real state only; `~/.microsandbox` is read, never written.
 - [ ] **Step 2: Record the unexercised.** List each surface that could not be exercised and why (no egress, no
   credentials, `[M]` not run, `oh-my-pi` wizard, …).
 - [ ] **Step 3: Sweep the shared home.** `surface-sweep.sh sweep` (coordinator only, once, at the very end; it removes
-  every sandbox and home volume in the shared data home), then release the lock (`exec 9>&-`). Confirm
+  every sandbox and home volume in the shared data home), then release the lock (`surface-sweep.sh unlock`). Confirm
   `list`/`volume list` are empty and no real artifact was touched.

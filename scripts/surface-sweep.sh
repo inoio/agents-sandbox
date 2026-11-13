@@ -5,22 +5,35 @@
 # XDG_DATA_HOME holds the microsandbox home (image cache, sandbox records) so a
 # serial spine pays the image build once and parallel journeys reuse it; each
 # journey gets its own HOME/XDG_*/TMPDIR tree and throwaway project under
-# <root>/runs/<journey>, away from the maintainer's real state.
+# <root>/runs/<journey>, away from the maintainer's real state. It also drops the
+# ambient AGENTS_SANDBOX_*/OPENCODE_SANDBOX_*/MSB_* namespaces, so an inherited
+# override (internal/viperconfig binds AGENTS_SANDBOX_<KEY> for every derived
+# key) cannot silently change what a journey measures; the wider shell env
+# (PATH/TERM/tmux/...) stays, since the `env` snippet is sourced into an
+# interactive journey shell.
 #
 # The root must be short enough for the sandbox control socket, and 0700:
 # microsandbox refuses a data home under an ancestor another account could
 # rename ("permits path substitution").
 #
 # Usage:
-#   surface-sweep.sh init                 # create <root>/{data,runs}; print <root>
-#   surface-sweep.sh env <journey>        # print shell exports for that journey
-#   surface-sweep.sh sweep                # remove every sandbox and home volume
+#   surface-sweep.sh init          # create <root>/{data,runs}; print <root>
+#   surface-sweep.sh env <journey> # print shell exports for that journey
+#   surface-sweep.sh sweep         # remove every sandbox and home volume
+#   surface-sweep.sh lock          # take <root>.lock for the run (portable mkdir)
+#   surface-sweep.sh unlock        # release <root>.lock
 #
 # ASB_SURFACE_ROOT overrides the root (default /tmp/asb-surface); ASB_BIN
 # overrides the launcher binary (default `asb`).
 set -euo pipefail
 
 ROOT="${ASB_SURFACE_ROOT:-/tmp/asb-surface}"
+# Resolve the root absolute once: a relative ASB_SURFACE_ROOT would stage
+# HOME/XDG_*/TMPDIR under the caller's CWD, and configpaths ignores a
+# non-absolute XDG_DATA_HOME.
+if [[ "$ROOT" != /* ]]; then
+  ROOT="$(pwd -P)/$ROOT"
+fi
 # microsandbox derives its control socket from <XDG_DATA_HOME>/agents-sandbox/msb
 # and appends a fixed suffix; the sum must stay below sun_path (104).
 SOCKET_SUFFIX=50
@@ -30,13 +43,18 @@ socket_path_len() {
   printf '%s' "$ROOT/data/agents-sandbox/msb" | wc -c | tr -d ' '
 }
 
-cmd_init() {
+# Runs for every subcommand, not just init, so an env/sweep from a fresh shell
+# cannot stage a root whose derived sandbox socket path overflows sun_path.
+check_root_fits_sandbox_socket() {
   local len
   len="$(socket_path_len)"
   if [ $((len + SOCKET_SUFFIX)) -ge "$SUN_PATH_LIMIT" ]; then
     echo "root $ROOT derives a $((len + SOCKET_SUFFIX))-byte sandbox socket path, >= $SUN_PATH_LIMIT" >&2
     exit 1
   fi
+}
+
+cmd_init() {
   mkdir -p "$ROOT/data" "$ROOT/runs"
   # microsandbox refuses a data home under an ancestor that "permits path
   # substitution"; 0700 matches mkdtemp's protection.
@@ -48,7 +66,21 @@ cmd_env() {
   local name="${1:?usage: surface-sweep env <journey>}"
   local base="$ROOT/runs/$name"
   mkdir -p "$base/home" "$base/config" "$base/state" "$base/cache" "$base/tmp" "$base/project"
-  # Only the six isolated vars; PATH/TERM/etc. are inherited from the caller.
+  # Drop the ambient config-override namespaces (AGENTS_SANDBOX_<KEY> and its
+  # OPENCODE_SANDBOX_/MSB_ aliases); enumerated from the current env, so no key
+  # list is needed.
+  local leaked=() var
+  while read -r var; do
+    case "$var" in
+      AGENTS_SANDBOX_*|OPENCODE_SANDBOX_*|MSB_*) leaked+=("$var") ;;
+    esac
+  done < <(compgen -e)
+  if ((${#leaked[@]})); then
+    printf 'unset'
+    printf ' %s' "${leaked[@]}"
+    printf '\n'
+  fi
+  # The six isolated vars; PATH/TERM/etc. are inherited from the caller.
   cat <<EOF
 export HOME="$base/home"
 export XDG_CONFIG_HOME="$base/config"
@@ -57,6 +89,27 @@ export XDG_STATE_HOME="$base/state"
 export XDG_CACHE_HOME="$base/cache"
 export TMPDIR="$base/tmp"
 EOF
+}
+
+# A portable lock: mkdir is atomic everywhere, while flock(1) is util-linux and
+# absent on macOS (a supported target). The lock is held by the directory's
+# presence for the whole run; a crashed coordinator leaves it behind, so remove
+# <root>.lock once no coordinator is running.
+cmd_lock() {
+  local lockdir="$ROOT.lock"
+  if ! mkdir "$lockdir" 2>/dev/null; then
+    echo "lock $lockdir is already held; remove it if no coordinator is running" >&2
+    exit 1
+  fi
+  echo "$lockdir"
+}
+
+cmd_unlock() {
+  local lockdir="$ROOT.lock"
+  if ! rmdir "$lockdir" 2>/dev/null; then
+    echo "lock $lockdir is not held" >&2
+    exit 1
+  fi
 }
 
 cmd_sweep() {
@@ -108,6 +161,7 @@ cmd_sweep() {
   rm -f "$envfile"
 }
 
+check_root_fits_sandbox_socket
 case "${1:-}" in
 init) cmd_init ;;
 env)
@@ -115,8 +169,10 @@ env)
   cmd_env "$@"
   ;;
 sweep) cmd_sweep ;;
+lock) cmd_lock ;;
+unlock) cmd_unlock ;;
 *)
-  echo "usage: surface-sweep {init|env <journey>|sweep}" >&2
+  echo "usage: surface-sweep {init|env <journey>|sweep|lock|unlock}" >&2
   exit 2
   ;;
 esac
