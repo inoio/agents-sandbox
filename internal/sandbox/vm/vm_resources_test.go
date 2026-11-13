@@ -342,6 +342,44 @@ func TestWaitForMemoryLimitDecreaseAlreadyApplied(t *testing.T) {
 	}
 }
 
+// TestWaitForMemoryLimitDecreaseEqualityIsApplied pins the decrease boundary: a
+// live limit exactly at the request is satisfied (`<=`), so the decrease is
+// reported applied rather than not applied.
+func TestWaitForMemoryLimitDecreaseEqualityIsApplied(t *testing.T) {
+	setMemoryConvergeSeams(t, time.Second)
+	read := func(context.Context) (*msb.Metrics, error) {
+		return &msb.Metrics{MemoryLimitBytes: 4 << 20}, nil
+	}
+
+	if err := waitForMemoryLimit(context.Background(), read, 4, false); err != nil {
+		t.Fatalf("waitForMemoryLimit() error = %v, want nil", err)
+	}
+}
+
+// TestWaitForMemoryLimitDecreaseReadIsBounded pins that the single decrease read
+// is bounded by the convergence timeout too: a hanging Metrics call must not
+// block the launch indefinitely, since a decrease takes the common path.
+func TestWaitForMemoryLimitDecreaseReadIsBounded(t *testing.T) {
+	setMemoryConvergeSeams(t, 5*time.Millisecond)
+	read := func(ctx context.Context) (*msb.Metrics, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- waitForMemoryLimit(context.Background(), read, 4, false)
+	}()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("err = %v, want the read bound's deadline error", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("waitForMemoryLimit blocked past the convergence timeout on a decrease")
+	}
+}
+
 // TestWaitForMemoryLimitMemoryConvergeTimeout pins the deadline contract: a
 // raise whose limit never reaches the requested value errors instead of hanging.
 func TestWaitForMemoryLimitMemoryConvergeTimeout(t *testing.T) {

@@ -30,8 +30,10 @@ var errMemoryLimitNotApplied = errors.New("not applied")
 // so a raise polls until the live limit reaches wantMiB; a live limit already at
 // or above wantMiB satisfies it (another client may hold a larger limit, which is
 // still at least what was asked). A decrease never converges — the runtime never
-// unplugs memory — so it is reported not applied from the first read instead of
-// polling to the deadline. A read error is terminal and reported as a read
+// unplugs memory — so while the live limit is still above the request it is
+// reported not applied from the first read instead of polling to the deadline.
+// Every read runs under the convergence deadline, so a hanging metrics call
+// cannot block the launch. A read error is terminal and reported as a read
 // error, never as not applied: Modify returned a conflict-free plan, so the
 // change was planned and only the read failed.
 func waitForMemoryLimit(
@@ -40,6 +42,8 @@ func waitForMemoryLimit(
 	wantMiB uint32,
 	raising bool,
 ) error {
+	ctx, cancel := context.WithTimeout(ctx, memoryConvergeTimeout)
+	defer cancel()
 	wantBytes := uint64(wantMiB) << 20
 	if !raising {
 		metrics, err := read(ctx)
@@ -54,8 +58,6 @@ func waitForMemoryLimit(
 			errMemoryLimitNotApplied, wantMiB,
 		)
 	}
-	ctx, cancel := context.WithTimeout(ctx, memoryConvergeTimeout)
-	defer cancel()
 	for {
 		metrics, err := read(ctx)
 		if err != nil {
