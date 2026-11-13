@@ -28,8 +28,15 @@ MUTATION_YML="$ROOT/.github/workflows/mutation.yml"
 CODEQL_YML="$ROOT/.github/workflows/codeql.yml"
 CHANGELOG_CHECK="$ROOT/ci/check-changelog.sh"
 
-violations=0
-report() { printf 'ci-guards: %s\n' "$1"; violations=$((violations + 1)); }
+violations_file="$(mktemp "${TMPDIR:-/tmp}/ci-guards-violations.XXXXXX")"
+trap 'rm -f "$violations_file"' EXIT
+# Diagnostics go to stderr and their count to a file: several callers run the
+# derivation functions inside `$(...)`, where stdout is captured as the glob set
+# and a shell-variable increment would be lost.
+report() {
+  printf 'ci-guards: %s\n' "$1" >&2
+  printf 'v\n' >>"$violations_file"
+}
 
 # The canonical non-code path set, in the `paths-ignore` glob form. Every site
 # below must classify exactly these paths; the changelog rule adds one more (a
@@ -181,11 +188,19 @@ assert_canonical() {
   diff <(printf '%s\n' "$canonical") <(printf '%s\n' "$globs") | sed 's/^/    /' >&2 || true
 }
 
-# assert_paths_ignore_blocks SITE FILE: assert each `paths-ignore` block
-# separately, naming the block when one diverges. GitHub cannot compute the
-# lists, so every block is a site that must carry the canonical set.
+# assert_paths_ignore_blocks SITE FILE EXPECTED: assert each `paths-ignore` block
+# separately, naming the block when one diverges, and require exactly EXPECTED
+# blocks. GitHub cannot compute the lists, so every block is a site that must
+# carry the canonical set; a block that disappears entirely is a site lost, not a
+# drift the surviving blocks can stand in for.
 assert_paths_ignore_blocks() {
-  local site="$1" file="$2" block="" line n=0 globs
+  local site="$1" file="$2" expected="$3" block="" line n=0 globs raw found
+  raw="$(globs_from_paths_ignore "$file")"
+  if [[ -n "$raw" ]]; then
+    found=$((1 + $(printf '%s\n' "$raw" | grep -c '^--block--$' || true)))
+  else
+    found=0
+  fi
   while IFS= read -r line; do
     if [[ "$line" == '--block--' ]]; then
       n=$((n + 1))
@@ -195,15 +210,17 @@ assert_paths_ignore_blocks() {
     else
       block+="$line"$'\n'
     fi
-  done < <(globs_from_paths_ignore "$file")
+  done <<<"$raw"
   n=$((n + 1))
   globs="$(printf '%s' "$block" | LC_ALL=C sort -u)"
   assert_canonical "$site block $n" "$globs"
+  [[ "$found" -eq "$expected" ]] \
+    || report "$site: expected $expected paths-ignore block(s), found $found"
 }
 
 assert_canonical ci.yml "$(globs_from_changes_regex | LC_ALL=C sort -u)"
-assert_paths_ignore_blocks mutation.yml "$MUTATION_YML"
-assert_paths_ignore_blocks codeql.yml "$CODEQL_YML"
+assert_paths_ignore_blocks mutation.yml "$MUTATION_YML" 1
+assert_paths_ignore_blocks codeql.yml "$CODEQL_YML" 2
 assert_canonical check-changelog.sh "$(globs_from_changelog_check | LC_ALL=C sort -u)"
 
 # The changelog rule's extra exemption is easy to drop by accident; keep it.
@@ -214,6 +231,7 @@ grep -qF '_test\.go$' "$CHANGELOG_CHECK" \
 
 declared_events="$(
   awk '
+    { sub(/[[:space:]]+#.*$/, "") }
     /^on:[[:space:]]*$/ { in_on = 1; next }
     in_on && /^[^[:space:]]/ { in_on = 0 }
     in_on && /^  [a-z_]+:[[:space:]]*$/ { sub(/^  /, ""); sub(/:.*/, ""); print }
@@ -236,6 +254,7 @@ done <<<"$used_events"
 # indented `- item` lines), joined for matching below.
 types_block="$(
   awk '
+    { sub(/[[:space:]]+#.*$/, "") }
     /^  pull_request:[[:space:]]*$/ { in_pr = 1; next }
     in_pr && /^  [^[:space:]]/ {
       if (in_types) exit
@@ -265,8 +284,16 @@ if [[ -n "$types_block" ]]; then
   # podman integration job, so declaring types: must keep it too.
   printf '%s\n' "$types_block" | grep -qE '(^|[^a-z_])labeled([^a-z_]|$)' \
     || report "ci.yml: on.pull_request.types omits 'labeled', which opts a PR into the podman integration job"
+else
+  # No `types:` block is not "nothing to check": the pull_request defaults
+  # return, `labeled` is gone, and the podman opt-in can never fire. Deleting
+  # the block would otherwise slip past every check above.
+  if printf '%s\n' "$declared_events" | grep -qx pull_request; then
+    report "ci.yml: on.pull_request declares no types: list (the default types return and 'labeled' is absent, so the podman opt-in can never fire)"
+  fi
 fi
 
+violations="$(grep -c '^v$' "$violations_file" || true)"
 if [[ "$violations" -gt 0 ]]; then
   printf 'ci-guards: %d violation(s) found\n' "$violations"
   exit 1

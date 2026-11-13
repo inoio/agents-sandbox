@@ -83,9 +83,17 @@ on:
       - '.gitignore'
 EOF
 
+  # The fixture mirrors the real file's decoys: an IGNORE list naming
+  # `.gitignore` and `.md`, and a comment doing the same. A derivation that
+  # greps the whole file instead of the presence condition would still see
+  # `.gitignore`/`.md` after the condition drops them, so those decoys are what
+  # make the anchored cases below meaningful.
   cat >"$dir/ci/check-changelog.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+# The *.md and .gitignore mentions in this comment, and in the IGNORE list, are
+# decoys: only the presence condition below grants an exemption.
+IGNORE='README.md README.rst README .gitignore .gitkeep .keep'
 check_presence() {
   while IFS= read -r line; do
     if [[ ! "$line" =~ ^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/|\.agents-sandbox/) ]] \
@@ -140,6 +148,13 @@ oneblock="$(new_fixture)"
 perl -ni -e 'if (m/\.gitignore/ && !$done++) { next } print' "$oneblock/.github/workflows/codeql.yml"
 expect "codeql.yml drifting one paths-ignore block" "$oneblock" 1 "codeql.yml"
 
+# Dropping a whole paths-ignore block must fail on the expected block count, not
+# silently re-assert the surviving block as both "block 1" and "block 2".
+absent="$(new_fixture)"
+perl -0pi -e "s/  pull_request:\n    paths-ignore:\n(?:      - [^\n]*\n)+//" \
+  "$absent/.github/workflows/codeql.yml"
+expect "codeql.yml losing a whole paths-ignore block" "$absent" 1 "expected 2 paths-ignore block"
+
 ciy="$(new_fixture)"
 perl -pi -e 's{Formula/}{Formulae/}' "$ciy/.github/workflows/ci.yml"
 expect "ci.yml regex renaming an entry" "$ciy" 1 "ci.yml"
@@ -155,16 +170,33 @@ alt="$(new_fixture)"
 perl -pi -e 's{\^\Q\.gitignore\E\$}{^Makefile\$|^\Q\.gitignore\E\$}' "$alt/.github/workflows/ci.yml"
 expect "ci.yml regex gaining an unmodeled alternative" "$alt" 1 "unrecognized alternative"
 
+# A derivation diagnostic must not land inside the captured glob list, and its
+# violation count must survive the command substitution. Two unmodeled
+# alternatives while the modeled set stays canonical must report exactly two
+# violations: before the fix the messages were captured as glob data (sinking
+# the count to the single, incidental set-mismatch).
+deriv="$(new_fixture)"
+perl -pi -e 's{\^\Q\.gitignore\E\$}{$&|^Foo\$|^Bar\$}' "$deriv/.github/workflows/ci.yml"
+expect "derivation diagnostics are counted and kept out of the glob set" "$deriv" 1 "2 violation(s) found"
+
 # Dropping the .gitignore clause from the presence condition must be caught by
-# the anchored derivation, not masked by an unrelated whole-file mention.
+# the anchored derivation, not masked by an unrelated whole-file mention (the
+# fixture carries an IGNORE list and a comment that both name .gitignore). The
+# clause is removed without disturbing the `; then`, so only the anchoring is
+# under test, not a mangled extraction.
 gcl="$(new_fixture)"
-perl -ni -e 'print unless m/!= "\.gitignore"/' "$gcl/ci/check-changelog.sh"
+perl -pi -e 's/ && \[\[ "\$line" != "\.gitignore" \]\]//' "$gcl/ci/check-changelog.sh"
 expect "check-changelog.sh dropping the .gitignore clause" "$gcl" 1 "check-changelog.sh"
 
 echo "# check-ci-guards.sh: workflow-condition invariants"
 undeclared="$(new_fixture)"
 perl -pi -e "s/github\.event_name != 'merge_group'/github.event_name != 'scheduled'/" "$undeclared/.github/workflows/ci.yml"
 expect "undeclared github.event_name literal" "$undeclared" 1 "not declared in on"
+
+# A trailing comment on an `on:` key is valid YAML and must not hide the event.
+commented="$(new_fixture)"
+perl -pi -e 's/^  merge_group:$/  merge_group:  # queue ref/' "$commented/.github/workflows/ci.yml"
+expect "declared event with a trailing comment" "$commented" 0 ""
 
 types="$(new_fixture)"
 perl -pi -e "s/types: \[opened, synchronize, reopened, labeled\]/types: [opened, labeled]/" "$types/.github/workflows/ci.yml"
@@ -185,6 +217,13 @@ expect "pull_request.types block-sequence spelling" "$block" 0 ""
 blkdrop="$(new_fixture)"
 perl -0pi -e 's/    types: \[opened, synchronize, reopened, labeled\]/    types:\n      - opened\n      - labeled/' "$blkdrop/.github/workflows/ci.yml"
 expect "pull_request.types block-sequence dropping a default" "$blkdrop" 1 "default type 'synchronize'"
+
+# Removing `types:` entirely restores the pull_request defaults, so `labeled` is
+# gone and the podman opt-in can never fire; the guard must report its absence,
+# not skip the check.
+notypes="$(new_fixture)"
+perl -ni -e 'print unless m/^    types: \[opened/' "$notypes/.github/workflows/ci.yml"
+expect "pull_request with no types declared" "$notypes" 1 "declares no types"
 
 echo "# check-ci-guards.sh: the real repository passes"
 expect "this repository" "$(cd "$SCRIPT_DIR/.." && pwd)" 0 ""
