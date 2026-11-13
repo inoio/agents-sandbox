@@ -271,7 +271,7 @@ The kernel cannot back `overlay2` on the microsandbox filesystem (an overlay upp
 are both rejected), so the launcher selects a driver the guest supports. `fuse-overlayfs` merges in userspace and
 exposes its own FUSE mount, so neither restriction applies, and its copy-on-write layers cut build time and data-root
 disk use versus `vfs`'s full copy per layer. To provide it, the embedded managed base (`data/Dockerfile`) installs
-`fuse-overlayfs` and its `libfuse3` runtime from apt (the pinned trixie packages). The `agents-sandbox-docker` stage
+`fuse-overlayfs` from apt (the pinned trixie package), which pulls its `libfuse3-4` runtime as a dependency. The `agents-sandbox-docker` stage
 installs only the static docker and rootless-extras tarballs into `/opt/agents-sandbox`, because the runner copies
 nothing from that stage except `/opt/agents-sandbox` (`dockerMergeBlock`), so a system package installed there would
 not reach the image. A custom base must therefore provide `fuse-overlayfs` and `libfuse3` itself, or the probe falls
