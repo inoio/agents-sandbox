@@ -746,11 +746,16 @@ func TestRetireKeepsAForwardExtendedAfterItsTimerFired(t *testing.T) {
 	port := freePort(t)
 	forwarder := NewCallbackForwarder((&recordingFetcher{}).fetch)
 	forwarder.lifetime = time.Hour
-	if err := forwarder.Forward(t.Context(), LoopbackRedirect{Port: port, Path: "/cb"}); err != nil {
-		t.Fatalf("Forward: %v", err)
+	// Register the forward directly instead of calling Forward: Forward starts
+	// its own lifetime goroutine, which would race this test's retire call for
+	// the extend signal below and could consume it, leaving retire to close the
+	// forward. This test drives retire itself.
+	forward := &activeForward{
+		redirect: LoopbackRedirect{Port: port, Path: "/cb"},
+		extend:   make(chan struct{}, 1),
 	}
 	forwarder.mutex.Lock()
-	forward := forwarder.active[port]
+	forwarder.active[port] = forward
 	forwarder.mutex.Unlock()
 	forward.extend <- struct{}{}
 
