@@ -253,14 +253,13 @@ Project VM config changed; rebuilding the project VM (no other client attached):
   - network policy:
       - profile: none
       + profile: public
-  - secrets:
-      + GH_TOKEN: hosts api.github.com
 ```
 
 Lines starting with `-` were in effect before; lines starting with `+` take effect now. The list shows mount sources,
 network entries, published ports, the hosts a secret is sent to, environment variable names, and the agent config
-files that changed. When a change that already forces a rebuild is listed (a mount, network, or port change), the
-environment, secret, and agent config lines are folded into the rebuild and not shown; the change is still applied.
+files that changed. When a change that already forces a rebuild is listed (a mount, network, port, image, tmp-size,
+workspace-quota, home volume, or root-disk shrink, or memory exceeding the boot maximum), the environment, secret, and
+agent config lines are folded into the rebuild and not shown; the change is still applied.
 It never shows an environment or secret value: a change to a value alone reads `values changed` (for secrets, `values
 or other secret settings changed`).
 A sandbox created by an earlier agents-sandbox version has no record of its previous settings, so its first change

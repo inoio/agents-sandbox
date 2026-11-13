@@ -290,9 +290,11 @@ network:
     - .example.ghe.com
 ```
 
-If a secret's hosts do not match the endpoint OpenCode calls, the request fails with
-`Forbidden: Request blocked by secret policy.` The proxy refuses to forward a placeholder to a host the secret is not
-allowed for. Add the host from the failing request to the secret's `hosts`.
+If a secret's hosts do not match the endpoint OpenCode calls, or OpenCode calls an allowed host over plain HTTP, the
+request fails with `Forbidden: Request blocked by secret policy.` The proxy refuses to forward a placeholder to a host
+the secret is not allowed for, and it substitutes a placeholder only on a TLS-terminated connection, so a plain-HTTP
+request to an allowed host is blocked too. For the first cause, add the host from the failing request to the secret's
+`hosts`; for the second, make the request use HTTPS.
 
 Use `agents-sandbox config home` to verify the `home:` mapping. `agents-sandbox config agent` shows the agent mirror and
 drop-in candidates, but does not show `home:` mappings or files already present in the persistent home volume.
