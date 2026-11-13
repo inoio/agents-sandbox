@@ -274,7 +274,7 @@ func setMemoryConvergeSeams(t *testing.T, timeout time.Duration) {
 // contract for a raise: an old limit reported first, then the requested limit,
 // succeeds once the second read lands — a single read is never enough.
 func TestWaitForMemoryLimitRaiseConvergesOnSequentialRead(t *testing.T) {
-	setMemoryConvergeSeams(t, time.Second)
+	setMemoryConvergeSeams(t, 5*time.Millisecond)
 	calls := 0
 	read := func(context.Context) (*msb.Metrics, error) {
 		calls++
@@ -317,7 +317,7 @@ func TestWaitForMemoryLimitReportsNotAppliedWithoutPolling(t *testing.T) {
 // TestWaitForMemoryLimitAtRequestIsApplied pins the boundary: a live limit
 // exactly at the request is applied, not reported as a not-applied decrease.
 func TestWaitForMemoryLimitAtRequestIsApplied(t *testing.T) {
-	setMemoryConvergeSeams(t, time.Second)
+	setMemoryConvergeSeams(t, 5*time.Millisecond)
 	read := func(context.Context) (*msb.Metrics, error) {
 		return &msb.Metrics{MemoryLimitBytes: 4 << 20}, nil
 	}
@@ -459,6 +459,7 @@ func TestWaitForMemoryLimitRaisePollUnknownLimitIsUnconfirmed(t *testing.T) {
 // live memory change waits on Metrics until the limit converges and then
 // succeeds.
 func TestReconcileResourceConfigMemoryConverges(t *testing.T) {
+	setMemoryConvergeSeams(t, 5*time.Millisecond)
 	handle := reconcileHandle(8, 8192)
 	handle.MetricsResult = &msb.Metrics{MemoryLimitBytes: 4096 << 20}
 	ui := termiotest.NewTestMock(t)
