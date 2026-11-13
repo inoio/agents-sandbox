@@ -40,6 +40,7 @@ canonical="$(
     '.operator-shared/**' \
     'Formula/**' \
     '.github/ISSUE_TEMPLATE/**' \
+    '.agents-sandbox/**' \
     '**.md' \
     '.gitignore' | LC_ALL=C sort
 )"

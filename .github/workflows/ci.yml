@@ -69,8 +69,9 @@ jobs:
           fi
           files=$(git diff --name-only "$base" '${{ github.sha }}' || true)
           # The complement of mutation.yml's paths-ignore: docs, the operator
-          # brain, the Homebrew formula, issue templates, and .gitignore.
-          if printf '%s\n' "$files" | grep -vqE '^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/)|\.md$|^\.gitignore$'; then
+          # brain, the Homebrew formula, issue templates, the dev VM
+          # (.agents-sandbox), and .gitignore.
+          if printf '%s\n' "$files" | grep -vqE '^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/|\.agents-sandbox/)|\.md$|^\.gitignore$'; then
             echo "code=true" >> "$GITHUB_OUTPUT"
           else
             echo "code=false" >> "$GITHUB_OUTPUT"

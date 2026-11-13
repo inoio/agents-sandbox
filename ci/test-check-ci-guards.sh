@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: |
-          if printf '%s\n' "$files" | grep -vqE '^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/)|\.md$|^\.gitignore$'; then
+          if printf '%s\n' "$files" | grep -vqE '^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/|\.agents-sandbox/)|\.md$|^\.gitignore$'; then
             echo "code=true"
           fi
   integration:
@@ -56,6 +56,7 @@ on:
       - '.operator-shared/**'
       - 'Formula/**'
       - '.github/ISSUE_TEMPLATE/**'
+      - '.agents-sandbox/**'
       - '.gitignore'
   workflow_dispatch:
 EOF
@@ -69,6 +70,7 @@ on:
       - '.operator-shared/**'
       - 'Formula/**'
       - '.github/ISSUE_TEMPLATE/**'
+      - '.agents-sandbox/**'
       - '.gitignore'
   pull_request:
     paths-ignore:
@@ -77,6 +79,7 @@ on:
       - '.operator-shared/**'
       - 'Formula/**'
       - '.github/ISSUE_TEMPLATE/**'
+      - '.agents-sandbox/**'
       - '.gitignore'
 EOF
 
@@ -85,7 +88,7 @@ EOF
 set -euo pipefail
 check_presence() {
   while IFS= read -r line; do
-    if [[ ! "$line" =~ ^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/) ]] \
+    if [[ ! "$line" =~ ^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/|\.agents-sandbox/) ]] \
       && [[ ! "$line" =~ \.md$ ]] \
       && [[ ! "$line" =~ _test\.go$ ]] \
       && [[ "$line" != ".gitignore" ]]; then
@@ -122,6 +125,10 @@ echo "# check-ci-guards.sh: exempt-path drift is caught"
 mut="$(new_fixture)"
 sed -i '/Formula\/\*\*/d' "$mut/.github/workflows/mutation.yml"
 expect "mutation.yml dropping an entry" "$mut" 1 "mutation.yml"
+
+vag="$(new_fixture)"
+sed -i '/\.agents-sandbox\/\*\*/d' "$vag/.github/workflows/mutation.yml"
+expect "mutation.yml dropping .agents-sandbox" "$vag" 1 "mutation.yml"
 
 cql="$(new_fixture)"
 sed -i "s|      - '.gitignore'|      - '.gitignore'\n      - 'src/**'|" "$cql/.github/workflows/codeql.yml"
