@@ -16,7 +16,9 @@ Fixes for the problems you are most likely to hit while installing or running ag
 
 If the doctor command reports missing prerequisites:
 
-### Docker not running
+<a id="docker-not-running"></a>
+
+### Container engine not running
 
 Start your container engine. agents-sandbox talks to it over the Docker API, so what matters is that the engine serves
 that API, not which vendor provides it:
@@ -30,10 +32,22 @@ that API, not which vendor provides it:
 podman only: one podman setting can stop a build that works everywhere else, see
 [The base image cannot be found](#the-base-image-cannot-be-found).
 
-How you start the engine depends on which one you use: Docker Desktop starts from Applications, and a Docker Engine
-installed as a system-wide package on Linux starts with `sudo systemctl start docker`.
+How you start the engine depends on which one you use:
 
-You can verify afterwards by running `docker info`. It should show a healthy daemon.
+- **Docker Desktop** (macOS, Windows) starts from Applications. A **Docker Engine** installed as a system-wide package
+  on Linux starts with `sudo systemctl start docker`.
+- **colima** (macOS) starts with `colima start`.
+- **podman** serves its API from a socket you start yourself. On Linux rootless, enable the user socket with
+  `systemctl --user enable --now podman.socket`; podman then listens on `$XDG_RUNTIME_DIR/podman/podman.sock`, so point
+  the launcher at it with `export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock`. On macOS, start the podman VM
+  with `podman machine start`, then point the launcher at the socket it reports:
+  `export DOCKER_HOST="unix://$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}')"`.
+  Installing `podman-mac-helper` instead makes the default `/var/run/docker.sock` work.
+
+Both `DOCKER_HOST` exports are per shell: add the line to your shell profile so the launcher keeps finding podman.
+
+Verify the engine is up and serving the Docker API with `docker info` (Docker, colima) or `podman info` (podman). It
+should show a healthy daemon.
 
 The launcher finds the Docker endpoint the same way the `docker` CLI does: `DOCKER_HOST` first, then the active docker
 context (`docker context ls`), then the default `/var/run/docker.sock`. An engine that publishes its socket through a
@@ -134,6 +148,13 @@ If Docker Desktop is installed but not running, launch it from Applications. If 
 
 ```console
 colima start
+```
+
+If using podman, start its VM and point the launcher at the socket it reports:
+
+```console
+podman machine start
+export DOCKER_HOST="unix://$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}')"
 ```
 
 agents-sandbox finds the socket the same way the `docker` CLI does: `DOCKER_HOST` wins, then the active

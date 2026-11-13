@@ -118,11 +118,11 @@ The prerequisite checks run automatically as a preflight on `run` and `shell` (`
 
 Each failing check reports, in order:
 
-1. a one-line diagnosis with a stable, searchable prefix (`/dev/kvm not found`, `docker API unreachable`, `msb runtime setup failed`);
+1. a one-line diagnosis with a stable, searchable prefix (`/dev/kvm not found`, `container engine (Docker API) unreachable`, `msb runtime setup failed`);
 2. the copy-pasteable command that fixes it, where one exists — platform-specific through the `doctor_linux.go` / `doctor_darwin.go` build-tagged pair (`dockerRemedyHint`, `kvmUnavailableError`, `appleSiliconRequiredError`);
 3. a `Docs:` line linking `https://inoio.github.io/agents-sandbox/troubleshooting.html#<anchor>` for what a command cannot fix.
 
-`docslink.SectionURL("troubleshooting", …)` builds the link. The anchors are the troubleshooting headings, and `ci/check-docs.sh` fails when a printed fragment matches no heading (see `../ci/quality-gates.md`). Current pairs: `kvm-unavailable`, `docker-not-running`, `microsandbox-runtime`, `not-apple-silicon`.
+`docslink.SectionURL("troubleshooting", …)` builds the link. The anchors are the troubleshooting headings (and the `<a id="…"></a>` alias a rename leaves behind), and `ci/check-docs.sh` fails when a printed fragment matches no heading or explicit anchor (see `../ci/quality-gates.md`). Current pairs: `kvm-unavailable`, `container-engine-not-running`, `microsandbox-runtime`, `not-apple-silicon`.
 
 There is no separate prerequisites page. `docs/install/installation.md` is the only home for:
 
