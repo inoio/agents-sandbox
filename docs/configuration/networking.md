@@ -73,10 +73,11 @@ flag on `run`/`shell`. Both accept a comma-separated list or a repeated flag, e.
 flag.
 
 `dns-servers` sets custom DNS upstreams for the VM's in-VM resolver. Bare IPs (IPv4 or IPv6) get `:53` appended; a
-`host:port` / `ip:port` form is used as-is. An empty entry, a host without a port, or garbage is rejected at config-load
-time. It is also configurable via the `AGENTS_SANDBOX_NETWORK_DNS_SERVERS` environment variable (comma-separated, e.g.
-`1.1.1.1,8.8.8.8`) and the `--dns` flag on `run`/`shell` (comma-separated or repeated). Precedence:
-**flag > env > config**. A policy that sets only `dns-servers` (no `profile`) still gets the default `public` profile.
+`host:port` / `ip:port` form is used as-is. An empty entry, a host without a port, a non-numeric or out-of-range port,
+or garbage is rejected at config-load time. It is also configurable via the `AGENTS_SANDBOX_NETWORK_DNS_SERVERS`
+environment variable (comma-separated, e.g. `1.1.1.1,8.8.8.8`) and the `--dns` flag on `run`/`shell` (comma-separated
+or repeated). Precedence: **flag > env > config**. A policy that sets only `dns-servers` (no `profile`) still gets the
+default `public` profile.
 
 ```yaml
 network:

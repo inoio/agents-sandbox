@@ -158,6 +158,35 @@ func TestSpecDNSInvalidErrors(t *testing.T) {
 	}
 }
 
+// TestPolicyValidate pins the well-formedness entry point the runoptions flag
+// path and the VM creation path run: a well-formed policy passes, and an
+// unknown or non-combinable profile or an unnormalizable DNS server is
+// rejected.
+func TestPolicyValidate(t *testing.T) {
+	valid := []Policy{
+		{},
+		{Profiles: []Profile{ProfilePublic, ProfileHost}},
+		{DNSServers: []string{"1.1.1.1", "8.8.8.8:5353"}},
+	}
+	for _, p := range valid {
+		if err := p.Validate(); err != nil {
+			t.Errorf("Policy%+v.Validate() = %v, want nil", p, err)
+		}
+	}
+
+	invalid := []Policy{
+		{Profiles: []Profile{ProfileNone, ProfilePublic}},
+		{Profiles: []Profile{Profile("bogus")}},
+		{DNSServers: []string{"garbage"}},
+		{DNSServers: []string{"1.1.1.1:notaport"}},
+	}
+	for _, p := range invalid {
+		if err := p.Validate(); err == nil {
+			t.Errorf("Policy%+v.Validate() = nil, want an error", p)
+		}
+	}
+}
+
 func TestFingerprintStable(t *testing.T) {
 	p := Policy{Profiles: []Profile{ProfileNone}, EgressAllow: []string{"b", "a"}}
 	first := p.Fingerprint()
@@ -277,6 +306,19 @@ func TestNormalizeDNSServers(t *testing.T) {
 			want: []string{"[2606:4700:4700::1111]:5353"},
 		},
 		{
+			// The documented port contract is 1-65535; these two pin the
+			// accepted range at its boundaries so an off-by-one in the range
+			// check cannot reject a valid --dns at config-load.
+			name: "lowest valid port accepted",
+			in:   []string{"1.1.1.1:1"},
+			want: []string{"1.1.1.1:1"},
+		},
+		{
+			name: "highest valid port accepted",
+			in:   []string{"1.1.1.1:65535"},
+			want: []string{"1.1.1.1:65535"},
+		},
+		{
 			name: "whitespace trimmed",
 			in:   []string{" 1.1.1.1 "},
 			want: []string{"1.1.1.1:53"},
@@ -289,6 +331,14 @@ func TestNormalizeDNSServers(t *testing.T) {
 		},
 		{name: "host without port rejected", in: []string{"1.1.1.1:"}, wantErr: true, errContains: "missing port"},
 		{name: "empty host rejected", in: []string{":53"}, wantErr: true, errContains: "missing host"},
+		{
+			name:        "non-numeric port rejected",
+			in:          []string{"1.1.1.1:notaport"},
+			wantErr:     true,
+			errContains: "invalid port",
+		},
+		{name: "port zero rejected", in: []string{"1.1.1.1:0"}, wantErr: true, errContains: "invalid port"},
+		{name: "port above 65535 rejected", in: []string{"1.1.1.1:65536"}, wantErr: true, errContains: "invalid port"},
 		{name: "bare hostname rejected", in: []string{"dns.example.com"}, wantErr: true, errContains: "must be an IP"},
 		{name: "garbage rejected", in: []string{"not a dns server"}, wantErr: true, errContains: "must be an IP"},
 		{name: "too many colons rejected", in: []string{"1.1.1.1:53:54"}, wantErr: true, errContains: "must be an IP"},
