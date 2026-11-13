@@ -19,7 +19,7 @@
 # Usage:
 #   surface-sweep.sh init          # create <root>/{data,runs}; print <root>
 #   surface-sweep.sh env <journey> # print shell exports for that journey
-#   surface-sweep.sh sweep         # remove every sandbox and home volume
+#   surface-sweep.sh sweep         # remove every sandbox and home volume (lock held)
 #   surface-sweep.sh lock          # take <root>.lock for the run (portable mkdir)
 #   surface-sweep.sh unlock        # release <root>.lock
 #
@@ -114,7 +114,16 @@ cmd_unlock() {
 
 cmd_sweep() {
   local asb="${ASB_BIN:-asb}"
-  local envfile name volume sandboxes volumes
+  local envfile name volume sandboxes volumes failed=0
+  # The coordinator holds <root>.lock for the whole run and is the only caller
+  # allowed to sweep. Refusing an unlocked sweep keeps a stray invocation (or a
+  # manual run after `unlock`) from removing another run's live sandboxes and
+  # home volumes. The lock is a bare mkdir, so this can only test presence, not
+  # ownership; the runbook's `lock && init` keeps a second coordinator out.
+  if [[ ! -d "$ROOT.lock" ]]; then
+    echo "sweep: lock $ROOT.lock is not held; run 'surface-sweep.sh lock' before sweeping" >&2
+    exit 1
+  fi
   envfile="$(mktemp)"
   cmd_env coordinator >"$envfile"
   # Capture each list first so a failing list aborts the sweep with a
@@ -128,14 +137,19 @@ cmd_sweep() {
     rm -f "$envfile"
     exit 1
   }
+  # Keep removing the rest after a failure, but record it so the sweep still
+  # reports failure: a runtime/disk error must not leave artifacts behind while
+  # the caller sees success.
   # shellcheck disable=SC1090
   while read -r name; do
     [ -n "$name" ] || continue
-    (
+    if ! (
       . "$envfile"
       "$asb" sandbox remove --force --yes "$name"
-    ) ||
+    ); then
       echo "sweep: failed to remove sandbox $name" >&2
+      failed=1
+    fi
   done <<<"$sandboxes"
   # `volume list -q` prints one identifier per line (no header), so it is immune
   # to an inherited AGENTS_SANDBOX_QUIET dropping a line-1 volume.
@@ -152,13 +166,16 @@ cmd_sweep() {
   # shellcheck disable=SC1090
   while read -r volume; do
     [ -n "$volume" ] || continue
-    (
+    if ! (
       . "$envfile"
       "$asb" volume remove --force --yes "$volume"
-    ) ||
+    ); then
       echo "sweep: failed to remove volume $volume" >&2
+      failed=1
+    fi
   done <<<"$volumes"
   rm -f "$envfile"
+  return "$failed"
 }
 
 check_root_fits_sandbox_socket

@@ -117,6 +117,23 @@ eval_out="$(
 )"
 assert_eq "eval applied drops the ambient override" "unset|unset" "$eval_out"
 
+# --- B2: sweep refuses while the coordinator lock is not held ----------------
+# A sweep from a fresh shell, or a second coordinator that lost the lock race,
+# must not touch the shared data home's artifacts. The guard must fire before
+# any asb call.
+nolock_log="$tmp/asb-nolock.log"
+: >"$nolock_log"
+set +e
+ASB_STUB_LOG="$nolock_log" ASB_SURFACE_ROOT="$root" bash "$sweep" sweep >/dev/null 2>"$tmp/sweep.err"
+unlocked_sweep_status=$?
+set -e
+assert_nonzero "sweep without the lock is refused" "$unlocked_sweep_status"
+assert_contains "sweep names the missing lock" "$root.lock" "$(cat "$tmp/sweep.err")"
+if [[ -s "$nolock_log" ]]; then fail "unlocked sweep still called asb"; else ok "unlocked sweep called no asb"; fi
+
+# The coordinator holds the lock for the whole run; take it for the sweep tests.
+ASB_SURFACE_ROOT="$root" bash "$sweep" lock >/dev/null
+
 # --- sweep removes sandboxes and volumes, with --yes ------------------------
 # The stub also logs the env each asb call runs under, so a future edit that
 # drops the envfile sourcing (letting sweep operate on the real data home) fails
@@ -193,6 +210,52 @@ volume_list_status=$?
 set -e
 assert_nonzero "sweep fails when volume list fails" "$volume_list_status"
 assert_contains "sweep names the failing volume list" "volume list failed" "$(cat "$tmp/sweep.err")"
+
+# --- B3: a failed removal is reported while later removals still run ---------
+# Both removal loops echo on failure and the final rm used to supply the exit
+# status, so a failed removal reported success. The sweep must keep removing the
+# rest but still exit non-zero.
+cat >"$stub" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"${ASB_STUB_LOG:?}"
+case "$*" in
+  "sandbox list -q") printf 'sandbox-a\nsandbox-b\n' ;;
+  "volume list -q") printf 'vol-a\nvol-b\n' ;;
+  "sandbox remove --force --yes sandbox-a") exit 1 ;;
+esac
+EOF
+chmod +x "$stub"
+: >"$ASB_STUB_LOG"
+set +e
+ASB_SURFACE_ROOT="$root" bash "$sweep" sweep >/dev/null 2>"$tmp/sweep.err"
+sandbox_remove_status=$?
+set -e
+assert_nonzero "sweep fails when a sandbox removal fails" "$sandbox_remove_status"
+assert_contains "sweep names the failed sandbox" "failed to remove sandbox sandbox-a" "$(cat "$tmp/sweep.err")"
+assert_contains "sweep still removes the later sandbox" "sandbox remove --force --yes sandbox-b" "$(cat "$ASB_STUB_LOG")"
+assert_contains "sweep still removes the volumes" "volume remove --force --yes vol-a" "$(cat "$ASB_STUB_LOG")"
+
+cat >"$stub" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"${ASB_STUB_LOG:?}"
+case "$*" in
+  "sandbox list -q") printf 'sandbox-a\n' ;;
+  "volume list -q") printf 'vol-a\nvol-b\n' ;;
+  "volume remove --force --yes vol-a") exit 1 ;;
+esac
+EOF
+chmod +x "$stub"
+: >"$ASB_STUB_LOG"
+set +e
+ASB_SURFACE_ROOT="$root" bash "$sweep" sweep >/dev/null 2>"$tmp/sweep.err"
+volume_remove_status=$?
+set -e
+assert_nonzero "sweep fails when a volume removal fails" "$volume_remove_status"
+assert_contains "sweep names the failed volume" "failed to remove volume vol-a" "$(cat "$tmp/sweep.err")"
+assert_contains "sweep still removes the later volume" "volume remove --force --yes vol-b" "$(cat "$ASB_STUB_LOG")"
+
+# Release the lock the sweep tests held, before the lock-subcommand tests.
+ASB_SURFACE_ROOT="$root" bash "$sweep" unlock
 
 # --- B: the lock is a portable, exclusive mkdir ------------------------------
 lock_dir="$root.lock"

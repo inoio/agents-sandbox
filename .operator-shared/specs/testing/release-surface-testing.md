@@ -95,15 +95,32 @@ Failure modes the surface implies; each is pinned by a check in the task named.
   `XDG_CACHE_HOME`, `TMPDIR`, prefixed by `unset`s of the ambient `AGENTS_SANDBOX_*`/`OPENCODE_SANDBOX_*`/`MSB_*`;
   `PATH`/`TERM`/etc. are inherited from the caller.
 - `surface-sweep.sh sweep` → `sandbox list -q` / `sandbox remove --force --yes` and `volume list -q` / `volume remove
-  --force --yes` over the shared data home.
+  --force --yes` over the shared data home. Requires the lock (refuses otherwise) and exits non-zero if any removal
+  fails, after still attempting the rest.
 - `surface-sweep.sh lock` / `unlock` → take/release `<root>.lock` (an atomic `mkdir`/`rmdir`, portable to macOS where
   `flock(1)` is absent) for the whole run.
 
 - [ ] **Step 1 [I]: Create the spine root and acquire the lock.**
-  `bash scripts/surface-sweep.sh lock; bash scripts/surface-sweep.sh init`. Expected: prints the lock directory then
-  `/tmp/asb-surface`; the lock holds for the whole run, so a second coordinator sharing `/tmp/asb-surface` is excluded
-  from sweeping the first's live sandboxes/volumes. Record the root in every journey's environment.
-- [ ] **Step 2 [I]: Warm the cache (spine).** Run Task 2 (core first run) first, serially, so the BuildKit build and the
+  `bash scripts/surface-sweep.sh lock && bash scripts/surface-sweep.sh init`. Expected: prints the lock directory then
+  `/tmp/asb-surface`. The `&&` is load-bearing: if `lock` fails because another coordinator already holds the root,
+  **stop** — do not run `init`, do not dispatch a journey, do not sweep. The lock holds for the whole run, so a second
+  coordinator sharing `/tmp/asb-surface` is excluded from sweeping the first's live sandboxes/volumes; `sweep` also
+  refuses while the lock is not held. Record the root in every journey's environment.
+- [ ] **Step 2 [I]: Enter a journey environment.** Source the helper's exports into the **current** shell before any
+  `asb` command — a child process cannot change the caller's `HOME`/`XDG_*`, so `init` alone leaves the shell pointing
+  at the maintainer's real state:
+
+  ```bash
+  eval "$(bash scripts/surface-sweep.sh env <J>)"   # <J>: spine, or the journey's name
+  cd "$(dirname "$HOME")/project"                   # the throwaway project, sibling of this run's home/
+  asb config paths                                  # every path resolves under the sweep root, not under ~
+  printf 'HOME=%s\nXDG_DATA_HOME=%s\n' "$HOME" "$XDG_DATA_HOME"
+  ```
+
+  Expected: `HOME` and `XDG_DATA_HOME` are under the sweep root, `config paths` lists only isolated paths, and the CWD
+  is the throwaway project. The spine runs this once before Task 2; **every** parallel journey agent re-runs it in its
+  own fresh shell (a new agent shell starts un-isolated) before its first `asb` call.
+- [ ] **Step 3 [I]: Warm the cache (spine).** Run Task 2 (core first run) first, serially, so the BuildKit build and the
   multi-GB image transfer are paid once in the shared `data/` home before Tasks 3–14 fan out.
 
 ## Task 1 [M]: Real-state section — safety net
@@ -125,15 +142,31 @@ Config shapes are owned by `docs/get-started.md`/`docs/sandboxes.md`.
   warning. Evidence: captured output. (Design coverage item 1.)
 - [ ] **Step 2: Doctor.** `asb doctor`. Expected: each prerequisite reported; on a healthy host all pass. Evidence:
   capture stdout.
-- [ ] **Step 2: `--dry-run` writes nothing.**
-  `snapshot_before=$(find "$HOME" "$XDG_DATA_HOME" -newer /dev/null | sort)`; then `asb --dry-run`; then diff before/after
-  and confirm no state/config/volume/VM change and (via `strace -f -e trace=network` or a proxy check) no network
-  request. Expected: the report names the agent version (or "resolves at build time"), whether the image builds or is
-  reused, and whether the home volume is created or reused; nothing is created.
-- [ ] **Step 3: First run.** Under `tmux`: `tmux new-session -d -s run 'asb'`, then `tmux capture-pane -p -t run`.
-  Expected: the BuildKit image build, VM creation, home-volume creation, then opencode2's TUI. Evidence: pane text.
-- [ ] **Step 4: Reach and leave the TUI.** Confirm the interactive screen is up; `tmux send-keys -t run C-d`; confirm the
-  process exits and the session ends. Expected: clean exit; no daemon-timeout text in the pane.
+- [ ] **Step 2: `--dry-run` writes nothing.** Snapshot **bytes and metadata** of every isolated root, run the command,
+  and diff. A path-only listing misses an in-place rewrite (a rewritten `state.yaml` keeps its name) and omits the
+  separate `config/`/`state/`/`cache/` trees, so hash the contents (name, mode, size, mtime included):
+
+  ```bash
+  snapshot() {
+    tar -cf - -C / \
+      "${HOME#/}" "${XDG_CONFIG_HOME#/}" "${XDG_STATE_HOME#/}" \
+      "${XDG_CACHE_HOME#/}" "${XDG_DATA_HOME#/}" "${TMPDIR#/}" "${PWD#/}" \
+      2>/dev/null | cksum
+  }
+  before="$(snapshot)"; asb --dry-run; after="$(snapshot)"
+  [ "$before" = "$after" ] && echo "no write" || echo "DRY RUN WROTE SOMETHING"
+  ```
+
+  Confirm no state/config/volume/VM change and (via `strace -f -e trace=network` or a proxy check) no network request.
+  Expected: the snapshot is unchanged, and the report names the agent version (or "resolves at build time"), whether the
+  image builds or is reused, and whether the home volume is created or reused; nothing is created.
+- [ ] **Step 3: First run.** Start a **fresh private server from this isolated shell** so its panes inherit the sweep
+  env (`HOME`/`XDG_*`) and never the maintainer's default server: `tmux -L spine new-session -d -s run 'asb'`, then
+  `tmux -L spine capture-pane -p -t run`. Expected: the BuildKit image build, VM creation, home-volume creation, then
+  opencode2's TUI. Evidence: pane text.
+- [ ] **Step 4: Reach and leave the TUI.** Confirm the interactive screen is up; `tmux -L spine send-keys -t run C-d`;
+  confirm the process exits and the session ends, then `tmux -L spine kill-server` (safe: the private socket never
+  touches the default server). Expected: clean exit; no daemon-timeout text in the pane.
 - [ ] **Step 5: Second run reuses.** `asb` again. Expected: no rebuild, existing image/volume/VM reused, TUI within
   seconds. Evidence: pane text lacks a build log.
 - [ ] **Step 6: `shell` and `shell --root`.** `asb shell` then `id`; `asb shell --root` then `id`. Expected: `dev` and
