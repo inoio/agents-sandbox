@@ -225,8 +225,9 @@ func NormalizeDNSServers(in []string) ([]string, error) {
 			return nil, fmt.Errorf("invalid DNS server %q: missing port", s)
 		}
 		// strconv.Atoi returns 0 on a syntax error and MaxInt on an
-		// out-of-range port, so the range check alone rejects every invalid
-		// value and the parse error is safely ignored.
+		// out-of-range port (MinInt on negative overflow), so the range
+		// check alone rejects every invalid value and the parse error is
+		// safely ignored.
 		portNumber, _ := strconv.Atoi(port)
 		if portNumber < 1 || portNumber > 65535 {
 			return nil, fmt.Errorf("invalid DNS server %q: invalid port %q", s, port)
@@ -237,9 +238,10 @@ func NormalizeDNSServers(in []string) ([]string, error) {
 }
 
 // Validate reports whether the policy is well-formed: known, combinable
-// profiles and DNS servers that normalize. It is the one validation both the
-// config-load path (the --network/--dns flags and the env/config decode) and the
-// VM creation path run, so an invalid policy is rejected before any VM work.
+// profiles and DNS servers that normalize. It is the entry point the runoptions
+// flag path (resolveNetwork) and vm.EnsureProjectVM run, so an invalid policy
+// is rejected before any VM work. The env/config decode validates the same
+// fields through viperconfig at load instead.
 func (p Policy) Validate() error {
 	_, err := p.Spec()
 	return err

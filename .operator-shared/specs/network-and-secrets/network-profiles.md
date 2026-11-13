@@ -41,14 +41,15 @@ viperconfig's derived env-key list from binding `AGENTS_SANDBOX_NETWORK_EGRESS_A
 
 ## Validation runs before any VM work
 
-`Policy.Validate()` is the single well-formedness check: it normalizes the DNS servers and rejects an unknown or
-non-combinable profile. The env/config `network.dns-servers` value is validated in viperconfig at config-load
-(`validateNetworkDNSServers`), but the `--network`/`--dns` flags are resolved in `runoptions` after viper, so
-`resolveNetwork` calls `Validate()` on the resolved policy there — that is what makes `--dns garbage` fail at
-config-load (even under `--dry-run`) exactly as the env var does. `vm.EnsureProjectVM` validates once more before it
-touches the VM, so a recreate with an unapplicable policy destroys nothing: a `--dns` typo never costs the running
-sandbox. `NormalizeDNSServers` rejects a non-numeric or out-of-range port as well as an empty entry, a host without a
-port, and garbage.
+`Policy.Validate()` is the well-formedness entry point the flag path and the VM path run: `resolveNetwork` calls it on
+the resolved policy after the `--network`/`--dns` flags are applied (those flags are not bound into viper, so they
+reach runoptions unvalidated), and `vm.EnsureProjectVM` validates once more before it touches the VM, so a recreate
+with an unapplicable policy destroys nothing: a `--dns` typo never costs the running sandbox. The env/config
+`network.profile` and `network.dns-servers` values are validated in viperconfig at config-load instead —
+`normalizeNetworkProfile` runs `network.ParseProfiles` and `validateNetworkDNSServers` runs `network.NormalizeDNSServers`,
+the same normalizers `Validate()` goes through — so an invalid env/config value is rejected before options resolution.
+`NormalizeDNSServers` rejects a non-numeric or out-of-range port as well as an empty entry, a host without a port, and
+garbage.
 
 ## Rule order: deny carve-outs beat profile allows
 

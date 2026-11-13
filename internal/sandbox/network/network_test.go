@@ -158,9 +158,10 @@ func TestSpecDNSInvalidErrors(t *testing.T) {
 	}
 }
 
-// TestPolicyValidate pins the single validation both the config-load and the VM
-// creation path run: a well-formed policy passes, and an unknown or
-// non-combinable profile or an unnormalizable DNS server is rejected.
+// TestPolicyValidate pins the well-formedness entry point the runoptions flag
+// path and the VM creation path run: a well-formed policy passes, and an
+// unknown or non-combinable profile or an unnormalizable DNS server is
+// rejected.
 func TestPolicyValidate(t *testing.T) {
 	valid := []Policy{
 		{},
