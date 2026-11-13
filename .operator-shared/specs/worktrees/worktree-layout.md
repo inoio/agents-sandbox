@@ -1,6 +1,6 @@
 ---
 description: Contract for the `/workspace` bind-source rule (#145) - bind the smallest enclosing checkout containing the CWD, so a session in a nested or bare-layout worktree always exposes its worktree, with guest-CWD derivation for subdirectories and the outside-worktree case (bind its own root, run it as its own checkout with its shared git dir mounted). The bare-checkout folder taxonomy and recipe are the tracked `bare-worktrees` skill; per-checkout identity is `../identity/checkout-identity.md`.
-read_if: Changing the `/workspace` bind-source resolution, guest-CWD derivation, the worktree mount rule, or the outside-worktree shared-git-dir mount (`prepare.withSharedGitDirMount`); or diagnosing a session that hides the worktree it was launched from or a `git` command that cannot resolve inside the VM.
+read_if: Changing the `/workspace` bind-source resolution, guest-CWD derivation, the worktree mount rule, or the outside-worktree shared-git-dir mount (`prepare.withSharedGitDirMount`); or diagnosing a session that hides the worktree it was launched from, a `git` command that cannot resolve inside the VM, or the `--worktree` host `.git/worktrees` side effect.
 ---
 
 # Contained worktrees: the `/workspace` bind rule
@@ -62,6 +62,8 @@ Verified against `opencode 1.19.0`: `opencode serve` has no server-side director
 ## `--worktree` (kept)
 
 `--worktree` is not removed. It continues to create/reuse a daemon-side worktree under the opencode data dir (home volume, explicitly out of scope) and to override the attach target. This contract changes only the bind source and default guest CWD.
+
+**Host-visible side effect.** The daemon's `git worktree add` runs against the checkout bound at `/workspace`, whose `.git` is the host's, so the registration lands in the host's `.git/worktrees/<name>` and its `gitdir` file points into the guest (`/home/dev/.local/share/opencode/worktree/…`). Host `git worktree list` therefore shows the entry as a prunable phantom, and a host `git worktree prune` while the guest worktree exists orphans the guest worktree and its commits. The launcher warns at create time and the user docs (`docs/branch-sessions.md`) state the same caveat; cleanup is a guest-side `git worktree remove` first, then a host prune. Deliberately not fixed here: giving the guest an isolated git dir is a separate design issue.
 
 ## Acceptance
 
