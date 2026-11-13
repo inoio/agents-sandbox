@@ -90,7 +90,8 @@ RUN GOBIN=/usr/local/bin go install \
 # rationale - prebuilt so the target reuses the module cache instead of
 # fetching on first run.
 RUN GOBIN=/usr/local/bin go install \
-    golang.org/x/vuln/cmd/govulncheck@v${GOVULNCHECK_VERSION} \
+    golang.org/x/vuln/cmd/govulncheck@v${GOVULNCHECK_VERSION} && \
+    GOBIN=/usr/local/bin go install \
     github.com/gomutants/gomutants@v${GOMUTANTS_VERSION}
 # ast-grep: structural search/rewrite over the AST (Rust). Its GitHub releases carry
 # only the GUI app, so pull the manylinux wheel from PyPI and extract the CLI binary
