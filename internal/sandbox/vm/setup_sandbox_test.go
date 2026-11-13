@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"slices"
@@ -18,8 +19,8 @@ import (
 // TestRunStartupHooksExecutesEachHook pins how a hook is run: as the default
 // sandbox user with its home, or as root with /root when it asks for root; a
 // script with a shebang is executed directly so the kernel applies it, one
-// without is run through /bin/sh. Hooks run through the non-interactive exec
-// path, so a non-TTY run still runs them.
+// without is run through /bin/sh. Hooks run through the non-interactive
+// streaming exec path, so a non-TTY run still runs them.
 func TestRunStartupHooksExecutesEachHook(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -64,21 +65,33 @@ func TestRunStartupHooksExecutesEachHook(t *testing.T) {
 
 			runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{tc.hook}, &ui)
 
-			if sb.ExecUser != tc.wantUser || sb.ExecEnv["HOME"] != tc.wantHome {
+			if sb.ExecStreamUser != tc.wantUser || sb.ExecStreamEnv["HOME"] != tc.wantHome {
 				t.Errorf("executed as %q with HOME %q, want %q with %q",
-					sb.ExecUser, sb.ExecEnv["HOME"], tc.wantUser, tc.wantHome)
+					sb.ExecStreamUser, sb.ExecStreamEnv["HOME"], tc.wantUser, tc.wantHome)
 			}
-			if sb.ExecCmd != tc.wantCmd || !slices.Equal(sb.ExecArgs, tc.wantArgs) {
-				t.Errorf("executed %q %v, want %q %v", sb.ExecCmd, sb.ExecArgs, tc.wantCmd, tc.wantArgs)
+			if sb.ExecStreamCmd != tc.wantCmd || !slices.Equal(sb.ExecStreamArgs, tc.wantArgs) {
+				t.Errorf("executed %q %v, want %q %v", sb.ExecStreamCmd, sb.ExecStreamArgs, tc.wantCmd, tc.wantArgs)
 			}
 		})
 	}
 }
 
-// TestRunStartupHooksContinuesPastAFailingHook pins that a hook that cannot run
-// is a warning and the remaining hooks still run.
+// TestRunStartupHooksContinuesPastAFailingHook pins that a hook that cannot
+// start is a warning and the remaining hooks still run.
 func TestRunStartupHooksContinuesPastAFailingHook(t *testing.T) {
-	sb := &msbtest.MockSandbox{Name_: "vm", ExecErr: errors.New("exec failed")}
+	sb := &msbtest.MockSandbox{
+		Name_: "vm",
+		ExecStreamFn: func(_ context.Context, command string, _ []string, _ msb.ExecRequest) (msb.StreamHandle, error) {
+			if command == "/home/dev/.first.sh" {
+				return msbtest.NewScriptedStreamHandle(
+					msb.StreamEvent{Kind: msb.StreamEventFailed},
+				), nil
+			}
+			return msbtest.NewScriptedStreamHandle(
+				msb.StreamEvent{Kind: msb.StreamEventExited, ExitCode: 0},
+			), nil
+		},
+	}
 	ui := termiotest.NewTestMock(t)
 
 	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
@@ -86,11 +99,11 @@ func TestRunStartupHooksContinuesPastAFailingHook(t *testing.T) {
 		{Target: "/home/dev/.second.sh", Source: "x", HasShebang: true},
 	}, &ui)
 
-	if sb.ExecCmd != "/home/dev/.second.sh" {
-		t.Errorf("last executed hook = %q, want the second hook to run after the first failed", sb.ExecCmd)
+	if sb.ExecStreamCmd != "/home/dev/.second.sh" {
+		t.Errorf("last executed hook = %q, want the second hook to run after the first failed", sb.ExecStreamCmd)
 	}
-	if len(ui.WarnCalls) != 2 || !strings.Contains(ui.WarnCalls[0], "startup hook /home/dev/.first.sh failed") {
-		t.Errorf("warnings = %v, want one per failed hook", ui.WarnCalls)
+	if len(ui.WarnCalls) != 1 || !strings.Contains(ui.WarnCalls[0], "startup hook /home/dev/.first.sh failed") {
+		t.Errorf("warnings = %v, want one for the failed hook", ui.WarnCalls)
 	}
 }
 
@@ -100,8 +113,16 @@ func TestRunStartupHooksContinuesPastAFailingHook(t *testing.T) {
 func TestRunStartupHooksWarnsWhenAHookExitsNonZero(t *testing.T) {
 	sb := &msbtest.MockSandbox{
 		Name_: "vm",
-		ExecOut: map[string]msb.ShellResult{
-			"/bin/sh /home/dev/.first.sh": msbtest.NewTestResult(false, 2, "", "ca import failed", nil),
+		ExecStreamFn: func(_ context.Context, command string, args []string, _ msb.ExecRequest) (msb.StreamHandle, error) {
+			if command == "/bin/sh" && slices.Equal(args, []string{"/home/dev/.first.sh"}) {
+				return msbtest.NewScriptedStreamHandle(
+					msb.StreamEvent{Kind: msb.StreamEventStderr, Data: []byte("ca import failed\n")},
+					msb.StreamEvent{Kind: msb.StreamEventExited, ExitCode: 2},
+				), nil
+			}
+			return msbtest.NewScriptedStreamHandle(
+				msb.StreamEvent{Kind: msb.StreamEventExited, ExitCode: 0},
+			), nil
 		},
 	}
 	ui := termiotest.NewTestMock(t)
@@ -111,9 +132,9 @@ func TestRunStartupHooksWarnsWhenAHookExitsNonZero(t *testing.T) {
 		{Target: "/home/dev/.second.sh", Source: "x"},
 	}, &ui)
 
-	if sb.ExecCmd != "/bin/sh" || !slices.Equal(sb.ExecArgs, []string{"/home/dev/.second.sh"}) {
+	if sb.ExecStreamCmd != "/bin/sh" || !slices.Equal(sb.ExecStreamArgs, []string{"/home/dev/.second.sh"}) {
 		t.Errorf("last executed hook = %q %v, want the second hook to run after the first failed",
-			sb.ExecCmd, sb.ExecArgs)
+			sb.ExecStreamCmd, sb.ExecStreamArgs)
 	}
 	if len(ui.WarnCalls) != 1 {
 		t.Fatalf("warnings = %v, want one for the failed hook", ui.WarnCalls)
@@ -122,6 +143,36 @@ func TestRunStartupHooksWarnsWhenAHookExitsNonZero(t *testing.T) {
 		if !strings.Contains(ui.WarnCalls[0], want) {
 			t.Errorf("warning %q missing %q", ui.WarnCalls[0], want)
 		}
+	}
+}
+
+// TestRunStartupHooksStreamsUnboundedHookOutput pins that a hook runs through
+// the streaming exec seam, not the collected one: the collected response is
+// capped at ~1 MiB, so a hook that emits more would be cut off and reported as
+// failed even when it exits 0. The streaming seam reports the real exit code
+// however much the hook prints. ExecErr is set to simulate the collected seam's
+// bound, so a regression to the collected path fails this test.
+func TestRunStartupHooksStreamsUnboundedHookOutput(t *testing.T) {
+	sb := &msbtest.MockSandbox{
+		Name_:   "vm",
+		ExecErr: errors.New("exec output exceeds the collected response bound"),
+		ExecStreamFn: func(_ context.Context, _ string, _ []string, _ msb.ExecRequest) (msb.StreamHandle, error) {
+			// More output than the collected seam's 1 MiB response buffer.
+			output := bytes.Repeat([]byte("x"), 2<<20)
+			return msbtest.NewScriptedStreamHandle(
+				msb.StreamEvent{Kind: msb.StreamEventStdout, Data: output},
+				msb.StreamEvent{Kind: msb.StreamEventExited, ExitCode: 0},
+			), nil
+		},
+	}
+	ui := termiotest.NewTestMock(t)
+
+	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
+		{Target: "/home/dev/.big.sh", Source: "x", HasShebang: true},
+	}, &ui)
+
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("warnings = %v, want none for a hook that exits 0 however much it prints", ui.WarnCalls)
 	}
 }
 

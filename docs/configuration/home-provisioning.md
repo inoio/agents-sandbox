@@ -72,7 +72,9 @@ Rules:
 - The hook runs only when the VM is **started** — freshly created, recreated, or booted from a stopped/crashed state. It
   is **not** re-run when you attach to an already-running VM.
 - The hook runs non-interactively: it cannot read from user input (stdin is closed), so it cannot prompt for passwords
-  or MFA and never waits on input — startup blocks until the script finishes. When the hook finishes, microsandbox ends
+  or MFA and never waits on input — startup blocks until the script finishes. Its stdout and stderr stream to the
+  session as it runs, so a hook may print unbounded output (progress, build logs, `curl -v`). When the hook finishes,
+  microsandbox ends
   every process of the hook's session, including
   ones started with `nohup ... &`: `nohup` only ignores the hangup signal, but the process stays in the session. A hook
   that must keep running for the VM's lifetime (e.g. a VPN client) or wait for something that starts after the hooks

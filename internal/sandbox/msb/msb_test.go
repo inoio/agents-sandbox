@@ -1818,9 +1818,9 @@ func TestRealSandboxDelegatesToSDK(t *testing.T) {
 	})
 }
 
-// TestRealSandboxShellExecStreamDelegation covers the sandbox's Shell, Exec, and
-// ShellStream adapters through their SDK seams, including the ShellStream
-// success wrap and error branch.
+// TestRealSandboxShellExecStreamDelegation covers the sandbox's Shell, Exec,
+// ShellStream and ExecStream adapters through their SDK seams, including the
+// streaming success wrap and error branches.
 func TestRealSandboxShellExecStreamDelegation(t *testing.T) {
 	ctx := context.Background()
 
@@ -1882,6 +1882,38 @@ func TestRealSandboxShellExecStreamDelegation(t *testing.T) {
 		})
 		if _, err := (realSandbox{}).ShellStream(ctx, "cmd", ExecRequest{}); !errors.Is(err, wantErr) {
 			t.Fatalf("ShellStream() error = %v, want %v", err, wantErr)
+		}
+	})
+
+	t.Run("ExecStream wraps the SDK handle", func(t *testing.T) {
+		handle := &msbSdk.ExecHandle{}
+		swapSeam(t, &realSandboxExecStream, func(
+			_ *msbSdk.Sandbox, _ context.Context, command string, args []string, _ ...msbSdk.ExecOption,
+		) (*msbSdk.ExecHandle, error) {
+			if command != "sh" || len(args) != 1 || args[0] != "-c" {
+				t.Errorf("ExecStream() = (%q, %v), want sh [-c]", command, args)
+			}
+			return handle, nil
+		})
+		got, err := (realSandbox{}).ExecStream(ctx, "sh", []string{"-c"}, ExecRequest{})
+		if err != nil {
+			t.Fatalf("ExecStream() error = %v", err)
+		}
+		wrapped, ok := got.(*realStreamHandle)
+		if !ok || wrapped.handle != handle {
+			t.Fatalf("ExecStream() = %#v, want realStreamHandle wrapping the SDK handle", got)
+		}
+	})
+
+	t.Run("ExecStream propagates the SDK error", func(t *testing.T) {
+		wantErr := errors.New("exec stream boom")
+		swapSeam(t, &realSandboxExecStream, func(
+			_ *msbSdk.Sandbox, _ context.Context, _ string, _ []string, _ ...msbSdk.ExecOption,
+		) (*msbSdk.ExecHandle, error) {
+			return nil, wantErr
+		})
+		if _, err := (realSandbox{}).ExecStream(ctx, "cmd", nil, ExecRequest{}); !errors.Is(err, wantErr) {
+			t.Fatalf("ExecStream() error = %v, want %v", err, wantErr)
 		}
 	})
 }

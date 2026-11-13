@@ -25,14 +25,15 @@ const RootUser = "root"
 const defaultHookInterpreter = "/bin/sh"
 
 // runStartupHooks runs each configured startup hook inside the VM via a
-// non-interactive exec, so a run without a TTY still runs the hooks. A hook
-// with a shebang is executed directly so the VM kernel resolves the
+// non-interactive streaming exec, so a run without a TTY still runs the hooks.
+// A hook with a shebang is executed directly so the VM kernel resolves the
 // interpreter; one without falls back to /bin/sh. Hook scripts are marked
 // executable during provisioning, so no +x bit is required on the host source.
-// The hook's HOME is set so scripts can rely on it. The agent waits for the
-// exec to finish; a hook that must outlive it is responsible for daemonizing
-// itself. A hook that cannot run, or that exits non-zero, is reported with its
-// target and the reason. Failures are logged, not fatal.
+// The hook's HOME is set so scripts can rely on it. Output is streamed to the
+// UI as the hook produces it; the agent waits for the exec to finish and a hook
+// that must outlive it is responsible for daemonizing itself. A hook that
+// cannot start, or that exits non-zero, is reported with its target and the
+// reason. Failures are logged, not fatal.
 func runStartupHooks(ctx context.Context, sb msb.Sandbox, hooks []homeconfig.HookSpec, ui termio.Logger) {
 	for _, h := range hooks {
 		user := DefaultSandboxUser
@@ -48,24 +49,72 @@ func runStartupHooks(ctx context.Context, sb msb.Sandbox, hooks []homeconfig.Hoo
 			args = []string{h.Target}
 		}
 		ui.Infof("running startup hook %s (as %s, via %s)", h.Target, user, command)
-		result, err := sb.Exec(
-			ctx,
-			command,
-			args,
-			msb.ExecRequest{User: user, Env: map[string]string{"HOME": home}},
-		)
+		runStartupHook(ctx, sb, h.Target, command, args, user, home, ui)
+	}
+}
+
+// runStartupHook runs one hook through the streaming exec seam and forwards its
+// output to the UI. The streaming seam is required, not the collected Exec: the
+// collected response buffer is capped at ~1 MiB, so a hook that emits more
+// would be cut off and misreported as failed even though it exited 0. The exit
+// code is surfaced by the exited event; a hook that never starts, or a stream
+// error, is logged as a warning, not fatal.
+func runStartupHook(
+	ctx context.Context,
+	sb msb.Sandbox,
+	target, command string,
+	args []string,
+	user, home string,
+	ui termio.Logger,
+) {
+	handle, err := sb.ExecStream(
+		ctx,
+		command,
+		args,
+		msb.ExecRequest{User: user, Env: map[string]string{"HOME": home}},
+	)
+	if err != nil {
+		ui.Warnf("startup hook %s failed: %v", target, err)
+		return
+	}
+	defer handle.Close()
+
+	var stderr strings.Builder
+	for {
+		event, err := handle.Recv(ctx)
 		if err != nil {
-			ui.Warnf("startup hook %s failed: %v", h.Target, err)
-			continue
-		}
-		if !result.Success() {
-			reason := fmt.Sprintf("exit %d", result.ExitCode())
-			if stderr := strings.TrimSpace(result.Stderr()); stderr != "" {
-				reason += ": " + stderr
+			if ctx.Err() != nil {
+				return
 			}
-			ui.Warnf("startup hook %s failed: %s", h.Target, reason)
+			ui.Warnf("startup hook %s failed: %v", target, err)
+			return
+		}
+		switch event.Kind {
+		case msb.StreamEventStdout:
+			ui.Info(string(event.Data))
+		case msb.StreamEventStderr:
+			stderr.Write(event.Data)
+			ui.Info(string(event.Data))
+		case msb.StreamEventExited:
+			if event.ExitCode != 0 {
+				ui.Warnf("startup hook %s failed: %s", target, exitReason(event.ExitCode, stderr.String()))
+			}
+			return
+		case msb.StreamEventFailed:
+			ui.Warnf("startup hook %s failed: could not start", target)
+			return
 		}
 	}
+}
+
+// exitReason describes a hook's non-zero exit for its failure warning: the exit
+// code plus a trimmed stderr tail when the hook produced one.
+func exitReason(exitCode int, stderr string) string {
+	reason := fmt.Sprintf("exit %d", exitCode)
+	if tail := strings.TrimSpace(stderr); tail != "" {
+		reason += ": " + tail
+	}
+	return reason
 }
 
 // SetUpSandbox provisions a running project VM and returns the attach target.
