@@ -1,8 +1,50 @@
 FROM debian:forky-slim
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends bc bsdmainutils ca-certificates curl dnsutils git iptables ripgrep fd-find file gawk iproute2 iputils-ping jq less lz4 man-db moreutils net-tools netcat-openbsd parallel procps psmisc python3 recode rootlesskit rsync slirp4netns socat sqlite3 tar time tree unzip uuid wget xz-utils yq zip zstd \
-    && rm -rf /var/lib/apt/lists/*
+# Dev-VM toolchain, grouped by the consumer that depends on each package (a
+# line's comment names its dependee). One apt layer for all of them; the
+# build/doc/lint packages live here rather than after the Go installs because
+# nothing between the two former blocks needs them at build time.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      # apt/curl/wget/git/gh trust; the microsandbox CA is injected here
+      ca-certificates \
+      # HTTP fetching, file sync, and archive handling
+      curl wget rsync tar zip unzip xz-utils zstd lz4 \
+      # installing/verifying third-party software (apt keys, release signatures)
+      gnupg \
+      # source control and GitHub
+      git \
+      # code search, file/tree inspection
+      ripgrep fd-find file tree \
+      # manual pages and paging (git, make, tools)
+      man-db less \
+      # process inspection and signalling
+      procps psmisc \
+      # debugging: port/file holders, syscall+namespace tracing, TLS inspection
+      lsof strace openssl \
+      # network inspection, DNS, ad-hoc sockets, packet capture
+      dnsutils iputils-ping netcat-openbsd socat tcpdump \
+      # shell-scripting helpers (arithmetic, timing, ids)
+      bc time uuid-runtime \
+      # text, JSON/YAML, and data munging
+      bsdextrautils gawk moreutils jq yq sqlite3 \
+      # Python interpreter with venv and pip
+      python3 python3-venv python3-pip \
+      # GNU parallel
+      parallel \
+      # rootless Docker engine prerequisites (ip/ss are also the network tools)
+      rootlesskit slirp4netns fuse-overlayfs iptables iproute2 \
+      # CGO builds (gcc/make/pkg-config) for `make test` and the msb SDK
+      build-essential pkg-config \
+      # Node tooling: the Operator Helper CLI installed below, and JS LSP servers
+      nodejs \
+      # shell scripts: shellcheck (agent-run; not a make target)
+      shellcheck \
+      # Jekyll docs site (`make docs-serve`)
+      bundler \
+      # PlantUML jar: the full JRE, not -headless, so fonts render
+      default-jre \
+ && rm -rf /var/lib/apt/lists/*
 
 # fd-find ships the binary as `fdfind`; expose it as `fd` too, so an agent that
 # reaches for the common name finds it. AGENTS.md/guides name `fdfind`.
@@ -14,6 +56,8 @@ ARG GOLANGCI_LINT_VERSION=2.15.0
 ARG GOTESTSUM_VERSION=1.13.0
 ARG GOPLS_VERSION=0.24.0
 ARG XTOOLS_VERSION=0.52.0
+ARG GOVULNCHECK_VERSION=1.9.0
+ARG GOMUTANTS_VERSION=0.7.3
 ARG AST_GREP_VERSION=0.51.2
 ARG ZIG_VERSION=0.17.1
 ARG GH_VERSION=2.103.3
@@ -41,6 +85,13 @@ RUN GOBIN=/usr/local/bin go install golang.org/x/tools/gopls@v${GOPLS_VERSION}
 RUN GOBIN=/usr/local/bin go install \
     golang.org/x/tools/cmd/goimports@v${XTOOLS_VERSION} \
     golang.org/x/tools/cmd/deadcode@v${XTOOLS_VERSION}
+# govulncheck: the `make vulncheck` scanner (part of `make verify`), and
+# gomutants: the on-demand `make mutation` tool. Both follow the deadcode
+# rationale - prebuilt so the target reuses the module cache instead of
+# fetching on first run.
+RUN GOBIN=/usr/local/bin go install \
+    golang.org/x/vuln/cmd/govulncheck@v${GOVULNCHECK_VERSION} \
+    github.com/gomutants/gomutants@v${GOMUTANTS_VERSION}
 # ast-grep: structural search/rewrite over the AST (Rust). Its GitHub releases carry
 # only the GUI app, so pull the manylinux wheel from PyPI and extract the CLI binary
 # directly - no pip, Cargo, or Node. The upstream `sg` alias is omitted: on Linux `sg`
@@ -58,12 +109,6 @@ RUN ARCH="$(dpkg --print-architecture)" \
  && unzip -q /tmp/ast-grep.whl 'ast_grep_cli-*.data/scripts/ast-grep' -d /tmp/ast-grep \
  && install -m 0755 /tmp/ast-grep/ast_grep_cli-*.data/scripts/ast-grep /usr/local/bin/ast-grep \
  && rm -rf /tmp/ast-grep /tmp/ast-grep.whl
-# build-essential for CGO, shellcheck for shell script linting, default-jre for the PlantUML jar
-# (the full JRE, not -headless: PlantUML renders fonts and needs libharfbuzz/libfontmanager), and
-# nodejs for Node tooling (the operator-helper CLI, JS-based LSP servers)
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends build-essential bundler shellcheck default-jre nodejs && \
-    rm -rf /var/lib/apt/lists/*
 
 # zig (tarball and install dir are architecture-specific; a stable symlink keeps PATH fixed)
 
