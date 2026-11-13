@@ -209,6 +209,22 @@ func TestResolveBindMountsReportsSymlinkSourceError(t *testing.T) {
 	}
 }
 
+// TestResolveBindMountsNamesConfiguredSourceForMissingPath guards that a
+// missing mount source reports the configured (expanded) path, not the first
+// missing ancestor that filepath.EvalSymlinks surfaces: the user typed the
+// deep path, and the error must say which path to fix.
+func TestResolveBindMountsNamesConfiguredSourceForMissingPath(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "deep", "missing", "path")
+
+	_, err := ResolveBindMounts(Mounts{"/home/dev/.m2": {Source: source}})
+	if err == nil {
+		t.Fatal("expected an error for a missing source")
+	}
+	if !strings.Contains(err.Error(), source) {
+		t.Errorf("error %q does not name the configured source %q", err, source)
+	}
+}
+
 // TestResolveBindMountsRejectsRelativeSourceThatExists guards the absolute-path
 // requirement itself. A relative source that exists resolves fine, so only the
 // explicit check turns it into an error.
