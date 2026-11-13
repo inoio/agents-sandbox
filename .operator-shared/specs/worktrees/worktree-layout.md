@@ -1,6 +1,6 @@
 ---
 description: Contract for the `/workspace` bind-source rule (#145) - bind the smallest enclosing checkout containing the CWD, so a session in a nested or bare-layout worktree always exposes its worktree, with guest-CWD derivation for subdirectories and the outside-worktree case (bind its own root, run it as its own checkout with its shared git dir mounted). The bare-checkout folder taxonomy and recipe are the tracked `bare-worktrees` skill; per-checkout identity is `../identity/checkout-identity.md`.
-read_if: Changing the `/workspace` bind-source resolution, guest-CWD derivation, the worktree mount rule, or the outside-worktree shared-git-dir mount (`prepare.withSharedGitDirMount`); or diagnosing a session that hides the worktree it was launched from, a `git` command that cannot resolve inside the VM, or the `--worktree` host `.git/worktrees` side effect.
+read_if: Changing the `/workspace` bind-source resolution, guest-CWD derivation, the worktree mount rule, or the outside-worktree shared-git-dir mount (`prepare.withSharedGitDirMount`); or diagnosing a session that hides the worktree it was launched from, a `git` command that cannot resolve inside the VM, or the `--worktree` host git-dir side effect.
 ---
 
 # Contained worktrees: the `/workspace` bind rule

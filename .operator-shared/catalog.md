@@ -162,7 +162,7 @@
 
 - `specs/worktrees/`
   - Description: `worktree-layout.md` — the `/workspace` bind-source rule (bind the smallest enclosing checkout), guest-CWD derivation, and the outside-worktree case.
-  - Read If: Changing the `/workspace` bind-source resolution, guest-CWD derivation, the worktree mount rule, or the outside-worktree shared-git-dir mount; or diagnosing a session that hides the worktree it was launched from, a `git` command that cannot resolve inside the VM, or the `--worktree` host `.git/worktrees` side effect.
+  - Read If: Changing the `/workspace` bind-source resolution, guest-CWD derivation, the worktree mount rule, or the outside-worktree shared-git-dir mount; or diagnosing a session that hides the worktree it was launched from, a `git` command that cannot resolve inside the VM, or the `--worktree` host git-dir side effect.
 
 ### `plans/` - TDD implementation plans
 
