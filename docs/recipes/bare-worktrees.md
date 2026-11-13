@@ -133,7 +133,7 @@ agents-sandbox
   that bind, so agents-sandbox also mounts it read-write at the same path inside the VM, where the worktree's `.git`
   file points. The sandbox can therefore write to the whole shared git dir, including the refs of every other worktree.
   If that mount is impossible — the `.git` file records a relative path (`worktree.useRelativePaths`), or the path lies
-  under `/home/dev`, `/workspace`, or `/tmp` — agents-sandbox warns, and git commands inside the VM fail to resolve the
+  under `/workspace` or `/tmp` — agents-sandbox warns, and git commands inside the VM fail to resolve the
   repository.
 
 Your IDE can attach to the stable checkout, to any worktree, or hop between them; that is a local choice and does not

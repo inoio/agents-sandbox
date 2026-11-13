@@ -268,22 +268,31 @@ and passed through unchanged.
 
 ## Forbidden: Request blocked by network policy
 
-The VM's network policy does not allow the destination. An HTTP or HTTPS client receives a `403` whose JSON body names
-the blocked domain:
+The VM's network policy does not allow the destination. An HTTP client to a resolved-but-denied destination receives a
+`403` whose JSON body names the blocked domain:
 
 ```json
 {"code":"network_policy_denied","message":"Request blocked by network policy.","domain":"api.example.com"}
 ```
 
+Denied HTTPS is closed at the TCP connection instead — `curl` exits with code 7 and no body arrives — except on a port
+microsandbox's TLS proxy intercepts: a configured secret turns TLS interception on, and there the denial is the same
+`403` delivered in-tunnel (the connection completes against the interception CA, which the guest trusts). See [TLS
+certificate errors for one application](#tls-certificate-errors-for-one-application). Under the `none` profile, a name
+the policy does not allow does not resolve (NXDOMAIN) before any egress, so there is no `403` at all.
 Other protocols see the connection fail instead. Allow the destination with `egress-allow`, or pick a profile that
 covers it (`private` for your local network, `host` for a service on the host); see
 [Networking]({% link configuration/networking.md %}).
 
 ## Forbidden: Request blocked by secret policy
 
-The request carried a secret placeholder to a host that the secret is not allowed for, so the proxy refused to forward
-it. Add the host the application actually calls to the secret's `host`/`hosts`. A common case is GitHub Copilot on
-GitHub Enterprise, where OpenCode calls the enterprise domain instead of `api.githubcopilot.com`; see
+The proxy refused to forward a request that carried a secret placeholder. Two causes produce the same message: the
+placeholder reached a host the secret is not allowed for, or it reached an allowed host over plain HTTP, where the
+proxy cannot substitute it — substitution only happens on a TLS-terminated connection (see
+[Placeholders in request bodies]({% link configuration/secrets.md %}#placeholders-in-request-bodies)). For the first
+cause, add the host the application actually calls to the secret's `host`/`hosts`. For the second, make the
+application use HTTPS. A common case is GitHub Copilot on GitHub Enterprise, where OpenCode calls the enterprise
+domain instead of `api.githubcopilot.com`; see
 [GitHub Copilot on GitHub Enterprise]({% link configuration/secrets.md %}#github-copilot-on-github-enterprise-ghecom).
 
 ## TLS certificate errors for one application

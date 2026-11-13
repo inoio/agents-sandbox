@@ -10,7 +10,8 @@ nav_order: 20
 
 Secrets are environment variables whose real values stay on the host and are delivered through microsandbox's secret
 mechanism. The VM receives a placeholder, not the real value. The network proxy replaces that placeholder only when a
-request is sent to an allowed host over a connection whose destination can be verified.
+request is sent to an allowed host over a TLS-terminated connection; a plain-HTTP request to an allowed host is blocked
+rather than substituted.
 
 This is different from an ordinary entry in `env`: values from `env` are copied into the VM as normal environment
 variables. Put credentials in `env.secret` or `env.secret.yaml`, never in `env`.
@@ -106,6 +107,10 @@ The proxy blocks a placeholder that reaches a host the secret neither allows nor
 the placeholder travels in a request the agent does not control. A coding agent sends its whole conversation as the
 completion request body, so once a placeholder enters the transcript — a tool that prints the environment, for
 example — every later completion request is blocked and the session cannot continue.
+
+Substitution only happens on a TLS-terminated connection: the proxy rewrites a placeholder on an HTTPS request to a
+host in the secret's `host`/`hosts`, and blocks the same request over plain HTTP (`Request blocked by secret policy.`)
+even though the host is allowed.
 
 `secrets.common.allow-placeholder-for` lists the hosts that may receive **any** secret's placeholder unchanged. Set it
 to the agent's model endpoint:
@@ -285,9 +290,11 @@ network:
     - .example.ghe.com
 ```
 
-If a secret's hosts do not match the endpoint OpenCode calls, the request fails with
-`Forbidden: Request blocked by secret policy.` The proxy refuses to forward a placeholder to a host the secret is not
-allowed for. Add the host from the failing request to the secret's `hosts`.
+If a secret's hosts do not match the endpoint OpenCode calls, or OpenCode calls an allowed host over plain HTTP, the
+request fails with `Forbidden: Request blocked by secret policy.` The proxy refuses to forward a placeholder to a host
+the secret is not allowed for, and it substitutes a placeholder only on a TLS-terminated connection, so a plain-HTTP
+request to an allowed host is blocked too. For the first cause, add the host from the failing request to the secret's
+`hosts`; for the second, make the request use HTTPS.
 
 Use `agents-sandbox config home` to verify the `home:` mapping. `agents-sandbox config agent` shows the agent mirror and
 drop-in candidates, but does not show `home:` mappings or files already present in the persistent home volume.

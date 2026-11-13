@@ -218,7 +218,7 @@ Dockerfiles each build their own tag; the second build is a cache hit against th
 The `/workspace` bind follows the identity: a run from inside a checkout, a worktree nested in it, or a subdirectory of
 either binds the enclosing checkout root, and an outside worktree binds its own root. An outside worktree's shared git
 dir is also mounted read-write at its host path, so git resolves the repository inside the sandbox; when that path is
-relative or collides with `/home/dev`, `/workspace`, or `/tmp`, agents-sandbox warns instead. The agent still starts in
+relative or collides with `/workspace` or `/tmp`, agents-sandbox warns instead. The agent still starts in
 the subdirectory the run was invoked from.
 
 The sandbox is per checkout and agent, not per invocation. Subsequent runs connect to the existing sandbox (or start it
