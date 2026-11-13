@@ -23,18 +23,20 @@ import (
 func TestReconcileResourceConfig(t *testing.T) {
 	modifyFailed := errors.New("modify boom")
 	cases := []struct {
-		name       string
-		handle     *msbtest.MockSandboxHandle // boot config: 2 CPUs, 2048 MiB
-		opts       options.RunOptions
-		wantModify *msb.ModifyOptions
-		wantWarn   []string
-		wantErr    func(error) bool
+		name             string
+		handle           *msbtest.MockSandboxHandle // boot config: 2 CPUs, 2048 MiB
+		opts             options.RunOptions
+		metricsMemoryMiB uint32 // live limit the mock reports for a staged memory change; 0 leaves Metrics unset
+		wantModify       *msb.ModifyOptions
+		wantWarn         []string
+		wantErr          func(error) bool
 	}{
 		{
-			name:       "cpus and memory change",
-			handle:     reconcileHandle(8, 8192),
-			opts:       options.RunOptions{CPUs: 4, Memory: "4G"},
-			wantModify: &msb.ModifyOptions{CPUs: 4, MemoryMiB: 4096},
+			name:             "cpus and memory change",
+			handle:           reconcileHandle(8, 8192),
+			opts:             options.RunOptions{CPUs: 4, Memory: "4G"},
+			metricsMemoryMiB: 4096,
+			wantModify:       &msb.ModifyOptions{CPUs: 4, MemoryMiB: 4096},
 		},
 		{
 			name:       "one cpu is a change",
@@ -43,23 +45,26 @@ func TestReconcileResourceConfig(t *testing.T) {
 			wantModify: &msb.ModifyOptions{CPUs: 1},
 		},
 		{
-			name:       "memory with an unknown boot maximum",
-			handle:     reconcileHandle(0, 0),
-			opts:       options.RunOptions{Memory: "4G"},
-			wantModify: &msb.ModifyOptions{MemoryMiB: 4096},
+			name:             "memory with an unknown boot maximum",
+			handle:           reconcileHandle(0, 0),
+			opts:             options.RunOptions{Memory: "4G"},
+			metricsMemoryMiB: 4096,
+			wantModify:       &msb.ModifyOptions{MemoryMiB: 4096},
 		},
 		{
-			name:       "memory-only change",
-			handle:     reconcileHandle(8, 8192),
-			opts:       options.RunOptions{Memory: "4G"},
-			wantModify: &msb.ModifyOptions{MemoryMiB: 4096},
+			name:             "memory-only change",
+			handle:           reconcileHandle(8, 8192),
+			opts:             options.RunOptions{Memory: "4G"},
+			metricsMemoryMiB: 4096,
+			wantModify:       &msb.ModifyOptions{MemoryMiB: 4096},
 		},
 		{
-			name:       "both clamped to the boot maximum",
-			handle:     reconcileHandle(4, 4096),
-			opts:       options.RunOptions{CPUs: 16, Memory: "16G"},
-			wantModify: &msb.ModifyOptions{CPUs: 4, MemoryMiB: 4096},
-			wantWarn:   []string{"cpus limited to 4 (boot maximum); requested 16", "memory limited to 4096 MiB"},
+			name:             "both clamped to the boot maximum",
+			handle:           reconcileHandle(4, 4096),
+			opts:             options.RunOptions{CPUs: 16, Memory: "16G"},
+			metricsMemoryMiB: 4096,
+			wantModify:       &msb.ModifyOptions{CPUs: 4, MemoryMiB: 4096},
+			wantWarn:         []string{"cpus limited to 4 (boot maximum); requested 16", "memory limited to 4096 MiB"},
 		},
 		{
 			name:       "a boot maximum of one cpu clamps",
@@ -69,17 +74,19 @@ func TestReconcileResourceConfig(t *testing.T) {
 			wantWarn:   []string{"cpus limited to 1"},
 		},
 		{
-			name:       "a boot maximum of one MiB clamps",
-			handle:     reconcileHandle(0, 1),
-			opts:       options.RunOptions{Memory: "4G"},
-			wantModify: &msb.ModifyOptions{MemoryMiB: 1},
-			wantWarn:   []string{"memory limited to 1 MiB"},
+			name:             "a boot maximum of one MiB clamps",
+			handle:           reconcileHandle(0, 1),
+			opts:             options.RunOptions{Memory: "4G"},
+			metricsMemoryMiB: 1,
+			wantModify:       &msb.ModifyOptions{MemoryMiB: 1},
+			wantWarn:         []string{"memory limited to 1 MiB"},
 		},
 		{
-			name:       "a request at the boot maximum does not warn",
-			handle:     reconcileHandle(8, 4096),
-			opts:       options.RunOptions{CPUs: 8, Memory: "4G"},
-			wantModify: &msb.ModifyOptions{CPUs: 8, MemoryMiB: 4096},
+			name:             "a request at the boot maximum does not warn",
+			handle:           reconcileHandle(8, 4096),
+			opts:             options.RunOptions{CPUs: 8, Memory: "4G"},
+			metricsMemoryMiB: 4096,
+			wantModify:       &msb.ModifyOptions{CPUs: 8, MemoryMiB: 4096},
 		},
 		{
 			name: "clamped cpus with unchanged memory",
@@ -164,6 +171,9 @@ func TestReconcileResourceConfig(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			ui := termiotest.NewTestMock(t)
+			if tc.metricsMemoryMiB != 0 {
+				tc.handle.MetricsResult = &msb.Metrics{MemoryLimitBytes: uint64(tc.metricsMemoryMiB) << 20}
+			}
 
 			err := reconcileResourceConfig(context.Background(), tc.handle, tc.opts, &ui)
 
@@ -231,10 +241,6 @@ func reconcileHandle(maxCPUs uint8, maxMemoryMiB uint32) *msbtest.MockSandboxHan
 			MaxMemoryMiB: maxMemoryMiB,
 		},
 		Plan: &msb.SandboxModificationPlan{},
-		// A staged live memory change is waited on until the limit converges; a
-		// large snapshot lets every memory case converge immediately without
-		// affecting the staged Modify under test.
-		MetricsResult: &msb.Metrics{MemoryLimitBytes: 64 << 30},
 	}
 }
 
@@ -271,6 +277,22 @@ func TestWaitForMemoryLimitMemoryConvergesOnSequentialRead(t *testing.T) {
 	}
 	if calls < 2 {
 		t.Errorf("read called %d times, want multiple reads (old limit then new)", calls)
+	}
+}
+
+// TestWaitForMemoryLimitALargerLimitDoesNotConverge pins that a live limit
+// above the requested one is not convergence: a decrease leaves the guest at
+// its old, larger limit, so a `>=` check would report a resize that never
+// happened. The wait must poll to the deadline and fail instead.
+func TestWaitForMemoryLimitALargerLimitDoesNotConverge(t *testing.T) {
+	setMemoryConvergeSeams(t, 5*time.Millisecond)
+	read := func(context.Context) (*msb.Metrics, error) {
+		return &msb.Metrics{MemoryLimitBytes: 8 << 20}, nil
+	}
+
+	err := waitForMemoryLimit(context.Background(), read, 4)
+	if err == nil || !strings.Contains(err.Error(), "did not converge") {
+		t.Fatalf("err = %v, want a non-convergence error for a larger live limit", err)
 	}
 }
 
@@ -369,11 +391,32 @@ func TestReconcileResourceConfigMemoryConvergeFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected a convergence error, got nil")
 	}
-	if !strings.Contains(err.Error(), "wait for live memory resize") {
-		t.Errorf("error = %v, want the wait-for-convergence wrap", err)
+	if !strings.Contains(err.Error(), "not applied") {
+		t.Errorf("error = %v, want the not-applied wrap", err)
 	}
 	if errors.Unwrap(err) == nil {
 		t.Error("the convergence error must preserve its cause (a %w wrap)")
+	}
+}
+
+// TestReconcileResourceConfigMemoryDecreaseNotApplied pins the finding: an old,
+// larger live limit must never satisfy a smaller request. A decrease the runtime
+// does not apply errors as not applied instead of being reported applied.
+func TestReconcileResourceConfigMemoryDecreaseNotApplied(t *testing.T) {
+	setMemoryConvergeSeams(t, 5*time.Millisecond)
+	handle := reconcileHandle(8, 8192)
+	handle.MetricsResult = &msb.Metrics{MemoryLimitBytes: 2048 << 20}
+	ui := termiotest.NewTestMock(t)
+
+	err := reconcileResourceConfig(context.Background(), handle, options.RunOptions{Memory: "1G"}, &ui)
+	if err == nil {
+		t.Fatal("expected the decrease to be reported not applied, got nil")
+	}
+	if !strings.Contains(err.Error(), "not applied") {
+		t.Errorf("error = %v, want a 'not applied' message", err)
+	}
+	if len(handle.ModifiedOptions) != 1 || handle.ModifiedOptions[0].MemoryMiB != 1024 {
+		t.Errorf("modified %+v, want exactly the 1024 MiB decrease staged", handle.ModifiedOptions)
 	}
 }
 

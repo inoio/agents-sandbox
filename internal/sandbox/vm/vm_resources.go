@@ -18,11 +18,12 @@ var (
 	memoryConvergeTimeout  = 10 * time.Second
 )
 
-// waitForMemoryLimit polls read until the live memory limit reaches wantMiB or
+// waitForMemoryLimit polls read until the live memory limit equals wantMiB or
 // the bounded deadline elapses. A live resize is asynchronous — Modify returns
-// before the limit catches up — so a single read never proves convergence. A
-// read error is terminal; hitting the deadline reports the resize as
-// unconverged.
+// before the limit catches up — so a single read never proves convergence, and
+// only the exact requested limit counts: a live limit above wantMiB is the old,
+// larger value a decrease never unplugs, not convergence. A read error is
+// terminal; hitting the deadline reports the resize as unconverged (not applied).
 func waitForMemoryLimit(
 	ctx context.Context,
 	read func(context.Context) (*msb.Metrics, error),
@@ -36,13 +37,13 @@ func waitForMemoryLimit(
 		if err != nil {
 			return err
 		}
-		if metrics != nil && metrics.MemoryLimitBytes >= wantBytes {
+		if metrics != nil && metrics.MemoryLimitBytes == wantBytes {
 			return nil
 		}
 		select {
 		case <-ctx.Done():
 			if ctx.Err() == context.DeadlineExceeded {
-				return fmt.Errorf("memory resize to %d MiB did not converge", wantMiB)
+				return fmt.Errorf("memory resize to %d MiB did not converge; not applied", wantMiB)
 			}
 			return ctx.Err()
 		case <-time.After(memoryConvergeInterval):
@@ -79,7 +80,7 @@ func reconcileResourceConfig(
 	}
 	if mo.MemoryMiB != 0 {
 		if err := waitForMemoryLimit(ctx, handle.Metrics, mo.MemoryMiB); err != nil {
-			return fmt.Errorf("wait for live memory resize: %w", err)
+			return fmt.Errorf("live memory change to %d MiB not applied: %w", mo.MemoryMiB, err)
 		}
 	}
 	return nil

@@ -228,7 +228,7 @@ session. The change type determines the mechanism used to apply the new settings
 | Resource          | Change type    | Behavior                                                                                                 |
 |-------------------|----------------|----------------------------------------------------------------------------------------------------------|
 | `cpus`            | Live Modify    | Applied live via SDK Modify (hotplug)                                                                    |
-| `memory`          | Live Modify / VM recreate | Applied live via SDK Modify (hotplug) up to the sandbox's boot maximum (the host RAM at creation); a higher value is capped there, and recreates the VM only when the host has gained RAM since |
+| `memory`          | Live Modify / VM recreate | Applied live via SDK Modify (hotplug) up to the sandbox's boot maximum (the host RAM at creation); a higher value is capped there, and recreates the VM only when the host has gained RAM since. A decrease is not applied by the runtime, which never unplugs the larger limit; the launcher reports it as not applied rather than silently keeping the old size |
 | `env`             | VM recreate    | microsandbox cannot apply env live or on a daemon restart, so the VM is rebuilt; env is baked in at creation |
 | `secrets`         | VM recreate    | microsandbox cannot apply secrets live or on a daemon restart, so the VM is rebuilt; secrets are baked in at creation |
 | `agent config` | Daemon restart | Files are always copied into the VM (provisioning); the agent daemon is restarted in-place to pick them up   |

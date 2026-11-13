@@ -259,7 +259,9 @@ pressure, and re-arming on the ratio alone would re-offer every launch.)
   a VM already at it gets an explanation instead of a prompt. A live
   memory resize is **asynchronous** (confirmed: `Modify` returns `STATE=converging` and the limit
   lags), so confirm convergence via `Metrics.MemoryLimitBytes` before reporting the raise applied,
-  and do not read once.
+  and do not read once. Convergence is the **exact** requested limit: a live limit above it is the
+  old, larger value a decrease never unplugs, so a resize that does not land exactly — a decrease
+  in particular — is reported as **not applied**, never as success.
 - **Root disk**: `buildModifyOptions` stages `ModifyOptions.RootDiskSizeMiB` when the desired size
   exceeds the current one (`SandboxConfig.RootDisk.SizeMiB`), and `reconcileResourceConfig` applies
   it live; only a decrease, or a VM whose root disk size is not recorded, is a recreate
