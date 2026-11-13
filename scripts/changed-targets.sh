@@ -115,7 +115,7 @@ if [[ -z "$selected" ]]; then
     esac
     case "$path" in
       ci/check-docs.sh|ci/test-check-docs.sh) add_targets docs-linkcheck docs-linkcheck-test; known=1 ;;
-      ci/check-changelog.sh|ci/test-check-changelog.sh) add_targets changelog-check changelog-check-test; known=1 ;;
+      ci/check-changelog.sh|ci/test-check-changelog.sh) add_targets changelog-check changelog-check-test ci-guards-check; known=1 ;;
       ci/check-ci-guards.sh|ci/test-check-ci-guards.sh) add_targets ci-guards-check ci-guards-check-test; known=1 ;;
       ci/check-deadcode.sh|ci/test-check-deadcode.sh|ci/deadcodecheck/*) add_targets deadcode-test; known=1 ;;
       .github/workflows/*) add_targets actionlint ci-guards-check; known=1 ;;

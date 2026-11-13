@@ -188,6 +188,19 @@ gcl="$(new_fixture)"
 perl -pi -e 's/ && \[\[ "\$line" != "\.gitignore" \]\]//' "$gcl/ci/check-changelog.sh"
 expect "check-changelog.sh dropping the .gitignore clause" "$gcl" 1 "check-changelog.sh"
 
+# Dropping a `!` reverses the sub-test: the rule then counts the exempt paths as
+# code instead of exempting them. The derivation must require the negation, not
+# merely the `=~` text, or a reversed exemption reads as an exemption. Only the
+# `!` is removed, so the sub-test is otherwise identical and an unanchored match
+# still recognizes it.
+revmd="$(new_fixture)"
+perl -pi -e 's/\[\[ ! ("\$line" =~ \\\.md\$) \]\]/[[ $1 ]]/' "$revmd/ci/check-changelog.sh"
+expect "check-changelog.sh reversing the .md exemption" "$revmd" 1 "un-negated exempt test"
+
+revtest="$(new_fixture)"
+perl -pi -e 's/\[\[ ! ("\$line" =~ _test\\\.go\$) \]\]/[[ $1 ]]/' "$revtest/ci/check-changelog.sh"
+expect "check-changelog.sh reversing the *_test.go exemption" "$revtest" 1 "un-negated exempt test"
+
 echo "# check-ci-guards.sh: workflow-condition invariants"
 undeclared="$(new_fixture)"
 perl -pi -e "s/github\.event_name != 'merge_group'/github.event_name != 'scheduled'/" "$undeclared/.github/workflows/ci.yml"

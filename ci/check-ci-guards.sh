@@ -134,7 +134,8 @@ globs_from_changes_regex() {
 # *_test.go addition (asserted separately below). The condition is extracted as
 # a block, not from a whole-file grep, so an unrelated `.gitignore`/`.md`
 # mention elsewhere (the IGNORE list, a comment) cannot spoof an exemption that
-# the rule no longer makes, and an unrecognized sub-test fails loudly.
+# the rule no longer makes. A sub-test must be negated (`! ... =~`) to read as an
+# exemption, so reversing one is unrecognized and fails loudly too.
 globs_from_changelog_check() {
   local cond line inner expr
   cond="$(awk '
@@ -162,16 +163,20 @@ globs_from_changelog_check() {
     expr="${expr#"${expr%%[![:space:]]*}"}"
     expr="${expr%"${expr##*[![:space:]]}"}"
     [[ -n "$expr" ]] || continue
+    # Each `=~` sub-test is matched with its leading `!`, so an exemption that
+    # was reversed (the `!` dropped, turning "exempt" into "counts as code")
+    # fails loudly instead of still reading as an exemption. The `.gitignore`
+    # clause carries its negation in the `!=` operator itself.
     if [[ "$expr" =~ \!=\ *\"\.gitignore\" ]]; then
       printf '%s\n' '.gitignore'
-    elif [[ "$expr" =~ \=\~\ *\^\((.+)\)$ ]]; then
+    elif [[ "$expr" =~ ^\!.*=\~\ *\^\((.+)\)$ ]]; then
       dir_prefix_globs "${BASH_REMATCH[1]}"
-    elif [[ "$expr" =~ \=\~\ *\\\.md\$ ]]; then
+    elif [[ "$expr" =~ ^\!.*=\~\ *\\\.md\$ ]]; then
       printf '%s\n' '**.md'
-    elif [[ "$expr" =~ \=\~\ *_test\\\.go\$ ]]; then
+    elif [[ "$expr" =~ ^\!.*=\~\ *_test\\\.go\$ ]]; then
       :
     else
-      report "check-changelog.sh: presence condition has an unrecognized exempt test '$expr'"
+      report "check-changelog.sh: presence condition has an unrecognized or un-negated exempt test '$expr'"
     fi
   done <<<"$cond"
 }
