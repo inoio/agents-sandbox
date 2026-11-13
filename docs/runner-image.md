@@ -223,8 +223,8 @@ image installs. See [Opening links]({% link configuration/opening-links.md %}).
 ## The base image contract
 
 By default the base tools block starts from `debian:trixie-slim` and installs the recommended CLI tools: `git`,
-`ripgrep`, `jq`, `yq`, `curl`, `wget`, `xz-utils`, `file`, `gawk`, `less`, `lz4`, `moreutils`, `net-tools`, `parallel`,
-`recode`, `uuid`, and `iptables`.
+`ripgrep`, `jq`, `yq`, `curl`, `wget`, `xz-utils`, `file`, `gawk`, `less`, `lz4`, `moreutils`, `lsof`, `strace`,
+`parallel`, `uuid-runtime`, and `iptables`.
 
 A project Dockerfile whose `FROM` is any other image is treated as a **custom base**: your final `FROM` becomes the base
 stage the runner builds on, while the node, agent, and optional docker stages build on the tool base, independent of your
