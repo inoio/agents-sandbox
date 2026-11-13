@@ -63,6 +63,24 @@ func TestNormalizeOptionalFlagValues(t *testing.T) {
 			want: []string{"run", "--open-links=true"},
 		},
 		{
+			name: "--open-links=0 stays --open-links=0",
+			args: []string{"run", "--open-links=0"},
+			want: []string{"run", "--open-links=0"},
+		},
+		{
+			name: "every strconv.ParseBool spelling rewrites",
+			args: []string{
+				"--open-links", "1", "--open-links", "0", "--open-links", "t", "--open-links", "f",
+				"--open-links", "T", "--open-links", "F", "--open-links", "TRUE", "--open-links", "FALSE",
+				"--open-links", "True", "--open-links", "False",
+			},
+			want: []string{
+				"--open-links=1", "--open-links=0", "--open-links=t", "--open-links=f",
+				"--open-links=T", "--open-links=F", "--open-links=TRUE", "--open-links=FALSE",
+				"--open-links=True", "--open-links=False",
+			},
+		},
+		{
 			name: "--open-links=true stays --open-links=true",
 			args: []string{"run", "--open-links=true"},
 			want: []string{"run", "--open-links=true"},
@@ -74,8 +92,8 @@ func TestNormalizeOptionalFlagValues(t *testing.T) {
 		},
 		{
 			name: "open-links value outside the vocabulary stays split",
-			args: []string{"--open-links", "1"},
-			want: []string{"--open-links", "1"},
+			args: []string{"--open-links", "maybe"},
+			want: []string{"--open-links", "maybe"},
 		},
 		{
 			name: "no args",

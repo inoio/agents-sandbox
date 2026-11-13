@@ -76,30 +76,35 @@ func TestOpenLinksConfigDisablesAndFlagOverrides(t *testing.T) {
 	}
 }
 
-// TestOpenLinksSpaceFormFalseDisablesAndLeaksNothing pins F19 end to end: the
-// space form `--open-links false` must disable the host opener exactly like
-// `--open-links=false` and must not leak the word into the agent argv. It runs
-// through execute, the only path that normalizes the space form before pflag
-// parses (pflag's NoOptDefVal would otherwise leave open-links on and forward
-// "false" as a positional argument).
-func TestOpenLinksSpaceFormFalseDisablesAndLeaksNothing(t *testing.T) {
-	initTestProjectDir(t)
+// TestOpenLinksSpaceFormDisablesAndLeaksNothing pins F19 and its inverse end to
+// end: the space form `--open-links <falsey>` must disable the host opener
+// exactly like `--open-links=true|false` and must not leak the word into the
+// agent argv. It runs through execute, the only path that normalizes the space
+// form before pflag parses (pflag's NoOptDefVal would otherwise leave
+// open-links on and forward the falsey token as a positional argument). "0" is
+// the spelling the literal true/false vocabulary used to miss.
+func TestOpenLinksSpaceFormDisablesAndLeaksNothing(t *testing.T) {
+	for _, value := range []string{"false", "0"} {
+		t.Run(value, func(t *testing.T) {
+			initTestProjectDir(t)
 
-	mock := &msbtest.MockMsbClient{}
-	sb := &msbtest.MockSandbox{}
-	_, ui := setupRunMocks(t, mock, sb, cmdRun)
+			mock := &msbtest.MockMsbClient{}
+			sb := &msbtest.MockSandbox{}
+			_, ui := setupRunMocks(t, mock, sb, cmdRun)
 
-	if err := execute([]string{cmdRun, "--open-links", "false"}, ui); err != nil {
-		t.Fatalf("execute run --open-links false: %v", err)
-	}
+			if err := execute([]string{cmdRun, "--open-links", value}, ui); err != nil {
+				t.Fatalf("execute run --open-links %s: %v", value, err)
+			}
 
-	openerStayedOff := slices.ContainsFunc(ui.VerboseCalls, func(line string) bool {
-		return strings.Contains(line, "not starting host opener") && strings.Contains(line, "enabled false")
-	})
-	if !openerStayedOff {
-		t.Errorf("expected the host opener to stay off; verbose calls: %q", ui.VerboseCalls)
-	}
-	if strings.Contains(strings.Join(sb.AttachArgs, " "), "'false'") {
-		t.Errorf("AttachArgs = %q, want the space-form value not to reach the agent argv", sb.AttachArgs)
+			openerStayedOff := slices.ContainsFunc(ui.VerboseCalls, func(line string) bool {
+				return strings.Contains(line, "not starting host opener") && strings.Contains(line, "enabled false")
+			})
+			if !openerStayedOff {
+				t.Errorf("expected the host opener to stay off; verbose calls: %q", ui.VerboseCalls)
+			}
+			if strings.Contains(strings.Join(sb.AttachArgs, " "), "'"+value+"'") {
+				t.Errorf("AttachArgs = %q, want the space-form value not to reach the agent argv", sb.AttachArgs)
+			}
+		})
 	}
 }
