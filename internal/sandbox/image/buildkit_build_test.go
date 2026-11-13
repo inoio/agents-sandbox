@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/docker/cli/cli/config"
 	buildkitclient "github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/session"
@@ -623,8 +624,17 @@ func TestNewBuildKitClientConstructsAClient(t *testing.T) {
 // the docker-config auth provider, so a private base image resolves on the
 // BuildKit path the way it does on the classic path. DOCKER_CONFIG points at an
 // empty directory so the test reads no host config.
+//
+// The directory goes through config.SetDir, not t.Setenv: config.Dir() memoizes
+// DOCKER_CONFIG (and $HOME) in a sync.Once, so a t.Setenv leaves the value
+// pinned to this test's temp directory for every later test in the process.
+// Under `-tags integration` that silently strips the registry credentials from
+// every integration build's session — the daemon then resolves the cache ref
+// anonymously and the registry rejects it.
 func TestNewBuildKitSessionProvidesRegistryAuth(t *testing.T) {
-	t.Setenv("DOCKER_CONFIG", t.TempDir())
+	originalDir := config.Dir()
+	config.SetDir(t.TempDir())
+	t.Cleanup(func() { config.SetDir(originalDir) })
 
 	attachable := newBuildKitSession()
 	if len(attachable) != 1 {

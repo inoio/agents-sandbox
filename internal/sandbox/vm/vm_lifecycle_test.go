@@ -366,6 +366,44 @@ func TestEnsureProjectVMRecreatesTheHeldVM(t *testing.T) {
 	}
 }
 
+// TestEnsureProjectVMRejectsInvalidNetworkBeforeDestroy pins that an invalid
+// network policy aborts a recreate before the held VM is destroyed: a bad --dns
+// value must not cost the running sandbox.
+func TestEnsureProjectVMRejectsInvalidNetworkBeforeDestroy(t *testing.T) {
+	ui := termiotest.NewTestMock(t)
+	held := &msbtest.MockSandboxHandle{
+		Name_:   existingVMName,
+		Status_: msb.SandboxStatusRunning,
+	}
+	client := &msbtest.MockMsbClient{}
+	creation := missingVMCreation(t, client, &ui)
+	creation.Existing = held
+	creation.Options.Recreate = true
+	creation.Options.Network = network.Policy{DNSServers: []string{"garbage"}}
+
+	sb, _, err := EnsureProjectVM(context.Background(), creation)
+
+	if err == nil || !strings.Contains(err.Error(), "network config") || errors.Unwrap(err) == nil {
+		t.Fatalf(
+			"EnsureProjectVM error = %v, want a network config rejection that wraps its cause",
+			err,
+		)
+	}
+	if sb != nil {
+		t.Errorf("EnsureProjectVM returned %v, want no sandbox", sb)
+	}
+	if held.DidDestroy() || held.DidStop {
+		t.Errorf(
+			"held VM was torn down (destroyed=%v stopped=%v), want it left running",
+			held.DidDestroy(),
+			held.DidStop,
+		)
+	}
+	if len(client.CreatedSandboxes) != 0 {
+		t.Errorf("created %v, want no replacement after a rejected policy", client.CreatedSandboxes)
+	}
+}
+
 // TestEnsureProjectVMFailsBeforeCreatingAVM pins that every step before a
 // missing VM is created keeps its cause, and that a failure creates nothing.
 func TestEnsureProjectVMFailsBeforeCreatingAVM(t *testing.T) {

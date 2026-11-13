@@ -47,6 +47,9 @@
 - `guides/github-merge-driver-support.md`
   - Description: Verdict, with primary sources, that GitHub's server-side merge and merge-queue build ignore `.gitattributes` merge drivers, so `CHANGELOG.md merge=union` does not resolve a conflict; libgit2 does implement `union` but GitHub does not consult it, and GitLab dropped it in 17.1.
   - Read If: Considering `merge=union`, a custom merge driver, or any `.gitattributes` merge attribute to auto-resolve conflicts on GitHub; or explaining why a server-side conflict persists when the CLI git merges cleanly.
+- `guides/greptile-review-skill.md`
+  - Description: The `greptile-review` skill — the maintainer correctness review and its third axis beside `code-review`, where its 14-family ruleset comes from (the mined `corpus.tsv`, re-mined by `mine.sh`), the RED/GREEN sample and the one known gap (PR604 reused-input dedupe), and the answer-key `.git` leak to avoid when re-running validation.
+  - Read If: Running or changing `greptile-review`, adding a rule family, re-mining the Greptile corpus, or re-running its validation.
 - `guides/mutation-testing.md`
   - Description: Mutation testing for Go in this repo - the tool survey and why gomutants was chosen, how to close gomutants survivors (recurring mutant types, the equivalent-mutant traps, the record-with-a-reason fallback), and the multi-turn sweep runbook for the #268 survivor tracker.
   - Read If: Evaluating or changing a Go mutation-testing tool or the `make mutation` target; triaging LIVED mutants from a sweep; picking a `SINCE` scope for a branch/PR sweep; or coordinating a #268 survivor-reduction pass.
@@ -143,8 +146,8 @@
 #### `specs/testing/` - Test coverage, isolation, and harness smoke tests
 
 - `specs/testing/`
-  - Description: Test contracts: `test-coverage.md` (the coverage bar and codecov thresholds), `test-isolation.md` (keeping tests off real host state), `harness-smoke-tests.md` (the `msb`-tagged harness smoke tests).
-  - Read If: Deciding what to test or triaging a failing `codecov/patch`/`codecov/project`; adding a test package/`TestMain`/double, debugging a test that reads real host state or fails under `-count>1`, the `//testenv:allow` ambient gate, or a state/config write to an unresolved root; or the harness smoke tests, `make test-msb`/`test-msb-reuse`, `AGENTS_SANDBOX_MSB_PARALLEL`/`AGENTS_SANDBOX_SMOKE_ROOT`, or a harness TUI's startup/quit behavior.
+  - Description: Test contracts: `test-coverage.md` (the coverage bar and codecov thresholds), `test-isolation.md` (keeping tests off real host state), `harness-smoke-tests.md` (the `msb`-tagged harness smoke tests), `release-surface-testing.md` (the manual release-surface sweep: journeys, isolation, execution strategy, findings).
+  - Read If: Deciding what to test or triaging a failing `codecov/patch`/`codecov/project`; adding a test package/`TestMain`/double, debugging a test that reads real host state or fails under `-count>1`, the `//testenv:allow` ambient gate, or a state/config write to an unresolved root; the harness smoke tests, `make test-msb`/`test-msb-reuse`, `AGENTS_SANDBOX_MSB_PARALLEL`/`AGENTS_SANDBOX_SMOKE_ROOT`, or a harness TUI's startup/quit behavior; or verifying a release before tagging, running the surface sweep, adding a surface journey, or building its isolation helper.
 
 #### `specs/vm/` - VM lifecycle and per-VM behaviours
 

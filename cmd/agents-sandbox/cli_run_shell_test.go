@@ -556,6 +556,24 @@ func TestRunDryRunPreviewCLI(t *testing.T) {
 	}
 }
 
+// TestRunDryRunRejectsInvalidDNSServers pins F8 at the CLI boundary: an invalid
+// `--dns` value fails at config-load, even under `--dry-run`, instead of exiting
+// 0 only to fail at VM start. The env/config path already rejects it.
+func TestRunDryRunRejectsInvalidDNSServers(t *testing.T) {
+	initTestProjectDir(t)
+
+	mock := &msbtest.MockMsbClient{}
+	root, _ := setupRunMocks(t, mock, &msbtest.MockSandbox{}, "run", "--dry-run", "--dns", "garbage")
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("`run --dry-run --dns garbage` = nil error, want a rejection")
+	}
+	if !strings.Contains(err.Error(), "invalid DNS server") {
+		t.Errorf("error = %v, want it to name the invalid DNS server", err)
+	}
+}
+
 // TestShellDryRunPreviewCLI pins the shell-level preview: same read-only plan,
 // with the shell session as its last line.
 func TestShellDryRunPreviewCLI(t *testing.T) {

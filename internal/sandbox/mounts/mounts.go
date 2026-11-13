@@ -174,7 +174,9 @@ func resolveMountSource(source string) (string, error) {
 	}
 	resolved, err := filepath.EvalSymlinks(path)
 	if err != nil {
-		return "", err
+		// EvalSymlinks reports the first missing ancestor, which can hide the
+		// path the user configured; wrap it so the source names itself.
+		return "", fmt.Errorf("source %q: %w", path, err)
 	}
 	info, err := os.Stat(resolved)
 	// gomutants:disable-next-line BRANCH_IF reason="EvalSymlinks already proved resolved exists and holds no symlinks, so os.Stat on it cannot fail short of a concurrent filesystem change; no input reaches this branch, and dropping the guard would panic on info.IsDir()."

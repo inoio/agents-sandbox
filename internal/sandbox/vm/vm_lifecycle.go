@@ -104,6 +104,13 @@ func EnsureProjectVM(ctx context.Context, creation ProjectVMCreation) (msb.Sandb
 		return nil, VMBootConnected, nil
 	}
 
+	// Validate the network policy before touching the VM: the recreate path
+	// below destroys the running VM, so a policy that cannot be applied must
+	// fail here rather than after the teardown.
+	if err := creation.Options.Network.Validate(); err != nil {
+		return nil, VMBootConnected, fmt.Errorf("network config: %w", err)
+	}
+
 	name := ProjectVMName(creation.Key)
 	found := creation.Existing != nil
 	if found {

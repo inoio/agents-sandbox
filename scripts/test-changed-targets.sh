@@ -80,6 +80,7 @@ run_local "modified envelope test" scripts/test-envelope.sh "# x" "envelope-test
 run_local "modified cleanup script" scripts/cleanup-merged-branches.sh "# x" "cleanup-branches-test"
 run_local "modified ci-guards checker" ci/check-ci-guards.sh "# x" "ci-guards-check ci-guards-check-test"
 run_local "modified workflow" .github/workflows/ci.yml "# x" "actionlint ci-guards-check"
+run_local "modified surface-sweep script" scripts/surface-sweep.sh "# x" "surface-sweep-test"
 run_local "nested markdown selects nothing" .github/PULL_REQUEST_TEMPLATE.md "# x" ""
 run_local "dev-VM dockerfile selects nothing" .agents-sandbox/Dockerfile "FROM x" ""
 run_local "opencode config selects nothing" opencode.jsonc "{}" ""

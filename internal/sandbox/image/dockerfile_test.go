@@ -740,12 +740,13 @@ func TestRenderDockerfileManagedBaseInstallsLibatomic(t *testing.T) {
 // TestRenderDockerfileManagedBaseInstallsFuseOverlayfs pins the managed base's
 // docker system packages: the docker stage installs only the static tarballs
 // into toolDir, which is all the runner copies from it, so system packages must
-// come from the base. fuse-overlayfs and libfuse3 are what vm/dockerd.go probes
-// for to select fuse-overlayfs over vfs (#489); uidmap, slirp4netns, and
-// iproute2 are the rootless engine's runtime (#487).
+// come from the base. fuse-overlayfs is what vm/dockerd.go probes for to select
+// fuse-overlayfs over vfs (#489); uidmap, slirp4netns, and iproute2 are the
+// rootless engine's runtime (#487). libfuse3-4 is not pinned: fuse-overlayfs
+// depends on it, so apt installs it with the driver.
 func TestRenderDockerfileManagedBaseInstallsFuseOverlayfs(t *testing.T) {
 	base := string(embeddedBaseToolsBlock)
-	for _, pkg := range []string{"fuse-overlayfs", "libfuse3-4", "uidmap", "slirp4netns", "iproute2"} {
+	for _, pkg := range []string{"fuse-overlayfs", "uidmap", "slirp4netns", "iproute2"} {
 		if !strings.Contains(base, pkg) {
 			t.Errorf("the managed base must install %s; got:\n%s", pkg, base)
 		}

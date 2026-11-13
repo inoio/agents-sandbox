@@ -120,6 +120,7 @@ if [[ -z "$selected" ]]; then
       ci/check-deadcode.sh|ci/test-check-deadcode.sh|ci/deadcodecheck/*) add_targets deadcode-test; known=1 ;;
       .github/workflows/*) add_targets actionlint ci-guards-check; known=1 ;;
       scripts/cleanup-merged-branches.sh|scripts/test-cleanup-merged-branches.sh) add_targets cleanup-branches-test; known=1 ;;
+      scripts/surface-sweep.sh|scripts/test-surface-sweep.sh) add_targets surface-sweep-test; known=1 ;;
       scripts/test-envelope.sh|scripts/test-envelope_test.sh) add_targets envelope-test; known=1 ;;
       scripts/upstream-drift.sh|scripts/test-upstream-drift.sh) add_targets upstream-drift-test; known=1 ;;
       scripts/rebase-status.sh|scripts/test-rebase-status.sh) add_targets rebase-status-test; known=1 ;;

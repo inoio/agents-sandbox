@@ -348,6 +348,12 @@ func resolveNetwork(cfg *viperconfig.Config, cmd *cobra.Command, opts *options.R
 	if dns, _ := cmd.Flags().GetStringSlice(FlagDNSServers); len(dns) > 0 {
 		opts.Network.DNSServers = dns
 	}
+	// The flags reach here unvalidated (unlike the env/config path, which
+	// viperconfig validates at load), so validate the resolved policy before it
+	// reaches any VM work.
+	if err := opts.Network.Validate(); err != nil {
+		return err
+	}
 	return nil
 }
 
