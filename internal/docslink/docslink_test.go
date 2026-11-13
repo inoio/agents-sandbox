@@ -3,8 +3,8 @@ package docslink
 import "testing"
 
 func TestSectionURLComposesPageAndAnchor(t *testing.T) {
-	got := SectionURL("troubleshooting", "docker-not-running")
-	want := BaseURL + "/troubleshooting.html#docker-not-running"
+	got := SectionURL("troubleshooting", "container-engine-not-running")
+	want := BaseURL + "/troubleshooting.html#container-engine-not-running"
 	if got != want {
 		t.Errorf("SectionURL() = %q, want %q", got, want)
 	}

@@ -175,8 +175,8 @@ func TestRealCheckDockerPingUnreachable(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected realCheckDocker to fail when the daemon is unreachable")
 	}
-	if !strings.Contains(err.Error(), "docker API unreachable") {
-		t.Errorf("expected error to mention 'docker API unreachable', got %q", err.Error())
+	if !strings.Contains(err.Error(), "container engine (Docker API) unreachable") {
+		t.Errorf("expected error to name the container engine API, got %q", err.Error())
 	}
 	if !strings.Contains(err.Error(), "boom") {
 		t.Errorf("expected error to wrap the underlying ping failure, got %q", err.Error())
@@ -184,8 +184,8 @@ func TestRealCheckDockerPingUnreachable(t *testing.T) {
 	if !strings.Contains(err.Error(), "docker info") {
 		t.Errorf("expected a copy-pasteable verification command, got %q", err.Error())
 	}
-	if !strings.Contains(err.Error(), "troubleshooting.html#docker-not-running") {
-		t.Errorf("expected the docker failure to link its troubleshooting section, got %q", err.Error())
+	if !strings.Contains(err.Error(), "troubleshooting.html#container-engine-not-running") {
+		t.Errorf("expected the engine failure to link its troubleshooting section, got %q", err.Error())
 	}
 }
 
@@ -332,7 +332,7 @@ func TestCheckAllReportsMsbRuntimeFailureWithDocsLink(t *testing.T) {
 	if !strings.Contains(joinedMessages, "troubleshooting.html#microsandbox-runtime") {
 		t.Errorf("expected the msb runtime failure to link troubleshooting, got %q", joinedMessages)
 	}
-	if !strings.Contains(joinedMessages, "docker API unreachable") {
-		t.Errorf("expected the docker check still reported alongside the runtime failure, got %q", joinedMessages)
+	if !strings.Contains(joinedMessages, "container engine (Docker API) unreachable") {
+		t.Errorf("expected the engine check still reported alongside the runtime failure, got %q", joinedMessages)
 	}
 }

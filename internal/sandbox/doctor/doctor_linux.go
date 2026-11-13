@@ -39,10 +39,12 @@ func kvmUnavailableError() error {
 		"  Docs: " + docslink.SectionURL("troubleshooting", "kvm-unavailable"))
 }
 
-// dockerRemedyHint is the Linux way to start the Docker daemon.
+// dockerRemedyHint is the Linux way to start a container engine.
 func dockerRemedyHint() string {
-	return "  Start the Docker daemon, then verify:\n" +
-		"    sudo systemctl start docker\n" +
-		"    docker info\n" +
-		"  Docs: " + docslink.SectionURL("troubleshooting", "docker-not-running")
+	return "  Start your container engine, then verify it serves the Docker API:\n" +
+		"    Docker:  sudo systemctl start docker  &&  docker info\n" +
+		"    podman:  systemctl --user start podman.socket  &&  podman info\n" +
+		"             then point the launcher at it:\n" +
+		"             export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock\n" +
+		"  Docs: " + docslink.SectionURL("troubleshooting", "container-engine-not-running")
 }

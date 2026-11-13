@@ -348,6 +348,46 @@ printf '\n[Derived](https://inoio.github.io/agents-sandbox/install.html#foo)\n' 
 expect "declared heading id suppresses derived slug" 1 "fragment 'foo' matches no heading in docs/install.md" "$d"
 rm -rf "$d"
 
+# An explicit HTML anchor (<a id="…"></a>) is a valid fragment target too. It is
+# how a renamed heading keeps its old anchor resolving for already-published
+# links (the launcher prints its docs fragment, so the old name must not break).
+d="$(new_fixture)"
+cat >>"$d/docs/install.md" <<'EOF'
+
+## Container engine not running
+
+<a id="docker-not-running"></a>
+EOF
+printf '\n[Legacy anchor](https://inoio.github.io/agents-sandbox/install.html#docker-not-running)\n' >>"$d/README.md"
+expect "explicit html anchor resolves" 0 "all internal links are valid" "$d"
+rm -rf "$d"
+
+# A heading's derived anchor still resolves beside an explicit html anchor on
+# the same page.
+d="$(new_fixture)"
+cat >>"$d/docs/install.md" <<'EOF'
+
+## Container engine not running
+
+<a id="docker-not-running"></a>
+EOF
+printf '\n[Derived beside html](https://inoio.github.io/agents-sandbox/install.html#container-engine-not-running)\n' >>"$d/README.md"
+expect "derived heading anchor beside html anchor resolves" 0 "all internal links are valid" "$d"
+rm -rf "$d"
+
+# An explicit html anchor inside a fenced code block is literal example text,
+# not a target.
+d="$(new_fixture)"
+cat >>"$d/docs/install.md" <<'EOF'
+
+```
+<a id="ghost"></a>
+```
+EOF
+printf '\n[Ghost](https://inoio.github.io/agents-sandbox/install.html#ghost)\n' >>"$d/README.md"
+expect "html anchor in fenced code ignored" 1 "fragment 'ghost' matches no heading in docs/install.md" "$d"
+rm -rf "$d"
+
 # A '#' line inside YAML front matter is not a heading, even when it looks like
 # one: only the post-front-matter body contributes ids.
 d="$(new_fixture)"
