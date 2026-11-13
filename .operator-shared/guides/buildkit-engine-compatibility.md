@@ -148,10 +148,10 @@ field.
 - **Shelling out to `docker buildx build`** avoids the dependency but adds a binary requirement,
   breaks the "dial any Docker-API engine" architecture and the test seam, and podman has no
   buildx.
-- The **`type=gha` backend is BuildKit's, not buildx's** (`github.com/moby/buildkit/cache/
-  remotecache/gha`): the client sets `CacheOptionsEntry{Type: "gha"}` and BuildKit reads the
-  GitHub env (`ACTIONS_CACHE_URL` / `ACTIONS_RESULTS_URL` / `ACTIONS_CACHE_SERVICE_V2`), so it is
-  available on either client path.
+- The **cache backends are BuildKit's, not buildx's** (`github.com/moby/buildkit/cache/
+  remotecache/gha` and `.../registry`): the client sets `CacheOptionsEntry{Type: "gha"}` (or
+  `"registry"`), and for `gha` BuildKit reads the GitHub env (`ACTIONS_CACHE_URL` /
+  `ACTIONS_RESULTS_URL` / `ACTIONS_CACHE_SERVICE_V2`), so either is available on either client path.
 
 The buildkit client keeps the launcher's Go-client, no-shelling-out model and couples only to
 `github.com/moby/buildkit` (which does not depend on `moby/moby`, so it adds no split-module
@@ -179,7 +179,7 @@ exists — no new dependency for the detection:
 Two consequences for the CI-cache goal:
 
 - **Mechanism 1** makes this a one-field change (`Version` from the ping), but does **not** deliver
-  cache export: `ImageBuild` has no `CacheTo`, so `type=gha` stays out of reach. It also leaves
+  cache export: `ImageBuild` has no `CacheTo`, so a BuildKit cache stays out of reach. It also leaves
   podman unchanged — podman ignored `version` already, so a fallback adds nothing there.
 - **Mechanism 2** is what makes the fallback load-bearing: production would carry both the BuildKit
   client and the existing classic moby path, choosing by the ping. The BuildKit branch is what
