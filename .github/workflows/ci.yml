@@ -35,10 +35,14 @@ concurrency:
 jobs:
   # Whether a push to main changed anything that can affect the runner image or
   # the tests. The costly integration jobs gate on this so a docs- or
-  # brain-only merge to main does not pay a ~16-minute image build. It always
-  # runs, so its output is available to every gated job on every event.
+  # brain-only merge to main does not pay a ~16-minute image build. It runs on
+  # every event except a merge group, where no consumer reads its output (the
+  # gated jobs all exclude `merge_group`): a skipped dependency skips them, the
+  # same Success-on-skip the queue already relies on, so the queue skips the
+  # checkout and diff too.
   changes:
     name: changes
+    if: github.event_name != 'merge_group'
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.filter.outputs.code }}
@@ -133,6 +137,9 @@ jobs:
       - run: make validate-fmt
       - run: make docs-linkcheck
       - run: make docs-linkcheck-test
+      - run: make ci-guards-check
+      - run: make ci-guards-check-test
+      - run: make actionlint
       - run: make cleanup-branches-test
       - run: make envelope-test
       - run: make upstream-drift-test

@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-reuse compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint fmt validate-fmt run cleanup-branches cleanup-branches-test test-scrubbed test-hermetic envelope-test check verify check-local-changes check-branch-changes changed-targets-test all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test docs-serve
+.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-reuse compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test test-scrubbed test-hermetic envelope-test check verify check-local-changes check-branch-changes changed-targets-test all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test docs-serve
 
 VERSION ?= dev
 
@@ -21,6 +21,7 @@ ZIG_ROOT = $(shell f="$$(command -v zig)"; [ -n "$$f" ] || exit 0; cd "$$(dirnam
 ZIG_MANAGED_ROOT = $(shell cd "$$HOME/.local/zig" 2>/dev/null && pwd -P)
 GOTESTSUM_VERSION = 1.13.0
 GOVULNCHECK_VERSION = v1.9.0
+ACTIONLINT_VERSION = v1.7.7
 GOMUTANTS_VERSION = v0.7.3
 DEADCODE_VERSION = v0.52.0
 # Per-binary cap for the unit suite: a wedged test panics with a stack dump
@@ -288,6 +289,14 @@ fmt:
 validate-fmt:
 	golangci-lint fmt -d ./...
 
+# Lint the GitHub Actions workflows. Pinned and run through `go run` like
+# vulncheck, so CI and the dev VM share one version and no binary is installed.
+# actionlint covers general workflow errors (expression types, undefined
+# contexts, shellcheck on `run:`); the two condition invariants it does not cover
+# are enforced by ci-guards-check. See specs/ci/ci-pipeline.md.
+actionlint:
+	go run github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION) $(wildcard .github/workflows/*.yml)
+
 run:
 	go run ./cmd/agents-sandbox
 
@@ -337,7 +346,7 @@ rebase-status-test:
 # on macOS, with a fixed fallback; a user's own -j still bounds the jobserver.
 JOBS ?= $(shell n=$$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2); q=$$((n / 4)); [ "$$q" -lt 2 ] && q=2; echo "$$q")
 
-CHECK_TARGETS = validate-fmt lint test compile-all docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test deadcode-test changed-targets-test cleanup-branches-test envelope-test upstream-drift-test rebase-status-test
+CHECK_TARGETS = validate-fmt lint actionlint test compile-all docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test deadcode-test changed-targets-test cleanup-branches-test envelope-test upstream-drift-test rebase-status-test
 VERIFY_TARGETS = $(CHECK_TARGETS) test-race vulncheck deadcode
 
 # Read-only local gate (does not modify files): formatter check + lint + test +
@@ -392,6 +401,18 @@ docs-diagrams:
 # Validate documentation links and linking style (run by `make check` and CI).
 docs-linkcheck:
 	ci/check-docs.sh
+
+# Validate that the CI gate's non-code path lists agree across ci.yml,
+# mutation.yml, codeql.yml, and ci/check-changelog.sh, and that the two
+# workflow-condition invariants actionlint does not cover hold: every
+# `github.event_name == '<event>'` names a declared event, and a declared
+# on.pull_request.types repeats the defaults. See specs/ci/ci-pipeline.md.
+ci-guards-check:
+	ci/check-ci-guards.sh
+
+# Test the guards checker itself (fixtures plus a self-check of this repo).
+ci-guards-check-test:
+	ci/test-check-ci-guards.sh
 
 # Test the documentation link checker itself.
 docs-linkcheck-test:

@@ -5,7 +5,8 @@
 # Prints, one per line and sorted, the subset of `make check` targets a change
 # can affect. Whole targets are selected or skipped; nothing is scoped inside a
 # target. An unrecognized path selects the full set (fail safe), as does an
-# unresolvable base ref.
+# unresolvable base ref; the full set is read from the Makefile's CHECK_TARGETS
+# so the fail-safe cannot drift from what `make check` actually runs.
 #
 # This backs `make check-local-changes` and `make check-branch-changes`, the
 # fast inner loop while iterating. It is not a gate: run `make check` before
@@ -57,15 +58,16 @@ if ! git -C "$repo" rev-parse --git-dir >/dev/null 2>&1; then
   exit 2
 fi
 
-# The full `make check` target set, in no particular order (output is sorted).
-# Also the fail-safe selection for an unknown path or an undecidable base.
-all_targets=(
-  validate-fmt lint test compile-all
-  docs-linkcheck docs-linkcheck-test
-  changelog-check changelog-check-test
-  deadcode-test changed-targets-test
-  cleanup-branches-test envelope-test upstream-drift-test rebase-status-test
-)
+# The full `make check` target set, read from the Makefile's CHECK_TARGETS so the
+# fail-safe below can never drift from what `make check` actually runs. Also the
+# fail-safe selection for an unknown path or an undecidable base.
+makefile="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/Makefile"
+check_targets_line="$(grep -E '^CHECK_TARGETS[[:space:]]*=' "$makefile" | head -1 || true)"
+if [[ -z "$check_targets_line" ]]; then
+  printf 'changed-targets: cannot read CHECK_TARGETS from %s\n' "$makefile" >&2
+  exit 2
+fi
+read -r -a all_targets <<<"${check_targets_line#*=}"
 
 selected=""
 add_targets() { local t; for t in "$@"; do selected="$selected$t"$'\n'; done; }
@@ -114,14 +116,19 @@ if [[ -z "$selected" ]]; then
     case "$path" in
       ci/check-docs.sh|ci/test-check-docs.sh) add_targets docs-linkcheck docs-linkcheck-test; known=1 ;;
       ci/check-changelog.sh|ci/test-check-changelog.sh) add_targets changelog-check changelog-check-test; known=1 ;;
+      ci/check-ci-guards.sh|ci/test-check-ci-guards.sh) add_targets ci-guards-check ci-guards-check-test; known=1 ;;
       ci/check-deadcode.sh|ci/test-check-deadcode.sh|ci/deadcodecheck/*) add_targets deadcode-test; known=1 ;;
+      .github/workflows/*) add_targets actionlint ci-guards-check; known=1 ;;
       scripts/cleanup-merged-branches.sh|scripts/test-cleanup-merged-branches.sh) add_targets cleanup-branches-test; known=1 ;;
       scripts/test-envelope.sh|scripts/test-envelope_test.sh) add_targets envelope-test; known=1 ;;
       scripts/upstream-drift.sh|scripts/test-upstream-drift.sh) add_targets upstream-drift-test; known=1 ;;
       scripts/rebase-status.sh|scripts/test-rebase-status.sh) add_targets rebase-status-test; known=1 ;;
     esac
     case "$path" in
-      .operator-shared/*) known=1 ;;
+      */*.md) known=1 ;; # nested markdown: no `make check` target reads it
+    esac
+    case "$path" in
+      .operator-shared/*|.agents-sandbox/*|.agents/*|opencode.jsonc|.codecov.yml) known=1 ;;
     esac
     if [[ "$known" -eq 0 ]]; then
       select_all

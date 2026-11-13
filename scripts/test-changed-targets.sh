@@ -27,8 +27,12 @@ assert_set() {
   if [[ "$got" == "$expected" ]]; then ok "$name"; else bad "$name (got: '$got' want: '$expected')"; fi
 }
 
-ALL="changed-targets-test changelog-check changelog-check-test cleanup-branches-test compile-all deadcode-test docs-linkcheck docs-linkcheck-test envelope-test lint rebase-status-test test upstream-drift-test validate-fmt"
-GO="compile-all lint test validate-fmt"
+# The full `make check` set, read from the Makefile's CHECK_TARGETS so this
+# expectation tracks it (the map reads the same line).
+MAKEFILE="$(cd "$SCRIPT_DIR/.." && pwd)/Makefile"
+ALL="$(grep -E '^CHECK_TARGETS[[:space:]]*=' "$MAKEFILE" | head -1 \
+  | sed -E 's/^CHECK_TARGETS[[:space:]]*=[[:space:]]*//' \
+  | tr ' ' '\n' | LC_ALL=C sort -u | tr '\n' ' ' | sed 's/ *$//')"
 GO_DOCS="compile-all docs-linkcheck lint test validate-fmt"
 
 new_repo() {
@@ -74,6 +78,11 @@ run_local "modified upstream-drift script" scripts/upstream-drift.sh "# x" "upst
 run_local "modified rebase-status script" scripts/rebase-status.sh "# x" "rebase-status-test"
 run_local "modified envelope test" scripts/test-envelope.sh "# x" "envelope-test"
 run_local "modified cleanup script" scripts/cleanup-merged-branches.sh "# x" "cleanup-branches-test"
+run_local "modified ci-guards checker" ci/check-ci-guards.sh "# x" "ci-guards-check ci-guards-check-test"
+run_local "modified workflow" .github/workflows/ci.yml "# x" "actionlint ci-guards-check"
+run_local "nested markdown selects nothing" .github/PULL_REQUEST_TEMPLATE.md "# x" ""
+run_local "dev-VM dockerfile selects nothing" .agents-sandbox/Dockerfile "FROM x" ""
+run_local "opencode config selects nothing" opencode.jsonc "{}" ""
 run_local "unrecognized Makefile selects all" Makefile "all:" "$ALL"
 run_local "operator brain selects nothing" .operator-shared/specs/x.md "# b2" ""
 
