@@ -180,13 +180,19 @@ func quietLogger() termio.Logger {
 
 // inputCollector gathers inputs by path and kind, so a file reached twice the
 // same way (an agent config file that is also a home: source) is one input, and
-// the digest of every file it read.
+// the digest of every file it read. An input whose entries are empty is no
+// input: a role the file contributes nothing to (a config file without home:
+// keys, an empty env file) must not show a blank change or duplicate the file's
+// path in the flat warnings.
 type inputCollector struct {
 	byKey map[string]Input
 	reads map[string]projectguard.Approval
 }
 
 func (c inputCollector) add(input Input) {
+	if len(input.Entries) == 0 {
+		return
+	}
 	c.byKey[input.key()] = input
 }
 

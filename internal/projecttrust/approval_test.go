@@ -127,6 +127,31 @@ func TestIgnoredWarningNamesTheChangedInputs(t *testing.T) {
 	}
 }
 
+// TestFirstRunChangeListNamesAConfigFileOnce pins F5: a first-run decision over
+// a config file without home: keys is one input, so the change list and every
+// flat path list name its path once — a role with nothing to contribute must
+// not add a duplicate line or path.
+func TestFirstRunChangeListNamesAConfigFileOnce(t *testing.T) {
+	path := "/repo/.agents-sandbox/config.yaml"
+	decision := Evaluate(projectionOf(Input{
+		Path: path, Kind: KindLauncherConfig, Entries: []string{`memory: "8G"`},
+	}), toApproval(Projection{}))
+
+	rendered := RenderChanges(decision.Changes)
+	if got := strings.Count(rendered, path); got != 1 {
+		t.Errorf("RenderChanges names %q %d times, want once:\n%s", path, got, rendered)
+	}
+	for _, flat := range []string{changedPaths(decision.Changes), IgnoredWarning(decision)} {
+		if got := strings.Count(flat, path); got != 1 {
+			t.Errorf("%q names %q %d times, want once", flat, path, got)
+		}
+	}
+	err := Approve(&termiotest.Mock{}, "checkout-a", decision)
+	if !errors.Is(err, ErrApprovalRequired) || strings.Count(err.Error(), path) != 1 {
+		t.Errorf("non-interactive refusal = %v, want ErrApprovalRequired naming the path once", err)
+	}
+}
+
 // TestApproveSettingWriteKeepsTheLaunchersOwnChangeApproved pins that a
 // launcher write to the project config keeps the layer approved, while a change
 // the agent made to the same file meanwhile still needs approval.

@@ -232,6 +232,23 @@ func TestGateOtherCommandsIgnoreAChangedLayer(t *testing.T) {
 	}
 }
 
+// TestGateConfigPathsWarningNamesTheConfigFileOnce pins F5: the flat warning a
+// command that ignores an unapproved layer prints lists the project config file
+// once, not once per projected role.
+func TestGateConfigPathsWarningNamesTheConfigFileOnce(t *testing.T) {
+	f := newGateFixture(t)
+	writeProjectConfig(t, "memory: 8G\n")
+
+	if err := f.gate(t, cmdConfig, cmdPaths); err != nil {
+		t.Fatalf("gate: %v", err)
+	}
+	path := filepath.Join(configpaths.Get().ProjectConfigDir(), "config.yaml")
+	warning := strings.Join(f.ui.WarnCalls, "\n")
+	if got := strings.Count(warning, path); got != 1 {
+		t.Errorf("warning names %q %d times, want once:\n%s", path, got, warning)
+	}
+}
+
 // TestGateDecidesAfreshForEachCommand pins that an earlier exclusion does not
 // outlive its command: after approval, the next command uses the layer.
 func TestGateDecidesAfreshForEachCommand(t *testing.T) {
