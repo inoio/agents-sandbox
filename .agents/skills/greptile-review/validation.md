@@ -33,7 +33,20 @@ composite-literal key does not compile". Zero findings on them, and specifically
 
 ## RED record
 
-_Not yet run._
+Four fresh reviewers ran the diff with no ruleset, in detached worktrees of the pre-fix commits
+(no answer key, no `gh`, no network). Result: the baseline **fails** — it misses findings in every
+family, including two P1s.
+
+| PR | Target findings | Caught | Missed |
+|---|---|---|---|
+| 604 | Large files skip approval (P1); Reused files lose content checks (P1); Approval hides changed commands (P2); Different bytes share approval (P2) | Large files skip approval (P1) | the other three |
+| 590 | Raw strings escape the guard (P2); Inherited git settings remain active (P2) | none | both (called the isolation correct) |
+| 618 | Another checkout's rebase is missed (P1); macOS checks stop at mapfile (P1); Rebase target changes mid-report (P2) | Rebase target changes mid-report (P2) | both P1s |
+| 650 | Build output grows without bounds (P1) | the P1 | — |
+
+A first RED run was discarded: its reviewers read the PRs' Greptile comments (via `gh`) and a
+concurrent session's activity polluted the check. The rerun is the record. Novel findings the
+baseline raised beyond Greptile's set are held separately for triage, not in this file.
 
 ## GREEN record
 
