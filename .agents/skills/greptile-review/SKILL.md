@@ -24,7 +24,8 @@ The output is a report a maintainer reads, not a posted review. Nothing reaches 
 
 The argument is a PR number or a git ref:
 
-- a number — `gh pr diff <n>` (and `gh pr view <n> --json baseRefName` for the diff text).
+- a number — `gh pr diff <n>`; use `gh pr view <n> --json baseRefName,headRefOid` if you need the
+  base to compute a merge-base locally.
 - anything else — `git diff $(git merge-base <ref> HEAD)...HEAD`.
 
 Confirm the ref resolves and the diff is non-empty before dispatching. A bad ref or empty diff
@@ -52,9 +53,15 @@ ruleset path, and this brief:
 
 ### 4. Report
 
-Order findings P1 first. Keep the reviewer's findings intact — do not rerank across families or
-merge similar ones. If the reviewer found nothing, say so; an empty report on a clean diff is
-correct, not a failure to look.
+Shape the report like Greptile's, ordered P1 first:
+
+- one verdict line naming the change and whether anything blocks merge;
+- a findings list — `[P1|P2] title` and one line each;
+- then, per finding, the title, the body (trigger → wrong behaviour), severity, and the evidence
+  note.
+
+Keep the reviewer's findings intact — do not rerank across families or merge similar ones. If the
+reviewer found nothing, say so; an empty report on a clean diff is correct, not a failure to look.
 
 ## Severity
 

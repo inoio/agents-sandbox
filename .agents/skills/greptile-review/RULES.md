@@ -190,7 +190,8 @@ strings, embedded quotes: is each handled the way the format says, on both the r
 re-serialized unquoted so a scope collapses; CRLF stops the build; a spaced profile string fails
 validation.
 
-**Spec.** `.operator-shared/specs/runner-image/image-composition.md`, `.operator-shared/adr/0001`.
+**Spec.** `.operator-shared/specs/runner-image/image-composition.md`,
+`.operator-shared/adr/0001-yaml-handling.md`.
 
 **Corpus.** PR638 "Quoted scopes lose build separation" (P2), PR632 "Quoted cache paths fail" (P2),
 PR554 "Memory edit breaks YAML" (P1).
