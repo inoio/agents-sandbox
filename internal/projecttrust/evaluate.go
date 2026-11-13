@@ -38,9 +38,10 @@ type Decision struct {
 }
 
 // Evaluate compares the current projection with the recorded approval (the zero
-// value when there is none). An empty projection and one matching the approved
-// digest are approved; otherwise every added, removed, and modified input is a
-// change, sorted by path and kind.
+// value when there is none). An empty projection and one matching the recorded
+// approval — by digest, or input for input once the approval is normalized — are
+// approved; otherwise every added, removed, and modified input is a change,
+// sorted by path and kind.
 func Evaluate(current Projection, approved state.ApprovedProjectLayer) Decision {
 	if current.Empty() || approved.Digest == current.Digest() {
 		return Decision{Approved: true, Changes: nil, Current: current}
@@ -71,6 +72,12 @@ func Evaluate(current Projection, approved state.ApprovedProjectLayer) Decision 
 		changes = append(changes, Change{
 			Path: input.Path, Kind: input.Kind, Status: StatusRemoved, Lines: prefixed("- ", input.Entries),
 		})
+	}
+	if len(changes) == 0 {
+		// The recorded digest can differ while the inputs, normalized, match: an
+		// approval saved before empty inputs were dropped carries an input the
+		// current projection does not. Nothing distinguishes the two, so approve.
+		return Decision{Approved: true, Changes: nil, Current: current}
 	}
 	slices.SortFunc(changes, func(a, b Change) int {
 		return strings.Compare(a.Path+"\x00"+string(a.Kind), b.Path+"\x00"+string(b.Kind))
@@ -142,10 +149,16 @@ func prefixed(prefix string, entries []string) []string {
 	return lines
 }
 
-// fromApproval converts a recorded approval back into the projection it approved.
+// fromApproval converts a recorded approval back into the projection it
+// approved, normalized: an approval saved before empty inputs were dropped
+// carries an input the current projection no longer produces, so an input whose
+// entries are empty is dropped here too and cannot read as a removed input.
 func fromApproval(approval state.ApprovedProjectLayer) Projection {
 	var inputs []Input
 	for _, input := range approval.Inputs {
+		if len(input.Entries) == 0 {
+			continue
+		}
 		inputs = append(inputs, Input{
 			Path: input.Path, Kind: InputKind(input.Kind), Entries: input.Entries, Digest: input.Digest,
 		})
