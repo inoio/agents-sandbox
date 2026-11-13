@@ -63,17 +63,16 @@ func waitForMemoryLimit(
 			errMemoryLimitNotApplied, wantMiB,
 		)
 	}
-	if metrics.MemoryLimitBytes == wantBytes {
-		return nil
-	}
+	// At or below the request: poll, which confirms an exact match on its first
+	// read and accepts an overshoot from another client as the raise applied.
 	return pollMemoryRaise(ctx, read, wantMiB, wantBytes)
 }
 
 // pollMemoryRaise polls read until the live limit reaches at least wantBytes, the
 // deadline passes (not applied), or a read fails or reports an unknown limit
-// (unconfirmed). It runs only after the first read showed the limit below the
-// request, so a limit that reaches or exceeds the request is the raise applied
-// (another client may push it above the request as it converges).
+// (unconfirmed). It runs only after the first read showed the limit not above
+// the request, so a limit that reaches or exceeds the request is the raise
+// applied (another client may push it above the request as it converges).
 func pollMemoryRaise(
 	ctx context.Context,
 	read func(context.Context) (*msb.Metrics, error),

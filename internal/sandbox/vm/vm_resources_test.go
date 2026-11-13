@@ -390,6 +390,71 @@ func TestWaitForMemoryLimitReadErrorIsTerminalAndNotNotApplied(t *testing.T) {
 	}
 }
 
+// TestWaitForMemoryLimitRaisePollReadErrorIsUnconfirmed pins that a read failure
+// while a raise is in flight aborts the poll immediately and is reported as a
+// read error, never as applied or not applied: only the confirmation failed.
+func TestWaitForMemoryLimitRaisePollReadErrorIsUnconfirmed(t *testing.T) {
+	setMemoryConvergeSeams(t, time.Second)
+	readError := errors.New("metrics boom")
+	calls := 0
+	read := func(context.Context) (*msb.Metrics, error) {
+		calls++
+		if calls == 1 {
+			return &msb.Metrics{MemoryLimitBytes: 1 << 20}, nil // below the request: a raise is underway
+		}
+		return nil, readError
+	}
+
+	err := waitForMemoryLimit(context.Background(), read, 4)
+	if !errors.Is(err, readError) {
+		t.Errorf("error = %v, want the poll's metrics read error", err)
+	}
+	if errors.Is(err, errMemoryLimitNotApplied) {
+		t.Errorf("error = %v, must not be marked not-applied", err)
+	}
+	if calls != 2 {
+		t.Errorf("read called %d times, want exactly 2 (terminal on the poll's failure)", calls)
+	}
+}
+
+// TestWaitForMemoryLimitRaisePollUnknownLimitIsUnconfirmed pins that an unknown
+// limit read while a raise is in flight (a nil snapshot or a zero limit) aborts
+// the poll as unconfirmed instead of polling to the deadline, mirroring the
+// first read's treatment of an unknown limit.
+func TestWaitForMemoryLimitRaisePollUnknownLimitIsUnconfirmed(t *testing.T) {
+	cases := []struct {
+		name    string
+		metrics *msb.Metrics
+	}{
+		{name: "nil snapshot", metrics: nil},
+		{name: "zero limit", metrics: &msb.Metrics{MemoryLimitBytes: 0}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setMemoryConvergeSeams(t, time.Second)
+			calls := 0
+			read := func(context.Context) (*msb.Metrics, error) {
+				calls++
+				if calls == 1 {
+					return &msb.Metrics{MemoryLimitBytes: 1 << 20}, nil // below the request: a raise is underway
+				}
+				return tc.metrics, nil
+			}
+
+			err := waitForMemoryLimit(context.Background(), read, 4)
+			if !errors.Is(err, errMemoryLimitUnknown) {
+				t.Fatalf("err = %v, want errMemoryLimitUnknown", err)
+			}
+			if errors.Is(err, errMemoryLimitNotApplied) {
+				t.Errorf("err = %v, an unknown limit is not a confirmed not-applied", err)
+			}
+			if calls != 2 {
+				t.Errorf("read called %d times, want exactly 2 (unknown is terminal)", calls)
+			}
+		})
+	}
+}
+
 // TestReconcileResourceConfigMemoryConverges pins the end-to-end path: a staged
 // live memory change waits on Metrics until the limit converges and then
 // succeeds.
@@ -544,6 +609,9 @@ func TestReconcileResourceConfigMemoryUnknownLimitUnconfirmed(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an unknown-limit error, got nil")
 	}
+	if !errors.Is(err, errMemoryLimitUnknown) {
+		t.Errorf("error = %v, want the unknown-limit cause preserved through the wrap", err)
+	}
 	if !strings.Contains(err.Error(), "could not confirm") {
 		t.Errorf("error = %v, want the neutral could-not-confirm wrap", err)
 	}
@@ -556,13 +624,17 @@ func TestReconcileResourceConfigMemoryUnknownLimitUnconfirmed(t *testing.T) {
 // metrics read during a staged memory change is surfaced as an unconfirmed
 // read, not as the change being not applied (Modify planned it conflict-free).
 func TestReconcileResourceConfigMemoryReadErrorNeutral(t *testing.T) {
+	readError := errors.New("metrics boom")
 	handle := reconcileHandle(8, 8192)
-	handle.MetricsErr = errors.New("metrics boom")
+	handle.MetricsErr = readError
 	ui := termiotest.NewTestMock(t)
 
 	err := reconcileResourceConfig(context.Background(), handle, options.RunOptions{Memory: "4G"}, &ui)
 	if err == nil {
 		t.Fatal("expected a read error, got nil")
+	}
+	if !errors.Is(err, readError) {
+		t.Errorf("error = %v, want the metrics read error preserved through the wrap", err)
 	}
 	if !strings.Contains(err.Error(), "could not confirm") {
 		t.Errorf("error = %v, want the neutral could-not-confirm wrap", err)
