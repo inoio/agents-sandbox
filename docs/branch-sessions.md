@@ -49,8 +49,8 @@ When you pass `--worktree <name>`:
 
 You can also launch a normal session from a git worktree you created on the host. A worktree that lives *outside* its
 checkout binds its own root and gets its own identity; the checkout's shared git dir is mounted read-write at its host
-path so `git` resolves inside the VM. That mount is refused when the shared git dir sits under a managed mount such as
-`/home/dev`, `/workspace`, or `/tmp` — mounting there would shadow the mount's content. agents-sandbox then warns that
+path so `git` resolves inside the VM. That mount is refused when the shared git dir sits under `/workspace` or `/tmp`,
+where mounting would shadow the managed mount's content. agents-sandbox then warns that
 `git may not resolve inside the VM`, and `git` commands fail with `fatal: not a git repository`.
 
 ## When to use
