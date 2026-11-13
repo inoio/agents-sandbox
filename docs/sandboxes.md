@@ -283,7 +283,8 @@ mounted at `$HOME`. Until then the running sandbox keeps the previous home volum
 Home volumes are pruned when:
 
 - You run `volume migrate|reset` with `--rm` (removes the old volume)
-- `volume prune` reclaims an orphaned volume of a stale project (no state references it)
+- `volume prune` reclaims an orphaned volume (no project state references it and no adoption claim names it) once the
+  volume itself is older than the threshold, even when its slug has no VM
 - `prune --purge` or `sandbox remove --purge` removes a whole project's volumes
 - The state file is missing and a fresh volume is created (old volumes become orphaned)
 

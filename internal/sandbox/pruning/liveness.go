@@ -152,14 +152,11 @@ func imageWithinAge(imageHandle msb.ImageHandle, age time.Duration) bool {
 // volumeOlderThan reports whether a home volume was created at least age ago. An
 // unknown creation time (the zero time the runtime reports when it cannot say)
 // is never older than the age, so such a volume is kept rather than read as
-// infinitely old. A zero age disables the age gate, so a threshold-less caller
-// reclaims every unattached volume whose creation time is known.
+// infinitely old. A non-positive age disables the age gate, so a threshold-less
+// caller reclaims every unattached volume whose creation time is known.
 func volumeOlderThan(createdAt time.Time, age time.Duration) bool {
 	if createdAt.IsZero() {
 		return false
-	}
-	if age <= 0 {
-		return true
 	}
 	// gomutants:disable-next-line CONDITIONALS_BOUNDARY reason="the boundary is an exact nanosecond equality between time.Since and the age, with no injectable clock to hit it; >= and > agree on every reachable input"
 	return time.Since(createdAt) >= age

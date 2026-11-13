@@ -21,9 +21,9 @@ type VolumeReport struct {
 
 // PruneVolumes prunes home volumes no kept project VM references: a home volume
 // is reclaimed when its slug has no kept VM, it is older than the prune age, and
-// no project state references it. When a slug's last home volume is removed, its
-// state file is removed too, so the state file never outlives the volume it
-// references.
+// neither a project state file nor an adoption claim owns it. When a slug's last
+// home volume is removed, its state file is removed too, so the state file never
+// outlives the volume it references.
 func PruneVolumes(
 	ctx context.Context,
 	pruneState PruneState,
@@ -43,7 +43,13 @@ func PruneVolumes(
 		// gomutants:disable-next-line RETURN_ZERO reason="report is still its zero value at this point, so returning a fresh zero VolumeReport is identical"
 		return report, err
 	}
-	removed := pruneHomeVolumes(ctx, client, handles, pruneState, references, dryRun, ui, &report)
+	root, err := state.ReadRootState()
+	if err != nil {
+		// gomutants:disable-next-line RETURN_ZERO reason="report is still its zero value at this point, so returning a fresh zero VolumeReport is identical"
+		return report, err
+	}
+	owners := volumeOwners(references, root.AdoptedHomeVolumes)
+	removed := pruneHomeVolumes(ctx, client, handles, pruneState, owners, dryRun, ui, &report)
 	if !dryRun {
 		removeStateForGoneKeys(ui, removed, exists)
 	}
@@ -65,15 +71,15 @@ func countVolumesByKey(handles []msb.VolumeHandle) map[state.Key]int {
 
 // pruneHomeVolumes removes the home volumes of slugs with no kept VM that are
 // older than the prune age, and records the number removed per project/agent key.
-// A volume still referenced by a project state file is kept and warned about
-// instead, so prune can never delete a volume (for example one a pending
-// adoption preserves) that a state file still points at.
+// A volume a project state file references, or an adoption claim owns, is kept
+// and warned about instead, so prune can never delete a volume (for example one a
+// pending adoption preserves) that a current owner still points at.
 func pruneHomeVolumes(
 	ctx context.Context,
 	client msb.Client,
 	handles []msb.VolumeHandle,
 	pruneState PruneState,
-	references map[string][]state.Key,
+	owners map[string][]state.Key,
 	dryRun bool,
 	ui termio.Logger,
 	report *VolumeReport,
@@ -92,8 +98,8 @@ func pruneHomeVolumes(
 		if !volumeOlderThan(handle.CreatedAt(), pruneState.Age) {
 			continue
 		}
-		if len(references[name]) > 0 {
-			ui.Warnf("keeping home volume %s: still referenced by %s", name, state.FormatKeys(references[name]))
+		if len(owners[name]) > 0 {
+			ui.Warnf("keeping home volume %s: still owned by %s", name, state.FormatKeys(owners[name]))
 			continue
 		}
 		if !dryRun {

@@ -278,6 +278,35 @@ func TestKeepImagePrecedence(t *testing.T) {
 	}
 }
 
+// TestVolumeOlderThan pins the age gate: a known creation time is older than a
+// positive age only once enough time has passed, a non-positive age passes every
+// volume with a known creation time (the gate is disabled), and a zero creation
+// time is never older than the age however small the age.
+func TestVolumeOlderThan(t *testing.T) {
+	created := time.Now().Add(-2 * time.Hour)
+	zero := time.Time{}
+
+	for _, tc := range []struct {
+		name      string
+		createdAt time.Time
+		age       time.Duration
+		want      bool
+	}{
+		{name: "past the age", createdAt: created, age: time.Hour, want: true},
+		{name: "within the age", createdAt: created, age: 3 * time.Hour, want: false},
+		{name: "zero age disables the gate", createdAt: created, age: 0, want: true},
+		{name: "negative age disables the gate", createdAt: created, age: -time.Hour, want: true},
+		{name: "zero creation time is never old", createdAt: zero, age: time.Hour, want: false},
+		{name: "zero creation time with a zero age", createdAt: zero, age: 0, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := volumeOlderThan(tc.createdAt, tc.age); got != tc.want {
+				t.Errorf("volumeOlderThan(%v, %v) = %v, want %v", tc.createdAt, tc.age, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestBuildPruneStateRecordsAge(t *testing.T) {
 	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 

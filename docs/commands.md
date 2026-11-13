@@ -306,8 +306,9 @@ agents-sandbox image prune --format json        # machine-readable report on std
 
 ### volume prune
 
-Prune home volumes that no project state file references (orphaned volumes), once their project is stale. A volume still
-named by a project's state is never removed here — a project's stated volume is deleted only by
+Prune orphaned home volumes — volumes no project state file references and no adoption claim names — once the volume
+itself is older than `--older-than`, even when its slug has no VM. A volume still named by a project's state or an
+adoption claim is never removed here — a project's stated volume is deleted only by
 [`prune --purge`](#prune---purge) (or `volume remove`). When a project's last home volume is removed, its state file is
 removed too.
 

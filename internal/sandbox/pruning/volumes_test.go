@@ -9,9 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
+	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
@@ -331,7 +333,7 @@ func TestPruneVolumesSkipsReferencedVolume(t *testing.T) {
 	if len(client.RemovedVolumes) != 0 {
 		t.Errorf("RemovedVolumes = %v, want none", client.RemovedVolumes)
 	}
-	want := "keeping home volume " + volume + ": still referenced by " + slug
+	want := "keeping home volume " + volume + ": still owned by " + slug
 	if len(ui.WarnCalls) != 1 || ui.WarnCalls[0] != want {
 		t.Errorf("WarnCalls = %v, want [%q]", ui.WarnCalls, want)
 	}
@@ -461,7 +463,7 @@ func TestPruneVolumesKeepsVolumeReferencedFromEitherSlug(t *testing.T) {
 	if r.VolumesPruned != 0 || len(client.RemovedVolumes) != 0 {
 		t.Errorf("pruned %d volume(s), removed %v; want the volume kept", r.VolumesPruned, client.RemovedVolumes)
 	}
-	want := "keeping home volume " + volume + ": still referenced by " + checkoutSlug + ", " + legacySlug
+	want := "keeping home volume " + volume + ": still owned by " + checkoutSlug + ", " + legacySlug
 	if len(ui.WarnCalls) != 1 || ui.WarnCalls[0] != want {
 		t.Errorf("WarnCalls = %v, want [%q]", ui.WarnCalls, want)
 	}
@@ -469,6 +471,76 @@ func TestPruneVolumesKeepsVolumeReferencedFromEitherSlug(t *testing.T) {
 		if _, err := state.ReadState(state.Key{Slug: slug, Agent: ""}); err != nil {
 			t.Errorf("state file for %s should survive, got err=%v", slug, err)
 		}
+	}
+}
+
+// TestPruneVolumesKeepsClaimOnlyVolume is the volume form of the Greptile P1:
+// a home volume owned only by a root-state adoption claim (a lost-state adoption
+// whose project state no longer exists) must not be pruned, even though no
+// project state references it and its slug has no VM. Its owner is the checkout
+// that adopted it, so it survives the claim.
+func TestPruneVolumesKeepsClaimOnlyVolume(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	const (
+		legacySlug   = "claimonly-1mjusbm3wikhb0"
+		checkoutSlug = "claimonlycheckout-2nkvtdn4xjlic1"
+	)
+	volume := naming.HomeVolumeName(legacySlug, "opencode", "20260101T000000")
+	seedAdoptionClaim(t, legacySlug, "opencode", checkoutSlug, volume)
+	client := &msbtest.MockMsbClient{
+		Volumes: []msb.VolumeHandle{
+			&msbtest.MockVolumeHandle{Name_: volume, CreatedAt_: time.Now().Add(-15 * 24 * time.Hour)},
+		},
+	}
+	msbtest.WithMsbMock(t, client)
+	ui := &termiotest.Mock{}
+	r, err := PruneVolumes(context.Background(), PruneState{Age: 7 * 24 * time.Hour}, false, ui)
+	if err != nil {
+		t.Fatalf("PruneVolumes: %v", err)
+	}
+	if r.VolumesPruned != 0 || len(client.RemovedVolumes) != 0 {
+		t.Errorf(
+			"an adoption-claimed volume must survive: pruned=%d removed=%v",
+			r.VolumesPruned,
+			client.RemovedVolumes,
+		)
+	}
+	want := "keeping home volume " + volume + ": still owned by " + checkoutSlug + "/opencode"
+	if len(ui.WarnCalls) != 1 || ui.WarnCalls[0] != want {
+		t.Errorf("WarnCalls = %v, want [%q]", ui.WarnCalls, want)
+	}
+}
+
+// TestPruneVolumesPrunesVolumeNoClaimNames pins that an adoption claim protects
+// only the volume it names: an unclaimed, unreferenced sibling volume is still
+// reclaimed once older than the age.
+func TestPruneVolumesPrunesVolumeNoClaimNames(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	const (
+		legacySlug   = "claimonly-1mjusbm3wikhb0"
+		checkoutSlug = "claimonlycheckout-2nkvtdn4xjlic1"
+		otherSlug    = "otherproj-1mjusbm3wikhb0"
+	)
+	claimed := naming.HomeVolumeName(legacySlug, "opencode", "20260101T000000")
+	other := naming.HomeVolumeName(otherSlug, "opencode", "20260101T000000")
+	seedAdoptionClaim(t, legacySlug, "opencode", checkoutSlug, claimed)
+	client := &msbtest.MockMsbClient{
+		Volumes: []msb.VolumeHandle{
+			&msbtest.MockVolumeHandle{Name_: other, CreatedAt_: time.Now().Add(-15 * 24 * time.Hour)},
+		},
+	}
+	msbtest.WithMsbMock(t, client)
+	ui := &termiotest.Mock{}
+	r, err := PruneVolumes(context.Background(), PruneState{Age: 7 * 24 * time.Hour}, false, ui)
+	if err != nil {
+		t.Fatalf("PruneVolumes: %v", err)
+	}
+	if r.VolumesPruned != 1 || len(client.RemovedVolumes) != 1 || client.RemovedVolumes[0] != other {
+		t.Errorf(
+			"want only the unclaimed volume removed: pruned=%d removed=%v",
+			r.VolumesPruned,
+			client.RemovedVolumes,
+		)
 	}
 }
 
@@ -506,6 +578,36 @@ func TestPruneVolumesFailsClosedOnUnreadableState(t *testing.T) {
 // stale. Tests only.
 func staleHomeHandle(name string) msb.VolumeHandle {
 	return &msbtest.MockVolumeHandle{Name_: name, CreatedAt_: time.Now().Add(-15 * 24 * time.Hour)}
+}
+
+// TestPruneVolumesFailsClosedOnUnreadableRootState pins the fail-closed root
+// read: the launcher-global state can hold an adoption claim that owns a volume,
+// so prune must not reclaim anything it cannot prove is unowned.
+func TestPruneVolumesFailsClosedOnUnreadableRootState(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	root := configpaths.Get().UserStateDir()
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatalf("mkdir state root: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "state.yaml"), []byte("schema: [not-valid"), 0o600); err != nil {
+		t.Fatalf("write corrupt root state: %v", err)
+	}
+	client := &msbtest.MockMsbClient{
+		Volumes: []msb.VolumeHandle{
+			&msbtest.MockVolumeHandle{
+				Name_:      "agents-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022",
+				CreatedAt_: time.Now().Add(-15 * 24 * time.Hour),
+			},
+		},
+	}
+	msbtest.WithMsbMock(t, client)
+	_, err := PruneVolumes(context.Background(), PruneState{Age: 7 * 24 * time.Hour}, false, &termiotest.Mock{})
+	if err == nil {
+		t.Fatal("PruneVolumes() error = nil, want a fail-closed root-state read error")
+	}
+	if len(client.RemovedVolumes) != 0 {
+		t.Errorf("RemovedVolumes = %v, want none removed on a root-state read error", client.RemovedVolumes)
+	}
 }
 
 func TestPruneVolumesKeepsStateWhenReferencedVolumeSiblingRemoved(t *testing.T) {
@@ -583,7 +685,7 @@ func TestPruneVolumesDryRunWarnsOnReferencedVolume(t *testing.T) {
 	if len(client.RemovedVolumes) != 0 {
 		t.Errorf("dry run removed volumes: %v", client.RemovedVolumes)
 	}
-	want := "keeping home volume " + referenced + ": still referenced by " + slug
+	want := "keeping home volume " + referenced + ": still owned by " + slug
 	if len(ui.WarnCalls) != 1 || ui.WarnCalls[0] != want {
 		t.Errorf("WarnCalls = %v, want [%q]", ui.WarnCalls, want)
 	}
