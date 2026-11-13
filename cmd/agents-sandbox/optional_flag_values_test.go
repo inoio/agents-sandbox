@@ -13,8 +13,11 @@ import (
 // same footgun (F19). A following token is taken as the value only when the
 // flag's matcher accepts it, so a value spelling (case-insensitively) is
 // rewritten and rejected by the flag's own validation with the same error the =
-// form surfaces, while a plain word stays a positional argument the agent
-// receives. A dash-less token spelled like the flag is never rewritten.
+// form surfaces. A token the matcher rejects is left as a positional argument
+// the agent receives: pflag does not reject it either, because the flag's
+// NoOptDefVal supplies the value and the token is never inspected, so
+// `--notify bogus` keeps the watcher at its implicit "on" rather than erroring.
+// A dash-less token spelled like the flag is never rewritten.
 func TestNormalizeOptionalFlagValues(t *testing.T) {
 	tests := []struct {
 		name string
@@ -72,7 +75,7 @@ func TestNormalizeOptionalFlagValues(t *testing.T) {
 			want: []string{"run", "--notify=false"},
 		},
 		{
-			name: "a plain word after --notify is left as a positional",
+			name: "--notify with an out-of-vocabulary token is left as a positional",
 			args: []string{"run", "--notify", "bogus"},
 			want: []string{"run", "--notify", "bogus"},
 		},
@@ -140,7 +143,7 @@ func TestNormalizeOptionalFlagValues(t *testing.T) {
 			want: []string{"run", "--open-links=off"},
 		},
 		{
-			name: "a plain word after --open-links is left as a positional",
+			name: "--open-links with an out-of-vocabulary token is left as a positional",
 			args: []string{"--open-links", "maybe"},
 			want: []string{"--open-links", "maybe"},
 		},

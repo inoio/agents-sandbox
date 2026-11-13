@@ -11,9 +11,13 @@ import (
 // than a positional argument. A token a matcher accepts is the flag's value:
 // normalizeOptionalFlagValues rewrites it into the = form and the flag's own
 // parser validates it, so --notify OFF, --notify false and --open-links off are
-// rejected exactly as their = forms. A token no matcher accepts is a positional
-// argument left for the agent, so `run --notify fix the bug` keeps the watcher
-// on and forwards "fix the bug". The matchers accept the spellings a user is
+// rejected exactly as their = forms. A token no matcher accepts is left as a
+// positional argument and forwarded to the agent: pflag never inspects it,
+// because --notify/--open-links carry a NoOptDefVal, so pflag takes that
+// implicit value and stops at the flag without consuming the token. `run
+// --notify fix the bug` therefore keeps the watcher on and forwards "fix the
+// bug", and `run --notify bogus` does the same rather than rejecting it. The
+// matchers accept the spellings a user is
 // likely to write for a value, matched case-insensitively: the notify modes
 // on/off/desktop/audio, the natural-language on/off, and every boolean literal
 // strconv.ParseBool accepts.
