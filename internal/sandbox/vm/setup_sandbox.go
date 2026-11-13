@@ -3,6 +3,7 @@ package vm
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
@@ -23,13 +24,15 @@ const RootUser = "root"
 // not declare a shebang.
 const defaultHookInterpreter = "/bin/sh"
 
-// runStartupHooks runs each configured startup hook inside the VM via an
-// interactive attach. A hook with a shebang is executed directly so the VM
-// kernel resolves the interpreter; one without falls back to /bin/sh. Hook
-// scripts are marked executable during provisioning, so no +x bit is required
-// on the host source. The hook's HOME is set so scripts can rely on it. The
-// agent waits for the attach to finish; a hook that must outlive the attach is
-// responsible for daemonizing itself. Failures are logged, not fatal.
+// runStartupHooks runs each configured startup hook inside the VM via a
+// non-interactive exec, so a run without a TTY still runs the hooks. A hook
+// with a shebang is executed directly so the VM kernel resolves the
+// interpreter; one without falls back to /bin/sh. Hook scripts are marked
+// executable during provisioning, so no +x bit is required on the host source.
+// The hook's HOME is set so scripts can rely on it. The agent waits for the
+// exec to finish; a hook that must outlive it is responsible for daemonizing
+// itself. A hook that cannot run, or that exits non-zero, is reported with its
+// target and the reason. Failures are logged, not fatal.
 func runStartupHooks(ctx context.Context, sb msb.Sandbox, hooks []homeconfig.HookSpec, ui termio.Logger) {
 	for _, h := range hooks {
 		user := DefaultSandboxUser
@@ -45,13 +48,22 @@ func runStartupHooks(ctx context.Context, sb msb.Sandbox, hooks []homeconfig.Hoo
 			args = []string{h.Target}
 		}
 		ui.Infof("running startup hook %s (as %s, via %s)", h.Target, user, command)
-		if _, err := sb.AttachWith(
+		result, err := sb.Exec(
 			ctx,
 			command,
 			args,
-			msb.AttachRequest{User: user, Env: map[string]string{"HOME": home}},
-		); err != nil {
+			msb.ExecRequest{User: user, Env: map[string]string{"HOME": home}},
+		)
+		if err != nil {
 			ui.Warnf("startup hook %s failed: %v", h.Target, err)
+			continue
+		}
+		if !result.Success() {
+			reason := fmt.Sprintf("exit %d", result.ExitCode())
+			if stderr := strings.TrimSpace(result.Stderr()); stderr != "" {
+				reason += ": " + stderr
+			}
+			ui.Warnf("startup hook %s failed: %s", h.Target, reason)
 		}
 	}
 }

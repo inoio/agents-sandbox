@@ -15,11 +15,12 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
-// TestRunStartupHooksAttachesEachHook pins how a hook is run: as the default
+// TestRunStartupHooksExecutesEachHook pins how a hook is run: as the default
 // sandbox user with its home, or as root with /root when it asks for root; a
 // script with a shebang is executed directly so the kernel applies it, one
-// without is run through /bin/sh.
-func TestRunStartupHooksAttachesEachHook(t *testing.T) {
+// without is run through /bin/sh. Hooks run through the non-interactive exec
+// path, so a non-TTY run still runs them.
+func TestRunStartupHooksExecutesEachHook(t *testing.T) {
 	cases := []struct {
 		name     string
 		hook     homeconfig.HookSpec
@@ -63,21 +64,21 @@ func TestRunStartupHooksAttachesEachHook(t *testing.T) {
 
 			runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{tc.hook}, &ui)
 
-			if sb.AttachUser != tc.wantUser || sb.AttachEnv["HOME"] != tc.wantHome {
-				t.Errorf("attached as %q with HOME %q, want %q with %q",
-					sb.AttachUser, sb.AttachEnv["HOME"], tc.wantUser, tc.wantHome)
+			if sb.ExecUser != tc.wantUser || sb.ExecEnv["HOME"] != tc.wantHome {
+				t.Errorf("executed as %q with HOME %q, want %q with %q",
+					sb.ExecUser, sb.ExecEnv["HOME"], tc.wantUser, tc.wantHome)
 			}
-			if sb.AttachCmd != tc.wantCmd || !slices.Equal(sb.AttachArgs, tc.wantArgs) {
-				t.Errorf("attached %q %v, want %q %v", sb.AttachCmd, sb.AttachArgs, tc.wantCmd, tc.wantArgs)
+			if sb.ExecCmd != tc.wantCmd || !slices.Equal(sb.ExecArgs, tc.wantArgs) {
+				t.Errorf("executed %q %v, want %q %v", sb.ExecCmd, sb.ExecArgs, tc.wantCmd, tc.wantArgs)
 			}
 		})
 	}
 }
 
-// TestRunStartupHooksContinuesPastAFailingHook pins that a failing hook is a
-// warning and the remaining hooks still run.
+// TestRunStartupHooksContinuesPastAFailingHook pins that a hook that cannot run
+// is a warning and the remaining hooks still run.
 func TestRunStartupHooksContinuesPastAFailingHook(t *testing.T) {
-	sb := &msbtest.MockSandbox{Name_: "vm", AttachErr: errors.New("attach failed")}
+	sb := &msbtest.MockSandbox{Name_: "vm", ExecErr: errors.New("exec failed")}
 	ui := termiotest.NewTestMock(t)
 
 	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
@@ -85,11 +86,42 @@ func TestRunStartupHooksContinuesPastAFailingHook(t *testing.T) {
 		{Target: "/home/dev/.second.sh", Source: "x", HasShebang: true},
 	}, &ui)
 
-	if sb.AttachCmd != "/home/dev/.second.sh" {
-		t.Errorf("last attached hook = %q, want the second hook to run after the first failed", sb.AttachCmd)
+	if sb.ExecCmd != "/home/dev/.second.sh" {
+		t.Errorf("last executed hook = %q, want the second hook to run after the first failed", sb.ExecCmd)
 	}
 	if len(ui.WarnCalls) != 2 || !strings.Contains(ui.WarnCalls[0], "startup hook /home/dev/.first.sh failed") {
 		t.Errorf("warnings = %v, want one per failed hook", ui.WarnCalls)
+	}
+}
+
+// TestRunStartupHooksWarnsWhenAHookExitsNonZero pins that a hook that runs but
+// exits non-zero is reported with its target and the failure reason (the exit
+// code and stderr), and does not stop the remaining hooks.
+func TestRunStartupHooksWarnsWhenAHookExitsNonZero(t *testing.T) {
+	sb := &msbtest.MockSandbox{
+		Name_: "vm",
+		ExecOut: map[string]msb.ShellResult{
+			"/bin/sh /home/dev/.first.sh": msbtest.NewTestResult(false, 2, "", "ca import failed", nil),
+		},
+	}
+	ui := termiotest.NewTestMock(t)
+
+	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
+		{Target: "/home/dev/.first.sh", Source: "x"},
+		{Target: "/home/dev/.second.sh", Source: "x"},
+	}, &ui)
+
+	if sb.ExecCmd != "/bin/sh" || !slices.Equal(sb.ExecArgs, []string{"/home/dev/.second.sh"}) {
+		t.Errorf("last executed hook = %q %v, want the second hook to run after the first failed",
+			sb.ExecCmd, sb.ExecArgs)
+	}
+	if len(ui.WarnCalls) != 1 {
+		t.Fatalf("warnings = %v, want one for the failed hook", ui.WarnCalls)
+	}
+	for _, want := range []string{"/home/dev/.first.sh", "exit 2", "ca import failed"} {
+		if !strings.Contains(ui.WarnCalls[0], want) {
+			t.Errorf("warning %q missing %q", ui.WarnCalls[0], want)
+		}
 	}
 }
 

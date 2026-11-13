@@ -480,8 +480,8 @@ func TestSetUpSandboxRunsHooksOnlyOnBoot(t *testing.T) {
 		{"created VM runs hooks", VMBootCreated, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			sb.AttachCmd = ""
-			sb.AttachUser = ""
+			sb.ExecCmd = ""
+			sb.ExecUser = ""
 			_, err := SetUpSandbox(
 				context.Background(),
 				testVMKey(),
@@ -498,7 +498,7 @@ func TestSetUpSandboxRunsHooksOnlyOnBoot(t *testing.T) {
 			if err != nil {
 				t.Fatalf("SetUpSandbox: %v", err)
 			}
-			ran := sb.AttachCmd != ""
+			ran := sb.ExecCmd != ""
 			if ran != tc.expect {
 				t.Errorf("hook ran = %v, want %v", ran, tc.expect)
 			}

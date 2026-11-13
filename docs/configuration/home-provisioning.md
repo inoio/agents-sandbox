@@ -71,8 +71,9 @@ Rules:
   `hook` value is rejected as a parse error.
 - The hook runs only when the VM is **started** — freshly created, recreated, or booted from a stopped/crashed state. It
   is **not** re-run when you attach to an already-running VM.
-- The hook runs interactively: it may read from user input (e.g. prompt for passwords or MFA), and startup blocks
-  until the script finishes. When the hook finishes, microsandbox ends every process of the hook's session, including
+- The hook runs non-interactively: it cannot read from user input (stdin is closed), so it cannot prompt for passwords
+  or MFA and never waits on input — startup blocks until the script finishes. When the hook finishes, microsandbox ends
+  every process of the hook's session, including
   ones started with `nohup ... &`: `nohup` only ignores the hangup signal, but the process stays in the session. A hook
   that must keep running for the VM's lifetime (e.g. a VPN client) or wait for something that starts after the hooks
   (e.g. the agent's daemon) must start that work in a new session with
@@ -92,6 +93,7 @@ home:
   .vpn/config: .vpn/config
 ```
 
-Any credentials (passwords, MFA) the VPN needs should be interactively read from user input by the script.
+The hook runs without a terminal, so a VPN that needs a password or MFA must get it from a provisioned file or
+environment variable, not from a prompt.
 
 Run `agents-sandbox config home` to list the resolved VM target → host source mappings.

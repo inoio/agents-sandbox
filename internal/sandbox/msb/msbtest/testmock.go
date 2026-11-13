@@ -567,6 +567,12 @@ type MockSandbox struct {
 	ExecOut    map[string]msb.ShellResult
 	ExecErr    error
 	ExecCalls  *[]string
+	// ExecUser, ExecEnv, ExecCmd and ExecArgs record the request of the last
+	// Exec call, mirroring the Attach* fields.
+	ExecUser   string
+	ExecEnv    map[string]string
+	ExecCmd    string
+	ExecArgs   []string
 	AttachCode int
 	AttachErr  error
 	// AttachFn, when set, runs inside AttachWith with its ctx and supplies the
@@ -639,8 +645,12 @@ func (m *MockSandbox) Exec(
 	_ context.Context,
 	command string,
 	args []string,
-	_ msb.ExecRequest,
+	req msb.ExecRequest,
 ) (msb.ShellResult, error) {
+	m.ExecCmd = command
+	m.ExecArgs = args
+	m.ExecUser = req.User
+	m.ExecEnv = req.Env
 	if m.ExecErr != nil {
 		return nil, m.ExecErr
 	}
