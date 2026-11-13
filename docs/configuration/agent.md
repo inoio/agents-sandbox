@@ -45,7 +45,8 @@ interactive TUI instead. Passing an unsupported `--agent` name reports the valid
 > health probe, worktree API calls, and in-VM attach client all use it. v2 hardcodes the basic-auth username to
 > `opencode` (there is no `OPENCODE_SERVER_USERNAME`), so the fixed credential is `opencode:opencode` — what an
 > external `--serve-only` client must present on the `/api/*` routes (see the [connect-desktop recipe]({% link recipes/connect-desktop.md %})). The
-> root path and the static web UI are served without credentials; only the `/api/*` routes are protected.
+> root path and the static web UI are served without credentials; the `/api/*` routes and the `/openapi.json` document
+> require the basic-auth credential.
 
 Each agent owns its config directories, one subdir per agent under the tool's config base, in precedence order:
 
