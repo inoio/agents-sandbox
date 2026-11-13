@@ -233,21 +233,27 @@ jobs:
       startsWith(github.ref, 'refs/tags/') ||
       (github.event_name == 'pull_request' && needs.changes.outputs.code == 'true') ||
       (github.ref == 'refs/heads/main' && needs.changes.outputs.code == 'true')
+    permissions:
+      contents: read
+      packages: write
     env:
       # Authenticate the release-resolution queries the image build tests make
       # to api.github.com, so the shared runner IP is not subject to the
       # anonymous 60-requests/hour limit (see internal/agent/latest.go).
       GH_TOKEN: ${{ github.token }}
-      # main and a release tag are the validation runs: they build the image
-      # from scratch and (main only) export the cache, so a green main proves
-      # the build works uncached. Every other run — a PR, a dispatch —
-      # restores from main's export but never writes a merge-ref cache. Each
-      # value is one BuildKit cache spec, forwarded verbatim (see the
-      # integration suite's imageCacheEnv helper). The launcher fills the
-      # cache-service url and token from the ACTIONS_* environment the
-      # `ghaction-github-runtime` step exposes.
-      AGENTS_SANDBOX_IMAGE_CACHE_FROM: ${{ !(github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))) && 'type=gha,scope=runner-image' || '' }}
-      AGENTS_SANDBOX_IMAGE_CACHE_TO: ${{ github.ref == 'refs/heads/main' && 'type=gha,scope=runner-image,mode=max' || '' }}
+      # The runner-image BuildKit cache lives in GHCR, which has no Actions
+      # cache-budget cap. A push to main is the single writer (mode=max); every
+      # other run — a PR, a dispatch — restores it; main and a release tag build
+      # uncached, so a green validation run proves the build works from scratch.
+      # The suite keys each build's ref tag per build (keyCacheSpec), so sibling
+      # builds cannot clobber one shared tag. Credentials reach the daemon's
+      # BuildKit through the session, from the `docker login` step below.
+      #
+      # A fork PR gets a read-only token with no `packages` scope: it cannot log
+      # in, and an anonymous pull of the private package is a 403 that fails the
+      # build, so it imports nothing and builds uncached instead.
+      AGENTS_SANDBOX_IMAGE_CACHE_FROM: ${{ !(github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'type=registry,ref=ghcr.io/inoio/agents-sandbox:buildcache' || '' }}
+      AGENTS_SANDBOX_IMAGE_CACHE_TO: ${{ github.ref == 'refs/heads/main' && 'type=registry,ref=ghcr.io/inoio/agents-sandbox:buildcache,mode=max' || '' }}
       # The integration suite writes the steps each build served from the
       # imported cache here (a passing `go test` otherwise swallows the
       # streamed output), and the job prints it afterwards. Without it a silent
@@ -260,10 +266,11 @@ jobs:
         with:
           go-version-file: .go-version
           cache: true
-      # GitHub does not put the Actions cache-service url/token into a plain
-      # `run` step's environment; this exposes them so the launcher can carry
-      # them to the daemon's BuildKit (which cannot read the step's env).
-      - uses: crazy-max/ghaction-github-runtime@v4
+      - name: Log in to GHCR for the registry build cache
+        # Matches the empty `AGENTS_SANDBOX_IMAGE_CACHE_FROM` a fork PR gets: its
+        # read-only token has no `packages` scope, so a login would fail here.
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - run: make test-integration
       - name: Runner-image build cache report
         if: always()
