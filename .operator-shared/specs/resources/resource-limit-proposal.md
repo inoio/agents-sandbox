@@ -258,8 +258,15 @@ pressure, and re-arming on the ratio alone would re-offer every launch.)
   clamped to the maximum too. The offer never suggests or accepts more than the boot maximum, and
   a VM already at it gets an explanation instead of a prompt. A live
   memory resize is **asynchronous** (confirmed: `Modify` returns `STATE=converging` and the limit
-  lags), so confirm convergence via `Metrics.MemoryLimitBytes` before reporting the raise applied,
-  and do not read once.
+  lags), so it is confirmed via `Metrics.MemoryLimitBytes` with the **live limit as the reference for
+  direction** — the saved config can diverge from the guest, because a decrease the runtime never
+  applied leaves the saved value below the live limit. A live limit at the request is applied; a live
+  limit above it is a **decrease** the runtime never applies (it never unplugs memory), reported
+  **not applied** from the first read; a live limit below it is a **raise**, polled to the deadline and
+  reported **not applied** if it never reaches the request. Every read is bounded by the same
+  convergence deadline, so an unresponsive VM cannot block the launch. A metrics read error or an
+  unknown live limit (a nil snapshot or a zero limit, which no sibling reader treats as a real limit)
+  is reported as unconfirmed, not as the change being not applied.
 - **Root disk**: `buildModifyOptions` stages `ModifyOptions.RootDiskSizeMiB` when the desired size
   exceeds the current one (`SandboxConfig.RootDisk.SizeMiB`), and `reconcileResourceConfig` applies
   it live; only a decrease, or a VM whose root disk size is not recorded, is a recreate

@@ -23,18 +23,20 @@ import (
 func TestReconcileResourceConfig(t *testing.T) {
 	modifyFailed := errors.New("modify boom")
 	cases := []struct {
-		name       string
-		handle     *msbtest.MockSandboxHandle // boot config: 2 CPUs, 2048 MiB
-		opts       options.RunOptions
-		wantModify *msb.ModifyOptions
-		wantWarn   []string
-		wantErr    func(error) bool
+		name             string
+		handle           *msbtest.MockSandboxHandle // boot config: 2 CPUs, 2048 MiB
+		opts             options.RunOptions
+		metricsMemoryMiB uint32 // live limit the mock reports for a staged memory change; 0 leaves Metrics unset
+		wantModify       *msb.ModifyOptions
+		wantWarn         []string
+		wantErr          func(error) bool
 	}{
 		{
-			name:       "cpus and memory change",
-			handle:     reconcileHandle(8, 8192),
-			opts:       options.RunOptions{CPUs: 4, Memory: "4G"},
-			wantModify: &msb.ModifyOptions{CPUs: 4, MemoryMiB: 4096},
+			name:             "cpus and memory change",
+			handle:           reconcileHandle(8, 8192),
+			opts:             options.RunOptions{CPUs: 4, Memory: "4G"},
+			metricsMemoryMiB: 4096,
+			wantModify:       &msb.ModifyOptions{CPUs: 4, MemoryMiB: 4096},
 		},
 		{
 			name:       "one cpu is a change",
@@ -43,23 +45,37 @@ func TestReconcileResourceConfig(t *testing.T) {
 			wantModify: &msb.ModifyOptions{CPUs: 1},
 		},
 		{
-			name:       "memory with an unknown boot maximum",
-			handle:     reconcileHandle(0, 0),
-			opts:       options.RunOptions{Memory: "4G"},
-			wantModify: &msb.ModifyOptions{MemoryMiB: 4096},
+			name:             "memory with an unknown boot maximum",
+			handle:           reconcileHandle(0, 0),
+			opts:             options.RunOptions{Memory: "4G"},
+			metricsMemoryMiB: 4096,
+			wantModify:       &msb.ModifyOptions{MemoryMiB: 4096},
 		},
 		{
-			name:       "memory-only change",
-			handle:     reconcileHandle(8, 8192),
-			opts:       options.RunOptions{Memory: "4G"},
-			wantModify: &msb.ModifyOptions{MemoryMiB: 4096},
+			name:             "memory-only change",
+			handle:           reconcileHandle(8, 8192),
+			opts:             options.RunOptions{Memory: "4G"},
+			metricsMemoryMiB: 4096,
+			wantModify:       &msb.ModifyOptions{MemoryMiB: 4096},
 		},
 		{
-			name:       "both clamped to the boot maximum",
-			handle:     reconcileHandle(4, 4096),
-			opts:       options.RunOptions{CPUs: 16, Memory: "16G"},
-			wantModify: &msb.ModifyOptions{CPUs: 4, MemoryMiB: 4096},
-			wantWarn:   []string{"cpus limited to 4 (boot maximum); requested 16", "memory limited to 4096 MiB"},
+			name:             "a live limit above the request is not applied",
+			handle:           reconcileHandle(8, 8192),
+			opts:             options.RunOptions{Memory: "4G"},
+			metricsMemoryMiB: 8192,
+			wantModify:       &msb.ModifyOptions{MemoryMiB: 4096},
+			wantErr: func(err error) bool {
+				return errors.Is(err, errMemoryLimitNotApplied) &&
+					strings.Contains(err.Error(), "live memory change to 4096 MiB")
+			},
+		},
+		{
+			name:             "both clamped to the boot maximum",
+			handle:           reconcileHandle(4, 4096),
+			opts:             options.RunOptions{CPUs: 16, Memory: "16G"},
+			metricsMemoryMiB: 4096,
+			wantModify:       &msb.ModifyOptions{CPUs: 4, MemoryMiB: 4096},
+			wantWarn:         []string{"cpus limited to 4 (boot maximum); requested 16", "memory limited to 4096 MiB"},
 		},
 		{
 			name:       "a boot maximum of one cpu clamps",
@@ -69,17 +85,19 @@ func TestReconcileResourceConfig(t *testing.T) {
 			wantWarn:   []string{"cpus limited to 1"},
 		},
 		{
-			name:       "a boot maximum of one MiB clamps",
-			handle:     reconcileHandle(0, 1),
-			opts:       options.RunOptions{Memory: "4G"},
-			wantModify: &msb.ModifyOptions{MemoryMiB: 1},
-			wantWarn:   []string{"memory limited to 1 MiB"},
+			name:             "a boot maximum of one MiB clamps",
+			handle:           reconcileHandle(0, 1),
+			opts:             options.RunOptions{Memory: "4G"},
+			metricsMemoryMiB: 1,
+			wantModify:       &msb.ModifyOptions{MemoryMiB: 1},
+			wantWarn:         []string{"memory limited to 1 MiB"},
 		},
 		{
-			name:       "a request at the boot maximum does not warn",
-			handle:     reconcileHandle(8, 4096),
-			opts:       options.RunOptions{CPUs: 8, Memory: "4G"},
-			wantModify: &msb.ModifyOptions{CPUs: 8, MemoryMiB: 4096},
+			name:             "a request at the boot maximum does not warn",
+			handle:           reconcileHandle(8, 4096),
+			opts:             options.RunOptions{CPUs: 8, Memory: "4G"},
+			metricsMemoryMiB: 4096,
+			wantModify:       &msb.ModifyOptions{CPUs: 8, MemoryMiB: 4096},
 		},
 		{
 			name: "clamped cpus with unchanged memory",
@@ -87,9 +105,10 @@ func TestReconcileResourceConfig(t *testing.T) {
 				Cfg:  &msb.SandboxConfig{CPUs: 2, MaxCPUs: 8, MemoryMiB: 4096, MaxMemoryMiB: 8192},
 				Plan: &msb.SandboxModificationPlan{},
 			},
-			opts:       options.RunOptions{CPUs: 16, Memory: "4G"},
-			wantModify: &msb.ModifyOptions{CPUs: 8},
-			wantWarn:   []string{"cpus limited to 8"},
+			opts:             options.RunOptions{CPUs: 16, Memory: "4G"},
+			metricsMemoryMiB: 4096,
+			wantModify:       &msb.ModifyOptions{CPUs: 8},
+			wantWarn:         []string{"cpus limited to 8"},
 		},
 		{
 			name:       "a larger root disk grows live",
@@ -117,9 +136,10 @@ func TestReconcileResourceConfig(t *testing.T) {
 			handle: reconcileHandleWithRootDisk(),
 		},
 		{
-			name:   "unchanged request",
-			handle: reconcileHandle(8, 8192),
-			opts:   options.RunOptions{CPUs: 2, Memory: "2048"},
+			name:             "unchanged request",
+			handle:           reconcileHandle(8, 8192),
+			opts:             options.RunOptions{CPUs: 2, Memory: "2048"},
+			metricsMemoryMiB: 2048,
 		},
 		{
 			name:   "nothing requested",
@@ -164,6 +184,9 @@ func TestReconcileResourceConfig(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			ui := termiotest.NewTestMock(t)
+			if tc.metricsMemoryMiB != 0 {
+				tc.handle.MetricsResult = &msb.Metrics{MemoryLimitBytes: uint64(tc.metricsMemoryMiB) << 20}
+			}
 
 			err := reconcileResourceConfig(context.Background(), tc.handle, tc.opts, &ui)
 
@@ -231,10 +254,6 @@ func reconcileHandle(maxCPUs uint8, maxMemoryMiB uint32) *msbtest.MockSandboxHan
 			MaxMemoryMiB: maxMemoryMiB,
 		},
 		Plan: &msb.SandboxModificationPlan{},
-		// A staged live memory change is waited on until the limit converges; a
-		// large snapshot lets every memory case converge immediately without
-		// affecting the staged Modify under test.
-		MetricsResult: &msb.Metrics{MemoryLimitBytes: 64 << 30},
 	}
 }
 
@@ -251,11 +270,11 @@ func setMemoryConvergeSeams(t *testing.T, timeout time.Duration) {
 	})
 }
 
-// TestWaitForMemoryLimitMemoryConvergesOnSequentialRead pins the convergence
-// contract: an old limit reported first, then the requested limit, succeeds
-// once the second read lands — a single read is never enough.
-func TestWaitForMemoryLimitMemoryConvergesOnSequentialRead(t *testing.T) {
-	setMemoryConvergeSeams(t, time.Second)
+// TestWaitForMemoryLimitRaiseConvergesOnSequentialRead pins the convergence
+// contract for a raise: an old limit reported first, then the requested limit,
+// succeeds once the second read lands — a single read is never enough.
+func TestWaitForMemoryLimitRaiseConvergesOnSequentialRead(t *testing.T) {
+	setMemoryConvergeSeams(t, 5*time.Millisecond)
 	calls := 0
 	read := func(context.Context) (*msb.Metrics, error) {
 		calls++
@@ -274,8 +293,66 @@ func TestWaitForMemoryLimitMemoryConvergesOnSequentialRead(t *testing.T) {
 	}
 }
 
+// TestWaitForMemoryLimitReportsNotAppliedWithoutPolling pins the direction rule:
+// the live limit is the reference, and the runtime never unplugs memory. A live
+// limit above the request is a decrease that cannot converge, reported not
+// applied from the first read instead of polling to the deadline.
+func TestWaitForMemoryLimitReportsNotAppliedWithoutPolling(t *testing.T) {
+	setMemoryConvergeSeams(t, time.Second)
+	calls := 0
+	read := func(context.Context) (*msb.Metrics, error) {
+		calls++
+		return &msb.Metrics{MemoryLimitBytes: 8 << 20}, nil
+	}
+
+	err := waitForMemoryLimit(context.Background(), read, 4)
+	if !errors.Is(err, errMemoryLimitNotApplied) {
+		t.Fatalf("err = %v, want errMemoryLimitNotApplied", err)
+	}
+	if calls != 1 {
+		t.Errorf("read called %d times, want exactly 1 (no polling for a decrease)", calls)
+	}
+}
+
+// TestWaitForMemoryLimitAtRequestIsApplied pins the boundary: a live limit
+// exactly at the request is applied, not reported as a not-applied decrease.
+func TestWaitForMemoryLimitAtRequestIsApplied(t *testing.T) {
+	setMemoryConvergeSeams(t, 5*time.Millisecond)
+	read := func(context.Context) (*msb.Metrics, error) {
+		return &msb.Metrics{MemoryLimitBytes: 4 << 20}, nil
+	}
+
+	if err := waitForMemoryLimit(context.Background(), read, 4); err != nil {
+		t.Fatalf("waitForMemoryLimit() error = %v, want nil", err)
+	}
+}
+
+// TestWaitForMemoryLimitFirstReadIsBounded pins that the first read is bounded by
+// the convergence timeout: a hanging Metrics call must not block the launch
+// indefinitely.
+func TestWaitForMemoryLimitFirstReadIsBounded(t *testing.T) {
+	setMemoryConvergeSeams(t, 5*time.Millisecond)
+	read := func(ctx context.Context) (*msb.Metrics, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- waitForMemoryLimit(context.Background(), read, 4)
+	}()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("err = %v, want the read bound's deadline error", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("waitForMemoryLimit blocked past the convergence timeout on a hanging read")
+	}
+}
+
 // TestWaitForMemoryLimitMemoryConvergeTimeout pins the deadline contract: a
-// limit that never reaches the requested value errors instead of hanging.
+// raise whose limit never reaches the requested value errors instead of hanging.
 func TestWaitForMemoryLimitMemoryConvergeTimeout(t *testing.T) {
 	setMemoryConvergeSeams(t, 5*time.Millisecond)
 	read := func(context.Context) (*msb.Metrics, error) {
@@ -283,17 +360,16 @@ func TestWaitForMemoryLimitMemoryConvergeTimeout(t *testing.T) {
 	}
 
 	err := waitForMemoryLimit(context.Background(), read, 4)
-	if err == nil {
-		t.Fatal("expected a timeout error, got nil")
-	}
-	if !strings.Contains(err.Error(), "did not converge") {
-		t.Errorf("error = %v, want a 'did not converge' message", err)
+	if !errors.Is(err, errMemoryLimitNotApplied) {
+		t.Fatalf("error = %v, want errMemoryLimitNotApplied", err)
 	}
 }
 
-// TestWaitForMemoryLimitMemoryConvergeReadErrorTerminal pins that a metrics
-// read error aborts the wait immediately instead of polling on.
-func TestWaitForMemoryLimitMemoryConvergeReadErrorTerminal(t *testing.T) {
+// TestWaitForMemoryLimitReadErrorIsTerminalAndNotNotApplied pins that a metrics
+// read error aborts the wait immediately and is reported as a read error, never
+// as "not applied" (Modify returned a conflict-free plan, so the change was
+// planned; the read only failed to confirm it).
+func TestWaitForMemoryLimitReadErrorIsTerminalAndNotNotApplied(t *testing.T) {
 	setMemoryConvergeSeams(t, time.Second)
 	sentinel := errors.New("metrics boom")
 	calls := 0
@@ -306,8 +382,76 @@ func TestWaitForMemoryLimitMemoryConvergeReadErrorTerminal(t *testing.T) {
 	if !errors.Is(err, sentinel) {
 		t.Errorf("error = %v, want the metrics read error", err)
 	}
+	if errors.Is(err, errMemoryLimitNotApplied) {
+		t.Errorf("error = %v, must not be marked not-applied", err)
+	}
 	if calls != 1 {
 		t.Errorf("read called %d times, want exactly 1 (terminal)", calls)
+	}
+}
+
+// TestWaitForMemoryLimitRaisePollReadErrorIsUnconfirmed pins that a read failure
+// while a raise is in flight aborts the poll immediately and is reported as a
+// read error, never as applied or not applied: only the confirmation failed.
+func TestWaitForMemoryLimitRaisePollReadErrorIsUnconfirmed(t *testing.T) {
+	setMemoryConvergeSeams(t, time.Second)
+	readError := errors.New("metrics boom")
+	calls := 0
+	read := func(context.Context) (*msb.Metrics, error) {
+		calls++
+		if calls == 1 {
+			return &msb.Metrics{MemoryLimitBytes: 1 << 20}, nil // below the request: a raise is underway
+		}
+		return nil, readError
+	}
+
+	err := waitForMemoryLimit(context.Background(), read, 4)
+	if !errors.Is(err, readError) {
+		t.Errorf("error = %v, want the poll's metrics read error", err)
+	}
+	if errors.Is(err, errMemoryLimitNotApplied) {
+		t.Errorf("error = %v, must not be marked not-applied", err)
+	}
+	if calls != 2 {
+		t.Errorf("read called %d times, want exactly 2 (terminal on the poll's failure)", calls)
+	}
+}
+
+// TestWaitForMemoryLimitRaisePollUnknownLimitIsUnconfirmed pins that an unknown
+// limit read while a raise is in flight (a nil snapshot or a zero limit) aborts
+// the poll as unconfirmed instead of polling to the deadline, mirroring the
+// first read's treatment of an unknown limit.
+func TestWaitForMemoryLimitRaisePollUnknownLimitIsUnconfirmed(t *testing.T) {
+	cases := []struct {
+		name    string
+		metrics *msb.Metrics
+	}{
+		{name: "nil snapshot", metrics: nil},
+		{name: "zero limit", metrics: &msb.Metrics{MemoryLimitBytes: 0}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setMemoryConvergeSeams(t, time.Second)
+			calls := 0
+			read := func(context.Context) (*msb.Metrics, error) {
+				calls++
+				if calls == 1 {
+					return &msb.Metrics{MemoryLimitBytes: 1 << 20}, nil // below the request: a raise is underway
+				}
+				return tc.metrics, nil
+			}
+
+			err := waitForMemoryLimit(context.Background(), read, 4)
+			if !errors.Is(err, errMemoryLimitUnknown) {
+				t.Fatalf("err = %v, want errMemoryLimitUnknown", err)
+			}
+			if errors.Is(err, errMemoryLimitNotApplied) {
+				t.Errorf("err = %v, an unknown limit is not a confirmed not-applied", err)
+			}
+			if calls != 2 {
+				t.Errorf("read called %d times, want exactly 2 (unknown is terminal)", calls)
+			}
+		})
 	}
 }
 
@@ -315,6 +459,7 @@ func TestWaitForMemoryLimitMemoryConvergeReadErrorTerminal(t *testing.T) {
 // live memory change waits on Metrics until the limit converges and then
 // succeeds.
 func TestReconcileResourceConfigMemoryConverges(t *testing.T) {
+	setMemoryConvergeSeams(t, 5*time.Millisecond)
 	handle := reconcileHandle(8, 8192)
 	handle.MetricsResult = &msb.Metrics{MemoryLimitBytes: 4096 << 20}
 	ui := termiotest.NewTestMock(t)
@@ -324,8 +469,10 @@ func TestReconcileResourceConfigMemoryConverges(t *testing.T) {
 	}
 }
 
-// TestReconcileResourceConfigCPUOnlyMemoryConvergeNotWaited pins that a CPU-only
-// change triggers no wait: a failing metrics read would surface if one ran.
+// TestReconcileResourceConfigCPUOnlyMemoryConvergeNotWaited pins that a run with
+// no memory request triggers no wait: a failing metrics read would surface if one
+// ran. (A run that carries the default memory still confirms it; that path is
+// pinned by TestReconcileResourceConfigMemoryRepeatIsConfirmed.)
 func TestReconcileResourceConfigCPUOnlyMemoryConvergeNotWaited(t *testing.T) {
 	handle := reconcileHandle(8, 8192)
 	handle.MetricsErr = errors.New("metrics must not be read")
@@ -369,11 +516,132 @@ func TestReconcileResourceConfigMemoryConvergeFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected a convergence error, got nil")
 	}
-	if !strings.Contains(err.Error(), "wait for live memory resize") {
-		t.Errorf("error = %v, want the wait-for-convergence wrap", err)
+	if !strings.Contains(err.Error(), "live memory change to 4096 MiB:") {
+		t.Errorf("error = %v, want the not-applied wrap naming the staged value", err)
+	}
+	if strings.Contains(err.Error(), "could not confirm") {
+		t.Errorf("error = %v, the not-applied branch must not use the unconfirmed wrap", err)
 	}
 	if errors.Unwrap(err) == nil {
 		t.Error("the convergence error must preserve its cause (a %w wrap)")
+	}
+}
+
+// TestReconcileResourceConfigMemoryDecreaseNotApplied pins the finding: an old,
+// larger live limit must never satisfy a smaller request. A decrease the runtime
+// does not apply errors as not applied instead of being reported applied.
+func TestReconcileResourceConfigMemoryDecreaseNotApplied(t *testing.T) {
+	setMemoryConvergeSeams(t, 5*time.Millisecond)
+	handle := reconcileHandle(8, 8192)
+	handle.MetricsResult = &msb.Metrics{MemoryLimitBytes: 2048 << 20}
+	ui := termiotest.NewTestMock(t)
+
+	err := reconcileResourceConfig(context.Background(), handle, options.RunOptions{Memory: "1G"}, &ui)
+	if err == nil {
+		t.Fatal("expected the decrease to be reported not applied, got nil")
+	}
+	if !strings.Contains(err.Error(), "live memory change to 1024 MiB:") {
+		t.Errorf("error = %v, want the not-applied wrap naming the staged value", err)
+	}
+	if strings.Contains(err.Error(), "could not confirm") {
+		t.Errorf("error = %v, the not-applied branch must not use the unconfirmed wrap", err)
+	}
+	if len(handle.ModifiedOptions) != 1 || handle.ModifiedOptions[0].MemoryMiB != 1024 {
+		t.Errorf("modified %+v, want exactly the 1024 MiB decrease staged", handle.ModifiedOptions)
+	}
+}
+
+// TestReconcileResourceConfigMemoryDecreaseAfterSavedDecrease pins that direction
+// follows the live limit, not the saved config. A failed decrease leaves the
+// saved config below the guest (2048 saved, 8192 live); a later request between
+// them (4096) must still be reported not applied, not treated as a raise the
+// larger live limit already satisfies.
+func TestReconcileResourceConfigMemoryDecreaseAfterSavedDecrease(t *testing.T) {
+	setMemoryConvergeSeams(t, 5*time.Millisecond)
+	handle := reconcileHandle(8, 8192)
+	handle.Cfg.MemoryMiB = 2048 // a decrease the runtime never applied
+	handle.MetricsResult = &msb.Metrics{MemoryLimitBytes: 8192 << 20}
+	ui := termiotest.NewTestMock(t)
+
+	err := reconcileResourceConfig(context.Background(), handle, options.RunOptions{Memory: "4G"}, &ui)
+	if !errors.Is(err, errMemoryLimitNotApplied) {
+		t.Fatalf("error = %v, want errMemoryLimitNotApplied", err)
+	}
+	if !strings.Contains(err.Error(), "live memory change to 4096 MiB:") {
+		t.Errorf("error = %v, want the not-applied wrap naming the request", err)
+	}
+	if len(handle.ModifiedOptions) != 1 || handle.ModifiedOptions[0].MemoryMiB != 4096 {
+		t.Errorf("modified %+v, want exactly the 4096 MiB request staged", handle.ModifiedOptions)
+	}
+}
+
+// TestReconcileResourceConfigMemoryRepeatIsConfirmed pins that a request equal to
+// the saved config is still confirmed against the live limit: the saved config
+// can equal the request while the guest keeps a larger limit, so matching the
+// config must not skip the check.
+func TestReconcileResourceConfigMemoryRepeatIsConfirmed(t *testing.T) {
+	setMemoryConvergeSeams(t, 5*time.Millisecond)
+	handle := reconcileHandle(8, 8192)
+	handle.MetricsResult = &msb.Metrics{MemoryLimitBytes: 8192 << 20}
+	ui := termiotest.NewTestMock(t)
+
+	err := reconcileResourceConfig(context.Background(), handle, options.RunOptions{Memory: "2048"}, &ui)
+	if !errors.Is(err, errMemoryLimitNotApplied) {
+		t.Fatalf("error = %v, want errMemoryLimitNotApplied", err)
+	}
+	if !strings.Contains(err.Error(), "live memory change to 2048 MiB:") {
+		t.Errorf("error = %v, want the not-applied wrap naming the request", err)
+	}
+	if len(handle.ModifiedOptions) != 0 {
+		t.Errorf("modified %+v, want no modification for a request equal to the config", handle.ModifiedOptions)
+	}
+}
+
+// TestReconcileResourceConfigMemoryUnknownLimitUnconfirmed pins the finding at
+// the reconcile level: a zero live limit during a staged decrease is unknown, so
+// it is reported as unconfirmed rather than as the decrease applied (the guest
+// keeps the larger limit) or as not applied.
+func TestReconcileResourceConfigMemoryUnknownLimitUnconfirmed(t *testing.T) {
+	handle := reconcileHandle(8, 8192)
+	handle.MetricsResult = &msb.Metrics{MemoryLimitBytes: 0}
+	ui := termiotest.NewTestMock(t)
+
+	err := reconcileResourceConfig(context.Background(), handle, options.RunOptions{Memory: "1G"}, &ui)
+	if err == nil {
+		t.Fatal("expected an unknown-limit error, got nil")
+	}
+	if !errors.Is(err, errMemoryLimitUnknown) {
+		t.Errorf("error = %v, want the unknown-limit cause preserved through the wrap", err)
+	}
+	if !strings.Contains(err.Error(), "could not confirm") {
+		t.Errorf("error = %v, want the neutral could-not-confirm wrap", err)
+	}
+	if strings.Contains(err.Error(), "not applied") {
+		t.Errorf("error = %v, must not claim the change was not applied", err)
+	}
+}
+
+// TestReconcileResourceConfigMemoryReadErrorNeutral pins the finding: a failed
+// metrics read during a staged memory change is surfaced as an unconfirmed
+// read, not as the change being not applied (Modify planned it conflict-free).
+func TestReconcileResourceConfigMemoryReadErrorNeutral(t *testing.T) {
+	readError := errors.New("metrics boom")
+	handle := reconcileHandle(8, 8192)
+	handle.MetricsErr = readError
+	ui := termiotest.NewTestMock(t)
+
+	err := reconcileResourceConfig(context.Background(), handle, options.RunOptions{Memory: "4G"}, &ui)
+	if err == nil {
+		t.Fatal("expected a read error, got nil")
+	}
+	if !errors.Is(err, readError) {
+		t.Errorf("error = %v, want the metrics read error preserved through the wrap", err)
+	}
+	if !strings.Contains(err.Error(), "could not confirm") {
+		t.Errorf("error = %v, want the neutral could-not-confirm wrap", err)
+	}
+	if strings.Contains(err.Error(), "not applied") {
+		t.Errorf("error = %v, must not claim the change was not applied", err)
 	}
 }
 
@@ -397,22 +665,43 @@ func TestWaitForMemoryLimitUsesMiB(t *testing.T) {
 	}
 
 	err := waitForMemoryLimit(context.Background(), read, 4)
-	if err == nil || !strings.Contains(err.Error(), "did not converge") {
-		t.Fatalf("err = %v, want a non-convergence error", err)
+	if !errors.Is(err, errMemoryLimitNotApplied) {
+		t.Fatalf("err = %v, want errMemoryLimitNotApplied", err)
 	}
 }
 
-// TestWaitForMemoryLimitNilMetricsKeepsPolling pins the nil-snapshot guard: a
-// nil read result is not converged and must not be dereferenced.
-func TestWaitForMemoryLimitNilMetricsKeepsPolling(t *testing.T) {
-	setMemoryConvergeSeams(t, 5*time.Millisecond)
-	read := func(context.Context) (*msb.Metrics, error) {
-		//nolint:nilnil // a nil snapshot with no error is exactly the state this guard handles
-		return nil, nil
+// TestWaitForMemoryLimitUnknownLimitIsNotApplied pins that a nil snapshot and a
+// zero limit are both treated as unknown, not as a limit: an unknown value must
+// never be read as a confirmed limit and must not spend the deadline polling. It
+// is reported as unconfirmed (never errMemoryLimitNotApplied) and the read is not
+// repeated.
+func TestWaitForMemoryLimitUnknownLimitIsNotApplied(t *testing.T) {
+	cases := []struct {
+		name    string
+		metrics *msb.Metrics
+	}{
+		{name: "nil snapshot", metrics: nil},
+		{name: "zero limit", metrics: &msb.Metrics{MemoryLimitBytes: 0}},
 	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setMemoryConvergeSeams(t, time.Second)
+			calls := 0
+			read := func(context.Context) (*msb.Metrics, error) {
+				calls++
+				return tc.metrics, nil // a nil snapshot is one of the unknown states under test
+			}
 
-	err := waitForMemoryLimit(context.Background(), read, 4)
-	if err == nil || !strings.Contains(err.Error(), "did not converge") {
-		t.Fatalf("err = %v, want a non-convergence error without a nil dereference", err)
+			err := waitForMemoryLimit(context.Background(), read, 4)
+			if !errors.Is(err, errMemoryLimitUnknown) {
+				t.Fatalf("err = %v, want errMemoryLimitUnknown", err)
+			}
+			if errors.Is(err, errMemoryLimitNotApplied) {
+				t.Errorf("err = %v, an unknown limit is not a confirmed not-applied", err)
+			}
+			if calls != 1 {
+				t.Errorf("read called %d times, want exactly 1 (unknown is terminal)", calls)
+			}
+		})
 	}
 }
