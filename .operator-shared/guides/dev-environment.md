@@ -17,17 +17,23 @@ Prefer these installed CLI tools over other tools or custom solutions:
 | Search file contents                       | `rg` (recursive by default)                     |
 | Find files by name/pattern                 | `fdfind` (also reachable as `fd`)               |
 | Parse/transform JSON or YAML               | `jq` / `yq` (never brittle text parsing)        |
-| Transform text streams, perform mass edits | `awk` / `sed` / `recode`                        |
+| Transform text streams, perform mass edits | `awk` / `sed` / `iconv`                         |
 | Run independent commands in parallel       | `parallel`                                      |
 | Hit HTTP endpoints / download              | `curl` / `wget`                                 |
-| Inspect network/ports/sockets              | `ip` / `ss` / `nc`                              |
+| Inspect network/ports/sockets              | `ip` / `ss` / `nc` (no `netstat`/`ifconfig`)    |
 | Resolve DNS / check connectivity           | `dig` / `nslookup` / `ping`                     |
+| Capture / inspect network packets          | `tcpdump`                                       |
+| Find what holds a port or file             | `lsof` (or `fuser`, `ss -p`)                    |
 | Inspect a file or tree                     | `file` / `tree`                                 |
 | Sync directories/files                     | `rsync`                                         |
 | Read docs / manuals                        | `man`                                           |
 | Create/extract archives                    | `tar` / `zip` / `unzip` / `xz` / `lz4` / `zstd` |
 | Inspect a SQLite database                  | `sqlite3`                                       |
 | Search or rewrite code by structure (AST)  | `ast-grep`                                      |
+| Debug a failing syscall / namespace setup  | `strace`                                        |
+| Inspect a TLS certificate or trust chain   | `openssl` (`s_client`, `x509`)                  |
+| Add an apt key / verify a signature        | `gpg`                                           |
+| Create a Python environment                | `python3 -m venv`                               |
 | Go: navigate, find references, rename      | `gopls` (`definition`, `references`, `rename`)  |
 | Go: add/remove imports after a move        | `goimports`                                     |
 
@@ -36,8 +42,10 @@ shell.
 
 ## Current limitations
 
-- No SSH keys in the VM. **HTTPS remotes work** (`git fetch`, `git push`, and `gh` are
-  authenticated); only SSH remotes fail. Prefer `gh` for GitHub operations.
+- No SSH keys in the VM, and no SSH client by default (`openssh-client` is not
+  installed). **HTTPS remotes work** (`git fetch`, `git push`, and `gh` are
+  authenticated); SSH remotes fail both for want of a client and of keys. Prefer
+  `gh` for GitHub operations.
 - GitHub only runs `pull_request` workflows when the PR is mergeable. While a PR has merge
   conflicts, the `ci` workflows (`lint`, `test`, codecov) silently do **not** run — they are
   absent, not failed. Rebase to resolve the conflict and they trigger on the next push.
