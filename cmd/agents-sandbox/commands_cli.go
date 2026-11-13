@@ -334,7 +334,7 @@ func registerRunFlags(cmd *cobra.Command) {
 	cmd.Flags().
 		BoolP(flagServeOnly, "s", false, "(opencode, opencode2) Serve on a dynamically allocated host port (http://127.0.0.1:<port>) for clients like Opencode Desktop, without attaching the TUI")
 	cmd.Flags().
-		String(flagNotify, "", `Notify on session status: "on", "off", "desktop", or "audio" (bare --notify = on)`)
+		String(flagNotify, "", `Notify on session status: "on", "off", "desktop", or "audio" (--notify <mode> or --notify=<mode>; bare --notify = on)`)
 	if notifyFlag := cmd.Flags().Lookup(flagNotify); notifyFlag != nil {
 		notifyFlag.NoOptDefVal = "on"
 	}
@@ -364,7 +364,7 @@ func registerSharedRunShellFlags(cmd *cobra.Command) {
 		StringSliceP(flagPort, "p", nil, "Publish a VM port on the host loopback: <port> or <host>:<guest> (TCP; e.g. 3000 or 8080:3000); comma-separated or repeated. Applied at VM creation; a change triggers recreation.")
 	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile to run")
 	cmd.Flags().
-		Bool(flagOpenLinks, true, "Open links from the VM (xdg-open) on the host; --open-links=false disables it")
+		Bool(flagOpenLinks, true, "Open links from the VM (xdg-open) on the host; --open-links false or --open-links=false disables it")
 	registerDockerFlags(cmd)
 }
 

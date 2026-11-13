@@ -36,7 +36,10 @@ func execute(args []string, ui termio.UI) error {
 	defer configpaths.Use(configpaths.Get)()
 	defer projectguard.Install(nil, nil)()
 	rootCmd := buildRootCmd(ui)
-	rootCmd.SetArgs(args)
+	// Normalize the space form of the optional-value flags before pflag parses,
+	// so --notify off selects the mode instead of keeping the watcher active
+	// and forwarding "off" to the agent.
+	rootCmd.SetArgs(normalizeOptionalFlagValues(args))
 	// buildRootCmd already routes cmd output to the UI; execute additionally
 	// silences cobra's own usage/error printing so main() is the only reporter.
 	rootCmd.SilenceUsage = true
