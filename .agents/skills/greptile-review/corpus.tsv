@@ -1,0 +1,377 @@
+103	cmd/agents-sandbox/commands_system.go	p1	Login network changes aren't written
+103	internal/configmigration/apply.go	p1	Retries overwrite manual edits
+103	internal/configmigration/auth.go	p1	Enterprise destinations are lost
+103	internal/configmigration/guide.go	p1	Login skips deny review
+103	internal/configmigration/native_config.go	p1	Gateway gets no credential
+103	internal/configmigration/native_config.go	p1	Raw credential headers are exposed
+103	internal/configmigration/network_plan.go	p1	Deny rule survives the fix
+103	internal/configmigration/persistence.go	p1	Sandbox logins disappear on restart
+103	internal/configmigration/review.go	p2	Approval precedes the preview
+104	docs/alternatives.md	p2	Repository-scoped tokens are overlooked
+142	internal/sandbox/runtimemigration/copy.go	p1	Copies delete each other
+142	internal/sandbox/runtimemigration/copy.go	p1	Existing homes get overwritten
+142	internal/sandbox/runtimemigration/copy.go	p1	Failed cleanup leaves usable partials
+142	internal/sandbox/runtimemigration/copy.go	p1	Guest links erase host files
+142	internal/sandbox/runtimemigration/copy.go	p1	Interrupted copies look complete
+142	internal/sandbox/runtimemigration/legacy.go	p1	Missing marker loses newer data
+142	internal/sandbox/runtimemigration/offer.go	p1	Blocked copies allow unsafe sessions
+142	internal/sandbox/runtimemigration/offer.go	p1	Fresh starts reuse unfinished homes
+142	internal/sandbox/runtimemigration/offer.go	p1	Restored homes stay unused
+142	internal/sandbox/runtimemigration/offer.go	p1	Resume replaces promised files
+142	internal/sandbox/state/references.go	p2	Missing state blocks cleanup
+142	internal/sandbox/state/root.go	p1	Simultaneous dismissals stop sessions
+173	internal/sandbox/vm/vm_lifecycle.go	p1	Recreation attaches to another VM
+174	cmd/agents-sandbox/commands_system.go	p1	Configured quiet hides list results
+175	.operator-shared/catalog.md	p2	Recommended plan is missing
+175	.operator-shared/specs/runtime-management-commands.md	p2	File transfer scope conflicts
+176	internal/sandbox/image/references.go	p2	Sandbox read errors disappear
+177	internal/sandbox/storage/host.go	p2	Disappearing files skip other files
+177	internal/sandbox/storage/host_test.go	p1	Tests fail as root
+178	internal/sandbox/image/dockerfile.go	p1	Existing tools get replaced
+179	cmd/agents-sandbox/inspect_output.go	p2	Layer blob digests are missing
+181	.operator-shared/catalog.md	p2	Catalog contradicts the naming decision
+181	internal/sandbox/vm/worktree.go	p1	Paths with spaces break attach
+182	internal/sandbox/runtime/runtime.go	p1	Commands delete a repaired runtime
+182	internal/sandbox/runtime/runtime_test.go	p2	Cleanup test accepts unrelated errors
+184	CHANGELOG.md	p2	Release note overstates the fix
+184	internal/sandbox/reprovision/config_files_test.go	p2	Test misses the final sort
+190	CHANGELOG.md	p2	Release note overstates the fix
+191	internal/sandbox/msb/jobs_integration_test.go	p2	Test leaves a handle open
+225	internal/sandbox/vm/upgrade.go	p1	Existing images upgrade without asking
+225	internal/sandbox/vm/upgrade.go	p1	Saved home volume gets overwritten
+225	internal/sandbox/vm/upgrade.go	p1	Unchanged VM needs recreation
+225	internal/sandbox/vm/upgrade.go	p2	Prompt can show wrong version
+225	internal/sandbox/vm/upgrade.go	p2	Two launches ask twice
+225	internal/sandbox/vm/upgrade.go	p2	Upgrade choice is forgotten
+225	internal/sandbox/volume/state.go	p1	Broken state stays broken
+238	internal/agent/opencode2.go	p2	Missing fields hide existing worktrees
+238	internal/sandbox/vm/worktree.go	p2	Reuse reports the wrong state
+239	internal/sandbox/runtimemigration/legacy.go	p1	Cleanup can delete uncopied files
+240	internal/sandbox/image/embed.go	p2	Helper ships without its license
+242	.operator-shared/specs/test-isolation.md	p2	New families are not discovered
+242	internal/testutil/isolation_contract_test.go	p2	Late setup passes the check
+242	internal/testutil/isolation_contract_test.go	p2	Missing wrapper calls go unnoticed
+242	internal/testutil/isolation_contract_test.go	p2	Root tests escape the check
+243	test/harness/pty.go	p1	Closed clients can pass
+243	test/harness/pty_test.go	p1	Cleanup races the signal test
+243	test/harness/smoke_msb_test.go	p2	Skipped runs leave files
+244	cmd/agents-sandbox/commands.go	p1	First run ignores saved settings
+244	cmd/agents-sandbox/commands_system.go	p1	Volume commands miss recovered homes
+244	internal/git/identity.go	p1	Bare roots miss saved state
+244	internal/sandbox/vm/adopt.go	p1	Concurrent clones fail migration
+244	internal/sandbox/vm/adopt.go	p1	Damaged state blocks home recovery
+244	internal/sandbox/vm/adopt.go	p1	Failed migration cannot resume
+244	internal/sandbox/vm/adopt.go	p1	Other agents keep running
+244	internal/sandbox/vm/adopt.go	p1	Retries share homes across clones
+244	internal/sandbox/vm/adopt.go	p1	Saved home becomes unreachable
+244	internal/sandbox/vm/adopt.go	p1	Upgrade misses the saved home
+244	internal/sandbox/vm/adopt.go	p2	Dry run reads wrong state
+245	internal/agent/capabilities.go	p2	Reconnect recovery is misstated
+245	internal/agent/opencode.go	p2	Custom runners miss child filtering
+245	internal/agent/opencode.go	p2	Session listing can block alerts
+245	internal/agent/opencode2.go	p1	Later requests get no alert
+245	internal/notify/dedup.go	p1	Connected clients miss input alerts
+245	internal/notify/dedup.go	p2	Input claims keep adding files
+245	internal/notify/watch_test.go	p2	Failure test skips the command
+247	internal/configpaths/configpaths.go	p2	Ignored config gets no warning
+248	.github/workflows/fuzz.yml	p2	Fuzz discoveries are not saved
+254	internal/configpaths/config_paths_test.go	p2	Test misses a removed pin
+255	.operator-shared/guides/mutation-testing-go.md	p2	Default run covers every package
+255	internal/sandbox/vm/prepare_sandbox_config_error_test.go	p2	Test accepts the wrong error
+256	internal/sandbox/mounts/fuzz_test.go	p2	Mount checks share blind spots
+256	internal/sandbox/state/fuzz_test.go	p2	The test promises too much
+256	internal/sandbox/vm/fuzz_test.go	p2	Wrong timestamps can pass
+259	internal/agent/manifest_test.go	p1	Temporary paths break the test
+260	docs/runner-image.md	p2	Extra build steps still rerun
+262	internal/sandbox/vm/run_preview.go	p2	Preview uses an ignored pin
+264	docs/configuration/launcher.md	p2	Shell instructions omit bash
+264	internal/sandbox/image/dockerfile.go	p1	Usable custom images fail builds
+264	internal/sandbox/image/render_test.go	p2	Missing-tool failures lack coverage
+265	internal/upgrade/store.go	p1	Migration erases newer dismissals
+265	internal/upgrade/upgrade.go	p2	Failed migration repeats upgrade prompts
+267	docs/recipes/openchamber.md	p2	macOS setup fails
+269	.operator-shared/guides/dead-code-detection-go.md	p2	The guide reverses the buckets
+269	ci/deadcodecheck/main.go	p2	Missing reports look clean
+270	.operator-shared/catalog.md	p2	Completed work looks pending
+270	.operator-shared/guides/dead-code-detection-go.md	p2	Report comparison is reversed
+270	.operator-shared/plans/2026-10-21-dead-code-gate.md	p2	Default run skips tagged code
+270	.operator-shared/plans/2026-10-21-dead-code-gate.md	p2	Hard errors lose their code
+270	.operator-shared/plans/2026-10-21-dead-code-gate.md	p2	Wrapper tests stay manual
+271	.github/workflows/ci.yml	p2	Final releases can be hidden
+272	.operator-shared/guides/mutation-sweep-execution.md	p2	Matching keys merge different mutants
+275	STYLEGUIDE.md	p2	Automatic stopping example is wrong
+275	docs/sandboxes.md	p2	Saved state is unclear
+275	docs/sandboxes.md	p2	Stopping instructions are buried
+275	docs/sandboxes.md	p2	Volume deletion options are hidden
+275	docs/sandboxes.md	p2	Volume removal example fails
+276	.operator-shared/specs/harness-smoke-tests.md	p2	Docker settings missing from list
+276	.operator-shared/specs/runner-image-build.md	p2	Build rule names wrong cache
+276	.operator-shared/specs/runner-image-build.md	p2	Recovery still checks for upgrades
+277	internal/sandbox/naming/artifact.go	p1	Project VMs mistaken for tasks
+277	internal/sandbox/naming/artifact.go	p2	Old homes escape pruning
+277	internal/sandbox/pruning/state.go	p1	Saved homes deleted too early
+277	internal/sandbox/vm/remove.go	p2	Project removal accepts tasks
+278	ci/check-docs.sh	p1	Older awk rejects code examples
+278	ci/check-docs.sh	p2	Code examples fail prose checks
+278	docs/index.md	p2	Credentials enter the VM
+278	docs/tutorial.md	p2	Stop targets the wrong agent
+280	CHANGELOG.md	p2	Warning guidance contradicts itself
+281	Makefile	p2	One failure skips later targets
+282	.github/workflows/pages.yml	p1	Tag names run commands
+284	.operator-shared/guides/mutation-triage.md	p2	Fatal helper calls are testable
+284	.operator-shared/specs/mutation-testing.md	p2	Recording instructions reverse the evidence
+284	internal/filewalk/filewalk.go	p2	Suppression hides a testable change
+284	internal/filewalk/filewalk.go	p2	Suppression hides a testable failure
+284	internal/sandbox/network/network_test.go	p2	Comment describes the wrong check
+290	internal/agent/hermes.go	p1	Forwarded queries lose their boundaries
+290	internal/agent/hermes.go	p1	Hermes files have wrong owner
+290	internal/configmerge/merge.go	p2	Unchanged YAML looks changed
+290	internal/sandbox/image/dockerfile.go	p1	Custom-base builds fail
+290	internal/sandbox/image/dockerfile.go	p1	Installed library still fails build
+291	docs/install/installation.md	p1	Canary downloads fail
+291	docs/install/installation.md	p2	Installation skips required setup
+291	docs/tutorial.md	p2	Stop is not instant
+293	internal/sandbox/network/network.go	p2	Repeated `none` is rejected
+293	internal/viperconfig/viperconfig.go	p1	Spaced profile strings fail
+294	.operator-shared/plans/2026-10-24-test-build-cost-reduction.md	p2	Packages lose their own guard
+295	internal/sandbox/image/build.go	p1	Custom bases use wrong registry
+295	internal/sandbox/image/build.go	p2	Troubleshooting section is missing
+299	internal/sandbox/state/clientlock.go	p1	Live leases can still disappear
+304	.operator-shared/specs/release-branching.md	p2	Release instructions lead nowhere
+305	.operator-shared/specs/release-branching.md	p2	Patch example lacks setup
+312	internal/configmerge/merge.go	p2	Exclusions overlook partial reads
+312	internal/sysinfo/sysinfo.go	p2	Exclusions hide wrong CPU counts
+314	internal/opener/forward.go	p1	Earlier callbacks interrupt new logins
+314	internal/opener/forward.go	p1	Guest pages access localhost cookies
+314	internal/opener/forward.go	p1	Guest pages reach host services
+314	internal/opener/forward.go	p1	Guest redirects reach host services
+314	internal/opener/forward.go	p1	IPv6 callbacks reach another server
+314	internal/opener/forward.go	p1	Retried login expires too soon
+314	internal/opener/forward.go	p1	Reused ports reject new paths
+314	internal/opener/spool.go	p1	Guest can hang launcher exit
+314	internal/opener/target.go	p1	Loopback spellings bypass the check
+314	internal/opener/watch.go	p2	Successful opens report a timeout
+314	internal/sandbox/session/host_opener.go	p1	Chunked callback pages break
+314	internal/sandbox/session/host_opener.go	p1	Custom-base logins fail without curl
+318	internal/sandbox/vm/dockerd.go	p2	Docker failures lose useful details
+319	.github/workflows/mutation.yml	p1	Manual sweeps never start
+319	.github/workflows/mutation.yml	p1	PR sweeps never start
+319	.github/workflows/mutation.yml	p1	Survivor summaries fail
+319	.github/workflows/mutation.yml	p2	Copied reports confuse updates
+319	.github/workflows/mutation.yml	p2	Large reports fail to post
+320	internal/git/git.go	p2	Exclusion hides required error guard
+320	internal/sandbox/naming/artifact.go	p2	Exclusions hide broken parsing
+320	internal/sandbox/pruning/sandboxes.go	p2	Exclusion hides unsafe capacity change
+320	internal/sandbox/reconfig/plan.go	p2	CPU boundary checks get skipped
+323	internal/sandbox/reconfig/plan.go	p1	Failed image switches stay stuck
+325	ci/check-docs.sh	p1	Valid links fail with mawk
+325	ci/check-docs.sh	p2	Go links escape the check
+325	ci/check-docs.sh	p2	Link errors point too low
+325	ci/check-docs.sh	p2	Reference fragments escape the check
+328	internal/agent/codex.go	p1	Quoted prompts can prevent startup
+367	Makefile	p1	Existing installs miss Zig link
+368	.github/workflows/ci.yml	p1	Follow-up pushes lose checks
+368	Makefile	p2	Selecting one fuzz target fails
+369	internal/sandbox/state/projectvmlock.go	p2	Separate agents now wait
+369	internal/sandbox/vm/projectvmlock_test.go	p2	Unrelated errors pass the test
+372	internal/sandbox/image/build.go	p1	CRLF Dockerfiles stop building
+374	internal/sandbox/image/dockerfile.go	p1	Dockerfile heredocs break builds
+375	internal/sandbox/image/dockerfile_lines.go	p1	Continued heredocs hide later stages
+375	internal/sandbox/image/dockerfile_lines.go	p1	Literal quotes change heredoc endings
+376	internal/sandbox/image/dockerfile_lines.go	p1	Escaped quotes hide later stages
+378	internal/viperconfig/accessors.go	p2	Config copies share saved settings
+381	internal/atomicwrite/atomicwrite.go	p1	First state write can disappear
+381	internal/atomicwrite/atomicwrite.go	p1	Saved home volume gets deleted
+382	internal/upgrade/checksums_test.go	p2	Extra fields go untested
+385	scripts/cleanup-merged-branches.sh	p1	Merge changes get overlooked
+385	scripts/cleanup-merged-branches.sh	p1	New remote work gets deleted
+385	scripts/cleanup-merged-branches.sh	p2	JSON reports the wrong results
+385	scripts/cleanup-merged-branches.sh	p2	Preview changes local refs
+385	scripts/cleanup-merged-branches.sh	p2	Redirecting output skips consent
+385	scripts/cleanup-merged-branches.sh	p2	Unknown age bypasses protection
+388	internal/sandbox/image/dockerfile.go	p1	Heredoc contents get rewritten
+388	internal/viperconfig/load.go	p1	Legacy Docker setting gets ignored
+389	cmd/agents-sandbox/cli_serve_only_test.go	p2	Tests skip the terminal check
+392	internal/sandbox/vm/create_project_vm_test.go	p2	Default value is no longer tested
+393	internal/configpaths/config_paths_test.go	p2	Alias test skips aliases
+398	internal/sandbox/pruning/volumes_test.go	p2	Test misses the state change
+401	.github/workflows/ci.yml	p2	Skipped jobs are described incorrectly
+401	.operator-shared/specs/ci-job-gating.md	p2	Required-check lists disagree
+402	internal/sandbox/vm/ensure_project_vm_test.go	p2	Test skips replacement creation
+419	internal/sandbox/network/network.go	p1	Existing VMs keep unsafe rules
+422	internal/sandbox/pruning/storage.go	p2	Small ages disable filtering
+439	internal/sandbox/volume/state.go	p2	Cancelled prefill still leaks volumes
+441	.operator-shared/specs/bare-worktree-layout.md	p2	The table names the wrong directory
+444	internal/sandbox/reprovision/config_files.go	p2	Hint inspects the wrong agent
+445	docs/runner-image.md	p2	Upgrade docs promise reuse
+446	internal/sandbox/state/schema_test.go	p2	Field snapshots do not pin versions
+446	internal/sandbox/state/state.go	p1	Newer state can be discarded
+447	CHANGELOG.md	p2	Older releases claim this fix
+456	internal/sandbox/volume/ensure_new_home_race_test.go	p2	Repeated names escape the test
+456	internal/sandbox/volume/state.go	p1	The winner still gets overwritten
+457	internal/git/identity.go	p1	Saved settings stop loading
+459	.operator-shared/specs/lifecycle.md	p2	Boot version source is misstated
+459	.operator-shared/specs/lifecycle.md	p2	Lock coverage is overstated
+459	.operator-shared/specs/lifecycle.md	p2	Older pins break this guarantee
+459	.operator-shared/specs/lifecycle.md	p2	Pin precedence misses an exception
+459	.operator-shared/specs/lifecycle.md	p2	Prune exception is missing
+459	.operator-shared/specs/lifecycle.md	p2	Recent images can be removed
+459	.operator-shared/specs/lifecycle.md	p2	Stage checks do not exist
+460	internal/sandbox/image/data/Dockerfile	p2	Node test loses its guard
+461	internal/sandbox/image/data/Dockerfile	p2	Node checks hide missing libraries
+465	cmd/agents-sandbox/commands_cli.go	p2	Early preflight failures go unrecorded
+466	cmd/agents-sandbox/cli_lifecycle_journey_test.go	p2	Offline case goes untested
+467	changelog.d/467.changed.md	p2	Warning missing from changelog
+467	internal/runoptions/runoptions.go	p2	Dockerfile users miss the warning
+467	internal/sandbox/session/reaper.go	p2	Serving exits without a warning
+468	.agents/skills/release/SKILL.md	p1	Patch tags miss release preparation
+468	.github/workflows/ci.yml	p2	Checker tests never run
+468	changelog.d/README.md	p2	Shared issues cause filename conflicts
+468	ci/check-changelog.sh	p2	Deleted fragments satisfy the check
+469	.agents/skills/bare-worktrees/SKILL.md	p2	Skill rejects supported outside worktrees
+469	docs/recipes/bare-worktrees.md	p2	Config links lack their directory
+469	internal/git/git.go	p1	Valid Git settings are ignored
+469	internal/git/git.go	p2	Disabled worktree config still counts
+476	internal/agent/config_dir_test.go	p1	Agent tests cannot build
+477	internal/sandbox/image/build.go	p1	Offline reuse still needs internet
+480	internal/sandbox/msb/dns_egress_msb_test.go	p2	Leaked queries can pass tests
+483	internal/sandbox/msb/main_test.go	p1	Interruptions bypass the sweep
+483	internal/sandbox/msb/runtime_isolation_msb_test.go	p2	Cleanup failures stay hidden
+484	docs/configuration/secrets.md	p2	Docs overstate the dangerous flag
+484	internal/viperconfig/config.go	p1	Environment overrides trusted hosts
+484	internal/viperconfig/config.go	p2	Config copies share trusted hosts
+485	docs/configuration/networking.md	p2	Documented YAML fails to load
+485	internal/sandbox/options/options.go	p1	Reused agent port can conflict
+485	internal/sandbox/vm/reconfig.go	p2	Deferred ports appear active
+485	internal/sandbox/vm/vm_lifecycle.go	p1	First run picks conflicting ports
+485	internal/viperconfig/validate.go	p2	Publish flag cannot override errors
+486	scripts/cleanup-merged-branches.sh	p1	Required changelog check fails
+486	scripts/test-cleanup-merged-branches.sh	p2	Temporary repositories stay behind
+493	cmd/agents-sandbox/cli_system_coverage_test.go	p2	Unit test depends on GitHub
+494	internal/sandbox/runtimemigration/notice.go	p2	Cleanup paths can change
+497	internal/sandbox/image/dockerfile.go	p1	Runner never gets FUSE
+510	internal/sandbox/image/project_dockerfile.go	p2	Repeated scans remain
+512	internal/sandbox/vm/detached_service_test.go	p2	Restart order is not tested
+513	internal/sandbox/session/run_test.go	p2	Cleanup goes unchecked
+519	.agents/skills/maintain/DEPENDABOT.md	p2	Merge rules are described incorrectly
+519	.agents/skills/maintain/SKILL.md	p1	Issue labeling needs missing tooling
+519	.agents/skills/maintain/agents/openai.yaml	p1	Required changelog fragment is missing
+520	.operator-shared/guides/docker-storage-driver-in-vm.md	p2	The storage default is outdated
+520	.operator-shared/guides/merge-queue-prs.md	p2	Clean merges can hide failures
+520	.operator-shared/guides/merge-queue-prs.md	p2	The changelog workflow is outdated
+520	.operator-shared/specs/tool-tree-ownership.md	p2	The ownership field is wrong
+521	.operator-shared/specs/guided-onboarding.md	p2	Deny-conflict guidance disappears
+537	.operator-shared/specs/project-config-trust.md	p2	Approval storage instructions conflict
+537	.operator-shared/specs/project-config-trust.md	p2	Later reads can bypass approval
+537	.operator-shared/specs/project-config-trust.md	p2	Previous values cannot be recovered
+539	.operator-shared/specs/runtime-management-commands.md	p2	Quiet mode prints no identifiers
+539	GLOSSARY.md	p2	Adoption keeps the old volume
+539	GLOSSARY.md	p2	Outside worktrees use another root
+539	GLOSSARY.md	p2	Wrong clone claims the volume
+539	docs/tutorial.md	p2	Host login may not transfer
+542	AGENTS.md	p2	One-file rule conflicts with tags
+545	.operator-shared/plans/2026-11-04-vm-memory-limit-proposal.md	p2	Config comments disappear
+545	.operator-shared/plans/2026-11-04-vm-memory-limit-proposal.md	p2	Live raises lack confirmation
+545	.operator-shared/plans/2026-11-04-vm-memory-limit-proposal.md	p2	Memory evidence arrives too late
+545	.operator-shared/plans/2026-11-04-vm-memory-limit-proposal.md	p2	Repeat offers lack a rule
+545	.operator-shared/plans/2026-11-04-vm-memory-limit-proposal.md	p2	Saved raises stay overridden
+545	.operator-shared/plans/2026-11-04-vm-memory-limit-proposal.md	p2	Threshold tests contradict the rule
+545	.operator-shared/plans/2026-11-04-vm-memory-limit-proposal.md	p2	Unattended runs consume the offer
+546	internal/sandbox/vm/setup_sandbox_flow_test.go	p2	Healthy probe hides unwanted work
+550	internal/viperconfig/env_test.go	p2	Shell settings break the test
+551	internal/notify/notify_test.go	p2	Enabled triggers lose test coverage
+551	internal/notify/watch_test.go	p2	Missing drops can pass
+552	internal/homeconfig/homeconfig_test.go	p2	Empty-manifest check was dropped
+553	internal/sandbox/session/reaper_test.go	p2	Early return can pass
+554	internal/sandbox/resourceproposal/detect.go	p1	Pending memory offer disappears
+554	internal/sandbox/session/run.go	p2	Captured output gains escape codes
+554	internal/sandbox/state/resource_pressure.go	p1	Answer hides another hit
+554	internal/viperconfig/setting_writer.go	p1	Accepted memory raise stays overridden
+554	internal/viperconfig/setting_writer.go	p1	Memory edit breaks YAML
+554	internal/viperconfig/setting_writer.go	p2	Config link is replaced
+556	internal/git/git_test.go	p2	Comment describes the wrong test
+577	docs/troubleshooting.md	p2	Recovery keeps the broken release
+579	internal/sandbox/msb/lifecycle_contract_msb_test.go	p2	Test can miss competing starts
+580	internal/sandbox/prepare/prepare.go	p1	Migration skips saved settings
+580	internal/sandbox/vm/adopt.go	p2	Warning misidentifies active config
+581	.operator-shared/plans/2026-11-06-vm-disk-limit-proposal.md	p2	Saved hits lose disk measurements
+582	internal/sandbox/resourceproposal/detect.go	p2	Exhausted hosts get no warning
+582	internal/sandbox/resourceproposal/detect_test.go	p2	Live memory makes tests flaky
+585	docs/commands.md	p2	Quota docs hide the rebuild
+585	internal/sandbox/resourceproposal/disk.go	p1	Disk raises can shrink disks
+585	internal/sandbox/session/run_pressure.go	p2	New memory is ignored
+585	internal/sandbox/state/disk_pressure.go	p2	Sessions overwrite disk answers
+585	internal/sandbox/state/schema_test.go	p2	Older launchers erase disk records
+589	internal/sandbox/envsecret/secrets.go	p2	Oversized files disappear silently
+589	internal/viperconfig/setting_writer_test.go	p2	Parser limits remain untested
+590	internal/testutil/real_command_contract_test.go	p2	Raw strings escape the guard
+590	internal/testutil/real_command_contract_test.go	p2	Same-package calls escape the guard
+590	internal/testutil/testgit.go	p2	Inherited git settings remain active
+592	internal/testutil/ambient_environment_contract_test.go	p2	Body markers hide condition reads
+592	internal/testutil/ambient_environment_contract_test.go	p2	Fixture text acts as permission
+592	scripts/test-envelope.sh	p1	The copy can include itself
+592	scripts/test-envelope.sh	p2	Loopback setup errors are ignored
+592	scripts/test-envelope.sh	p2	Previews leave temporary directories
+592	scripts/test-envelope_test.sh	p1	Valid Go flags fail verification
+592	scripts/test-envelope_test.sh	p2	Setup failures look like success
+593	internal/sandbox/pruning/candidates.go	p2	Recent checkout appears retired
+593	internal/sandbox/pruning/images.go	p2	Prune reports images it kept
+593	internal/sandbox/pruning/purge.go	p1	Purge deletes a newly adopted home
+593	internal/sandbox/pruning/purge.go	p1	Purge targets the wrong home
+593	internal/sandbox/pruning/purge.go	p1	Surviving home loses its owner
+593	internal/sandbox/pruning/state_sweep.go	p2	Empty project directories survive pruning
+593	internal/sandbox/state/sweep.go	p2	Starting client is not counted
+595	internal/opener/forward.go	p1	Tests race over shared timers
+596	internal/sandbox/msb/runtime_isolation_msb_test.go	p1	Reuse runs delete active VMs
+596	test/harness/harness.go	p2	Relative reuse directories fail
+596	test/harness/harness_test.go	p2	Concurrent tests delete shared files
+598	internal/viperconfig/setting_writer_test.go	p2	Mutation tests dirty the tree
+599	internal/sandbox/state/projectvmlock.go	p2	VM creation bypasses this check
+600	.operator-shared/specs/testing/test-isolation.md	p2	Missing-home guidance is too broad
+600	.operator-shared/specs/testing/test-isolation.md	p2	VM lock protection is overstated
+602	internal/sandbox/reconfig/plan.go	p2	Configured paths can hide warnings
+603	.operator-shared/specs/configuration/project-config-trust.md	p2	Edited scripts stay approved
+604	internal/projecttrust/evaluate.go	p2	Approval hides changed commands
+604	internal/projecttrust/projection.go	p1	Large files skip approval
+604	internal/projecttrust/projection.go	p1	Reused files lose content checks
+604	internal/projecttrust/projection.go	p1	Unapproved files exhaust host memory
+604	internal/projecttrust/projection.go	p2	Different bytes share approval
+604	internal/viperconfig/load.go	p1	Key case bypasses approval
+607	internal/sandbox/options/sizes.go	p1	Accepted raise blocks launch
+608	docs/configuration/launcher.md	p2	Image-build promise is too strong
+608	internal/configdecode/decode.go	p1	Approved files block startup
+608	internal/homeconfig/homeconfig.go	p1	Deleted files bypass refusal
+608	internal/projectguard/guard.go	p1	Dangling links hide approved settings
+608	internal/projectguard/guard.go	p1	Failed reads bypass startup stop
+608	internal/projecttrust/projection.go	p1	Changed scripts bypass approval
+610	internal/sandbox/msb/msb.go	p2	Failed lookup leaves unused volumes
+612	internal/sandbox/vm/detached_service.go	p1	CLI cannot build
+613	internal/sandbox/msb/disk_probe_msb_test.go	p2	Focused disk test skips cleanup
+613	internal/sandbox/msb/translate_test.go	p2	New return fields go unnoticed
+614	internal/sandbox/network/network_test.go	p2	Network parser tests disappear
+615	internal/sandbox/msb/phase4_boundary_test.go	p2	macOS imports escape the check
+616	internal/sandbox/msb/msbtest/runtime/runtime_msb.go	p2	VM cleanup lacks tests
+618	ci/check-changelog.sh	p1	Release cleanup fails CI
+618	scripts/rebase-status.sh	p1	Another checkout's rebase is missed
+618	scripts/rebase-status.sh	p2	Rebase target changes mid-report
+618	scripts/upstream-drift.sh	p1	macOS checks stop at mapfile
+618	scripts/upstream-drift.sh	p2	Reverted changes hide possible conflicts
+624	internal/sandbox/vm/detached_service.go	p1	Job settings do not compile
+624	test/harness/docker_storage_msb_test.go	p2	Smoke test assumes UID 1000
+627	internal/sandbox/volume/volume.go	p2	Sparse files consume extra space
+630	.operator-shared/guides/buildkit-and-ci-build-cache.md	p2	Guide points to wrong comment
+632	internal/sandbox/image/buildkit_build.go	p2	Quoted cache paths fail
+638	.operator-shared/specs/ci/ci-pipeline.md	p2	Scheduling note understates parallel builds
+638	internal/sandbox/image/helpers_test.go	p2	Quoted scopes lose build separation
+642	.agents-sandbox/Dockerfile	p1	HTTPS requests fail
+642	.agents-sandbox/Dockerfile	p1	Multiline settings stop Node
+642	.agents-sandbox/Dockerfile	p1	Node loses exported variables
+642	.agents-sandbox/Dockerfile	p1	Node servers cannot be reached
+642	.agents-sandbox/Dockerfile	p1	Scripts use the wrong checkout
+642	.agents-sandbox/Dockerfile	p1	`pi` cannot start
+645	scripts/changed-targets.sh	p2	File listing errors hide failures
+649	docs/configuration/agent.md	p2	Partial failures are described incorrectly
+650	docs/troubleshooting.md	p2	IPv4 workaround misses managed steps
+650	internal/sandbox/image/docker_build.go	p1	Build output grows without bounds
+650	internal/sandbox/image/docker_build.go	p2	Download errors wrongly blame DNS
+650	internal/sandbox/image/docker_build.go	p2	Split chunks break error lines
