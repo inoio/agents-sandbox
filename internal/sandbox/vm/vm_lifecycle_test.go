@@ -383,8 +383,11 @@ func TestEnsureProjectVMRejectsInvalidNetworkBeforeDestroy(t *testing.T) {
 
 	sb, _, err := EnsureProjectVM(context.Background(), creation)
 
-	if err == nil || !strings.Contains(err.Error(), "network config") {
-		t.Fatalf("EnsureProjectVM error = %v, want a network config rejection", err)
+	if err == nil || !strings.Contains(err.Error(), "network config") || errors.Unwrap(err) == nil {
+		t.Fatalf(
+			"EnsureProjectVM error = %v, want a network config rejection that wraps its cause",
+			err,
+		)
 	}
 	if sb != nil {
 		t.Errorf("EnsureProjectVM returned %v, want no sandbox", sb)

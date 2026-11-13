@@ -305,6 +305,19 @@ func TestNormalizeDNSServers(t *testing.T) {
 			want: []string{"[2606:4700:4700::1111]:5353"},
 		},
 		{
+			// The documented port contract is 1-65535; these two pin the
+			// accepted range at its boundaries so an off-by-one in the range
+			// check cannot reject a valid --dns at config-load.
+			name: "lowest valid port accepted",
+			in:   []string{"1.1.1.1:1"},
+			want: []string{"1.1.1.1:1"},
+		},
+		{
+			name: "highest valid port accepted",
+			in:   []string{"1.1.1.1:65535"},
+			want: []string{"1.1.1.1:65535"},
+		},
+		{
 			name: "whitespace trimmed",
 			in:   []string{" 1.1.1.1 "},
 			want: []string{"1.1.1.1:53"},

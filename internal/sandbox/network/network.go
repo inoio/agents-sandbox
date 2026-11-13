@@ -224,7 +224,11 @@ func NormalizeDNSServers(in []string) ([]string, error) {
 		if port == "" {
 			return nil, fmt.Errorf("invalid DNS server %q: missing port", s)
 		}
-		if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+		// strconv.Atoi returns 0 on a syntax error and MaxInt on an
+		// out-of-range port, so the range check alone rejects every invalid
+		// value and the parse error is safely ignored.
+		portNumber, _ := strconv.Atoi(port)
+		if portNumber < 1 || portNumber > 65535 {
 			return nil, fmt.Errorf("invalid DNS server %q: invalid port %q", s, port)
 		}
 		out = append(out, net.JoinHostPort(host, port))
