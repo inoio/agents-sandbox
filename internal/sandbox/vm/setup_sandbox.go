@@ -53,6 +53,32 @@ func runStartupHooks(ctx context.Context, sb msb.Sandbox, hooks []homeconfig.Hoo
 	}
 }
 
+// stderrTailBytes is the cap on stderr retained for a hook's failure warning.
+// The hook's stderr is streamed to the UI in full; only the bounded tail is
+// kept in launcher memory and echoed in the warning, so a hook with large
+// stderr neither grows the launcher nor produces an unbounded log line.
+const stderrTailBytes = 8 << 10
+
+// stderrTail retains the last stderrTailBytes written bytes, discarding the
+// oldest bytes first. It keeps its buffer at a fixed size once filled.
+type stderrTail struct {
+	buf []byte
+}
+
+func (t *stderrTail) Write(p []byte) {
+	if len(p) >= stderrTailBytes {
+		t.buf = append(t.buf[:0], p[len(p)-stderrTailBytes:]...)
+		return
+	}
+	t.buf = append(t.buf, p...)
+	if len(t.buf) > stderrTailBytes {
+		t.buf = append(t.buf[:0], t.buf[len(t.buf)-stderrTailBytes:]...)
+	}
+}
+
+// String returns the retained tail with surrounding whitespace trimmed.
+func (t *stderrTail) String() string { return strings.TrimSpace(string(t.buf)) }
+
 // runStartupHook runs one hook through the streaming exec seam and forwards its
 // output to the UI. The streaming seam is required, not the collected Exec: the
 // collected response buffer is capped at ~1 MiB, so a hook that emits more
@@ -79,7 +105,7 @@ func runStartupHook(
 	}
 	defer handle.Close()
 
-	var stderr strings.Builder
+	var stderr stderrTail
 	for {
 		event, err := handle.Recv(ctx)
 		if err != nil {
@@ -101,20 +127,23 @@ func runStartupHook(
 			}
 			return
 		case msb.StreamEventFailed:
-			ui.Warnf("startup hook %s failed: could not start", target)
+			if event.Failure != "" {
+				ui.Warnf("startup hook %s failed: %s", target, event.Failure)
+			} else {
+				ui.Warnf("startup hook %s failed: could not start", target)
+			}
 			return
 		}
 	}
 }
 
 // exitReason describes a hook's non-zero exit for its failure warning: the exit
-// code plus a trimmed stderr tail when the hook produced one.
-func exitReason(exitCode int, stderr string) string {
-	reason := fmt.Sprintf("exit %d", exitCode)
-	if tail := strings.TrimSpace(stderr); tail != "" {
-		reason += ": " + tail
+// code plus the retained stderr tail, which runStartupHook bounds.
+func exitReason(exitCode int, tail string) string {
+	if tail == "" {
+		return fmt.Sprintf("exit %d", exitCode)
 	}
-	return reason
+	return fmt.Sprintf("exit %d: %s", exitCode, tail)
 }
 
 // SetUpSandbox provisions a running project VM and returns the attach target.

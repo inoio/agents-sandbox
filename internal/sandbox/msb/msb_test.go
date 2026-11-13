@@ -424,6 +424,16 @@ func TestMapExecEvent(t *testing.T) {
 			ok:   true,
 		},
 		{
+			name: "failed carries the failure detail",
+			ev: msbSdk.ExecEvent{Kind: msbSdk.ExecEventFailed, Failure: &msbSdk.ExecFailure{
+				Message:   "spawn failed",
+				ErrnoName: "EACCES",
+				Path:      "/home/dev/.hook.sh",
+			}},
+			want: StreamEvent{Kind: StreamEventFailed, Failure: "spawn failed (EACCES): /home/dev/.hook.sh"},
+			ok:   true,
+		},
+		{
 			name: "done is io.EOF",
 			ev:   msbSdk.ExecEvent{Kind: msbSdk.ExecEventDone},
 			err:  io.EOF,
@@ -454,8 +464,35 @@ func TestMapExecEvent(t *testing.T) {
 				t.Fatalf("mapExecEvent() ok = %v, want %v", ok, tt.ok)
 			}
 			if got.Kind != tt.want.Kind || string(got.Data) != string(tt.want.Data) ||
-				got.ExitCode != tt.want.ExitCode {
+				got.ExitCode != tt.want.ExitCode || got.Failure != tt.want.Failure {
 				t.Errorf("mapExecEvent() = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestExecFailureText covers how an SDK exec failure is rendered for a launcher
+// diagnostic: the message, with the errno name and offending path appended when
+// the runtime supplied them.
+func TestExecFailureText(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   *msbSdk.ExecFailure
+		want string
+	}{
+		{"nil", nil, ""},
+		{"message only", &msbSdk.ExecFailure{Message: "boom"}, "boom"},
+		{"errno name", &msbSdk.ExecFailure{Message: "boom", ErrnoName: "EACCES"}, "boom (EACCES)"},
+		{"path", &msbSdk.ExecFailure{Message: "boom", Path: "/x"}, "boom: /x"},
+		{
+			name: "all fields",
+			in:   &msbSdk.ExecFailure{Message: "boom", ErrnoName: "EACCES", Path: "/x"},
+			want: "boom (EACCES): /x",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := execFailureText(tc.in); got != tc.want {
+				t.Errorf("execFailureText() = %q, want %q", got, tc.want)
 			}
 		})
 	}

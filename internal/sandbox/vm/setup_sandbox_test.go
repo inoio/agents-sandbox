@@ -174,6 +174,100 @@ func TestRunStartupHooksStreamsUnboundedHookOutput(t *testing.T) {
 	if len(ui.WarnCalls) != 0 {
 		t.Errorf("warnings = %v, want none for a hook that exits 0 however much it prints", ui.WarnCalls)
 	}
+	if len(ui.InfoCalls) < 2 {
+		t.Fatalf("InfoCalls = %d, want the running notice and the streamed output", len(ui.InfoCalls))
+	}
+	if got := ui.InfoCalls[len(ui.InfoCalls)-1]; len(got) != 2<<20 {
+		t.Errorf("forwarded %d bytes of hook output, want %d", len(got), 2<<20)
+	}
+}
+
+// TestRunStartupHooksBoundsRetainedStderr pins that a hook with large stderr
+// does not grow the launcher's memory for the hook's lifetime or produce an
+// unbounded failure warning: only a bounded tail of stderr is retained for the
+// reason.
+func TestRunStartupHooksBoundsRetainedStderr(t *testing.T) {
+	sb := &msbtest.MockSandbox{
+		Name_: "vm",
+		ExecStreamFn: func(_ context.Context, _ string, _ []string, _ msb.ExecRequest) (msb.StreamHandle, error) {
+			// 1 MiB of stderr, then the meaningful tail and a non-zero exit.
+			chunk := bytes.Repeat([]byte("e"), 64<<10)
+			events := make([]msb.StreamEvent, 0, 18)
+			for range 16 {
+				events = append(events, msb.StreamEvent{Kind: msb.StreamEventStderr, Data: chunk})
+			}
+			events = append(events,
+				msb.StreamEvent{Kind: msb.StreamEventStderr, Data: []byte("boom")},
+				msb.StreamEvent{Kind: msb.StreamEventExited, ExitCode: 1},
+			)
+			return msbtest.NewScriptedStreamHandle(events...), nil
+		},
+	}
+	ui := termiotest.NewTestMock(t)
+
+	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
+		{Target: "/home/dev/.big.sh", Source: "x", HasShebang: true},
+	}, &ui)
+
+	if len(ui.WarnCalls) != 1 {
+		t.Fatalf("warnings = %v, want one for the failed hook", ui.WarnCalls)
+	}
+	const prefix = "startup hook /home/dev/.big.sh failed: exit 1: "
+	if got := ui.WarnCalls[0]; len(got) > len(prefix)+stderrTailBytes {
+		t.Errorf("warning is %d bytes, want at most %d", len(got), len(prefix)+stderrTailBytes)
+	}
+	if !strings.HasSuffix(ui.WarnCalls[0], "boom") {
+		t.Errorf("warning %q does not keep the last stderr bytes", ui.WarnCalls[0])
+	}
+}
+
+// TestRunStartupHooksReportsWhyAHookCouldNotStart pins that the streaming
+// failure detail (the SDK's exec failure message) is surfaced, not just a bare
+// "could not start".
+func TestRunStartupHooksReportsWhyAHookCouldNotStart(t *testing.T) {
+	sb := &msbtest.MockSandbox{
+		Name_: "vm",
+		ExecStreamFn: func(_ context.Context, _ string, _ []string, _ msb.ExecRequest) (msb.StreamHandle, error) {
+			return msbtest.NewScriptedStreamHandle(
+				msb.StreamEvent{
+					Kind:    msb.StreamEventFailed,
+					Failure: "spawn failed (EACCES): /home/dev/.hook.sh",
+				},
+			), nil
+		},
+	}
+	ui := termiotest.NewTestMock(t)
+
+	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
+		{Target: "/home/dev/.hook.sh", Source: "x", HasShebang: true},
+	}, &ui)
+
+	if len(ui.WarnCalls) != 1 {
+		t.Fatalf("warnings = %v, want one for the failed hook", ui.WarnCalls)
+	}
+	if !strings.Contains(ui.WarnCalls[0], "spawn failed (EACCES): /home/dev/.hook.sh") {
+		t.Errorf("warning %q omits the SDK failure detail", ui.WarnCalls[0])
+	}
+}
+
+// TestStderrTailKeepsOnlyTheLastBytes covers the bounded stderr buffer: it
+// retains at most stderrTailBytes and drops the oldest bytes first.
+func TestStderrTailKeepsOnlyTheLastBytes(t *testing.T) {
+	var tail stderrTail
+	tail.Write([]byte("old"))
+	tail.Write(bytes.Repeat([]byte("x"), stderrTailBytes))
+	tail.Write([]byte("new"))
+
+	got := tail.String()
+	if len(got) != stderrTailBytes {
+		t.Fatalf("retained %d bytes, want %d", len(got), stderrTailBytes)
+	}
+	if !strings.HasSuffix(got, "new") {
+		t.Errorf("retained stderr does not end with the last bytes")
+	}
+	if strings.Contains(got, "old") {
+		t.Errorf("retained stderr still holds bytes dropped from the front")
+	}
 }
 
 // TestRestartDaemonsRestartsPastAFailedKill pins that a stale daemon job that

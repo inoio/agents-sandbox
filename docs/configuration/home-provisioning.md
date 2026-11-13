@@ -72,13 +72,12 @@ Rules:
 - The hook runs only when the VM is **started** — freshly created, recreated, or booted from a stopped/crashed state. It
   is **not** re-run when you attach to an already-running VM.
 - The hook runs non-interactively: it cannot read from user input (stdin is closed), so it cannot prompt for passwords
-  or MFA and never waits on input — startup blocks until the script finishes. Its stdout and stderr stream to the
-  session as it runs, so a hook may print unbounded output (progress, build logs, `curl -v`). When the hook finishes,
-  microsandbox ends
-  every process of the hook's session, including
-  ones started with `nohup ... &`: `nohup` only ignores the hangup signal, but the process stays in the session. A hook
-  that must keep running for the VM's lifetime (e.g. a VPN client) or wait for something that starts after the hooks
-  (e.g. the agent's daemon) must start that work in a new session with
+  or MFA and never waits on input — startup blocks until the script finishes, and its stdout and stderr stream to the
+  session as it runs, so a hook may print unbounded output (progress, build logs, `curl -v`). The launcher waits for
+  the hook's process to finish and does not terminate processes the hook leaves behind, so background work a hook
+  starts may outlive it until the VM stops, and interrupting the run can leave the hook's process running. A hook that
+  must keep running for the VM's lifetime (e.g. a VPN client) or wait for something that starts after the hooks (e.g.
+  the agent's daemon) must detach into its own session with
   `setsid -f openfortivpn ... </dev/null >/tmp/vpn.log 2>&1`; it stops when the VM stops. `setsid` is part of
   util-linux, which the managed base provides; a custom base must install it.
 - The script runs as the sandbox user (`dev`) by default; set `root: true` to run it as root.
