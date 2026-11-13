@@ -174,11 +174,37 @@ func TestRunStartupHooksStreamsUnboundedHookOutput(t *testing.T) {
 	if len(ui.WarnCalls) != 0 {
 		t.Errorf("warnings = %v, want none for a hook that exits 0 however much it prints", ui.WarnCalls)
 	}
-	if len(ui.InfoCalls) < 2 {
-		t.Fatalf("InfoCalls = %d, want the running notice and the streamed output", len(ui.InfoCalls))
+	if got := ui.StdOutBuffer.Len(); got != 2<<20 {
+		t.Errorf("forwarded %d bytes of hook stdout, want %d", got, 2<<20)
 	}
-	if got := ui.InfoCalls[len(ui.InfoCalls)-1]; len(got) != 2<<20 {
-		t.Errorf("forwarded %d bytes of hook output, want %d", len(got), 2<<20)
+}
+
+// TestRunStartupHooksWritesOutputVerbatim pins that hook output goes to the raw
+// stdout/stderr streams, not through a line logger: a chunk is not a line, so a
+// line split across two chunks stays one line and no extra newlines are added.
+func TestRunStartupHooksWritesOutputVerbatim(t *testing.T) {
+	sb := &msbtest.MockSandbox{
+		Name_: "vm",
+		ExecStreamFn: func(_ context.Context, _ string, _ []string, _ msb.ExecRequest) (msb.StreamHandle, error) {
+			return msbtest.NewScriptedStreamHandle(
+				msb.StreamEvent{Kind: msb.StreamEventStdout, Data: []byte("hel")},
+				msb.StreamEvent{Kind: msb.StreamEventStdout, Data: []byte("lo\n")},
+				msb.StreamEvent{Kind: msb.StreamEventStderr, Data: []byte("warn")},
+				msb.StreamEvent{Kind: msb.StreamEventExited, ExitCode: 0},
+			), nil
+		},
+	}
+	ui := termiotest.NewTestMock(t)
+
+	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
+		{Target: "/home/dev/.hook.sh", Source: "x", HasShebang: true},
+	}, &ui)
+
+	if got := ui.StdOutBuffer.String(); got != "hello\n" {
+		t.Errorf("stdout = %q, want %q (verbatim, no added newlines)", got, "hello\n")
+	}
+	if got := ui.StdErrBuffer.String(); got != "warn" {
+		t.Errorf("stderr = %q, want %q", got, "warn")
 	}
 }
 

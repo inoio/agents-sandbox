@@ -554,7 +554,7 @@ func setupSandboxStage(
 	boot vm.VMBoot,
 	plan reconfigPlan,
 	opts options.RunOptions,
-	ui termio.Logger,
+	ui termio.UI,
 ) (string, error) {
 	sandboxTarget := session.guestCWD
 	if sb == nil {

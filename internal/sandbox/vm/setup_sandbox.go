@@ -29,12 +29,12 @@ const defaultHookInterpreter = "/bin/sh"
 // A hook with a shebang is executed directly so the VM kernel resolves the
 // interpreter; one without falls back to /bin/sh. Hook scripts are marked
 // executable during provisioning, so no +x bit is required on the host source.
-// The hook's HOME is set so scripts can rely on it. Output is streamed to the
-// UI as the hook produces it; the agent waits for the exec to finish and a hook
-// that must outlive it is responsible for daemonizing itself. A hook that
-// cannot start, or that exits non-zero, is reported with its target and the
-// reason. Failures are logged, not fatal.
-func runStartupHooks(ctx context.Context, sb msb.Sandbox, hooks []homeconfig.HookSpec, ui termio.Logger) {
+// The hook's HOME is set so scripts can rely on it. Output is written verbatim
+// to the session's stdout/stderr as the hook produces it; the agent waits for
+// the exec to finish and a hook that must outlive it is responsible for
+// daemonizing itself. A hook that cannot start, or that exits non-zero, is
+// reported with its target and the reason. Failures are logged, not fatal.
+func runStartupHooks(ctx context.Context, sb msb.Sandbox, hooks []homeconfig.HookSpec, ui termio.UI) {
 	for _, h := range hooks {
 		user := DefaultSandboxUser
 		home := "/home/dev"
@@ -79,10 +79,13 @@ func (t *stderrTail) Write(p []byte) {
 // String returns the retained tail with surrounding whitespace trimmed.
 func (t *stderrTail) String() string { return strings.TrimSpace(string(t.buf)) }
 
-// runStartupHook runs one hook through the streaming exec seam and forwards its
-// output to the UI. The streaming seam is required, not the collected Exec: the
-// collected response buffer is capped at ~1 MiB, so a hook that emits more
-// would be cut off and misreported as failed even though it exited 0. The exit
+// runStartupHook runs one hook through the streaming exec seam and writes its
+// output verbatim to the session's stdout/stderr. The streaming seam is
+// required, not the collected Exec: the collected response buffer is capped at
+// ~1 MiB, so a hook that emits more would be cut off and misreported as failed
+// even though it exited 0. A chunk is an arbitrary byte range, not a line, so
+// the bytes go to the raw streams rather than through a line logger, which
+// would add a newline per chunk and split lines that straddle chunks. The exit
 // code is surfaced by the exited event; a hook that never starts, or a stream
 // error, is logged as a warning, not fatal.
 func runStartupHook(
@@ -91,7 +94,7 @@ func runStartupHook(
 	target, command string,
 	args []string,
 	user, home string,
-	ui termio.Logger,
+	ui termio.UI,
 ) {
 	handle, err := sb.ExecStream(
 		ctx,
@@ -117,10 +120,10 @@ func runStartupHook(
 		}
 		switch event.Kind {
 		case msb.StreamEventStdout:
-			ui.Info(string(event.Data))
+			_, _ = ui.StdOut().Write(event.Data)
 		case msb.StreamEventStderr:
 			stderr.Write(event.Data)
-			ui.Info(string(event.Data))
+			_, _ = ui.StdErr().Write(event.Data)
 		case msb.StreamEventExited:
 			if event.ExitCode != 0 {
 				ui.Warnf("startup hook %s failed: %s", target, exitReason(event.ExitCode, stderr.String()))
@@ -161,7 +164,7 @@ func SetUpSandbox(
 	opts options.RunOptions,
 	seams options.Seams,
 	cfs *reprovision.ConfigFiles,
-	ui termio.Logger,
+	ui termio.UI,
 	restart bool,
 	boot VMBoot,
 	guestCWD string,
