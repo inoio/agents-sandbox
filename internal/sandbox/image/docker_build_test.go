@@ -858,6 +858,14 @@ func TestMissingRootlessPrerequisite(t *testing.T) {
 			wantFound:   true,
 		},
 		{
+			name: "colorized classic stream",
+			// The classic builder colorizes a failing step's stderr; the
+			// ESC[91m red opener sits before the marker on the same line.
+			buildOutput: "\x1b[91merror: rootless docker prerequisite missing: newuidmap\n\x1b[0m",
+			want:        "newuidmap",
+			wantFound:   true,
+		},
+		{
 			name:        "no marker",
 			buildOutput: "E: step exited 2",
 			wantFound:   false,
@@ -880,10 +888,12 @@ func TestMissingRootlessPrerequisite(t *testing.T) {
 	}
 }
 
-// TestBuildFailureErrorClassifiesMissingRootlessPrerequisite pins that a
-// failure whose captured output names a missing rootless prerequisite reports
-// that package, not the injected RUN script dump.
-func TestBuildFailureErrorClassifiesMissingRootlessPrerequisite(t *testing.T) {
+// TestBuildFailureErrorNamesRootlessPrerequisiteAndDropsTheTailBlock pins the
+// real contract of the prerequisite branch: the missing package leads the
+// message, and the duplicate "Last build output" tail block is dropped. The
+// engine's own error still echoes the injected command inside the %w wrap; only
+// the redundant tail block is removed.
+func TestBuildFailureErrorNamesRootlessPrerequisiteAndDropsTheTailBlock(t *testing.T) {
 	err := buildFailureError(
 		errors.New("The command '/bin/sh -c set -e; mkdir -p /etc/agents-sandbox; \\\n"+
 			"    bin=\"$(command -v dockerd 2>/dev/null || true)\"; ...' returned a non-zero code: 1"),
@@ -896,14 +906,15 @@ func TestBuildFailureErrorClassifiesMissingRootlessPrerequisite(t *testing.T) {
 		}
 	}
 	if strings.Contains(err.Error(), "Last build output") {
-		t.Errorf("error = %v, must not dump the script output when the marker names the prerequisite", err)
+		t.Errorf("error = %v, want the duplicate tail block dropped when the marker names the prerequisite", err)
 	}
 }
 
 // TestBuildDockerImageReportsTheMissingRootlessPrerequisite pins the F24
 // scenario end to end: a custom base that omits a rootless prerequisite fails
-// the build, and the error names the missing package at the default log level
-// instead of dumping the injected RUN script.
+// the build, and the error names the missing package as the leading line,
+// without the duplicate tail block, at the default log level. The engine's own
+// error still echoes the injected command within the wrapped cause.
 func TestBuildDockerImageReportsTheMissingRootlessPrerequisite(t *testing.T) {
 	a := agentOpencode(t)
 	body := `{"stream":"Step 5/5 : RUN /bin/sh -c set -e; mkdir -p /etc/agents-sandbox; ...\n"}` + "\n" +
@@ -926,7 +937,7 @@ func TestBuildDockerImageReportsTheMissingRootlessPrerequisite(t *testing.T) {
 		t.Errorf("error = %v, want it to name the missing prerequisite", err)
 	}
 	if strings.Contains(err.Error(), "Last build output") {
-		t.Errorf("error = %v, must not dump the script output when the marker names the prerequisite", err)
+		t.Errorf("error = %v, want the duplicate tail block dropped when the marker names the prerequisite", err)
 	}
 }
 
@@ -940,13 +951,14 @@ func TestBuildFailureErrorPreservesTheCause(t *testing.T) {
 		message     string
 		buildOutput string
 	}{
-		{name: "default", message: "boom"},
-		{name: "base image", message: "pull access denied for private-base"},
+		{name: "default", message: "boom", buildOutput: "step output"},
+		{name: "base image", message: "pull access denied for private-base", buildOutput: "step output"},
 		{
-			name:    "unresolved name",
-			message: "short-name x did not resolve to an alias and no unqualified search registries are defined",
+			name:        "unresolved name",
+			message:     "short-name x did not resolve to an alias and no unqualified search registries are defined",
+			buildOutput: "step output",
 		},
-		{name: "network", message: "Temporary failure resolving 'deb.debian.org'"},
+		{name: "network", message: "Temporary failure resolving 'deb.debian.org'", buildOutput: "step output"},
 		{
 			name:        "missing rootless prerequisite",
 			message:     "The command '/bin/sh -c set -e; ...' returned a non-zero code: 1",

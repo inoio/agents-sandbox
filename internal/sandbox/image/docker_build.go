@@ -142,9 +142,11 @@ const rootlessPrerequisiteSignal = "error: rootless docker prerequisite missing:
 // missingRootlessPrerequisite extracts the prerequisite a captured build output
 // names, matching the adoption block's stderr line. It scans lines rather than
 // the whole output, so the signal inside a logged Dockerfile or script echo
-// cannot be mistaken for the check's verdict.
+// cannot be mistaken for the check's verdict. The output is stripped of ANSI
+// escapes first: the classic builder colorizes a failing step's stderr, which
+// would otherwise prefix the marker and defeat the match.
 func missingRootlessPrerequisite(buildOutput string) (string, bool) {
-	for line := range strings.SplitSeq(buildOutput, "\n") {
+	for line := range strings.SplitSeq(termio.StripANSICodes(buildOutput), "\n") {
 		line = strings.TrimSpace(line)
 		if rest, ok := strings.CutPrefix(line, rootlessPrerequisiteSignal); ok {
 			return strings.TrimSpace(rest), true
@@ -161,17 +163,19 @@ func missingRootlessPrerequisite(buildOutput string) (string, bool) {
 // podman does this when it has no unqualified-search-registries, which Docker
 // Engine never needs because it assumes Docker Hub — a network/DNS failure
 // while downloading packages, and a base that omits a rootless docker
-// prerequisite. The prerequisite case names the missing package instead of the
-// captured script dump; each other case points at the troubleshooting section
-// naming its remedy. Any other failure stays a plain wrap. The captured build
-// output is appended last, so the failing step's own message is visible.
+// prerequisite. The prerequisite case names the missing package as the leading
+// line and drops the duplicated tail block; each other case points at the
+// troubleshooting section naming its remedy. Any other failure stays a plain
+// wrap. The captured build output is appended last, so the failing step's own
+// message is visible.
 func buildFailureError(err error, buildOutput string) error {
 	prereq, isPrereqFailure := missingRootlessPrerequisite(buildOutput)
 	var failure error
 	switch msg := err.Error(); {
 	case isPrereqFailure:
-		// The named prerequisite is the whole report: the captured output is the
-		// injected script's dump, which the marker line already summarizes.
+		// Name the prerequisite as the leading line and drop the duplicate
+		// tail block, which only re-dumps the injected script the wrapped
+		// engine error already echoes.
 		return fmt.Errorf(
 			"docker image build failed (the base image is missing the rootless docker prerequisite %q; install it in the project Dockerfile): %w",
 			prereq,

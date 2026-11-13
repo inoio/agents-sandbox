@@ -111,10 +111,11 @@ from the same line stream that feeds verbose output, so the failing step's own m
 level. `buildFailureError` then classifies the failure from the engine message and that tail: a base-image resolution
 failure points at the base-image troubleshooting section, a network/DNS download failure (`Temporary failure
 resolving`, `Could not resolve host`, `getaddrinfo`, …) points at the image-build section, a captured
-`error: rootless docker prerequisite missing: <pkg>` line reports that package (skipping the tail block, which would
-only re-dump the injected script), and anything else is a plain wrap. Classification matches on resolver-specific
-failure text, not on an exit code or a generic download failure (apt's `Failed to fetch` also covers a `404` from a
-reachable mirror), so a user step exiting non-zero is not misreported.
+`error: rootless docker prerequisite missing: <pkg>` line (matched after stripping ANSI escapes, since the classic
+builder colorizes the failing step) reports that package as the leading line and drops the duplicate tail block, and
+anything else is a plain wrap. Classification matches on resolver-specific failure text, not on an exit code or a
+generic download failure (apt's `Failed to fetch` also covers a `404` from a reachable mirror), so a user step
+exiting non-zero is not misreported.
 
 ## Invariants
 
