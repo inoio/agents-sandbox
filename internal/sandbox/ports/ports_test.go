@@ -176,6 +176,39 @@ func TestServeHostBinding(t *testing.T) {
 	}
 }
 
+// TestLiveServeHostPort covers the live-config resolution reachability uses: a
+// tag-matched serve binding wins, even when this run's user mappings claim its
+// host port (a kept VM keeps its own binding); a read-back that lost the guest
+// port falls back to the first binding no user-published host port claims; and
+// a VM whose only binding this run maps as a user port has no serve binding. It
+// never probes.
+func TestLiveServeHostPort(t *testing.T) {
+	serve := ServeOnlyBindings(4096)
+	if port, ok := LiveServeHostPort(serve, nil); !ok || port != 4096 {
+		t.Errorf("LiveServeHostPort(serve binding) = %d, %v; want 4096, true", port, ok)
+	}
+	claimedServe := []PortMapping{{HostPort: 4096, GuestPort: 3000}}
+	if port, ok := LiveServeHostPort(serve, claimedServe); !ok || port != 4096 {
+		t.Errorf("LiveServeHostPort(claimed serve binding) = %d, %v; want 4096, true", port, ok)
+	}
+	untagged := []msb.PortBinding{
+		{Bind: ServeOnlyBindAddr, HostPort: 5000, GuestPort: 4000, Protocol: msb.PortProtocolTCP},
+	}
+	if port, ok := LiveServeHostPort(untagged, nil); !ok || port != 5000 {
+		t.Errorf("LiveServeHostPort(untagged) = %d, %v; want 5000, true", port, ok)
+	}
+	if _, ok := LiveServeHostPort(nil, nil); ok {
+		t.Error("LiveServeHostPort(nil) reported a binding, want none")
+	}
+	userOnly := UserPortBindings([]PortMapping{{HostPort: 3000, GuestPort: 3000}})
+	if _, ok := LiveServeHostPort(userOnly, []PortMapping{{HostPort: 3000, GuestPort: 3000}}); ok {
+		t.Error("LiveServeHostPort(user binding this run maps) reported a serve binding, want none")
+	}
+	if port, ok := LiveServeHostPort(userOnly, nil); !ok || port != 3000 {
+		t.Errorf("LiveServeHostPort(untagged user binding) = %d, %v; want 3000, true (fallback)", port, ok)
+	}
+}
+
 func TestBindingsEqualIgnoresOrder(t *testing.T) {
 	a := UserPortBindings([]PortMapping{{HostPort: 3000, GuestPort: 3000}, {HostPort: 8080, GuestPort: 5173}})
 	b := UserPortBindings([]PortMapping{{HostPort: 8080, GuestPort: 5173}, {HostPort: 3000, GuestPort: 3000}})

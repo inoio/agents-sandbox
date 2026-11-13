@@ -142,8 +142,9 @@ ports:
   guest loopback, for the published port to reach it.
 - `--serve-only` publishing is independent of this list: the agent server's dynamically allocated port is probed
   around your configured host ports. When a keep defers a changed serve binding, the launcher still prints the
-  connection URL for the port the running VM actually serves on. It warns about the deferral and withholds the URL
-  only when the running VM has no reachable serve binding — it publishes none, or its bindings could not be read.
+  connection URL for the port the running VM actually serves on. It states the agent server is unreachable and
+  withholds the URL only when the running VM has no reachable serve binding — it publishes none, or its bindings could
+  not be read.
 
 For concrete walkthroughs — a dev server with hot reload, or a database inspected from the host — see
 [Expose a dev server]({% link recipes/expose-a-dev-server.md %}).

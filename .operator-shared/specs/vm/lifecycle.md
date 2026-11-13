@@ -142,9 +142,9 @@ plan asked for it), and resolves the attach target, including `--worktree` (`Res
 **`attach`.** Opens the interactive session as a login shell (`runAttach`), with the notify watcher and host link
 opener alongside; `shell` attaches a plain login shell. Under `--serve-only` the attach is replaced by a keeper that
 holds the VM until EOF/SIGINT/SIGTERM (`runServeOnlySession`); both flows hold the client lease through
-`withClientSession`, which releases it before the last-client reap. A keep that deferred the serve binding
-(`reconfigDecision.ServePortDeferred`) makes `serveOnlyMessage` warn about the deferral and withhold the connect URL
-until the next recreate. Under `--dry-run-vm` it prints the would-start line and returns.
+`withClientSession`, which releases it before the last-client reap. A keep with no reachable serve binding
+(`reconfigDecision.ServePortDeferred`) makes `serveOnlyMessage` state the agent server is unreachable and withhold the
+connect URL until the next recreate. Under `--dry-run-vm` it prints the would-start line and returns.
 
 ## Cross-stage authorities
 

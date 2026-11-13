@@ -1847,6 +1847,138 @@ func TestResolveReconfigDecisionUnreadableConfigKeepDefersServePort(t *testing.T
 	}
 }
 
+// TestResolveReconfigDecisionUntaggedServeBindingReachable covers a read-back
+// that lost the serve binding's guest port: the live binding still resolves to a
+// host port the kept VM serves on (ports.ResolveServeHostPort's untagged
+// fallback), so the serve port must not be deferred and its URL stays valid.
+func TestResolveReconfigDecisionUntaggedServeBindingReachable(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	tmpRepo := testutil.InitRepo(t)
+	t.Chdir(tmpRepo)
+	slug := git.MustCheckoutSlug()
+
+	release, err := state.AcquireClientLease(state.Key{Slug: slug, Agent: "opencode"})
+	if err != nil {
+		t.Fatalf("AcquireClientLease: %v", err)
+	}
+	defer release()
+
+	const liveServePort = 5000
+	handle := &msbtest.MockSandboxHandle{
+		Cfg: &msb.SandboxConfig{
+			Image:     "img:tag",
+			CPUs:      4,
+			MemoryMiB: 4096,
+		},
+		PortBindings: []msb.PortBinding{
+			{
+				Bind:      ports.ServeOnlyBindAddr,
+				HostPort:  liveServePort,
+				GuestPort: 4000,
+				Protocol:  msb.PortProtocolTCP,
+			},
+		},
+		ConnectSb: &msbtest.MockSandbox{},
+	}
+	mock := &msbtest.MockMsbClient{}
+	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+		return handle, nil
+	}
+	msbtest.WithMsbMock(t, mock)
+
+	ui := &termiotest.Mock{
+		IsInteractiveResult: true,
+		SelectFn: func(string, []termio.Choice, string) (string, error) {
+			return "k", nil
+		},
+	}
+	volumes := volume.NewManager(docker.Get())
+	persisted := state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:same"}
+	cfs, err := reprovision.LoadConfigFilesForHost(
+		opencodeResolved(t),
+		"",
+		t.TempDir(),
+		reprovision.VMHomeDir,
+		ui,
+		true,
+	)
+	if err != nil {
+		t.Fatalf("LoadConfigFiles: %v", err)
+	}
+	decision, err := readAndResolveReconfigDecision(
+		context.Background(),
+		mock,
+		volumes,
+		state.Key{Slug: slug, Agent: "opencode"},
+		options.RunOptions{Agent: "opencode", ServeOnly: true},
+		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:same"},
+		"vol",
+		persisted,
+		cfs,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("resolveReconfigDecision: %v", err)
+	}
+	if decision.Recreate {
+		t.Error("expected the ports change to be deferred when the user keeps the current VM")
+	}
+	if decision.ServePortDeferred {
+		t.Error("a kept VM whose untagged serve binding still resolves to a live port must not defer")
+	}
+	if decision.ServeHostPort != liveServePort {
+		t.Errorf("ServeHostPort = %d, want %d (the untagged live binding)", decision.ServeHostPort, liveServePort)
+	}
+}
+
+// TestResolveReconfigDecisionFirstServeOnlyRunNotDeferred pins the no-VM guard
+// on the deferral: a first `run --serve-only` creates the VM this run, so its
+// probed serve port is reachable and must not be withheld as deferred. Dropping
+// the live-VM operand would withhold the connect URL on every first serve-only
+// run.
+func TestResolveReconfigDecisionFirstServeOnlyRunNotDeferred(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+
+	mock := &msbtest.MockMsbClient{}
+	mock.GetSandboxFn = func(context.Context, string) (msb.SandboxHandle, error) {
+		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "no VM"}
+	}
+	msbtest.WithMsbMock(t, mock)
+
+	ui := termiotest.NewTestMock(t)
+	cfs := loadOpencodeConfigFiles(t, &ui)
+	opts := options.RunOptions{
+		Agent:     "opencode",
+		ServeOnly: true,
+		Network:   network.Policy{Profiles: []network.Profile{network.ProfileNone}},
+	}
+	decision, err := readAndResolveReconfigDecision(
+		context.Background(),
+		mock,
+		volume.NewManager(docker.Get()),
+		testVMKey(),
+		opts,
+		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:new"},
+		"vol",
+		state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:same"},
+		cfs,
+		&ui,
+	)
+	if err != nil {
+		t.Fatalf("resolveReconfigDecision: %v", err)
+	}
+	if decision.ServePortDeferred {
+		t.Error("a first serve-only run must not defer; the VM is created reachable this run")
+	}
+	serveHostPort, err := resolveServeHostPort(opts, decision.ServeHostPort)
+	if err != nil {
+		t.Fatalf("resolveServeHostPort: %v", err)
+	}
+	if serveHostPort == 0 {
+		t.Error("a first serve-only run must resolve a nonzero serve host port")
+	}
+}
+
 // TestResolveReconfigDecisionRecreateAdoptsProbedServePort covers the accepted
 // ports change: with no other client attached the recreate applies without a
 // prompt, and the decision adopts the freshly probed serve port the recreated
@@ -2077,21 +2209,25 @@ func TestApplyLivePortsReadFailureDegrades(t *testing.T) {
 }
 
 func TestExistingServeHostPort(t *testing.T) {
-	if got := existingServeHostPort(nil, 4100); got != 4100 {
+	if got := existingServeHostPort(nil, 4100, nil); got != 4100 {
 		t.Errorf("existingServeHostPort(nil, 4100) = %d, want the fallback", got)
 	}
 	cfg := &msb.SandboxConfig{PortBindings: []msb.PortBinding{
 		{Bind: "127.0.0.1", HostPort: 3000, GuestPort: 3000, Protocol: msb.PortProtocolTCP},
 		{Bind: "127.0.0.1", HostPort: 4096, GuestPort: ports.ServeOnlyBasePort, Protocol: msb.PortProtocolTCP},
 	}}
-	if got := existingServeHostPort(cfg, 4100); got != 4096 {
+	if got := existingServeHostPort(cfg, 4100, nil); got != 4096 {
 		t.Errorf("existingServeHostPort = %d, want 4096 (the agent guest port binding)", got)
 	}
 	userOnly := &msb.SandboxConfig{PortBindings: []msb.PortBinding{
 		{Bind: "127.0.0.1", HostPort: 3000, GuestPort: 3000, Protocol: msb.PortProtocolTCP},
 	}}
-	if got := existingServeHostPort(userOnly, 4100); got != 4100 {
-		t.Errorf("existingServeHostPort(no serve binding) = %d, want the fallback", got)
+	if got := existingServeHostPort(userOnly, 4100, nil); got != 3000 {
+		t.Errorf("existingServeHostPort(untagged fallback) = %d, want 3000 (the sole live binding)", got)
+	}
+	claimed := []ports.PortMapping{{HostPort: 3000, GuestPort: 3000}}
+	if got := existingServeHostPort(userOnly, 4100, claimed); got != 4100 {
+		t.Errorf("existingServeHostPort(claimed user binding) = %d, want the fallback", got)
 	}
 }
 

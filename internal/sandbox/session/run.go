@@ -155,12 +155,12 @@ func logNotifyWatcherError(stop func() error, ui termio.Logger) {
 //
 // When a kept running VM has no reachable serve binding — the changed binding
 // was deferred to the next recreate, or its bindings could not be read — no
-// client can reach the agent yet, so the message warns about the deferral
-// instead of handing out a URL the VM does not carry.
+// client can reach the agent yet, so the message states that the serve binding
+// is unavailable instead of handing out a URL the VM does not carry.
 func serveOnlyMessage(a agent.Resolved, port string, deferred bool) string {
 	if deferred {
-		return "ports change deferred: the running VM keeps its published ports until the next recreate\n\n" +
-			"The agent server is not reachable from the host until then; stop the attached clients and re-run to recreate the VM."
+		return "The agent server is not reachable from the host: the running VM has no serve binding to keep.\n\n" +
+			"Stop the attached clients and re-run to recreate the VM, then connect a client again."
 	}
 	authHint := ""
 	if a.Daemon != nil {

@@ -50,30 +50,34 @@ type reconfigDecision struct {
 }
 
 // existingServeHostPort returns the host port the running VM's config
-// publishes for the agent guest port, or fallback when it carries no such
-// binding (a freshly created VM, or a read-back that lost the guest port).
-func existingServeHostPort(cfg *msb.SandboxConfig, fallback int) int {
+// publishes for the agent guest port, resolved by the same live-config rule
+// serveBindingReachable uses, or fallback when it carries no candidate (a
+// freshly created VM, or a config whose bindings are all claimed by this run's
+// user mappings).
+func existingServeHostPort(cfg *msb.SandboxConfig, fallback int, mappings []ports.PortMapping) int {
 	if cfg == nil {
 		return fallback
 	}
-	if port, ok := ports.ServeHostBinding(cfg.PortBindings); ok {
+	if port, ok := ports.LiveServeHostPort(cfg.PortBindings, mappings); ok {
 		return port
 	}
 	return fallback
 }
 
 // serveBindingReachable reports whether the kept live VM's config publishes a
-// serve-only binding, so existingServeHostPort resolves the port the agent
-// server is actually reachable at. An unreadable config leaves the bindings
-// unknown, and a VM with no serve binding (e.g. one created by a shell run) has
-// none published: either way the agent server is unreachable until the VM is
+// binding the serve-only agent server is reachable on, resolved the way
+// existingServeHostPort and ports.ResolveServeHostPort resolve a live config:
+// a tag-matched serve binding, or the fallback for a read-back that lost the
+// guest port. An unreadable config leaves the bindings unknown, and a VM whose
+// bindings carry no candidate (e.g. one created by a shell run) has the agent
+// server unreachable — either way it is not reachable until the VM is
 // recreated. A reachable binding stays reachable even when this run's desired
-// host port differs — existingServeHostPort keeps the live port.
-func serveBindingReachable(live liveProjectVM) bool {
+// host port differs: existingServeHostPort keeps the live port.
+func serveBindingReachable(live liveProjectVM, mappings []ports.PortMapping) bool {
 	if live.configUnreadable || live.config == nil {
 		return false
 	}
-	_, ok := ports.ServeHostBinding(live.config.PortBindings)
+	_, ok := ports.LiveServeHostPort(live.config.PortBindings, mappings)
 	return ok
 }
 
@@ -230,13 +234,13 @@ func resolveReconfigDecision(
 	if !actions.Recreate && portsChanged {
 		// A kept VM defers the ports change and keeps serving on its existing
 		// agent binding; the freshly probed port applies at the next recreate.
-		serveHostPort = existingServeHostPort(live.config, serveHostPort)
+		serveHostPort = existingServeHostPort(live.config, serveHostPort, opts.Ports)
 	}
 	// In serve-only mode a kept VM is unreachable whenever it has no live serve
 	// binding to keep: the ports change was deferred away from a VM that never
 	// published one, or the config could not be read at all. A differing — but
 	// published — host port stays reachable through existingServeHostPort.
-	if !actions.Recreate && opts.ServeOnly && live.handle != nil && !serveBindingReachable(live) {
+	if !actions.Recreate && opts.ServeOnly && live.handle != nil && !serveBindingReachable(live, opts.Ports) {
 		servePortDeferred = true
 	}
 	decision := reconfigDecision{

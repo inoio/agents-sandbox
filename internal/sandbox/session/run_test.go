@@ -243,14 +243,16 @@ func TestServeOnlyMessage(t *testing.T) {
 }
 
 // TestServeOnlyMessageDefersChangedPort covers the kept-VM deferral: when the
-// running VM does not carry the desired serve binding, the message must warn
-// about the deferred ports change and must not hand out a URL the VM cannot
-// serve.
+// running VM has no reachable serve binding, the message must state the agent
+// server is unreachable and must not hand out a URL the VM cannot serve.
 func TestServeOnlyMessageDefersChangedPort(t *testing.T) {
 	opencode, _ := agent.Lookup("opencode")
 	msg := serveOnlyMessage(agent.Resolve(opencode), "4096", true)
-	if !strings.Contains(msg, "ports change deferred:") {
-		t.Errorf("serveOnlyMessage(deferred) missing deferral warning in:\n%s", msg)
+	if !strings.Contains(msg, "The agent server is not reachable from the host") {
+		t.Errorf("serveOnlyMessage(deferred) missing reachability warning in:\n%s", msg)
+	}
+	if strings.Contains(msg, "ports change deferred") {
+		t.Errorf("serveOnlyMessage(deferred) must not blame a ports change in:\n%s", msg)
 	}
 	if strings.Contains(msg, "Connect a client to") {
 		t.Errorf("serveOnlyMessage(deferred) must not print a connect URL in:\n%s", msg)
@@ -740,8 +742,8 @@ func TestRunServeOnlyUsesSessionServeHostPort(t *testing.T) {
 }
 
 // TestRunServeOnlyDefersChangedPort covers the kept-VM path end to end: when the
-// session reports the serve binding deferred, the serve-only message warns about
-// the deferral and does not print a connect URL.
+// session reports the serve port deferred, the serve-only message states the
+// agent server is unreachable and does not print a connect URL.
 func TestRunServeOnlyDefersChangedPort(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	ui := &termiotest.Mock{}
@@ -770,13 +772,13 @@ func TestRunServeOnlyDefersChangedPort(t *testing.T) {
 
 	warned := false
 	for _, call := range ui.WarnCalls {
-		if strings.Contains(call, "ports change deferred:") {
+		if strings.Contains(call, "The agent server is not reachable from the host") {
 			warned = true
 			break
 		}
 	}
 	if !warned {
-		t.Errorf("expected a ports-deferral warning, got %v", ui.WarnCalls)
+		t.Errorf("expected an unreachable-serve-binding warning, got %v", ui.WarnCalls)
 	}
 	for _, call := range ui.InfoCalls {
 		if strings.Contains(call, "http://") {
