@@ -43,8 +43,11 @@ func TestRealClientVolumeLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListVolumes() error = %v", err)
 	}
-	if !volumeNamed(volumes, name) {
+	listed := volumeHandle(volumes, name)
+	if listed == nil {
 		t.Errorf("ListVolumes() did not include the created volume %q", name)
+	} else if listed.CreatedAt().IsZero() {
+		t.Errorf("ListVolumes() reported volume %q with a zero CreatedAt; the volume prune age gate relies on it", name)
 	}
 	if _, err := client.GetVolume(ctx, name); err != nil {
 		t.Errorf("GetVolume(%q) error = %v", name, err)
@@ -271,11 +274,12 @@ func TestRealClientConnectOrStartChild(t *testing.T) {
 	}
 }
 
-func volumeNamed(handles []VolumeHandle, name string) bool {
+// volumeHandle returns the listed handle for name, or nil when it is absent.
+func volumeHandle(handles []VolumeHandle, name string) VolumeHandle {
 	for _, handle := range handles {
 		if handle.Name() == name {
-			return true
+			return handle
 		}
 	}
-	return false
+	return nil
 }

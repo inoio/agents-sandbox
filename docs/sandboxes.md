@@ -106,9 +106,9 @@ Pruning removes:
 
 Age is applied when deciding which sandboxes are stale, and that decision governs the runner images of a retired key: a
 project whose sandbox has activity in the age threshold is left alone. Home volumes are never reclaimed by `prune`; a
-project's volume is deleted only by its targeted `prune --purge`, and an orphaned volume (one no state points at) only
-by `volume prune`. Runner images of a sandbox-less project are reclaimed once they age out — they can always be rebuilt,
-but a recent build is kept so the next run reuses it instead of reimporting it.
+project's volume is deleted only by its targeted `prune --purge`, and an orphaned volume (one no state or adoption
+claim points at) only by `volume prune`. Runner images of a sandbox-less project are reclaimed once they age out —
+they can always be rebuilt, but a recent build is kept so the next run reuses it instead of reimporting it.
 
 ### Retiring a project
 
@@ -123,8 +123,8 @@ Candidates come from every artifact the launcher can still observe — state dir
 sandboxes, and root-state adoption claims — so a project whose state directory was deleted by hand, whose state was
 lost, or that never reached a state write still surfaces through its leftover volume. Attribution follows ownership: a
 home volume is credited to the state keys that reference it, so a legacy-named volume a checkout adopted is listed under
-that checkout (never under the now-ownerless legacy slug), and only an orphan volume no state references is listed under
-its own name. Batch `prune` only lists them; full removal is a targeted purge:
+that checkout (never under the now-ownerless legacy slug), and only an orphan volume no state or adoption claim
+references is listed under its own name. Batch `prune` only lists them; full removal is a targeted purge:
 
 ```console
 agents-sandbox prune --purge [<slug>]              # or prune --purge=<slug>

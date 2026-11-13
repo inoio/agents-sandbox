@@ -127,15 +127,16 @@ func TestIgnoredWarningNamesTheChangedInputs(t *testing.T) {
 	}
 }
 
-// TestFirstRunChangeListNamesAConfigFileOnce pins F5: a first-run decision over
-// a config file without home: keys is one input, so the change list and every
-// flat path list name its path once — a role with nothing to contribute must
-// not add a duplicate line or path.
+// TestFirstRunChangeListNamesAConfigFileOnce pins F5 end to end: a first-run
+// decision computed from a real config file without home: keys is one input, so
+// the change list and every flat path list name its path once — the empty home
+// manifest must not add a duplicate line or path. It drives Compute over a
+// fixture, so removing the empty-entry guard in inputCollector.add (which would
+// project a second, blank home input for the file) fails it.
 func TestFirstRunChangeListNamesAConfigFileOnce(t *testing.T) {
-	path := "/repo/.agents-sandbox/config.yaml"
-	decision := Evaluate(projectionOf(Input{
-		Path: path, Kind: KindLauncherConfig, Entries: []string{`memory: "8G"`},
-	}), toApproval(Projection{}))
+	f := newProjectFixture(t)
+	path := f.write(t, "config.yaml", "memory: 8G\n")
+	decision := Evaluate(f.compute(t), toApproval(Projection{}))
 
 	rendered := RenderChanges(decision.Changes)
 	if got := strings.Count(rendered, path); got != 1 {
