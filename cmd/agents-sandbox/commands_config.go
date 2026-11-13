@@ -203,7 +203,7 @@ func provisionHostConfigEnabled(c *cobra.Command) bool {
 // printConfigAgent renders the merged config, mirror files, and drop-in host
 // files that provisioning would copy into the VM.
 func printConfigAgent(
-	ui termio.Output,
+	ui termio.UI,
 	a agent.Agent,
 	source reprovision.ConfigSource,
 	merged []byte,
@@ -213,6 +213,9 @@ func printConfigAgent(
 	mirrorFiles []reprovision.MirrorFile,
 	provision bool,
 ) {
+	for _, s := range skipped {
+		ui.Errorf("skipping agent config snippet %s: %v", s.Path, s.Err)
+	}
 	userDirs, projectDir := reprovision.SourceDirs(source)
 	sourceKind := "primary"
 	if source.Fallback != "" {
@@ -227,7 +230,7 @@ func printConfigAgent(
 	if len(sources) == 0 {
 		if len(skipped) > 0 {
 			ui.Out(
-				"No snippet file could be merged; every matching snippet failed to read or parse (see the warnings above).",
+				"No snippet file could be merged; every matching snippet failed to read or parse (see the errors above).",
 			)
 		} else {
 			ui.Out("No snippet files found; no merged config is provisioned.")
