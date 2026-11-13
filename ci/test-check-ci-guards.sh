@@ -142,6 +142,19 @@ chg="$(new_fixture)"
 sed -i '/_test/d' "$chg/ci/check-changelog.sh"
 expect "check-changelog.sh dropping the *_test.go exemption" "$chg" 1 "check-changelog.sh"
 
+# An alternative the changes regex derivation does not model must fail loudly,
+# not be silently dropped (a Makefile-only diff would otherwise read as
+# code=false and skip the integration job the spec keeps in).
+alt="$(new_fixture)"
+sed -i -e 's/\^\\\.gitignore\$/^Makefile$\|^\\\.gitignore$/' "$alt/.github/workflows/ci.yml"
+expect "ci.yml regex gaining an unmodeled alternative" "$alt" 1 "unrecognized alternative"
+
+# Dropping the .gitignore clause from the presence condition must be caught by
+# the anchored derivation, not masked by an unrelated whole-file mention.
+gcl="$(new_fixture)"
+perl -ni -e 'print unless m/!= "\.gitignore"/' "$gcl/ci/check-changelog.sh"
+expect "check-changelog.sh dropping the .gitignore clause" "$gcl" 1 "check-changelog.sh"
+
 echo "# check-ci-guards.sh: workflow-condition invariants"
 undeclared="$(new_fixture)"
 sed -i "s/github.event_name != 'merge_group'/github.event_name != 'scheduled'/" "$undeclared/.github/workflows/ci.yml"
@@ -150,6 +163,16 @@ expect "undeclared github.event_name literal" "$undeclared" 1 "not declared in o
 types="$(new_fixture)"
 sed -i "s/types: \[opened, synchronize, reopened, labeled\]/types: [opened, labeled]/" "$types/.github/workflows/ci.yml"
 expect "pull_request.types dropping a default" "$types" 1 "default type 'synchronize'"
+
+# A block-sequence spelling lists the same defaults on following lines; it is a
+# valid workflow and must pass, not read every default as missing.
+block="$(new_fixture)"
+perl -0pi -e 's/    types: \[opened, synchronize, reopened, labeled\]/    types:\n      - opened\n      - synchronize\n      - reopened\n      - labeled/' "$block/.github/workflows/ci.yml"
+expect "pull_request.types block-sequence spelling" "$block" 0 ""
+
+blkdrop="$(new_fixture)"
+perl -0pi -e 's/    types: \[opened, synchronize, reopened, labeled\]/    types:\n      - opened\n      - labeled/' "$blkdrop/.github/workflows/ci.yml"
+expect "pull_request.types block-sequence dropping a default" "$blkdrop" 1 "default type 'synchronize'"
 
 echo "# check-ci-guards.sh: the real repository passes"
 expect "this repository" "$(cd "$SCRIPT_DIR/.." && pwd)" 0 ""

@@ -45,14 +45,35 @@ canonical="$(
     '.gitignore' | LC_ALL=C sort
 )"
 
-# dir_prefix_globs BODY: turn a `a/|b/|...` alternation body into `a/**`, `b/**`.
-dir_prefix_globs() {
-  local body="$1" part
-  local -a parts
-  IFS='|' read -r -a parts <<<"$body"
-  for part in "${parts[@]}"; do
-    printf '%s**\n' "${part//\\/}"
+# alternation_parts BODY: print each top-level `|`-separated part of BODY. A
+# top-level alternative is one not nested inside a `(...)` group, so the
+# `^(a/|b/|...)` body stays a single part.
+alternation_parts() {
+  local str="$1" part="" c depth=0 i
+  for ((i = 0; i < ${#str}; i++)); do
+    c="${str:i:1}"
+    case "$c" in
+      '(') depth=$((depth + 1)) ;;
+      ')') depth=$((depth - 1)) ;;
+      '|')
+        if [[ "$depth" -eq 0 ]]; then
+          printf '%s\n' "$part"
+          part=""
+          continue
+        fi
+        ;;
+    esac
+    part+="$c"
   done
+  [[ -n "$part" ]] && printf '%s\n' "$part"
+}
+
+# dir_prefix_globs BODY: turn an alternation body `a/|b/|...` into `a/**`, `b/**`.
+dir_prefix_globs() {
+  local part
+  while IFS= read -r part; do
+    printf '%s**\n' "${part//\\/}"
+  done <<<"$(alternation_parts "$1")"
 }
 
 # globs_from_paths_ignore FILE: every entry of the file's `paths-ignore` blocks.
@@ -71,24 +92,73 @@ globs_from_paths_ignore() {
 }
 
 # globs_from_changes_regex: the exempt set encoded in ci.yml's `grep -vqE` regex.
+# Every top-level alternative in the regex is decoded to a glob (a `^(a/|b/|...)`
+# group to its dir globs, `\.md$` to `**.md`, `^\.gitignore$` to `.gitignore`);
+# an alternative this derivation cannot model fails loudly rather than being
+# silently dropped, so a site that gains an exemption it does not model is caught.
 globs_from_changes_regex() {
-  local line regex body
+  local line regex alt body
   line="$(grep -F 'grep -vqE' "$CI_YML" | head -1)"
   regex="$(printf '%s\n' "$line" | sed -E "s/.*grep -vqE '([^']*)'.*/\1/")"
-  body="$(printf '%s\n' "$regex" | sed -E 's/^\^\(([^)]*)\).*/\1/')"
-  dir_prefix_globs "$body"
-  printf '%s\n' "$regex" | grep -qF '\.md$' && printf '%s\n' '**.md'
-  printf '%s\n' "$regex" | grep -qF '^\.gitignore$' && printf '%s\n' '.gitignore'
+  while IFS= read -r alt; do
+    if [[ "$alt" =~ ^\^\((.+)\)$ ]]; then
+      body="${BASH_REMATCH[1]}"
+      dir_prefix_globs "$body"
+    elif [[ "$alt" == '\.md$' ]]; then
+      printf '%s\n' '**.md'
+    elif [[ "$alt" == '^\.gitignore$' ]]; then
+      printf '%s\n' '.gitignore'
+    else
+      report "ci.yml: changes gate regex has an unrecognized alternative '$alt'"
+    fi
+  done <<<"$(alternation_parts "$regex")"
 }
 
 # globs_from_changelog_check: the exempt set in ci/check-changelog.sh's presence
-# rule, minus its *_test.go addition (asserted separately below).
+# rule's `if` condition (the `&&`-chained `[[ ... ]]` sub-tests), minus its
+# *_test.go addition (asserted separately below). The condition is extracted as
+# a block, not from a whole-file grep, so an unrelated `.gitignore`/`.md`
+# mention elsewhere (the IGNORE list, a comment) cannot spoof an exemption that
+# the rule no longer makes, and an unrecognized sub-test fails loudly.
 globs_from_changelog_check() {
-  local body
-  body="$(grep -F '^(docs/|' "$CHANGELOG_CHECK" | head -1 | sed -E 's/.*\^\(([^)]*)\).*/\1/')"
-  dir_prefix_globs "$body"
-  grep -qF '\.md$' "$CHANGELOG_CHECK" && printf '%s\n' '**.md'
-  grep -qF '.gitignore' "$CHANGELOG_CHECK" && printf '%s\n' '.gitignore'
+  local cond line inner expr
+  cond="$(awk '
+    /if \[\[ ! "\$line" =~/ { in_if = 1; print; next }
+    in_if {
+      print
+      if (/; then/) exit
+      if (!/\\$/) exit
+    }
+  ' "$CHANGELOG_CHECK")"
+  if [[ -z "$cond" ]]; then
+    report "check-changelog.sh: presence condition not found"
+    return
+  fi
+  while IFS= read -r line; do
+    # Normalize each sub-test line down to its `[[ ... ]]` inner text.
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line#if }"
+    line="${line#&& }"
+    line="${line%; then}"
+    line="${line%\\}"
+    line="${line%"${line##*[![:space:]]}"}"
+    expr="${line#*\[\[ }"
+    expr="${expr%\]\]}"
+    expr="${expr#"${expr%%[![:space:]]*}"}"
+    expr="${expr%"${expr##*[![:space:]]}"}"
+    [[ -n "$expr" ]] || continue
+    if [[ "$expr" =~ \!=\ *\"\.gitignore\" ]]; then
+      printf '%s\n' '.gitignore'
+    elif [[ "$expr" =~ \=\~\ *\^\((.+)\)$ ]]; then
+      dir_prefix_globs "${BASH_REMATCH[1]}"
+    elif [[ "$expr" =~ \=\~\ *\\\.md\$ ]]; then
+      printf '%s\n' '**.md'
+    elif [[ "$expr" =~ \=\~\ *_test\\\.go\$ ]]; then
+      :
+    else
+      report "check-changelog.sh: presence condition has an unrecognized exempt test '$expr'"
+    fi
+  done <<<"$cond"
 }
 
 # --- The exempt-path set must agree across all four sites. ---------------------
@@ -132,16 +202,34 @@ while IFS= read -r event; do
     || report "ci.yml: github.event_name is compared to '$event', which is not declared in on:"
 done <<<"$used_events"
 
-types_line="$(
+# The `types:` block as written, in either the flow form
+# (`types: [opened, ...]`) or the block form (a `types:` line followed by
+# indented `- item` lines), joined for matching below.
+types_block="$(
   awk '
     /^  pull_request:[[:space:]]*$/ { in_pr = 1; next }
-    in_pr && /^  [^[:space:]]/ { in_pr = 0 }
-    in_pr && /types:/ { print; exit }
+    in_pr && /^  [^[:space:]]/ {
+      if (in_types) exit
+      in_pr = 0
+      next
+    }
+    in_pr && /types:/ {
+      match($0, /types:/)
+      types_indent = RSTART - 1
+      print
+      in_types = 1
+      next
+    }
+    in_types {
+      match($0, /[^[:space:]]/)
+      if (RSTART - 1 <= types_indent) exit
+      if ($0 ~ /^[[:space:]]*-/) print
+    }
   ' "$CI_YML"
 )"
-if [[ -n "$types_line" ]]; then
+if [[ -n "$types_block" ]]; then
   for default_type in opened synchronize reopened; do
-    printf '%s\n' "$types_line" | grep -qE "(^|[^a-z_])$default_type([^a-z_]|$)" \
+    printf '%s\n' "$types_block" | grep -qE "(^|[^a-z_])$default_type([^a-z_]|$)" \
       || report "ci.yml: on.pull_request.types omits the default type '$default_type' (declaring types: replaces the default set)"
   done
 fi
