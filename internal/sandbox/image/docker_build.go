@@ -136,7 +136,8 @@ func buildImageClassic(
 
 // rootlessPrerequisiteSignal prefixes the stderr line the injected docker
 // adoption block emits when a base omits a rootless runtime prerequisite, so a
-// failed build can name the missing package instead of the RUN script dump.
+// failed build can name the missing package as the leading line instead of
+// duplicating the injected RUN script in the tail block.
 const rootlessPrerequisiteSignal = "error: rootless docker prerequisite missing: "
 
 // missingRootlessPrerequisite extracts the prerequisite a captured build output

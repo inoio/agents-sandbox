@@ -834,8 +834,8 @@ func TestBuildFailureErrorKeepsTheBaseImageCaseFirst(t *testing.T) {
 
 // TestMissingRootlessPrerequisite pins the classifier that lifts the named
 // prerequisite out of the injected docker adoption block's stderr line, so a
-// failed custom-base build can report the missing package instead of the RUN
-// script dump.
+// failed custom-base build can report the missing package as the leading line
+// and drop the duplicate tail block.
 func TestMissingRootlessPrerequisite(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
@@ -905,6 +905,9 @@ func TestBuildFailureErrorNamesRootlessPrerequisiteAndDropsTheTailBlock(t *testi
 			t.Errorf("error = %v, want it to contain %q", err, want)
 		}
 	}
+	if !strings.HasPrefix(err.Error(), "docker image build failed (the base image is missing") {
+		t.Errorf("error = %v, want the missing package to lead the message", err)
+	}
 	if strings.Contains(err.Error(), "Last build output") {
 		t.Errorf("error = %v, want the duplicate tail block dropped when the marker names the prerequisite", err)
 	}
@@ -914,30 +917,56 @@ func TestBuildFailureErrorNamesRootlessPrerequisiteAndDropsTheTailBlock(t *testi
 // scenario end to end: a custom base that omits a rootless prerequisite fails
 // the build, and the error names the missing package as the leading line,
 // without the duplicate tail block, at the default log level. The engine's own
-// error still echoes the injected command within the wrapped cause.
+// error still echoes the injected command within the wrapped cause. The cases
+// cover the plain stream and the colorized classic stream, where the ESC[91m
+// red opener prefixes the marker on the same stderr line.
 func TestBuildDockerImageReportsTheMissingRootlessPrerequisite(t *testing.T) {
-	a := agentOpencode(t)
-	body := `{"stream":"Step 5/5 : RUN /bin/sh -c set -e; mkdir -p /etc/agents-sandbox; ...\n"}` + "\n" +
-		`{"stream":"error: rootless docker prerequisite missing: newuidmap\n"}` + "\n" +
-		`{"errorDetail":{"message":"The command '/bin/sh -c set -e; mkdir -p /etc/agents-sandbox; ...' returned a non-zero code: 1"}}`
-	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
-		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
-			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(body))}, nil
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{
+			name: "plain stream",
+			body: `{"stream":"Step 5/5 : RUN /bin/sh -c set -e; mkdir -p /etc/agents-sandbox; ...\n"}` + "\n" +
+				`{"stream":"error: rootless docker prerequisite missing: newuidmap\n"}` + "\n" +
+				`{"errorDetail":{"message":"The command '/bin/sh -c set -e; mkdir -p /etc/agents-sandbox; ...' returned a non-zero code: 1"}}`,
 		},
-	})
-	err := buildDockerImage(
-		context.Background(), docker.Get(), a,
-		testBuildRequest([]byte("FROM debian:trixie-slim\n"), "v", "base", "id", imageIdentity{}),
-		"tag", "label", false, &termiotest.Mock{},
-	)
-	if err == nil {
-		t.Fatal("expected buildDockerImage to return an error when the build fails")
-	}
-	if !strings.Contains(err.Error(), "newuidmap") {
-		t.Errorf("error = %v, want it to name the missing prerequisite", err)
-	}
-	if strings.Contains(err.Error(), "Last build output") {
-		t.Errorf("error = %v, want the duplicate tail block dropped when the marker names the prerequisite", err)
+		{
+			name: "colorized classic stream",
+			// The engine JSON-encodes the ESC byte as \u001b; the decoded
+			// stream value carries the raw 0x1b before the marker.
+			body: `{"stream":"\u001b[91merror: rootless docker prerequisite missing: newuidmap\n\u001b[0m"}` + "\n" +
+				`{"errorDetail":{"message":"The command '/bin/sh -c set -e; mkdir -p /etc/agents-sandbox; ...' returned a non-zero code: 1"}}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := agentOpencode(t)
+			dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
+				ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+					return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(tc.body))}, nil
+				},
+			})
+			err := buildDockerImage(
+				context.Background(), docker.Get(), a,
+				testBuildRequest([]byte("FROM debian:trixie-slim\n"), "v", "base", "id", imageIdentity{}),
+				"tag", "label", false, &termiotest.Mock{},
+			)
+			if err == nil {
+				t.Fatal("expected buildDockerImage to return an error when the build fails")
+			}
+			if !strings.HasPrefix(err.Error(), "docker image build failed (the base image is missing") {
+				t.Errorf("error = %v, want the missing package to lead the message", err)
+			}
+			if !strings.Contains(err.Error(), "newuidmap") {
+				t.Errorf("error = %v, want it to name the missing prerequisite", err)
+			}
+			if strings.Contains(err.Error(), "Last build output") {
+				t.Errorf(
+					"error = %v, want the duplicate tail block dropped when the marker names the prerequisite",
+					err,
+				)
+			}
+		})
 	}
 }
 
