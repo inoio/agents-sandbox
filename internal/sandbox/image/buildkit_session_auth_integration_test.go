@@ -254,8 +254,11 @@ func TestBuildKitSessionAuthPullsPrivateBaseImage(t *testing.T) {
 	t.Cleanup(func() { removeTestImage(tag) })
 
 	dockerfile := []byte("FROM " + registry.host() + "/" + probeRegistryRepo + ":latest\nCOPY Dockerfile /copied\n")
+	// No cache entry: testProbeRegistryConfig points config.Dir() at a config
+	// holding only the probe registry's credential, so importing the CI's
+	// shared cache here would resolve that ref anonymously and 403. This test
+	// exercises the base-image pull, not the cache.
 	req := testBuildRequest(dockerfile, "", "", "", imageIdentity{})
-	req.cacheFrom, req.cacheTo = imageCacheEnv(sanitizeTag(tag))
 
 	var lines []string
 	buildErr := buildImageBuildKit(

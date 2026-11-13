@@ -1,5 +1,5 @@
 ---
-description: Contract for the BuildKit runner-image build path and its engine-selected classic fallback - the builder is chosen once per build from the daemon's `Builder-Version` ping (dockerd family -> BuildKit, podman -> classic), the BuildKit client reaches the daemon's embedded builder over the `/grpc`+`/session` hijack, and a config-driven cache import/export surface (`type=gha`) makes the CI integration build cacheable.
+description: Contract for the BuildKit runner-image build path and its engine-selected classic fallback - the builder is chosen once per build from the daemon's `Builder-Version` ping (dockerd family -> BuildKit, podman -> classic), the BuildKit client reaches the daemon's embedded builder over the `/grpc`+`/session` hijack, and a config-driven cache import/export surface (`type=registry` against GHCR) makes the CI integration build cacheable.
 read_if: Changing how the runner image is built, the builder selection, `buildImage`/`buildDockerImage`, the docker seam's `DialHijack`, `image-cache-from`/`image-cache-to`, or the BuildKit client wiring; diagnosing a runner-image build that used the wrong builder, a base-image pull/auth failure on the BuildKit path, or a fallback that did not happen.
 ---
 
@@ -53,33 +53,42 @@ The BuildKit path accepts cache **import** and **export** entries (`client.Cache
 optimization only:
 
 - A cache miss never changes the produced image and never fails the build.
-- Import and export are configured separately: a PR restores an existing cache without publishing a throwaway one,
-  main push restores and refreshes the shared cache. A cache a PR run *creates* is scoped to `refs/pull/.../merge`
-  and is invisible to main and sibling PRs, so main (a `push`) is the single writer; PRs are restore-only.
+- Import and export are configured separately: a PR (and a `workflow_dispatch`) restores an existing cache without
+  publishing one, a main push builds uncached and then exports, and a release tag neither reads nor writes. Main is the
+  single writer; every other run is restore-only, so a cache a PR run *creates* (keyed to a throwaway ref, invisible to
+  main and sibling PRs) can never be published.
 - The cache is off unless configured; a normal local build carries none.
 
-The concrete backend the CI uses is `type=gha`, whose exporter is BuildKit's (`cache/remotecache/gha`). That backend
-reads the cache url and token from the **entry attributes**, not from the ambient environment: its documented
-`ACTIONS_*` defaults are applied by buildx on the client (not in our path), and the embedded builder runs in the engine
-daemon, which never sees the step's environment. So the launcher carries the credentials — for a `gha` entry it copies
-`url` ← `ACTIONS_CACHE_URL`, `url_v2` ← `ACTIONS_RESULTS_URL`, and `token` ← `ACTIONS_RUNTIME_TOKEN` onto the entry's
-attributes, leaving an attribute the spec sets explicitly untouched. The CI exposes those variables to the step with
-`crazy-max/ghaction-github-runtime`.
+The concrete backend the CI uses is `type=registry` against GHCR
+(`ghcr.io/<owner>/agents-sandbox:buildcache`), whose exporter and importer are BuildKit's
+(`cache/remotecache/registry`). Its credentials come from the BuildKit **session**'s registry-auth provider: the CI
+logs in with `docker login ghcr.io` before the build, and `newBuildKitSession` loads the user's docker credential
+configuration into the session, so the launcher carries no registry-cache attributes itself. GHCR has no Actions
+cache-budget cap, which is why the backend moved off `type=gha`: a `mode=max` export of this multi-stage render is
+~10 GB, the repository's whole Actions cache budget, so each main push evicted the previous cache.
+
+The `gha` backend, by contrast, reads the cache url and token from the **entry attributes** — the embedded builder
+runs in the engine daemon and never sees the step's environment — so the launcher fills `url` ← `ACTIONS_CACHE_URL`,
+`url_v2` ← `ACTIONS_RESULTS_URL`, and `token` ← `ACTIONS_RUNTIME_TOKEN` for a `gha` entry, leaving an attribute the
+spec sets explicitly untouched. `type=gha` is no longer the CI backend; a `gha` spec still works locally.
 
 ### Configuration
 
 One config key per direction, `image-cache-from` and `image-cache-to` (each a single spec string, env-bound, with no
-CLI flag), holding one BuildKit cache spec such as `type=gha,scope=runner-image,mode=max`. A spec is passed through
-whole — it contains commas (`type=`, `scope=`, `mode=`), so the keys are deliberately not `[]string` (which would
-comma-split an env value). The spec's fields are parsed as CSV, so a value carrying a comma is quoted
-(`type=local,"dest=/tmp/cache,run"`); only that quoting is interpreted, every type and attribute value still passes
-through uninterpreted. Empty — the default — means no entry. The CI sets `image-cache-to` on a main push (the
-single writer) and only `image-cache-from` on a PR, so a PR never publishes a throwaway cache. The cache spec syntax
-is BuildKit's. Config-key registration (the golden
+CLI flag), holding one BuildKit cache spec such as
+`type=registry,ref=ghcr.io/<owner>/agents-sandbox:buildcache,mode=max`. A spec is passed through whole — it contains
+commas (`type=`, `ref=`, `mode=`), so the keys are deliberately not `[]string` (which would comma-split an env value).
+The spec's fields are parsed as CSV, so a value carrying a comma is quoted (`type=local,"dest=/tmp/cache,run"`); only
+that quoting is interpreted, every type and attribute value still passes through uninterpreted. Empty — the default —
+means no entry. The CI sets `image-cache-to` only in the main-push writer job (the single writer) and
+`image-cache-from` only in the read-only `integration` job's restoring runs — a PR or a `workflow_dispatch`; a release
+tag sets neither, so it builds from scratch and a PR never publishes a throwaway cache. The cache spec syntax is
+BuildKit's. Config-key registration (the golden
 env-key list, docs) follows `../configuration/config-keys.md`.
 
-The CI job gating and the main-writer/PR-restore split are owned by `../ci/ci-pipeline.md` once that section lands
-with the implementation.
+The integration suite keys each build's spec to its own cache location before handing it to BuildKit (the helper
+appends the build's image tag to the spec's `scope`, or to a registry `ref`'s tag). The CI job gating and this
+main-writer/PR-restore split are owned by `../ci/ci-pipeline.md`.
 
 ## Engine contract
 
@@ -96,8 +105,10 @@ with the implementation.
 - For a given render and cache state the two paths produce the same image content; `ImageInfo` is the only interface
   downstream code sees, so no caller branches on the builder.
 - The classic path stays exercised (the `integration-podman` CI job), so the fallback cannot rot unnoticed.
-- The cache surface never changes build correctness: a disabled, empty, or failing cache is indistinguishable from a
-  cache miss.
+- The cache never changes the produced image. A miss — no entry, or a chain that matches nothing — is silent, but a
+  ref that cannot be *resolved* is fatal: BuildKit fails the solve when the cache import is unreachable or
+  unauthorized (observed as `failed to fetch anonymous token … 403`), so a registry cache's credentials must stay
+  valid.
 
 ## Non-goals / limitations
 

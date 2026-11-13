@@ -137,7 +137,7 @@ This project defaults to **test-driven development**:
   Because gomutants has no threshold, the job stays green on survivors; a red run means the sweep failed, and nothing is
   ever gated on it.
 - The `integration`-tagged docker-build suite is excluded from `make test` (~10 minutes). It runs on every code-affecting PR
-  as a **required** check, cached through the GitHub Actions BuildKit cache (`main` writes the `runner-image` cache; PRs
+  as a **required** check, cached through a GHCR BuildKit cache (`main` writes the `buildcache` tags; PRs
   restore from it), and always on `main` (when the merge changed code) and on releases. Run it locally with
   `make test-integration`. The same suite also runs against rootless podman, kept opt-in behind the
   `run-integration-podman` label: podman advertises only the classic builder, so it neither exercises the BuildKit path nor

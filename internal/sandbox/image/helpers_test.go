@@ -254,30 +254,50 @@ func assertWarnsIgnoredWorktreeConfig(t *testing.T, ui *termiotest.Mock) {
 	}
 }
 
-// scopeCacheSpec appends variant to a BuildKit cache spec's scope attribute.
+// keyCacheSpec appends variant to a BuildKit cache spec's key attribute: the
+// gha backend's scope, or the registry backend's ref tag.
 //
-// BuildKit's gha cache backend keys its index on the scope: every build would
-// otherwise write the one `index-runner-image-...` entry, and its SaveMutable
-// keeps only the newest chain, so all but the last build's layers are dropped
-// from the restored cache. Deriving the scope per build gives each build its own
-// index. Layer blobs stay keyed by digest alone, so the extra indexes add no
-// blob storage. The parts are re-serialized as CSV, so a quoted attribute value
-// (type=local,"dest=/tmp/cache,run") keeps its commas and its quoting. A spec
-// carrying no scope attribute is returned unchanged, since BuildKit's backend
-// default is not ours to rename.
-func scopeCacheSpec(spec, variant string) string {
+// BuildKit keys each cache location per build. The gha backend keys on the
+// scope: every build would otherwise write the one `index-runner-image-...`
+// entry, and its SaveMutable keeps only the newest chain. The registry backend
+// keys on the ref's tag: every build would otherwise push the same tag, and
+// only the last push keeps it. Either way all but the last build's layers are
+// dropped from the restored cache, so deriving the key per build gives each
+// build its own location. Layer blobs stay keyed by digest alone, so the extra
+// locations add no blob storage. The parts are re-serialized as CSV, so a quoted
+// attribute value (type=local,"dest=/tmp/cache,run") keeps its commas and its
+// quoting. A spec carrying neither a scope nor a ref is returned unchanged,
+// since BuildKit's backend default is not ours to rename.
+func keyCacheSpec(spec, variant string) string {
 	parts := splitBuildKitCacheSpecParts(spec)
-	scoped := false
+	keyed := false
 	for i, part := range parts {
 		if value, ok := strings.CutPrefix(part, "scope="); ok {
 			parts[i] = "scope=" + value + "-" + variant
-			scoped = true
+			keyed = true
+			continue
+		}
+		if value, ok := strings.CutPrefix(part, "ref="); ok {
+			parts[i] = "ref=" + keyRegistryRef(value, variant)
+			keyed = true
 		}
 	}
-	if !scoped {
+	if !keyed {
 		return spec
 	}
 	return mustJoinBuildKitCacheSpecParts(parts)
+}
+
+// keyRegistryRef appends variant to the tag of a registry reference, giving the
+// reference a tag when it has none. The tag separator is the last colon after
+// the final slash, so a registry port (localhost:5000/cache:main) is not the tag.
+func keyRegistryRef(ref, variant string) string {
+	slash := strings.LastIndex(ref, "/")
+	colon := strings.LastIndex(ref, ":")
+	if colon > slash {
+		return ref[:colon+1] + ref[colon+1:] + "-" + variant
+	}
+	return ref + ":" + variant
 }
 
 // mustJoinBuildKitCacheSpecParts re-serializes the parts
@@ -298,7 +318,7 @@ func mustJoinBuildKitCacheSpecParts(parts []string) string {
 	return strings.TrimSuffix(buf.String(), "\n")
 }
 
-func TestScopeCacheSpecAppendsVariantToScope(t *testing.T) {
+func TestKeyCacheSpecAppendsVariantToTheKey(t *testing.T) {
 	tests := []struct {
 		name string
 		spec string
@@ -325,15 +345,35 @@ func TestScopeCacheSpecAppendsVariantToScope(t *testing.T) {
 			want: `type=gha,"dest=/tmp/cache,run",scope=runner-it-all-pi-managed`,
 		},
 		{
-			name: "a spec without a scope is left untouched",
-			spec: "type=registry,ref=example.com/cache:main",
-			want: "type=registry,ref=example.com/cache:main",
+			name: "a registry ref gains the variant on its tag",
+			spec: "type=registry,ref=ghcr.io/inoio/agents-sandbox:buildcache",
+			want: "type=registry,ref=ghcr.io/inoio/agents-sandbox:buildcache-it-all-pi-managed",
+		},
+		{
+			name: "a registry export spec keeps its mode",
+			spec: "type=registry,ref=ghcr.io/inoio/agents-sandbox:buildcache,mode=max",
+			want: "type=registry,ref=ghcr.io/inoio/agents-sandbox:buildcache-it-all-pi-managed,mode=max",
+		},
+		{
+			name: "a registry ref with a registry port keeps the port",
+			spec: "type=registry,ref=localhost:5000/cache:main",
+			want: "type=registry,ref=localhost:5000/cache:main-it-all-pi-managed",
+		},
+		{
+			name: "a tagless registry ref gains the variant as its tag",
+			spec: "type=registry,ref=example.com/cache",
+			want: "type=registry,ref=example.com/cache:it-all-pi-managed",
+		},
+		{
+			name: "a spec with neither a scope nor a ref is left untouched",
+			spec: "type=local,dest=/tmp/cache",
+			want: "type=local,dest=/tmp/cache",
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := scopeCacheSpec(tc.spec, "it-all-pi-managed"); got != tc.want {
-				t.Errorf("scopeCacheSpec(%q) = %q, want %q", tc.spec, got, tc.want)
+			if got := keyCacheSpec(tc.spec, "it-all-pi-managed"); got != tc.want {
+				t.Errorf("keyCacheSpec(%q) = %q, want %q", tc.spec, got, tc.want)
 			}
 		})
 	}
