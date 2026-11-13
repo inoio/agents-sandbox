@@ -141,7 +141,8 @@ ports:
 - The service inside the VM must listen on all interfaces (e.g. `--host 0.0.0.0` for common dev servers), not only the
   guest loopback, for the published port to reach it.
 - `--serve-only` publishing is independent of this list: the agent server's dynamically allocated port is probed
-  around your configured host ports.
+  around your configured host ports. When a keep defers a changed serve binding, the launcher warns about the deferral
+  and does not print the connection URL, because the running VM cannot serve the agent on the desired port yet.
 
 For concrete walkthroughs — a dev server with hot reload, or a database inspected from the host — see
 [Expose a dev server]({% link recipes/expose-a-dev-server.md %}).

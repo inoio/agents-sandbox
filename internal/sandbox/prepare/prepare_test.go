@@ -1044,9 +1044,15 @@ func TestProvisionHostConfig(t *testing.T) {
 }
 
 func TestSessionServeHostPort(t *testing.T) {
-	s := &Session{serveHostPort: 4096}
+	s := &Session{serveHostPort: 4096, servePortDeferred: true}
 	if got := s.ServeHostPort(); got != 4096 {
 		t.Errorf("ServeHostPort() = %d, want 4096", got)
+	}
+	if !s.ServePortDeferred() {
+		t.Error("ServePortDeferred() = false, want true")
+	}
+	if (&Session{}).ServePortDeferred() {
+		t.Error("ServePortDeferred() on a session without deferral = true, want false")
 	}
 }
 

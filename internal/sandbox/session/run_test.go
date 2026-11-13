@@ -234,11 +234,26 @@ func TestBuildAttachCommandNoAttachRunner(t *testing.T) {
 
 func TestServeOnlyMessage(t *testing.T) {
 	opencode, _ := agent.Lookup("opencode")
-	msg := serveOnlyMessage(agent.Resolve(opencode), "127.0.0.1", "4096")
+	msg := serveOnlyMessage(agent.Resolve(opencode), "4096", false)
 	for _, want := range []string{"Connect a client to", "http://127.0.0.1:4096", "OPENCODE_SERVER_PASSWORD", "Ctrl-D"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("serveOnlyMessage missing %q in:\n%s", want, msg)
 		}
+	}
+}
+
+// TestServeOnlyMessageDefersChangedPort covers the kept-VM deferral: when the
+// running VM does not carry the desired serve binding, the message must warn
+// about the deferred ports change and must not hand out a URL the VM cannot
+// serve.
+func TestServeOnlyMessageDefersChangedPort(t *testing.T) {
+	opencode, _ := agent.Lookup("opencode")
+	msg := serveOnlyMessage(agent.Resolve(opencode), "4096", true)
+	if !strings.Contains(msg, "ports change deferred:") {
+		t.Errorf("serveOnlyMessage(deferred) missing deferral warning in:\n%s", msg)
+	}
+	if strings.Contains(msg, "Connect a client to") {
+		t.Errorf("serveOnlyMessage(deferred) must not print a connect URL in:\n%s", msg)
 	}
 }
 
@@ -248,7 +263,7 @@ func TestServeOnlyMessage(t *testing.T) {
 // wrong and would leave the client unable to connect.
 func TestServeOnlyMessageOpencode2StatesCredential(t *testing.T) {
 	opencode2, _ := agent.Lookup("opencode2")
-	msg := serveOnlyMessage(agent.Resolve(opencode2), "127.0.0.1", "4096")
+	msg := serveOnlyMessage(agent.Resolve(opencode2), "4096", false)
 	for _, want := range []string{"http://127.0.0.1:4096", `user "opencode"`, `password "opencode"`} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("serveOnlyMessage(opencode2) missing %q in:\n%s", want, msg)
@@ -264,7 +279,7 @@ func TestRunServeOnlyBlocksUntilCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	got := make(chan error, 1)
 	ui := &termiotest.Mock{}
-	go func() { got <- runServeOnly(ctx, opencodeResolved(t), sb, ui, 4096) }()
+	go func() { got <- runServeOnly(ctx, opencodeResolved(t), sb, ui, 4096, false) }()
 	cancel()
 	select {
 	case err := <-got:
@@ -721,6 +736,53 @@ func TestRunServeOnlyUsesSessionServeHostPort(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected connect URL with session port 4099 in info output, got %v", ui.InfoCalls)
+	}
+}
+
+// TestRunServeOnlyDefersChangedPort covers the kept-VM path end to end: when the
+// session reports the serve binding deferred, the serve-only message warns about
+// the deferral and does not print a connect URL.
+func TestRunServeOnlyDefersChangedPort(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{
+			sb:                msbtest.NewMockSandbox(msbtest.SandboxOpts{}),
+			serveHostPort:     4099,
+			servePortDeferred: true,
+		}, nil
+	}
+	defer func() { prepareSandbox = orig }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, resolvedRunOptions(t, options.RunOptions{ServeOnly: true, ReapPolicy: options.NewReapPolicy(true, 5)}), options.ModeRun, ui)
+	}()
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run serve-only did not return after cancel")
+	}
+
+	warned := false
+	for _, call := range ui.WarnCalls {
+		if strings.Contains(call, "ports change deferred:") {
+			warned = true
+			break
+		}
+	}
+	if !warned {
+		t.Errorf("expected a ports-deferral warning, got %v", ui.WarnCalls)
+	}
+	for _, call := range ui.InfoCalls {
+		if strings.Contains(call, "http://") {
+			t.Errorf("deferred serve-only must not print a connect URL, got %v", ui.InfoCalls)
+			break
+		}
 	}
 }
 
@@ -1323,7 +1385,7 @@ func TestRunServeOnlySessionSkipsReapOnNonCanceledError(t *testing.T) {
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(50*time.Millisecond))
 	defer cancel()
 
-	err := runServeOnlySession(ctx, opencodeResolved(t), k, sb, options.ReapPolicy{}, ui, 4096)
+	err := runServeOnlySession(ctx, opencodeResolved(t), k, sb, options.ReapPolicy{}, ui, 4096, false)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("runServeOnlySession = %v, want context.DeadlineExceeded", err)
 	}

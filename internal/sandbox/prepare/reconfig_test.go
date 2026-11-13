@@ -1603,6 +1603,97 @@ func TestResolveReconfigDecisionDeferredPortsKeepsServePort(t *testing.T) {
 		t.Errorf("ServeHostPort = %d, want %d (the kept VM still serves on its existing binding)",
 			decision.ServeHostPort, ports.ServeOnlyBasePort)
 	}
+	if !decision.ServePortDeferred {
+		t.Error("expected ServePortDeferred when the kept VM does not carry the desired serve binding")
+	}
+}
+
+// TestResolveReconfigDecisionChangedUserPortKeepsServeBinding pins the other
+// side of the deferral: a kept VM whose serve binding is unchanged but whose
+// user ports differ still serves the agent, so ServePortDeferred stays false and
+// the serve-only message may hand out the URL.
+func TestResolveReconfigDecisionChangedUserPortKeepsServeBinding(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	tmpRepo := testutil.InitRepo(t)
+	t.Chdir(tmpRepo)
+	slug := git.MustCheckoutSlug()
+
+	release, err := state.AcquireClientLease(state.Key{Slug: slug, Agent: "opencode"})
+	if err != nil {
+		t.Fatalf("AcquireClientLease: %v", err)
+	}
+	defer release()
+
+	handle := &msbtest.MockSandboxHandle{
+		Cfg: &msb.SandboxConfig{
+			Image:     "img:tag",
+			CPUs:      4,
+			MemoryMiB: 4096,
+		},
+		PortBindings: append(
+			ports.ServeOnlyBindings(ports.ServeOnlyBasePort),
+			ports.UserPortBindings([]ports.PortMapping{{HostPort: 3000, GuestPort: 3000}})...,
+		),
+		ConnectSb: &msbtest.MockSandbox{},
+	}
+	mock := &msbtest.MockMsbClient{}
+	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+		return handle, nil
+	}
+	msbtest.WithMsbMock(t, mock)
+
+	ui := &termiotest.Mock{
+		IsInteractiveResult: true,
+		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
+			return "k", nil
+		},
+	}
+	volumes := volume.NewManager(docker.Get())
+
+	persisted := state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:same"}
+	cfs, err := reprovision.LoadConfigFilesForHost(
+		opencodeResolved(t),
+		"",
+		t.TempDir(),
+		reprovision.VMHomeDir,
+		ui,
+		true,
+	)
+	if err != nil {
+		t.Fatalf("LoadConfigFiles: %v", err)
+	}
+	decision, err := readAndResolveReconfigDecision(
+		context.Background(),
+		mock,
+		volumes,
+		state.Key{Slug: slug, Agent: "opencode"},
+		options.RunOptions{
+			Agent:     "opencode",
+			ServeOnly: true,
+			Ports:     []ports.PortMapping{{HostPort: 3001, GuestPort: 3000}},
+		},
+		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:same"},
+		"vol",
+		persisted,
+		cfs,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("resolveReconfigDecision: %v", err)
+	}
+	if decision.Recreate {
+		t.Error("expected the ports change to be deferred when the user keeps the current VM")
+	}
+	if !decision.PortsChanged {
+		t.Error("expected PortsChanged for a changed user mapping")
+	}
+	if decision.ServePortDeferred {
+		t.Error("a changed user port must not defer the unchanged serve binding")
+	}
+	if decision.ServeHostPort != ports.ServeOnlyBasePort {
+		t.Errorf("ServeHostPort = %d, want %d (the reused serve binding)",
+			decision.ServeHostPort, ports.ServeOnlyBasePort)
+	}
 }
 
 // TestResolveReconfigDecisionRecreateAdoptsProbedServePort covers the accepted

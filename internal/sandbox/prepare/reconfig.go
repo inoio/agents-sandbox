@@ -38,6 +38,10 @@ type reconfigDecision struct {
 	// bindings the existing VM carries. When the VM is kept despite a ports
 	// change, the change is deferred to the next recreate.
 	PortsChanged bool
+	// ServePortDeferred reports whether a kept VM's serve-only binding differs
+	// from the one this run wants, so the agent server is unreachable on the
+	// desired port until the VM is recreated.
+	ServePortDeferred bool
 	// HomeAction is the resolved home-volume disposition when the VM is
 	// recreated for a changed image digest; nil when no home action applies.
 	// applyReconfigHomeAction applies it.
@@ -56,6 +60,18 @@ func existingServeHostPort(cfg *msb.SandboxConfig, fallback int) int {
 		return port
 	}
 	return fallback
+}
+
+// serveBindingDiffers reports whether a live VM's serve-only binding differs
+// from the host port this run wants, including the case where the VM carries no
+// serve binding at all (e.g. it was created by a shell run). A kept VM then
+// cannot serve the agent on the desired port until it is recreated.
+func serveBindingDiffers(cfg *msb.SandboxConfig, desiredPort int) bool {
+	if cfg == nil {
+		return false
+	}
+	livePort, ok := ports.ServeHostBinding(cfg.PortBindings)
+	return !ok || livePort != desiredPort
 }
 
 // liveProjectVM is what the launcher reads from the existing project VM before
@@ -207,16 +223,21 @@ func resolveReconfigDecision(
 	// recreate, so actions.Restart already implies !actions.Recreate && !plan.Recreate.
 	portsChanged := plan.PortsChanged
 	serveHostPort := plan.ServeHostPort
+	servePortDeferred := false
 	if !actions.Recreate && portsChanged {
 		// A kept VM defers the ports change and keeps serving on its existing
 		// agent binding; the freshly probed port applies at the next recreate.
 		serveHostPort = existingServeHostPort(live.config, serveHostPort)
+		// In serve-only mode a kept VM whose serve binding differs has no
+		// reachable agent URL until the next recreate.
+		servePortDeferred = opts.ServeOnly && serveBindingDiffers(live.config, plan.ServeHostPort)
 	}
 	decision := reconfigDecision{
-		Recreate:      actions.Recreate,
-		Restart:       actions.Restart,
-		PortsChanged:  portsChanged,
-		ServeHostPort: serveHostPort,
+		Recreate:          actions.Recreate,
+		Restart:           actions.Restart,
+		PortsChanged:      portsChanged,
+		ServePortDeferred: servePortDeferred,
+		ServeHostPort:     serveHostPort,
 	}
 
 	// The home-volume question only matters when we are actually switching to

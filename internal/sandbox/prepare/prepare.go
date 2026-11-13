@@ -36,14 +36,15 @@ import (
 // Session is a prepared, ready-to-attach sandbox: the VM, its name, and
 // the agent attach target.
 type Session struct {
-	sb            msb.Sandbox
-	name          string
-	target        string
-	cwd           string
-	guestCWD      string
-	serveHostPort int
-	key           state.Key
-	homeVolume    string
+	sb                msb.Sandbox
+	name              string
+	target            string
+	cwd               string
+	guestCWD          string
+	serveHostPort     int
+	servePortDeferred bool
+	key               state.Key
+	homeVolume        string
 }
 
 // Cleanup releases the sandbox handle. It is safe to call on a nil session.
@@ -74,6 +75,13 @@ func (s *Session) GuestCWD() string {
 // at in serve-only mode (0 when not serving).
 func (s *Session) ServeHostPort() int {
 	return s.serveHostPort
+}
+
+// ServePortDeferred reports whether the kept VM's serve-only binding differs
+// from the one this run wants, so the agent server is unreachable on the
+// desired port until the VM is recreated.
+func (s *Session) ServePortDeferred() bool {
+	return s.servePortDeferred
 }
 
 // HomeVolume returns the name of the home volume mounted at /home/dev.
@@ -217,14 +225,15 @@ func PrepareSandbox(
 	}
 
 	return &Session{
-		sb:            sb,
-		name:          vm.ProjectVMName(session.key),
-		target:        sandboxTarget,
-		cwd:           session.cwd,
-		guestCWD:      session.guestCWD,
-		serveHostPort: opts.ServeHostPort,
-		key:           session.key,
-		homeVolume:    plan.homeVolume,
+		sb:                sb,
+		name:              vm.ProjectVMName(session.key),
+		target:            sandboxTarget,
+		cwd:               session.cwd,
+		guestCWD:          session.guestCWD,
+		serveHostPort:     opts.ServeHostPort,
+		servePortDeferred: plan.decision.ServePortDeferred,
+		key:               session.key,
+		homeVolume:        plan.homeVolume,
 	}, nil
 }
 
