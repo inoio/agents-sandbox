@@ -746,11 +746,12 @@ func TestResolveTargetOpencodeDoesNotReportDetachedHead(t *testing.T) {
 }
 
 // TestResolveTargetWarnsHostGitSideEffectOnCreate pins that a fresh create
-// warns that the daemon's worktree registration is visible in the host `.git`
-// (the bind-mounted checkout makes the daemon's `git worktree add` write
-// `.git/worktrees/<name>` on the host) and must not be pruned from the host
-// while the guest worktree exists, and that reuse stays silent: a reused
-// worktree registers nothing new.
+// warns that the daemon's worktree registration is visible in the host git dir
+// (the bind-mounted checkout makes the daemon's `git worktree add` write a
+// `worktrees/<name>` registration in the host's git dir — `.git` or the bare
+// `<name>.git` directory) and must not be pruned from the host while the guest
+// worktree exists, and that reuse stays silent: a reused worktree registers
+// nothing new.
 func TestResolveTargetWarnsHostGitSideEffectOnCreate(t *testing.T) {
 	provider := mustWorktreeProvider(t)
 	create := provider.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feat-x"}, agent.WorktreeProject{})
@@ -772,9 +773,9 @@ func TestResolveTargetWarnsHostGitSideEffectOnCreate(t *testing.T) {
 		); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !infoCallContains(ui.WarnCalls, "feat-x", "host", ".git/worktrees", "git worktree prune") {
+		if !infoCallContains(ui.WarnCalls, "feat-x", "host", "git dir", "git worktree prune") {
 			t.Errorf(
-				"expected a create warning naming the host .git side effect and the prune footgun; got: %v",
+				"expected a create warning naming the host git dir side effect and the prune footgun; got: %v",
 				ui.WarnCalls,
 			)
 		}
@@ -802,8 +803,8 @@ func TestResolveTargetWarnsHostGitSideEffectOnCreate(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		for _, msg := range ui.WarnCalls {
-			if strings.Contains(msg, ".git/worktrees") || strings.Contains(msg, "worktree prune") {
-				t.Errorf("reuse must not restate the host .git side effect: %q", msg)
+			if strings.Contains(msg, "git dir") || strings.Contains(msg, "worktree prune") {
+				t.Errorf("reuse must not restate the host git dir side effect: %q", msg)
 			}
 		}
 	})

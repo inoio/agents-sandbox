@@ -11,7 +11,7 @@ Run the agent in its own git worktree, created inside the sandbox. The worktree 
 
 By default, agents-sandbox runs in the current directory (`/workspace`). To start an isolated development session in its own worktree, use `--worktree <name>[:<base>]` (`-w`). The daemon creates an isolated git worktree **inside the VM**; because `/workspace` includes the checkout's `.git`, the worktree's registration also appears in the host `.git/worktrees/` directory.
 
-> **Warning:** Each worktree registers in the host checkout's `.git/worktrees/` directory, and its `gitdir` file points at guest paths. Host `git worktree list` shows these entries as prunable, but do not run `git worktree prune` on the host while a worktree session is active — it would orphan the guest worktree and its commits. To clean up, remove the worktree from a `shell` session inside the VM first; the host registration disappears with it.
+> **Warning:** Each worktree registers in the host checkout's git dir — `.git/worktrees/<name>` in a normal checkout, `<name>.git/worktrees/<name>` in a bare one — and its `gitdir` file points at guest paths. Host `git worktree list` shows these entries as prunable, but do not run `git worktree prune` on the host while any guest worktree exists, not only while a session is running — it would orphan the guest worktree and its commits. To clean up, remove the worktree from a `shell` session inside the VM first; the host registration disappears with it.
 
 > **Note:** Requires a daemon-based agent. Worktrees are created through the agent daemon's worktree API, so `--worktree` only
 > works with daemon-based agents (opencode, opencode2); it is rejected for `pi`, `claude-code`, `codex`, `hermes`, and `oh-my-pi`, which run through the
