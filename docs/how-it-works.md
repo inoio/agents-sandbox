@@ -27,8 +27,8 @@ describes that flow and how a project's identity and state are laid out.
    While the agent runs, links it opens are handed to your host's browser
    (see [Opening links]({% link configuration/opening-links.md %})).
 6. **Cleanup** — On exit, the client detaches and the VM remains available for reuse or is stopped by its idle policy. In a
-   normal session `/workspace` is the host repository and remains intentionally shared; only `--worktree` sessions use a
-   VM-internal worktree that leaves the host checkout untouched. When launched from inside a git worktree or a repository
+   normal session `/workspace` is the host repository and remains intentionally shared; `--worktree` sessions use a
+   VM-internal worktree, and the host checkout's `.git` records each worktree's registration. When launched from inside a git worktree or a repository
    subdirectory, `/workspace` is bound to the enclosing checkout root rather than the current directory.
 
 See the [Commands]({% link commands.md %}) reference for the full API and [Configuration]({% link configuration/index.md %}) for tuning

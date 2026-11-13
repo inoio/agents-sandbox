@@ -1,15 +1,23 @@
 ---
 title: Worktree Sessions
-description: "Start isolated agent sessions in git worktrees created inside the sandbox, leaving the host repository untouched."
+description: "Start isolated agent sessions in git worktrees created inside the sandbox. Each worktree registers in the host checkout's git dir."
 layout: default
 parent: Recipes
 nav_order: 10
 ---
 # Worktree Sessions
 
-Run the agent in its own git worktree, created inside the sandbox, so your host checkout stays untouched.
+Run the agent in its own git worktree, created inside the sandbox. The worktree files live in the VM; the host checkout's git dir gains a `worktrees/<name>` registration (`.git/worktrees/<name>` in a normal checkout).
 
-By default, agents-sandbox runs in the current directory (`/workspace`). To start an isolated development session in its own worktree, use `--worktree <name>[:<base>]` (`-w`). This creates an isolated git worktree **inside the VM**, leaving the host repository untouched.
+By default, agents-sandbox runs in the current directory (`/workspace`). To start an isolated development session in its own worktree, use `--worktree <name>[:<base>]` (`-w`). The daemon creates an isolated git worktree **inside the VM**, but because the checkout bound at `/workspace` resolves to the host's git dir — contained in the bound root for a normal or bare checkout, and bind-mounted in separately for an outside worktree — the worktree's registration also appears in the host's git dir.
+
+> **Warning:** Each worktree registers in the host checkout's git dir, and its `gitdir` file points at guest paths:
+> `.git/worktrees/<name>` in a normal checkout; `<bare-root>/.git/worktrees/<name>` in a bare checkout whose bare root
+> holds a `.git` directory; `<repo>.git/worktrees/<name>` in a bare checkout whose git dir is itself a `<repo>.git`
+> directory. Host `git worktree list` shows these entries as prunable, but do not run `git worktree prune` on the host
+> while any guest worktree exists, not only while a session is running — it would orphan the guest worktrees and their
+> commits. To clean up, remove the worktree from a `shell` session inside the VM first; the host registration disappears
+> with it.
 
 > **Note:** Requires a daemon-based agent. Worktrees are created through the agent daemon's worktree API, so `--worktree` only
 > works with daemon-based agents (opencode, opencode2); it is rejected for `pi`, `claude-code`, `codex`, `hermes`, and `oh-my-pi`, which run through the
@@ -28,9 +36,9 @@ agents-sandbox -w bugfix-fix-thing:main -y # worktree from local base ref
 When you pass `--worktree <name>`:
 
 1. The launcher passes the name to the agent daemon inside the running VM via its worktree API.
-2. The daemon creates or reuses a worktree inside the VM under the guest home volume (`~/.local/share/opencode/worktree/`); for `opencode2` (v2) the exact layout is `~/.local/share/opencode/worktree/<short-project-id>/<name>` (the id is a truncated project hash). The host repository is **unaffected**.
+2. The daemon creates or reuses a worktree inside the VM under the guest home volume (`~/.local/share/opencode/worktree/`); for `opencode2` (v2) the exact layout is `~/.local/share/opencode/worktree/<short-project-id>/<name>` (the id is a truncated project hash). The daemon's `git worktree add` runs against the checkout bound at `/workspace`, whose git dir is the host's — inside the bound root for a normal or bare checkout, and bind-mounted in separately for an outside worktree — so the worktree also registers on the host under `worktrees/<name>` in that git dir (`.git/worktrees/<name>` in a normal checkout).
 3. The launcher attaches the agent with the worktree directory as its working directory — `opencode attach` takes it via `--dir`, while `opencode2` takes it as a positional argument. This is where the agent reads source files and writes edits.
-4. The host repository is left untouched — no host-side worktrees are created or managed.
+4. The host repository's working files are not modified, but the host's git dir is not left untouched: it holds the `worktrees/<name>` registration from step 2 (`.git/worktrees/<name>` in a normal checkout). Host `git worktree list` shows the entry as prunable, but a host `git worktree prune` while any guest worktree exists would orphan them and their commits.
 
 ## Name and base semantics
 

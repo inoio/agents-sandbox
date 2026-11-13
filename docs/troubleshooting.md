@@ -215,18 +215,21 @@ reclaim sandboxes by hand, see [Sandboxes]({% link sandboxes.md %}) for the `lis
 
 ### "failed to create worktree"
 
-If the managed worktree creation fails:
-
-```console
-# Clean up stale worktrees in your repo
-git worktree prune
-```
-
-Then retry the command. If the problem persists, check for uncommitted changes or locked worktrees:
+If the managed worktree creation fails, retry the command. If the problem persists, check for uncommitted changes or
+locked worktrees:
 
 ```console
 git worktree list
 ```
+
+A stale guest worktree keeps its registration in the host checkout's git dir even after the session ends, so check the
+host too. Do **not** run `git worktree prune` on the host while any guest worktree exists — the host sees every live
+guest worktree as prunable (its `gitdir` file points into the VM), so the command removes all their registrations at
+once and orphans their commits. Remove the stale entry from inside the VM instead, for example in a
+[`shell`]({% link commands.md %}#shell) session with `git worktree remove <path>` (add `--force` if the worktree has
+uncommitted changes), where `<path>` is the worktree's guest directory as reported by `git worktree list` — guest
+worktrees live under `~/.local/share/opencode/worktree/`. A host `git worktree prune` is appropriate only once the
+guest worktree itself is gone, for example after its home volume was deleted.
 
 ### Worktree prompt hangs
 

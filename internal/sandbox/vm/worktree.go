@@ -162,6 +162,10 @@ func ResolveTarget(
 	}
 
 	ui.Infof("created worktree %q: %s%s", spec.Name, dir, worktreeDetachedNote(a))
+	ui.Warnf(
+		"worktree %q is registered in the host repository's git dir (\u2026/worktrees/); a host `git worktree prune` removes every guest worktree's registration at once, so don't run it while any guest worktree exists",
+		spec.Name,
+	)
 	if filepath.Base(dir) != spec.Name {
 		ui.Warnf("requested worktree name %q was already taken; the daemon created %s", spec.Name, dir)
 	}

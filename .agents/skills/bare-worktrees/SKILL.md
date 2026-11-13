@@ -157,5 +157,5 @@ its home volume.
   with the agent starting in the subdirectory you launched from) and where project config is read from (the bare root
   next to `.git`, not the worktree). A `.agents-sandbox/` inside a launched worktree is ignored, with a warning naming
   it.
-- A bare clone into a directory named `<name>.git` (instead of `.git` inside the project dir) is recognized as a bare
-  checkout too: the `<name>.git` directory is the bare root and binds at `/workspace`.
+- A bare clone into a directory named `<repo>.git` (instead of `.git` inside the project dir) is recognized as a bare
+  checkout too: the `<repo>.git` directory is the bare root and binds at `/workspace`.

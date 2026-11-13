@@ -20,8 +20,7 @@ boundary. It limits the guest's view of the host, while accepting the residual r
 
 In a normal run, the host project directory is mounted read-write at `/workspace`. The agent therefore edits the host checkout;
 recreating the VM does not undo those edits. Additional host mounts and files provisioned with `home:` are also deliberate shared
-surfaces. A daemon-based agent's `--worktree` mode moves the working tree inside the VM when the host checkout must remain
-untouched.
+surfaces. A daemon-based agent's `--worktree` mode moves the working tree inside the VM, though each worktree still registers in the host checkout's `.git`.
 
 The agent's `/home/dev` is backed by a persistent volume scoped to the checkout and agent. It can be kept across VM rebuilds or
 reset separately. The VM root is replaceable, but the project checkout and writable host mounts have their own lifecycles.
@@ -46,7 +45,7 @@ guest.
 ## What this is for
 
 Use agents-sandbox when you want VM-level isolation around local agent execution without moving your project out of the host
-checkout. Use the normal run mode when direct edits are useful; use `--worktree` when the checkout itself must remain untouched.
+checkout. Use the normal run mode when direct edits are useful; use `--worktree` when you want the agent to edit a separate working tree inside the VM.
 
 The project is not a multi-tenant service, a guarantee that shared host paths cannot be changed, or a replacement for deciding
 which files and credentials an agent should be allowed to access.

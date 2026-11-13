@@ -745,6 +745,79 @@ func TestResolveTargetOpencodeDoesNotReportDetachedHead(t *testing.T) {
 	}
 }
 
+// TestResolveTargetWarnsHostGitSideEffectOnCreate pins that a fresh create
+// warns that the daemon's worktree registration is visible in the host git dir
+// (the bind-mounted checkout makes the daemon's `git worktree add` write a
+// `worktrees/<name>` registration in the host's git dir — `.git` or a bare
+// `<repo>.git` directory) and that a host `git worktree prune` would remove
+// every guest worktree's registration at once, so it must not be run while any
+// exists; reuse stays silent: a reused worktree registers nothing new.
+func TestResolveTargetWarnsHostGitSideEffectOnCreate(t *testing.T) {
+	provider := mustWorktreeProvider(t)
+	create := provider.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feat-x"}, agent.WorktreeProject{})
+	existing := "/home/dev/.local/share/opencode/worktree/abc/feat-x"
+
+	t.Run("create warns", func(t *testing.T) {
+		ui := &termiotest.Mock{}
+		sb := &msbtest.MockSandbox{ShellOut: map[string]msb.ShellResult{
+			provider.WorktreeListCmd(agent.WorktreeProject{}): msbtest.NewTestResult(true, 0, `[]`, "", nil),
+			create: msbtest.NewTestResult(true, 0, `{"directory":"/workspace/worktrees/feat-x"}`, "", nil),
+		}}
+		if _, err := ResolveTarget(
+			context.Background(),
+			opencodeResolved(t),
+			sb,
+			options.WorktreeSpec{Name: "feat-x"},
+			mounts.WorkspaceMountPath,
+			ui,
+		); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !infoCallContains(
+			ui.WarnCalls,
+			"feat-x",
+			"host",
+			"git dir",
+			"git worktree prune",
+			"every guest worktree",
+			"while any",
+		) {
+			t.Errorf(
+				"expected a create warning naming the host git dir side effect and the every-worktree prune footgun; got: %v",
+				ui.WarnCalls,
+			)
+		}
+	})
+
+	t.Run("reuse stays silent", func(t *testing.T) {
+		ui := &termiotest.Mock{}
+		sb := &msbtest.MockSandbox{ShellOut: map[string]msb.ShellResult{
+			provider.WorktreeListCmd(agent.WorktreeProject{}): msbtest.NewTestResult(
+				true,
+				0,
+				`["`+existing+`"]`,
+				"",
+				nil,
+			),
+		}}
+		if _, err := ResolveTarget(
+			context.Background(),
+			opencodeResolved(t),
+			sb,
+			options.WorktreeSpec{Name: "feat-x"},
+			mounts.WorkspaceMountPath,
+			ui,
+		); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		for _, msg := range ui.WarnCalls {
+			if strings.Contains(msg, "git dir") || strings.Contains(msg, "worktree prune") {
+				t.Errorf("reuse must not restate the host git dir side effect: %q", msg)
+			}
+		}
+	})
+}
+
 // TestResolveTargetWarnsOnRenamedWorktree pins that a daemon-returned directory
 // whose base name differs from the requested name (the -2 auto-suffix) is
 // surfaced, naming the directory actually used.
