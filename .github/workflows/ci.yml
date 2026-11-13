@@ -234,6 +234,10 @@ jobs:
       (github.event_name == 'pull_request' && needs.changes.outputs.code == 'true') ||
       (github.ref == 'refs/heads/main' && needs.changes.outputs.code == 'true')
     env:
+      # Authenticate the release-resolution queries the image build tests make
+      # to api.github.com, so the shared runner IP is not subject to the
+      # anonymous 60-requests/hour limit (see internal/agent/latest.go).
+      GH_TOKEN: ${{ github.token }}
       # main and a release tag are the validation runs: they build the image
       # from scratch and (main only) export the cache, so a green main proves
       # the build works uncached. Every other run — a PR, a dispatch —
@@ -281,6 +285,7 @@ jobs:
       (github.ref == 'refs/heads/main' && needs.changes.outputs.code == 'true')
     runs-on: ubuntu-latest
     env:
+      GH_TOKEN: ${{ github.token }}
       # Run the suite serially on podman. Buildah has a race between concurrent
       # --layers builds and rmi that corrupts the layer store ("checking if
       # cached image exists from a previous build: getting top layer info: layer
