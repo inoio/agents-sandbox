@@ -1779,6 +1779,83 @@ func TestResolveReconfigDecisionKeptVMWithoutServeBindingDefers(t *testing.T) {
 	}
 }
 
+// TestResolveReconfigDecisionStaleUserBindingDefersServePort covers a kept
+// serve-only VM whose only published binding belonged to a user port this run no
+// longer maps: the binding names a guest port other than the serve port, so it is
+// a different service and the agent server is unreachable — the serve port must
+// be deferred instead of handing out the user port's URL.
+func TestResolveReconfigDecisionStaleUserBindingDefersServePort(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	tmpRepo := testutil.InitRepo(t)
+	t.Chdir(tmpRepo)
+	slug := git.MustCheckoutSlug()
+
+	release, err := state.AcquireClientLease(state.Key{Slug: slug, Agent: "opencode"})
+	if err != nil {
+		t.Fatalf("AcquireClientLease: %v", err)
+	}
+	defer release()
+
+	handle := &msbtest.MockSandboxHandle{
+		Cfg: &msb.SandboxConfig{
+			Image:     "img:tag",
+			CPUs:      4,
+			MemoryMiB: 4096,
+		},
+		PortBindings: ports.UserPortBindings([]ports.PortMapping{{HostPort: 3000, GuestPort: 3000}}),
+		ConnectSb:    &msbtest.MockSandbox{},
+	}
+	mock := &msbtest.MockMsbClient{}
+	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+		return handle, nil
+	}
+	msbtest.WithMsbMock(t, mock)
+
+	ui := &termiotest.Mock{
+		IsInteractiveResult: true,
+		SelectFn: func(string, []termio.Choice, string) (string, error) {
+			return "k", nil
+		},
+	}
+	volumes := volume.NewManager(docker.Get())
+	persisted := state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:same"}
+	cfs, err := reprovision.LoadConfigFilesForHost(
+		opencodeResolved(t),
+		"",
+		t.TempDir(),
+		reprovision.VMHomeDir,
+		ui,
+		true,
+	)
+	if err != nil {
+		t.Fatalf("LoadConfigFiles: %v", err)
+	}
+	decision, err := readAndResolveReconfigDecision(
+		context.Background(),
+		mock,
+		volumes,
+		state.Key{Slug: slug, Agent: "opencode"},
+		options.RunOptions{Agent: "opencode", ServeOnly: true},
+		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:same"},
+		"vol",
+		persisted,
+		cfs,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("resolveReconfigDecision: %v", err)
+	}
+	if decision.Recreate {
+		t.Error("expected the ports change to be deferred when the user keeps the current VM")
+	}
+	if !decision.PortsChanged {
+		t.Error("expected PortsChanged for the missing serve binding")
+	}
+	if !decision.ServePortDeferred {
+		t.Error("a kept VM whose only binding is a stale user port must defer the serve port")
+	}
+}
+
 // TestResolveReconfigDecisionUnreadableConfigKeepDefersServePort covers the
 // unreadable-config keep path in serve-only mode: the VM's bindings could not be
 // read, so after the user keeps the VM no port can be claimed reachable and the
@@ -1963,7 +2040,7 @@ func TestResolveReconfigDecisionUntaggedServeBindingReachable(t *testing.T) {
 			{
 				Bind:      ports.ServeOnlyBindAddr,
 				HostPort:  liveServePort,
-				GuestPort: 4000,
+				GuestPort: 0,
 				Protocol:  msb.PortProtocolTCP,
 			},
 		},
@@ -2308,15 +2385,21 @@ func TestExistingServeHostPort(t *testing.T) {
 	if got := existingServeHostPort(cfg, 4100, nil); got != 4096 {
 		t.Errorf("existingServeHostPort = %d, want 4096 (the agent guest port binding)", got)
 	}
+	lostGuest := &msb.SandboxConfig{PortBindings: []msb.PortBinding{
+		{Bind: "127.0.0.1", HostPort: 5000, GuestPort: 0, Protocol: msb.PortProtocolTCP},
+	}}
+	if got := existingServeHostPort(lostGuest, 4100, nil); got != 5000 {
+		t.Errorf("existingServeHostPort(lost guest port) = %d, want 5000 (the sole live binding)", got)
+	}
 	userOnly := &msb.SandboxConfig{PortBindings: []msb.PortBinding{
 		{Bind: "127.0.0.1", HostPort: 3000, GuestPort: 3000, Protocol: msb.PortProtocolTCP},
 	}}
-	if got := existingServeHostPort(userOnly, 4100, nil); got != 3000 {
-		t.Errorf("existingServeHostPort(untagged fallback) = %d, want 3000 (the sole live binding)", got)
+	if got := existingServeHostPort(userOnly, 4100, nil); got != 4100 {
+		t.Errorf("existingServeHostPort(other guest port) = %d, want the fallback (a different service)", got)
 	}
-	claimed := []ports.PortMapping{{HostPort: 3000, GuestPort: 3000}}
-	if got := existingServeHostPort(userOnly, 4100, claimed); got != 4100 {
-		t.Errorf("existingServeHostPort(claimed user binding) = %d, want the fallback", got)
+	claimed := []ports.PortMapping{{HostPort: 5000, GuestPort: 3000}}
+	if got := existingServeHostPort(lostGuest, 4100, claimed); got != 4100 {
+		t.Errorf("existingServeHostPort(claimed live binding) = %d, want the fallback", got)
 	}
 }
 

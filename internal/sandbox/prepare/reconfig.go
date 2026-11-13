@@ -52,8 +52,8 @@ type reconfigDecision struct {
 // existingServeHostPort returns the host port the running VM's config
 // publishes for the agent guest port, resolved by the same live-config rule
 // serveBindingReachable uses, or fallback when it carries no candidate (a
-// freshly created VM, or a config whose bindings are all claimed by this run's
-// user mappings).
+// freshly created VM, a config whose bindings are all claimed by this run's
+// user mappings, or one whose bindings name another guest port).
 func existingServeHostPort(cfg *msb.SandboxConfig, fallback int, mappings []ports.PortMapping) int {
 	if cfg == nil {
 		return fallback

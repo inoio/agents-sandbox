@@ -190,10 +190,12 @@ func ServeHostBinding(bindings []msb.PortBinding) (int, bool) {
 // LiveServeHostPort returns the host port an existing VM's bindings already
 // publish for the serve-only agent server, and whether they carry one. It is
 // the live-config half of ResolveServeHostPort, which reuses its fallback
-// before probing: a tag-matched serve binding, or — when a read-back lost the
-// guest port — the first live binding no user-published host port claims.
-// Unlike ResolveServeHostPort it never probes, so ok false means the VM
-// publishes no candidate, not that a fresh port could be allocated.
+// before probing: a tag-matched serve binding, or — for a binding that records
+// no guest port — the first such binding that no user-published host port
+// claims. A binding that names another guest port targets a different service
+// and is never accepted. Unlike ResolveServeHostPort it never probes, so ok
+// false means the VM publishes no candidate, not that a fresh port could be
+// allocated.
 func LiveServeHostPort(bindings []msb.PortBinding, mappings []PortMapping) (int, bool) {
 	if port, ok := ServeHostBinding(bindings); ok {
 		return port, true
@@ -201,16 +203,17 @@ func LiveServeHostPort(bindings []msb.PortBinding, mappings []PortMapping) (int,
 	return untaggedServeHostPort(bindings, mappings)
 }
 
-// untaggedServeHostPort returns the first live binding whose host port no
-// user-published mapping claims, the fallback for a serve binding that read
-// back without its guest port. A binding the current run maps is assumed to be
-// a user port, not the agent server.
+// untaggedServeHostPort returns the first live binding whose guest port was not
+// recorded and whose host port no user-published mapping claims. A binding that
+// names another guest port is known to target a different service, never the
+// agent server, so it is rejected rather than mistaken for the serve binding.
 func untaggedServeHostPort(bindings []msb.PortBinding, mappings []PortMapping) (int, bool) {
 	published := HostPorts(mappings)
 	for _, pb := range bindings {
-		if pb.HostPort != 0 && !slices.Contains(published, int(pb.HostPort)) {
-			return int(pb.HostPort), true
+		if pb.GuestPort != 0 || pb.HostPort == 0 || slices.Contains(published, int(pb.HostPort)) {
+			continue
 		}
+		return int(pb.HostPort), true
 	}
 	return 0, false
 }
@@ -253,8 +256,9 @@ func ResolveServeHostPort(cfg *msb.SandboxConfig, serveOnly bool, mappings []Por
 			return port
 		}
 		// A published binding can read back without its guest port, so fall
-		// back to the first binding no user-published host port claims: the
-		// serve binding is the only other one a VM carries.
+		// back to a binding that records no guest port and that no
+		// user-published host port claims; a binding naming another guest port
+		// is a different service.
 		if port, ok := untaggedServeHostPort(cfg.PortBindings, mappings); ok {
 			return port
 		}

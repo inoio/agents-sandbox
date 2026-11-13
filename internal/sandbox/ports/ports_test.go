@@ -180,8 +180,8 @@ func TestServeHostBinding(t *testing.T) {
 // tag-matched serve binding wins, even when this run's user mappings claim its
 // host port (a kept VM keeps its own binding); a read-back that lost the guest
 // port falls back to the first binding no user-published host port claims; and
-// a VM whose only binding this run maps as a user port has no serve binding. It
-// never probes.
+// a binding that names another guest port is a different service, not the agent
+// server. It never probes.
 func TestLiveServeHostPort(t *testing.T) {
 	serve := ServeOnlyBindings(4096)
 	if port, ok := LiveServeHostPort(serve, nil); !ok || port != 4096 {
@@ -191,11 +191,11 @@ func TestLiveServeHostPort(t *testing.T) {
 	if port, ok := LiveServeHostPort(serve, claimedServe); !ok || port != 4096 {
 		t.Errorf("LiveServeHostPort(claimed serve binding) = %d, %v; want 4096, true", port, ok)
 	}
-	untagged := []msb.PortBinding{
-		{Bind: ServeOnlyBindAddr, HostPort: 5000, GuestPort: 4000, Protocol: msb.PortProtocolTCP},
+	lostGuest := []msb.PortBinding{
+		{Bind: ServeOnlyBindAddr, HostPort: 5000, GuestPort: 0, Protocol: msb.PortProtocolTCP},
 	}
-	if port, ok := LiveServeHostPort(untagged, nil); !ok || port != 5000 {
-		t.Errorf("LiveServeHostPort(untagged) = %d, %v; want 5000, true", port, ok)
+	if port, ok := LiveServeHostPort(lostGuest, nil); !ok || port != 5000 {
+		t.Errorf("LiveServeHostPort(lost guest port) = %d, %v; want 5000, true", port, ok)
 	}
 	if _, ok := LiveServeHostPort(nil, nil); ok {
 		t.Error("LiveServeHostPort(nil) reported a binding, want none")
@@ -204,8 +204,8 @@ func TestLiveServeHostPort(t *testing.T) {
 	if _, ok := LiveServeHostPort(userOnly, []PortMapping{{HostPort: 3000, GuestPort: 3000}}); ok {
 		t.Error("LiveServeHostPort(user binding this run maps) reported a serve binding, want none")
 	}
-	if port, ok := LiveServeHostPort(userOnly, nil); !ok || port != 3000 {
-		t.Errorf("LiveServeHostPort(untagged user binding) = %d, %v; want 3000, true (fallback)", port, ok)
+	if _, ok := LiveServeHostPort(userOnly, nil); ok {
+		t.Error("LiveServeHostPort(unclaimed user binding) reported a serve binding, want none (another service)")
 	}
 }
 
@@ -214,16 +214,27 @@ func TestLiveServeHostPort(t *testing.T) {
 // candidate, while the lowest real host port still is.
 func TestLiveServeHostPortHostPortSentinel(t *testing.T) {
 	zeroHost := []msb.PortBinding{
-		{Bind: ServeOnlyBindAddr, HostPort: 0, GuestPort: 4000, Protocol: msb.PortProtocolTCP},
+		{Bind: ServeOnlyBindAddr, HostPort: 0, GuestPort: 0, Protocol: msb.PortProtocolTCP},
 	}
 	if _, ok := LiveServeHostPort(zeroHost, nil); ok {
 		t.Error("LiveServeHostPort(zero host port) reported a binding, want none")
 	}
 	oneHost := []msb.PortBinding{
-		{Bind: ServeOnlyBindAddr, HostPort: 1, GuestPort: 4000, Protocol: msb.PortProtocolTCP},
+		{Bind: ServeOnlyBindAddr, HostPort: 1, GuestPort: 0, Protocol: msb.PortProtocolTCP},
 	}
 	if port, ok := LiveServeHostPort(oneHost, nil); !ok || port != 1 {
 		t.Errorf("LiveServeHostPort(host port 1) = %d, %v; want 1, true", port, ok)
+	}
+}
+
+// TestLiveServeHostPortRejectsKnownGuestPort pins the fallback against
+// mistaking a user service for the agent server: a binding that records a
+// guest port other than the serve port targets a different service, so it is
+// never a serve candidate even when this run no longer maps its host port.
+func TestLiveServeHostPortRejectsKnownGuestPort(t *testing.T) {
+	staleUser := UserPortBindings([]PortMapping{{HostPort: 3000, GuestPort: 3000}})
+	if port, ok := LiveServeHostPort(staleUser, nil); ok {
+		t.Errorf("LiveServeHostPort(stale user binding) = %d, true; want none", port)
 	}
 }
 
@@ -347,12 +358,12 @@ func TestParsePortMappingsAcceptsValidSpecs(t *testing.T) {
 
 // TestResolveServeHostPortFallsBackToUntaggedBinding covers the fallback for a
 // persisted binding that read back without its guest port: with no serve
-// binding to match, the first binding no user port claims is reused.
+// binding to match, the first such binding no user port claims is reused.
 func TestResolveServeHostPortFallsBackToUntaggedBinding(t *testing.T) {
 	cfg := &msb.SandboxConfig{PortBindings: []msb.PortBinding{
-		{Bind: ServeOnlyBindAddr, HostPort: 5000, GuestPort: 4000, Protocol: msb.PortProtocolTCP},
+		{Bind: ServeOnlyBindAddr, HostPort: 5000, GuestPort: 0, Protocol: msb.PortProtocolTCP},
 	}}
 	if got := ResolveServeHostPort(cfg, true, nil); got != 5000 {
-		t.Errorf("ResolveServeHostPort = %d, want 5000 (the untagged binding's host port)", got)
+		t.Errorf("ResolveServeHostPort = %d, want 5000 (the lost-guest-port binding's host port)", got)
 	}
 }
