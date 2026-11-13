@@ -824,6 +824,104 @@ func TestBuildFailureErrorKeepsTheBaseImageCaseFirst(t *testing.T) {
 	}
 }
 
+// TestMissingRootlessPrerequisite pins the classifier that lifts the named
+// prerequisite out of the injected docker adoption block's stderr line, so a
+// failed custom-base build can report the missing package instead of the RUN
+// script dump.
+func TestMissingRootlessPrerequisite(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		buildOutput string
+		want        string
+		wantFound   bool
+	}{
+		{
+			name: "names the missing package",
+			buildOutput: "Step 5/5 : RUN /bin/sh -c set -e; mkdir -p /etc/agents-sandbox; \\\n" +
+				"    bin=\"$(command -v dockerd 2>/dev/null || true)\"; \\\n" +
+				"    error: rootless docker prerequisite missing: newuidmap",
+			want:      "newuidmap",
+			wantFound: true,
+		},
+		{
+			name:        "carriage returns around the line",
+			buildOutput: "error: rootless docker prerequisite missing: slirp4netns\r\n",
+			want:        "slirp4netns",
+			wantFound:   true,
+		},
+		{
+			name:        "no marker",
+			buildOutput: "E: step exited 2",
+			wantFound:   false,
+		},
+		{
+			name:        "tool-only prerequisite is not the rootless marker",
+			buildOutput: "error: docker prerequisite missing: iptables",
+			wantFound:   false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, found := missingRootlessPrerequisite(tc.buildOutput)
+			if found != tc.wantFound {
+				t.Errorf("missingRootlessPrerequisite() found = %v, want %v", found, tc.wantFound)
+			}
+			if got != tc.want {
+				t.Errorf("missingRootlessPrerequisite() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestBuildFailureErrorClassifiesMissingRootlessPrerequisite pins that a
+// failure whose captured output names a missing rootless prerequisite reports
+// that package, not the injected RUN script dump.
+func TestBuildFailureErrorClassifiesMissingRootlessPrerequisite(t *testing.T) {
+	err := buildFailureError(
+		errors.New("The command '/bin/sh -c set -e; mkdir -p /etc/agents-sandbox; \\\n"+
+			"    bin=\"$(command -v dockerd 2>/dev/null || true)\"; ...' returned a non-zero code: 1"),
+		"Step 5/5 : RUN /bin/sh -c set -e; mkdir -p /etc/agents-sandbox; ...\n"+
+			"error: rootless docker prerequisite missing: newuidmap",
+	)
+	for _, want := range []string{"newuidmap", "rootless docker prerequisite"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %v, want it to contain %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "Last build output") {
+		t.Errorf("error = %v, must not dump the script output when the marker names the prerequisite", err)
+	}
+}
+
+// TestBuildDockerImageReportsTheMissingRootlessPrerequisite pins the F24
+// scenario end to end: a custom base that omits a rootless prerequisite fails
+// the build, and the error names the missing package at the default log level
+// instead of dumping the injected RUN script.
+func TestBuildDockerImageReportsTheMissingRootlessPrerequisite(t *testing.T) {
+	a := agentOpencode(t)
+	body := `{"stream":"Step 5/5 : RUN /bin/sh -c set -e; mkdir -p /etc/agents-sandbox; ...\n"}` + "\n" +
+		`{"stream":"error: rootless docker prerequisite missing: newuidmap\n"}` + "\n" +
+		`{"errorDetail":{"message":"The command '/bin/sh -c set -e; mkdir -p /etc/agents-sandbox; ...' returned a non-zero code: 1"}}`
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
+		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(body))}, nil
+		},
+	})
+	err := buildDockerImage(
+		context.Background(), docker.Get(), a,
+		testBuildRequest([]byte("FROM debian:trixie-slim\n"), "v", "base", "id", imageIdentity{}),
+		"tag", "label", false, &termiotest.Mock{},
+	)
+	if err == nil {
+		t.Fatal("expected buildDockerImage to return an error when the build fails")
+	}
+	if !strings.Contains(err.Error(), "newuidmap") {
+		t.Errorf("error = %v, want it to name the missing prerequisite", err)
+	}
+	if strings.Contains(err.Error(), "Last build output") {
+		t.Errorf("error = %v, must not dump the script output when the marker names the prerequisite", err)
+	}
+}
+
 // TestBuildFailureErrorPreservesTheCause pins that the extra wrapping keeps the
 // cause reachable through errors.Is.
 // TestBuildFailureErrorPreservesTheCause pins that every classification branch,
@@ -832,8 +930,9 @@ func TestBuildFailureErrorKeepsTheBaseImageCaseFirst(t *testing.T) {
 func TestBuildFailureErrorPreservesTheCause(t *testing.T) {
 	sentinel := errors.New("engine boom")
 	for _, tc := range []struct {
-		name    string
-		message string
+		name        string
+		message     string
+		buildOutput string
 	}{
 		{name: "default", message: "boom"},
 		{name: "base image", message: "pull access denied for private-base"},
@@ -842,9 +941,14 @@ func TestBuildFailureErrorPreservesTheCause(t *testing.T) {
 			message: "short-name x did not resolve to an alias and no unqualified search registries are defined",
 		},
 		{name: "network", message: "Temporary failure resolving 'deb.debian.org'"},
+		{
+			name:        "missing rootless prerequisite",
+			message:     "The command '/bin/sh -c set -e; ...' returned a non-zero code: 1",
+			buildOutput: "error: rootless docker prerequisite missing: newuidmap",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := buildFailureError(fmt.Errorf("%s: %w", tc.message, sentinel), "step output")
+			err := buildFailureError(fmt.Errorf("%s: %w", tc.message, sentinel), tc.buildOutput)
 			if !errors.Is(err, sentinel) {
 				t.Errorf("errors.Is(%v, sentinel) = false, want true", err)
 			}
