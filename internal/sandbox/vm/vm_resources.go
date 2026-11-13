@@ -24,6 +24,11 @@ var (
 // that does not reach the requested limit before the deadline does not either.
 var errMemoryLimitNotApplied = errors.New("not applied")
 
+// errMemoryLimitUnknown marks a metrics read that returned no usable live limit —
+// a nil snapshot or a zero limit. The limit is unknown, not zero: it neither
+// satisfies a decrease nor confirms a raise, so it is reported like a failed read.
+var errMemoryLimitUnknown = errors.New("the live memory limit is unknown")
+
 // waitForMemoryLimit confirms a staged live memory change against read.
 //
 // A live resize is asynchronous — Modify returns before the limit catches up —
@@ -33,9 +38,10 @@ var errMemoryLimitNotApplied = errors.New("not applied")
 // unplugs memory — so while the live limit is still above the request it is
 // reported not applied from the first read instead of polling to the deadline.
 // Every read runs under the convergence deadline, so a hanging metrics call
-// cannot block the launch. A read error is terminal and reported as a read
-// error, never as not applied: Modify returned a conflict-free plan, so the
-// change was planned and only the read failed.
+// cannot block the launch. A read error or an unknown limit (a nil snapshot or a
+// zero limit) is terminal and reported as unconfirmed, never as not applied:
+// Modify returned a conflict-free plan, so the change was planned and only its
+// confirmation failed.
 func waitForMemoryLimit(
 	ctx context.Context,
 	read func(context.Context) (*msb.Metrics, error),
@@ -46,24 +52,54 @@ func waitForMemoryLimit(
 	defer cancel()
 	wantBytes := uint64(wantMiB) << 20
 	if !raising {
-		metrics, err := read(ctx)
-		if err != nil {
-			return fmt.Errorf("read VM metrics: %w", err)
-		}
-		if metrics != nil && metrics.MemoryLimitBytes <= wantBytes {
-			return nil
-		}
-		return fmt.Errorf(
-			"%w: the runtime does not unplug memory, so a decrease to %d MiB never takes effect",
-			errMemoryLimitNotApplied, wantMiB,
-		)
+		return confirmMemoryDecrease(ctx, read, wantMiB, wantBytes)
 	}
+	return pollMemoryRaise(ctx, read, wantMiB, wantBytes)
+}
+
+// confirmMemoryDecrease reports a decrease the runtime will not apply. One read
+// suffices: a live limit already at or below the request is applied, any larger
+// limit is not applied, and an unknown limit or a failed read is unconfirmed.
+func confirmMemoryDecrease(
+	ctx context.Context,
+	read func(context.Context) (*msb.Metrics, error),
+	wantMiB uint32,
+	wantBytes uint64,
+) error {
+	metrics, err := read(ctx)
+	if err != nil {
+		return fmt.Errorf("read VM metrics: %w", err)
+	}
+	if metrics == nil || metrics.MemoryLimitBytes == 0 {
+		return errMemoryLimitUnknown
+	}
+	if metrics.MemoryLimitBytes <= wantBytes {
+		return nil
+	}
+	return fmt.Errorf(
+		"%w: the runtime does not unplug memory, so a decrease to %d MiB never takes effect",
+		errMemoryLimitNotApplied, wantMiB,
+	)
+}
+
+// pollMemoryRaise polls read until the live limit reaches at least wantBytes, the
+// deadline passes (not applied), or a read fails or reports an unknown limit
+// (unconfirmed).
+func pollMemoryRaise(
+	ctx context.Context,
+	read func(context.Context) (*msb.Metrics, error),
+	wantMiB uint32,
+	wantBytes uint64,
+) error {
 	for {
 		metrics, err := read(ctx)
 		if err != nil {
 			return fmt.Errorf("read VM metrics: %w", err)
 		}
-		if metrics != nil && metrics.MemoryLimitBytes >= wantBytes {
+		if metrics == nil || metrics.MemoryLimitBytes == 0 {
+			return errMemoryLimitUnknown
+		}
+		if metrics.MemoryLimitBytes >= wantBytes {
 			return nil
 		}
 		select {
@@ -82,8 +118,10 @@ func waitForMemoryLimit(
 
 // reconcileResourceConfig applies requested CPUs/memory changes to an existing
 // (reused) VM via the SDK Modify API. A staged memory change is then confirmed
-// against the live limit: a raise is polled until it converges, while a decrease
-// is reported not applied (the runtime never unplugs memory).
+// against the live limit: a raise is satisfied once the live limit reaches the
+// request, and a decrease only while the live limit stays above it (the runtime
+// never unplugs memory). An unknown or unreadable live limit is reported as
+// unconfirmed, not as not applied.
 //
 //nolint:nilerr // Returning nil when config read fails is intentional — treat as no-op
 func reconcileResourceConfig(

@@ -265,7 +265,8 @@ pressure, and re-arming on the ratio alone would re-offer every launch.)
   live limit is still above the request it is reported **not applied** from the first read, never as
   success; a decrease already satisfied (the live limit at or below the request) is applied. Every
   read is bounded by the same convergence deadline, so an unresponsive VM cannot block the launch. A
-  metrics read error is reported as an unconfirmed read, not as the change being not applied.
+  metrics read error or an unknown live limit (a nil snapshot or a zero limit, which no sibling reader
+  treats as a real limit) is reported as unconfirmed, not as the change being not applied.
 - **Root disk**: `buildModifyOptions` stages `ModifyOptions.RootDiskSizeMiB` when the desired size
   exceeds the current one (`SandboxConfig.RootDisk.SizeMiB`), and `reconcileResourceConfig` applies
   it live; only a decrease, or a VM whose root disk size is not recorded, is a recreate
