@@ -7,24 +7,42 @@ import (
 )
 
 // optionalFlagValueMatchers reports, per flag pflag gives an implicit value via
-// NoOptDefVal, whether a following token is that flag's space-form value: a
-// token the matcher accepts is the flag's value, any other token is a positional
-// argument. The matchers mirror the flags' declared value sets: --notify takes
-// on/off/desktop/audio, --open-links takes every boolean spelling
-// strconv.ParseBool accepts, exactly as pflag's Bool does.
-//
-// They are advisory: normalizeOptionalFlagValues rewrites the space form for
-// every following token, and these matchers are redundant with that rule. They
-// exist only to keep the vocabulary documented in one place beside the rewrite
-// and are used by tests that pin it.
+// NoOptDefVal, whether a following token is that flag's space-form value rather
+// than a positional argument. A token a matcher accepts is the flag's value:
+// normalizeOptionalFlagValues rewrites it into the = form and the flag's own
+// parser validates it, so --notify OFF, --notify false and --open-links off are
+// rejected exactly as their = forms. A token no matcher accepts is a positional
+// argument left for the agent, so `run --notify fix the bug` keeps the watcher
+// on and forwards "fix the bug". The matchers accept the spellings a user is
+// likely to write for a value, matched case-insensitively: the notify modes
+// on/off/desktop/audio, the natural-language on/off, and every boolean literal
+// strconv.ParseBool accepts.
 var optionalFlagValueMatchers = map[string]func(string) bool{
-	flagNotify:    oneOf("on", "off", "desktop", "audio"),
-	flagOpenLinks: isBoolLiteral,
+	flagNotify:    isNotifyValue,
+	flagOpenLinks: isOpenLinksValue,
 }
 
-// oneOf returns a matcher for a fixed value set.
-func oneOf(values ...string) func(string) bool {
-	return func(token string) bool { return slices.Contains(values, token) }
+// isNotifyValue reports whether token is a --notify value spelling: a notify
+// mode (on/off/desktop/audio) or any boolean literal.
+func isNotifyValue(token string) bool {
+	return oneOfFold("on", "off", "desktop", "audio")(token) || isBoolLiteral(token)
+}
+
+// isOpenLinksValue reports whether token is an --open-links value spelling: the
+// natural-language on/off or any boolean literal. on/off are accepted so a user
+// writing --open-links off has it validated (and rejected by pflag's Bool)
+// rather than forwarded to the agent.
+func isOpenLinksValue(token string) bool {
+	return oneOfFold("on", "off")(token) || isBoolLiteral(token)
+}
+
+// oneOfFold returns a matcher for a fixed value set, compared case-insensitively.
+func oneOfFold(values ...string) func(string) bool {
+	return func(token string) bool {
+		return slices.ContainsFunc(values, func(value string) bool {
+			return strings.EqualFold(value, token)
+		})
+	}
 }
 
 // isBoolLiteral reports whether token is a boolean literal pflag's Bool accepts,
@@ -40,14 +58,15 @@ func isBoolLiteral(token string) bool {
 // normalizeOptionalFlagValues rewrites the space form of the optional-value
 // flags (--notify <mode>, --open-links <bool>) into their = form, so pflag's
 // NoOptDefVal does not swallow the value into the positional args: with the
-// space form left alone, --notify off would keep the watcher active and
-// forward the word "off" to the agent, and --open-links 0 would leave the
-// implicit true in place while forwarding the "0". Any following token that is
-// not a flag (does not begin with "-") is taken as the value, so an invalid one
-// -- notify bogus, --open-links off -- surfaces the same rejection as its =
-// form instead of silently keeping the feature on and leaking the word into the
-// args. The = form, a bare flag (whose NoOptDefVal still applies), a following
-// flag, and everything after a bare -- are left alone.
+// space form left alone, --notify off would keep the watcher active and forward
+// the word "off" to the agent, and --open-links 0 would leave the implicit true
+// in place while forwarding the "0". Only a following token the flag's matcher
+// accepts is taken as the value; a plain word (--notify fix) stays a positional
+// argument for the agent, as docs/commands.md documents. The rewrite applies
+// only to a --long flag: a dash-less token spelled like the flag (run notify me)
+// and the captured value of another flag (-w notify) are left untouched. The =
+// form, a bare flag (whose NoOptDefVal still applies), and everything after a
+// bare -- are left alone.
 func normalizeOptionalFlagValues(args []string) []string {
 	normalized := make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
@@ -56,12 +75,14 @@ func normalizeOptionalFlagValues(args []string) []string {
 			normalized = append(normalized, args[i:]...)
 			break
 		}
-		flag, _, attached := strings.Cut(arg, "=")
-		_, optional := optionalFlagValueMatchers[strings.TrimPrefix(flag, "--")]
-		if !attached && optional && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
-			normalized = append(normalized, flag+"="+args[i+1])
-			i++
-			continue
+		if strings.HasPrefix(arg, "--") {
+			flag, _, attached := strings.Cut(arg, "=")
+			matches, optional := optionalFlagValueMatchers[strings.TrimPrefix(flag, "--")]
+			if !attached && optional && i+1 < len(args) && matches(args[i+1]) {
+				normalized = append(normalized, arg+"="+args[i+1])
+				i++
+				continue
+			}
 		}
 		normalized = append(normalized, arg)
 	}

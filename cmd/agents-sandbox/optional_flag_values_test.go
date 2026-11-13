@@ -10,10 +10,11 @@ import (
 // working alongside their = form. pflag's NoOptDefVal never consumes a
 // following token, so without the rewrite --notify off leaves the watcher on
 // and forwards the word "off" to the agent (F18); --open-links false has the
-// same footgun (F19). Any following non-flag token is rewritten into the =
-// form, so an out-of-vocabulary value is rejected by the flag's own validation
-// with the same error the = form surfaces, instead of pflag taking the
-// implicit value and leaking the token into the positional args.
+// same footgun (F19). A following token is taken as the value only when the
+// flag's matcher accepts it, so a value spelling (case-insensitively) is
+// rewritten and rejected by the flag's own validation with the same error the =
+// form surfaces, while a plain word stays a positional argument the agent
+// receives. A dash-less token spelled like the flag is never rewritten.
 func TestNormalizeOptionalFlagValues(t *testing.T) {
 	tests := []struct {
 		name string
@@ -51,9 +52,9 @@ func TestNormalizeOptionalFlagValues(t *testing.T) {
 			want: []string{"run", "--notify", "-x"},
 		},
 		{
-			name: "attached --notify value with a following token stays split",
-			args: []string{"run", "--notify=off", "bogus"},
-			want: []string{"run", "--notify=off", "bogus"},
+			name: "attached --notify value is not re-consumed",
+			args: []string{"run", "--notify=off", "on"},
+			want: []string{"run", "--notify=off", "on"},
 		},
 		{
 			name: "tokens after a bare -- are untouched",
@@ -61,9 +62,34 @@ func TestNormalizeOptionalFlagValues(t *testing.T) {
 			want: []string{"run", "--", "--notify", "off"},
 		},
 		{
-			name: "a value outside the notify vocabulary is rewritten so the flag rejects it",
+			name: "--notify OFF is consumed as a value (case-insensitively)",
+			args: []string{"run", "--notify", "OFF"},
+			want: []string{"run", "--notify=OFF"},
+		},
+		{
+			name: "--notify false is consumed as a value",
+			args: []string{"run", "--notify", "false"},
+			want: []string{"run", "--notify=false"},
+		},
+		{
+			name: "a plain word after --notify is left as a positional",
 			args: []string{"run", "--notify", "bogus"},
-			want: []string{"run", "--notify=bogus"},
+			want: []string{"run", "--notify", "bogus"},
+		},
+		{
+			name: "a dash-less token spelled like the flag is left forwarded",
+			args: []string{"run", "notify", "me"},
+			want: []string{"run", "notify", "me"},
+		},
+		{
+			name: "a captured flag value spelled like the flag is left forwarded",
+			args: []string{"run", "-w", "notify", "fix", "the", "tests"},
+			want: []string{"run", "-w", "notify", "fix", "the", "tests"},
+		},
+		{
+			name: "a dash-less notify followed by a value spelling is left forwarded",
+			args: []string{"run", "notify", "off"},
+			want: []string{"run", "notify", "off"},
 		},
 		{
 			name: "--open-links false becomes --open-links=false",
@@ -99,9 +125,9 @@ func TestNormalizeOptionalFlagValues(t *testing.T) {
 			want: []string{"run", "--open-links=true"},
 		},
 		{
-			name: "attached --open-links value with a following token stays split",
-			args: []string{"run", "--open-links=true", "tail"},
-			want: []string{"run", "--open-links=true", "tail"},
+			name: "attached --open-links value is not re-consumed",
+			args: []string{"run", "--open-links=true", "false"},
+			want: []string{"run", "--open-links=true", "false"},
 		},
 		{
 			name: "bare --open-links stays bare",
@@ -109,9 +135,14 @@ func TestNormalizeOptionalFlagValues(t *testing.T) {
 			want: []string{"run", "--open-links"},
 		},
 		{
-			name: "open-links value outside the vocabulary is rewritten so the flag rejects it",
+			name: "--open-links off is consumed as a value (natural-language)",
+			args: []string{"run", "--open-links", "off"},
+			want: []string{"run", "--open-links=off"},
+		},
+		{
+			name: "a plain word after --open-links is left as a positional",
 			args: []string{"--open-links", "maybe"},
-			want: []string{"--open-links=maybe"},
+			want: []string{"--open-links", "maybe"},
 		},
 		{
 			name: "no args",
@@ -122,6 +153,11 @@ func TestNormalizeOptionalFlagValues(t *testing.T) {
 			name: "unrelated args pass through",
 			args: []string{"run", "--workspace", "feat", "--notify=off", "positional"},
 			want: []string{"run", "--workspace", "feat", "--notify=off", "positional"},
+		},
+		{
+			name: "an unrelated flag keeps its space-form value",
+			args: []string{"run", "--workspace", "true"},
+			want: []string{"run", "--workspace", "true"},
 		},
 	}
 	for _, tt := range tests {

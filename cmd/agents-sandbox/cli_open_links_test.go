@@ -109,13 +109,14 @@ func TestOpenLinksSpaceFormDisablesAndLeaksNothing(t *testing.T) {
 	}
 }
 
-// TestOpenLinksSpaceFormInvalidValueRejected pins the out-of-vocabulary case of
-// the space form: --open-links <invalid> must be rejected by pflag's bool
-// parser exactly like --open-links=<invalid>, instead of pflag taking the
-// implicit true (host opener stays on) and leaking the word into the agent
-// argv.
+// TestOpenLinksSpaceFormInvalidValueRejected pins that a value spelling the flag
+// accepts from users is consumed and rejected by pflag's bool parser exactly
+// like --open-links=<invalid>, instead of pflag taking the implicit true (host
+// opener stays on) and leaking the word into the agent argv. "off"/"on" match
+// the natural-language spelling case-insensitively; pflag's Bool then rejects
+// them.
 func TestOpenLinksSpaceFormInvalidValueRejected(t *testing.T) {
-	for _, value := range []string{"off", "maybe"} {
+	for _, value := range []string{"off", "ON"} {
 		t.Run(value, func(t *testing.T) {
 			initTestProjectDir(t)
 
