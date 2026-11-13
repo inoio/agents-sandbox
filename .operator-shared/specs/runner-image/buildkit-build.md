@@ -102,8 +102,10 @@ main-writer/PR-restore split are owned by `../ci/ci-pipeline.md`.
 - For a given render and cache state the two paths produce the same image content; `ImageInfo` is the only interface
   downstream code sees, so no caller branches on the builder.
 - The classic path stays exercised (the `integration-podman` CI job), so the fallback cannot rot unnoticed.
-- The cache surface never changes build correctness: a disabled, empty, or failing cache is indistinguishable from a
-  cache miss.
+- The cache never changes the produced image. A miss — no entry, or a chain that matches nothing — is silent, but a
+  ref that cannot be *resolved* is fatal: BuildKit fails the solve when the cache import is unreachable or
+  unauthorized (observed as `failed to fetch anonymous token … 403`), so a registry cache's credentials must stay
+  valid.
 
 ## Non-goals / limitations
 
