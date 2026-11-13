@@ -265,13 +265,15 @@ and passed through unchanged.
 
 ## Forbidden: Request blocked by network policy
 
-The VM's network policy does not allow the destination. An HTTP or HTTPS client receives a `403` whose JSON body names
-the blocked domain:
+The VM's network policy does not allow the destination. An HTTP client to a resolved-but-denied destination receives a
+`403` whose JSON body names the blocked domain:
 
 ```json
 {"code":"network_policy_denied","message":"Request blocked by network policy.","domain":"api.example.com"}
 ```
 
+Denied HTTPS is closed at the TCP connection instead — `curl` exits with code 7 and no body arrives. Under the `none`
+profile, a name the policy does not allow does not resolve (NXDOMAIN) before any egress, so there is no `403` at all.
 Other protocols see the connection fail instead. Allow the destination with `egress-allow`, or pick a profile that
 covers it (`private` for your local network, `host` for a service on the host); see
 [Networking]({% link configuration/networking.md %}).

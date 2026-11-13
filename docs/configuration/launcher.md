@@ -80,8 +80,10 @@ The agent can edit these files. Approve them only if you expect these changes.
 Lines starting with `-` were approved before; lines starting with `+` are new. The check covers every file the launcher
 reads from `.agents-sandbox/`: the config file, `env`, the secret files, the agent config directories, and the
 `Dockerfile`. It also covers each file a `home:` entry copies from inside the checkout, however the entry spells its
-path. For the secret files it shows only where each secret may be sent, never its value, so changing a secret value
-does not ask again.
+path. The comparison is semantic, not byte-for-byte, for the files it decodes: a comment-only edit to the config file
+does not re-arm the prompt. For the secret files it shows only where each secret may be sent, never its value, so
+changing a secret value does not ask again. Files the launcher consumes whole — the `Dockerfile`, the agent config
+files, and the `home:` sources — are compared byte for byte, so any change to those asks again.
 
 - `run`, `shell`, and `build` ask before they start. Without a terminal (a script, `--serve-only` in the background)
   they refuse to start instead; run them once in a terminal to approve. `--yes` and `yes: true` never approve.
@@ -257,7 +259,9 @@ Project VM config changed; rebuilding the project VM (no other client attached):
 
 Lines starting with `-` were in effect before; lines starting with `+` take effect now. The list shows mount sources,
 network entries, published ports, the hosts a secret is sent to, environment variable names, and the agent config
-files that changed. It never shows an environment or secret value: a change to a value alone reads `values changed` (for secrets, `values
+files that changed. When a change that already forces a rebuild is listed (a mount, network, or port change), the
+environment, secret, and agent config lines are folded into the rebuild and not shown; the change is still applied.
+It never shows an environment or secret value: a change to a value alone reads `values changed` (for secrets, `values
 or other secret settings changed`).
 A sandbox created by an earlier agents-sandbox version has no record of its previous settings, so its first change
 reads `(previous value not recorded)` and lists only the new entries.

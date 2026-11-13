@@ -10,7 +10,8 @@ nav_order: 20
 
 Secrets are environment variables whose real values stay on the host and are delivered through microsandbox's secret
 mechanism. The VM receives a placeholder, not the real value. The network proxy replaces that placeholder only when a
-request is sent to an allowed host over a connection whose destination can be verified.
+request is sent to an allowed host over a TLS-terminated connection; a plain-HTTP request to an allowed host is blocked
+rather than substituted.
 
 This is different from an ordinary entry in `env`: values from `env` are copied into the VM as normal environment
 variables. Put credentials in `env.secret` or `env.secret.yaml`, never in `env`.
@@ -106,6 +107,10 @@ The proxy blocks a placeholder that reaches a host the secret neither allows nor
 the placeholder travels in a request the agent does not control. A coding agent sends its whole conversation as the
 completion request body, so once a placeholder enters the transcript — a tool that prints the environment, for
 example — every later completion request is blocked and the session cannot continue.
+
+Substitution only happens on a TLS-terminated connection: the proxy rewrites a placeholder on an HTTPS request to a
+host in the secret's `host`/`hosts`, and blocks the same request over plain HTTP (`Request blocked by secret policy.`)
+even though the host is allowed.
 
 `secrets.common.allow-placeholder-for` lists the hosts that may receive **any** secret's placeholder unchanged. Set it
 to the agent's model endpoint:

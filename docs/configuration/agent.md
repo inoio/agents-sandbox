@@ -43,8 +43,9 @@ interactive TUI instead. Passing an unsupported `--agent` name reports the valid
 > **Note:** opencode2 server auth — v2's `serve` requires HTTP basic auth on every `/api/*` route and would otherwise generate a
 > random password the launcher cannot know. The runner image therefore bakes a fixed `OPENCODE_SERVER_PASSWORD`, and the
 > health probe, worktree API calls, and in-VM attach client all use it. v2 hardcodes the basic-auth username to
-> `opencode` (there is no `OPENCODE_SERVER_USERNAME`), so the fixed credential is `opencode:opencode` — the value an
-> external `--serve-only` client must use to connect (see the [connect-desktop recipe]({% link recipes/connect-desktop.md %})).
+> `opencode` (there is no `OPENCODE_SERVER_USERNAME`), so the fixed credential is `opencode:opencode` — what an
+> external `--serve-only` client must present on the `/api/*` routes (see the [connect-desktop recipe]({% link recipes/connect-desktop.md %})). The
+> root path and the static web UI are served without credentials; only the `/api/*` routes are protected.
 
 Each agent owns its config directories, one subdir per agent under the tool's config base, in precedence order:
 
