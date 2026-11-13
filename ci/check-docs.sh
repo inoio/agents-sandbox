@@ -8,10 +8,11 @@
 #   resolve relative to docs/ (generated diagrams/*.svg resolve to the .puml
 #   source, since the SVGs are built by PlantUML and gitignored).
 # - Every fragment that lands on the published site must resolve to a heading id
-#   on its target page: a rendered docs HTML link, a docs/ in-page anchor, a
-#   {% link page.md %}#anchor, or a doc link printed by the launcher. The ids
-#   are derived by mirroring kramdown's GFM heading slug (page_slugs); a
-#   declared `{#id}` is honoured verbatim.
+#   or an explicit HTML anchor id (`<a id="…"></a>`) on its target page: a
+#   rendered docs HTML link, a docs/ in-page anchor, a {% link page.md %}#anchor,
+#   or a doc link printed by the launcher. Heading ids are derived by mirroring
+#   kramdown's GFM heading slug (page_slugs); a declared `{#id}` is honoured
+#   verbatim, and a same-line `id="…"` attribute is read as an anchor too.
 # - Go sources under cmd/ and internal/ are scanned for the doc links the
 #   launcher can print (docslink.SectionURL calls and literal site URLs).
 #
@@ -127,6 +128,17 @@ page_slugs() {
         trimmed = body; sub(/[[:space:]]+$/, "", trimmed)
         if (trimmed ~ /^(`+|~+)$/ && substr(trimmed, 1, 1) == marker && length(trimmed) >= openlen) fence = 0
         next
+      }
+      # An explicit HTML anchor id (<a id="foo"></a>) is a fragment target too.
+      # Collect it so a renamed heading can keep its old anchor resolving for
+      # already-published links.
+      rest = body
+      while (match(rest, /<[a-zA-Z][^>]*[ \t]id="[^"]+"/)) {
+        id = substr(rest, RSTART, RLENGTH)
+        sub(/^.*id="/, "", id)
+        sub(/".*$/, "", id)
+        if (id != "") print id
+        rest = substr(rest, RSTART + RLENGTH)
       }
       # Count the leading hashes instead of matching a {1,6} interval: the
       # default awk is mawk on some distributions, and its older builds treat an
