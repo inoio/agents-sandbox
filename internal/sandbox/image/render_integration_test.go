@@ -769,15 +769,15 @@ func writeCacheReport(report string) {
 // restores from the cache without exporting a merge-ref cache. An unset or empty
 // variable contributes no entry.
 //
-// Each spec's scope gains variant, so every build restores and exports its own
-// cache index instead of the single shared one where only the last build's
-// chain survives; see scopeCacheSpec.
+// Each spec's key gains variant — the gha scope or the registry ref tag — so
+// every build restores and exports its own cache location instead of the single
+// shared one where only the last build's chain survives; see keyCacheSpec.
 func imageCacheEnv(variant string) (cacheFrom, cacheTo []string) {
 	if spec := os.Getenv("AGENTS_SANDBOX_IMAGE_CACHE_FROM"); spec != "" {
-		cacheFrom = []string{scopeCacheSpec(spec, variant)}
+		cacheFrom = []string{keyCacheSpec(spec, variant)}
 	}
 	if spec := os.Getenv("AGENTS_SANDBOX_IMAGE_CACHE_TO"); spec != "" {
-		cacheTo = []string{scopeCacheSpec(spec, variant)}
+		cacheTo = []string{keyCacheSpec(spec, variant)}
 	}
 	return cacheFrom, cacheTo
 }
