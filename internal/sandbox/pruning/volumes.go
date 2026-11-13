@@ -19,9 +19,11 @@ type VolumeReport struct {
 	Details       []StaleEntry
 }
 
-// PruneVolumes prunes home volumes of stale slugs. When a slug's last home
-// volume is removed, its state file is removed too, so the state file never
-// outlives the volume it references.
+// PruneVolumes prunes home volumes no kept project VM references: a home volume
+// is reclaimed when its slug has no kept VM, it is older than the prune age, and
+// no project state references it. When a slug's last home volume is removed, its
+// state file is removed too, so the state file never outlives the volume it
+// references.
 func PruneVolumes(
 	ctx context.Context,
 	pruneState PruneState,
@@ -61,11 +63,11 @@ func countVolumesByKey(handles []msb.VolumeHandle) map[state.Key]int {
 	return exists
 }
 
-// pruneHomeVolumes removes the home volumes of stale slugs and records the
-// number removed per project/agent key. A volume still referenced by a project
-// state file is kept and warned about instead, so prune can never delete a
-// volume (for example one a pending adoption preserves) that a state file still
-// points at.
+// pruneHomeVolumes removes the home volumes of slugs with no kept VM that are
+// older than the prune age, and records the number removed per project/agent key.
+// A volume still referenced by a project state file is kept and warned about
+// instead, so prune can never delete a volume (for example one a pending
+// adoption preserves) that a state file still points at.
 func pruneHomeVolumes(
 	ctx context.Context,
 	client msb.Client,
@@ -84,7 +86,10 @@ func pruneHomeVolumes(
 			continue
 		}
 		key := state.Key{Slug: volumeArtifact.Slug, Agent: volumeArtifact.Agent}
-		if !pruneState.retires(key) {
+		if pruneState.keepsVolume(key) {
+			continue
+		}
+		if !volumeOlderThan(handle.CreatedAt(), pruneState.Age) {
 			continue
 		}
 		if len(references[name]) > 0 {

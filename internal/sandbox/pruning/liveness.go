@@ -16,13 +16,15 @@ import (
 // reclaimed (a stale, stopped VM) with its handle: those keys are retired in this
 // pass. ToKeep holds the keys that have a live, kept project VM. A key in neither
 // set has no project VM at all and is not yet retired: a build loads its image
-// before any VM exists, so its image is kept while used within the age, and its
-// home volume is kept. RetainKeys holds the keys the current invocation is about
-// to use (a `run`/`shell` passes its own project key): their runner images are
-// never reclaimed regardless of VM liveness or age, so a run never destroys the
-// image it is about to import. Tasks holds the transient task sandboxes to
-// reclaim; they are deliberately kept out of the key maps so a leftover task can
-// never mark its still-active project as stale.
+// before any VM exists, so its image is kept while used within the age. Its home
+// volume ages out independently of VM liveness once it is older than the age, so
+// a key in neither set is prunable. RetainKeys holds the keys the current
+// invocation is about to use (a `run`/`shell` passes its own project key): their
+// runner images and home volumes are never reclaimed regardless of VM liveness or
+// age, so a run never destroys the image or volume it is about to use. Tasks
+// holds the transient task sandboxes to reclaim; they are deliberately kept out
+// of the key maps so a leftover task can never mark its still-active project as
+// stale.
 //
 // Age is the staleness threshold the snapshot was built with, reused by image
 // retention as the window in which a project's cached image variant counts as
@@ -75,10 +77,23 @@ func buildPruneState(ctx context.Context, age time.Duration, retain ...state.Key
 }
 
 // retires reports whether key's project VM is reclaimed in this pass, which
-// retires the key's home volumes and its runner images that nothing else retains.
+// retires the key's runner images that nothing else retains. Home volumes are
+// not covered: they age out independently (see keepsVolume).
 func (pruneState PruneState) retires(key state.Key) bool {
 	_, retired := pruneState.ToPrune[key]
 	return retired
+}
+
+// keepsVolume reports whether key's home volume survives this pass: a key with a
+// kept project VM, or one the current invocation retains, keeps its volume
+// regardless of age. Every other key's volumes age out independently of VM
+// liveness, so only these two keep a volume alive.
+func (pruneState PruneState) keepsVolume(key state.Key) bool {
+	if _, kept := pruneState.ToKeep[key]; kept {
+		return true
+	}
+	_, retained := pruneState.RetainKeys[key]
+	return retained
 }
 
 // allowsNativeImagePrune reports whether the runtime's native image-data prune
@@ -132,6 +147,17 @@ func imageWithinAge(imageHandle msb.ImageHandle, age time.Duration) bool {
 	}
 	// gomutants:disable-next-line CONDITIONALS_BOUNDARY reason="the boundary is an exact nanosecond equality between time.Since and the age, with no injectable clock to hit it; < and <= agree on every reachable input"
 	return time.Since(used) < age
+}
+
+// volumeOlderThan reports whether a home volume was created at least age ago. A
+// zero age disables the age gate, so a threshold-less caller reclaims every
+// unattached volume.
+func volumeOlderThan(createdAt time.Time, age time.Duration) bool {
+	if age <= 0 {
+		return true
+	}
+	// gomutants:disable-next-line CONDITIONALS_BOUNDARY reason="the boundary is an exact nanosecond equality between time.Since and the age, with no injectable clock to hit it; >= and > agree on every reachable input"
+	return time.Since(createdAt) >= age
 }
 
 // referencedImages collects the image references that kept sandboxes currently

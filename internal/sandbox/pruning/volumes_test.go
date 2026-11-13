@@ -36,6 +36,9 @@ func TestPruneVolumes(t *testing.T) {
 			ToPrune: map[state.Key]msb.SandboxHandle{
 				{Slug: "stale-1mjusbm3wikhb0", Agent: ""}: &msbtest.MockSandboxHandle{},
 			},
+			ToKeep: map[state.Key]msb.SandboxHandle{
+				{Slug: "kept-1mjusbm3wikhb0", Agent: ""}: &msbtest.MockSandboxHandle{},
+			},
 		}
 		ui := &termiotest.Mock{}
 		r, err := PruneVolumes(context.Background(), stateMap, false, ui)
@@ -137,22 +140,6 @@ func TestPruneVolumes(t *testing.T) {
 		}
 	})
 
-	t.Run("empty state prunes nothing", func(t *testing.T) {
-		configpathstest.WithMockConfigPaths(t)
-		client := &msbtest.MockMsbClient{
-			Volumes: []msb.VolumeHandle{home("agents-sandbox-home-kept-1mjusbm3wikhb0-20260806T143022")},
-		}
-		msbtest.WithMsbMock(t, client)
-		ui := &termiotest.Mock{}
-		r, err := PruneVolumes(context.Background(), PruneState{}, false, ui)
-		if err != nil {
-			t.Fatalf("PruneVolumes: %v", err)
-		}
-		if r.VolumesPruned != 0 {
-			t.Errorf("VolumesPruned = %d, want 0", r.VolumesPruned)
-		}
-	})
-
 	t.Run("returns ListVolumes error", func(t *testing.T) {
 		client := &msbtest.MockMsbClient{
 			ListVolumesFn: func(context.Context) ([]msb.VolumeHandle, error) {
@@ -191,6 +178,100 @@ func TestPruneVolumes(t *testing.T) {
 		}
 		if len(client.RemovedVolumes) != 0 {
 			t.Errorf("RemovedVolumes = %v, want none", client.RemovedVolumes)
+		}
+	})
+}
+
+// TestPruneVolumesNoVMVolumes pins that a home volume ages out independently of
+// VM liveness (finding F30): a volume whose slug has no VM is reclaimed once
+// older than the prune age, kept while fresh, and kept when its key has a kept
+// VM or is retained by the invocation.
+func TestPruneVolumesNoVMVolumes(t *testing.T) {
+	t.Run("prunes an aged volume whose slug has no VM", func(t *testing.T) {
+		configpathstest.WithMockConfigPaths(t)
+		client := &msbtest.MockMsbClient{
+			Volumes: []msb.VolumeHandle{staleHomeHandle("agents-sandbox-home-orphan-1mjusbm3wikhb0-20260806T143022")},
+		}
+		msbtest.WithMsbMock(t, client)
+		ui := &termiotest.Mock{}
+		r, err := PruneVolumes(context.Background(), PruneState{Age: 7 * 24 * time.Hour}, false, ui)
+		if err != nil {
+			t.Fatalf("PruneVolumes: %v", err)
+		}
+		if r.VolumesPruned != 1 {
+			t.Errorf("VolumesPruned = %d, want 1 (aged volume whose slug has no VM)", r.VolumesPruned)
+		}
+		if len(client.RemovedVolumes) != 1 {
+			t.Errorf("RemovedVolumes = %v, want the orphaned volume", client.RemovedVolumes)
+		}
+	})
+
+	t.Run("keeps a fresh volume whose slug has no VM", func(t *testing.T) {
+		configpathstest.WithMockConfigPaths(t)
+		client := &msbtest.MockMsbClient{
+			Volumes: []msb.VolumeHandle{
+				&msbtest.MockVolumeHandle{
+					Name_:      "agents-sandbox-home-orphan-1mjusbm3wikhb0-20260806T143022",
+					CreatedAt_: time.Now(),
+				},
+			},
+		}
+		msbtest.WithMsbMock(t, client)
+		ui := &termiotest.Mock{}
+		r, err := PruneVolumes(context.Background(), PruneState{Age: 7 * 24 * time.Hour}, false, ui)
+		if err != nil {
+			t.Fatalf("PruneVolumes: %v", err)
+		}
+		if r.VolumesPruned != 0 || len(client.RemovedVolumes) != 0 {
+			t.Errorf("a fresh volume must be kept: pruned=%d removed=%v", r.VolumesPruned, client.RemovedVolumes)
+		}
+	})
+
+	t.Run("keeps a kept VM's volume", func(t *testing.T) {
+		configpathstest.WithMockConfigPaths(t)
+		client := &msbtest.MockMsbClient{
+			Volumes: []msb.VolumeHandle{staleHomeHandle("agents-sandbox-home-live-1mjusbm3wikhb0-20260806T143022")},
+		}
+		msbtest.WithMsbMock(t, client)
+		ui := &termiotest.Mock{}
+		r, err := PruneVolumes(context.Background(), PruneState{
+			Age: 7 * 24 * time.Hour,
+			ToKeep: map[state.Key]msb.SandboxHandle{
+				{Slug: "live-1mjusbm3wikhb0", Agent: ""}: &msbtest.MockSandboxHandle{},
+			},
+		}, false, ui)
+		if err != nil {
+			t.Fatalf("PruneVolumes: %v", err)
+		}
+		if r.VolumesPruned != 0 || len(client.RemovedVolumes) != 0 {
+			t.Errorf("a kept VM's volume must survive: pruned=%d removed=%v", r.VolumesPruned, client.RemovedVolumes)
+		}
+	})
+
+	t.Run("keeps a retained key's volume", func(t *testing.T) {
+		configpathstest.WithMockConfigPaths(t)
+		client := &msbtest.MockMsbClient{
+			Volumes: []msb.VolumeHandle{
+				staleHomeHandle("agents-sandbox-home-about-to-run-1mjusbm3wikhb0-20260806T143022"),
+			},
+		}
+		msbtest.WithMsbMock(t, client)
+		ui := &termiotest.Mock{}
+		r, err := PruneVolumes(context.Background(), PruneState{
+			Age: 7 * 24 * time.Hour,
+			RetainKeys: map[state.Key]struct{}{
+				{Slug: "about-to-run-1mjusbm3wikhb0", Agent: ""}: {},
+			},
+		}, false, ui)
+		if err != nil {
+			t.Fatalf("PruneVolumes: %v", err)
+		}
+		if r.VolumesPruned != 0 || len(client.RemovedVolumes) != 0 {
+			t.Errorf(
+				"a retained key's volume must survive: pruned=%d removed=%v",
+				r.VolumesPruned,
+				client.RemovedVolumes,
+			)
 		}
 	})
 }
@@ -674,11 +755,16 @@ func TestPruneHomeVolumesSkipsAndContinues(t *testing.T) {
 		return nil
 	}}
 
-	pruneState := PruneState{ToPrune: map[state.Key]msb.SandboxHandle{
-		{Slug: "ref-1mjusbm3wikhb0"}:  &msbtest.MockSandboxHandle{},
-		{Slug: "fail-1mjusbm3wikhb0"}: &msbtest.MockSandboxHandle{},
-		{Slug: "ok-1mjusbm3wikhb0"}:   &msbtest.MockSandboxHandle{},
-	}}
+	pruneState := PruneState{
+		ToPrune: map[state.Key]msb.SandboxHandle{
+			{Slug: "ref-1mjusbm3wikhb0"}:  &msbtest.MockSandboxHandle{},
+			{Slug: "fail-1mjusbm3wikhb0"}: &msbtest.MockSandboxHandle{},
+			{Slug: "ok-1mjusbm3wikhb0"}:   &msbtest.MockSandboxHandle{},
+		},
+		ToKeep: map[state.Key]msb.SandboxHandle{
+			{Slug: "kept-1mjusbm3wikhb0"}: &msbtest.MockSandboxHandle{},
+		},
+	}
 	references := map[string][]state.Key{ref: {{Slug: "still-active"}}}
 	ui := &termiotest.Mock{}
 	report := &VolumeReport{}
