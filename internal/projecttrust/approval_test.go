@@ -127,6 +127,32 @@ func TestIgnoredWarningNamesTheChangedInputs(t *testing.T) {
 	}
 }
 
+// TestFirstRunChangeListNamesAConfigFileOnce pins F5 end to end: a first-run
+// decision computed from a real config file without home: keys is one input, so
+// the change list and every flat path list name its path once — the empty home
+// manifest must not add a duplicate line or path. It drives Compute over a
+// fixture, so removing the empty-entry guard in inputCollector.add (which would
+// project a second, blank home input for the file) fails it.
+func TestFirstRunChangeListNamesAConfigFileOnce(t *testing.T) {
+	f := newProjectFixture(t)
+	path := f.write(t, "config.yaml", "memory: 8G\n")
+	decision := Evaluate(f.compute(t), toApproval(Projection{}))
+
+	rendered := RenderChanges(decision.Changes)
+	if got := strings.Count(rendered, path); got != 1 {
+		t.Errorf("RenderChanges names %q %d times, want once:\n%s", path, got, rendered)
+	}
+	for _, flat := range []string{changedPaths(decision.Changes), IgnoredWarning(decision)} {
+		if got := strings.Count(flat, path); got != 1 {
+			t.Errorf("%q names %q %d times, want once", flat, path, got)
+		}
+	}
+	err := Approve(&termiotest.Mock{}, "checkout-a", decision)
+	if !errors.Is(err, ErrApprovalRequired) || strings.Count(err.Error(), path) != 1 {
+		t.Errorf("non-interactive refusal = %v, want ErrApprovalRequired naming the path once", err)
+	}
+}
+
 // TestApproveSettingWriteKeepsTheLaunchersOwnChangeApproved pins that a
 // launcher write to the project config keeps the layer approved, while a change
 // the agent made to the same file meanwhile still needs approval.

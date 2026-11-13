@@ -2,6 +2,8 @@ package main
 
 import (
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -14,7 +16,7 @@ const removeTestVolume = "agents-sandbox-home-proj-aBc1234D-opencode-20260812T12
 
 func TestVolumeRemove(t *testing.T) {
 	t.Run("removes an unreferenced volume", func(t *testing.T) {
-		cmd, _ := setupCommandFixtures(t, "volume", "remove", "--yes", removeTestVolume)
+		cmd, ui := setupCommandFixtures(t, "volume", "remove", "--yes", removeTestVolume)
 		m := &msbtest.MockMsbClient{}
 		msbtest.WithMsbMock(t, m)
 		if err := cmd.Execute(); err != nil {
@@ -22,6 +24,9 @@ func TestVolumeRemove(t *testing.T) {
 		}
 		if len(m.RemovedVolumes) != 1 || m.RemovedVolumes[0] != removeTestVolume {
 			t.Errorf("RemovedVolumes = %v, want [%q]", m.RemovedVolumes, removeTestVolume)
+		}
+		if want := fmt.Sprintf("removed home volume %q", removeTestVolume); !slices.Contains(ui.InfoCalls, want) {
+			t.Errorf("confirmation output %v does not contain %q", ui.InfoCalls, want)
 		}
 	})
 
@@ -57,7 +62,7 @@ func TestVolumeRemove(t *testing.T) {
 	})
 
 	t.Run("force overrides the reference", func(t *testing.T) {
-		cmd, _ := setupCommandFixtures(t, "volume", "remove", "--force", "--yes", removeTestVolume)
+		cmd, ui := setupCommandFixtures(t, "volume", "remove", "--force", "--yes", removeTestVolume)
 		m := &msbtest.MockMsbClient{}
 		msbtest.WithMsbMock(t, m)
 		if err := seedHomeState(
@@ -71,6 +76,9 @@ func TestVolumeRemove(t *testing.T) {
 		}
 		if len(m.RemovedVolumes) != 1 {
 			t.Errorf("RemovedVolumes = %v, want one", m.RemovedVolumes)
+		}
+		if want := fmt.Sprintf("removed home volume %q", removeTestVolume); !slices.Contains(ui.InfoCalls, want) {
+			t.Errorf("confirmation output %v does not contain %q", ui.InfoCalls, want)
 		}
 	})
 

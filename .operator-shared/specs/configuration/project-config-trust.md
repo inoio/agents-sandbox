@@ -266,6 +266,11 @@ still reaches the host run:
 - The `home:` entries are projected as home provisioning parses them, case-sensitive (`homeconfig`), in
   addition to the lowercased launcher config keys: a case-only edit (`Root:` → `root:`) that changes what
   runs changes the projection.
+- An input whose effect is empty is no input: a file with nothing to contribute to a role (a config file
+  without `home:` keys, an empty env or secret file) adds no input for that role, so a first-run change list
+  and the flat path warnings name each file once per role it actually plays (F5). A recorded approval is
+  normalized the same way before it is compared, so an approval saved before this rule still matches a
+  projection that omits the empty input.
 - A project input the gate cannot read, or one that is no regular file (a symlink to a device), is an
   error, never an absent input. A `home:` source provisioning cannot copy (missing, a directory, unreadable,
   not regular) is skipped, as provisioning skips it.

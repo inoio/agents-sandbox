@@ -63,8 +63,10 @@ portability features.
   capacity, disk format, disk fstype, labels, creation time.
 - `volume remove <name>...` (`rm`) — by-name deletion with the fail-closed
   project-reference guard and `-f/--force`; confirms under `--yes`.
-- `volume prune` — orphaned home volumes (no project state references them) above `--older-than`. It never removes the
-  volume a project's state records, so a whole project's volumes go only through the purge path.
+- `volume prune` — orphaned home volumes: a home volume whose key has no kept VM, no project state references it, and no
+  adoption claim names it, reclaimed once older than `--older-than` (gated on the volume's own creation time, so a
+  volume ages out even when its slug has no VM). It never removes the volume a project's state or an adoption claim
+  records, so a whole project's volumes go only through the purge path.
 - `volume create` — excluded: home volumes come from the runner image via
   `volume migrate`/`reset`/`edit`; a raw create would bypass that model.
 

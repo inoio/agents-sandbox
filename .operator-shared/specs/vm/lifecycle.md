@@ -177,11 +177,14 @@ Each value has one writer of record. A reader never re-derives it from a second 
 **Principle.** An artifact is live, and must not be reclaimed, if **any** of these holds: a kept VM holds it; it
 belongs to the current invocation's key; or it was used within the prune age and its project is not being retired
 in this pass. Recent use does not save an artifact whose key's VM is reclaimed (`ToPrune`); only the first two
-conditions do. A project with no VM is **not yet retired** — a `build` loads its image before any VM exists, and a VM
-create can fail after its home volume exists.
+conditions do. A key with no VM is **not yet retired** for its runner image — a `build` loads its image before any VM
+exists. A home volume follows the kept-key clause rather than the retirement one: a kept VM's key or the invocation's
+own key keeps it regardless of age (`keepsVolume`). Beyond that it ignores VM retirement — a `ToPrune` or VM-less key
+keeps it while the volume is younger than the age and reclaims it once older, unless a `HomeState` reference or an
+adoption claim records it.
 
-`internal/sandbox/pruning/liveness.go` is the only implementation of these rules (`prunable`, `retires`, `keepImage`,
-`allowsNativeImagePrune`); a change to what counts as live goes there. The key-unaware runtime memory sweep
+`internal/sandbox/pruning/liveness.go` is the only implementation of these rules (`prunable`, `retires`, `keepsVolume`,
+`keepImage`, `allowsNativeImagePrune`); a change to what counts as live goes there. The key-unaware runtime memory sweep
 (`PruneStorage`) is the one age-only exception. `pruning.buildPruneState` builds every input once: it classifies
 project VMs into `ToPrune` (stopped and older than the age; their keys are retired in this pass, `PruneState.retires`),
 `ToKeep` (every other project VM) and neither (no VM), and records the current invocation's keys as `RetainKeys`. Each
@@ -190,7 +193,7 @@ artifact kind applies the principle as follows:
 | Artifact     | Reclaimed when                                                                                       | Retained by                                                                     |
 |--------------|-------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------|
 | Runner image | not retained, and its key is in `ToPrune`, it parses no agent, or it was last used beyond the age (`keepImage`) | a kept VM's config holds it; its key is in `RetainKeys`; used within the age, unless its key is in `ToPrune` |
-| Home volume  | its key is in `ToPrune` and no state file references it — in `volume prune` only (`PruneVolumes`); the purge removes a planned volume by name (`RemoveVolume`), never the `prune` stage | any key not in `ToPrune` (VM-less included); a referencing `HomeState`           |
+| Home volume  | its key is not kept (`keepsVolume`), it is older than the age, and neither a `HomeState` references it nor an adoption claim names it — in `volume prune` only (`PruneVolumes`); the purge removes a planned volume by name (`RemoveVolume`), never the `prune` stage | a kept key (`keepsVolume`: a kept VM's key or one in `RetainKeys`) regardless of age; a referencing `HomeState`; an adoption claim naming it |
 | Project VM   | stopped and older than the age — including the current invocation's own VM                             | running, or stopped within the age                                              |
 | Runtime memory backings | older than the age (`PruneStorage`, the runtime's own age-based sweep) | newer than the age; not key-aware |
 | Task sandbox | stopped                                                                                               | running; never counts toward its project's liveness                             |
@@ -247,7 +250,8 @@ A change to any stage must keep all of these. Each names the spec that owns the 
 - The `prune` stage is the safe tier: it never removes a home volume or the state that points at a surviving one, and it
   only lists retired projects. The approval-gated volume phase is reachable only from `volume prune` and the purge
   (`specs/volumes/runtime-management-commands.md`).
-- A project with no VM is not yet retired (Liveness).
+- A key with no VM is not yet retired for its runner image; only its home volume ages out, and only once no `HomeState`
+  reference or adoption claim records it (Liveness).
 - The image's `agent-version` label is the version authority; a cache that disagrees is rewritten, never built toward
   (`specs/state/upgrade-state.md`).
 - The msb image ref is a pure function of `(slug, agent, docker image ID)` (`specs/runner-image/image-build.md`).

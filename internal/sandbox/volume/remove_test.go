@@ -3,8 +3,10 @@ package volume
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -120,6 +122,36 @@ func TestRemoveVolumesFailsClosedOnReferenceScanError(t *testing.T) {
 	}
 	if len(client.RemovedVolumes) != 0 {
 		t.Errorf("RemovedVolumes = %v, want none removed", client.RemovedVolumes)
+	}
+}
+
+func TestRemoveVolumesConfirmsEachRemovedVolume(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	names := []string{"agents-sandbox-home-a-20260812T123456", "agents-sandbox-home-b-20260812T123457"}
+	want := []string{
+		fmt.Sprintf("removed home volume %q", names[0]),
+		fmt.Sprintf("removed home volume %q", names[1]),
+	}
+
+	for _, tt := range []struct {
+		name  string
+		force bool
+	}{
+		{name: "plain", force: false},
+		{name: "force", force: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &msbtest.MockMsbClient{}
+			msbtest.WithMsbMock(t, client)
+			ui := &termiotest.Mock{}
+			ui.SetAssumeYes(true)
+			if err := RemoveVolumes(context.Background(), names, tt.force, ui); err != nil {
+				t.Fatalf("RemoveVolumes: %v", err)
+			}
+			if !slices.Equal(ui.InfoCalls, want) {
+				t.Errorf("confirmation output = %v, want %v", ui.InfoCalls, want)
+			}
+		})
 	}
 }
 

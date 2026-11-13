@@ -10,11 +10,19 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
+// removalUI is the role set RemoveVolumes needs: confirm the destructive action
+// and report each removed volume. It is narrower than termio.UI.
+type removalUI interface {
+	termio.Prompter
+	termio.Logger
+}
+
 // RemoveVolumes removes the named private home volumes. Unless force is set, it
 // refuses when any name is still referenced by a project state file, listing the
 // referencing projects, so a project's recorded home is never silently orphaned.
-// It prompts for confirmation after the reference guard passes.
-func RemoveVolumes(ctx context.Context, names []string, force bool, ui termio.Prompter) error {
+// It prompts for confirmation after the reference guard passes and confirms each
+// removed volume on the UI.
+func RemoveVolumes(ctx context.Context, names []string, force bool, ui removalUI) error {
 	if !force {
 		references, err := state.HomeVolumeReferences()
 		if err != nil {
@@ -31,6 +39,7 @@ func RemoveVolumes(ctx context.Context, names []string, force bool, ui termio.Pr
 		if err := msb.Get().RemoveVolume(ctx, name); err != nil {
 			return fmt.Errorf("remove volume %q: %w", name, err)
 		}
+		ui.Infof("removed home volume %q", name)
 	}
 	return nil
 }

@@ -29,6 +29,22 @@ func TestEvaluateApprovesTheRecordedProjection(t *testing.T) {
 	}
 }
 
+// TestEvaluateApprovesAnOldApprovalCarryingAnEmptyInput pins the upgrade from an
+// approval saved before empty inputs were dropped: an approval for a config file
+// without home: keys carries a blank home input beside the launcher config one,
+// and that blank must not read as a removed input and force re-approval.
+func TestEvaluateApprovesAnOldApprovalCarryingAnEmptyInput(t *testing.T) {
+	current := projectionOf(Input{Path: "/p/config.yaml", Kind: KindLauncherConfig, Entries: []string{`memory: "8G"`}})
+	old := approvalOf(projectionOf(
+		Input{Path: "/p/config.yaml", Kind: KindLauncherConfig, Entries: []string{`memory: "8G"`}},
+		Input{Path: "/p/config.yaml", Kind: KindHomeManifest},
+	))
+	got := Evaluate(current, old)
+	if !got.Approved || len(got.Changes) != 0 {
+		t.Errorf("Evaluate(old approval with an empty input) = %+v, want approved", got)
+	}
+}
+
 // TestEvaluateListsEveryChangedInput pins that a differing projection names
 // each added, removed, and modified input with the entries that differ, and
 // that a missing record treats every input as added.

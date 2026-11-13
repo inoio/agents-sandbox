@@ -143,6 +143,33 @@ func TestComputeHomeManifestKeepsTheKeysCase(t *testing.T) {
 	}
 }
 
+// TestComputeConfigFileIsOneInputPerRoleItContributes pins F5: a config file
+// without home: keys projects once, as launcher config — the empty home
+// manifest must not add a second input, or the first-run change list and the
+// flat config paths warning list the file twice. A config file with home:
+// entries stays one input per role, each with its effect.
+func TestComputeConfigFileIsOneInputPerRoleItContributes(t *testing.T) {
+	f := newProjectFixture(t)
+	path := f.write(t, "config.yaml", "memory: 8G\n")
+	projection := f.compute(t)
+	if got := inputAt(t, projection, path, KindLauncherConfig); !slices.Equal(got.Entries, []string{`memory: "8G"`}) {
+		t.Errorf("launcher config entries = %q, want the settings", got.Entries)
+	}
+	for _, input := range projection.Inputs {
+		if input.Path == path && input.Kind == KindHomeManifest {
+			t.Errorf("a config file without home: keys projected an empty home manifest input: %+v", input)
+		}
+	}
+	if len(projection.Inputs) != 1 {
+		t.Errorf("projection = %+v, want only the launcher config input", projection.Inputs)
+	}
+
+	f.write(t, "config.yaml", "memory: 8G\nhome:\n  .profile: {source: dotfiles/profile, hook: startup}\n")
+	projection = f.compute(t)
+	inputAt(t, projection, path, KindHomeManifest)
+	inputAt(t, projection, path, KindLauncherConfig)
+}
+
 func TestComputeEnvFileIsItsVariables(t *testing.T) {
 	f := newProjectFixture(t)
 	path := f.write(t, "env", "# comment\nB=2\nA=1\n")
