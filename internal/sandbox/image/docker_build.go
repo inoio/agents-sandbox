@@ -155,7 +155,8 @@ func missingRootlessPrerequisite(buildOutput string) (string, bool) {
 
 // buildFailureError classifies an engine build failure and tailors the message
 // for the cases a user can act on: a base image the registry refused (Docker
-// Engine reports "pull access denied", a registry "unauthorized" or "denied"),
+// Engine reports "pull access denied" or "no basic auth credentials", a registry
+// "unauthorized" or "denied"),
 // an image name with no registry that the engine refused to resolve at all —
 // podman does this when it has no unqualified-search-registries, which Docker
 // Engine never needs because it assumes Docker Hub — a network/DNS failure
@@ -240,11 +241,13 @@ func isNetworkDownloadFailure(messages ...string) bool {
 }
 
 // isRegistryAccessDenied reports whether a registry refused the image: the
-// engine's "pull access denied", or a registry error code such as
-// "unauthorized: ..." or "denied: ...". A local "permission denied" (the engine
-// socket) carries no error code and does not match.
+// engine's "pull access denied", a registry error code such as
+// "unauthorized: ..." or "denied: ...", or the HTTP 401 the engine reports
+// when the client holds no credentials. A local "permission denied" (the
+// engine socket) carries no error code and does not match.
 func isRegistryAccessDenied(msg string) bool {
 	return strings.Contains(msg, "pull access denied") ||
+		strings.Contains(msg, "no basic auth credentials") ||
 		strings.Contains(msg, "unauthorized") ||
 		strings.Contains(msg, "denied: ")
 }

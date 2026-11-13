@@ -158,6 +158,14 @@ func TestBuildImageClassifiesBuildFailures(t *testing.T) {
 			},
 		},
 		{
+			name:  "no basic auth credentials",
+			build: returned(`Error response from daemon: Get "https://private.example.com/v2/": no basic auth credentials`),
+			want: []string{
+				"base image not found or not logged in",
+				"troubleshooting.html#the-base-image-cannot-be-found",
+			},
+		},
+		{
 			name:       "local permission denied",
 			build:      returned("permission denied while trying to connect to the docker API"),
 			want:       []string{"docker image build failed"},
@@ -922,8 +930,6 @@ func TestBuildDockerImageReportsTheMissingRootlessPrerequisite(t *testing.T) {
 	}
 }
 
-// TestBuildFailureErrorPreservesTheCause pins that the extra wrapping keeps the
-// cause reachable through errors.Is.
 // TestBuildFailureErrorPreservesTheCause pins that every classification branch,
 // and the appended output block, wrap the engine error with %w so errors.Is
 // still reaches the cause.
