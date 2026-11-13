@@ -416,10 +416,12 @@ a `COPY --chown=dev:dev` emitted for agents that write into their own installati
 dependency ledger and bytecode markers there. The launcher the stage publishes is therefore a small shim: it keeps user state in
 `$HERMES_HOME` (`/home/dev/.hermes`, so config, sessions, and memories persist on the home volume) and links the tool
 store, uv cache, and dependency environments from the image into it, so a fresh home volume starts Hermes without
-reinstalling its dependencies. All seven resolve their latest version for an unpinned build — opencode, hermes, and oh-my-pi via the
-GitHub releases endpoint, opencode2 via the opencode update API (`/update/api/latest/cli/npm`, the installer's own
-source), pi via `pi.dev`, claude-code via the npm registry's `latest` dist-tag, and codex via its GitHub releases
-endpoint — as a host-side HTTP query, never inside the image. JS-based LSP servers are expected to run on the agent's
+reinstalling its dependencies. All seven resolve their latest version for an unpinned build — opencode, codex, hermes,
+and oh-my-pi via the GitHub API, opencode2 via the opencode update API (`/update/api/latest/cli/npm`, the installer's
+own source), pi via `pi.dev`, and claude-code via the npm registry's `latest` dist-tag — as a host-side HTTP query,
+never inside the image. The GitHub queries authenticate with a `GH_TOKEN` or `GITHUB_TOKEN` from the launcher's
+environment when one is set (`GH_TOKEN` wins), which lifts the anonymous API rate limit; the token is sent only to
+`api.github.com`. JS-based LSP servers are expected to run on the agent's
 embedded JS runtime (Bun) or on node that a project installs in its own Dockerfile.
 
 ## Labels and provenance
