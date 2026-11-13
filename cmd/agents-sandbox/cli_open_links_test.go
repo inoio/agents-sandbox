@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/runoptions"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
@@ -70,5 +73,33 @@ func TestOpenLinksConfigDisablesAndFlagOverrides(t *testing.T) {
 	}
 	if !resolveOpenLinks(t, cmdRun, "--open-links") {
 		t.Fatal("OpenLinks = false, want --open-links to override the config file")
+	}
+}
+
+// TestOpenLinksSpaceFormFalseDisablesAndLeaksNothing pins F19 end to end: the
+// space form `--open-links false` must disable the host opener exactly like
+// `--open-links=false` and must not leak the word into the agent argv. It runs
+// through execute, the only path that normalizes the space form before pflag
+// parses (pflag's NoOptDefVal would otherwise leave open-links on and forward
+// "false" as a positional argument).
+func TestOpenLinksSpaceFormFalseDisablesAndLeaksNothing(t *testing.T) {
+	initTestProjectDir(t)
+
+	mock := &msbtest.MockMsbClient{}
+	sb := &msbtest.MockSandbox{}
+	_, ui := setupRunMocks(t, mock, sb, cmdRun)
+
+	if err := execute([]string{cmdRun, "--open-links", "false"}, ui); err != nil {
+		t.Fatalf("execute run --open-links false: %v", err)
+	}
+
+	openerStayedOff := slices.ContainsFunc(ui.VerboseCalls, func(line string) bool {
+		return strings.Contains(line, "not starting host opener") && strings.Contains(line, "enabled false")
+	})
+	if !openerStayedOff {
+		t.Errorf("expected the host opener to stay off; verbose calls: %q", ui.VerboseCalls)
+	}
+	if strings.Contains(strings.Join(sb.AttachArgs, " "), "'false'") {
+		t.Errorf("AttachArgs = %q, want the space-form value not to reach the agent argv", sb.AttachArgs)
 	}
 }

@@ -1,11 +1,13 @@
 package main
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/runoptions"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 )
@@ -126,5 +128,33 @@ func TestBuildInvalidNotifyFlag(t *testing.T) {
 	_, err := runoptions.Build(r.Config(), cmd, ui)
 	if err == nil || !strings.Contains(err.Error(), `invalid --notify value "loud" (want on, off, desktop, or audio)`) {
 		t.Fatalf("error = %v, want the invalid --notify value rejected", err)
+	}
+}
+
+// TestRunNotifySpaceFormOffDisablesWatcherAndLeaksNothing pins F18 end to end:
+// the space form `--notify off` must disable the notify watcher exactly like
+// `--notify=off` and must not leak the word into the agent argv. It runs
+// through execute, the only path that normalizes the space form before pflag
+// parses (pflag's NoOptDefVal would otherwise leave the watcher on and forward
+// "off" as a positional argument).
+func TestRunNotifySpaceFormOffDisablesWatcherAndLeaksNothing(t *testing.T) {
+	initTestProjectDir(t)
+
+	mock := &msbtest.MockMsbClient{}
+	sb := &msbtest.MockSandbox{}
+	_, ui := setupRunMocks(t, mock, sb, cmdRun)
+
+	if err := execute([]string{cmdRun, "--notify", "off"}, ui); err != nil {
+		t.Fatalf("execute run --notify off: %v", err)
+	}
+
+	watcherStayedOff := slices.ContainsFunc(ui.VerboseCalls, func(line string) bool {
+		return strings.Contains(line, "not starting notify watcher") && strings.Contains(line, "active false")
+	})
+	if !watcherStayedOff {
+		t.Errorf("expected the notify watcher to stay off; verbose calls: %q", ui.VerboseCalls)
+	}
+	if strings.Contains(strings.Join(sb.AttachArgs, " "), "'off'") {
+		t.Errorf("AttachArgs = %q, want the space-form value not to reach the agent argv", sb.AttachArgs)
 	}
 }

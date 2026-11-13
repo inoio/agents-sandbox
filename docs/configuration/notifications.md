@@ -42,6 +42,6 @@ notify:
   on-error: true     # session.error
 ```
 
-The whole thing can be overridden with the `--notify` flag (`on`, `off`, `desktop`, or `audio`; bare `--notify` = `on`)
+The whole thing can be overridden with the `--notify` flag (`on`, `off`, `desktop`, or `audio`; both `--notify <mode>` and `--notify=<mode>` work, and bare `--notify` = `on`)
 or the `AGENTS_SANDBOX_NOTIFY` environment variable. The override sets the **channels only**; it leaves the
 `on-input`/`on-done`/`on-error` trigger toggles from the config file unchanged. Precedence: **flag > env > config**.
