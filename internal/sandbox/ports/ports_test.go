@@ -209,6 +209,24 @@ func TestLiveServeHostPort(t *testing.T) {
 	}
 }
 
+// TestLiveServeHostPortHostPortSentinel pins the untagged fallback's "host port
+// is set" test: a binding whose host port is zero (unset) is not a serve
+// candidate, while the lowest real host port still is.
+func TestLiveServeHostPortHostPortSentinel(t *testing.T) {
+	zeroHost := []msb.PortBinding{
+		{Bind: ServeOnlyBindAddr, HostPort: 0, GuestPort: 4000, Protocol: msb.PortProtocolTCP},
+	}
+	if _, ok := LiveServeHostPort(zeroHost, nil); ok {
+		t.Error("LiveServeHostPort(zero host port) reported a binding, want none")
+	}
+	oneHost := []msb.PortBinding{
+		{Bind: ServeOnlyBindAddr, HostPort: 1, GuestPort: 4000, Protocol: msb.PortProtocolTCP},
+	}
+	if port, ok := LiveServeHostPort(oneHost, nil); !ok || port != 1 {
+		t.Errorf("LiveServeHostPort(host port 1) = %d, %v; want 1, true", port, ok)
+	}
+}
+
 func TestBindingsEqualIgnoresOrder(t *testing.T) {
 	a := UserPortBindings([]PortMapping{{HostPort: 3000, GuestPort: 3000}, {HostPort: 8080, GuestPort: 5173}})
 	b := UserPortBindings([]PortMapping{{HostPort: 8080, GuestPort: 5173}, {HostPort: 3000, GuestPort: 3000}})

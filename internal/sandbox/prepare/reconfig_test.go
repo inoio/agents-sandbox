@@ -1847,6 +1847,95 @@ func TestResolveReconfigDecisionUnreadableConfigKeepDefersServePort(t *testing.T
 	}
 }
 
+// TestServeBindingReachable pins the live-config reachability rule's guard: an
+// unreadable config and a nil config are unreachable without dereferencing, and
+// a readable config is reachable only when its bindings resolve to a live serve
+// candidate this run does not claim.
+func TestServeBindingReachable(t *testing.T) {
+	serveBinding := func() *msb.SandboxConfig {
+		return &msb.SandboxConfig{PortBindings: ports.ServeOnlyBindings(4096)}
+	}
+	userBinding := func() *msb.SandboxConfig {
+		return &msb.SandboxConfig{
+			PortBindings: ports.UserPortBindings([]ports.PortMapping{{HostPort: 3000, GuestPort: 3000}}),
+		}
+	}
+	tests := []struct {
+		name     string
+		live     liveProjectVM
+		mappings []ports.PortMapping
+		want     bool
+	}{
+		{
+			name: "readable config with a serve binding",
+			live: liveProjectVM{config: serveBinding()},
+			want: true,
+		},
+		{
+			name: "unreadable config that still carries a config",
+			live: liveProjectVM{configUnreadable: true, config: serveBinding()},
+			want: false,
+		},
+		{
+			name: "nil config",
+			live: liveProjectVM{},
+			want: false,
+		},
+		{
+			name:     "readable config whose binding this run claims",
+			live:     liveProjectVM{config: userBinding()},
+			mappings: []ports.PortMapping{{HostPort: 3000, GuestPort: 3000}},
+			want:     false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := serveBindingReachable(tc.live, tc.mappings); got != tc.want {
+				t.Errorf("serveBindingReachable = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestResolveReconfigDecisionRecreateDoesNotDeferServePort pins that the serve
+// port is deferred only for a kept VM: a recreate applies fresh bindings, so its
+// serve port is reachable even when the live VM published no candidate (here it
+// could not be read at all). Without the kept-VM operand a serve-only recreate
+// would withhold the connect URL it just published.
+func TestResolveReconfigDecisionRecreateDoesNotDeferServePort(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+
+	ui := termiotest.NewTestMock(t)
+	live := liveProjectVM{
+		handle:           &msbtest.MockSandboxHandle{},
+		configUnreadable: true,
+	}
+	persisted := state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:same"}
+
+	decision, err := resolveReconfigDecision(
+		context.Background(),
+		volume.NewManager(docker.Get()),
+		testVMKey(),
+		options.RunOptions{Agent: "opencode", ServeOnly: true},
+		image.ImageInfo{Digest: "sha256:same"},
+		"vol",
+		persisted,
+		loadOpencodeConfigFiles(t, &ui),
+		envsecret.EnvSecrets{},
+		live,
+		&ui,
+	)
+	if err != nil {
+		t.Fatalf("resolveReconfigDecision: %v", err)
+	}
+	if !decision.Recreate {
+		t.Fatal("an unreadable live config with no other client must recreate")
+	}
+	if decision.ServePortDeferred {
+		t.Error("a recreate republishes the serve binding; the serve port must not be deferred")
+	}
+}
+
 // TestResolveReconfigDecisionUntaggedServeBindingReachable covers a read-back
 // that lost the serve binding's guest port: the live binding still resolves to a
 // host port the kept VM serves on (ports.ResolveServeHostPort's untagged
