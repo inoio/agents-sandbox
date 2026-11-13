@@ -21,6 +21,7 @@ import (
 // unchanged request modifies nothing. An unreadable config is a no-op; a failed
 // or conflicting modification is reported.
 func TestReconcileResourceConfig(t *testing.T) {
+	setMemoryConvergeSeams(t, 5*time.Millisecond)
 	modifyFailed := errors.New("modify boom")
 	cases := []struct {
 		name             string
