@@ -108,3 +108,25 @@ func TestOpenLinksSpaceFormDisablesAndLeaksNothing(t *testing.T) {
 		})
 	}
 }
+
+// TestOpenLinksSpaceFormInvalidValueRejected pins the out-of-vocabulary case of
+// the space form: --open-links <invalid> must be rejected by pflag's bool
+// parser exactly like --open-links=<invalid>, instead of pflag taking the
+// implicit true (host opener stays on) and leaking the word into the agent
+// argv.
+func TestOpenLinksSpaceFormInvalidValueRejected(t *testing.T) {
+	for _, value := range []string{"off", "maybe"} {
+		t.Run(value, func(t *testing.T) {
+			initTestProjectDir(t)
+
+			mock := &msbtest.MockMsbClient{}
+			sb := &msbtest.MockSandbox{}
+			_, ui := setupRunMocks(t, mock, sb, cmdRun)
+
+			err := execute([]string{cmdRun, "--open-links", value}, ui)
+			if err == nil || !strings.Contains(err.Error(), `for "--open-links" flag`) {
+				t.Fatalf("execute run --open-links %s error = %v, want a pflag parse error", value, err)
+			}
+		})
+	}
+}

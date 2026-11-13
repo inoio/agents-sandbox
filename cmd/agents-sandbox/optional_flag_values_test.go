@@ -10,7 +10,10 @@ import (
 // working alongside their = form. pflag's NoOptDefVal never consumes a
 // following token, so without the rewrite --notify off leaves the watcher on
 // and forwards the word "off" to the agent (F18); --open-links false has the
-// same footgun (F19).
+// same footgun (F19). Any following non-flag token is rewritten into the =
+// form, so an out-of-vocabulary value is rejected by the flag's own validation
+// with the same error the = form surfaces, instead of pflag taking the
+// implicit value and leaking the token into the positional args.
 func TestNormalizeOptionalFlagValues(t *testing.T) {
 	tests := []struct {
 		name string
@@ -43,14 +46,24 @@ func TestNormalizeOptionalFlagValues(t *testing.T) {
 			want: []string{"run", "--notify", "--workspace", "feat"},
 		},
 		{
+			name: "a single-dash token after --notify stays split",
+			args: []string{"run", "--notify", "-x"},
+			want: []string{"run", "--notify", "-x"},
+		},
+		{
+			name: "attached --notify value with a following token stays split",
+			args: []string{"run", "--notify=off", "bogus"},
+			want: []string{"run", "--notify=off", "bogus"},
+		},
+		{
 			name: "tokens after a bare -- are untouched",
 			args: []string{"run", "--", "--notify", "off"},
 			want: []string{"run", "--", "--notify", "off"},
 		},
 		{
-			name: "a value outside the notify vocabulary stays split",
+			name: "a value outside the notify vocabulary is rewritten so the flag rejects it",
 			args: []string{"run", "--notify", "bogus"},
-			want: []string{"run", "--notify", "bogus"},
+			want: []string{"run", "--notify=bogus"},
 		},
 		{
 			name: "--open-links false becomes --open-links=false",
@@ -86,14 +99,19 @@ func TestNormalizeOptionalFlagValues(t *testing.T) {
 			want: []string{"run", "--open-links=true"},
 		},
 		{
+			name: "attached --open-links value with a following token stays split",
+			args: []string{"run", "--open-links=true", "tail"},
+			want: []string{"run", "--open-links=true", "tail"},
+		},
+		{
 			name: "bare --open-links stays bare",
 			args: []string{"run", "--open-links"},
 			want: []string{"run", "--open-links"},
 		},
 		{
-			name: "open-links value outside the vocabulary stays split",
+			name: "open-links value outside the vocabulary is rewritten so the flag rejects it",
 			args: []string{"--open-links", "maybe"},
-			want: []string{"--open-links", "maybe"},
+			want: []string{"--open-links=maybe"},
 		},
 		{
 			name: "no args",

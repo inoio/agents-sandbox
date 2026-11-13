@@ -12,6 +12,11 @@ import (
 // argument. The matchers mirror the flags' declared value sets: --notify takes
 // on/off/desktop/audio, --open-links takes every boolean spelling
 // strconv.ParseBool accepts, exactly as pflag's Bool does.
+//
+// They are advisory: normalizeOptionalFlagValues rewrites the space form for
+// every following token, and these matchers are redundant with that rule. They
+// exist only to keep the vocabulary documented in one place beside the rewrite
+// and are used by tests that pin it.
 var optionalFlagValueMatchers = map[string]func(string) bool{
 	flagNotify:    oneOf("on", "off", "desktop", "audio"),
 	flagOpenLinks: isBoolLiteral,
@@ -37,10 +42,12 @@ func isBoolLiteral(token string) bool {
 // NoOptDefVal does not swallow the value into the positional args: with the
 // space form left alone, --notify off would keep the watcher active and
 // forward the word "off" to the agent, and --open-links 0 would leave the
-// implicit true in place while forwarding the "0". The = form, a bare flag
-// (whose NoOptDefVal still applies), and everything after a bare -- are left
-// alone. It runs before Cobra parses; a token a flag's matcher rejects is left
-// for pflag (a rejected value or a positional argument) to handle.
+// implicit true in place while forwarding the "0". Any following token that is
+// not a flag (does not begin with "-") is taken as the value, so an invalid one
+// -- notify bogus, --open-links off -- surfaces the same rejection as its =
+// form instead of silently keeping the feature on and leaking the word into the
+// args. The = form, a bare flag (whose NoOptDefVal still applies), a following
+// flag, and everything after a bare -- are left alone.
 func normalizeOptionalFlagValues(args []string) []string {
 	normalized := make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
@@ -50,8 +57,8 @@ func normalizeOptionalFlagValues(args []string) []string {
 			break
 		}
 		flag, _, attached := strings.Cut(arg, "=")
-		matches, optional := optionalFlagValueMatchers[strings.TrimPrefix(flag, "--")]
-		if !attached && optional && i+1 < len(args) && matches(args[i+1]) {
+		_, optional := optionalFlagValueMatchers[strings.TrimPrefix(flag, "--")]
+		if !attached && optional && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 			normalized = append(normalized, flag+"="+args[i+1])
 			i++
 			continue

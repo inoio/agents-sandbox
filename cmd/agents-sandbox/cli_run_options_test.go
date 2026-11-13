@@ -158,3 +158,20 @@ func TestRunNotifySpaceFormOffDisablesWatcherAndLeaksNothing(t *testing.T) {
 		t.Errorf("AttachArgs = %q, want the space-form value not to reach the agent argv", sb.AttachArgs)
 	}
 }
+
+// TestRunNotifySpaceFormInvalidValueRejected pins the out-of-vocabulary case of
+// the space form: --notify <invalid> must be rejected with the same error as
+// --notify=<invalid>, instead of pflag taking the implicit "on" (watcher stays
+// active) and leaking the word into the agent argv.
+func TestRunNotifySpaceFormInvalidValueRejected(t *testing.T) {
+	initTestProjectDir(t)
+
+	mock := &msbtest.MockMsbClient{}
+	sb := &msbtest.MockSandbox{}
+	_, ui := setupRunMocks(t, mock, sb, cmdRun)
+
+	err := execute([]string{cmdRun, "--notify", "bogus"}, ui)
+	if err == nil || !strings.Contains(err.Error(), `invalid --notify value "bogus"`) {
+		t.Fatalf("execute run --notify bogus error = %v, want the invalid value rejected", err)
+	}
+}
