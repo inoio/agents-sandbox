@@ -1,6 +1,6 @@
 ---
-description: Contract for keeping tests off real host state - where test doubles and fail-fast installers live (the `<pkg>/<name>test` test-support subpackages), the fail-fast seam mocks installed by every test package's TestMain, the external-TestMain rule, the file-scope vs declaration-scope `//deadcode:ignore` policy, the host-home redirect in WithMockConfigPaths, the seam import-chain exceptions, the msb-tagged isolated runtime home and its stop-then-remove sandbox teardown, the rule that seam overrides must be restored so the suite stays idempotent under -count>1, and the absolute-write-root invariant that guards every state/config write funnel at the consumer so an unresolved root cannot write relative to the process CWD.
-read_if: Adding a test package, a test double, or a TestMain; deciding where a test double or fail-fast installer lives; debugging a test that reads or writes real host state (config, home, docker, msb, doctor), an msb-tagged test that leaks a sandbox/VM, a test that passes at -count=1 but fails under -count>1, or a state/config/lock write that must reject a path that did not resolve to an absolute root.
+description: Contract for keeping tests off real host state - where test doubles and fail-fast installers live (the `<pkg>/<name>test` test-support subpackages), the fail-fast seam mocks installed by every test package's TestMain, the external-TestMain rule, the file-scope vs declaration-scope `//deadcode:ignore` policy, the host-home redirect in WithMockConfigPaths, the seam import-chain exceptions, the msb-tagged isolated runtime home and its stop-then-remove sandbox teardown, the rule that seam overrides must be restored so the suite stays idempotent under -count>1, the trap that a dependency memoizing an environment variable (docker/cli `config.Dir()`) is not isolated by t.Setenv, and the absolute-write-root invariant that guards every state/config write funnel at the consumer so an unresolved root cannot write relative to the process CWD.
+read_if: Adding a test package, a test double, or a TestMain; deciding where a test double or fail-fast installer lives; debugging a test that reads or writes real host state (config, home, docker, msb, doctor), an msb-tagged test that leaks a sandbox/VM, a test that passes at -count=1 but fails under -count>1, or a state/config/lock write that must reject a path that did not resolve to an absolute root; or when a test's DOCKER_CONFIG/HOME no longer reaches docker/cli's config loading.
 ---
 
 # Test isolation
@@ -226,6 +226,21 @@ seams such as `agentLatestVersion`, `probeHostPort`, `watchReconnectPolicy`, `sp
 `t.Cleanup`/`defer`. A leaked override survives into later tests in the same binary, and under `-count>1` (or any run
 that repeats a package) into the next iteration. The suite must be idempotent: `go test -count=2 ./...` must agree with
 `-count=1`.
+
+### Environment variables a dependency memoizes
+
+`t.Setenv` isolates the *environment*, but not a dependency that caches the value at first use. `config.Dir()`
+(`docker/cli/cli/config`) memoizes `DOCKER_CONFIG` — and, through `getHomeDir`, `$HOME` — in a package-level
+`sync.Once`, so a `t.Setenv("DOCKER_CONFIG", …)` only takes effect if that test makes the process's first
+`config.Dir()` call; otherwise `config.Dir()` keeps returning the earlier value.
+`TestNewBuildKitSessionProvidesRegistryAuth` set `DOCKER_CONFIG` with `t.Setenv` and *did* make that first call, so
+`config.Dir()` stayed pinned to its `t.TempDir()`, which `t.TempDir` then removed, for every later test in the binary.
+Under `-tags integration` the image integration tests share that binary, so `newBuildKitSession` read a deleted config
+file and the daemon resolved every registry cache ref anonymously — masking the whole session registry-auth path
+behind a misleading `failed to fetch anonymous token`. Isolate such a dependency with its own setter —
+`config.SetDir`, captured and restored in `t.Cleanup`, as `docker/registryauth_test.go` already does — never with
+`t.Setenv`. The ambient gate below cannot see this: it sanctions `t.Setenv` precisely because `testing` owns that
+surface.
 
 ### Injected clients vs. the remaining seams
 
