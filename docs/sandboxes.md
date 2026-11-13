@@ -72,7 +72,7 @@ To prune a single artifact type rather than everything, use the dedicated subcom
 
 ```console
 agents-sandbox image prune                 # cached runner images and dangling Docker images
-agents-sandbox volume prune                # home volumes no project state references
+agents-sandbox volume prune                # home volumes no project state or adoption claim references
 agents-sandbox sandbox prune               # sandboxes (stale ones and leftover task workers)
 ```
 

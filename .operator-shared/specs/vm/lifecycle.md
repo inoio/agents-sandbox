@@ -178,9 +178,10 @@ Each value has one writer of record. A reader never re-derives it from a second 
 belongs to the current invocation's key; or it was used within the prune age and its project is not being retired
 in this pass. Recent use does not save an artifact whose key's VM is reclaimed (`ToPrune`); only the first two
 conditions do. A key with no VM is **not yet retired** for its runner image — a `build` loads its image before any VM
-exists. A home volume is the exception to every clause above: VM liveness never decides it, so a key in `ToPrune` or
-with no VM keeps its volume while the volume is younger than the age, and reclaims it once older than the age and
-neither a `HomeState` reference nor an adoption claim records it (`keepsVolume`).
+exists. A home volume follows the kept-key clause rather than the retirement one: a kept VM's key or the invocation's
+own key keeps it regardless of age (`keepsVolume`). Beyond that it ignores VM retirement — a `ToPrune` or VM-less key
+keeps it while the volume is younger than the age and reclaims it once older, unless a `HomeState` reference or an
+adoption claim records it.
 
 `internal/sandbox/pruning/liveness.go` is the only implementation of these rules (`prunable`, `retires`, `keepsVolume`,
 `keepImage`, `allowsNativeImagePrune`); a change to what counts as live goes there. The key-unaware runtime memory sweep
