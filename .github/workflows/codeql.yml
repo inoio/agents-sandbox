@@ -9,14 +9,15 @@ on:
     branches: [main]
     # The complement of the `changes` gate in ci.yml: a change that cannot alter
     # scanned code (docs, the operator brain, the Homebrew formula, issue
-    # templates, .gitignore) is skipped. Everything else — code, go.mod,
-    # .go-version, the Makefile, the workflows themselves — still scans.
+    # templates, the dev VM, .gitignore) is skipped. Everything else — code,
+    # go.mod, .go-version, the Makefile, the workflows themselves — still scans.
     paths-ignore:
       - '**.md'
       - 'docs/**'
       - '.operator-shared/**'
       - 'Formula/**'
       - '.github/ISSUE_TEMPLATE/**'
+      - '.agents-sandbox/**'
       - '.gitignore'
   pull_request:
     paths-ignore:
@@ -25,6 +26,7 @@ on:
       - '.operator-shared/**'
       - 'Formula/**'
       - '.github/ISSUE_TEMPLATE/**'
+      - '.agents-sandbox/**'
       - '.gitignore'
   schedule:
     # Depth/coverage comes from the weekly run; a merge gets the pull_request

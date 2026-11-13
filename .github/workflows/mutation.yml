@@ -10,15 +10,16 @@ on:
   pull_request:
     # A change that cannot alter which mutants exist need not pay the
     # module-wide coverage pass: the sweep is about Go code, so docs, the
-    # operator brain, templates, and the Homebrew formula are excluded.
-    # Everything else (code, go.mod/.go-version, the Makefile, the workflow
-    # itself) still triggers. `workflow_dispatch` ignores this filter.
+    # operator brain, templates, the Homebrew formula, and the dev VM are
+    # excluded. Everything else (code, go.mod/.go-version, the Makefile, the
+    # workflow itself) still triggers. `workflow_dispatch` ignores this filter.
     paths-ignore:
       - '**.md'
       - 'docs/**'
       - '.operator-shared/**'
       - 'Formula/**'
       - '.github/ISSUE_TEMPLATE/**'
+      - '.agents-sandbox/**'
       - '.gitignore'
   workflow_dispatch:
 
