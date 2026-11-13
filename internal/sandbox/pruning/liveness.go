@@ -149,10 +149,15 @@ func imageWithinAge(imageHandle msb.ImageHandle, age time.Duration) bool {
 	return time.Since(used) < age
 }
 
-// volumeOlderThan reports whether a home volume was created at least age ago. A
-// zero age disables the age gate, so a threshold-less caller reclaims every
-// unattached volume.
+// volumeOlderThan reports whether a home volume was created at least age ago. An
+// unknown creation time (the zero time the runtime reports when it cannot say)
+// is never older than the age, so such a volume is kept rather than read as
+// infinitely old. A zero age disables the age gate, so a threshold-less caller
+// reclaims every unattached volume whose creation time is known.
 func volumeOlderThan(createdAt time.Time, age time.Duration) bool {
+	if createdAt.IsZero() {
+		return false
+	}
 	if age <= 0 {
 		return true
 	}

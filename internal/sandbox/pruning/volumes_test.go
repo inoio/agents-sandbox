@@ -227,6 +227,30 @@ func TestPruneVolumesNoVMVolumes(t *testing.T) {
 		}
 	})
 
+	t.Run("keeps a volume with an unknown creation time", func(t *testing.T) {
+		configpathstest.WithMockConfigPaths(t)
+		client := &msbtest.MockMsbClient{
+			Volumes: []msb.VolumeHandle{
+				// A zero CreatedAt means the runtime does not know when the
+				// volume was created; it must not be read as infinitely old.
+				&msbtest.MockVolumeHandle{Name_: "agents-sandbox-home-orphan-1mjusbm3wikhb0-20260806T143022"},
+			},
+		}
+		msbtest.WithMsbMock(t, client)
+		ui := &termiotest.Mock{}
+		r, err := PruneVolumes(context.Background(), PruneState{Age: 7 * 24 * time.Hour}, false, ui)
+		if err != nil {
+			t.Fatalf("PruneVolumes: %v", err)
+		}
+		if r.VolumesPruned != 0 || len(client.RemovedVolumes) != 0 {
+			t.Errorf(
+				"an unknown creation time must keep the volume: pruned=%d removed=%v",
+				r.VolumesPruned,
+				client.RemovedVolumes,
+			)
+		}
+	})
+
 	t.Run("keeps a kept VM's volume", func(t *testing.T) {
 		configpathstest.WithMockConfigPaths(t)
 		client := &msbtest.MockMsbClient{
