@@ -77,9 +77,9 @@ func (s *Session) ServeHostPort() int {
 	return s.serveHostPort
 }
 
-// ServePortDeferred reports whether the kept VM's serve-only binding differs
-// from the one this run wants, so the agent server is unreachable on the
-// desired port until the VM is recreated.
+// ServePortDeferred reports whether the kept VM has no reachable serve-only
+// binding (it publishes none, or its config could not be read), so the agent
+// server is unreachable until the VM is recreated.
 func (s *Session) ServePortDeferred() bool {
 	return s.servePortDeferred
 }

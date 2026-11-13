@@ -153,7 +153,8 @@ func logNotifyWatcherError(stop func() error, ui termio.Logger) {
 // agent-specific: opencode's is opt-in, opencode2's is mandatory with a baked
 // credential, so a client can only connect with the right hint.
 //
-// When the running VM defers a changed serve binding to the next recreate, no
+// When a kept running VM has no reachable serve binding — the changed binding
+// was deferred to the next recreate, or its bindings could not be read — no
 // client can reach the agent yet, so the message warns about the deferral
 // instead of handing out a URL the VM does not carry.
 func serveOnlyMessage(a agent.Resolved, port string, deferred bool) string {
