@@ -62,6 +62,7 @@ func TestFailFastClientPanics(t *testing.T) {
 		{"ImageInspectDetail", func() { _, _ = f.ImageInspectDetail(ctx, "x") }},
 		{"StorageUsage", func() { _, _ = f.StorageUsage(ctx) }},
 		{"ShellStream", func() { _, _ = f.ShellStream(ctx, "cmd", msb.ExecRequest{}) }},
+		{"ExecStream", func() { _, _ = f.ExecStream(ctx, "cmd", nil, msb.ExecRequest{}) }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

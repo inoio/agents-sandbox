@@ -605,6 +605,19 @@ type MockSandbox struct {
 	// ShellStreamCmds records every command passed to ShellStream.
 	ShellStreamCmds *[]string
 
+	// ExecStreamHandle_ is returned by ExecStream when ExecStreamFn is nil. When
+	// both are nil, a handle is returned that exits 0 immediately, so an
+	// unconfigured mock behaves like a successful hook.
+	ExecStreamHandle_ msb.StreamHandle
+	// ExecStreamFn overrides ExecStreamHandle_ when set.
+	ExecStreamFn func(ctx context.Context, command string, args []string, req msb.ExecRequest) (msb.StreamHandle, error)
+	// ExecStreamCmd, ExecStreamArgs, ExecStreamUser and ExecStreamEnv record the
+	// request of the last ExecStream call, mirroring the Exec* fields.
+	ExecStreamCmd  string
+	ExecStreamArgs []string
+	ExecStreamUser string
+	ExecStreamEnv  map[string]string
+
 	// Metrics and Logs back the seam's resource-pressure reads.
 	MetricsResult *msb.Metrics
 	MetricsErr    error
@@ -754,6 +767,25 @@ func (m *MockSandbox) ShellStream(
 	return &emptyStreamHandle{}, nil
 }
 
+func (m *MockSandbox) ExecStream(
+	ctx context.Context,
+	command string,
+	args []string,
+	req msb.ExecRequest,
+) (msb.StreamHandle, error) {
+	m.ExecStreamCmd = command
+	m.ExecStreamArgs = args
+	m.ExecStreamUser = req.User
+	m.ExecStreamEnv = req.Env
+	if m.ExecStreamFn != nil {
+		return m.ExecStreamFn(ctx, command, args, req)
+	}
+	if m.ExecStreamHandle_ != nil {
+		return m.ExecStreamHandle_, nil
+	}
+	return &successStreamHandle{}, nil
+}
+
 // emptyStreamHandle returns stream-closed immediately; tests that need real
 // streaming provide a StreamHandle_ with events.
 type emptyStreamHandle struct{}
@@ -762,6 +794,42 @@ func (emptyStreamHandle) Recv(context.Context) (msb.StreamEvent, error) {
 	return msb.StreamEvent{}, errors.New("stream closed")
 }
 func (emptyStreamHandle) Close() error { return nil }
+
+// successStreamHandle emits one exited(0) event and then closes the stream, so
+// an unconfigured ExecStream mock behaves like a successful hook.
+type successStreamHandle struct{ sent bool }
+
+func (h *successStreamHandle) Recv(context.Context) (msb.StreamEvent, error) {
+	if !h.sent {
+		h.sent = true
+		return msb.StreamEvent{Kind: msb.StreamEventExited, ExitCode: 0}, nil
+	}
+	return msb.StreamEvent{}, io.EOF
+}
+func (*successStreamHandle) Close() error { return nil }
+
+// ScriptedStreamHandle replays a fixed sequence of events and then closes the
+// stream (Recv returns io.EOF), for tests that script a streaming exec.
+type ScriptedStreamHandle struct {
+	events []msb.StreamEvent
+}
+
+// NewScriptedStreamHandle returns a stream handle that replays events in order
+// and then returns io.EOF.
+func NewScriptedStreamHandle(events ...msb.StreamEvent) *ScriptedStreamHandle {
+	return &ScriptedStreamHandle{events: events}
+}
+
+func (h *ScriptedStreamHandle) Recv(context.Context) (msb.StreamEvent, error) {
+	if len(h.events) == 0 {
+		return msb.StreamEvent{}, io.EOF
+	}
+	ev := h.events[0]
+	h.events = h.events[1:]
+	return ev, nil
+}
+
+func (*ScriptedStreamHandle) Close() error { return nil }
 
 // SandboxOpts configures a MockSandbox via NewMockSandbox.
 // Zero/unset values produce sensible defaults.
@@ -782,6 +850,11 @@ type SandboxOpts struct {
 	ShellStreamFn func(command string) (msb.StreamHandle, error)
 	// ShellStreamCmds records every command passed to ShellStream.
 	ShellStreamCmds *[]string
+
+	// ExecStreamHandle_ is returned by ExecStream when ExecStreamFn is nil.
+	ExecStreamHandle_ msb.StreamHandle
+	// ExecStreamFn overrides ExecStreamHandle_ when set.
+	ExecStreamFn func(ctx context.Context, command string, args []string, req msb.ExecRequest) (msb.StreamHandle, error)
 
 	// Detached jobs.
 	ExecDetachedFn    func(ctx context.Context, cmd string, args []string, spec msb.JobSpec) (msb.Job, error)
@@ -809,6 +882,8 @@ func NewMockSandbox(opts SandboxOpts) msb.Sandbox {
 		StreamHandle_:     opts.StreamHandle_,
 		ShellStreamFn:     opts.ShellStreamFn,
 		ShellStreamCmds:   opts.ShellStreamCmds,
+		ExecStreamHandle_: opts.ExecStreamHandle_,
+		ExecStreamFn:      opts.ExecStreamFn,
 		ExecDetachedFn:    opts.ExecDetachedFn,
 		ExecDetachedCalls: opts.ExecDetachedCalls,
 		Job_:              opts.Job_,
@@ -1089,6 +1164,16 @@ func (f *failFastMsbClient) StorageUsage(_ context.Context) (*msb.StorageReport,
 }
 
 func (f *failFastMsbClient) ShellStream(_ context.Context, _ string, _ msb.ExecRequest) (msb.StreamHandle, error) {
+	f.mustMock()
+	return nil, nil
+}
+
+func (f *failFastMsbClient) ExecStream(
+	_ context.Context,
+	_ string,
+	_ []string,
+	_ msb.ExecRequest,
+) (msb.StreamHandle, error) {
 	f.mustMock()
 	return nil, nil
 }

@@ -261,6 +261,7 @@ func (m *MockSandboxExecutor) FS() msb.SandboxFS {
 type MockSandboxStreamer struct {
 	ShellFn       func(ctx context.Context, command string, req msb.ExecRequest) (msb.ShellResult, error)
 	ShellStreamFn func(ctx context.Context, command string, req msb.ExecRequest) (msb.StreamHandle, error)
+	ExecStreamFn  func(ctx context.Context, command string, args []string, req msb.ExecRequest) (msb.StreamHandle, error)
 }
 
 // Compile-time check.
@@ -286,6 +287,19 @@ func (m *MockSandboxStreamer) ShellStream(
 ) (msb.StreamHandle, error) {
 	if m.ShellStreamFn != nil {
 		return m.ShellStreamFn(ctx, command, req)
+	}
+	return nil, nil
+}
+
+// ExecStream implements SandboxStreamer.
+func (m *MockSandboxStreamer) ExecStream(
+	ctx context.Context,
+	command string,
+	args []string,
+	req msb.ExecRequest,
+) (msb.StreamHandle, error) {
+	if m.ExecStreamFn != nil {
+		return m.ExecStreamFn(ctx, command, args, req)
 	}
 	return nil, nil
 }

@@ -3,6 +3,7 @@ package vm
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
@@ -23,14 +24,17 @@ const RootUser = "root"
 // not declare a shebang.
 const defaultHookInterpreter = "/bin/sh"
 
-// runStartupHooks runs each configured startup hook inside the VM via an
-// interactive attach. A hook with a shebang is executed directly so the VM
-// kernel resolves the interpreter; one without falls back to /bin/sh. Hook
-// scripts are marked executable during provisioning, so no +x bit is required
-// on the host source. The hook's HOME is set so scripts can rely on it. The
-// agent waits for the attach to finish; a hook that must outlive the attach is
-// responsible for daemonizing itself. Failures are logged, not fatal.
-func runStartupHooks(ctx context.Context, sb msb.Sandbox, hooks []homeconfig.HookSpec, ui termio.Logger) {
+// runStartupHooks runs each configured startup hook inside the VM via a
+// non-interactive streaming exec, so a run without a TTY still runs the hooks.
+// A hook with a shebang is executed directly so the VM kernel resolves the
+// interpreter; one without falls back to /bin/sh. Hook scripts are marked
+// executable during provisioning, so no +x bit is required on the host source.
+// The hook's HOME is set so scripts can rely on it. Output is written verbatim
+// to the session's stdout/stderr as the hook produces it; the agent waits for
+// the exec to finish and a hook that must outlive it is responsible for
+// daemonizing itself. A hook that cannot start, or that exits non-zero, is
+// reported with its target and the reason. Failures are logged, not fatal.
+func runStartupHooks(ctx context.Context, sb msb.Sandbox, hooks []homeconfig.HookSpec, ui termio.UI) {
 	for _, h := range hooks {
 		user := DefaultSandboxUser
 		home := "/home/dev"
@@ -45,15 +49,104 @@ func runStartupHooks(ctx context.Context, sb msb.Sandbox, hooks []homeconfig.Hoo
 			args = []string{h.Target}
 		}
 		ui.Infof("running startup hook %s (as %s, via %s)", h.Target, user, command)
-		if _, err := sb.AttachWith(
-			ctx,
-			command,
-			args,
-			msb.AttachRequest{User: user, Env: map[string]string{"HOME": home}},
-		); err != nil {
-			ui.Warnf("startup hook %s failed: %v", h.Target, err)
+		runStartupHook(ctx, sb, h.Target, command, args, user, home, ui)
+	}
+}
+
+// stderrTailBytes is the cap on stderr retained for a hook's failure warning.
+// The hook's stderr is streamed to the UI in full; only the bounded tail is
+// kept in launcher memory and echoed in the warning, so a hook with large
+// stderr neither grows the launcher nor produces an unbounded log line.
+const stderrTailBytes = 8 << 10
+
+// stderrTail retains the last stderrTailBytes written bytes, discarding the
+// oldest bytes first. It keeps its buffer at a fixed size once filled.
+type stderrTail struct {
+	buf []byte
+}
+
+func (t *stderrTail) Write(p []byte) {
+	if len(p) >= stderrTailBytes {
+		t.buf = append(t.buf[:0], p[len(p)-stderrTailBytes:]...)
+		return
+	}
+	t.buf = append(t.buf, p...)
+	if len(t.buf) > stderrTailBytes {
+		t.buf = append(t.buf[:0], t.buf[len(t.buf)-stderrTailBytes:]...)
+	}
+}
+
+// String returns the retained tail with surrounding whitespace trimmed.
+func (t *stderrTail) String() string { return strings.TrimSpace(string(t.buf)) }
+
+// runStartupHook runs one hook through the streaming exec seam and writes its
+// output verbatim to the session's stdout/stderr. The streaming seam is
+// required, not the collected Exec: the collected response buffer is capped at
+// ~1 MiB, so a hook that emits more would be cut off and misreported as failed
+// even though it exited 0. A chunk is an arbitrary byte range, not a line, so
+// the bytes go to the raw streams rather than through a line logger, which
+// would add a newline per chunk and split lines that straddle chunks. The exit
+// code is surfaced by the exited event; a hook that never starts, or a stream
+// error, is logged as a warning, not fatal.
+func runStartupHook(
+	ctx context.Context,
+	sb msb.Sandbox,
+	target, command string,
+	args []string,
+	user, home string,
+	ui termio.UI,
+) {
+	handle, err := sb.ExecStream(
+		ctx,
+		command,
+		args,
+		msb.ExecRequest{User: user, Env: map[string]string{"HOME": home}},
+	)
+	if err != nil {
+		ui.Warnf("startup hook %s failed: %v", target, err)
+		return
+	}
+	defer handle.Close()
+
+	var stderr stderrTail
+	for {
+		event, err := handle.Recv(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			ui.Warnf("startup hook %s failed: %v", target, err)
+			return
+		}
+		switch event.Kind {
+		case msb.StreamEventStdout:
+			_, _ = ui.StdOut().Write(event.Data)
+		case msb.StreamEventStderr:
+			stderr.Write(event.Data)
+			_, _ = ui.StdErr().Write(event.Data)
+		case msb.StreamEventExited:
+			if event.ExitCode != 0 {
+				ui.Warnf("startup hook %s failed: %s", target, exitReason(event.ExitCode, stderr.String()))
+			}
+			return
+		case msb.StreamEventFailed:
+			if event.Failure != "" {
+				ui.Warnf("startup hook %s failed: %s", target, event.Failure)
+			} else {
+				ui.Warnf("startup hook %s failed: could not start", target)
+			}
+			return
 		}
 	}
+}
+
+// exitReason describes a hook's non-zero exit for its failure warning: the exit
+// code plus the retained stderr tail, which runStartupHook bounds.
+func exitReason(exitCode int, tail string) string {
+	if tail == "" {
+		return fmt.Sprintf("exit %d", exitCode)
+	}
+	return fmt.Sprintf("exit %d: %s", exitCode, tail)
 }
 
 // SetUpSandbox provisions a running project VM and returns the attach target.
@@ -71,7 +164,7 @@ func SetUpSandbox(
 	opts options.RunOptions,
 	seams options.Seams,
 	cfs *reprovision.ConfigFiles,
-	ui termio.Logger,
+	ui termio.UI,
 	restart bool,
 	boot VMBoot,
 	guestCWD string,

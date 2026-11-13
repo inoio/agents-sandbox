@@ -113,13 +113,15 @@ single role; a symbol that uses two or more roles keeps `termio.UI`.
 |---------|------|
 | CLI wiring root (`buildRootCmd`), the session runners (`session.Run`/`Shell`/the reaper), the `pruning`/`volume` aggregates, the build-status redirect (`autoPruneOutToVerboseRedirect`) | `termio.UI` |
 | `internal/sandbox/**` leaves, `image`/`vm`/`prepare`/`reprovision`/`envsecret`/`doctor`/`runoptions`, `notify`, the cmd tree/warnings and `buildUpgradeCmd`, and `upgrade.Upgrade` | `termio.Logger` |
+| `vm.SetUpSandbox` and its `prepare.setupSandboxStage` caller — the startup-hook runner writes hook output verbatim to the raw streams (`StdOut`/`StdErr`) while the same path logs | `termio.UI` |
 | `internal/cliout`'s JSON/report writers, the cmd inspectors and the `storage`/`df`/`config` output, `buildVersionCmd` | `termio.Output` |
 | removal/confirmation entry points (`volume.RemoveVolumes`, `image.RemoveImages`, `vm.RemoveSandbox`, the `reconfig` prompts, `ConfirmAction`) | `termio.Prompter` |
 | `applyCLISettings`, `resolvePruneOutputMode` | `termio.TerminalState` |
 
 No `SpinnerFactory`-only consumer exists — every spinner consumer also logs, so it keeps `UI`. `upgrade.Upgrade` takes
 `termio.Logger`; only `upgrade.Check`'s `Options` still holds a `termio.UI`. No `Streams`-only consumer exists
-(`buildRootCmd` spans roles and keeps `UI`).
+(`buildRootCmd` spans roles and keeps `UI`); `vm.SetUpSandbox` above is the first `Logger`+`Streams` consumer, so it
+keeps `UI` too.
 
 ## Non-goals
 

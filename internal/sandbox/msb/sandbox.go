@@ -74,10 +74,11 @@ type SandboxExecutor interface {
 	FS() SandboxFS
 }
 
-// SandboxStreamer runs a shell and its streaming variant in a sandbox.
+// SandboxStreamer runs a shell and its streaming variants in a sandbox.
 type SandboxStreamer interface {
 	Shell(ctx context.Context, command string, req ExecRequest) (ShellResult, error)
 	ShellStream(ctx context.Context, command string, req ExecRequest) (StreamHandle, error)
+	ExecStream(ctx context.Context, command string, args []string, req ExecRequest) (StreamHandle, error)
 }
 
 // SandboxAttacher attaches and detaches an interactive session on a sandbox.
@@ -309,6 +310,19 @@ func (s realSandbox) ShellStream(
 	return &realStreamHandle{handle: handle}, nil
 }
 
+func (s realSandbox) ExecStream(
+	ctx context.Context,
+	command string,
+	args []string,
+	req ExecRequest,
+) (StreamHandle, error) {
+	handle, err := realSandboxExecStream(s.sandbox, ctx, command, args, execOptions(req)...)
+	if err != nil {
+		return nil, err
+	}
+	return &realStreamHandle{handle: handle}, nil
+}
+
 func (s realSandbox) ExecDetached(
 	ctx context.Context,
 	cmd string,
@@ -362,6 +376,7 @@ var (
 	realSandboxShell        = (*msbSdk.Sandbox).Shell
 	realSandboxExec         = (*msbSdk.Sandbox).Exec
 	realSandboxShellStream  = (*msbSdk.Sandbox).ShellStream
+	realSandboxExecStream   = (*msbSdk.Sandbox).ExecStream
 	realSandboxExecDetached = (*msbSdk.Sandbox).ExecDetached
 	realSandboxGetJob       = (*msbSdk.Sandbox).GetJob
 	realSandboxListJobs     = (*msbSdk.Sandbox).ListJobs

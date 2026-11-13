@@ -3,6 +3,7 @@ package msb
 import (
 	"context"
 	"io"
+	"strings"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
@@ -43,6 +44,10 @@ type StreamEvent struct {
 	Kind     StreamEventKind
 	Data     []byte
 	ExitCode int
+	// Failure is a human-readable reason for a StreamEventFailed (the program
+	// never started), e.g. a missing binary or a permission error. Empty when
+	// the SDK supplied no detail.
+	Failure string
 }
 
 // StreamHandle is a live streaming exec session inside a sandbox.
@@ -129,7 +134,7 @@ func mapExecEvent(ev msbSdk.ExecEvent) (StreamEvent, bool, error) {
 	case msbSdk.ExecEventExited:
 		return StreamEvent{Kind: StreamEventExited, ExitCode: ev.ExitCode}, true, nil
 	case msbSdk.ExecEventFailed:
-		return StreamEvent{Kind: StreamEventFailed}, true, nil
+		return StreamEvent{Kind: StreamEventFailed, Failure: execFailureText(ev.Failure)}, true, nil
 	case msbSdk.ExecEventDone:
 		return StreamEvent{}, false, io.EOF
 	case msbSdk.ExecEventStarted, msbSdk.ExecEventStdinError:
@@ -142,3 +147,20 @@ func mapExecEvent(ev msbSdk.ExecEvent) (StreamEvent, bool, error) {
 }
 
 func (h *realStreamHandle) Close() error { return realStreamClose(h.handle) }
+
+// execFailureText renders an SDK exec failure for a launcher diagnostic. The
+// message is required; the errno name and the offending path are appended when
+// the runtime supplied them.
+func execFailureText(f *msbSdk.ExecFailure) string {
+	if f == nil {
+		return ""
+	}
+	text := f.Message
+	if f.ErrnoName != "" {
+		text += " (" + f.ErrnoName + ")"
+	}
+	if f.Path != "" {
+		text += ": " + f.Path
+	}
+	return strings.TrimSpace(text)
+}

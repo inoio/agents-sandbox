@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"slices"
@@ -15,11 +16,12 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
-// TestRunStartupHooksAttachesEachHook pins how a hook is run: as the default
+// TestRunStartupHooksExecutesEachHook pins how a hook is run: as the default
 // sandbox user with its home, or as root with /root when it asks for root; a
 // script with a shebang is executed directly so the kernel applies it, one
-// without is run through /bin/sh.
-func TestRunStartupHooksAttachesEachHook(t *testing.T) {
+// without is run through /bin/sh. Hooks run through the non-interactive
+// streaming exec path, so a non-TTY run still runs them.
+func TestRunStartupHooksExecutesEachHook(t *testing.T) {
 	cases := []struct {
 		name     string
 		hook     homeconfig.HookSpec
@@ -63,21 +65,33 @@ func TestRunStartupHooksAttachesEachHook(t *testing.T) {
 
 			runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{tc.hook}, &ui)
 
-			if sb.AttachUser != tc.wantUser || sb.AttachEnv["HOME"] != tc.wantHome {
-				t.Errorf("attached as %q with HOME %q, want %q with %q",
-					sb.AttachUser, sb.AttachEnv["HOME"], tc.wantUser, tc.wantHome)
+			if sb.ExecStreamUser != tc.wantUser || sb.ExecStreamEnv["HOME"] != tc.wantHome {
+				t.Errorf("executed as %q with HOME %q, want %q with %q",
+					sb.ExecStreamUser, sb.ExecStreamEnv["HOME"], tc.wantUser, tc.wantHome)
 			}
-			if sb.AttachCmd != tc.wantCmd || !slices.Equal(sb.AttachArgs, tc.wantArgs) {
-				t.Errorf("attached %q %v, want %q %v", sb.AttachCmd, sb.AttachArgs, tc.wantCmd, tc.wantArgs)
+			if sb.ExecStreamCmd != tc.wantCmd || !slices.Equal(sb.ExecStreamArgs, tc.wantArgs) {
+				t.Errorf("executed %q %v, want %q %v", sb.ExecStreamCmd, sb.ExecStreamArgs, tc.wantCmd, tc.wantArgs)
 			}
 		})
 	}
 }
 
-// TestRunStartupHooksContinuesPastAFailingHook pins that a failing hook is a
-// warning and the remaining hooks still run.
+// TestRunStartupHooksContinuesPastAFailingHook pins that a hook that cannot
+// start is a warning and the remaining hooks still run.
 func TestRunStartupHooksContinuesPastAFailingHook(t *testing.T) {
-	sb := &msbtest.MockSandbox{Name_: "vm", AttachErr: errors.New("attach failed")}
+	sb := &msbtest.MockSandbox{
+		Name_: "vm",
+		ExecStreamFn: func(_ context.Context, command string, _ []string, _ msb.ExecRequest) (msb.StreamHandle, error) {
+			if command == "/home/dev/.first.sh" {
+				return msbtest.NewScriptedStreamHandle(
+					msb.StreamEvent{Kind: msb.StreamEventFailed},
+				), nil
+			}
+			return msbtest.NewScriptedStreamHandle(
+				msb.StreamEvent{Kind: msb.StreamEventExited, ExitCode: 0},
+			), nil
+		},
+	}
 	ui := termiotest.NewTestMock(t)
 
 	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
@@ -85,11 +99,312 @@ func TestRunStartupHooksContinuesPastAFailingHook(t *testing.T) {
 		{Target: "/home/dev/.second.sh", Source: "x", HasShebang: true},
 	}, &ui)
 
-	if sb.AttachCmd != "/home/dev/.second.sh" {
-		t.Errorf("last attached hook = %q, want the second hook to run after the first failed", sb.AttachCmd)
+	if sb.ExecStreamCmd != "/home/dev/.second.sh" {
+		t.Errorf("last executed hook = %q, want the second hook to run after the first failed", sb.ExecStreamCmd)
 	}
-	if len(ui.WarnCalls) != 2 || !strings.Contains(ui.WarnCalls[0], "startup hook /home/dev/.first.sh failed") {
-		t.Errorf("warnings = %v, want one per failed hook", ui.WarnCalls)
+	if len(ui.WarnCalls) != 1 || !strings.Contains(ui.WarnCalls[0], "startup hook /home/dev/.first.sh failed") {
+		t.Errorf("warnings = %v, want one for the failed hook", ui.WarnCalls)
+	}
+}
+
+// TestRunStartupHooksWarnsWhenAHookExitsNonZero pins that a hook that runs but
+// exits non-zero is reported with its target and the failure reason (the exit
+// code and stderr), and does not stop the remaining hooks.
+func TestRunStartupHooksWarnsWhenAHookExitsNonZero(t *testing.T) {
+	sb := &msbtest.MockSandbox{
+		Name_: "vm",
+		ExecStreamFn: func(_ context.Context, command string, args []string, _ msb.ExecRequest) (msb.StreamHandle, error) {
+			if command == "/bin/sh" && slices.Equal(args, []string{"/home/dev/.first.sh"}) {
+				return msbtest.NewScriptedStreamHandle(
+					msb.StreamEvent{Kind: msb.StreamEventStderr, Data: []byte("ca import failed\n")},
+					msb.StreamEvent{Kind: msb.StreamEventExited, ExitCode: 2},
+				), nil
+			}
+			return msbtest.NewScriptedStreamHandle(
+				msb.StreamEvent{Kind: msb.StreamEventExited, ExitCode: 0},
+			), nil
+		},
+	}
+	ui := termiotest.NewTestMock(t)
+
+	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
+		{Target: "/home/dev/.first.sh", Source: "x"},
+		{Target: "/home/dev/.second.sh", Source: "x"},
+	}, &ui)
+
+	if sb.ExecStreamCmd != "/bin/sh" || !slices.Equal(sb.ExecStreamArgs, []string{"/home/dev/.second.sh"}) {
+		t.Errorf("last executed hook = %q %v, want the second hook to run after the first failed",
+			sb.ExecStreamCmd, sb.ExecStreamArgs)
+	}
+	if len(ui.WarnCalls) != 1 {
+		t.Fatalf("warnings = %v, want one for the failed hook", ui.WarnCalls)
+	}
+	for _, want := range []string{"/home/dev/.first.sh", "exit 2", "ca import failed"} {
+		if !strings.Contains(ui.WarnCalls[0], want) {
+			t.Errorf("warning %q missing %q", ui.WarnCalls[0], want)
+		}
+	}
+}
+
+// TestRunStartupHooksStreamsUnboundedHookOutput pins that a hook runs through
+// the streaming exec seam, not the collected one: the collected response is
+// capped at ~1 MiB, so a hook that emits more would be cut off and reported as
+// failed even when it exits 0. The streaming seam reports the real exit code
+// however much the hook prints. ExecErr is set to simulate the collected seam's
+// bound, so a regression to the collected path fails this test.
+func TestRunStartupHooksStreamsUnboundedHookOutput(t *testing.T) {
+	sb := &msbtest.MockSandbox{
+		Name_:   "vm",
+		ExecErr: errors.New("exec output exceeds the collected response bound"),
+		ExecStreamFn: func(_ context.Context, _ string, _ []string, _ msb.ExecRequest) (msb.StreamHandle, error) {
+			// More output than the collected seam's 1 MiB response buffer.
+			output := bytes.Repeat([]byte("x"), 2<<20)
+			return msbtest.NewScriptedStreamHandle(
+				msb.StreamEvent{Kind: msb.StreamEventStdout, Data: output},
+				msb.StreamEvent{Kind: msb.StreamEventExited, ExitCode: 0},
+			), nil
+		},
+	}
+	ui := termiotest.NewTestMock(t)
+
+	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
+		{Target: "/home/dev/.big.sh", Source: "x", HasShebang: true},
+	}, &ui)
+
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("warnings = %v, want none for a hook that exits 0 however much it prints", ui.WarnCalls)
+	}
+	if got := ui.StdOutBuffer.Len(); got != 2<<20 {
+		t.Errorf("forwarded %d bytes of hook stdout, want %d", got, 2<<20)
+	}
+}
+
+// TestRunStartupHooksWritesOutputVerbatim pins that hook output goes to the raw
+// stdout/stderr streams, not through a line logger: a chunk is not a line, so a
+// line split across two chunks stays one line and no extra newlines are added.
+func TestRunStartupHooksWritesOutputVerbatim(t *testing.T) {
+	sb := &msbtest.MockSandbox{
+		Name_: "vm",
+		ExecStreamFn: func(_ context.Context, _ string, _ []string, _ msb.ExecRequest) (msb.StreamHandle, error) {
+			return msbtest.NewScriptedStreamHandle(
+				msb.StreamEvent{Kind: msb.StreamEventStdout, Data: []byte("hel")},
+				msb.StreamEvent{Kind: msb.StreamEventStdout, Data: []byte("lo\n")},
+				msb.StreamEvent{Kind: msb.StreamEventStderr, Data: []byte("warn")},
+				msb.StreamEvent{Kind: msb.StreamEventExited, ExitCode: 0},
+			), nil
+		},
+	}
+	ui := termiotest.NewTestMock(t)
+
+	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
+		{Target: "/home/dev/.hook.sh", Source: "x", HasShebang: true},
+	}, &ui)
+
+	if got := ui.StdOutBuffer.String(); got != "hello\n" {
+		t.Errorf("stdout = %q, want %q (verbatim, no added newlines)", got, "hello\n")
+	}
+	if got := ui.StdErrBuffer.String(); got != "warn" {
+		t.Errorf("stderr = %q, want %q", got, "warn")
+	}
+}
+
+// TestRunStartupHooksBoundsRetainedStderr pins that a hook with large stderr
+// does not grow the launcher's memory for the hook's lifetime or produce an
+// unbounded failure warning: only a bounded tail of stderr is retained for the
+// reason.
+func TestRunStartupHooksBoundsRetainedStderr(t *testing.T) {
+	sb := &msbtest.MockSandbox{
+		Name_: "vm",
+		ExecStreamFn: func(_ context.Context, _ string, _ []string, _ msb.ExecRequest) (msb.StreamHandle, error) {
+			// 1 MiB of stderr, then the meaningful tail and a non-zero exit.
+			chunk := bytes.Repeat([]byte("e"), 64<<10)
+			events := make([]msb.StreamEvent, 0, 18)
+			for range 16 {
+				events = append(events, msb.StreamEvent{Kind: msb.StreamEventStderr, Data: chunk})
+			}
+			events = append(events,
+				msb.StreamEvent{Kind: msb.StreamEventStderr, Data: []byte("boom")},
+				msb.StreamEvent{Kind: msb.StreamEventExited, ExitCode: 1},
+			)
+			return msbtest.NewScriptedStreamHandle(events...), nil
+		},
+	}
+	ui := termiotest.NewTestMock(t)
+
+	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
+		{Target: "/home/dev/.big.sh", Source: "x", HasShebang: true},
+	}, &ui)
+
+	if len(ui.WarnCalls) != 1 {
+		t.Fatalf("warnings = %v, want one for the failed hook", ui.WarnCalls)
+	}
+	const prefix = "startup hook /home/dev/.big.sh failed: exit 1: "
+	if got := ui.WarnCalls[0]; len(got) > len(prefix)+stderrTailBytes {
+		t.Errorf("warning is %d bytes, want at most %d", len(got), len(prefix)+stderrTailBytes)
+	}
+	if !strings.HasSuffix(ui.WarnCalls[0], "boom") {
+		t.Errorf("warning %q does not keep the last stderr bytes", ui.WarnCalls[0])
+	}
+}
+
+// TestRunStartupHooksReportsWhyAHookCouldNotStart pins that the streaming
+// failure detail (the SDK's exec failure message) is surfaced, not just a bare
+// "could not start".
+func TestRunStartupHooksReportsWhyAHookCouldNotStart(t *testing.T) {
+	sb := &msbtest.MockSandbox{
+		Name_: "vm",
+		ExecStreamFn: func(_ context.Context, _ string, _ []string, _ msb.ExecRequest) (msb.StreamHandle, error) {
+			return msbtest.NewScriptedStreamHandle(
+				msb.StreamEvent{
+					Kind:    msb.StreamEventFailed,
+					Failure: "spawn failed (EACCES): /home/dev/.hook.sh",
+				},
+			), nil
+		},
+	}
+	ui := termiotest.NewTestMock(t)
+
+	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
+		{Target: "/home/dev/.hook.sh", Source: "x", HasShebang: true},
+	}, &ui)
+
+	if len(ui.WarnCalls) != 1 {
+		t.Fatalf("warnings = %v, want one for the failed hook", ui.WarnCalls)
+	}
+	if !strings.Contains(ui.WarnCalls[0], "spawn failed (EACCES): /home/dev/.hook.sh") {
+		t.Errorf("warning %q omits the SDK failure detail", ui.WarnCalls[0])
+	}
+}
+
+// recvErrorStreamHandle returns one error from Recv and then one event, so a
+// test can drive a caller's stream-error branch while still letting the caller
+// finish when that branch is skipped.
+type recvErrorStreamHandle struct {
+	err   error
+	event msb.StreamEvent
+	sent  bool
+}
+
+func (h *recvErrorStreamHandle) Recv(context.Context) (msb.StreamEvent, error) {
+	if !h.sent {
+		h.sent = true
+		return msb.StreamEvent{}, h.err
+	}
+	return h.event, nil
+}
+
+func (*recvErrorStreamHandle) Close() error { return nil }
+
+// TestRunStartupHooksWarnsWhenTheExecCannotStart pins that a streaming exec
+// that cannot be opened is reported with its target and the error, not
+// swallowed.
+func TestRunStartupHooksWarnsWhenTheExecCannotStart(t *testing.T) {
+	sb := &msbtest.MockSandbox{
+		Name_: "vm",
+		ExecStreamFn: func(_ context.Context, _ string, _ []string, _ msb.ExecRequest) (msb.StreamHandle, error) {
+			return nil, errors.New("exec stream refused")
+		},
+	}
+	ui := termiotest.NewTestMock(t)
+
+	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
+		{Target: "/home/dev/.hook.sh", Source: "x", HasShebang: true},
+	}, &ui)
+
+	if len(ui.WarnCalls) != 1 {
+		t.Fatalf("warnings = %v, want one for the hook that could not start", ui.WarnCalls)
+	}
+	for _, want := range []string{"/home/dev/.hook.sh", "exec stream refused"} {
+		if !strings.Contains(ui.WarnCalls[0], want) {
+			t.Errorf("warning %q missing %q", ui.WarnCalls[0], want)
+		}
+	}
+}
+
+// TestRunStartupHooksWarnsWhenTheStreamFails pins that a receive error while
+// the context is live is reported with its target and the error.
+func TestRunStartupHooksWarnsWhenTheStreamFails(t *testing.T) {
+	sb := &msbtest.MockSandbox{
+		Name_: "vm",
+		ExecStreamFn: func(_ context.Context, _ string, _ []string, _ msb.ExecRequest) (msb.StreamHandle, error) {
+			return &recvErrorStreamHandle{
+				err:   errors.New("stream broke"),
+				event: msb.StreamEvent{Kind: msb.StreamEventExited, ExitCode: 0},
+			}, nil
+		},
+	}
+	ui := termiotest.NewTestMock(t)
+
+	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
+		{Target: "/home/dev/.hook.sh", Source: "x", HasShebang: true},
+	}, &ui)
+
+	if len(ui.WarnCalls) != 1 {
+		t.Fatalf("warnings = %v, want one for the failed stream", ui.WarnCalls)
+	}
+	for _, want := range []string{"/home/dev/.hook.sh", "stream broke"} {
+		if !strings.Contains(ui.WarnCalls[0], want) {
+			t.Errorf("warning %q missing %q", ui.WarnCalls[0], want)
+		}
+	}
+}
+
+// TestRunStartupHooksStaysSilentOnACancelledStream pins that a receive that
+// fails because the context was cancelled is not reported as a hook failure.
+func TestRunStartupHooksStaysSilentOnACancelledStream(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	sb := &msbtest.MockSandbox{
+		Name_: "vm",
+		ExecStreamFn: func(_ context.Context, _ string, _ []string, _ msb.ExecRequest) (msb.StreamHandle, error) {
+			return &recvErrorStreamHandle{
+				err:   context.Canceled,
+				event: msb.StreamEvent{Kind: msb.StreamEventExited, ExitCode: 0},
+			}, nil
+		},
+	}
+	ui := termiotest.NewTestMock(t)
+
+	runStartupHooks(ctx, sb, []homeconfig.HookSpec{
+		{Target: "/home/dev/.hook.sh", Source: "x", HasShebang: true},
+	}, &ui)
+
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("warnings = %v, want none for a cancelled receive", ui.WarnCalls)
+	}
+	if ui.StdOutBuffer.Len() != 0 || ui.StdErrBuffer.Len() != 0 {
+		t.Errorf("output = %q/%q, want none", ui.StdOutBuffer.String(), ui.StdErrBuffer.String())
+	}
+}
+
+// TestExitReason pins a hook's failure reason: the exit code alone when the
+// hook produced no stderr, and the code with the retained tail otherwise.
+func TestExitReason(t *testing.T) {
+	if got := exitReason(3, ""); got != "exit 3" {
+		t.Errorf("exitReason(3, %q) = %q, want %q", "", got, "exit 3")
+	}
+	if got := exitReason(3, "boom"); got != "exit 3: boom" {
+		t.Errorf("exitReason(3, %q) = %q, want %q", "boom", got, "exit 3: boom")
+	}
+}
+
+// TestStderrTailKeepsOnlyTheLastBytes covers the bounded stderr buffer: it
+// retains at most stderrTailBytes and drops the oldest bytes first.
+func TestStderrTailKeepsOnlyTheLastBytes(t *testing.T) {
+	var tail stderrTail
+	tail.Write([]byte("old"))
+	tail.Write(bytes.Repeat([]byte("x"), stderrTailBytes))
+	tail.Write([]byte("new"))
+
+	got := tail.String()
+	if len(got) != stderrTailBytes {
+		t.Fatalf("retained %d bytes, want %d", len(got), stderrTailBytes)
+	}
+	if !strings.HasSuffix(got, "new") {
+		t.Errorf("retained stderr does not end with the last bytes")
+	}
+	if strings.Contains(got, "old") {
+		t.Errorf("retained stderr still holds bytes dropped from the front")
 	}
 }
 

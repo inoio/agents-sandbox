@@ -532,8 +532,8 @@ func TestPrepareSandboxBakesAndFingerprintsTheLoadedEnv(t *testing.T) {
 }
 
 // TestPrepareSandboxRunsStartupHook verifies that a home entry marked
-// hook: startup is executed through an interactive AttachWith as the configured
-// user (root) during startup, before the opencode daemon is ensured.
+// hook: startup is executed through a non-interactive streaming exec as the
+// configured user (root) during startup, before the opencode daemon is ensured.
 func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
@@ -617,8 +617,8 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 	}
 	defer sess.Cleanup()
 
-	if connectSb.AttachUser != "root" {
-		t.Errorf("startup hook AttachWith user = %q, want %q", connectSb.AttachUser, "root")
+	if connectSb.ExecStreamUser != "root" {
+		t.Errorf("startup hook ExecStream user = %q, want %q", connectSb.ExecStreamUser, "root")
 	}
 }
 
