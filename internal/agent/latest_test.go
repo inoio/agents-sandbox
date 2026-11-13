@@ -77,3 +77,115 @@ func TestLatestVersionFromJSONDecodeError(t *testing.T) {
 		t.Fatalf("error %v does not wrap the *json.SyntaxError cause", err)
 	}
 }
+
+func authorizeTestRequest(t *testing.T, target string) *http.Request {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, target, nil)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	return req
+}
+
+func TestAuthorizeGitHubRequestSetsBearerToken(t *testing.T) {
+	t.Setenv("GH_TOKEN", "ghp_token")
+	t.Setenv("GITHUB_TOKEN", "")
+
+	req := authorizeTestRequest(t, "https://api.github.com/repos/inoio/agents-sandbox/releases/latest")
+	authorizeGitHubRequest(req)
+
+	if got := req.Header.Get("Authorization"); got != "Bearer ghp_token" {
+		t.Errorf("Authorization = %q, want %q", got, "Bearer ghp_token")
+	}
+}
+
+func TestAuthorizeGitHubRequestLeavesOtherHostsUnauthorized(t *testing.T) {
+	t.Setenv("GH_TOKEN", "ghp_token")
+
+	req := authorizeTestRequest(t, "https://registry.npmjs.org/@anthropic-ai/claude-code/latest")
+	authorizeGitHubRequest(req)
+
+	if got := req.Header.Get("Authorization"); got != "" {
+		t.Errorf("Authorization = %q, want none for a non-GitHub host", got)
+	}
+}
+
+func TestAuthorizeGitHubRequestWithoutTokenSetsNoHeader(t *testing.T) {
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+
+	req := authorizeTestRequest(t, "https://api.github.com/repos/inoio/agents-sandbox/releases/latest")
+	authorizeGitHubRequest(req)
+
+	if got := req.Header.Get("Authorization"); got != "" {
+		t.Errorf("Authorization = %q, want none without a token", got)
+	}
+}
+
+func TestAuthorizeGitHubRequestPrefersGHToken(t *testing.T) {
+	t.Setenv("GH_TOKEN", "ghp_gh")
+	t.Setenv("GITHUB_TOKEN", "ghp_actions")
+
+	req := authorizeTestRequest(t, "https://api.github.com/repos/inoio/agents-sandbox/releases/latest")
+	authorizeGitHubRequest(req)
+
+	if got := req.Header.Get("Authorization"); got != "Bearer ghp_gh" {
+		t.Errorf("Authorization = %q, want %q", got, "Bearer ghp_gh")
+	}
+}
+
+func TestAuthorizeGitHubRequestTrimsTokenWhitespace(t *testing.T) {
+	t.Setenv("GH_TOKEN", "  ghp_token\n")
+	t.Setenv("GITHUB_TOKEN", "")
+
+	req := authorizeTestRequest(t, "https://api.github.com/repos/inoio/agents-sandbox/releases/latest")
+	authorizeGitHubRequest(req)
+
+	if got := req.Header.Get("Authorization"); got != "Bearer ghp_token" {
+		t.Errorf("Authorization = %q, want the token trimmed to %q", got, "Bearer ghp_token")
+	}
+}
+
+func TestFetchReleaseJSONAuthorizesGitHubRequests(t *testing.T) {
+	t.Setenv("GH_TOKEN", "ghp_token")
+
+	var authorization string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte(`{"version":"1.2.3"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	srvURL, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatalf("parse test server URL: %v", err)
+	}
+	origHost := githubAPIHost
+	githubAPIHost = srvURL.Host
+	t.Cleanup(func() { githubAPIHost = origHost })
+
+	if _, err := latestVersionFromJSON(context.Background(), srv.URL, "test"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if authorization != "Bearer ghp_token" {
+		t.Errorf("Authorization = %q, want %q", authorization, "Bearer ghp_token")
+	}
+}
+
+func TestLatestVersionFromJSONDoesNotSendTokenToOtherHosts(t *testing.T) {
+	t.Setenv("GH_TOKEN", "ghp_token")
+
+	authorization := "unset"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte(`{"version":"1.2.3"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	if _, err := latestVersionFromJSON(context.Background(), srv.URL, "test"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if authorization != "" {
+		t.Errorf("Authorization = %q, want none for a non-GitHub host", authorization)
+	}
+}

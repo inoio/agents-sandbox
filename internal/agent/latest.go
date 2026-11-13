@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 )
 
@@ -37,6 +39,37 @@ func latestGitHubReleaseTag(ctx context.Context, url, agentName string) (string,
 	return release.TagName, nil
 }
 
+// githubTokenEnvVars holds the environment variables a GitHub API token is read
+// from, in precedence order (GH_TOKEN wins, matching gh).
+var githubTokenEnvVars = []string{"GH_TOKEN", "GITHUB_TOKEN"}
+
+// githubToken returns the first non-empty, whitespace-trimmed GitHub API token
+// from the environment, or "" when none is set.
+func githubToken() string {
+	for _, name := range githubTokenEnvVars {
+		if token := strings.TrimSpace(os.Getenv(name)); token != "" {
+			return token
+		}
+	}
+	return ""
+}
+
+// githubAPIHost is the only host a resolved GitHub token is sent to. It is a var
+// so a test can point it at a local server.
+var githubAPIHost = "api.github.com"
+
+// authorizeGitHubRequest authenticates req with the environment's GitHub token
+// when req targets the GitHub API. Scoping to the host keeps the token off the
+// other agents' release endpoints (npm, pi.dev, opencode.ai).
+func authorizeGitHubRequest(req *http.Request) {
+	if req.URL.Host != githubAPIHost {
+		return
+	}
+	if token := githubToken(); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+}
+
 // fetchReleaseJSON decodes the JSON document at url into target, labeling
 // errors with the given agent name.
 func fetchReleaseJSON(ctx context.Context, url, agentName string, target any) error {
@@ -46,6 +79,7 @@ func fetchReleaseJSON(ctx context.Context, url, agentName string, target any) er
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "agents-sandbox")
+	authorizeGitHubRequest(req)
 	// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT,ARITHMETIC_BASE reason="a defensive request timeout is unobservable against a local test server that answers immediately"
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
