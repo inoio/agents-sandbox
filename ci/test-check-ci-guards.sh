@@ -123,30 +123,36 @@ expect "canonical fixture passes" "$good" 0 ""
 
 echo "# check-ci-guards.sh: exempt-path drift is caught"
 mut="$(new_fixture)"
-sed -i '/Formula\/\*\*/d' "$mut/.github/workflows/mutation.yml"
+perl -ni -e 'print unless m{Formula/\*\*}' "$mut/.github/workflows/mutation.yml"
 expect "mutation.yml dropping an entry" "$mut" 1 "mutation.yml"
 
 vag="$(new_fixture)"
-sed -i '/\.agents-sandbox\/\*\*/d' "$vag/.github/workflows/mutation.yml"
+perl -ni -e 'print unless m{\.agents-sandbox/\*\*}' "$vag/.github/workflows/mutation.yml"
 expect "mutation.yml dropping .agents-sandbox" "$vag" 1 "mutation.yml"
 
 cql="$(new_fixture)"
-sed -i "s|      - '.gitignore'|      - '.gitignore'\n      - 'src/**'|" "$cql/.github/workflows/codeql.yml"
+perl -pi -e "s{      - '\.gitignore'}{      - '.gitignore'\n      - 'src/**'}" "$cql/.github/workflows/codeql.yml"
 expect "codeql.yml adding an entry" "$cql" 1 "codeql.yml"
 
+# Ditto, but only in one of codeql.yml's two paths-ignore blocks: the guard must
+# compare each block, not their union (which would mask the drift).
+oneblock="$(new_fixture)"
+perl -ni -e 'if (m/\.gitignore/ && !$done++) { next } print' "$oneblock/.github/workflows/codeql.yml"
+expect "codeql.yml drifting one paths-ignore block" "$oneblock" 1 "codeql.yml"
+
 ciy="$(new_fixture)"
-sed -i 's|Formula/|Formulae/|' "$ciy/.github/workflows/ci.yml"
+perl -pi -e 's{Formula/}{Formulae/}' "$ciy/.github/workflows/ci.yml"
 expect "ci.yml regex renaming an entry" "$ciy" 1 "ci.yml"
 
 chg="$(new_fixture)"
-sed -i '/_test/d' "$chg/ci/check-changelog.sh"
+perl -ni -e 'print unless m{_test}' "$chg/ci/check-changelog.sh"
 expect "check-changelog.sh dropping the *_test.go exemption" "$chg" 1 "check-changelog.sh"
 
 # An alternative the changes regex derivation does not model must fail loudly,
 # not be silently dropped (a Makefile-only diff would otherwise read as
 # code=false and skip the integration job the spec keeps in).
 alt="$(new_fixture)"
-sed -i -e 's/\^\\\.gitignore\$/^Makefile$\|^\\\.gitignore$/' "$alt/.github/workflows/ci.yml"
+perl -pi -e 's{\^\Q\.gitignore\E\$}{^Makefile\$|^\Q\.gitignore\E\$}' "$alt/.github/workflows/ci.yml"
 expect "ci.yml regex gaining an unmodeled alternative" "$alt" 1 "unrecognized alternative"
 
 # Dropping the .gitignore clause from the presence condition must be caught by
@@ -157,12 +163,18 @@ expect "check-changelog.sh dropping the .gitignore clause" "$gcl" 1 "check-chang
 
 echo "# check-ci-guards.sh: workflow-condition invariants"
 undeclared="$(new_fixture)"
-sed -i "s/github.event_name != 'merge_group'/github.event_name != 'scheduled'/" "$undeclared/.github/workflows/ci.yml"
+perl -pi -e "s/github\.event_name != 'merge_group'/github.event_name != 'scheduled'/" "$undeclared/.github/workflows/ci.yml"
 expect "undeclared github.event_name literal" "$undeclared" 1 "not declared in on"
 
 types="$(new_fixture)"
-sed -i "s/types: \[opened, synchronize, reopened, labeled\]/types: [opened, labeled]/" "$types/.github/workflows/ci.yml"
+perl -pi -e "s/types: \[opened, synchronize, reopened, labeled\]/types: [opened, labeled]/" "$types/.github/workflows/ci.yml"
 expect "pull_request.types dropping a default" "$types" 1 "default type 'synchronize'"
+
+# `labeled` is not a pull_request default but is what opts a PR into the podman
+# integration job; dropping it must fail.
+lab="$(new_fixture)"
+perl -pi -e "s/types: \[opened, synchronize, reopened, labeled\]/types: [opened, synchronize, reopened]/" "$lab/.github/workflows/ci.yml"
+expect "pull_request.types dropping labeled" "$lab" 1 "labeled"
 
 # A block-sequence spelling lists the same defaults on following lines; it is a
 # valid workflow and must pass, not read every default as missing.

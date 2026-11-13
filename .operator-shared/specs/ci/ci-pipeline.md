@@ -13,7 +13,7 @@ read_if: Changing `.github/workflows/ci.yml`/`codeql.yml`/`fuzz.yml`, the CI tri
 
 The `integration` job (`make test-integration`, the `integration`-tagged docker-build suite, ~10 minutes uncached) is **required** and runs:
 
-1. on a `pull_request` when `needs.changes.outputs.code == 'true'` — every code-affecting PR, so the suite exercises PR code before merge. A PR touching only docs, the operator brain, the Homebrew formula, issue templates, or `.gitignore` sets `code=false`, skips the job, and reports Success.
+1. on a `pull_request` when `needs.changes.outputs.code == 'true'` — every code-affecting PR, so the suite exercises PR code before merge. A PR touching only docs, the operator brain, the Homebrew formula, issue templates, the dev VM (`.agents-sandbox/`), or `.gitignore` sets `code=false`, skips the job, and reports Success.
 2. on a `github.ref == 'refs/heads/main'` push when `needs.changes.outputs.code == 'true'` — a code-affecting push to `main`.
 3. on `startsWith(github.ref, 'refs/tags/')` — every release tag. `release` declares `needs: [lint, test, integration, integration-podman]`, so both integration jobs stay in this workflow; a second workflow would drop that gate.
 4. on `github.event_name == 'workflow_dispatch'` — a manual run.

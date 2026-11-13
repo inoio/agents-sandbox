@@ -76,10 +76,18 @@ dir_prefix_globs() {
   done <<<"$(alternation_parts "$1")"
 }
 
-# globs_from_paths_ignore FILE: every entry of the file's `paths-ignore` blocks.
+# globs_from_paths_ignore FILE: print each `paths-ignore` block's globs, blocks
+# separated by a `--block--` line. A file may hold several blocks (codeql.yml
+# declares one per trigger); the caller compares each block on its own so a
+# drift in either is caught rather than hidden by their union.
 globs_from_paths_ignore() {
   awk '
-    /^[[:space:]]*paths-ignore:[[:space:]]*$/ { in_block = 1; next }
+    /^[[:space:]]*paths-ignore:[[:space:]]*$/ {
+      if (seen) print "--block--"
+      seen = 1
+      in_block = 1
+      next
+    }
     in_block && /^[[:space:]]*-[[:space:]]*.+/ {
       line = $0
       sub(/^[[:space:]]*-[[:space:]]*/, "", line)
@@ -88,7 +96,7 @@ globs_from_paths_ignore() {
       next
     }
     { in_block = 0 }
-  ' "$1" | LC_ALL=C sort -u
+  ' "$1"
 }
 
 # globs_from_changes_regex: the exempt set encoded in ci.yml's `grep -vqE` regex.
@@ -163,19 +171,40 @@ globs_from_changelog_check() {
 
 # --- The exempt-path set must agree across all four sites. ---------------------
 
-declare -A site_globs=(
-  [ci.yml]="$(globs_from_changes_regex | LC_ALL=C sort -u)"
-  [mutation.yml]="$(globs_from_paths_ignore "$MUTATION_YML")"
-  [codeql.yml]="$(globs_from_paths_ignore "$CODEQL_YML")"
-  [check-changelog.sh]="$(globs_from_changelog_check | LC_ALL=C sort -u)"
-)
-
-for site in ci.yml mutation.yml codeql.yml check-changelog.sh; do
-  if [[ "${site_globs[$site]}" != "$canonical" ]]; then
-    report "$site: the non-code path set differs from the canonical set"
-    diff <(printf '%s\n' "$canonical") <(printf '%s\n' "${site_globs[$site]}") | sed 's/^/    /' >&2 || true
+# assert_canonical SITE GLOBS: report when a site's set differs from canonical.
+assert_canonical() {
+  local site="$1" globs="$2"
+  if [[ "$globs" == "$canonical" ]]; then
+    return
   fi
-done
+  report "$site: the non-code path set differs from the canonical set"
+  diff <(printf '%s\n' "$canonical") <(printf '%s\n' "$globs") | sed 's/^/    /' >&2 || true
+}
+
+# assert_paths_ignore_blocks SITE FILE: assert each `paths-ignore` block
+# separately, naming the block when one diverges. GitHub cannot compute the
+# lists, so every block is a site that must carry the canonical set.
+assert_paths_ignore_blocks() {
+  local site="$1" file="$2" block="" line n=0 globs
+  while IFS= read -r line; do
+    if [[ "$line" == '--block--' ]]; then
+      n=$((n + 1))
+      globs="$(printf '%s' "$block" | LC_ALL=C sort -u)"
+      assert_canonical "$site block $n" "$globs"
+      block=""
+    else
+      block+="$line"$'\n'
+    fi
+  done < <(globs_from_paths_ignore "$file")
+  n=$((n + 1))
+  globs="$(printf '%s' "$block" | LC_ALL=C sort -u)"
+  assert_canonical "$site block $n" "$globs"
+}
+
+assert_canonical ci.yml "$(globs_from_changes_regex | LC_ALL=C sort -u)"
+assert_paths_ignore_blocks mutation.yml "$MUTATION_YML"
+assert_paths_ignore_blocks codeql.yml "$CODEQL_YML"
+assert_canonical check-changelog.sh "$(globs_from_changelog_check | LC_ALL=C sort -u)"
 
 # The changelog rule's extra exemption is easy to drop by accident; keep it.
 grep -qF '_test\.go$' "$CHANGELOG_CHECK" \
@@ -232,6 +261,10 @@ if [[ -n "$types_block" ]]; then
     printf '%s\n' "$types_block" | grep -qE "(^|[^a-z_])$default_type([^a-z_]|$)" \
       || report "ci.yml: on.pull_request.types omits the default type '$default_type' (declaring types: replaces the default set)"
   done
+  # `labeled` is not a pull_request default, but it is what opts a PR into the
+  # podman integration job, so declaring types: must keep it too.
+  printf '%s\n' "$types_block" | grep -qE '(^|[^a-z_])labeled([^a-z_]|$)' \
+    || report "ci.yml: on.pull_request.types omits 'labeled', which opts a PR into the podman integration job"
 fi
 
 if [[ "$violations" -gt 0 ]]; then
