@@ -492,8 +492,11 @@ func TestReconcileResourceConfigMemoryConvergeFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected a convergence error, got nil")
 	}
-	if !strings.Contains(err.Error(), "not applied") {
-		t.Errorf("error = %v, want the not-applied wrap", err)
+	if !strings.Contains(err.Error(), "live memory change to 4096 MiB:") {
+		t.Errorf("error = %v, want the not-applied wrap naming the staged value", err)
+	}
+	if strings.Contains(err.Error(), "could not confirm") {
+		t.Errorf("error = %v, the not-applied branch must not use the unconfirmed wrap", err)
 	}
 	if errors.Unwrap(err) == nil {
 		t.Error("the convergence error must preserve its cause (a %w wrap)")
@@ -513,8 +516,11 @@ func TestReconcileResourceConfigMemoryDecreaseNotApplied(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected the decrease to be reported not applied, got nil")
 	}
-	if !strings.Contains(err.Error(), "not applied") {
-		t.Errorf("error = %v, want a 'not applied' message", err)
+	if !strings.Contains(err.Error(), "live memory change to 1024 MiB:") {
+		t.Errorf("error = %v, want the not-applied wrap naming the staged value", err)
+	}
+	if strings.Contains(err.Error(), "could not confirm") {
+		t.Errorf("error = %v, the not-applied branch must not use the unconfirmed wrap", err)
 	}
 	if len(handle.ModifiedOptions) != 1 || handle.ModifiedOptions[0].MemoryMiB != 1024 {
 		t.Errorf("modified %+v, want exactly the 1024 MiB decrease staged", handle.ModifiedOptions)

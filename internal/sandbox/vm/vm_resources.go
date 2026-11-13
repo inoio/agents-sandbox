@@ -119,9 +119,9 @@ func pollMemoryRaise(
 // reconcileResourceConfig applies requested CPUs/memory changes to an existing
 // (reused) VM via the SDK Modify API. A staged memory change is then confirmed
 // against the live limit: a raise is satisfied once the live limit reaches the
-// request, and a decrease only while the live limit stays above it (the runtime
-// never unplugs memory). An unknown or unreadable live limit is reported as
-// unconfirmed, not as not applied.
+// request, and a decrease is reported not applied while the live limit stays
+// above it (the runtime never unplugs memory). An unknown or unreadable live
+// limit is reported as unconfirmed, not as not applied.
 //
 //nolint:nilerr // Returning nil when config read fails is intentional — treat as no-op
 func reconcileResourceConfig(
