@@ -8,6 +8,7 @@ import (
 	"net"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -197,7 +198,8 @@ func (p Policy) allowsGatewayDNS() bool {
 
 // NormalizeDNSServers validates and normalizes DNS upstream resolvers. Bare IPs
 // (IPv4 or IPv6) get ":53" appended; "host:port" / "ip:port" entries are kept
-// as-is. Empty entries, a host without a port, and garbage are rejected.
+// as-is. Empty entries, a host without a port, a non-numeric or out-of-range
+// port, and garbage are rejected.
 func NormalizeDNSServers(in []string) ([]string, error) {
 	out := make([]string, 0, len(in))
 	for _, s := range in {
@@ -222,9 +224,21 @@ func NormalizeDNSServers(in []string) ([]string, error) {
 		if port == "" {
 			return nil, fmt.Errorf("invalid DNS server %q: missing port", s)
 		}
+		if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+			return nil, fmt.Errorf("invalid DNS server %q: invalid port %q", s, port)
+		}
 		out = append(out, net.JoinHostPort(host, port))
 	}
 	return out, nil
+}
+
+// Validate reports whether the policy is well-formed: known, combinable
+// profiles and DNS servers that normalize. It is the one validation both the
+// config-load path (the --network/--dns flags and the env/config decode) and the
+// VM creation path run, so an invalid policy is rejected before any VM work.
+func (p Policy) Validate() error {
+	_, err := p.Spec()
+	return err
 }
 
 // Spec converts the policy into a launcher network spec.

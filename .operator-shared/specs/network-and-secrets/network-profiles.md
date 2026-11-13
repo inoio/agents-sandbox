@@ -39,6 +39,17 @@ back on the viper key so decode cannot disagree with validation. Precedence is u
 viperconfig's derived env-key list from binding `AGENTS_SANDBOX_NETWORK_EGRESS_ALLOW`/`_DENY` (see
 [config-key registry](../configuration/config-keys.md)).
 
+## Validation runs before any VM work
+
+`Policy.Validate()` is the single well-formedness check: it normalizes the DNS servers and rejects an unknown or
+non-combinable profile. The env/config `network.dns-servers` value is validated in viperconfig at config-load
+(`validateNetworkDNSServers`), but the `--network`/`--dns` flags are resolved in `runoptions` after viper, so
+`resolveNetwork` calls `Validate()` on the resolved policy there — that is what makes `--dns garbage` fail at
+config-load (even under `--dry-run`) exactly as the env var does. `vm.EnsureProjectVM` validates once more before it
+touches the VM, so a recreate with an unapplicable policy destroys nothing: a `--dns` typo never costs the running
+sandbox. `NormalizeDNSServers` rejects a non-numeric or out-of-range port as well as an empty entry, a host without a
+port, and garbage.
+
 ## Rule order: deny carve-outs beat profile allows
 
 microsandbox evaluates `NetworkConfig.Rules` first-match-wins in list order. `Policy.Config()` therefore emits the rules

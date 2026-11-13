@@ -773,6 +773,25 @@ func TestBuildNetworkInvalid(t *testing.T) {
 	}
 }
 
+// TestBuildRejectsInvalidDNSServers pins that the --dns flag path is validated
+// at options resolution, like the env/config path: each malformed value is
+// rejected by Build before any VM work, not only at VM creation.
+func TestBuildRejectsInvalidDNSServers(t *testing.T) {
+	for _, value := range []string{"garbage", "1.1.1.1:notaport", ":53", ":99999"} {
+		t.Run(value, func(t *testing.T) {
+			configpathstest.WithMockConfigPaths(t)
+			cmd := newRunCommand()
+			if err := cmd.Flags().Set(FlagDNSServers, value); err != nil {
+				t.Fatalf("set dns: %v", err)
+			}
+			r := mustResolver(t, cmd)
+			if _, err := Build(r.Config(), cmd, &termiotest.Mock{}); err == nil {
+				t.Fatalf("Build(--dns %s) = nil error, want a rejection", value)
+			}
+		})
+	}
+}
+
 func TestBuildDNSServersFlag(t *testing.T) {
 	for _, name := range []string{"run", "shell"} {
 		t.Run(name, func(t *testing.T) {
