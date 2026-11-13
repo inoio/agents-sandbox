@@ -53,9 +53,10 @@ The BuildKit path accepts cache **import** and **export** entries (`client.Cache
 optimization only:
 
 - A cache miss never changes the produced image and never fails the build.
-- Import and export are configured separately: a PR restores an existing cache without publishing a throwaway one,
-  main push restores and refreshes the cache. A cache a PR run *creates* is keyed to a throwaway ref and is invisible
-  to main and sibling PRs, so main (a `push`) is the single writer; PRs are restore-only.
+- Import and export are configured separately: a PR (and a `workflow_dispatch`) restores an existing cache without
+  publishing one, a main push builds uncached and then exports, and a release tag neither reads nor writes. Main is the
+  single writer; every other run is restore-only, so a cache a PR run *creates* (keyed to a throwaway ref, invisible to
+  main and sibling PRs) can never be published.
 - The cache is off unless configured; a normal local build carries none.
 
 The concrete backend the CI uses is `type=registry` against GHCR
@@ -79,8 +80,10 @@ CLI flag), holding one BuildKit cache spec such as
 commas (`type=`, `ref=`, `mode=`), so the keys are deliberately not `[]string` (which would comma-split an env value).
 The spec's fields are parsed as CSV, so a value carrying a comma is quoted (`type=local,"dest=/tmp/cache,run"`); only
 that quoting is interpreted, every type and attribute value still passes through uninterpreted. Empty — the default —
-means no entry. The CI sets `image-cache-to` on a main push (the single writer) and only `image-cache-from` on a PR,
-so a PR never publishes a throwaway cache. The cache spec syntax is BuildKit's. Config-key registration (the golden
+means no entry. The CI sets `image-cache-to` only in the main-push writer job (the single writer) and
+`image-cache-from` only in the read-only `integration` job's restoring runs — a PR or a `workflow_dispatch`; a release
+tag sets neither, so it builds from scratch and a PR never publishes a throwaway cache. The cache spec syntax is
+BuildKit's. Config-key registration (the golden
 env-key list, docs) follows `../configuration/config-keys.md`.
 
 The integration suite keys each build's spec to its own cache location before handing it to BuildKit (the helper
