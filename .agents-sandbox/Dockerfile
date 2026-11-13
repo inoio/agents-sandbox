@@ -1,7 +1,7 @@
 FROM debian:forky-slim
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends bsdmainutils ca-certificates curl dnsutils git iptables ripgrep fd-find file gawk iproute2 iputils-ping jq less lz4 man-db moreutils net-tools netcat-openbsd parallel procps psmisc python3 recode rsync socat sqlite3 tar tree unzip uuid wget xz-utils yq zip zstd \
+    apt-get install -y --no-install-recommends bc bsdmainutils ca-certificates curl dnsutils git iptables ripgrep fd-find file gawk iproute2 iputils-ping jq less lz4 man-db moreutils net-tools netcat-openbsd parallel procps psmisc python3 recode rootlesskit rsync slirp4netns socat sqlite3 tar time tree unzip uuid wget xz-utils yq zip zstd \
     && rm -rf /var/lib/apt/lists/*
 
 # fd-find ships the binary as `fdfind`; expose it as `fd` too, so an agent that
