@@ -222,38 +222,40 @@ jobs:
   integration:
     name: integration (docker build)
     # A required check (see the `protect main` ruleset). Runs on a code-affecting
-    # PR (the `changes` gate skips a docs/brain-only one), a code-affecting push
-    # to main, every release tag, and manual dispatch. It deliberately does not
-    # run on a merge group: GitHub reports a skipped required check as Success,
-    # so the queue satisfies the requirement without paying the build, and the
-    # post-merge push to main is what runs and re-seeds the cache.
+    # PR (the `changes` gate skips a docs/brain-only one), every release tag, and
+    # manual dispatch — the read-only readers. The code-affecting push to main is
+    # the write-capable `integration-cache-writer` below. It deliberately does not
+    # run on a merge group: GitHub reports a skipped required check as Success, so
+    # the queue satisfies the requirement without paying the build.
+    #
+    # `packages: read` is least privilege: a reader only pulls the cache, so the
+    # `docker login` credential it saves cannot push to the shared package even
+    # when a test dependency is compromised. Only the writer job may write.
     needs: [changes]
     if: >-
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/tags/') ||
-      (github.event_name == 'pull_request' && needs.changes.outputs.code == 'true') ||
-      (github.ref == 'refs/heads/main' && needs.changes.outputs.code == 'true')
+      (github.event_name == 'pull_request' && needs.changes.outputs.code == 'true')
     permissions:
       contents: read
-      packages: write
+      packages: read
     env:
       # Authenticate the release-resolution queries the image build tests make
       # to api.github.com, so the shared runner IP is not subject to the
       # anonymous 60-requests/hour limit (see internal/agent/latest.go).
       GH_TOKEN: ${{ github.token }}
       # The runner-image BuildKit cache lives in GHCR, which has no Actions
-      # cache-budget cap. A push to main is the single writer (mode=max); every
-      # other run — a PR, a dispatch — restores it; main and a release tag build
-      # uncached, so a green validation run proves the build works from scratch.
-      # The suite keys each build's ref tag per build (keyCacheSpec), so sibling
-      # builds cannot clobber one shared tag. Credentials reach the daemon's
-      # BuildKit through the session, from the `docker login` step below.
+      # cache-budget cap. This reader job only imports it; `integration-cache-writer`
+      # is the single writer. The suite keys each build's ref tag per build
+      # (keyCacheSpec), so sibling builds cannot clobber one shared tag.
+      # Credentials reach the daemon's BuildKit through the session, from the
+      # `docker login` step below.
       #
       # A fork PR gets a read-only token with no `packages` scope: it cannot log
       # in, and an anonymous pull of the private package is a 403 that fails the
       # build, so it imports nothing and builds uncached instead.
       AGENTS_SANDBOX_IMAGE_CACHE_FROM: ${{ !(github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'type=registry,ref=ghcr.io/inoio/agents-sandbox:buildcache' || '' }}
-      AGENTS_SANDBOX_IMAGE_CACHE_TO: ${{ github.ref == 'refs/heads/main' && 'type=registry,ref=ghcr.io/inoio/agents-sandbox:buildcache,mode=max' || '' }}
+      AGENTS_SANDBOX_IMAGE_CACHE_TO: ''
       # The integration suite writes the steps each build served from the
       # imported cache here (a passing `go test` otherwise swallows the
       # streamed output), and the job prints it afterwards. Without it a silent
@@ -270,6 +272,54 @@ jobs:
         # Matches the empty `AGENTS_SANDBOX_IMAGE_CACHE_FROM` a fork PR gets: its
         # read-only token has no `packages` scope, so a login would fail here.
         if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - run: make test-integration
+      - name: Runner-image build cache report
+        if: always()
+        run: cat "$AGENTS_SANDBOX_CACHE_REPORT" 2>/dev/null || echo "no cache report"
+
+  integration-cache-writer:
+    name: integration (docker build, cache writer)
+    # The single writer of the GHCR build cache: a code-affecting push to main
+    # builds from scratch and exports the chain. It is a separate job so
+    # `packages: write` is confined here — a PR, tag, or dispatch run gets the
+    # read-only `integration` job above and cannot overwrite the shared cache.
+    # This job carries the main push's build; the required
+    # `integration (docker build)` context reports Success-on-skip there.
+    needs: [changes]
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.changes.outputs.code == 'true'
+    permissions:
+      contents: read
+      packages: write
+    env:
+      # Authenticate the release-resolution queries the image build tests make
+      # to api.github.com, so the shared runner IP is not subject to the
+      # anonymous 60-requests/hour limit (see internal/agent/latest.go).
+      GH_TOKEN: ${{ github.token }}
+      # The runner-image BuildKit cache lives in GHCR, which has no Actions
+      # cache-budget cap. This job is the single writer: a main push builds
+      # uncached, then exports the chain. The suite keys each build's ref tag per
+      # build (keyCacheSpec), so sibling builds cannot clobber one shared tag.
+      # Credentials reach the daemon's BuildKit through the session, from the
+      # `docker login` step below.
+      AGENTS_SANDBOX_IMAGE_CACHE_FROM: ''
+      AGENTS_SANDBOX_IMAGE_CACHE_TO: 'type=registry,ref=ghcr.io/inoio/agents-sandbox:buildcache,mode=max'
+      # The integration suite writes the steps each build served from the
+      # imported cache here (a passing `go test` otherwise swallows the
+      # streamed output), and the job prints it afterwards. Without it a silent
+      # cache miss is indistinguishable from a hit.
+      AGENTS_SANDBOX_CACHE_REPORT: ${{ github.workspace }}/runner-image-cache-report.txt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: .go-version
+          cache: true
+      - name: Log in to GHCR for the registry build cache
         run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - run: make test-integration
       - name: Runner-image build cache report
