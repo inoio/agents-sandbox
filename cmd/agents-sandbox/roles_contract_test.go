@@ -19,6 +19,6 @@ func TestCommandBuildersUseNarrowRoles(_ *testing.T) {
 	assertAssignable[func(*cobra.Command, termio.Logger) *cobra.Command](buildTreeCmd)
 	assertAssignable[func(termio.Logger) *cobra.Command](buildUpgradeCmd)
 	assertAssignable[func(termio.Prompter) *cobra.Command](buildImageRemoveCmd)
-	assertAssignable[func(termio.Prompter) *cobra.Command](buildVolumeRemoveCmd)
+	assertAssignable[func(volumeRemoveUI) *cobra.Command](buildVolumeRemoveCmd)
 	assertAssignable[func(purgeUI) *cobra.Command](buildSandboxRemoveCmd)
 }

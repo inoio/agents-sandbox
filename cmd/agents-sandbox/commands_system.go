@@ -458,10 +458,17 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
 	return cmd
 }
 
+// volumeRemoveUI is the role set `volume remove` needs: confirm the removal and
+// report each removed volume. It is narrower than termio.UI.
+type volumeRemoveUI interface {
+	termio.Prompter
+	termio.Logger
+}
+
 // buildVolumeRemoveCmd builds `volume remove <name>...`, which deletes home
 // volumes by name. It refuses when a project still references a volume unless
 // --force is set, and prompts unless --yes is set.
-func buildVolumeRemoveCmd(ui termio.Prompter) *cobra.Command {
+func buildVolumeRemoveCmd(ui volumeRemoveUI) *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
 		Use:     cmdRemove + " <name>...",
