@@ -276,6 +276,118 @@ func TestRunStartupHooksReportsWhyAHookCouldNotStart(t *testing.T) {
 	}
 }
 
+// recvErrorStreamHandle returns one error from Recv and then one event, so a
+// test can drive a caller's stream-error branch while still letting the caller
+// finish when that branch is skipped.
+type recvErrorStreamHandle struct {
+	err   error
+	event msb.StreamEvent
+	sent  bool
+}
+
+func (h *recvErrorStreamHandle) Recv(context.Context) (msb.StreamEvent, error) {
+	if !h.sent {
+		h.sent = true
+		return msb.StreamEvent{}, h.err
+	}
+	return h.event, nil
+}
+
+func (*recvErrorStreamHandle) Close() error { return nil }
+
+// TestRunStartupHooksWarnsWhenTheExecCannotStart pins that a streaming exec
+// that cannot be opened is reported with its target and the error, not
+// swallowed.
+func TestRunStartupHooksWarnsWhenTheExecCannotStart(t *testing.T) {
+	sb := &msbtest.MockSandbox{
+		Name_: "vm",
+		ExecStreamFn: func(_ context.Context, _ string, _ []string, _ msb.ExecRequest) (msb.StreamHandle, error) {
+			return nil, errors.New("exec stream refused")
+		},
+	}
+	ui := termiotest.NewTestMock(t)
+
+	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
+		{Target: "/home/dev/.hook.sh", Source: "x", HasShebang: true},
+	}, &ui)
+
+	if len(ui.WarnCalls) != 1 {
+		t.Fatalf("warnings = %v, want one for the hook that could not start", ui.WarnCalls)
+	}
+	for _, want := range []string{"/home/dev/.hook.sh", "exec stream refused"} {
+		if !strings.Contains(ui.WarnCalls[0], want) {
+			t.Errorf("warning %q missing %q", ui.WarnCalls[0], want)
+		}
+	}
+}
+
+// TestRunStartupHooksWarnsWhenTheStreamFails pins that a receive error while
+// the context is live is reported with its target and the error.
+func TestRunStartupHooksWarnsWhenTheStreamFails(t *testing.T) {
+	sb := &msbtest.MockSandbox{
+		Name_: "vm",
+		ExecStreamFn: func(_ context.Context, _ string, _ []string, _ msb.ExecRequest) (msb.StreamHandle, error) {
+			return &recvErrorStreamHandle{
+				err:   errors.New("stream broke"),
+				event: msb.StreamEvent{Kind: msb.StreamEventExited, ExitCode: 0},
+			}, nil
+		},
+	}
+	ui := termiotest.NewTestMock(t)
+
+	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
+		{Target: "/home/dev/.hook.sh", Source: "x", HasShebang: true},
+	}, &ui)
+
+	if len(ui.WarnCalls) != 1 {
+		t.Fatalf("warnings = %v, want one for the failed stream", ui.WarnCalls)
+	}
+	for _, want := range []string{"/home/dev/.hook.sh", "stream broke"} {
+		if !strings.Contains(ui.WarnCalls[0], want) {
+			t.Errorf("warning %q missing %q", ui.WarnCalls[0], want)
+		}
+	}
+}
+
+// TestRunStartupHooksStaysSilentOnACancelledStream pins that a receive that
+// fails because the context was cancelled is not reported as a hook failure.
+func TestRunStartupHooksStaysSilentOnACancelledStream(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	sb := &msbtest.MockSandbox{
+		Name_: "vm",
+		ExecStreamFn: func(_ context.Context, _ string, _ []string, _ msb.ExecRequest) (msb.StreamHandle, error) {
+			return &recvErrorStreamHandle{
+				err:   context.Canceled,
+				event: msb.StreamEvent{Kind: msb.StreamEventExited, ExitCode: 0},
+			}, nil
+		},
+	}
+	ui := termiotest.NewTestMock(t)
+
+	runStartupHooks(ctx, sb, []homeconfig.HookSpec{
+		{Target: "/home/dev/.hook.sh", Source: "x", HasShebang: true},
+	}, &ui)
+
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("warnings = %v, want none for a cancelled receive", ui.WarnCalls)
+	}
+	if ui.StdOutBuffer.Len() != 0 || ui.StdErrBuffer.Len() != 0 {
+		t.Errorf("output = %q/%q, want none", ui.StdOutBuffer.String(), ui.StdErrBuffer.String())
+	}
+}
+
+// TestExitReason pins a hook's failure reason: the exit code alone when the
+// hook produced no stderr, and the code with the retained tail otherwise.
+func TestExitReason(t *testing.T) {
+	if got := exitReason(3, ""); got != "exit 3" {
+		t.Errorf("exitReason(3, %q) = %q, want %q", "", got, "exit 3")
+	}
+	if got := exitReason(3, "boom"); got != "exit 3: boom" {
+		t.Errorf("exitReason(3, %q) = %q, want %q", "boom", got, "exit 3: boom")
+	}
+}
+
 // TestStderrTailKeepsOnlyTheLastBytes covers the bounded stderr buffer: it
 // retains at most stderrTailBytes and drops the oldest bytes first.
 func TestStderrTailKeepsOnlyTheLastBytes(t *testing.T) {
