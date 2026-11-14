@@ -67,6 +67,11 @@ type RunOptions struct {
 	// serves without attaching the in-VM TUI. Clients (e.g. a desktop app)
 	// connect to the published host port.
 	ServeOnly bool
+	// ServeOnlyStdinWatched reports whether an interactive stdin is watched for
+	// EOF (Ctrl-D) to stop serving. When false, only SIGINT/SIGTERM stop the
+	// serve-only run, so the connect message offers Ctrl-C instead of Ctrl-D.
+	// The CLI boundary sets it; it is never user-facing, mirroring ServeOnly.
+	ServeOnlyStdinWatched bool
 	// Ports are user-published ports: guest ports reachable from the host
 	// loopback. Empty by default; set via the ports config key, the
 	// AGENTS_SANDBOX_PORTS env var, or --port.

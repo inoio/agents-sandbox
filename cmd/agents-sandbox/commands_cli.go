@@ -157,7 +157,9 @@ func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 
 		ctx := cmd.Context()
 		if opts.ServeOnly {
-			ctx, _ = serveOnlyContext(ctx)
+			var stdin io.Reader
+			opts, stdin = withServeOnlyStdin(opts)
+			ctx, _ = serveOnlyContext(ctx, stdin)
 		}
 		mode := runoptions.ResolveMode(cmd)
 		exit, err := runStartupStages(ctx, cmd, mode, opts, ui)
@@ -280,14 +282,25 @@ var serveOnlyStdinReader = func() io.Reader {
 	return nil
 }
 
+// withServeOnlyStdin resolves the stdin reader the serve-only context watches
+// for EOF (Ctrl-D) and records on opts whether it is watched, so the connect
+// message can offer a stop key that works: Ctrl-D when watched, else Ctrl-C. A
+// nil reader is a non-terminal stdin (serveOnlyStdinReader's contract).
+func withServeOnlyStdin(opts options.RunOptions) (options.RunOptions, io.Reader) {
+	stdin := serveOnlyStdinReader()
+	opts.ServeOnlyStdinWatched = stdin != nil
+	return opts, stdin
+}
+
 // serveOnlyContext builds a cancellable context for the serve-only path.
-// It wires SIGINT/SIGTERM — and, for an interactive stdin, EOF (Ctrl-D) — to
+// It wires SIGINT/SIGTERM — and, when stdin is non-nil, EOF (Ctrl-D) — to
 // cancel the context, so runServeOnly can exit cleanly and trigger proper
-// teardown (lease release, keeper cancel, reaping, exit code 0). A non-terminal
-// stdin is not watched: it relies on SIGINT/SIGTERM for shutdown.
-func serveOnlyContext(base context.Context) (context.Context, func()) {
+// teardown (lease release, keeper cancel, reaping, exit code 0). A nil stdin
+// (a non-terminal, per serveOnlyStdinReader) is not watched: it relies on
+// SIGINT/SIGTERM for shutdown.
+func serveOnlyContext(base context.Context, stdin io.Reader) (context.Context, func()) {
 	ctx, stop := signal.NotifyContext(base, os.Interrupt, syscall.SIGTERM)
-	if stdin := serveOnlyStdinReader(); stdin != nil {
+	if stdin != nil {
 		go func() {
 			_, _ = io.Copy(io.Discard, stdin)
 			// Ctrl-D reaches the same teardown as a signal.
