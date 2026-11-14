@@ -19,7 +19,9 @@ through the merge queue, and the two side effects that commonly stall one.
    gh api graphql -f query='mutation($id:ID!){ enqueuePullRequest(input:{pullRequestId:$id}){ mergeQueueEntry { position } } }' -f id="$id"
    ```
 
-   `scripts/enqueue-pr.sh <n>` does the wait-and-enqueue in one call.
+   `scripts/enqueue-pr.sh <n>` does the wait-and-enqueue in one call, and refuses
+   (non-zero) a PR that has merge conflicts, since a conflicted PR runs no checks
+   and the queue will eject it.
 3. The queue rebuilds the PR on the current `main` and re-runs the required checks there, so a PR
    that only passed against a stale base is rejected. `integration` is skipped on the queue ref (a
    skipped required check reports Success), so the queue does not pay the image build.

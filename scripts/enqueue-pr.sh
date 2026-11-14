@@ -16,8 +16,8 @@
 #   enqueue-pr.sh <PR_NUMBER>
 #
 # Exit status: 0 when the PR is already merged or was enqueued, 1 when the PR's
-# checks failed, the PR was closed, the enqueue request failed, or the PR was
-# closed while waiting, 2 on a usage error.
+# checks failed, the PR has merge conflicts, the PR was closed, the enqueue
+# request failed, or the PR was closed while waiting, 2 on a usage error.
 
 set -euo pipefail
 
@@ -37,13 +37,30 @@ if [[ ! "$pr" =~ ^[1-9][0-9]*$ ]]; then
   exit 2
 fi
 
+# GitHub reports a merge conflict as `mergeable: CONFLICTING` / `mergeStateStatus:
+# DIRTY`. A conflicted PR runs no checks and the merge queue ejects it, so refuse
+# it here rather than waiting for checks that never arrive and reporting a queue
+# entry that cannot merge.
+refuse_if_conflicted() {
+  local state
+  state="$(gh pr view "$pr" --json mergeable,mergeStateStatus -q '.mergeable + " " + .mergeStateStatus' 2>/dev/null || true)"
+  case "$state" in
+    CONFLICTING*|*DIRTY)
+      printf 'enqueue-pr: PR #%s has merge conflicts; rebase it before enqueueing\n' "$pr" >&2
+      return 1
+      ;;
+  esac
+}
+
 # `gh pr checks` exits non-zero both when a check failed and when no checks are
 # reported yet (a push GitHub has not registered). Wait the latter out so a
 # freshly pushed PR is not mistaken for a failure; any other result returns at
-# once, so a real failure still reaches the watch below.
+# once, so a real failure still reaches the watch below. A conflict that appears
+# while waiting aborts at once — its checks will never report.
 wait_for_checks() {
   local attempt result
   for ((attempt = 0; attempt < 30; attempt++)); do
+    refuse_if_conflicted || return 1
     if result="$(gh pr checks "$pr" 2>&1)"; then return 0; fi
     [[ "$result" == *"no checks reported"* ]] || return 0
     sleep "$ENQUEUE_PR_RETRY_SECONDS"
@@ -55,6 +72,7 @@ wait_for_checks() {
 # the helper's output — it is meant to be read as a few lines — and classify the
 # non-zero exit by the PR's state: a merged or closed PR will never report again.
 watch_checks() {
+  refuse_if_conflicted || return 1
   wait_for_checks
   local status=0
   gh pr checks "$pr" --watch --fail-fast >/dev/null 2>&1 || status=$?
@@ -118,6 +136,10 @@ fi
 
 printf 'enqueue-pr: PR #%s: waiting for checks\n' "$pr"
 watch_checks
+
+# A conflict can appear while the checks run (another PR merged first); refuse it
+# before the mutation rather than enqueueing an entry the queue will eject.
+refuse_if_conflicted || exit 1
 
 printf 'enqueue-pr: PR #%s: enqueueing\n' "$pr"
 mutation='mutation($id:ID!){ enqueuePullRequest(input:{pullRequestId:$id}){ mergeQueueEntry { position } } }'

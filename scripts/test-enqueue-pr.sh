@@ -147,7 +147,7 @@ unset GH_CHECKS_EXIT
 
 echo "# enqueue-pr.sh (closed while waiting)"
 export GH_CHECKS_EXIT=1
-run_script '[{"state":"OPEN","id":"PR_5"},{"state":"CLOSED","id":"PR_5"}]' 42
+run_script '[{"state":"OPEN","id":"PR_5"},{"state":"OPEN","id":"PR_5"},{"state":"OPEN","id":"PR_5"},{"state":"CLOSED","id":"PR_5"}]' 42
 if [[ "$status" -ne 0 ]]; then ok "closed during the watch exits non-zero"; else bad "closed during the watch exits non-zero"; fi
 assert_contains "reports the PR is closed" "$err" "closed while waiting"
 assert_not_contains "does not enqueue a closed PR" "$(argv)" "api graphql"
@@ -158,6 +158,13 @@ run_script '{"state":"CLOSED","id":"PR_6"}' 42
 if [[ "$status" -ne 0 ]]; then ok "a closed PR exits non-zero"; else bad "a closed PR exits non-zero"; fi
 assert_contains "says the PR is closed" "$err" "PR #42 is closed"
 assert_not_contains "does not watch a closed PR" "$(argv)" "pr checks"
+
+echo "# enqueue-pr.sh (merge conflict)"
+run_script '{"state":"OPEN","id":"PR_9","mergeable":"CONFLICTING","mergeStateStatus":"DIRTY"}' 42
+if [[ "$status" -ne 0 ]]; then ok "a conflicted PR exits non-zero"; else bad "a conflicted PR exits non-zero"; fi
+assert_contains "names the conflict" "$err" "merge conflicts"
+assert_not_contains "does not enqueue a conflicted PR" "$(argv)" "api graphql"
+assert_not_contains "does not watch a conflicted PR" "$(argv)" "pr checks"
 
 echo "# enqueue-pr.sh (enqueue fails)"
 export GH_ENQUEUE_EXIT=1
