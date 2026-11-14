@@ -218,10 +218,11 @@ jobs:
     # throwaway ref, where it could only be noise.
     needs: [changes]
     if: >-
+      !cancelled() &&
       github.event_name != 'merge_group' &&
       (github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/tags/') ||
-      needs.changes.outputs.code == 'true')
+      needs.changes.outputs.code != 'false')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -262,9 +263,10 @@ jobs:
     # when a test dependency is compromised. Only the writer job may write.
     needs: [changes]
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      !cancelled() &&
+      (github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/tags/') ||
-      (github.event_name == 'pull_request' && needs.changes.outputs.code == 'true')
+      (github.event_name == 'pull_request' && needs.changes.outputs.code != 'false'))
     permissions:
       contents: read
       packages: read
@@ -317,9 +319,10 @@ jobs:
     # `integration (docker build)` context reports Success-on-skip there.
     needs: [changes]
     if: >-
+      !cancelled() &&
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
-      needs.changes.outputs.code == 'true'
+      needs.changes.outputs.code != 'false'
     permissions:
       contents: read
       packages: write
