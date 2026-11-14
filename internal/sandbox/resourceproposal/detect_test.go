@@ -23,14 +23,13 @@ import (
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
-// The msb side satisfies MemoryReads, so a caller can hand its sandbox or
-// sandbox handle to DetectAndOfferMemoryRaise. Machine-checked here rather than
-// asserted only in prose; it lives in the test package so the production
+// The msb side satisfies msb.SandboxObserver, so a caller can hand its sandbox
+// or sandbox handle to DetectAndOfferMemoryRaise. Machine-checked here rather
+// than asserted only in prose; it lives in the test package so the production
 // resourceproposal package keeps depending on the abstraction, not on msb.
 var (
-	_ MemoryReads = msb.SandboxObserver(nil)
-	_ MemoryReads = msb.Sandbox(nil)
-	_ MemoryReads = msb.SandboxHandle(nil)
+	_ msb.SandboxObserver = msb.Sandbox(nil)
+	_ msb.SandboxObserver = msb.SandboxHandle(nil)
 )
 
 // detectKey is the project/agent key the shared-core tests detect for.
@@ -86,7 +85,7 @@ func readDetectMarker(t *testing.T, k state.Key) *state.ResourcePressureState {
 // the persisted memory setting.
 func detectRun(
 	t *testing.T,
-	r MemoryReads,
+	r msb.SandboxObserver,
 	marker *state.ResourcePressureState,
 	currentMiB, bootMaxMiB uint32,
 	witnessedHeadroomTrip bool,

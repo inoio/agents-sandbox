@@ -400,8 +400,13 @@ func (b *boundedBuffer) Write(p []byte) (int, error) {
 // Guard makes the run verify every later read of the project layer against
 // the bytes this projection was computed from, with the project config dir as
 // the root under which no other file may be read.
-func Guard(projection Projection, projectConfigDir string) func() {
-	return projectguard.Install(withResolved(projectConfigDir), projection.reads)
+//
+// The guard's lifetime is the whole process: it is installed from a command's
+// PersistentPreRunE, before the command body performs the guarded reads, so a
+// caller cannot restore it around its own work. The reset is owned by execute
+// in cmd/agents-sandbox/cli.go.
+func Guard(projection Projection, projectConfigDir string) {
+	projectguard.Install(withResolved(projectConfigDir), projection.reads)
 }
 
 // guestWritable reports whether path lies inside one of the guest-writable

@@ -39,7 +39,7 @@ var (
 func offerMemoryRaiseAfterAttach(
 	ctx context.Context,
 	k state.Key,
-	sb resourceproposal.MemoryReads,
+	sb msb.SandboxObserver,
 	summary pressureSummary,
 	opts options.RunOptions,
 	ui termio.UI,
