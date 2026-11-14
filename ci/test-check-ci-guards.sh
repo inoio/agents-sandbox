@@ -428,11 +428,17 @@ expect "changes hiding a failed diff behind || true" "$swallow" 1 "hides a faile
 
 # A code consumer back to the old `== 'true'`: a skipped `changes` job emits an
 # empty output, so `== 'true'` skips the build the fail-closed gate should run.
-# The reader now carries the token in both its release-push and pull_request
-# clauses, so the mutation reverts every occurrence.
+# Target `vulncheck`: it carries the token only in its own whole-job clause (the
+# `integration` job now carries it in two clauses, so a block-level check cannot
+# see a single-clause revert there), which makes this fixture pin the pre-existing
+# whole-block `code`-consumer loop alone, not the new release-clause check.
 consumer="$(new_fixture)"
-perl -pi -e "s{needs\.changes\.outputs\.code != 'false'}{needs.changes.outputs.code == 'true'}g" "$consumer/.github/workflows/ci.yml"
-expect "integration gating on code == 'true'" "$consumer" 1 "outputs.code != 'false'"
+perl -pi -e '
+  if (/^  vulncheck:$/) { $in = 1; next }
+  if ($in && /^  [A-Za-z0-9_-]+:$/) { $in = 0 }
+  s{needs\.changes\.outputs\.code != \x27false\x27}{needs.changes.outputs.code == \x27true\x27} if $in;
+' "$consumer/.github/workflows/ci.yml"
+expect "a code consumer gating on code == 'true'" "$consumer" 1 "outputs.code != 'false'"
 
 # A job dropping its `needs: [changes]` no longer waits on the gate.
 noneeds="$(new_fixture)"
@@ -483,6 +489,17 @@ expect "on.push.branches dropping release/*" "$norpush" 1 "release/*"
 notagguard="$(new_fixture)"
 perl -0pi -e 's/\n  tag-guard:\n.*?(?=\n  release:\n)//s' "$notagguard/.github/workflows/ci.yml"
 expect "deleting the tag-guard job" "$notagguard" 1 "the 'tag-guard' job is missing"
+
+# Keeping the job but widening its `if:` beyond a tag makes the guard run on
+# things that are not releases while a release tag slips past it. The job stays,
+# so this pins the token assertion inside the block, not the missing-job branch.
+notagtoken="$(new_fixture)"
+perl -pi -e '
+  if (/^  tag-guard:$/) { $in = 1; next }
+  if ($in && /^  [A-Za-z0-9_-]+:$/) { $in = 0 }
+  s{if: startsWith\(github\.ref, \x27refs/tags/\x27\)}{if: true} if $in;
+' "$notagtoken/.github/workflows/ci.yml"
+expect "tag-guard if: dropping the tag gate" "$notagtoken" 1 "startsWith(github.ref, 'refs/tags/')"
 
 # Leaving tag-guard out of release.needs lets the release start before the guard
 # has proven the tag's ancestry.
