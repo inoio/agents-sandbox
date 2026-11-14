@@ -60,7 +60,6 @@ of every deprecation currently in force.
 | `OPENCODE_SANDBOX_*` env prefix | `AGENTS_SANDBOX_*` | 0.8.0 |
 | `sandbox list --names` | global `-q`/`--quiet` | 0.8.0 |
 | `prune --age` / `-a` | `--older-than` | 0.8.0 |
-| `--opencode-version` | `--agent-version` | 0.7.0 |
 | `volume migrate`/`reset`/`edit` `--rebuild` (restored no-op) | run `agents-sandbox build` first | 0.8.0 |
 
 Eligibility is a floor, not a promise; a removal only lands in a minor release,

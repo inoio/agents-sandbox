@@ -120,7 +120,7 @@ targets.
 - the `OPENCODE_SANDBOX_*` environment-variable prefix → `AGENTS_SANDBOX_*`
 - `sandbox list --names` → the global `-q` / `--quiet`
 - `prune --age` (and `-a`) → `--older-than`
-- `--opencode-version` → `--agent-version`
+- `--opencode-version` → `--agent-version` (the alias was removed in 0.7.0)
 - `volume migrate|reset|edit --rebuild` → run `agents-sandbox build` first
 
 One behaviour changed rather than being aliased: `prune` and its `image`,
