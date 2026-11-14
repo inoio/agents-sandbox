@@ -59,20 +59,22 @@ dispatch one (`gh workflow run fuzz.yml -f fuzztime=15m`) and wait for it. It ru
 fuzzed parsers, needs no VM or docker, and nothing is gated on it: a red run means a crasher to fix and commit as a
 corpus seed before tagging.
 
-`make test-integration` builds a real runner image and needs a normal host docker daemon;
-microsandbox's egress-inspection CA breaks in-image downloads, so it does not run inside the
-agents-sandbox VM. Mark it a host-only step for the maintainer; the tag-triggered CI runs it before
-the release job.
+`make test-integration` and `make test-msb` are host-only steps. The integration suite builds a real
+runner image and needs a normal host docker daemon (microsandbox's egress-inspection CA breaks
+in-image downloads, so it does not run inside the agents-sandbox VM); the `test-msb` harness smoke
+suite starts every agent to its TUI in a real VM and needs KVM, a docker daemon, and network. Run both
+on the host; the tag-triggered CI runs the integration suite before the release job.
 
-Run `make mutation` and triage what it reports. It is on demand and never a gate: by default it
-mutates the whole module but only the lines changed since the last release tag, so it covers exactly
-this release. Every LIVED mutant is closed one of two ways — strengthen the test so the mutant now
-fails, or record the reason in the source next to the mutant with `// gomutants:disable <TYPE>
-reason="..."`. Commit the strengthened tests locally; the step-6 PR carries them and the tag lands on
-the merged result. This is the one write in steps 1-4 — nothing reaches a remote until step 5.
+The advisory `mutation` workflow already sweeps each code change at merge time, so a release-time
+sweep is optional. Run `make mutation` only when you want a cross-PR view; it is never a gate. By
+default it mutates the whole module but only the lines changed since the last release tag. Triage any
+LIVED mutant — strengthen the test so the mutant now fails, or record the reason in the source next to
+the mutant with `// gomutants:disable <TYPE> reason="..."` — and leave one you do not take on as `#268`
+debt, not a release blocker. If you do strengthen tests, that is the one write in steps 1-4: nothing
+reaches a remote until step 5.
 
-Completion: `make check` green, mutation survivors triaged, and the host-only integration step noted
-for the maintainer.
+Completion: `make check` green, the last `main` fuzz run green, and the host-only integration and
+harness-smoke steps run or noted for the maintainer.
 
 ### 3. Choose a version
 
