@@ -172,23 +172,18 @@ func serveOnlyMessage(a agent.Resolved, port string, deferred bool) string {
 		ports.ServeOnlyBindAddr, port, authHint)
 }
 
-// runServeOnly keeps the VM alive and blocks until ctx is done (CTRL-D or
-// SIGINT), without attaching an in-VM TUI. It holds the VM via a keeper exec so
-// the msb idle timeout does not stop it while serving.
+// runServeOnly prints the connect message and keeps the VM alive, blocking
+// until ctx is done (CTRL-D or SIGINT), without attaching an in-VM TUI. It
+// holds the VM via a keeper exec so the msb idle timeout does not stop it while
+// serving.
 func runServeOnly(
 	ctx context.Context,
 	a agent.Resolved,
 	sb msb.SandboxExecutor,
 	ui termio.Logger,
 	hostPort int,
-	deferred bool,
 ) error {
-	message := serveOnlyMessage(a, strconv.Itoa(hostPort), deferred)
-	if deferred {
-		ui.Warnf("%s", message)
-	} else {
-		ui.Infof("%s", message)
-	}
+	ui.Infof("%s", serveOnlyMessage(a, strconv.Itoa(hostPort), false))
 	keeperCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	keeperDone := keepVMAlive(keeperCtx, sb)
@@ -312,6 +307,13 @@ func serveOnlyShouldReap(sessionErr error) bool {
 // runServeOnlySession supplies the serve-only payload around the shared client
 // session lifecycle: hold the VM (keeper exec) until ctx is done, then report a
 // clean exit.
+//
+// A deferred keep has no reachable serve binding, so nothing is served: it
+// reports the unreachability and returns without taking a client lease or
+// running the reaper. The last-client quiescence wait starts its own keeper exec
+// (waitQuiescent), which would hold the VM and defeat the warning's own remedy
+// ("stop the attached clients and re-run to recreate the VM"); the VM idles out
+// on its own instead.
 func runServeOnlySession(
 	ctx context.Context,
 	a agent.Resolved,
@@ -322,6 +324,10 @@ func runServeOnlySession(
 	hostPort int,
 	deferred bool,
 ) error {
+	if deferred {
+		ui.Warnf("%s", serveOnlyMessage(a, strconv.Itoa(hostPort), true))
+		return nil
+	}
 	sessionErr := withClientSession(
 		ctx,
 		k,
@@ -331,7 +337,7 @@ func runServeOnlySession(
 		serveOnlyShouldReap,
 		a,
 		func(a agent.Resolved) error {
-			return runServeOnly(ctx, a, sb, ui, hostPort, deferred)
+			return runServeOnly(ctx, a, sb, ui, hostPort)
 		},
 	)
 	if !serveOnlyShouldReap(sessionErr) {

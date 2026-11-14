@@ -144,7 +144,9 @@ opener alongside; `shell` attaches a plain login shell. Under `--serve-only` the
 holds the VM until EOF/SIGINT/SIGTERM (`runServeOnlySession`); both flows hold the client lease through
 `withClientSession`, which releases it before the last-client reap. A keep with no reachable serve binding
 (`reconfigDecision.ServePortDeferred`) makes `serveOnlyMessage` state the agent server is unreachable and withhold the
-connect URL until the next recreate. Under `--dry-run-vm` it prints the would-start line and returns.
+connect URL until the next recreate. A deferred keep takes no client lease and runs no reaper — the last-client
+quiescence wait would start its own keeper and hold the VM — and returns cleanly, so its own remedy (stop the attached
+clients and re-run to recreate) stays reachable. Under `--dry-run-vm` it prints the would-start line and returns.
 
 ## Cross-stage authorities
 

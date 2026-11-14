@@ -281,7 +281,7 @@ func TestRunServeOnlyBlocksUntilCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	got := make(chan error, 1)
 	ui := &termiotest.Mock{}
-	go func() { got <- runServeOnly(ctx, opencodeResolved(t), sb, ui, 4096, false) }()
+	go func() { got <- runServeOnly(ctx, opencodeResolved(t), sb, ui, 4096) }()
 	cancel()
 	select {
 	case err := <-got:
@@ -785,6 +785,72 @@ func TestRunServeOnlyDefersChangedPort(t *testing.T) {
 			t.Errorf("deferred serve-only must not print a connect URL, got %v", ui.InfoCalls)
 			break
 		}
+	}
+}
+
+// TestRunServeOnlyDeferredReturnsCleanly pins that a deferred keep ends the
+// serve-only run on its own with a clean exit (#677). A deferred keep has no
+// reachable serve binding, so it must neither start a VM keeper nor run the
+// last-client reaper — the reaper's quiescence wait starts its own keeper and
+// holds the VM, defeating the warning's own remedy ("stop the attached clients
+// and re-run to recreate"). It uses the production default reap policy and a
+// resolved agent with session-status endpoints, plus a busy session, so the
+// reaper's keeper/block is reachable if the deferred path takes the client
+// session path.
+func TestRunServeOnlyDeferredReturnsCleanly(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
+	var execCalls []string
+	sb := &msbtest.MockSandbox{
+		Name_:     "test-vm",
+		ExecCalls: &execCalls,
+		ShellOut: map[string]msb.ShellResult{
+			"curl -sf http://127.0.0.1:4096/session/status": msbtest.NewTestResult(
+				true,
+				0,
+				`{"s1":{"type":"busy"}}`,
+				"",
+				nil,
+			),
+		},
+	}
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{
+			sb:                sb,
+			serveHostPort:     4099,
+			servePortDeferred: true,
+		}, nil
+	}
+	defer func() { prepareSandbox = orig }()
+
+	// No cancel: a deferred serve-only must return without one.
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(
+			context.Background(),
+			resolvedRunOptions(t, options.RunOptions{Agent: "opencode", ServeOnly: true, ReapPolicy: options.NewReapPolicy(false, 5)}),
+			options.ModeRun,
+			ui,
+		)
+	}()
+
+	var err error
+	select {
+	case err = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("deferred serve-only Run blocked instead of returning")
+	}
+	if err != nil {
+		t.Fatalf("Run = %v, want a clean nil exit", err)
+	}
+	for _, call := range execCalls {
+		if strings.HasPrefix(call, "sleep ") {
+			t.Errorf("deferred serve-only started a VM keeper (%q); it must not hold the VM", call)
+		}
+	}
+	if got := state.CountActiveClients(state.Key{}); got != 0 {
+		t.Errorf("CountActiveClients = %d, want 0 after the deferred run returns", got)
 	}
 }
 
@@ -1348,7 +1414,8 @@ func TestWithClientSessionReleasesLeaseOnPanic(t *testing.T) {
 
 // TestServeOnlyShouldReap pins the serve-only predicate directly, including the
 // nil clean-exit case the runServeOnlySession path cannot reach: runServeOnly
-// always returns its ctx.Err(), so no session error observed through it is nil.
+// always returns its ctx.Err(), so no session error observed through it is nil,
+// and the deferred path returns without consulting the predicate.
 func TestServeOnlyShouldReap(t *testing.T) {
 	cases := []struct {
 		name       string
