@@ -12,321 +12,325 @@ emptied at the next release.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-14
+
 ### Added
 
-- `state repair` quarantines a corrupt launcher-global `state.yaml` by renaming it to `state.yaml.corrupt-<timestamp>`,
-  so update checks, the runtime migration, and identity adoption are no longer blocked until manual deletion. The
-  parse error names the command. See `docs/commands.md` (#332).
-- State files carry a `schema:` version. A version of agents-sandbox refuses to change a state file written by a newer
-  version, instead of erasing fields it does not know on its next write (#337).
-- Agents: a built-in `hermes` profile (Hermes Agent). It installs through the official installer at the pinned
-  `--agent-version` release tag (`v$HERMES_VERSION`), which clones the checkout and provisions its own Python and Node
-  tool store under `/opt/agents-sandbox/hermes-home` (outside the `/home/dev` home volume), and publishes a launcher shim
-  into `/opt/agents-sandbox/bin` that keeps user state in `$HERMES_HOME` (`/home/dev/.hermes`) while linking the tool
-  store, uv cache, and dependency environments from the image, so a fresh home volume starts without reinstalling
-  dependencies. It runs interactively like `pi` and `claude-code`, so `--worktree` and `--serve-only` are rejected;
-  snippet config merge reads `config*.yaml` from the `hermes/` launcher config dirs and writes
-  `~/.hermes/config.yaml`, the host drop-in copies only `~/.hermes/config.yaml` (never `.env`), and unpinned
-  builds resolve the latest release from its GitHub releases endpoint. Merged configs whose target file is YAML are now
-  written and compared as YAML instead of JSON.
-- Runner image: an `ImageSpec.OwnsToolTree` flag marks that an agent writes into its tool tree, so the
-  runner's tool-tree `COPY` carries `--chown=dev:dev` and hands the tree to its `dev` user at copy time (no separate
-  chown layer, so the tree is recorded once). Only `hermes` declares paths: it writes its dependency ledger and bytecode
-  markers into its own installation at runtime and git rejects a checkout owned by another user.
-- Runner image: an `ImageSpec.RuntimeLibs` field lets an agent declare the shared libraries its provisioned runtime links.
-  The runner resolves each with `ldconfig` in the final stage (after your Dockerfile body, glibc-only), locating `ldconfig`
-  from `PATH` and the standard sbin directories so a base that narrows `PATH` still verifies it, and fails the build naming
-  the library, so a custom base that lacks one fails at build time instead of when the agent launches. Only `hermes`
-  declares one — `libatomic.so.1`, linked by its provisioned Node.js on glibc — and the embedded managed base now installs
-  `libatomic1`, which the discarded agent stage could not supply.
-- CI: `main` merges through a **merge queue**. A queued PR is built on top of the current `main` plus the pull requests
-  ahead of it, and the required checks — `lint`, `test`, `race`, `deadcode` — run on that combined tree before it
-  merges, so two independently-green PRs can no longer combine into a broken `main`. `race` and `deadcode` are now
-  required and always run, since a gated required check would report success without running; the `integration` suites
-  still run after the merge. See `CONTRIBUTING.md`.
-- `sandbox compact [name]` merges the sealed copy-on-write disk layers of project VMs (`--dry-run`, `--disk`,
-  `--root-only`, `--layers N`, `--format json`). It is opt-in only and never runs on the prune path; named volumes such
-  as the home volume are not compacted. See `docs/commands.md`.
-- Agent: `codex` runs OpenAI's Codex CLI (`--agent codex`), installed from its GitHub release package, with upgrade
-  checks via GitHub releases. Codex's own command sandbox is off (`danger-full-access`), since the VM isolates
-  it. `~/.codex/config.toml` is provisioned from the host. You log in inside the VM, through
-  the host browser or with a device code (#107).
-- Config snippets: TOML snippets (`.toml`) are merged, and an agent whose config file is TOML gets its merged config
-  written as TOML. codex merges `config*.toml` snippets from its `codex/` config dir into `~/.codex/config.toml` (#107).
-- CI: an advisory `mutation` workflow sweeps every code-changing PR's changeset with gomutants (docs-only PRs are
-  filtered out): each surviving mutant lands as an inline `::warning::` on the diff, a sticky comment carries the totals
-  and the full survivor list, and a `mutation-report` artifact holds the complete report. It is never a required check or
-  a release prerequisite, because gomutants has no pass/fail threshold and triaging a survivor is human judgement. See
-  `CONTRIBUTING.md`.
-- Links that an agent opens inside the VM (`xdg-open`, `x-www-browser`, `sensible-browser`, `$BROWSER`) now open in
-  the host's browser. A shim in the runner image hands each link to the attached launcher through the home volume, so
-  it also works with `network.profile: none`; the launcher opens only allowlisted schemes (`http`, `https`, `mailto`,
-  editor/app links) and refuses `file:` and loopback URLs. Browser logins that wait for a callback inside the VM
-  (Claude Code, pi, opencode/opencode2 provider and MCP server logins) complete on the host: while the login is open,
-  the launcher listens on the callback port on the host's loopback and replays the browser's callback inside the VM.
-  An agent's redirect back to that same port (Codex's `/success` page) is passed on to the agent too.
-  On by default; turn it off with `open-links: false`,
-  `AGENTS_SANDBOX_OPEN_LINKS=false`, or `--open-links=false`. The runner image rebuilds once to install the shim; a
-  custom runner base must now provide `curl`, which the image build verifies.
-- `prune` (and its `storage prune` alias) reclaims unused runtime RAM — the published branch/snapshot memory backings —
-  as a fourth phase under the same `--older-than` threshold, and surfaces the native image-prune report: the images it
-  skipped because a live sandbox holds them and the bytes it reclaimed. Byte counts the runtime cannot measure render as
-  unknown (`-` in the human output, `null` in `--format json`), never `0`. The runtime-memory phase honors `--dry-run`
-  through the runtime's own preview flag (#156).
+- Project config is approved before it is used. agents-sandbox now asks before it uses a project's
+  `.agents-sandbox/` — the config file, `env`, the secret files (each secret's destination, never its
+  value), the agent config directories, the `Dockerfile`, and the files `home:` copies — and uses them
+  only after you approve them for that checkout. Every file is re-checked against the approved bytes
+  when it is used, so a run stops before it starts the sandbox if one changed after approval and asks
+  again next run; without a terminal the run refuses to start (`--yes` never approves), and other
+  commands warn and run without the project config. Existing projects are asked once on their next run
+  (#229).
+- The sandbox detects a resource-limit hit and offers to raise it. A guest out-of-memory kill (with the
+  metrics watcher's headroom as a fallback) offers to raise the persisted `memory`, written to the
+  config layer that owns it and applied at once when offered at launch; a short root disk, `/workspace`
+  quota, or `/tmp` likewise offers to raise `disk-size`, `workspace-quota`, or `tmp-size`, and a larger
+  `disk-size` grows the root disk without rebuilding the VM. A non-interactive run records the hit for
+  the next interactive launch, an answered offer is not repeated, and on Linux a raise larger than the
+  host's available memory is warned about (#544, #585).
+- Links an agent opens inside the sandbox open in the host's browser. A shim in the runner image hands
+  each link (`xdg-open`, `x-www-browser`, `sensible-browser`, `$BROWSER`) to the attached launcher
+  through the home volume, so it works even with `network.profile: none`; the launcher opens only
+  allowlisted schemes and refuses `file:` and loopback URLs. Browser logins that wait for a callback
+  inside the sandbox (Claude Code, pi, opencode/opencode2) complete on the host: the launcher listens on
+  the callback port on the host's loopback and replays the browser's callback inside the sandbox. On by
+  default; turn it off with `open-links: false`, `AGENTS_SANDBOX_OPEN_LINKS=false`, or
+  `--open-links=false`. A custom runner base must now provide `curl`, which the build verifies (#273).
+- Opt-in VM port publishing: a `ports:` config key, an `AGENTS_SANDBOX_PORTS` env var, and a `--port/-p`
+  flag on `run`/`shell` publish VM ports on the host loopback (`<port>` or `<host>:<guest>`, TCP only).
+  Nothing is published by default; like `network:`, published ports are baked in at VM creation and
+  changing them recreates the VM (#485).
+- Three new agent profiles, and the rest marked experimental. Hermes Agent (`--agent hermes`) installs
+  through its official installer at the pinned release tag and keeps user state in `$HERMES_HOME` while
+  linking its tool store, caches, and dependency environments from the image, so a fresh home volume
+  starts without reinstalling; codex (`--agent codex`) runs OpenAI's Codex CLI with its own command
+  sandbox off (the VM isolates it) and reads `~/.codex/config.toml`; and the experimental oh-my-pi
+  (`omp`) installs from its checksum-verified GitHub release. Every built-in agent except `opencode` and
+  `opencode2` is now marked experimental with a selection notice and a capability matrix in the docs
+  (#107, #471, #472).
+- Config snippets: TOML snippets (`.toml`) are merged, and an agent whose config file is TOML gets its
+  merged config written as TOML; codex merges `config*.toml` from its `codex/` dir into
+  `~/.codex/config.toml` (#107).
+- `env.secret.yaml` accepts a per-secret `header_fields` list, scoping placeholder substitution to the
+  named request headers and closing the reflected-header exfiltration path (#150).
+- A config-file-only `secrets.common.allow-placeholder-for` lists hosts that may receive any secret's
+  placeholder unchanged — for an LLM endpoint that sees placeholders in the request body — instead of
+  the proxy blocking the request (#484).
+- Per-slug user config (`~/.config/agents-sandbox/<slug>/`) now contributes env files, secret files,
+  `home:` sources, and agent config dirs, not only its launcher config file, and merges between the
+  generic user config and the project config (#578).
+- `sandbox compact [name]` merges the sealed copy-on-write disk layers of project VMs (`--dry-run`,
+  `--disk`, `--root-only`, `--layers N`, `--format json`), opt-in only and never on the prune path;
+  named volumes such as the home volume are not compacted (#157).
+- `run`/`shell` accept `--no-rebuild`: reuse the project's existing runner image even when its inputs
+  changed (project Dockerfile, agent version, base image, …) and skip the agent upgrade check. A missing
+  image is still built (#470).
+- `run`/`shell` warn when `~/.config/opencode/package.json` declares dependencies that never reach the
+  sandbox, so local opencode plugins importing them no longer fail silently; a new recipe installs them
+  with a startup hook (#288).
+- `state repair` quarantines a corrupt launcher-global `state.yaml` by renaming it to
+  `state.yaml.corrupt-<timestamp>`, so update checks, the runtime migration, and identity adoption are no
+  longer blocked until manual deletion. State files also carry a `schema:` version, and a version refuses
+  to change a state file written by a newer version instead of erasing fields it does not know (#332,
+  #337).
+- `prune` (and its `storage prune` alias) reclaims unused runtime RAM — the published branch/snapshot
+  memory backings — as a fourth phase under the same `--older-than` threshold and surfaces the native
+  image-prune report: the images it skipped because a live sandbox holds them and the bytes it
+  reclaimed. Byte counts the runtime cannot measure render as unknown (`-`, `null`), never `0` (#156).
 
 ### Changed
 
-- `--rebuild` (`run`, `build`, ...) now pulls the base image before building, so it picks up a newer published base.
-  If the pull fails, for example offline, the build warns and uses the cached base (#348).
-- Agents: forwarded arguments are shell-quoted before they are joined into an agent's attach command. The launcher
-  receives them already split by the host shell and the guest shell splits the joined line again, so an argument
-  containing spaces (`agents-sandbox run -- chat -q "explain this function"`) used to reach the agent as several words.
-  `opencode`, `opencode2`, `pi`, `claude-code`, and `codex` share the quoting.
-- A first session no longer stays silent when the agent has no launcher config dir: `run` and `shell` print an info
-  line naming the user and project dirs (`~/.config/agents-sandbox/<agent>/`, `.agents-sandbox/<agent>/`), and
-  `config agent` marks each missing dir `(missing)` (#432).
-- `stop --force` and `kill --force` now remove the persisted state of an already-stopped or never-started project VM.
-  Previously they printed "already stopped" and left it in place, so `--force` never cleaned up such a VM; they now
-  skip the stop or kill, remove the sandbox, and say so. `--dry-run` still removes nothing. See `docs/commands.md`.
-- CI: the `ci` workflow cancels a superseded pull-request run when a PR is pushed again (main, tag, and dispatch runs are
-  never cancelled), and a change that touches no code — docs, the operator brain, the Homebrew formula, issue templates,
-  or `.gitignore` only — now skips the two ~16-minute integration jobs and the non-required `race`/`vulncheck`/`deadcode`
-  jobs instead of rebuilding and re-running them.
-- CI: code scanning moved from GitHub's default setup to a committed advanced-setup workflow
-  (`.github/workflows/codeql.yml`) scanning `actions`, `go`, and `ruby`, so docs-only changes are path-filtered out of
-  the scan.
-- CI: the `fuzz` workflow runs one matrix job per fuzz target instead of one per package, so a package's targets each get
-  the full `FUZZTIME` budget and run in parallel. This fixes the nightly sweep being cancelled when a package with three
-  targets (15 minutes each) exceeded the job's 45-minute timeout.
-- Docs integrity: `ci/check-docs.sh` now verifies that every documentation fragment landing on the published site —
-  rendered-HTML links, `docs/` in-page and cross-page anchors, and the launcher's printed links — resolves to a
-  heading that slugs to it. The launcher composes its links through the new `internal/docslink` package (#296).
-- Docs: the roadmap now lists the `priority:medium` label alongside `priority:critical`/`high`/`low`, matching the
-  issue tracker.
-- Maintenance: updated the microsandbox Go SDK and managed `msb` runtime to v0.7.11.
-- Internal: the `msb`-tagged real-client tests provision their own isolated microsandbox home with the SDK-pinned runtime
-  instead of resolving the developer's `~/.microsandbox`, so an SDK bump can no longer fail them on a runtime there.
-  The harness smoke suite readies a normal-buffer harness on a startup marker: `hermes` on its CLI's banner line and
-  `claude-code` on its splash, and seeds `hermes` a dummy, loopback provider config so it starts its REPL instead of
-  its first-run setup guard (which exits `1`), keeping its per-harness readiness ceiling and running under the default
-  `--network none`. The `integration` image tests resolve the agent release from the launcher's cached upgrade state,
-  falling back to the
-  agent's latest-release check only when the cache is empty.
-- Internal: `dockerd` and the agent `serve` daemon now run as microsandbox runtime-owned detached jobs
-  (`ExecDetached`), replacing shell-backgrounded `nohup` processes, logfile polling, and `pkill` start/stop plumbing.
-  Readiness stays health-probe based, a crashed job reports its exit code plus a log tail, and a stale job is killed by
-  command match before a restart (scoped to the current runtime generation, so jobs left by an earlier boot are no
-  longer reported as kill failures). Re-landed after microsandbox v0.7.11 stopped a detached job from keeping the VM
-  from idling (#146).
-- Internal: `make bootstrap` now guarantees the zig it manages is at the pinned version with the macOS cross-compile
-  stubs baked in and the `~/.local/bin/zig` link ensured, and reports instead of silently succeeding when `PATH`
-  resolves zig to an installation elsewhere (it is left untouched). A managed install that is not on `PATH` is no
-  longer re-downloaded, and the `~/.local/bin` fix is printed. Zig now installs under `~/.local` on Linux too, so `make
-  bootstrap` never needs `sudo`, and `make build-release` locates zig's libc by following the symlink rather than the
-  raw `PATH` entry.
-- Internal: launcher-config loading and run/shell option resolution are now separate packages. The
-  `*cobra.Command`-driven `BuildRunOptions` pipeline moved from `internal/viperconfig` to `internal/runoptions`, and the
-  config loader was split from one 1132-line file into focused files (types, loading, env, flags, decode, validation,
-  accessors) (#356).
-- Internal: the notify watcher's entry point (`notify.Watch`) now depends on a two-method `notify.StreamOpener` seam
-  (`ShellStream`, `Shell`) instead of the whole `msb.Sandbox`, so a fake with those two operations can drive it; the run
-  path adapts the sandbox with `notify.SandboxStreamOpener` (#358).
-- Internal: the pre-lock and post-lock VM start/connect transitions are one function, so a connect failure recovers
-  through refresh-and-resume on both instead of only on the fast path — the post-lock re-check (the path every first
-  boot and concurrent start takes) no longer falls through to a bare start — and the post-lock re-check reports its
-  connect/start outcome like the fast path (#340).
-- Internal: `internal/cliout` no longer depends on the sandbox domain. It keeps only the generic renderer
-  (`PrintList`/`Mode`/`WriteJSON` and the report-mode renderer), and the sandbox/image/volume `Printer`
-  implementations plus the prune/compact report JSON DTOs moved to `internal/view`; an import-boundary test
-  keeps the separation (#357).
-- Internal: the runner image's agent-version resolution and the agent upgrade check share one release lookup
-  (`agent.LatestVersion`) instead of each wrapping the agent's `UpgradeChecker`, so a change to how a release is resolved
-  (channel gating, caching, error tolerance) lands in one place. The `image`/`vm` test seams are unchanged (#353).
-- Docker: a project Dockerfile now declares the Docker engine by content alone. A final-stage `# agents-sandbox:docker`
-  / `# agents-sandbox:dind` marker or the managed `runner-base-docker`/`runner-base-dind` base enables it, for custom and
-  managed bases alike, so a Dockerfile that asks for Docker needs no launcher config. Explicit `docker`/`dind` config,
-  `--docker`/`--dind`, or the matching environment variable now overrides that declaration in both directions, a
-  present-but-`false` value included. Two outcomes change: a project carrying an inert marker gains Docker, and a project
-  with `runner-base-docker`/`runner-base-dind` plus `docker: false` loses it. Both are reported on the build output. See
-  `docs/runner-image.md`.
-- Internal: the runner image's identity is now a structured value instead of a re-parsed string. `image.ImageInfo`
-  carries `naming.ImageIdentity` (slug, agent, content id) beside its rendered references, so the microsandbox load
-  decision and the VM reconfig comparison use the identity the launcher built rather than parsing its own reference;
-  only a reference read back from the VM or the microsandbox cache is still parsed (#349).
-- `--dry-run` and `--dry-run-vm` are modelled as one execution mode resolved at the session/CLI boundary
-  (`runoptions.ResolveMode`), with `--dry-run` subsuming `--dry-run-vm`; `--dry-run` no longer prints the
-  `dry-run-vm: auto-enabled` verbose line (#344).
-- Internal: the multi-value returns of `reconfig.ResolveReconfig`, the doctor check collector, the reprovision
-  merged-config builder, and `configmerge.BuildMerged` are now named result structs, so call sites read the values
-  they carry instead of positional tuples (#24).
+- The in-sandbox Docker engine now runs rootless, as `dev` instead of root with `dev` in the `docker`
+  group. A container can no longer gain root inside the sandbox: mounting `/` does not expose root-only
+  files, and `--privileged` stays inside the engine's user namespace. `docker` and `/var/run/docker.sock`
+  keep working, but `dev` is no longer in a `docker` group, and per-container `--memory`/`--cpus` limits
+  and Docker-in-a-container stop working. The engine keeps its data in `/var/lib/agents-sandbox/docker`;
+  images, containers, and named volumes from the previous root engine are not carried over, and a custom
+  base that enables Docker must now provide `uidmap`, `slirp4netns`, and `iproute2` (the build names any
+  missing). It runs on `fuse-overlayfs`, falling back to `vfs` (#487, #489).
+- Prune can no longer destroy agent state. Auto-prune and batch `prune` reclaim only artifacts with no
+  user data behind them — stale VMs, runner images, dangling Docker images, runtime RAM, and stale
+  internal state — and never remove a home volume. Batch `prune` instead lists retired projects and
+  points at the new `prune --purge [<slug>|<slug>-<agent>]` (and `sandbox remove --purge`) to remove a
+  project's VMs, home volumes, runner images, state, and claims in one confirmed pass; a home volume is
+  removed only when the target owns it, re-derived under the root lock, so purging a legacy slug never
+  deletes another checkout's saved home. `volume prune` removes only volumes no state references (#593).
+- The runner image builds with BuildKit when the engine advertises an embedded builder, with the classic
+  builder otherwise, and honors `image-cache-from`/`image-cache-to` to import from and export to a cache
+  backend. CI's docker-build job restores a shared cache that only a push to `main` writes, and it is now
+  a required check on every code-affecting PR; the cache moved to GHCR (`type=registry`) so it is not
+  evicted by the repository's 10 GB Actions cache budget, with the write permission confined to a
+  separate `main`-push job (#597, #636).
+- Config files are read and written through one core and one YAML library. `internal/configdecode` is
+  shared by the launcher, the home manifest, and the agent-snippet loaders, so a file one loader accepts
+  cannot be rejected or parsed differently by another; a `.json` config now also accepts `//` comments
+  and trailing commas, and the launcher config is parsed with the same `go.yaml.in/yaml/v4` it writes
+  with. Config edits go through `oneyaml.dev/go`, which preserves every untouched byte and comment and a
+  replaced value's quote style, and every untrusted config, secret, and snippet read is capped at 16 MiB.
+  `yaml/v4` quotes a value that starts with a tab instead of writing a block scalar it could not re-parse,
+  and viper keeps its own read-only `yaml/v3` (#531, #588, #599).
+- The launcher and managed runtime move to microsandbox v0.7.13. The runtime migrates its data on first
+  use, so older agents-sandbox releases can no longer use it afterwards (#575).
+- VM size settings are validated as a contract: `memory` has a 128 MiB floor, `tmp-size` defaults to
+  `min(2 GiB, memory/2)` and must be less than `memory`, and `disk-size`/`workspace-quota` must be
+  positive — a zero, non-positive, or not-smaller-than-memory value is rejected with an error naming the
+  key. `--tmp-size` now defaults to unset, so `run --memory 2G` (no `--tmp-size`) mounts a 1 GiB `/tmp`
+  instead of failing validation (#606, #620).
+- Runner image: the agent tool tree is handed to `dev` at copy time (`COPY --chown=dev:dev`) with a `dev`
+  group guaranteed for every base, and Hermes prunes its installer's build-only trees after install —
+  roughly halving the Hermes image. The recommended base tools are updated: `lsof`, `strace`, `gnupg`,
+  `openssl`, and Python's `venv`/`pip` are added, `net-tools` (use `ip`/`ss`) and `recode` (use `iconv`)
+  are dropped (#490, #488, #668).
+- A project Dockerfile now declares the Docker engine by content alone: a final-stage
+  `# agents-sandbox:docker` marker or the managed `runner-base-docker` base enables it, and explicit
+  `docker`/`dind` config, flags, or the matching env var override that in both directions. A marker
+  swallowed by a line continuation (including under a file-level `# escape=`) is inert (#388, #500).
+- Reconfiguring the project VM now shows what changed: with no other client attached the change is
+  announced as a warning instead of an info line, and both the warning and the keep/quit prompt list each
+  change — mount sources, network entries, published ports, the hosts a secret is sent to, environment
+  variable names, changed agent config files, and old → new image and home volume. Values are never
+  shown, and a sandbox from an earlier version shows `(previous value not recorded)` on its first change
+  (#230).
+- Attaching to an existing project VM now uses the runtime's connect-or-start, so concurrent runs
+  converge on one VM boot without the launcher polling; a sandbox that takes the project VM's name while
+  a run creates it is no longer replaced — the create fails and asks you to rerun (#159).
+- A private-registry base now builds without a prior manual `docker pull`: the image build and the
+  base-image pull send the registry credentials from the Docker CLI config (`auths`, `credsStore`,
+  `credHelpers`), and an `unauthorized`/`denied` response points at the troubleshooting section (#646).
+- GitHub release lookups for unpinned agent builds now authenticate with a `GH_TOKEN` or `GITHUB_TOKEN`
+  from the environment when one is set, so resolving the latest agent version is no longer subject to the
+  anonymous GitHub API rate limit; a rejected token falls back once to the anonymous lookup (#673).
+- The launcher now warns, naming the file, when a config snippet cannot be read or parsed, instead of
+  silently dropping its settings, and `config agent` reports each such snippet as an error (a warning at
+  startup) and when no snippet could be merged (#644).
+- `--worktree` is documented and warned about as a host-visible side effect: the guest worktree's
+  registration is written into the bind-mounted host checkout's git dir with guest paths, so a host
+  `git worktree prune` can orphan it (#662).
+- The doctor's unreachable-engine message now names the container engine (Docker API) rather than only
+  Docker, and its remedy hint lists the podman start and verify commands beside the Docker ones —
+  including the `DOCKER_HOST` export the launcher needs to find podman's socket (#653).
+- `--rebuild` now pulls the base image before building, so it picks up a newer published base; if the
+  pull fails (for example offline) the build warns and uses the cached base (#348).
+- Forwarded arguments are shell-quoted before they are joined into an agent's attach command. The
+  launcher receives them already split by the host shell and the guest shell splits the joined line
+  again, so an argument containing spaces (`run -- chat -q "explain this function"`) used to reach the
+  agent as several words; `opencode`, `opencode2`, `pi`, `claude-code`, and `codex` share the quoting (#436).
+- A first session no longer stays silent when the agent has no launcher config dir: `run` and `shell`
+  print an info line naming the user and project dirs (`~/.config/agents-sandbox/<agent>/`,
+  `.agents-sandbox/<agent>/`), and `config agent` marks each missing dir `(missing)` (#432).
+- `stop --force` and `kill --force` now remove the persisted state of an already-stopped or never-started
+  project VM. Previously they printed "already stopped" and left it in place; they now skip the stop or
+  kill, remove the sandbox, and say so. `--dry-run` still removes nothing (#161).
+- `--dry-run` and `--dry-run-vm` are modelled as one execution mode resolved at the session/CLI boundary,
+  with `--dry-run` subsuming `--dry-run-vm`; `--dry-run` no longer prints the `dry-run-vm: auto-enabled`
+  verbose line (#344).
+- `run`/`shell` in a Docker-enabled sandbox now warn when the last client detaches with containers still
+  running, so their loss to the idle stop is not a surprise (#467).
+- The post-migration notice names old-runtime leftovers as such and prints a removal command per copied
+  home volume when some volumes were not copied, instead of a path list without a command (#285).
+- Removed the deprecated `--opencode-version` alias on `build`; use `--agent-version`. It was eligible
+  for removal at 0.7.0 (#679).
+
+### Docs
+
+- A new Uninstalling guide removes sandboxes, home volumes, runner images, configuration, and the binary
+  (#285).
+- Troubleshooting now describes the network-policy `403` that denied HTTP(S) egress returns (#310), the
+  project-config trust gate's decoded-projection comparison, that a resolved-but-denied destination
+  closes at TCP only when TLS is not intercepted, the outside-worktree shared-git-dir mount refusals, and
+  that secret placeholder substitution requires TLS (#667).
+- The bare-worktrees recipe no longer claims a worktree outside its checkout is unsupported and warned
+  about; it now says such a worktree runs as its own checkout and names the remaining limit (the
+  checkout's shared git dir is not reachable inside the VM) (#435, #426).
 
 ### Fixed
 
-- A bare repository cloned as `<name>.git` (no `.git` entry of its own) is now recognized as a bare checkout instead
-  of a non-repo folder, so launching from its root uses the same origin-derived identity — state, VM, home volume — as
-  the worktrees inside it. Its previous path-keyed state is adopted (#433).
-- Without an `origin` remote, a linked worktree inside its checkout now shares the checkout's repo slug, as documented,
-  so both see the same `~/.config/agents-sandbox/<repo-slug>/` config dir and `org.agents-sandbox.project` label. It
-  previously derived the slug from the worktree's own folder (#434).
-- Two sessions starting a new project at the same time no longer leak a home volume. Previously both created a fresh
-  home volume and the later state write replaced the earlier one, leaving a volume unrecorded; in the same second, the
-  generated names collided and the second session failed. The later session now uses the volume the first one recorded
-  and removes its own, and a colliding name is retried with the next timestamp (#431).
-- `--dry-run-vm` on a project without a home volume no longer creates the volume and records it in the state without
-  filling it from the image. The next real run reused that empty home, so `/home/dev` lacked the image's home contents
-  for good. A `--dry-run-vm` run now creates no home volume and writes no state, and the first run with a VM creates
-  and fills it (#429).
-- A linked worktree outside its checkout now mounts the checkout's shared git dir read-write at its host path, so git
-  resolves the repository inside the VM. When the `.git` file records a relative path or the path collides with a
-  managed mount (`/home/dev`, `/workspace`, `/tmp`), agents-sandbox warns instead of failing silently (#426).
-
-- A `--dry-run` preview no longer installs the microsandbox runtime. `run --dry-run` and `build --dry-run` skipped the
-  prerequisite check but the root preflight still provisioned the runtime, so a fresh host paid the multi-megabyte
-  download and install the preview promises not to perform — and an offline host aborted with
-  `install msb runtime: …` instead of the plan. The preview now points the SDK at the private home without provisioning
-  it, so it still reports the image and home-volume decisions a real run would make. Only the root preflight skips the
-  runtime install for a preview; commands that run their own `doctor` preflight (`shell --dry-run`,
-  `volume migrate/reset/edit --dry-run`) still provision the runtime (#424).
-- Runner image: an updated base image now rebuilds the image. The base is referenced by a floating tag, but the
-  rebuild check ignored which image the tag pointed to, so a newer base was only picked up by `--rebuild`. Every run now
-  compares the base recorded in the image's `org.agents-sandbox.base` label with the base cached in the local Docker
-  and rebuilds when they differ (`base image updated`). The check is local and never contacts a registry (#348).
-- Runner image: a change of the host user's UID or GID now rebuilds the image. The `dev` user is created with the host
-  UID/GID, but the rebuild check ignored them, so the image kept the old UID and files in `/workspace` were no longer
-  owned by `dev`. The image records the UID/GID in a new `org.agents-sandbox.identity.user` label. Existing runner
-  images are rebuilt once after the upgrade, since the rendered Dockerfile changed (#355).
-- State: a project's first run no longer persists a `state.yaml` holding only config fingerprints with an empty
-  `home_volume`. Recording the fingerprints and the image provenance after a VM is created is now a no-op when no state
-  file exists yet — matching the other pre-home-resolution writers — so the next run no longer resolves the empty volume
-  name, which either failed the run or warned about a missing `""` volume (#430).
-- `doctor` runs its own checks instead of provisioning the microsandbox runtime in the root preflight. On a host whose
-  private runtime home is absent or broken, a failed runtime install is now reported as `msb runtime setup failed: …`
-  with its troubleshooting link while the KVM and Docker checks still run, instead of aborting the command with a raw
-  `install msb runtime: …` error before any check ran (#423).
-- Runner images: the auto-prune a `run`/`shell` runs at startup no longer reclaims the project's own cached image. A
-  project with no running VM — a fresh `build`, or one whose VM was removed — had its image reclaimed and reimported on
-  the next `run` (a multi-minute reimport for a large image like `hermes`). Two reclaimers did it: the launcher's
-  ref-level prune, and microsandbox's native image-data prune (`Image.Prune`, which removes any image no sandbox
-  references). A VM-less project's image now survives while it is within the prune age, the current command's own
-  project key is always retained, and a retaining invocation skips the native prune — it runs only on an explicit
-  `prune` (#290).
-- `opencode2` now reports its installed version (`opencode2 --version`), so its `agent_version` baseline is recorded on
-  boot and reconciled from the runner image's label like every other profile, instead of staying empty.
-- Networking: a user `egress-deny` carve-out now takes precedence over the profile allow rules. microsandbox matches the
-  first applicable rule, and the deny entries were emitted after the profile's broad allow, so under `public`,
-  `private`, or `host` (and the default) an `egress-deny` entry silently blocked nothing. The generated rule order is now
-  gateway DNS, `egress-deny`, profile allows, `egress-allow`; `none` is unchanged. An existing VM picks this up on its
-  next run — a deny-bearing policy now fingerprints differently, so the VM is recreated once to bake in the corrected
-  order (#231).
-- State: `prune` no longer removes a project's state file while a home volume created since its volume snapshot still exists. The removal decision is made from the state document read under the home lock, so a concurrent `run` that mints a fresh home volume and commits it to state can no longer have that state pruned out from under it and the volume left orphaned (#335).
-- `run --serve-only` no longer aborts its own context when stdin is not an interactive terminal (CI, `< /dev/null`, a background job). The stdin EOF watcher (the "press Ctrl-D to stop" behavior) is now wired only for a TTY, so a closed non-TTY stdin lets the run reach its normal serving state while `SIGINT`/`SIGTERM` still stop it (#387).
-- An invalid agent config-dir name (empty, `.`, `..`, or containing a path separator) is now a returned error instead of
-  a panic deep inside a path join. The `internal/configpaths` accessors that build the per-agent config dirs return the
-  error, so a malformed profile fails at the config-resolution boundary with a message naming the agent rather than
-  crashing far from its cause (#366).
-- Identity: a project's directory is resolved strictly when its checkout identity is derived. A cwd or git
-  directory that cannot be resolved (a transient symlink, permission, or deleted-directory failure) now reports
-  an error instead of hashing a fallback path, which silently gave the same physical project a different checkout
-  slug — and so a new state file, VM and home volume — with no diagnostic (#354). The project-config directory
-  read stays tolerant and degrades to its relative base, since it is not identity-keyed.
-- Env and secrets: the host `env` and `env.secret`/`env.secret.yaml` files are read once per run instead of three
-  times, so a malformed entry is warned about once instead of up to three times. The fingerprints a run persists and
-  the host env and secrets baked into a newly created VM now come from that one read and cannot disagree (#342).
-- Docker: the canonical `docker` setting now beats the deprecated `dind` alias whichever layer each came from, so
-  `--dind` no longer overrides an explicit `docker` config key or `AGENTS_SANDBOX_DOCKER` (and vice versa) — the
-  deprecation policy's "replacement wins" rule held across the config and env layers but not across the flags. The
-  run/shell and build paths resolve the capability through one shared precedence, so they can no longer disagree (#363).
-- Runner image: the microsandbox load decision now trusts only the content digest. A cached image that records no
-  digest is treated as unknown content and reloaded instead of being matched by its `dockerfile-id` label — a source
-  signature that can match while the layers differ, so a stale image could previously pass as current. The reload
-  happens once, because a load records a digest (#351).
-- State: a completed state write is now durable. The atomic writer flushes the temporary file with `fsync`
-  before it is renamed into place, then `fsync`s the destination directory and the parent of every directory it
-  created, so a crash or power loss can no longer lose the latest home or root state — or surface it as a
-  zero-length document. A failure in that final directory flush still reports an error but keeps the new state
-  and the home volume it recorded, instead of deleting a volume the saved state names (#336).
+- A bare repository cloned as `<name>.git` (no `.git` entry of its own) is now recognized as a bare
+  checkout instead of a non-repo folder, so launching from its root uses the same origin-derived identity
+  — state, VM, home volume — as the worktrees inside it; its previous path-keyed state is adopted (#433).
+- Without an `origin` remote, a linked worktree inside its checkout now shares the checkout's repo slug,
+  as documented, so both see the same config dir and project label (#434).
+- Two sessions starting a new project at the same time no longer leak a home volume: the later session
+  uses the volume the first recorded and removes its own, and a colliding name is retried with the next
+  timestamp (#431).
+- `--dry-run-vm` on a project without a home volume no longer creates the volume and records it without
+  filling it from the image, which left `/home/dev` without the image's home contents for good; a
+  `--dry-run-vm` run now creates no home volume and writes no state (#429).
+- A linked worktree outside its checkout now mounts the checkout's shared git dir read-write at its host
+  path, so git resolves the repository inside the VM; a relative path or a collision with a managed mount
+  (`/home/dev`, `/workspace`, `/tmp`) warns instead of failing silently (#426).
+- A `--dry-run` preview no longer installs the microsandbox runtime: the root preflight points the SDK at
+  the private home without provisioning it, so an offline host shows the plan instead of aborting with
+  `install msb runtime: …` (#424).
+- `doctor` runs its own checks instead of provisioning the runtime in the root preflight, so a failed
+  runtime install is reported as `msb runtime setup failed: …` with its troubleshooting link while the
+  KVM and Docker checks still run (#423).
+- Runner image: an updated base image and a change of the host user's UID/GID now both rebuild the
+  image. The base recorded in the image's `org.agents-sandbox.base` label is compared with the local
+  Docker cache (`base image updated`), and the UID/GID is recorded in a new
+  `org.agents-sandbox.identity.user` label; a change builds once and never contacts a registry (#348,
+  #355).
+- Runner image: the microsandbox load decision now trusts only the content digest — a cached image that
+  records no digest is reloaded instead of being matched by its `dockerfile-id` label — and a project's
+  image variants no longer overwrite each other in the cache, so toggling `--docker` or any other content
+  change reimports nothing after the first load (#351, #322).
+- Runner image: `image remove` and `prune` no longer consider a manually loaded single-segment image in
+  the private runtime home; ownership requires the parsed slug to embed the launcher's 14-character hash,
+  matching `image list`, so the documented "never arbitrary cached images" boundary holds on every path
+  (#350, #383).
+- Runner image: a project Dockerfile whose stages alias each other (including `FROM 0 AS 0`) no longer
+  makes the launcher spin forever resolving the final stage's base; and instructions are scanned
+  case-insensitively, so a valid lowercase `from debian:trixie-slim` composes correctly, a CRLF line
+  ending is trimmed, and a `RUN` heredoc body is not mistaken for a stage header (#346).
+- Runner image: a failed build now reports the tail of the engine's build output, and a network/DNS
+  package-download failure links the troubleshooting page instead of showing only apt's exit code; a
+  failed base-image pull is reported as the classified "base image not found or not logged in" error
+  (#637, #425).
+- Runner image: the recorded agent-version baseline is kept in sync with the image's `agent-version`
+  label, so an accepted agent upgrade no longer reverts on a later run, a `--agent-version` pin persists
+  across unpinned runs, and a deleted baseline is re-recorded. `opencode2` now reports its installed
+  version, so its baseline is recorded and reconciled like every other profile (#386).
+- The auto-prune a `run`/`shell` runs at startup no longer reclaims the project's own cached image: a
+  VM-less project's image survives while it is within the prune age, and a retaining invocation skips the
+  runtime's native image prune, which runs only on an explicit `prune` (#290).
+- Networking: a user `egress-deny` carve-out now takes precedence over the profile allow rules under
+  `public`, `private`, and `host` (and the default), where it previously blocked nothing; the order is
+  gateway DNS, `egress-deny`, profile allows, `egress-allow`. Profile `none` no longer lets the VM resolve
+  arbitrary DNS names — only names an `egress-allow` entry matches resolve — closing an exfiltration
+  channel through DNS query names. An existing VM is recreated once to bake in the corrected order
+  (#231, #233).
+- `run --serve-only` no longer aborts its own context when stdin is not an interactive terminal (CI,
+  `< /dev/null`, a background job), and no longer prints a `Connect a client to:` URL for a port the VM
+  does not serve (#387, #660).
+- `run --serve-only` on a kept VM whose serve binding can only change on recreate now exits cleanly after
+  warning that the agent server is unreachable, instead of taking a client lease, starting a VM keeper,
+  and blocking — the deferred run held the VM past its idle timeout and its lease made the last-client
+  reap a no-op, so the warning's own remedy could never be followed. It also prints the stop key that
+  actually works: `Ctrl-D` when an interactive stdin is watched for EOF, `Ctrl-C` otherwise (#677).
+- State: a completed state write is now durable — the atomic writer `fsync`s the temp file, renames it,
+  then `fsync`s the destination and every directory it created — and writes no longer land in the process
+  working directory when a state or config path does not resolve to an absolute root (an unset `$HOME`)
+  (#336, #598).
+- State: pruning a project's state no longer removes the project-VM creation lock (moved to the
+  never-deleted `locks/` tree) and no longer races a concurrent `run` that minted a fresh home volume;
+  the legacy identity migration takes the per-key home and VM locks for every key it moves; the upgrade
+  check no longer holds the root lock across the release-endpoint request; and a `state.yaml` folded block
+  scalar with a leading blank line keeps that newline (#330, #335, #333, #334).
+- Home volume: a transient microsandbox lookup error while checking a project's recorded volume is no
+  longer mistaken for the volume being gone (resolution fails closed and recovers only on true
+  volume-not-found); a failed prefill removes the freshly created volume; and a prefill whose state write
+  fails surfaces the error and removes the uncommitted volume instead of continuing against an
+  unrecorded one (#331, #427, #428).
+- VM reconfiguration: an existing project VM whose config cannot be read now warns and forces a recreate
+  instead of silently reusing a VM that may run the old image, env, or network; the per-project VM lock
+  now also covers a recreate's teardown; and a config-change recreate destroys exactly the VM the
+  decision was made for (#339, #397).
+- Env and secrets: the host `env` and `env.secret`/`env.secret.yaml` files are read once per run instead
+  of three times, so a malformed entry is warned about once and the fingerprints and baked env cannot
+  disagree; a line without a variable name (`=value`) is skipped with a warning instead of failing VM
+  creation; and merging the user and project secret-spec maps no longer mutates the first map (#342,
+  #310, #352).
+- Docker: the canonical `docker` setting now beats the deprecated `dind` alias whichever layer each came
+  from, so `--dind` no longer overrides an explicit `docker` config key or `AGENTS_SANDBOX_DOCKER`; and
+  `--docker` is no longer dropped on a flag-only run with no config file (#363).
 - Self-update: the downloaded release binary is verified against the SHA-256 published in the release's
-  `checksums.txt` before it replaces the running executable. A mismatched digest, a missing `checksums.txt`, or a
-  missing or malformed entry aborts the install, removes the downloaded temp file, and leaves the running binary
-  untouched, so a download that differs from the release's published digest can no longer be installed (#338).
-- State: pruning a project's state no longer removes the project-VM creation lock. The lock moved from the
-  removable per-key state directory to the never-deleted `locks/` tree, still keyed per agent, so `prune` concurrent
-  with `run` can no longer unlink a held lock and let a second invocation create a duplicate or clobbering VM, and
-  agents of one project do not serialize on each other's lock (#330).
-- Home volume: a transient microsandbox lookup error (daemon, timeout, or permission failure) while checking a
-  project's recorded home volume is no longer mistaken for the volume being gone. Resolution now fails closed on any
-  non-absence error instead of creating a fresh volume and rewriting state, which could orphan the real volume; only a
-  true volume-not-found recovers (#331).
-- VM reconfiguration: when an existing project VM's config cannot be read, the launcher now surfaces a warning and
-  forces a recreate instead of silently skipping every reconfig trigger and reusing a VM that may still run the old
-  image, env, or network (#339).
-- `build` and `run` now agree on `--agent-version` for a user-provided agent: like `run`, `build` ignores the pin and
-  keeps the recorded version instead of replacing an agent the project supplies itself (#347).
-- Runner image: a project's image variants no longer overwrite each other in the microsandbox cache, so toggling
-  `--docker` — or any other content change, such as an agent-version bump or a project-Dockerfile edit — reimports
-  nothing after the first load. Image pruning retains a live project's recent variants and reclaims the rest (#322).
-- Runner image: a project Dockerfile whose stages alias each other — including a stage named after its own base
-  (`FROM 0 AS 0`) — no longer makes the launcher spin forever resolving the final stage's base image. The alias walk
-  stops when it revisits a token, so the render returns and the build fails with a clear error instead of hanging.
-- Runner image: a project Dockerfile's instructions are scanned case-insensitively, so a valid lowercase or mixed-case
-  `FROM`/`AS` (e.g. `from debian:trixie-slim`) is composed correctly instead of failing the build with a missing stage
-  alias. A CRLF line ending is trimmed rather than leaking into the stage alias, and a `RUN` heredoc body or a continued
-  argument is not mistaken for a stage header, so a lowercase `from … import …` inside a heredoc stays part of the body
-  (#346).
-- Config: the launcher-config loader and the home-manifest loader now discover their `config.<ext>` file through one
-  shared helper in `internal/configpaths`. Extension order and lookup have a single definition, so the two can no
-  longer drift and silently read different files from the same directory (#359).
-- Secret specs: merging the user and project secret-spec maps returns a fresh map instead of writing into the first
-  map passed in, so both merge helpers in `internal/sandbox/envsecret` now share one non-mutating contract (#352).
-- Runner image: `image remove` no longer treats any single-segment reference as a runner image. Ownership now requires the
-  parsed slug to embed the launcher's 14-character hash, matching `image list`, so a manually loaded single-segment image
-  in the private runtime home is neither listed nor removable — and `--force` does not override the ownership refusal
-  (#350).
-- Runner image: `prune` now applies the same ownership predicate as `image list` and `image remove`, so it no longer
-  considers — let alone deletes — a manually loaded single-segment image in the private runtime home. The documented
-  "never arbitrary cached images" boundary now holds on every path (#383).
-- Runner image: the recorded agent-version baseline is kept in sync with the runner image — the image's `agent-version`
-  label is the authority and the record a cache that follows it, so a stale record can no longer pull a run back to an
-  older release — so an accepted agent upgrade no longer reverts to the previous release on a later run, a
-  `--agent-version` pin persists across unpinned runs, a deleted baseline is re-recorded, and the `volume` subcommands
-  record the release they bake. Fixes opencode2, whose image has no in-VM version probe.
-- Docker: `--docker` is no longer dropped when no launcher config resolves (flag-only runs), so the flag takes effect on
-  a run with no config file; the deprecated `--dind` alias already survived.
-- VM reconfiguration: the per-project VM creation lock now also covers a config-change VM recreate's teardown, so a
-  concurrent run cannot race the destroy while a new create is starting (#397).
-- Agent upgrade check: the launcher-global root lock is no longer held across the release-endpoint request, so one
-  project's egress check no longer blocks unrelated projects (adoption, the runtime-home copy campaign) or makes them
-  silently skip their step. The check reads the cached window under the lock, performs the request with the lock
-  released, and re-checks the window before persisting, so two concurrent checks still record at most one refresh
-  (#334).
-- State: the legacy identity migration (`AdoptLegacyIdentity`) now takes the per-key home and project-VM locks for every
-  key it moves — each legacy slug's agents under both the legacy and the checkout slug — across the destroy and the state
-  move, so a concurrent per-key state write or VM creation can no longer interleave and lose a write or orphan a legacy
-  VM (#333).
-- State: a `state.yaml` string value written as a folded block scalar with a leading blank line (e.g.
-  `home_volume: >`) no longer loses that leading newline when the launcher rewrites the file. The launcher now parses
-  and writes YAML through the maintained `go.yaml.in/yaml/v3` instead of the unmaintained `gopkg.in/yaml.v3` v3.0.1,
-  whose emitter dropped the blank line on write so a re-read no longer matched what was written.
-- Detached jobs: dockerd and the agent serve daemon are launched with a command-line identity marker
-  (`env AGENTS_SANDBOX_DETACHED_JOB=<helper> …`), and a stale helper is killed by that identity instead of by its exact
-  command line. After a release changes a helper's flags (dockerd's storage driver, the daemon's serve hostname or health
-  format), the old process was no longer matched and both raced for the socket or port, so the run failed with
-  "exited before becoming ready" (#343).
-- Runner image: a failed base-image pull is now reported as the classified "base image not found or not logged in"
-  error with its troubleshooting link, instead of a misleading "No such image". The pull stream is waited on (moby's
-  `Wait`), so a registry failure delivered inside it is no longer drained away and re-reported by a follow-up inspect
-  (#425).
-
-- Home volume: a first run whose home-volume prefill fails no longer leaks the volume it just created. `EnsureNewHome`
-  removes the freshly created volume before returning the error, as `ApplyHomeAction` already did, so a failed prefill no
-  longer leaves an orphaned volume that every retry added to (#427).
-- Home volume: a first run whose fresh home volume is created but whose state write fails now surfaces the error and
-  removes the uncommitted volume, instead of warning and continuing against a volume the launcher has no record of. The
-  volume is kept when the write reports an installed-but-not-durable document (`state.WriteInstalled`), since that state
-  already names it (#428).
-- Docs: the bare-worktrees recipe no longer claims a worktree outside its checkout is unsupported and warned about. It
-  now says such a worktree runs as its own checkout, names the remaining limit (the checkout's shared git dir is not
-  reachable inside the VM), and links the code-fix issue (#435, #426).
+  `checksums.txt` before it replaces the running executable — a mismatched digest, a missing
+  `checksums.txt`, or a missing/malformed entry aborts the install and leaves the running binary
+  untouched — and `upgrade --channel stable` on a canary install now switches to the newest stable,
+  older or not (#338, #286).
+- Detached jobs: dockerd and the agent serve daemon are killed by a command-line identity marker
+  (`AGENTS_SANDBOX_DETACHED_JOB=<helper>`) instead of their exact command line, so a release that changes
+  a helper's flags no longer races a stale process for the socket or port (#343).
+- An invalid agent config-dir name (empty, `.`, `..`, or containing a path separator) now returns an
+  error naming the agent instead of panicking deep inside a path join; identity resolution reports a
+  cwd or git directory it cannot resolve instead of hashing a fallback path (#366, #354).
+- `build` and `run` now agree on `--agent-version` for a user-provided agent: like `run`, `build` ignores
+  the pin and keeps the recorded version instead of replacing an agent the project supplies itself
+  (#347).
+- Config: the launcher-config loader and the home-manifest loader discover their `config.<ext>` file
+  through one shared helper, so the two can no longer read different files from the same directory
+  (#359).
+- Volumes: `volume inspect`/`list` report a created volume's real kind, creation time, quota, and labels
+  instead of zero values; `volume prune` reclaims a home volume whose VM is gone, aging it on the
+  volume's own creation time, but never one an adoption claim owns; and `volume remove` prints a
+  confirmation per removed volume (#196, #666).
+- A project's first run no longer persists a `state.yaml` holding only config fingerprints with an empty
+  `home_volume`, which made the next run resolve the empty volume name and either fail or warn (#430).
+- Merging **migrate** when a project's runner image changes no longer fails on SELinux hosts with `cp:
+  preserving permissions … Numerical result out of range`; the home volume is copied with `tar`, which a
+  custom base must provide (#627).
+- The `--notify <mode>` and `--open-links <bool>` space forms are parsed as flags on `run` instead of
+  forwarded to the agent, with the value validated exactly like the `=` form; a plain word
+  (`--notify fix the bug`) stays a positional argument (#659).
+- A `home:` `hook: startup` script runs in a non-TTY session too, so a fresh non-interactive launch no
+  longer silently skips it with a terminal error (#664).
+- The `--dns` flag and the resolved network policy are validated at options resolution and again before a
+  recreate removes the running VM, so an invalid value is rejected by `--dry-run` before any VM work
+  (#663).
+- A missing `mounts:` source reports the configured path, not the first missing ancestor; a custom base
+  that omits the rootless Docker prerequisites surfaces the named prerequisite as the leading line; and a
+  private-registry base with no credentials points at the troubleshooting section (#665).
+- Declining the `prune` confirmation returns the shared `termio.ErrCancelled` sentinel (detectable with
+  `errors.Is`); a `--dry-run` on a project with a pending identity-adoption marker reports the volume it
+  would reuse, not a fresh one; and attaching to a paused or draining VM names the status
+  (`… status is "paused"`) instead of the sandbox (#529, #527, #540).
+- The detach reaper holds the sandbox while a session retries below `auto-stop-max-session-retries` and
+  releases it once the cap is reached, so a retrying session is no longer stopped early and one at or over
+  the cap no longer holds it indefinitely (#555).
+- Config provisioning hands the directories it created to the runtime user even when creating a deeper
+  directory fails, so a failed startup no longer leaves root-owned directories in the home volume; a
+  project config approval saved by an earlier version keeps matching, so an unchanged `.agents-sandbox`
+  is not re-approved after upgrading; and a first run lists each project config file once per role, with
+  the flat `config paths` warning no longer repeating a path (#557, #666).
+- `shell` now runs the same startup stages as `run`: it auto-prunes stale VMs, home volumes, and runner
+  images at startup (retaining the image it is about to use), and `shell --dry-run` skips the prerequisite
+  check so it no longer installs the microsandbox runtime (#452).
+- A live `--memory` decrease the runtime does not apply is reported as not applied instead of as applied,
+  the resize is confirmed against the live limit, and a metrics read error or unknown limit is surfaced
+  as unconfirmed (#661).
 
 ## [0.6.0] - 2026-10-25
 
