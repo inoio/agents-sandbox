@@ -83,6 +83,7 @@ run_local "modified envelope test" scripts/test-envelope.sh "# x" "envelope-test
 run_local "modified cleanup script" scripts/cleanup-merged-branches.sh "# x" "cleanup-branches-test"
 run_local "modified ci-guards checker" ci/check-ci-guards.sh "# x" "ci-guards-check ci-guards-check-test"
 run_local "modified change classifier" ci/classify-changes.sh "# x" "ci-guards-check classify-changes-test"
+run_local "modified base-SHA resolver" ci/event-base.sh "# x" "ci-guards-check event-base-test"
 run_local "modified workflow" .github/workflows/ci.yml "# x" "actionlint ci-guards-check"
 run_local "modified surface-sweep script" scripts/surface-sweep.sh "# x" "surface-sweep-test"
 run_local "nested markdown selects nothing" .github/PULL_REQUEST_TEMPLATE.md "# x" ""

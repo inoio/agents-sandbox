@@ -426,6 +426,13 @@ noanchor="$(new_fixture)"
 perl -pi -e "s{\Qgrep -qE '^docs/'\E}{grep -qE 'docs/'}" "$noanchor/ci/classify-changes.sh"
 expect "classifier exec rule losing its ^docs/ anchor" "$noanchor" 1 "missing the exec rule"
 
+# The code-derived exec rule dropped: without `[ "$code" = true ]` an
+# execution-relevant change that is not a docs change stops forcing exec, so a
+# required job's Go work is skipped on exactly the change it must run for.
+noderive="$(new_fixture)"
+perl -pi -e 's{\[ "\$code" = true \]}{[ "\$code" = false ]}' "$noderive/ci/classify-changes.sh"
+expect "classifier exec rule no longer derived from code" "$noderive" 1 "does not derive exec from code"
+
 # The `changes` step must invoke the tested classifier, not inline the logic.
 noinvoke="$(new_fixture)"
 perl -pi -e 's{ci/classify-changes\.sh /tmp/changed\.txt}{grep -vqE "x" /tmp/changed.txt}' "$noinvoke/.github/workflows/ci.yml"
