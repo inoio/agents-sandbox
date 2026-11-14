@@ -16,7 +16,7 @@ emptied at the next release.
 
 ### Added
 
-- Project config is approved before it is used. agents-sandbox now asks before it uses a project's
+- **Breaking** Project config is approved before it is used. agents-sandbox now asks before it uses a project's
   `.agents-sandbox/` — the config file, `env`, the secret files (each secret's destination, never its
   value), the agent config directories, the `Dockerfile`, and the files `home:` copies — and uses them
   only after you approve them for that checkout. Every file is re-checked against the approved bytes
@@ -83,7 +83,7 @@ emptied at the next release.
 
 ### Changed
 
-- The in-sandbox Docker engine now runs rootless, as `dev` instead of root with `dev` in the `docker`
+- **Breaking** The in-sandbox Docker engine now runs rootless, as `dev` instead of root with `dev` in the `docker`
   group. A container can no longer gain root inside the sandbox: mounting `/` does not expose root-only
   files, and `--privileged` stays inside the engine's user namespace. `docker` and `/var/run/docker.sock`
   keep working, but `dev` is no longer in a `docker` group, and per-container `--memory`/`--cpus` limits
@@ -91,7 +91,7 @@ emptied at the next release.
   images, containers, and named volumes from the previous root engine are not carried over, and a custom
   base that enables Docker must now provide `uidmap`, `slirp4netns`, and `iproute2` (the build names any
   missing). It runs on `fuse-overlayfs`, falling back to `vfs` (#487, #489).
-- Prune can no longer destroy agent state. Auto-prune and batch `prune` reclaim only artifacts with no
+- **Breaking** Prune can no longer destroy agent state. Auto-prune and batch `prune` reclaim only artifacts with no
   user data behind them — stale VMs, runner images, dangling Docker images, runtime RAM, and stale
   internal state — and never remove a home volume. Batch `prune` instead lists retired projects and
   points at the new `prune --purge [<slug>|<slug>-<agent>]` (and `sandbox remove --purge`) to remove a
@@ -112,7 +112,7 @@ emptied at the next release.
   replaced value's quote style, and every untrusted config, secret, and snippet read is capped at 16 MiB.
   `yaml/v4` quotes a value that starts with a tab instead of writing a block scalar it could not re-parse,
   and viper keeps its own read-only `yaml/v3` (#531, #588, #599).
-- The launcher and managed runtime move to microsandbox v0.7.13. The runtime migrates its data on first
+- **Breaking** The launcher and managed runtime move to microsandbox v0.7.13. The runtime migrates its data on first
   use, so older agents-sandbox releases can no longer use it afterwards (#575).
 - VM size settings are validated as a contract: `memory` has a 128 MiB floor, `tmp-size` defaults to
   `min(2 GiB, memory/2)` and must be less than `memory`, and `disk-size`/`workspace-quota` must be
@@ -171,7 +171,7 @@ emptied at the next release.
   running, so their loss to the idle stop is not a surprise (#467).
 - The post-migration notice names old-runtime leftovers as such and prints a removal command per copied
   home volume when some volumes were not copied, instead of a path list without a command (#285).
-- Removed the deprecated `--opencode-version` alias on `build`; use `--agent-version`. It was eligible
+- **Breaking** Removed the deprecated `--opencode-version` alias on `build`; use `--agent-version`. It was eligible
   for removal at 0.7.0 (#679).
 
 ### Docs
