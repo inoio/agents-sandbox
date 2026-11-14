@@ -86,6 +86,11 @@ new_fixture() { # [config_dir] [config_branch] [relative|absolute|none] [dirty 0
   git -C "$proj" update-ref refs/remotes/origin/"$config_branch" "$old"
   git -C "$proj" update-ref refs/remotes/origin/stale-branch "$old"
   git -C "$proj" worktree add -q "$proj/oldwork" -b old-work "$old"
+  if [[ "$containment" == 1 ]]; then
+    git -C "$proj" worktree add -q --detach "$proj/detached-contained" "$old"
+    git -C "$proj" worktree add -q --detach "$proj/detached-unique" "$(git -C "$proj" rev-parse unique)"
+    git -C "$proj" worktree add -q --detach "$proj/detached-current" "$(git -C "$proj" rev-parse main)"
+  fi
   [[ "$dirty" == 1 ]] && echo scratch >"$proj/$config_dir/untracked.txt"
 
   printf '%s\n' "$proj"
@@ -204,6 +209,25 @@ assert_not_contains "containment: manual-merge branch kept"  "$rem_lb"  "contain
 assert_contains     "containment: manual-merge branch kept"  "$keep_lb" "containment-manual"
 assert_not_contains "containment: unique branch kept"        "$rem_lb"  "unique (was"
 assert_contains     "containment: unique branch kept"        "$keep_lb" "unique"
+
+# Detached worktrees are tested by their HEAD commit: a contained one is removed,
+# a unique one is kept, and one at the default-branch tip is kept.
+proj="$(new_fixture config agents-sandbox-config relative 0 1)"
+out="$(run_cleanup "$proj")"
+rem_wt="$(section "$out" 'Worktrees to remove:')"
+keep_wt="$(section "$out" 'Remaining worktrees:')"
+assert_contains     "detached: contained worktree removed" "$rem_wt"  "$proj/detached-contained"
+assert_not_contains "detached: unique worktree kept"       "$rem_wt"  "$proj/detached-unique"
+assert_contains     "detached: unique worktree kept"       "$keep_wt" "$proj/detached-unique"
+assert_contains     "detached: current worktree kept"      "$keep_wt" "$proj/detached-current"
+assert_contains     "detached: current kept as default"    "$keep_wt" "[default branch or newer; kept]"
+
+# A dirty detached worktree is kept without --force.
+proj="$(new_fixture config agents-sandbox-config relative 1 1)"
+echo scratch >>"$proj/detached-contained/scratch.txt"
+out="$(run_cleanup "$proj")"
+keep_wt="$(section "$out" 'Remaining worktrees:')"
+assert_contains "detached: dirty kept without --force" "$keep_wt" "$proj/detached-contained"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 ((fail == 0))

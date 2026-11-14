@@ -268,7 +268,8 @@ gh_merge_matches() {
   for pair in ${gh_merged_pairs[@]+"${gh_merged_pairs[@]}"}; do
     pair_name="${pair%% *}"
     pair_oid="${pair##* }"
-    [[ "$pair_name" == "$name" && "$pair_oid" == "$tip" ]] && return 0
+    [[ "$pair_oid" == "$tip" ]] || continue
+    [[ -z "$name" || "$pair_name" == "$name" ]] && return 0
   done
   return 1
 }
@@ -293,24 +294,26 @@ merge_commits_are_auto_merges() {
 }
 
 local_merge_method() {
-  local branch="$1" target output
+  # <ref> is a branch name or any commit-ish (a detached worktree's HEAD); <name>
+  # is the branch name for the merged-PR lookup, or empty to match the tip alone.
+  local ref="$1" name="${2-$1}" target output
   for target in ${targets[@]+"${targets[@]}"}; do
-    git merge-base --is-ancestor "$branch" "$target" 2>/dev/null && {
+    git merge-base --is-ancestor "$ref" "$target" 2>/dev/null && {
       printf 'ancestry'
       return 0
     }
   done
-  gh_merge_matches "$branch" "$(git rev-parse "$branch" 2>/dev/null || true)" && {
+  gh_merge_matches "$name" "$(git rev-parse "$ref" 2>/dev/null || true)" && {
     printf 'pr'
     return 0
   }
   for target in ${targets[@]+"${targets[@]}"}; do
-    output="$(git cherry "$target" "$branch" 2>/dev/null || true)"
+    output="$(git cherry "$target" "$ref" 2>/dev/null || true)"
     # git cherry ignores merge commits, so a branch that merged a ref other than the
     # target and added a unique conflict resolution can look patch-equivalent. Only
     # trust the patch check when every one of its merges is a clean auto-merge.
     if [[ -n "$output" ]] && ! grep -q '^+' <<<"$output" &&
-      merge_commits_are_auto_merges "$target" "$branch"; then
+      merge_commits_are_auto_merges "$target" "$ref"; then
       printf 'patch'
       return 0
     fi
@@ -512,24 +515,36 @@ for i in "${!worktree_path[@]}"; do
   else
     age=0
   fi
+
+  # A detached worktree is tested by its HEAD commit; with no branch name the
+  # merged-PR lookup matches the tip alone.
+  if [[ -n "$branch" ]]; then
+    ref="$branch"; ref_name="$branch"
+  elif [[ -d "$path" ]]; then
+    ref="$(git -C "$path" rev-parse HEAD 2>/dev/null || true)"; ref_name=""
+  else
+    ref=""; ref_name=""
+  fi
+
   note=""
   if [[ "${worktree_prunable[$i]}" == 1 ]]; then
     note="prunable; left for the host"
   elif [[ "$(cd "$path" && pwd -P)" == "$current_worktree" ]]; then
     note="current worktree"
-  elif [[ -z "$branch" ]]; then
+  elif is_protected_config_worktree "$path" ||
+    { [[ -n "$branch" ]] && is_protected_config_branch "$branch"; }; then
+    note="config mirror; protected"
+  elif [[ -z "$ref" ]]; then
     note="detached"
   else
-    method="$(local_merge_method "$branch" || true)"
+    method="$(local_merge_method "$ref" "$ref_name" || true)"
     if [[ -z "$method" ]]; then
       note="unmerged"
-    elif [[ "$branch" == release/* ]]; then
+    elif [[ -n "$branch" && "$branch" == release/* ]]; then
       note="release branch"
-    elif is_protected_config_worktree "$path" || is_protected_config_branch "$branch"; then
-      note="config mirror; protected"
-    elif is_excluded "$branch"; then
+    elif is_excluded "${branch:-$path}"; then
       note="excluded (merged)"
-    elif [[ "$method" == ancestry ]] && worktree_at_or_ahead_of_default "$branch"; then
+    elif [[ "$method" == ancestry ]] && worktree_at_or_ahead_of_default "$ref"; then
       note="default branch or newer; kept"
     elif [[ "$method" == ancestry ]] && worktree_created_recently "$path"; then
       note="fresh session; kept"
