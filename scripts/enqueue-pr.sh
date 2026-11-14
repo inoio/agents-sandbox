@@ -33,19 +33,25 @@ if [[ ! "$pr" =~ ^[1-9][0-9]*$ ]]; then
   exit 2
 fi
 
-# `gh pr checks --watch` exits 8 while checks are pending rather than 0, so a
-# failed watch is only a check failure once the PR's state confirms it: the
-# queue is refused while the PR is merged, implies the checks passed, or while
-# it is closed, means nothing will run again.
+# `gh pr checks --watch` redraws the whole check table every few seconds and
+# exits 8 while checks are still pending rather than 0. Keep that redraw out of
+# the helper's output — it is meant to be read as a few lines — and classify the
+# non-zero exit by the PR's state: a merged or closed PR will never report again.
 watch_checks() {
   local status=0
-  gh pr checks "$pr" --watch --fail-fast || status=$?
+  gh pr checks "$pr" --watch --fail-fast >/dev/null 2>&1 || status=$?
   case "$status" in
     0) return 0 ;;
-    8) printf 'enqueue-pr: PR #%s is not ready: its checks are still pending\n' "$pr" >&2; return 1 ;;
+    8)
+      printf 'enqueue-pr: PR #%s is not ready: its checks are still pending\n' "$pr" >&2
+      return 1
+      ;;
     *)
-      check_pr_state
-      printf 'enqueue-pr: PR #%s checks did not pass\n' "$pr" >&2
+      if [[ "$(pr_state)" == "CLOSED" ]]; then
+        printf 'enqueue-pr: PR #%s was closed while waiting for its checks\n' "$pr" >&2
+      else
+        printf 'enqueue-pr: PR #%s checks did not pass\n' "$pr" >&2
+      fi
       return 1
       ;;
   esac
@@ -76,9 +82,9 @@ load_pr() {
   esac
 }
 
-# Prints the PR's state (or UNKNOWN), never failing: it is the diagnostic a
-# failed watch reaches for, and it must not mask that failure.
-check_pr_state() {
+# The PR's state, or UNKNOWN: the diagnostic a failed watch reaches for, and it
+# must not mask that failure.
+pr_state() {
   gh pr view "$pr" --json state -q .state 2>/dev/null || printf 'UNKNOWN'
 }
 
