@@ -44,65 +44,69 @@ jobs:
     name: changes
     if: github.event_name != 'merge_group'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      exec: ${{ steps.filter.outputs.exec }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - name: Detect code-affecting changes
+      - name: Classify the changeset
         id: filter
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+          GITHUB_BEFORE: ${{ github.event.before }}
+          GITHUB_MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
         run: |
           set -euo pipefail
-          # A push carries the previous tip in `before`. A pull_request payload
-          # has no `before`, so diff against the base branch's merge base, which
-          # is exactly the PR's changeset. A merge_group names its base directly,
-          # since its ref is the throwaway `gh-readonly-queue/...` branch.
-          if [ '${{ github.event_name }}' = 'pull_request' ]; then
-            git fetch --no-tags origin "refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
-            base=$(git merge-base "origin/${{ github.base_ref }}" '${{ github.sha }}')
-          elif [ '${{ github.event_name }}' = 'merge_group' ]; then
-            base='${{ github.event.merge_group.base_sha }}'
+          code=false
+          exec=false
+          if base=$(ci/event-base.sh) && files=$(git diff --name-only "$base" "$GITHUB_SHA"); then
+            # The `code` set is the complement of mutation.yml/codeql.yml's paths-ignore and
+            # check-changelog.sh's presence rule; keep the four copies in sync
+            # (ci/check-ci-guards.sh).
+            if printf '%s\n' "$files" | grep -vqE '^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/|\.agents-sandbox/)|\.md$|^\.gitignore$'; then
+              code=true
+            fi
+            # `exec` is `code` with docs/** removed: a docs/ path is inert for the image build
+            # but not for the Go jobs (a default-suite test reads docs/configuration/networking.md).
+            if [ "$code" = true ] || printf '%s\n' "$files" | grep -qE '^docs/'; then
+              exec=true
+            fi
           else
-            base='${{ github.event.before }}'
-            if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then base='HEAD^'; fi
+            # Fail closed: an undecidable base or a failed diff runs everything.
+            code=true
+            exec=true
           fi
-          files=$(git diff --name-only "$base" '${{ github.sha }}' || true)
-          # The complement of mutation.yml's paths-ignore: docs, the operator
-          # brain, the Homebrew formula, issue templates, the dev VM
-          # (.agents-sandbox), and .gitignore.
-          if printf '%s\n' "$files" | grep -vqE '^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/|\.agents-sandbox/)|\.md$|^\.gitignore$'; then
-            echo "code=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "code=false" >> "$GITHUB_OUTPUT"
-          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "exec=$exec" >> "$GITHUB_OUTPUT"
 
   # Required check. It always runs — a gated required check reports Success
   # without running — and decides the changelog presence rule from the diff.
-  # The base computation mirrors the `changes` job above.
+  # An undecidable base degrades to shape-only rather than failing this required
+  # check: a transient fetch failure must not eject a PR.
   changelog:
     name: changelog
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Compute changed files
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+          GITHUB_BEFORE: ${{ github.event.before }}
+          GITHUB_MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
         run: |
           set -euo pipefail
-          base=""
-          if [ '${{ github.event_name }}' = 'pull_request' ]; then
-            git fetch --no-tags origin "refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}" || true
-            base=$(git merge-base "origin/${{ github.base_ref }}" '${{ github.sha }}' || true)
-          elif [ '${{ github.event_name }}' = 'merge_group' ]; then
-            base='${{ github.event.merge_group.base_sha }}'
-          else
-            base='${{ github.event.before }}'
-            if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then base='HEAD^'; fi
-          fi
-          # An undecidable base degrades to shape-only rather than failing this
-          # required check: a transient fetch failure must not eject a PR.
-          git diff --name-only "$base" '${{ github.sha }}' > /tmp/changed.txt 2>/dev/null || true
+          base=$(ci/event-base.sh || true)
+          git diff --name-only "${base:-}" "$GITHUB_SHA" > /tmp/changed.txt 2>/dev/null || true
       - name: Check fragments
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
