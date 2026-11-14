@@ -89,10 +89,6 @@ Common development commands (run from the Go module root):
 
 Use the linter as a guide for code style: Run it after every major edit, for smaller edits run it after at most 3 edits.
 
-## Superpowers
-
-Always use your superpowers for appropriate tasks, never skip user approval.
-
 ## Testing
 
 - Default to TDD - writing tests first, validating they compile and fail, implementing changes, validating passing tests
