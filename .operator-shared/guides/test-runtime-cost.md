@@ -178,7 +178,8 @@ host-tier changes below):
   every other package is ≤17s. The cost is real docker builds, largest single test
   `TestRenderDockerfileAgentVersionRebuildsInstall`.
 - `make test-msb` ~13m37s warm / ~14m38s cold. `test/harness` is ~813s (`TestHarnessSmoke`
-  one-off setup ~471s + 7 subtests ~228s; `TestDockerStorageDriverIsFuseOverlayfs` ~106s), and
+  one-off setup ~471s + 7 subtests ~228s; the docker-storage smoke ~106s, then a top-level
+  `TestDockerStorageDriverIsFuseOverlayfs`, now `runDockerStorageDriverSmoke` inside `TestHarnessSmoke`), and
   `internal/sandbox/msb` ~45s runs concurrently.
 
 After the 2026-11-07 host-tier changes (same host, warm caches, `make test-msb-reuse`):
@@ -195,7 +196,8 @@ Two structural costs dominate, neither visible from the call sites:
 - A harness image prebuild runs `agents-sandbox build`, which ends in `EnsureLoaded` — a
   `docker save | msb ImageLoad` of the multi-GB runner image
   (`internal/sandbox/image/load.go`). The suite's microsandbox home is a fresh `os.MkdirTemp`
-  per run (`runtime_isolation_msb_test.go`, `smoke_msb_test.go`), so the microsandbox image
+  per run (`test/harness/harness.go`'s `resolveSuiteRoot`, and `msbtest/runtime`'s
+  `InstallIsolatedRuntimeHome` for the msb package), so the microsandbox image
   cache never survives between runs and the transfer is repaid in full each time (hermes alone
   ~190s of the ~420s prebuild; its docker build is ~7s). The `AGENTS_SANDBOX_SMOKE_ROOT` /
   `AGENTS_SANDBOX_MSB_TEST_HOME` reuse opt-in (`make test-msb-reuse`) keeps the home between
@@ -213,5 +215,8 @@ image-prebuild pool plus a number of parallel harness subtests sized to the host
 overrides it). Each smoke run boots its VM at `--memory 2G` rather than the launcher's 4 GiB default; the count uses
 a working-set estimate, not that ceiling, because a guest allocates only the pages it touches.
 Each harness gets its own prepared HOME tree (`prepareHome`), so overlapping harnesses never share a
-home. Both tiers stay serial across their top-level tests, so a per-test cache or a process-global
-seam is not raced.
+home. Both tiers stay serial across their top-level tests — a top-level case mutates the process-global
+`docker.Get` seam at setup and restores it in cleanup, so two must not overlap — but their subtests run in
+parallel and therefore share the docker daemon's layer cache and the microsandbox image home. The integration
+builds get a per-build cache key so parallel builds do not orphan each other's chains, and the `podman`
+job serializes (`INTEGRATION_PARALLEL=1`) because that engine's cache cannot take concurrent builds.

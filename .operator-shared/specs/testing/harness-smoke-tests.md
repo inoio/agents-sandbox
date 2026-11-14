@@ -2,7 +2,7 @@
 description: Contract for the `msb`-tagged harness smoke tests that start every registered harness to its TUI in a real microsandbox VM (readiness by alternate-screen marker, a startup-line marker, or a settled wait; optional seeded home files), the per-harness isolated home tree with a shared microsandbox image cache, the parallel subtests sized to the host's free memory and the bounded image prebuild, the smaller per-VM memory cap, the reusable-root escape hatch, and the isolation that keeps them off the developer's existing agents-sandbox state.
 read_if: Adding or changing the harness smoke tests, the `msb` build tag, `make test-msb`/`make test-msb-reuse` or
   `AGENTS_SANDBOX_SMOKE_ROOT`, the harness quit-press table, the readiness signals or seeded home files, the
-  per-harness home split or why the harnesses run serially, or when a harness's TUI startup or quit behavior changes.
+  per-harness home split or how the harnesses' concurrency is bounded, or when a harness's TUI startup or quit behavior changes.
 ---
 
 # Harness smoke tests
