@@ -34,4 +34,4 @@ read_if: Changing the self-update download/verify/replace path, the release job'
 
 - The checksum is fetched over the same TLS channel as the asset, so it defends against a corrupted
   or swapped asset and an inconsistent CDN, not against an active intermediary that rewrites both.
-  Signature verification (cosign/Sigstore) is the deliberate follow-up, out of scope for #338.
+  Signature verification (cosign/Sigstore) is the deliberate follow-up, tracked in #681.
