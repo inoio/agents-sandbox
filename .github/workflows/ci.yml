@@ -122,6 +122,14 @@ jobs:
 
   lint:
     name: lint
+    # A required check, so it always runs: `!cancelled()` (not a bare
+    # `success()`) keeps it running when the `changes` dependency was skipped on
+    # a merge group. The Go-toolchain steps below skip when the changeset is
+    # execution-inert (`changes.outputs.exec == 'false'`), but the doc- and
+    # script-gates still run — a docs-only or shell-only change is exactly what
+    # they cover.
+    needs: [changes]
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -130,6 +138,7 @@ jobs:
           go-version-file: .go-version
           cache: true
       - uses: golangci/golangci-lint-action@v9
+        if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
         with:
           version: v2.15
           # Include the integration, msb, and microsandbox_ffi_path build-tagged
@@ -139,7 +148,9 @@ jobs:
       # Compile every package including build-tagged files (`integration`) so a
       # tagged-only compile regression fails on PRs, not just on main/releases.
       - run: make compile-all
+        if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
       - run: make validate-fmt
+        if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
       - run: make docs-linkcheck
       - run: make docs-linkcheck-test
       - run: make ci-guards-check
@@ -152,6 +163,11 @@ jobs:
 
   test:
     name: test
+    # Required check; see `lint` for why the job itself is `!cancelled()` and its
+    # Go-toolchain step skips on an execution-inert changeset. The second Codecov
+    # step's `!cancelled()` is composed with the gate, not replaced by it.
+    needs: [changes]
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -160,13 +176,15 @@ jobs:
           go-version-file: .go-version
           cache: true
       - run: make coverage-junit
+        if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
       - uses: codecov/codecov-action@v7
+        if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage.out
           fail_ci_if_error: false
       - name: Upload test results to Codecov
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && (github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false') }}
         uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -176,11 +194,13 @@ jobs:
 
   race:
     name: race
-    # A required check (see the `protect main` ruleset), so it is not gated and
-    # runs on every event. GitHub reports a job skipped by its `if` as Success,
-    # which would satisfy the required check without running it — a gated
-    # required check can go green untested. It runs in parallel with lint/test,
-    # so always-on costs the queue no extra wall-clock.
+    # A required check (see the `protect main` ruleset), so the job always runs —
+    # a gated required check reports Success without running it. Only its body
+    # step is gated by the `changes` `exec` output, so an execution-inert
+    # changeset pays the checkout but not the race suite. It runs in parallel
+    # with lint/test, so the always-on job costs the queue no extra wall-clock.
+    needs: [changes]
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -189,6 +209,7 @@ jobs:
           go-version-file: .go-version
           cache: true
       - run: make test-race
+        if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
 
   vulncheck:
     name: vulncheck
@@ -212,8 +233,11 @@ jobs:
 
   deadcode:
     name: deadcode
-    # A required check (see the `protect main` ruleset), so it always runs, like
-    # race.
+    # A required check (see the `protect main` ruleset), so the job always runs,
+    # like race. Only its body step is gated by the `changes` `exec` output, so
+    # an execution-inert changeset pays the checkout but not the analysis.
+    needs: [changes]
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -222,6 +246,7 @@ jobs:
           go-version-file: .go-version
           cache: true
       - run: make deadcode
+        if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
 
   integration:
     name: integration (docker build)
