@@ -1,6 +1,6 @@
 ---
-description: Contract for the per-minor release branch `release/<major>.<minor>` — cut at the release commit, the branch the line's patch releases are tagged from, and where fixes for a released line land while `main` keeps new work.
-read_if: Deciding where a release tag or a fix lands, cutting a patch release for a released line, backporting a fix, or changing the release branch name or flow.
+description: Contract for the per-minor release branch `release/<major>.<minor>` — cut at the release commit, the branch the line's patch releases are tagged from, and where fixes for a released line land while `main` keeps new work; including that the branch runs the same CI as `main` and that a release tag is refused unless it is on `main` or a release branch.
+read_if: Deciding where a release tag or a fix lands, cutting a patch release for a released line, backporting a fix, protecting a release branch, or changing the release branch name or flow.
 ---
 
 # Release branching
@@ -16,6 +16,21 @@ read_if: Deciding where a release tag or a fix lands, cutting a patch release fo
   a release branch.
 - At a minor release the tag is reachable from both lines (the branch is created at the same
   commit); at a patch release it is on the release branch only.
+- A `release/<major>.<minor>` branch runs the **same CI as `main`**: a push to it triggers
+  `.github/workflows/ci.yml` and runs every required check (`lint`, `test`, `race`, `deadcode`,
+  `changelog`) plus the Docker `integration` build, so a backport merged onto the line is verified
+  at the merge rather than only when the line is tagged. The build is import-only — the
+  cache-reading `integration` reader runs, the single cache writer stays on `main` — so a release
+  push never overwrites `main`'s GHCR build cache.
+- **Protecting the line is a manual admin step**: a `protect release/*` ruleset must require the
+  same six branch checks `protect main` does (`lint`, `test`, `race`, `deadcode`, `changelog`, and
+  the `integration (docker build)` context), without the merge queue. The workflow file cannot set
+  it; until it exists, the branch runs CI but does not enforce it.
+- **A release tag is refused unless its commit is on `main` or a release branch.** The `tag-guard`
+  job fails the run (and `release` waits on it) when the tagged SHA is not an ancestor of `main`
+  or of some `release/*`, so a tag can never publish a commit that bypassed the checks. Both
+  lines are accepted because a patch release tags the release branch's tip, not `main`; a
+  `main`-only rule would reject legitimate patch tags.
 
 ## Cutting a release
 
