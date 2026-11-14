@@ -107,6 +107,11 @@ new section; merge it to the branch being tagged (step 1) — `main` for a minor
 existing `release/<major>.<minor>` branch for a patch release. The tag must point at the merged
 content.
 
+`main` merges through a queue and repo auto-merge is disabled, so `gh pr merge` is refused. Enqueue
+the PR with the `enqueuePullRequest` GraphQL mutation once its required checks have passed (the
+mutation fails until they do), or have the maintainer click "Merge when ready". The queue re-runs the
+required checks on the combined tree before it merges.
+
 ### 7. Create the release branch and push the tag
 
 Every minor (or major) release gets a release branch `release/<major>.<minor>` at the merged `main`
@@ -148,7 +153,10 @@ the in-repo record.
 Completion: `gh release view vX.Y.Z` shows the authored notes.
 
 Then monitor and double-check the release: the three target artifacts are attached to the Release,
-the Homebrew formula bump PR is open (or merged), and the Pages deploy from the tag succeeds.
+the Homebrew formula bump PR is open (or merged), and the Pages deploy from the tag succeeds. The
+bump PR is opened by the `publish` job with `GITHUB_TOKEN`, so GitHub parks its workflow run at
+`action_required` — no checks report until a maintainer approves the run — after which it merges
+through the queue like any other PR.
 
 ### 9. Post-release
 
