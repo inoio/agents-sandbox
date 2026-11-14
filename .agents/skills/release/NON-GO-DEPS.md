@@ -28,6 +28,12 @@ A tool's version lives in more than one place; update every location in its row.
 `.go-version` directly via setup-go's `go-version-file`, so `.go-version` is the single source there and cannot drift.
 golangci-lint is pinned exactly in the `Makefile` and Dockerfile (`2.15.0`) but only to major.minor in `ci.yml` (`v2.15`) — keep them on the same minor.
 
+## zig pin
+
+zig ships from `ziglang.org`, not GitHub releases — the `ziglang/zig` GitHub tags lag the version
+the repo pins (the pin is `0.17.1` while the newest GitHub tag is `0.15.2`). Bump `ZIG_VERSION` from
+the download index at `https://ziglang.org/download/`, not from `gh release list`.
+
 ## Node pin
 
 Keep `nodeVersion` **below v25**. Node v25 and v26 tarballs carry a hard `DT_NEEDED` on
