@@ -90,6 +90,7 @@ new_fixture() { # [config_dir] [config_branch] [relative|absolute|none] [dirty 0
     git -C "$proj" worktree add -q --detach "$proj/detached-contained" "$old"
     git -C "$proj" worktree add -q --detach "$proj/detached-unique" "$(git -C "$proj" rev-parse unique)"
     git -C "$proj" worktree add -q --detach "$proj/detached-current" "$(git -C "$proj" rev-parse main)"
+    git -C "$proj" worktree add -q --detach "$proj/detached-fresh" "$(git -C "$proj" rev-parse containment)"
     git -C "$proj" update-ref refs/remotes/origin/containment "$(git -C "$proj" rev-parse containment)"
     git -C "$proj" update-ref refs/remotes/origin/unique-remote "$(git -C "$proj" rev-parse unique)"
   fi
@@ -247,18 +248,30 @@ keep_lb="$(section "$out" 'Remaining local branches:')"
 assert_contains "note: unique commit count"   "$keep_lb" "[2 commits not in origin/main]"
 assert_contains "note: manual merge unmerged" "$keep_lb" "[unmerged]"
 
-# With gh, a closed-unmerged PR is named.
-make_gh_stub() { # dir
-  local dir="$1"
+# A fresh detached worktree is kept even when its content is provable (not only
+# when it is an ancestor of the default branch).
+proj="$(new_fixture config agents-sandbox-config relative 0 1)"
+out="$(run_cleanup "$proj" --fresh 30m)"
+rem_wt="$(section "$out" 'Worktrees to remove:')"
+keep_wt="$(section "$out" 'Remaining worktrees:')"
+assert_not_contains "fresh: fresh detached not removed" "$rem_wt"  "$proj/detached-fresh"
+assert_contains     "fresh: fresh detached kept"        "$keep_wt" "$proj/detached-fresh"
+assert_contains     "fresh: fresh detached note"        "$keep_wt" "[fresh session; kept]"
+
+# With gh, a closed-unmerged PR is named; a merged PR is proof only when it
+# landed on a target.
+make_gh_stub() { # dir record-line...
+  local dir="$1"; shift
   mkdir -p "$dir"
-  cat >"$dir/gh" <<'EOF'
-#!/bin/sh
-case "${1:-}" in
-  repo) echo "inoio/agents-sandbox" ;;
-  pr) printf '%s\n' "98 CLOSED fix-issue-94 1111111111111111111111111111111111111111" ;;
-  api) exit 1 ;;
-esac
-EOF
+  {
+    printf '#!/bin/sh\ncase "${1:-}" in\n'
+    printf '  repo) echo "inoio/agents-sandbox" ;;\n'
+    printf '  pr) printf "%%s\\n"'
+    printf ' "%s"' "$@"
+    printf ' ;;\n'
+    printf '  api) exit 1 ;;\n'
+    printf 'esac\n'
+  } >"$dir/gh"
   chmod +x "$dir/gh"
 }
 run_cleanup_gh() { # proj stubdir [extra args...]
@@ -267,10 +280,19 @@ run_cleanup_gh() { # proj stubdir [extra args...]
 }
 proj="$(new_fixture config agents-sandbox-config relative 0 1)"
 git -C "$proj" update-ref refs/remotes/origin/fix-issue-94 "$(git -C "$proj" rev-parse unique)"
-stub="$fixture_root/gh-stub"; make_gh_stub "$stub"
+stub="$fixture_root/gh-stub"; make_gh_stub "$stub" "98 CLOSED main fix-issue-94 1111111111111111111111111111111111111111"
 out="$(run_cleanup_gh "$proj" "$stub")"
 keep_rb="$(section "$out" 'Remaining origin branches:')"
 assert_contains "note: closed PR context" "$keep_rb" "PR #98 closed, not merged"
+
+proj="$(new_fixture config agents-sandbox-config relative 0 1)"
+unique_tip="$(git -C "$proj" rev-parse unique)"
+stub="$fixture_root/gh-stub-base"; make_gh_stub "$stub" "777 MERGED feature-base unique $unique_tip"
+out="$(run_cleanup_gh "$proj" "$stub")"
+rem_lb="$(section "$out" 'Local branches to delete:')"
+keep_lb="$(section "$out" 'Remaining local branches:')"
+assert_not_contains "gh: non-target base not deleted" "$rem_lb"  "unique (was"
+assert_contains     "gh: non-target base kept"        "$keep_lb" "unique"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 ((fail == 0))

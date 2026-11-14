@@ -244,18 +244,22 @@ done < <(git for-each-ref --format='%(refname:short)' 'refs/remotes/origin/relea
 # --- merged pull requests (via gh) ------------------------------------------
 
 gh_available=false
-gh_merged_pairs=() # "<headRefName> <headRefOid>" for merged PRs
-gh_pr_records=()   # "<number> <state> <headRefName> <headRefOid>" for every PR
+gh_merged_pairs=() # "<headRefName> <headRefOid>" for merged PRs into a target
+gh_pr_records=()   # "<number> <state> <baseRefName> <headRefName> <headRefOid>" for every PR
 repo_slug=""
 if $use_gh && command -v gh >/dev/null 2>&1; then
   if repo_slug="$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)" && [[ -n "$repo_slug" ]]; then
-    if prs="$(gh pr list --state all --limit 2000 --json number,state,headRefName,headRefOid --jq '.[] | "\(.number) \(.state) \(.headRefName) \(.headRefOid)"' 2>/dev/null)"; then
+    if prs="$(gh pr list --state all --limit 5000 --json number,state,baseRefName,headRefName,headRefOid --jq '.[] | "\(.number) \(.state) \(.baseRefName) \(.headRefName) \(.headRefOid)"' 2>/dev/null)"; then
       gh_available=true
       while IFS= read -r record; do
         [[ -n "$record" ]] || continue
         gh_pr_records+=("$record")
-        read -r _num state head oid <<<"$record"
-        [[ "$state" == MERGED ]] && gh_merged_pairs+=("$head $oid")
+        read -r _num state base head oid <<<"$record"
+        # A merged PR proves content only when it landed on a target; the tip
+        # then matches a target's history by construction.
+        if [[ "$state" == MERGED ]] && contains "origin/$base" ${targets[@]+"${targets[@]}"}; then
+          gh_merged_pairs+=("$head $oid")
+        fi
       done <<<"$prs"
     fi
   fi
@@ -328,14 +332,14 @@ local_merge_method() {
 # Why a ref is kept: how many of its commits are absent from the default target,
 # plus PR context when gh links it by head-name (or by tip for a detached ref).
 unmerged_note() {
-  local ref="$1" name="${2-$1}" base count record number state head oid note=""
+  local ref="$1" name="${2-$1}" base count record number state pbase head oid note=""
   base="${default_ref:-origin/main}"
   count="$(git cherry "$base" "$ref" 2>/dev/null | grep -c '^+' || true)"
   if ((count == 1)); then note="1 commit not in $base"
   elif ((count > 1)); then note="$count commits not in $base"
   else note="unmerged"; fi
   for record in ${gh_pr_records[@]+"${gh_pr_records[@]}"}; do
-    read -r number state head oid <<<"$record"
+    read -r number state pbase head oid <<<"$record"
     [[ "$head" == "$name" || (-z "$name" && "$oid" == "$(git rev-parse "$ref" 2>/dev/null || true)") ]] || continue
     if [[ "$state" == MERGED ]]; then note="$note; merged PR #$number, branch moved since"
     elif [[ "$state" == CLOSED ]]; then note="$note; PR #$number closed, not merged"; fi
@@ -556,6 +560,10 @@ for i in "${!worktree_path[@]}"; do
     elif [[ "$method" == ancestry ]] && worktree_at_or_ahead_of_default "$ref"; then
       note="default branch or newer; kept"
     elif [[ "$method" == ancestry ]] && worktree_created_recently "$path"; then
+      note="fresh session; kept"
+    elif [[ -z "$ref_name" ]] && worktree_created_recently "$path"; then
+      # A detached worktree has no branch to signal "session just created", so a
+      # recently created one is protected however its content was proven.
       note="fresh session; kept"
     elif ! older_than_allows "$age"; then
       note="younger than --older-than (merged)"

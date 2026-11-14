@@ -12,8 +12,8 @@ already in a target (`origin/main` or any `origin/release/*`), regardless of how
 there. Three checks, in order:
 
 - the ref is an ancestor of a target (fast-forward / merge-commit);
-- the ref's tip equals the head commit of a merged PR (`gh pr list`) — catches squash and
-  rebase merges;
+- the ref's tip equals the head commit of a merged PR (`gh pr list`) that landed on a
+  target — catches squash and rebase merges;
 - the ref is patch-equivalent via `git cherry` — catches rebase merges offline. `git
   cherry` ignores merge commits, so the patch check is trusted only when every merge
   commit in `target..ref` is a clean auto-merge: re-merging its parents (`git merge-tree
@@ -74,7 +74,9 @@ prefixes `detached;`.
   when its tip is the local default branch or newer, or when the worktree was created within
   `--fresh` (default 30m). This protects a just-created session worktree; `--force` does not
   override it. When the creation time cannot be established (no reflog, no birth time), the
-  worktree is kept rather than assumed old.
+  worktree is kept rather than assumed old. A detached worktree has no branch to signal a
+  just-created session, so one created within `--fresh` is kept however its content was
+  proven (ancestor, patch, or merged PR).
 - Noninteractive runs (stdin or stdout not a terminal) abort unless `--yes` is passed, so
   redirecting or piping the output cannot silently delete.
 - `--dry-run` skips the remote refresh (`git fetch --prune`, `git remote set-head`), leaving
