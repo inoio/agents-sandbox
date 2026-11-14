@@ -412,8 +412,9 @@ fi
 if ! printf '%s\n' "$changes_block" | grep -qE 'git diff[^|]*--no-renames'; then
   report "ci.yml: 'changes' git diff is missing --no-renames (a detected rename collapses to its destination and classifies as non-code)"
 fi
-has_token "$(job_block changelog)" '--no-renames' \
-  "ci.yml: 'changelog' git diff is missing --no-renames (a detected rename hides the source path from the presence rule)"
+if ! printf '%s\n' "$(job_block changelog)" | grep -qE 'git diff[^|]*--no-renames'; then
+  report "ci.yml: 'changelog' git diff is missing --no-renames (a detected rename hides the source path from the presence rule)"
+fi
 
 # A release tag forces the full set: a force-updated tag can carry a resolvable
 # `before`, so a diff that looks execution-inert could otherwise skip a required
