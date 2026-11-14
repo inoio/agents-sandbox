@@ -36,6 +36,7 @@ Prefer these installed CLI tools over other tools or custom solutions:
 | Create a Python environment                | `python3 -m venv`                               |
 | Go: navigate, find references, rename      | `gopls` (`definition`, `references`, `rename`)  |
 | Go: add/remove imports after a move        | `goimports`                                     |
+| Wait for PR/CI checks to finish            | `gh pr checks <n> --watch` / `gh run watch`     |
 
 `~/go/bin` (GOBIN) is on `PATH`, so a `go install`ed tool is runnable in a later
 shell.

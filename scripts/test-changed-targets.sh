@@ -78,6 +78,7 @@ run_local "modified changed-files script" scripts/changed-files.sh "# x" "change
 run_local "modified changed-files test" scripts/test-changed-files.sh "# x" "changed-files-test"
 run_local "modified upstream-drift script" scripts/upstream-drift.sh "# x" "upstream-drift-test"
 run_local "modified rebase-status script" scripts/rebase-status.sh "# x" "rebase-status-test"
+run_local "modified enqueue-pr script" scripts/enqueue-pr.sh "# x" "enqueue-pr-test"
 run_local "modified envelope test" scripts/test-envelope.sh "# x" "envelope-test"
 run_local "modified cleanup script" scripts/cleanup-merged-branches.sh "# x" "cleanup-branches-test"
 run_local "modified ci-guards checker" ci/check-ci-guards.sh "# x" "ci-guards-check ci-guards-check-test"
