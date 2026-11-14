@@ -21,7 +21,7 @@ ZIG_ROOT = $(shell f="$$(command -v zig)"; [ -n "$$f" ] || exit 0; cd "$$(dirnam
 ZIG_MANAGED_ROOT = $(shell cd "$$HOME/.local/zig" 2>/dev/null && pwd -P)
 GOTESTSUM_VERSION = 1.13.0
 GOVULNCHECK_VERSION = v1.9.0
-ACTIONLINT_VERSION = v1.7.7
+ACTIONLINT_VERSION = v1.7.12
 GOMUTANTS_VERSION = v0.7.3
 DEADCODE_VERSION = v0.52.0
 # Per-binary cap for the unit suite: a wedged test panics with a stack dump
