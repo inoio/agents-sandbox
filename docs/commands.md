@@ -116,7 +116,6 @@ agents-sandbox build --agent-version 0.5.0  # pin a specific agent version
 | `--agent-version`    | —     | `""`     | Pin the version agents-sandbox installs into the image (default: latest). Ignored for a user-provided agent |
 | `--docker`           | —     | `false`  | Bake the Docker engine into the runner image; overrides the project Dockerfile's declaration in both directions (`--dind` is a deprecated alias) |
 
-> The deprecated `--opencode-version` flag remains as an alias for `--agent-version`.
 > The version flag does not replace an agent already supplied by a custom base or project Dockerfile.
 
 **Aliases:** `image build`
