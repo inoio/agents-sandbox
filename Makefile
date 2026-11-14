@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-reuse compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic envelope-test check verify check-local-changes check-branch-changes changed-targets-test all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test docs-serve
+.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-reuse compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic envelope-test check verify check-local-changes check-branch-changes changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test docs-serve
 
 VERSION ?= dev
 
@@ -350,7 +350,7 @@ rebase-status-test:
 # on macOS, with a fixed fallback; a user's own -j still bounds the jobserver.
 JOBS ?= $(shell n=$$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2); q=$$((n / 4)); [ "$$q" -lt 2 ] && q=2; echo "$$q")
 
-CHECK_TARGETS = validate-fmt lint actionlint test compile-all docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test deadcode-test changed-targets-test cleanup-branches-test surface-sweep-test envelope-test upstream-drift-test rebase-status-test
+CHECK_TARGETS = validate-fmt lint actionlint test compile-all docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test deadcode-test changed-files-test changed-targets-test cleanup-branches-test surface-sweep-test envelope-test upstream-drift-test rebase-status-test
 VERIFY_TARGETS = $(CHECK_TARGETS) test-race vulncheck deadcode
 
 # Read-only local gate (does not modify files): formatter check + lint + test +
@@ -364,29 +364,64 @@ check:
 verify:
 	@$(MAKE) --no-print-directory -j$(JOBS) -O $(VERIFY_TARGETS)
 
-# Fast per-change inner loop. The map lives in scripts/changed-targets.sh. Like
-# check/verify these are read-only, and unlike check they are NOT the gate: run
-# `make check` before finalizing. check-local-changes covers the uncommitted
-# working tree; check-branch-changes covers everything since the merge base with
-# origin/main (override with BASE=<ref>). A map-script failure is an error, never
-# "no changed files": an empty selection means the script succeeded and found none.
+# Fast per-change inner loop. The map lives in scripts/changed-targets.sh, the
+# diff itself in scripts/changed-files.sh. Like check/verify these are read-only,
+# and unlike check they are NOT the gate: run `make check` before finalizing.
+# check-local-changes covers the uncommitted working tree; check-branch-changes
+# covers everything since the merge base with origin/main (override with BASE=<ref>).
+# A map-script failure is an error, never "no changed files": an empty selection
+# means the script succeeded and found none. The changelog-presence check always
+# runs beside the selected targets: the presence rule otherwise fires only in CI.
 check-local-changes:
 	@targets="$$(./scripts/changed-targets.sh local)" || { echo "check-local-changes: scripts/changed-targets.sh failed" >&2; exit 1; }; \
-	if [ -z "$$targets" ]; then echo "check-local-changes: no changed files"; exit 0; fi; \
+	if [ -z "$$targets" ]; then \
+		$(MAKE) --no-print-directory changelog-presence MODE=local; \
+		echo "check-local-changes: no changed files"; exit 0; \
+	fi; \
 	echo "check-local-changes: $$(printf '%s ' $$targets)"; \
-	$(MAKE) --no-print-directory -j$(JOBS) -O $$targets
+	$(MAKE) --no-print-directory -j$(JOBS) -O $$targets changelog-presence MODE=local
 
 check-branch-changes:
 	@targets="$$(./scripts/changed-targets.sh branch $${BASE:+--base $$BASE})" || { echo "check-branch-changes: scripts/changed-targets.sh failed" >&2; exit 1; }; \
-	if [ -z "$$targets" ]; then echo "check-branch-changes: no changed files"; exit 0; fi; \
+	if [ -z "$$targets" ]; then \
+		$(MAKE) --no-print-directory changelog-presence MODE=branch $${BASE:+BASE=$$BASE}; \
+		echo "check-branch-changes: no changed files"; exit 0; \
+	fi; \
 	echo "check-branch-changes: $$(printf '%s ' $$targets)"; \
-	$(MAKE) --no-print-directory -j$(JOBS) -O $$targets
+	$(MAKE) --no-print-directory -j$(JOBS) -O $$targets changelog-presence MODE=branch $${BASE:+BASE=$$BASE}
+
+# Changelog presence in the fast loop: a code change with no changelog.d/
+# fragment should fail locally, not only in CI. The changed paths come from
+# scripts/changed-files.sh (the same diff the target map uses). No --pr: the
+# number is unknown locally, so this checks presence only, not the slug. An
+# unresolvable base (branch mode) is skipped, not failed, since an undecidable
+# diff must not block the inner loop. See specs/ci/ci-pipeline.md.
+MODE ?= local
+changelog-presence:
+	@changed_file="$$(mktemp)"; trap 'rm -f "$$changed_file"' EXIT; \
+	status=0; \
+	if [ "$(MODE)" = branch ]; then \
+		./scripts/changed-files.sh $${BASE:+--base $$BASE} branch >"$$changed_file" 2>/dev/null || status=$$?; \
+	else \
+		./scripts/changed-files.sh local >"$$changed_file" || status=$$?; \
+	fi; \
+	if [ "$$status" -eq 3 ]; then \
+		echo "changelog-presence: base ref unresolvable; skipping presence check"; exit 0; \
+	fi; \
+	if [ "$$status" -ne 0 ]; then \
+		echo "changelog-presence: scripts/changed-files.sh failed" >&2; exit 1; \
+	fi; \
+	ci/check-changelog.sh --changed "$$changed_file"
+
+# Test the changed-file enumerator itself (fixtures only: never touches this repo).
+changed-files-test:
+	./scripts/test-changed-files.sh
 
 # Test the changed-file map script itself (fixtures only: never touches this repo).
 changed-targets-test:
 	./scripts/test-changed-targets.sh
 
-all: fmt lint test docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test build cleanup-branches-test upstream-drift-test rebase-status-test
+all: fmt lint test docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test build cleanup-branches-test changed-files-test upstream-drift-test rebase-status-test
 
 clean:
 	rm -f agents-sandbox
