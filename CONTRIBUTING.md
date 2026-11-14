@@ -175,8 +175,9 @@ together, without anyone hand-rebasing before merging.
 
 If a required check fails on that combined build, the queue drops your PR and leaves the reason on the timeline; fix it
 and re-add the PR. `race`, `deadcode`, and `changelog` are required and always run their job — a job-level skip would
-report success without running, so a docs-only change runs them too (the heavy toolchain steps skip inside the job for an
-execution-inert changeset, but the check itself still runs). The `integration` check is required but skipped on the queue
+report success without running, so a docs-only change runs them too. `changelog` runs its whole body; the four Go jobs
+(`lint`, `test`, `race`, `deadcode`) skip only their heavy toolchain steps inside the job for an execution-inert
+changeset, but the check itself still runs. The `integration` check is required but skipped on the queue
 (a skipped required check reports success), so the cached docker build runs on `main` after the merge (and on releases)
 rather than in the queue; the podman suite is not in the queue either.
 
