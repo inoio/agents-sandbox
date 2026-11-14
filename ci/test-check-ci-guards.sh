@@ -59,13 +59,10 @@ jobs:
           set -euo pipefail
           code=false
           exec=false
-          if base=$(ci/event-base.sh) && files=$(git diff --name-only "$base" "$GITHUB_SHA"); then
-            if printf '%s\n' "$files" | grep -vqE '^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/|\.agents-sandbox/)|\.md$|^\.gitignore$'; then
-              code=true
-            fi
-            if [ "$code" = true ] || printf '%s\n' "$files" | grep -qE '^docs/'; then
-              exec=true
-            fi
+          if base=$(ci/event-base.sh) && git diff --name-only "$base" "$GITHUB_SHA" > /tmp/changed.txt; then
+            output="$(ci/classify-changes.sh /tmp/changed.txt)"
+            code="$(printf '%s\n' "$output" | sed -n 's/^code=//p')"
+            exec="$(printf '%s\n' "$output" | sed -n 's/^exec=//p')"
           else
             code=true
             exec=true
@@ -214,6 +211,22 @@ jobs:
       - run: make build-release
 EOF
 
+  cat >"$dir/ci/classify-changes.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+changed_files="$1"
+code=false
+if grep -vqE '^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/|\.agents-sandbox/)|\.md$|^\.gitignore$' "$changed_files"; then
+  code=true
+fi
+exec=false
+if [ "$code" = true ] || grep -qE '^docs/' "$changed_files"; then
+  exec=true
+fi
+printf 'code=%s\n' "$code"
+printf 'exec=%s\n' "$exec"
+EOF
+
   cat >"$dir/.github/workflows/mutation.yml" <<'EOF'
 on:
   pull_request:
@@ -323,8 +336,8 @@ perl -0pi -e "s/  pull_request:\n    paths-ignore:\n(?:      - [^\n]*\n)+//" \
 expect "codeql.yml losing a whole paths-ignore block" "$absent" 1 "expected 2 paths-ignore block"
 
 ciy="$(new_fixture)"
-perl -pi -e 's{Formula/}{Formulae/}' "$ciy/.github/workflows/ci.yml"
-expect "ci.yml regex renaming an entry" "$ciy" 1 "ci.yml"
+perl -pi -e 's{Formula/}{Formulae/}' "$ciy/ci/classify-changes.sh"
+expect "classifier regex renaming an entry" "$ciy" 1 "ci/classify-changes.sh"
 
 chg="$(new_fixture)"
 perl -ni -e 'print unless m{_test}' "$chg/ci/check-changelog.sh"
@@ -334,8 +347,8 @@ expect "check-changelog.sh dropping the *_test.go exemption" "$chg" 1 "check-cha
 # not be silently dropped (a Makefile-only diff would otherwise read as
 # code=false and skip the integration job the spec keeps in).
 alt="$(new_fixture)"
-perl -pi -e 's{\^\Q\.gitignore\E\$}{^Makefile\$|^\Q\.gitignore\E\$}' "$alt/.github/workflows/ci.yml"
-expect "ci.yml regex gaining an unmodeled alternative" "$alt" 1 "unrecognized alternative"
+perl -pi -e 's{\^\Q\.gitignore\E\$}{^Makefile\$|^\Q\.gitignore\E\$}' "$alt/ci/classify-changes.sh"
+expect "classifier regex gaining an unmodeled alternative" "$alt" 1 "unrecognized alternative"
 
 # A derivation diagnostic must not land inside the captured glob list, and its
 # violation count must survive the command substitution. Two unmodeled
@@ -343,7 +356,7 @@ expect "ci.yml regex gaining an unmodeled alternative" "$alt" 1 "unrecognized al
 # violations: before the fix the messages were captured as glob data (sinking
 # the count to the single, incidental set-mismatch).
 deriv="$(new_fixture)"
-perl -pi -e 's{\^\Q\.gitignore\E\$}{$&|^Foo\$|^Bar\$}' "$deriv/.github/workflows/ci.yml"
+perl -pi -e 's{\^\Q\.gitignore\E\$}{$&|^Foo\$|^Bar\$}' "$deriv/ci/classify-changes.sh"
 expect "derivation diagnostics are counted and kept out of the glob set" "$deriv" 1 "2 violation(s) found"
 
 # Dropping the .gitignore clause from the presence condition must be caught by
@@ -410,8 +423,20 @@ echo "# check-ci-guards.sh: fast-path and fail-closed invariants"
 # The exec rule's docs/ anchor removed: a bare `docs/` would exempt any path
 # containing it, letting an execution-relevant change skip the Go suite.
 noanchor="$(new_fixture)"
-perl -pi -e "s{\Qgrep -qE '^docs/'\E}{grep -qE 'docs/'}" "$noanchor/.github/workflows/ci.yml"
-expect "changes exec rule losing its ^docs/ anchor" "$noanchor" 1 "missing the exec rule"
+perl -pi -e "s{\Qgrep -qE '^docs/'\E}{grep -qE 'docs/'}" "$noanchor/ci/classify-changes.sh"
+expect "classifier exec rule losing its ^docs/ anchor" "$noanchor" 1 "missing the exec rule"
+
+# The `changes` step must invoke the tested classifier, not inline the logic.
+noinvoke="$(new_fixture)"
+perl -pi -e 's{ci/classify-changes\.sh /tmp/changed\.txt}{grep -vqE "x" /tmp/changed.txt}' "$noinvoke/.github/workflows/ci.yml"
+expect "changes dropping the classifier invocation" "$noinvoke" 1 "does not call ci/classify-changes.sh"
+
+# The classifier must read the file directly: a producer piped into grep's quiet
+# mode fails open once the list outgrows the pipe buffer (the regression Finding
+# A fixes), skipping every required job.
+piped="$(new_fixture)"
+perl -pi -e 's{^code=false$}{printf "%s\\n" "$changed_files" | grep -q x || true\ncode=false}' "$piped/ci/classify-changes.sh"
+expect "classifier re-inlining a producer into grep -q" "$piped" 1 "pipes a producer into grep -q"
 
 # Dropping the forced-full-set rule lets a force-updated release tag take the
 # fast path and skip a required check's work.
@@ -423,7 +448,7 @@ expect "changes dropping the forced-full-set tag rule" "$notag" 1 "refs/tags/"
 # branch never runs and the gate can run nothing. The same `|| true` is
 # legitimate in `changelog`, so the guard must scope its check to `changes`.
 swallow="$(new_fixture)"
-perl -pi -e 's{\(git diff --name-only "\$base" "\$GITHUB_SHA"\)}{$& || true}' "$swallow/.github/workflows/ci.yml"
+perl -pi -e 's{git diff --name-only "\$base" "\$GITHUB_SHA" > /tmp/changed\.txt}{$& || true}' "$swallow/.github/workflows/ci.yml"
 expect "changes hiding a failed diff behind || true" "$swallow" 1 "hides a failed diff"
 
 # A code consumer back to the old `== 'true'`: a skipped `changes` job emits an
@@ -458,6 +483,14 @@ expect "integration whole-block code gate reverted to == 'true'" "$consumerboth"
 noneeds="$(new_fixture)"
 perl -pi -e 'if (m/^    needs: \[changes\]/ && !$done++) { $_ = "" }' "$noneeds/.github/workflows/ci.yml"
 expect "a gated job dropping needs: changes" "$noneeds" 1 "does not include 'changes'"
+
+# A required Go job's job-level `if` must stay `!cancelled()`: a bare
+# `success()` (the default status check) skips the job when the `changes`
+# dependency was skipped on a merge group, and GitHub reports the skipped
+# required check as Success — so the queue could pass without running.
+cancelled="$(new_fixture)"
+perl -pi -e 'if (m/^    if: \$\{\{ !cancelled\(\) \}\}$/ && !$done++) { $_ = "    if: \${{ success() }}\n" }' "$cancelled/.github/workflows/ci.yml"
+expect "a Go job job-level if: dropping !cancelled()" "$cancelled" 1 "'lint' job-level if: is missing !cancelled()"
 
 # `merge_group` dropped from a body-step gate: the queue would then skip the Go
 # suite on its throwaway ref instead of running it.

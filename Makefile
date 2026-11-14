@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-reuse compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic envelope-test check verify check-local-changes check-branch-changes changed-targets-test all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test docs-serve
+.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-reuse compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic envelope-test check verify check-local-changes check-branch-changes changed-targets-test all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test classify-changes-test docs-serve
 
 VERSION ?= dev
 
@@ -350,7 +350,7 @@ rebase-status-test:
 # on macOS, with a fixed fallback; a user's own -j still bounds the jobserver.
 JOBS ?= $(shell n=$$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2); q=$$((n / 4)); [ "$$q" -lt 2 ] && q=2; echo "$$q")
 
-CHECK_TARGETS = validate-fmt lint actionlint test compile-all docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test event-base-test changelog-check changelog-check-test deadcode-test changed-targets-test cleanup-branches-test surface-sweep-test envelope-test upstream-drift-test rebase-status-test
+CHECK_TARGETS = validate-fmt lint actionlint test compile-all docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test event-base-test classify-changes-test changelog-check changelog-check-test deadcode-test changed-targets-test cleanup-branches-test surface-sweep-test envelope-test upstream-drift-test rebase-status-test
 VERIFY_TARGETS = $(CHECK_TARGETS) test-race vulncheck deadcode
 
 # Read-only local gate (does not modify files): formatter check + lint + test +
@@ -433,6 +433,10 @@ changelog-check-test:
 # Test the CI base-SHA resolver itself (fixtures only: never touches this repo).
 event-base-test:
 	ci/test-check-event-base.sh
+
+# Test the CI change-classifier itself (fixtures only: never touches this repo).
+classify-changes-test:
+	ci/test-check-classify-changes.sh
 
 # Serve the docs locally the same way GitHub Pages does (Jekyll build + live reload) at http://localhost:4000/.
 docs-serve: docs-diagrams

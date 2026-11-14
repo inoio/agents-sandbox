@@ -69,18 +69,16 @@ jobs:
           set -euo pipefail
           code=false
           exec=false
-          if base=$(ci/event-base.sh) && files=$(git diff --name-only "$base" "$GITHUB_SHA"); then
-            # The `code` set is the complement of mutation.yml/codeql.yml's paths-ignore and
+          if base=$(ci/event-base.sh) && git diff --name-only "$base" "$GITHUB_SHA" > /tmp/changed.txt; then
+            # `ci/classify-changes.sh` owns the exempt set and the two outputs;
+            # it lives in a tested script because a producer piped into `grep -q`
+            # fails open once the list outgrows the pipe buffer. The exempt set
+            # is the complement of mutation.yml/codeql.yml's paths-ignore and
             # check-changelog.sh's presence rule; keep the four copies in sync
             # (ci/check-ci-guards.sh).
-            if printf '%s\n' "$files" | grep -vqE '^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/|\.agents-sandbox/)|\.md$|^\.gitignore$'; then
-              code=true
-            fi
-            # `exec` is `code` with docs/** removed: a docs/ path is inert for the image build
-            # but not for the Go jobs (a default-suite test reads docs/configuration/networking.md).
-            if [ "$code" = true ] || printf '%s\n' "$files" | grep -qE '^docs/'; then
-              exec=true
-            fi
+            output="$(ci/classify-changes.sh /tmp/changed.txt)"
+            code="$(printf '%s\n' "$output" | sed -n 's/^code=//p')"
+            exec="$(printf '%s\n' "$output" | sed -n 's/^exec=//p')"
           else
             # Fail closed: an undecidable base or a failed diff runs everything.
             code=true

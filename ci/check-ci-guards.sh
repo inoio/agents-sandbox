@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Validate the CI gate's path classification and the workflow-condition invariants.
 #
-# Four sites classify the same paths as "not code": the `changes` gate in ci.yml,
-# the `paths-ignore` lists in mutation.yml and codeql.yml, and the changelog
-# presence rule in ci/check-changelog.sh. GitHub cannot compute those lists (a
-# workflow's `paths-ignore` is evaluated before any job runs), so each site
-# hardcodes its own copy, and nothing else keeps the copies in sync. This checker
-# is that something: it derives the exempt set from each site and fails, naming
-# the divergent file, when one drifts from the others.
+# Four sites classify the same paths as "not code": the `grep -vqE` in
+# ci/classify-changes.sh (called by ci.yml's `changes` step), the `paths-ignore`
+# lists in mutation.yml and codeql.yml, and the changelog presence rule in
+# ci/check-changelog.sh. GitHub cannot compute those lists (a workflow's
+# `paths-ignore` is evaluated before any job runs), so each site hardcodes its
+# own copy, and nothing else keeps the copies in sync. This checker is that
+# something: it derives the exempt set from each site and fails, naming the
+# divergent file, when one drifts from the others.
 #
 # It also enforces the two workflow-condition invariants actionlint does not
 # cover: every `github.event_name == '<event>'` / `!= '<event>'` condition names
@@ -31,6 +32,7 @@ CI_YML="$ROOT/.github/workflows/ci.yml"
 MUTATION_YML="$ROOT/.github/workflows/mutation.yml"
 CODEQL_YML="$ROOT/.github/workflows/codeql.yml"
 CHANGELOG_CHECK="$ROOT/ci/check-changelog.sh"
+CLASSIFY_SH="$ROOT/ci/classify-changes.sh"
 
 violations_file="$(mktemp "${TMPDIR:-/tmp}/ci-guards-violations.XXXXXX")"
 trap 'rm -f "$violations_file"' EXIT
@@ -110,14 +112,15 @@ globs_from_paths_ignore() {
   ' "$1"
 }
 
-# globs_from_changes_regex: the exempt set encoded in ci.yml's `grep -vqE` regex.
-# Every top-level alternative in the regex is decoded to a glob (a `^(a/|b/|...)`
-# group to its dir globs, `\.md$` to `**.md`, `^\.gitignore$` to `.gitignore`);
-# an alternative this derivation cannot model fails loudly rather than being
-# silently dropped, so a site that gains an exemption it does not model is caught.
+# globs_from_changes_regex: the exempt set encoded in ci/classify-changes.sh's
+# `grep -vqE` regex. Every top-level alternative in the regex is decoded to a
+# glob (a `^(a/|b/|...)` group to its dir globs, `\.md$` to `**.md`,
+# `^\.gitignore$` to `.gitignore`); an alternative this derivation cannot model
+# fails loudly rather than being silently dropped, so a site that gains an
+# exemption it does not model is caught.
 globs_from_changes_regex() {
   local line regex alt body
-  line="$(grep -F 'grep -vqE' "$CI_YML" | head -1)"
+  line="$(grep -F 'grep -vqE' "$CLASSIFY_SH" | head -1)"
   regex="$(printf '%s\n' "$line" | sed -E "s/.*grep -vqE '([^']*)'.*/\1/")"
   while IFS= read -r alt; do
     if [[ "$alt" =~ ^\^\((.+)\)$ ]]; then
@@ -128,7 +131,7 @@ globs_from_changes_regex() {
     elif [[ "$alt" == '^\.gitignore$' ]]; then
       printf '%s\n' '.gitignore'
     else
-      report "ci.yml: changes gate regex has an unrecognized alternative '$alt'"
+      report "ci/classify-changes.sh: changes gate regex has an unrecognized alternative '$alt'"
     fi
   done <<<"$(alternation_parts "$regex")"
 }
@@ -227,7 +230,7 @@ assert_paths_ignore_blocks() {
     || report "$site: expected $expected paths-ignore block(s), found $found"
 }
 
-assert_canonical ci.yml "$(globs_from_changes_regex | LC_ALL=C sort -u)"
+assert_canonical ci/classify-changes.sh "$(globs_from_changes_regex | LC_ALL=C sort -u)"
 assert_paths_ignore_blocks mutation.yml "$MUTATION_YML" 1
 assert_paths_ignore_blocks codeql.yml "$CODEQL_YML" 2
 assert_canonical check-changelog.sh "$(globs_from_changelog_check | LC_ALL=C sort -u)"
@@ -305,12 +308,14 @@ fi
 # --- Fast-path and fail-closed workflow invariants. ---------------------------
 #
 # The `changes` gate emits two outputs, `code` and `exec`, both derived from the
-# shared `ci/event-base.sh`: the Go jobs gate on `merge_group || exec` (a
-# docs-only change is inert for them too), the integration jobs on `code`. These
-# invariants tie that shape down. A job that re-inlines the merge-base, swallows
-# a failed diff, drops the `docs/` exec rule, forgets a `needs:`, loses its
-# timeout, or reverts a consumer to `== 'true'` silently undoes the optimization
-# or the fail-closed behavior. Every message names the job and the missing token.
+# shared `ci/event-base.sh` base and classified by the tested
+# `ci/classify-changes.sh`: the Go jobs gate on `merge_group || exec` (a docs-only
+# change is inert for them too), the integration jobs on `code`. These invariants
+# tie that shape down. A job that re-inlines the merge-base, swallows a failed
+# diff, drops the `docs/` exec rule, inlines classification, forgets a `needs:`,
+# loses its timeout, drops its job-level `!cancelled()`, or reverts a consumer to
+# `== 'true'` silently undoes the optimization or the fail-closed behavior. Every
+# message names the job (or the classifier) and the missing token.
 
 # job_block JOB: print JOB's block (its `  <job>:` line's body up to the next
 # top-level job key). Scoping to the block keeps a job-local assertion honest:
@@ -358,18 +363,32 @@ has_token "$changes_block" 'ci/event-base.sh' \
 has_token "$(job_block changelog)" 'ci/event-base.sh' \
   "ci.yml: 'changelog' does not call ci/event-base.sh (the merge-base must not be re-inlined)"
 
+# Classification lives in the tested ci/classify-changes.sh, never inline: a
+# producer piped into grep's quiet mode fails open once the list outgrows the
+# pipe buffer (the producer dies of SIGPIPE, pipefail reads 141 as a non-match,
+# and every required job is skipped). The `changes` step must call the script.
+has_token "$changes_block" 'ci/classify-changes.sh' \
+  "ci.yml: 'changes' does not call ci/classify-changes.sh (classification must not be inline)"
+
 # A `git diff ... || true` in `changes` hides a failed diff, so the fail-closed
 # branch never runs and the gate can run nothing.
 if printf '%s\n' "$changes_block" | grep -qE 'git diff.*\|\|[[:space:]]*true'; then
   report "ci.yml: 'changes' keeps a 'git diff ... || true' that hides a failed diff"
 fi
 
-# The exec rule and its derivation from code: a docs/ change runs the Go jobs
-# (a default-suite test reads docs/), an execution-inert change skips them.
-has_token "$changes_block" "grep -qE '^docs/'" \
-  "ci.yml: 'changes' is missing the exec rule grep -qE '^docs/'"
-has_token "$changes_block" '[ "$code" = true ]' \
-  "ci.yml: 'changes' does not derive exec from code (missing [ \"\$code\" = true ])"
+# The exec rule and its derivation from code live in the classifier: a docs/
+# change runs the Go jobs (a default-suite test reads docs/), an execution-inert
+# change skips them.
+classify_content="$(cat "$CLASSIFY_SH" 2>/dev/null || true)"
+has_token "$classify_content" "grep -qE '^docs/'" \
+  "ci/classify-changes.sh: missing the exec rule grep -qE '^docs/'"
+has_token "$classify_content" '[ "$code" = true ]' \
+  "ci/classify-changes.sh: does not derive exec from code (missing [ \"\$code\" = true ])"
+# It must read the file directly: a producer piped into grep's quiet mode fails
+# open on a list larger than the pipe buffer.
+if grep -qE 'printf[^|]*\|[^|]*grep -q' "$CLASSIFY_SH"; then
+  report "ci/classify-changes.sh: pipes a producer into grep -q (a list past the pipe buffer fails open)"
+fi
 
 # A release tag forces the full set: a force-updated tag can carry a resolvable
 # `before`, so a diff that looks execution-inert could otherwise skip a required
@@ -382,6 +401,18 @@ for job in lint test race deadcode; do
   needs_line="$(printf '%s\n' "$(job_block "$job")" | grep -E '^    needs:' || true)"
   if [[ "$needs_line" != *changes* ]]; then
     report "ci.yml: '$job' needs: does not include 'changes'"
+  fi
+done
+
+# Every required Go job must always run: GitHub reports a skipped required check
+# as Success, so the job-level `if` stays `!cancelled()` — a status-check
+# function, which keeps the job running when the `changes` dependency was skipped
+# on a merge group. A bare `success()` (the default) or a missing `if` would
+# skip it and still report Success, so the queue could pass without running.
+for job in lint test race deadcode; do
+  job_if="$(printf '%s\n' "$(job_block "$job")" | grep -E '^    if:' || true)"
+  if [[ "$job_if" != *'!cancelled()'* ]]; then
+    report "ci.yml: '$job' job-level if: is missing !cancelled() (a skipped required check reports Success)"
   fi
 done
 
