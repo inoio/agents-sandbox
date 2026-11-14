@@ -137,11 +137,12 @@ This project defaults to **test-driven development**:
   Because gomutants has no threshold, the job stays green on survivors; a red run means the sweep failed, and nothing is
   ever gated on it.
 - The `integration`-tagged docker-build suite is excluded from `make test` (~10 minutes). It runs on every code-affecting PR
-  as a **required** check, cached through a GHCR BuildKit cache (`main` writes the `buildcache` tags; PRs
-  restore from it), and always on `main` (when the merge changed code) and on releases. Run it locally with
-  `make test-integration`. The same suite also runs against rootless podman, kept opt-in behind the
-  `run-integration-podman` label: podman advertises only the classic builder, so it neither exercises the BuildKit path nor
-  uses the cache, and it stays a tested engine without adding the build to every PR.
+  as a **required** check, cached through a GHCR BuildKit cache (`main` writes the `buildcache` tags and re-exports only
+  changed layers; PRs restore from it), and always on `main` (when the merge changed code) and on releases. Run it locally
+  with `make test-integration`. A scheduled cold (uncached) build (`integration-fresh`) and the podman engine build run
+  off the merge path. The same suite also runs against rootless podman, kept opt-in behind the
+  `run-integration-podman` label and run on the schedule: podman advertises only the classic builder, so it neither
+  exercises the BuildKit path nor uses the cache, and it stays a tested engine without adding the build to every PR.
 
 ## Documentation
 
@@ -173,9 +174,10 @@ combined tree, and merges it only if they pass. This is what stops two independe
 together, without anyone hand-rebasing before merging.
 
 If a required check fails on that combined build, the queue drops your PR and leaves the reason on the timeline; fix it
-and re-add the PR. `race`, `deadcode`, and `changelog` are required and always run — a gated required check would report success
-without running — so a docs-only change runs them too. The `integration` check is required but skipped on the queue (a
-skipped required check reports success), so the cached docker build runs on `main` after the merge (and on releases)
+and re-add the PR. `race`, `deadcode`, and `changelog` are required and always run their job — a job-level skip would
+report success without running, so a docs-only change runs them too (the heavy toolchain steps skip inside the job for an
+execution-inert changeset, but the check itself still runs). The `integration` check is required but skipped on the queue
+(a skipped required check reports success), so the cached docker build runs on `main` after the merge (and on releases)
 rather than in the queue; the podman suite is not in the queue either.
 
 ## Changelog & versioning
