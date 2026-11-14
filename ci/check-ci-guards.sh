@@ -375,18 +375,23 @@ for job in lint test race deadcode; do
   fi
 done
 
-# The exec-gated body steps must keep `merge_group` running (the queue) and skip
-# only on an execution-inert changeset.
-for job in test race deadcode; do
+# Every exec-gated body step must keep `merge_group` running (the queue) and
+# skip only on an execution-inert changeset. Every one, not just one of them: a
+# job with several gated steps (test has three) would otherwise hide a single
+# step that lost the merge_group fast path behind a sibling that kept it.
+for job in lint test race deadcode; do
   gate_lines="$(
     printf '%s\n' "$(job_block "$job")" \
       | grep -E '^        if:' | grep -F "needs.changes.outputs.exec != 'false'" || true
   )"
   if [[ -z "$gate_lines" ]]; then
     report "ci.yml: '$job' body-step if: is missing needs.changes.outputs.exec != 'false'"
-  elif ! printf '%s\n' "$gate_lines" | grep -qF merge_group; then
-    report "ci.yml: '$job' body-step if: is missing merge_group (the gate must keep the merge queue running)"
+    continue
   fi
+  gate_count="$(printf '%s\n' "$gate_lines" | grep -c .)"
+  group_count="$(printf '%s\n' "$gate_lines" | grep -cF merge_group || true)"
+  [[ "$group_count" -eq "$gate_count" ]] \
+    || report "ci.yml: '$job' body-step if: is missing merge_group on $((gate_count - group_count)) of $gate_count gated step(s) (the gate must keep the merge queue running)"
 done
 
 # The code-affecting integration jobs gate on code, not the rawer exec.

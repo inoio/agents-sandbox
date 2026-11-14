@@ -106,6 +106,11 @@ jobs:
       - uses: actions/checkout@v7
       - run: make coverage-junit
         if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
+      - uses: codecov/codecov-action@v7
+        if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() && (github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false') }}
+        uses: codecov/codecov-action@v7
 
   race:
     name: race
@@ -404,6 +409,14 @@ expect "a gated job dropping needs: changes" "$noneeds" 1 "does not include 'cha
 nogroup="$(new_fixture)"
 perl -pi -e 's/github\.event_name == .merge_group. \|\| //' "$nogroup/.github/workflows/ci.yml"
 expect "body-step gate dropping merge_group" "$nogroup" 1 "missing merge_group"
+
+# Dropping `merge_group` from just one gate in a multi-gate job (the fixture
+# `test` job has three) must fail too: every gated step needs the merge-group
+# fast path, not merely one of them. The whole-job fixture above cannot catch a
+# single-gate regression, because a sibling gate still carries the token.
+nogroupone="$(new_fixture)"
+perl -pi -e 'if (m/make coverage-junit/) { $want = 1 } if ($want && m/github\.event_name == .merge_group. \|\| /) { s/github\.event_name == .merge_group. \|\| //; $want = 0 }' "$nogroupone/.github/workflows/ci.yml"
+expect "one gate in a multi-gate job dropping merge_group" "$nogroupone" 1 "missing merge_group"
 
 # A job without a timeout can burn a runner indefinitely.
 notimeout="$(new_fixture)"
