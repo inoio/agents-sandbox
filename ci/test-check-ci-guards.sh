@@ -206,7 +206,7 @@ jobs:
   release:
     name: release
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [tag-guard, lint, test, integration]
+    needs: [tag-guard, lint, test, integration, integration-podman]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -440,6 +440,20 @@ perl -pi -e '
 ' "$consumer/.github/workflows/ci.yml"
 expect "a code consumer gating on code == 'true'" "$consumer" 1 "outputs.code != 'false'"
 
+# `integration` carries the token in two clauses (the release-push and the PR
+# clause), so reverting just one leaves the whole-block check satisfied. Revert
+# both (fail-closed -> fail-open): the whole-block loop fires because the token
+# is now absent from the block entirely, and the fixture asserts that
+# block-scoped message (the release-clause check fires too, but its message is
+# distinct).
+consumerboth="$(new_fixture)"
+perl -pi -e '
+  if (/^  integration:$/) { $in = 1; next }
+  if ($in && /^  [A-Za-z0-9_-]+:$/) { $in = 0 }
+  s{needs\.changes\.outputs\.code != \x27false\x27}{needs.changes.outputs.code == \x27true\x27} if $in;
+' "$consumerboth/.github/workflows/ci.yml"
+expect "integration whole-block code gate reverted to == 'true'" "$consumerboth" 1 "'integration' if: is missing needs.changes.outputs.code != 'false'"
+
 # A job dropping its `needs: [changes]` no longer waits on the gate.
 noneeds="$(new_fixture)"
 perl -pi -e 'if (m/^    needs: \[changes\]/ && !$done++) { $_ = "" }' "$noneeds/.github/workflows/ci.yml"
@@ -501,11 +515,32 @@ perl -pi -e '
 ' "$notagtoken/.github/workflows/ci.yml"
 expect "tag-guard if: dropping the tag gate" "$notagtoken" 1 "startsWith(github.ref, 'refs/tags/')"
 
+# Un-gating the job while leaving the phrase in a comment must still fail: a
+# whole-block grep would find the token and pass, so the assertion has to scope
+# to the `if:` line.
+notagcomment="$(new_fixture)"
+perl -pi -e '
+  if (/^  tag-guard:$/) { $in = 1; next }
+  if ($in && /^  [A-Za-z0-9_-]+:$/) { $in = 0 }
+  if ($in && /^    if: startsWith\(github\.ref, \x27refs\/tags\/\x27\)/) {
+    $_ = "    # startsWith(github.ref, \x27refs/tags/\x27)\n    if: true\n";
+  }
+' "$notagcomment/.github/workflows/ci.yml"
+expect "tag-guard leaving its gate token only in a comment" "$notagcomment" 1 "startsWith(github.ref, 'refs/tags/')"
+
 # Leaving tag-guard out of release.needs lets the release start before the guard
 # has proven the tag's ancestry.
 notagneed="$(new_fixture)"
 perl -pi -e 's/needs: \[tag-guard, /needs: [/' "$notagneed/.github/workflows/ci.yml"
 expect "release.needs dropping tag-guard" "$notagneed" 1 "'release' needs: does not include 'tag-guard'"
+
+# Dropping a non-guard check from release.needs publishes without that gate; the
+# `.github` token is pinned too so a release cannot skip the from-scratch build.
+# `integration` is matched as its own list element, not as a substring of
+# `integration-podman`.
+nointegration="$(new_fixture)"
+perl -pi -e 's/needs: \[tag-guard, lint, test, integration, integration-podman\]/needs: [tag-guard, lint, test, integration-podman]/' "$nointegration/.github/workflows/ci.yml"
+expect "release.needs dropping integration" "$nointegration" 1 "'release' needs: does not include 'integration'"
 
 # Widening the writer's ref beyond main opens a second cache writer (a release
 # branch push, a tag) that can clobber the shared GHCR tag.

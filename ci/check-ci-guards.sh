@@ -419,13 +419,15 @@ done <<<"$(job_names)"
 
 # --- Release-invariant guards. -------------------------------------------------
 #
-# Four facts keep the release pipeline honest, and no other gate pins them: a
+# Five facts keep the release pipeline honest, and no other gate pins them: a
 # push to a release branch triggers CI (so a patch reaches a tag only through a
 # checked ref), a `tag-guard` job gates a release tag on main or a release branch,
-# the release waits on that guard, and the GHCR build cache keeps exactly one
-# writer (a main push). A silent edit — dropping the branch trigger, deleting the
-# guard, unbundling it from `release.needs`, or widening the writer's ref — reopens
-# the hole the design closed. Each message names the job and the missing token.
+# the release waits on the guard *and* the full check set (`tag-guard`, `lint`,
+# `test`, `integration`, `integration-podman`) before publishing, and the GHCR
+# build cache keeps exactly one writer (a main push). A silent edit — dropping the
+# branch trigger, deleting the guard, unbundling the guard or a check from
+# `release.needs`, or widening the writer's ref — reopens the hole the design
+# closed. Each message names the job and the missing token.
 
 # push_branches: the `on.push.branches` list, in flow (`branches: [a, b]`) or
 # block (`branches:` then indented `- a` lines) form.
@@ -444,19 +446,33 @@ if ! printf '%s\n' "$(push_branches)" | grep -qF 'release/*'; then
   report "ci.yml: on.push.branches does not include 'release/*' (a release-branch push must run the required checks)"
 fi
 
-# The guard job's own gate is what stops a tag on nothing/another branch.
+# The guard job's own gate is what stops a tag on nothing/another branch. Scope
+# the token to the `if:` line: a whole-block grep would pass on a job that
+# un-gated itself while leaving the phrase in a comment or `name:`.
 if printf '%s\n' "$(job_names)" | grep -qx 'tag-guard'; then
-  has_token "$(job_block tag-guard)" "startsWith(github.ref, 'refs/tags/')" \
-    "ci.yml: 'tag-guard' if: is missing startsWith(github.ref, 'refs/tags/') (the guard must run on a release tag)"
+  tag_guard_if="$(printf '%s\n' "$(job_block tag-guard)" | grep -E '^    if:' || true)"
+  if [[ "$tag_guard_if" != *"startsWith(github.ref, 'refs/tags/')"* ]]; then
+    report "ci.yml: 'tag-guard' if: is missing startsWith(github.ref, 'refs/tags/') (the guard must run on a release tag)"
+  fi
 else
   report "ci.yml: the 'tag-guard' job is missing (a release tag must be gated on main or a release branch)"
 fi
 
-# A release that does not name tag-guard in needs: can start before the guard
-# has proven the tag's ancestry.
+# A release must name every gate in `needs:`: the ancestry guard and the whole
+# check set. Dropping the guard starts the release before the tag's ancestry is
+# proven; dropping a check (e.g. `integration`) publishes without the
+# from-scratch build. Each missing token is reported on its own.
 release_needs="$(printf '%s\n' "$(job_block release)" | grep -E '^    needs:' || true)"
-if [[ "$release_needs" != *tag-guard* ]]; then
-  report "ci.yml: 'release' needs: does not include 'tag-guard' (the release must wait on the tag guard)"
+if [[ -z "$release_needs" ]]; then
+  report "ci.yml: 'release' has no needs: list (the release must wait on the tag guard and the check set)"
+else
+  for required in tag-guard lint test integration integration-podman; do
+    # Match the token as a whole list element, so `integration` cannot be
+    # satisfied by the `integration-podman` substring.
+    if ! printf '%s\n' "$release_needs" | grep -qE "(^|[^A-Za-z0-9_-])${required}([^A-Za-z0-9_-]|\$)"; then
+      report "ci.yml: 'release' needs: does not include '$required' (the release must wait on $required)"
+    fi
+  done
 fi
 
 # Exactly one cache writer: a ref wider than main lets a release push or tag

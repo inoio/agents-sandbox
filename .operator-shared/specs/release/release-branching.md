@@ -18,8 +18,9 @@ read_if: Deciding where a release tag or a fix lands, cutting a patch release fo
   commit); at a patch release it is on the release branch only.
 - A `release/<major>.<minor>` branch runs the **same CI as `main`**: a push to it triggers
   `.github/workflows/ci.yml` and runs every required check (`lint`, `test`, `race`, `deadcode`,
-  `changelog`) plus the Docker `integration` build, so a backport merged onto the line is verified
-  at the merge rather than only when the line is tagged. The build is import-only — the
+  `changelog`) plus the Docker `integration` build when the push is code-affecting, so a backport
+  merged onto the line is verified at the merge rather than only when the line is tagged. The build
+  is import-only — the
   cache-reading `integration` reader runs, the single cache writer stays on `main` — so a release
   push never overwrites `main`'s GHCR build cache.
 - **Protecting the line is a manual admin step**: a `protect release/*` ruleset must require the
@@ -31,6 +32,10 @@ read_if: Deciding where a release tag or a fix lands, cutting a patch release fo
   or of some `release/*`, so a tag can never publish a commit that bypassed the checks. Both
   lines are accepted because a patch release tags the release branch's tip, not `main`; a
   `main`-only rule would reject legitimate patch tags.
+- **Push the branch before the tag.** `tag-guard` admits a tag only when the tagged commit is
+  already reachable from `origin/main` or a pushed `origin/release/*` branch, so the documented flow
+  creates and pushes `release/<major>.<minor>` before the tag. A tag created before its branch ref
+  exists gives the guard no branch to see and is refused as a stray commit.
 
 ## Cutting a release
 
