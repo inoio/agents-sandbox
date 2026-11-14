@@ -1,6 +1,6 @@
 ---
-description: Contract for resolving the external clients (msb, docker, config-paths) once at an entry point and threading them explicitly, replacing the remaining process globals after #345; the four behavior test seams as one injected struct on RunOptions; the process-root configpaths.Get() reads that stay global by design; and the two deliberate cross-layer edges (viperconfig→sandbox/mounts+network, notify→sandbox/state+msb) alongside the removed options→state edge.
-read_if: Changing a docker.Get()/configpaths.Get() call site, image.EnsureImage*/EnsureLoaded/Build/PreviewImage or the image render helpers, adding a client or path resolver parameter to a run/build/doctor/prune entry point, or the image build's agent-release resolver; or deciding whether a cross-layer dependency (options, viperconfig, notify) is a deliberate exception.
+description: Contract for resolving the external clients (msb, docker, config-paths) once at an entry point and threading them explicitly, replacing the remaining process globals after #345; the four behavior test seams as one injected struct on RunOptions; the process-root configpaths.Get() reads that stay global by design and the project-config trust gate's two process-global installs; and the two deliberate cross-layer edges (viperconfig→sandbox/mounts+network, notify→sandbox/state+msb) alongside the removed options→state edge.
+read_if: Changing a docker.Get()/configpaths.Get() call site, image.EnsureImage*/EnsureLoaded/Build/PreviewImage or the image render helpers, adding a client or path resolver parameter to a run/build/doctor/prune entry point, or the image build's agent-release resolver; changing the project-config trust gate's `configpaths.Use` factory swap or `projectguard.Install` guard; or deciding whether a cross-layer dependency (options, viperconfig, notify) is a deliberate exception.
 ---
 
 # External client injection
@@ -48,8 +48,9 @@ injected, not a package-global hook:
 
 ## Residue
 
-Two things sit outside the threaded clients: the behavior test seams — now injected rather than
-globals — and the process-root path lookups that stay global by design.
+Three things sit outside the threaded clients: the behavior test seams — now injected rather than
+globals — the process-root path lookups that stay global by design, and the project-config trust
+gate's process-global installs.
 
 **Behavior test seams (injected).** The four former exported hooks
 (`vm.SetProjectVMLock`, `vm.SetDaemonHealthFunc`,
@@ -84,6 +85,26 @@ One `msb.Get()` remains below the boundary outside these roots: `session`'s
 `resolveHomeVolumePath` (`internal/sandbox/session/host_opener.go`), the
 host-opener home-volume probe reached from `session.Run` when `--open-links` is
 on. It is not a per-operation client and is left for a later pass.
+
+**Project-config trust gate (by design).** The gate that decides whether a
+command may use the checkout's `.agents-sandbox` layer mutates two process-global
+seams, both in `cmd/agents-sandbox/trust.go` and both reset by `execute` in
+`cmd/agents-sandbox/cli.go` when the command ends:
+
+- `configpaths.Use(withProject)` (`trust.go`) swaps the `configpaths.Get` factory
+  for the command, so every config reader derives its project inputs from the
+  gate's decision. The factory cannot be threaded: config resolution runs before
+  any resolver the run stages receive (`specs/configuration/project-config-trust.md`).
+- `projectguard.Install(roots, reads)` (`internal/projectguard`) installs the
+  approved-bytes guard the config readers route their project reads through
+  (`configread`, `filewalk`, `viperconfig`, `homeconfig`, `envsecret`,
+  `configmerge`, `image`). It is global because those readers are leaf packages
+  that hold no resolver.
+
+Both are per-command and cleared before the process exits; the reset lives in
+`execute`, not in the gate function (a `defer` inside the gate, which runs in the
+root command's `PersistentPreRunE`, would fire before the command body and before
+the reads the guard exists to verify).
 
 ## Deliberate cross-layer edges
 
