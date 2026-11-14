@@ -16,6 +16,10 @@ on:
   # queue entry waits out the check-response timeout and is dropped.
   merge_group:
   workflow_dispatch:
+  schedule:
+    # The cold-image and podman validations, off the merge path. Runs from the
+    # default branch only.
+    - cron: "43 2 * * *"
 
 # Least privilege for every job. The release pipeline's `publish` job raises this
 # for itself (contents + pull-requests write, to publish the Release and open the
@@ -366,20 +370,47 @@ jobs:
         if: always()
         run: cat "$AGENTS_SANDBOX_CACHE_REPORT" 2>/dev/null || echo "no cache report"
 
+  integration-fresh:
+    name: integration (docker build, fresh)
+    # A scheduled cold build: no cache, so it proves the runner image builds from
+    # scratch against today's upstream agent releases. It exports nothing, so it
+    # cannot race the writer's cache tag.
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      AGENTS_SANDBOX_IMAGE_CACHE_FROM: ''
+      AGENTS_SANDBOX_IMAGE_CACHE_TO: ''
+      AGENTS_SANDBOX_CACHE_REPORT: ${{ github.workspace }}/runner-image-cache-report.txt
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: .go-version
+          cache: true
+      - run: make test-integration
+      - name: Runner-image build cache report
+        if: always()
+        run: cat "$AGENTS_SANDBOX_CACHE_REPORT" 2>/dev/null || echo "no cache report"
+
   integration-podman:
     name: integration (podman build)
     # The same full-image build as `integration`, against a rootless podman
     # endpoint instead of Docker Engine: podman serves the Docker API, so it is
     # expected to work, and this job is what makes it a tested engine. Its own
     # opt-in label keeps a podman-only failure from blocking a PR a maintainer
-    # ran docker for. Gated by `changes` on a main push like `integration`.
+    # ran docker for. It no longer runs on a main push — the scheduled run below
+    # covers the unscheduled engine validation — and it stays in `release.needs`
+    # so a tag still gates the release on it (GitHub has no cross-workflow
+    # `needs`).
     needs: [changes]
     if: >-
+      github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/tags/') ||
       (github.event_name == 'pull_request' &&
-      contains(github.event.pull_request.labels.*.name, 'run-integration-podman')) ||
-      (github.ref == 'refs/heads/main' && needs.changes.outputs.code == 'true')
+      contains(github.event.pull_request.labels.*.name, 'run-integration-podman'))
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
