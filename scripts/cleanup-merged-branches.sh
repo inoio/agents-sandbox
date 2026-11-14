@@ -245,14 +245,18 @@ done < <(git for-each-ref --format='%(refname:short)' 'refs/remotes/origin/relea
 
 gh_available=false
 gh_merged_pairs=() # "<headRefName> <headRefOid>" for merged PRs
+gh_pr_records=()   # "<number> <state> <headRefName> <headRefOid>" for every PR
 repo_slug=""
 if $use_gh && command -v gh >/dev/null 2>&1; then
   if repo_slug="$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)" && [[ -n "$repo_slug" ]]; then
-    if merged="$(gh pr list --state merged --limit 2000 --json headRefName,headRefOid --jq '.[] | "\(.headRefName) \(.headRefOid)"' 2>/dev/null)"; then
+    if prs="$(gh pr list --state all --limit 2000 --json number,state,headRefName,headRefOid --jq '.[] | "\(.number) \(.state) \(.headRefName) \(.headRefOid)"' 2>/dev/null)"; then
       gh_available=true
-      while IFS= read -r pair; do
-        [[ -n "$pair" ]] && gh_merged_pairs+=("$pair")
-      done <<<"$merged"
+      while IFS= read -r record; do
+        [[ -n "$record" ]] || continue
+        gh_pr_records+=("$record")
+        read -r _num state head oid <<<"$record"
+        [[ "$state" == MERGED ]] && gh_merged_pairs+=("$head $oid")
+      done <<<"$prs"
     fi
   fi
 fi
@@ -319,6 +323,26 @@ local_merge_method() {
     fi
   done
   return 1
+}
+
+# Why a ref is kept: how many of its commits are absent from the default target,
+# plus PR context when gh links it by head-name (or by tip for a detached ref).
+unmerged_note() {
+  local ref="$1" name="${2-$1}" base count record number state head oid note=""
+  base="${default_ref:-origin/main}"
+  count="$(git cherry "$base" "$ref" 2>/dev/null | grep -c '^+' || true)"
+  if ((count == 1)); then note="1 commit not in $base"
+  elif ((count > 1)); then note="$count commits not in $base"
+  else note="unmerged"; fi
+  for record in ${gh_pr_records[@]+"${gh_pr_records[@]}"}; do
+    read -r number state head oid <<<"$record"
+    [[ "$head" == "$name" || (-z "$name" && "$oid" == "$(git rev-parse "$ref" 2>/dev/null || true)") ]] || continue
+    if [[ "$state" == MERGED ]]; then note="$note; merged PR #$number, branch moved since"
+    elif [[ "$state" == CLOSED ]]; then note="$note; PR #$number closed, not merged"; fi
+    break
+  done
+  [[ -n "$name" ]] || note="detached; $note"
+  printf '%s' "$note"
 }
 
 NOW="$(date +%s)"
@@ -524,7 +548,7 @@ for i in "${!worktree_path[@]}"; do
   else
     method="$(local_merge_method "$ref" "$ref_name" || true)"
     if [[ -z "$method" ]]; then
-      note="unmerged"
+      note="$(unmerged_note "$ref" "$ref_name")"
     elif [[ -n "$branch" && "$branch" == release/* ]]; then
       note="release branch"
     elif is_excluded "${branch:-$path}"; then
@@ -583,7 +607,7 @@ while IFS= read -r branch; do
 
   note=""
   if [[ -z "$method" ]]; then
-    note="unmerged"
+    note="$(unmerged_note "$branch")"
   elif [[ "$branch" == "$local_default" ]]; then
     note="default branch"
   elif [[ "$branch" == "$current_branch" ]]; then
@@ -637,7 +661,7 @@ while IFS= read -r ref; do
 
   note=""
   if [[ -z "$method" ]]; then
-    note="unmerged"
+    note="$(unmerged_note "origin/$name" "$name")"
   elif [[ "$short" == "$default_ref" || "$name" == main ]]; then
     note="default branch"
   elif [[ "$name" == release/* ]]; then

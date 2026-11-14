@@ -240,5 +240,37 @@ assert_contains     "remote: contained branch removed" "$rem_rb"  "origin/contai
 assert_not_contains "remote: unique branch kept"       "$rem_rb"  "origin/unique-remote"
 assert_contains     "remote: unique branch kept"       "$keep_rb" "origin/unique-remote"
 
+# Kept-but-unprovable entries carry a reason.
+proj="$(new_fixture config agents-sandbox-config relative 0 1)"
+out="$(run_cleanup "$proj")"
+keep_lb="$(section "$out" 'Remaining local branches:')"
+assert_contains "note: unique commit count"   "$keep_lb" "[2 commits not in origin/main]"
+assert_contains "note: manual merge unmerged" "$keep_lb" "[unmerged]"
+
+# With gh, a closed-unmerged PR is named.
+make_gh_stub() { # dir
+  local dir="$1"
+  mkdir -p "$dir"
+  cat >"$dir/gh" <<'EOF'
+#!/bin/sh
+case "${1:-}" in
+  repo) echo "inoio/agents-sandbox" ;;
+  pr) printf '%s\n' "98 CLOSED fix-issue-94 1111111111111111111111111111111111111111" ;;
+  api) exit 1 ;;
+esac
+EOF
+  chmod +x "$dir/gh"
+}
+run_cleanup_gh() { # proj stubdir [extra args...]
+  local proj="$1" stub="$2"; shift 2
+  ( cd "$proj/main" && PATH="$stub:$PATH" bash "$CLEANUP" --dry-run --no-fetch --fresh 0 --color never "$@" )
+}
+proj="$(new_fixture config agents-sandbox-config relative 0 1)"
+git -C "$proj" update-ref refs/remotes/origin/fix-issue-94 "$(git -C "$proj" rev-parse unique)"
+stub="$fixture_root/gh-stub"; make_gh_stub "$stub"
+out="$(run_cleanup_gh "$proj" "$stub")"
+keep_rb="$(section "$out" 'Remaining origin branches:')"
+assert_contains "note: closed PR context" "$keep_rb" "PR #98 closed, not merged"
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 ((fail == 0))
