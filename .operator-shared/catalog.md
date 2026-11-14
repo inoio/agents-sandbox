@@ -178,6 +178,3 @@
 - `plans/2026-11-07-hermetic-uid-permission-surface.md`
   - Description: Plan 2 of the hermetic design: remove the effective-uid dependence from the six tests the strict envelope runs as uid 0 (via `configmerge.readFile`, `runtimemigration.readDir`, and a `state.OverrideStateWriteForTest` hook), pin `GOTOOLCHAIN=local`, and verify `make test-hermetic` is green.
   - Read If: Implementing the uid/permission surface fix that makes the strict hermetic envelope green, or adding a read/write failure seam to `configmerge`, `runtimemigration`, or `state`.
-- `plans/2026-11-08-buildkit-runner-image-build.md`
-  - Description: TDD plan for the BuildKit runner-image build (#597) - the `DialHijack` seam, ping-based builder selection, the buildkit client + session + `dockerfile.v0`/`moby`-exporter path, the `image-cache-from`/`image-cache-to` config surface, and the CI cache (main writes, PRs restore) with the integration check made required.
-  - Read If: Implementing the BuildKit runner-image build, the engine-selected classic fallback, or the cached/required integration CI check.
