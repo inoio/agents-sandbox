@@ -338,12 +338,13 @@ jobs:
       # anonymous 60-requests/hour limit (see internal/agent/latest.go).
       GH_TOKEN: ${{ github.token }}
       # The runner-image BuildKit cache lives in GHCR, which has no Actions
-      # cache-budget cap. This job is the single writer: a main push builds
-      # uncached, then exports the chain. The suite keys each build's ref tag per
-      # build (keyCacheSpec), so sibling builds cannot clobber one shared tag.
-      # Credentials reach the daemon's BuildKit through the session, from the
-      # `docker login` step below.
-      AGENTS_SANDBOX_IMAGE_CACHE_FROM: ''
+      # cache-budget cap. This job is the single writer: a main push imports the
+      # previous chain, then re-exports only the layers the build changed. A cold
+      # from-scratch build is validated by `integration-fresh` and the release
+      # tag. The suite keys each build's ref tag per build (keyCacheSpec), so
+      # sibling builds cannot clobber one shared tag. Credentials reach the
+      # daemon's BuildKit through the session, from the `docker login` step below.
+      AGENTS_SANDBOX_IMAGE_CACHE_FROM: 'type=registry,ref=ghcr.io/inoio/agents-sandbox:buildcache'
       AGENTS_SANDBOX_IMAGE_CACHE_TO: 'type=registry,ref=ghcr.io/inoio/agents-sandbox:buildcache,mode=max'
       # The integration suite writes the steps each build served from the
       # imported cache here (a passing `go test` otherwise swallows the
