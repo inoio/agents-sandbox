@@ -232,13 +232,35 @@ func TestBuildAttachCommandNoAttachRunner(t *testing.T) {
 	}
 }
 
-func TestServeOnlyMessage(t *testing.T) {
+// TestServeOnlyMessagePinsStopHint pins the exact serve-only message for both
+// stop paths: Ctrl-D when an interactive stdin is watched for EOF, Ctrl-C when
+// it is not (the message must not promise a key that cannot work).
+func TestServeOnlyMessagePinsStopHint(t *testing.T) {
 	opencode, _ := agent.Lookup("opencode")
-	msg := serveOnlyMessage(agent.Resolve(opencode), "4096", false)
-	for _, want := range []string{"Connect a client to", "http://127.0.0.1:4096", "OPENCODE_SERVER_PASSWORD", "Ctrl-D"} {
-		if !strings.Contains(msg, want) {
-			t.Errorf("serveOnlyMessage missing %q in:\n%s", want, msg)
-		}
+	resolved := agent.Resolve(opencode)
+	const auth = "Optional: set OPENCODE_SERVER_PASSWORD (and OPENCODE_SERVER_USERNAME) to protect the server with basic auth.\n"
+	tests := []struct {
+		name         string
+		stdinWatched bool
+		want         string
+	}{
+		{
+			name:         "watched stdin stops on Ctrl-D",
+			stdinWatched: true,
+			want:         "Connect a client to: http://127.0.0.1:4096\n\n" + auth + "Press Ctrl-D to stop serving.",
+		},
+		{
+			name:         "unwatched stdin stops on Ctrl-C",
+			stdinWatched: false,
+			want:         "Connect a client to: http://127.0.0.1:4096\n\n" + auth + "Press Ctrl-C to stop serving (stdin is not a terminal).",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := serveOnlyMessage(resolved, "4096", false, tc.stdinWatched); got != tc.want {
+				t.Errorf("serveOnlyMessage = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -247,15 +269,11 @@ func TestServeOnlyMessage(t *testing.T) {
 // server is unreachable and must not hand out a URL the VM cannot serve.
 func TestServeOnlyMessageDefersChangedPort(t *testing.T) {
 	opencode, _ := agent.Lookup("opencode")
-	msg := serveOnlyMessage(agent.Resolve(opencode), "4096", true)
-	if !strings.Contains(msg, "The agent server is not reachable from the host") {
-		t.Errorf("serveOnlyMessage(deferred) missing reachability warning in:\n%s", msg)
-	}
-	if strings.Contains(msg, "ports change deferred") {
-		t.Errorf("serveOnlyMessage(deferred) must not blame a ports change in:\n%s", msg)
-	}
-	if strings.Contains(msg, "Connect a client to") {
-		t.Errorf("serveOnlyMessage(deferred) must not print a connect URL in:\n%s", msg)
+	want := "The agent server is not reachable from the host: the running VM has no serve binding to keep.\n\n" +
+		"Stop the attached clients and re-run to recreate the VM, then connect a client again."
+	msg := serveOnlyMessage(agent.Resolve(opencode), "4096", true, true)
+	if msg != want {
+		t.Errorf("serveOnlyMessage(deferred) = %q, want %q", msg, want)
 	}
 }
 
@@ -265,7 +283,7 @@ func TestServeOnlyMessageDefersChangedPort(t *testing.T) {
 // wrong and would leave the client unable to connect.
 func TestServeOnlyMessageOpencode2StatesCredential(t *testing.T) {
 	opencode2, _ := agent.Lookup("opencode2")
-	msg := serveOnlyMessage(agent.Resolve(opencode2), "4096", false)
+	msg := serveOnlyMessage(agent.Resolve(opencode2), "4096", false, true)
 	for _, want := range []string{"http://127.0.0.1:4096", `user "opencode"`, `password "opencode"`} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("serveOnlyMessage(opencode2) missing %q in:\n%s", want, msg)
@@ -281,7 +299,7 @@ func TestRunServeOnlyBlocksUntilCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	got := make(chan error, 1)
 	ui := &termiotest.Mock{}
-	go func() { got <- runServeOnly(ctx, opencodeResolved(t), sb, ui, 4096) }()
+	go func() { got <- runServeOnly(ctx, opencodeResolved(t), sb, ui, 4096, true) }()
 	cancel()
 	select {
 	case err := <-got:
@@ -738,6 +756,55 @@ func TestRunServeOnlyUsesSessionServeHostPort(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected connect URL with session port 4099 in info output, got %v", ui.InfoCalls)
+	}
+}
+
+// TestRunServeOnlyMessageReflectsStdinWatch pins the plumbing from the CLI
+// boundary's stdin-watch decision into the served message: a watched stdin
+// offers Ctrl-D, an unwatched one offers Ctrl-C.
+func TestRunServeOnlyMessageReflectsStdinWatch(t *testing.T) {
+	tests := []struct {
+		name         string
+		stdinWatched bool
+		want         string
+	}{
+		{"watched stdin offers Ctrl-D", true, "Press Ctrl-D to stop serving."},
+		{"unwatched stdin offers Ctrl-C", false, "Press Ctrl-C to stop serving (stdin is not a terminal)."},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			configpathstest.WithMockConfigPaths(t)
+			ui := &termiotest.Mock{}
+			orig := prepareSandbox
+			prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+				return &fakePrepared{
+					sb:            msbtest.NewMockSandbox(msbtest.SandboxOpts{}),
+					serveHostPort: 4099,
+				}, nil
+			}
+			defer func() { prepareSandbox = orig }()
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			done := make(chan error, 1)
+			go func() {
+				done <- Run(ctx, resolvedRunOptions(t, options.RunOptions{
+					Agent:                 "opencode",
+					ServeOnly:             true,
+					ServeOnlyStdinWatched: tc.stdinWatched,
+					ReapPolicy:            options.NewReapPolicy(true, 5),
+				}), options.ModeRun, ui)
+			}()
+			cancel()
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("Run serve-only did not return after cancel")
+			}
+			if !slices.ContainsFunc(ui.InfoCalls, func(call string) bool { return strings.Contains(call, tc.want) }) {
+				t.Errorf("expected %q in info output, got %v", tc.want, ui.InfoCalls)
+			}
+		})
 	}
 }
 
@@ -1454,7 +1521,7 @@ func TestRunServeOnlySessionSkipsReapOnNonCanceledError(t *testing.T) {
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(50*time.Millisecond))
 	defer cancel()
 
-	err := runServeOnlySession(ctx, opencodeResolved(t), k, sb, options.ReapPolicy{}, ui, 4096, false)
+	err := runServeOnlySession(ctx, opencodeResolved(t), k, sb, options.ReapPolicy{}, ui, 4096, false, true)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("runServeOnlySession = %v, want context.DeadlineExceeded", err)
 	}

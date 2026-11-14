@@ -157,7 +157,10 @@ func logNotifyWatcherError(stop func() error, ui termio.Logger) {
 // was deferred to the next recreate, or its bindings could not be read — no
 // client can reach the agent yet, so the message states that the serve binding
 // is unavailable instead of handing out a URL the VM does not carry.
-func serveOnlyMessage(a agent.Resolved, port string, deferred bool) string {
+//
+// The stop hint matches how the serve-only context can actually be cancelled:
+// Ctrl-D (EOF) only when an interactive stdin is watched, otherwise Ctrl-C.
+func serveOnlyMessage(a agent.Resolved, port string, deferred bool, stdinWatched bool) string {
 	if deferred {
 		return "The agent server is not reachable from the host: the running VM has no serve binding to keep.\n\n" +
 			"Stop the attached clients and re-run to recreate the VM, then connect a client again."
@@ -168,8 +171,12 @@ func serveOnlyMessage(a agent.Resolved, port string, deferred bool) string {
 			authHint = hint + "\n"
 		}
 	}
-	return fmt.Sprintf("Connect a client to: http://%s:%s\n\n%sPress Ctrl-D to stop serving.",
-		ports.ServeOnlyBindAddr, port, authHint)
+	stopHint := "Press Ctrl-D to stop serving."
+	if !stdinWatched {
+		stopHint = "Press Ctrl-C to stop serving (stdin is not a terminal)."
+	}
+	return fmt.Sprintf("Connect a client to: http://%s:%s\n\n%s%s",
+		ports.ServeOnlyBindAddr, port, authHint, stopHint)
 }
 
 // runServeOnly prints the connect message and keeps the VM alive, blocking
@@ -182,8 +189,9 @@ func runServeOnly(
 	sb msb.SandboxExecutor,
 	ui termio.Logger,
 	hostPort int,
+	stdinWatched bool,
 ) error {
-	ui.Infof("%s", serveOnlyMessage(a, strconv.Itoa(hostPort), false))
+	ui.Infof("%s", serveOnlyMessage(a, strconv.Itoa(hostPort), false, stdinWatched))
 	keeperCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	keeperDone := keepVMAlive(keeperCtx, sb)
@@ -232,7 +240,17 @@ func Run(ctx context.Context, opts options.RunOptions, mode options.Mode, ui ter
 	defer stopHostOpener()
 
 	if opts.ServeOnly {
-		return runServeOnlySession(ctx, a, k, sb, opts.ReapPolicy, ui, ses.ServeHostPort(), ses.ServePortDeferred())
+		return runServeOnlySession(
+			ctx,
+			a,
+			k,
+			sb,
+			opts.ReapPolicy,
+			ui,
+			ses.ServeHostPort(),
+			ses.ServePortDeferred(),
+			opts.ServeOnlyStdinWatched,
+		)
 	}
 
 	setup := buildAttachCommand(a, ses.Target(), opts.Args)
@@ -323,9 +341,10 @@ func runServeOnlySession(
 	ui termio.UI,
 	hostPort int,
 	deferred bool,
+	stdinWatched bool,
 ) error {
 	if deferred {
-		ui.Warnf("%s", serveOnlyMessage(a, strconv.Itoa(hostPort), true))
+		ui.Warnf("%s", serveOnlyMessage(a, strconv.Itoa(hostPort), true, stdinWatched))
 		return nil
 	}
 	sessionErr := withClientSession(
@@ -337,7 +356,7 @@ func runServeOnlySession(
 		serveOnlyShouldReap,
 		a,
 		func(a agent.Resolved) error {
-			return runServeOnly(ctx, a, sb, ui, hostPort)
+			return runServeOnly(ctx, a, sb, ui, hostPort, stdinWatched)
 		},
 	)
 	if !serveOnlyShouldReap(sessionErr) {
