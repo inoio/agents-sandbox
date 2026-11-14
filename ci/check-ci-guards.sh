@@ -15,6 +15,10 @@
 # pull_request default types (`types:` replaces the default set rather than
 # extending it).
 #
+# Finally it pins the release invariants no other gate covers: the release/*
+# push trigger, the `tag-guard` job and its place in `release.needs`, and the
+# single main-push writer of the GHCR build cache.
+#
 # Usage: ci/check-ci-guards.sh [ROOT]
 #   ROOT defaults to the repository root; the test harness passes a fixture root.
 #
@@ -412,6 +416,64 @@ while IFS= read -r job; do
   printf '%s\n' "$(job_block "$job")" | grep -qE '^    timeout-minutes:[[:space:]]*[0-9]+' \
     || report "ci.yml: '$job' is missing a job-level timeout-minutes"
 done <<<"$(job_names)"
+
+# --- Release-invariant guards. -------------------------------------------------
+#
+# Four facts keep the release pipeline honest, and no other gate pins them: a
+# push to a release branch triggers CI (so a patch reaches a tag only through a
+# checked ref), a `tag-guard` job gates a release tag on main or a release branch,
+# the release waits on that guard, and the GHCR build cache keeps exactly one
+# writer (a main push). A silent edit — dropping the branch trigger, deleting the
+# guard, unbundling it from `release.needs`, or widening the writer's ref — reopens
+# the hole the design closed. Each message names the job and the missing token.
+
+# push_branches: the `on.push.branches` list, in flow (`branches: [a, b]`) or
+# block (`branches:` then indented `- a` lines) form.
+push_branches() {
+  awk '
+    { sub(/[[:space:]]+#.*$/, "") }
+    /^  push:[[:space:]]*$/ { in_push = 1; next }
+    in_push && /^  [^[:space:]]/ { in_push = 0 }
+    in_push && /^    branches:/ { in_branches = 1; print; next }
+    in_branches && /^      - / { print; next }
+    in_branches { in_branches = 0 }
+  ' "$CI_YML"
+}
+
+if ! printf '%s\n' "$(push_branches)" | grep -qF 'release/*'; then
+  report "ci.yml: on.push.branches does not include 'release/*' (a release-branch push must run the required checks)"
+fi
+
+# The guard job's own gate is what stops a tag on nothing/another branch.
+if printf '%s\n' "$(job_names)" | grep -qx 'tag-guard'; then
+  has_token "$(job_block tag-guard)" "startsWith(github.ref, 'refs/tags/')" \
+    "ci.yml: 'tag-guard' if: is missing startsWith(github.ref, 'refs/tags/') (the guard must run on a release tag)"
+else
+  report "ci.yml: the 'tag-guard' job is missing (a release tag must be gated on main or a release branch)"
+fi
+
+# A release that does not name tag-guard in needs: can start before the guard
+# has proven the tag's ancestry.
+release_needs="$(printf '%s\n' "$(job_block release)" | grep -E '^    needs:' || true)"
+if [[ "$release_needs" != *tag-guard* ]]; then
+  report "ci.yml: 'release' needs: does not include 'tag-guard' (the release must wait on the tag guard)"
+fi
+
+# Exactly one cache writer: a ref wider than main lets a release push or tag
+# clobber the shared GHCR tag a main push owns.
+has_token "$(job_block integration-cache-writer)" "github.ref == 'refs/heads/main'" \
+  "ci.yml: 'integration-cache-writer' if: is missing github.ref == 'refs/heads/main' (the build cache must keep exactly one writer, a main push)"
+
+# The reader's release-push clause must carry the same `code` gate as the main
+# push's build, so a docs-only release push skips a build. The whole-block token
+# check above passes on the pull_request clause, so this must scope to the
+# release clause itself.
+release_clause="$(printf '%s\n' "$(job_block integration)" | grep -F 'refs/heads/release/' || true)"
+if [[ -z "$release_clause" ]]; then
+  report "ci.yml: 'integration' if: is missing refs/heads/release/ (a release-branch push must run the build)"
+elif [[ "$release_clause" != *"needs.changes.outputs.code != 'false'"* ]]; then
+  report "ci.yml: 'integration' release-push clause is missing needs.changes.outputs.code != 'false'"
+fi
 
 violations="$(grep -c '^v$' "$violations_file" || true)"
 if [[ "$violations" -gt 0 ]]; then

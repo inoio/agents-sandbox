@@ -29,7 +29,7 @@ new_fixture() {
   cat >"$dir/.github/workflows/ci.yml" <<'EOF'
 on:
   push:
-    branches: [main]
+    branches: [main, 'release/*']
   pull_request:
     types: [opened, synchronize, reopened, labeled]
   merge_group:
@@ -163,6 +163,7 @@ jobs:
       !cancelled() &&
       (github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/tags/') ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/') && needs.changes.outputs.code != 'false') ||
       (github.event_name == 'pull_request' && needs.changes.outputs.code != 'false'))
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -192,6 +193,25 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: make test-integration
+
+  tag-guard:
+    name: tag-guard
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - run: make tag-guard
+
+  release:
+    name: release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [tag-guard, lint, test, integration]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - run: make build-release
 EOF
 
   cat >"$dir/.github/workflows/mutation.yml" <<'EOF'
@@ -408,8 +428,10 @@ expect "changes hiding a failed diff behind || true" "$swallow" 1 "hides a faile
 
 # A code consumer back to the old `== 'true'`: a skipped `changes` job emits an
 # empty output, so `== 'true'` skips the build the fail-closed gate should run.
+# The reader now carries the token in both its release-push and pull_request
+# clauses, so the mutation reverts every occurrence.
 consumer="$(new_fixture)"
-perl -pi -e "s{(github\.event_name == 'pull_request' && needs\.changes\.outputs\.code) != 'false'}{\$1 == 'true'}" "$consumer/.github/workflows/ci.yml"
+perl -pi -e "s{needs\.changes\.outputs\.code != 'false'}{needs.changes.outputs.code == 'true'}g" "$consumer/.github/workflows/ci.yml"
 expect "integration gating on code == 'true'" "$consumer" 1 "outputs.code != 'false'"
 
 # A job dropping its `needs: [changes]` no longer waits on the gate.
@@ -447,6 +469,40 @@ expect "changes re-inlining the merge-base" "$inlined" 1 "'changes' does not cal
 nobase="$(new_fixture)"
 perl -pi -e 'if (m{ci/event-base\.sh} && $seen++) { s{ci/event-base\.sh}{git merge-base origin/main "\$GITHUB_SHA"} }' "$nobase/.github/workflows/ci.yml"
 expect "changelog not calling ci/event-base.sh" "$nobase" 1 "'changelog' does not call ci/event-base.sh"
+
+echo "# check-ci-guards.sh: release-branch and tag-guard invariants"
+
+# Dropping the release/* push trigger means a patch release branch never runs
+# the required checks that gate the tag.
+norpush="$(new_fixture)"
+perl -pi -e "s{, 'release/\*'}{}" "$norpush/.github/workflows/ci.yml"
+expect "on.push.branches dropping release/*" "$norpush" 1 "release/*"
+
+# Deleting the guard job lets a release tag publish a commit that never sat on
+# main or a release branch.
+notagguard="$(new_fixture)"
+perl -0pi -e 's/\n  tag-guard:\n.*?(?=\n  release:\n)//s' "$notagguard/.github/workflows/ci.yml"
+expect "deleting the tag-guard job" "$notagguard" 1 "the 'tag-guard' job is missing"
+
+# Leaving tag-guard out of release.needs lets the release start before the guard
+# has proven the tag's ancestry.
+notagneed="$(new_fixture)"
+perl -pi -e 's/needs: \[tag-guard, /needs: [/' "$notagneed/.github/workflows/ci.yml"
+expect "release.needs dropping tag-guard" "$notagneed" 1 "'release' needs: does not include 'tag-guard'"
+
+# Widening the writer's ref beyond main opens a second cache writer (a release
+# branch push, a tag) that can clobber the shared GHCR tag.
+nowriter="$(new_fixture)"
+perl -pi -e "s{github\.ref == 'refs/heads/main'}{startsWith(github.ref, 'refs/heads/')}" "$nowriter/.github/workflows/ci.yml"
+expect "cache writer losing the main-only guard" "$nowriter" 1 "refs/heads/main"
+
+# Dropping the code gate from just the release-push clause (the PR clause keeps
+# the token) makes a docs-only release push pay a build the gate should skip.
+# The existing whole-block check passes on the PR clause, so only a clause-scoped
+# check catches this.
+noreleasegate="$(new_fixture)"
+perl -pi -e "if (m{refs/heads/release/}) { s/ && needs\.changes\.outputs\.code != 'false'// }" "$noreleasegate/.github/workflows/ci.yml"
+expect "release-push clause dropping the code gate" "$noreleasegate" 1 "release-push clause is missing"
 
 echo "# check-ci-guards.sh: the real repository passes"
 expect "this repository" "$(cd "$SCRIPT_DIR/.." && pwd)" 0 ""
