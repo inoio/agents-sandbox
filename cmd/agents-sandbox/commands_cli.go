@@ -157,8 +157,8 @@ func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 
 		ctx := cmd.Context()
 		if opts.ServeOnly {
-			stdin := serveOnlyStdinReader()
-			opts.ServeOnlyStdinWatched = stdin != nil
+			var stdin io.Reader
+			opts, stdin = withServeOnlyStdin(opts)
 			ctx, _ = serveOnlyContext(ctx, stdin)
 		}
 		mode := runoptions.ResolveMode(cmd)
@@ -280,6 +280,16 @@ var serveOnlyStdinReader = func() io.Reader {
 		return os.Stdin
 	}
 	return nil
+}
+
+// withServeOnlyStdin resolves the stdin reader the serve-only context watches
+// for EOF (Ctrl-D) and records on opts whether it is watched, so the connect
+// message can offer a stop key that works: Ctrl-D when watched, else Ctrl-C. A
+// nil reader is a non-terminal stdin (serveOnlyStdinReader's contract).
+func withServeOnlyStdin(opts options.RunOptions) (options.RunOptions, io.Reader) {
+	stdin := serveOnlyStdinReader()
+	opts.ServeOnlyStdinWatched = stdin != nil
+	return opts, stdin
 }
 
 // serveOnlyContext builds a cancellable context for the serve-only path.
