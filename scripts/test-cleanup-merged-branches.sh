@@ -46,9 +46,9 @@ assert_not_contains() { if grep -qF -- "$3" <<<"$2"; then bad "$1 (unexpected: $
 # The lines under a section header, up to the next blank line.
 section() { awk -v h="$2" 'BEGIN{s=0} $0==h{s=1;next} s&&NF==0{exit} s{print}' <<<"$1"; }
 
-new_fixture() { # [config_dir] [config_branch] [relative|absolute|none] [dirty 0|1] -> prints proj
+new_fixture() { # [config_dir] [config_branch] [relative|absolute|none] [dirty 0|1] [containment 0|1] -> prints proj
   local config_dir="${1:-config}" config_branch="${2:-agents-sandbox-config}"
-  local symlink="${3:-relative}" dirty="${4:-0}"
+  local symlink="${3:-relative}" dirty="${4:-0}" containment="${5:-0}"
   local root seed proj old
   root="$(mktemp -d "$fixture_root/fixture.XXXXXX")"
   seed="$root/seed"; proj="$root/proj"
@@ -61,6 +61,7 @@ new_fixture() { # [config_dir] [config_branch] [relative|absolute|none] [dirty 0
   git -C "$seed" add -A
   git -C "$seed" commit -q -m init
   git -C "$seed" branch -M main
+  [[ "$containment" == 1 ]] && build_containment_history "$seed"
 
   git clone -q --bare "$seed" "$proj/.git"
   git -C "$proj" config user.email test@example.com
@@ -88,6 +89,24 @@ new_fixture() { # [config_dir] [config_branch] [relative|absolute|none] [dirty 0
   [[ "$dirty" == 1 ]] && echo scratch >"$proj/$config_dir/untracked.txt"
 
   printf '%s\n' "$proj"
+}
+
+# History for the content-containment cases: a branch whose only own commit is
+# patch-equivalent to a main commit plus a clean auto-merge of a sibling branch
+# (removable); the same with the merge amended by a manual edit (kept); and a
+# branch with unique commits (kept).
+build_containment_history() { # seed
+  local seed="$1" init m1 s
+  init="$(git -C "$seed" rev-parse HEAD)"
+  echo filler >"$seed/filler.txt"; git -C "$seed" add filler.txt; git -C "$seed" commit -qm filler
+  echo m1 >"$seed/a.txt"; git -C "$seed" add a.txt; git -C "$seed" commit -qm M1
+  m1="$(git -C "$seed" rev-parse HEAD)"
+  git -C "$seed" checkout -q -b S "$init"; echo s >"$seed/s.txt"; git -C "$seed" add s.txt; git -C "$seed" commit -qm S
+  s="$(git -C "$seed" rev-parse HEAD)"
+  git -C "$seed" checkout -q -b containment "$init"; git -C "$seed" cherry-pick "$m1" >/dev/null; git -C "$seed" merge -q --no-edit "$s"
+  git -C "$seed" checkout -q -b containment-manual "$init"; git -C "$seed" cherry-pick "$m1" >/dev/null; git -C "$seed" merge -q --no-edit "$s"; echo manual >"$seed/man.txt"; git -C "$seed" add man.txt; git -C "$seed" commit -q --amend --no-edit
+  git -C "$seed" checkout -q -b unique "$init"; echo u1 >"$seed/u.txt"; git -C "$seed" add u.txt; git -C "$seed" commit -qm u1; echo u2 >>"$seed/u.txt"; git -C "$seed" commit -qam u2
+  git -C "$seed" checkout -q main; git -C "$seed" merge -q --no-edit "$s"
 }
 
 run_cleanup() { # proj [extra args...]
@@ -172,6 +191,19 @@ git -C "$proj" update-ref -d refs/remotes/origin/stale-branch
     >/dev/null 2>"$stderr_file" </dev/null ) && rc=0 || rc=$?
 [[ "$rc" -eq 0 ]] && ok "zero actions exit 0" || bad "zero actions exit 0 (rc=$rc)"
 assert_not_contains "zero actions no abort" "$(cat "$stderr_file")" "refusing to delete"
+
+# Content containment: a branch whose only own commit is patch-equivalent to a
+# main commit plus a clean auto-merge is removed; a manual-resolution merge and
+# a branch with unique commits are kept.
+proj="$(new_fixture config agents-sandbox-config relative 0 1)"
+out="$(run_cleanup "$proj")"
+rem_lb="$(section "$out" 'Local branches to delete:')"
+keep_lb="$(section "$out" 'Remaining local branches:')"
+assert_contains     "containment: auto-merge branch removed" "$rem_lb"  "containment (was"
+assert_not_contains "containment: manual-merge branch kept"  "$rem_lb"  "containment-manual (was"
+assert_contains     "containment: manual-merge branch kept"  "$keep_lb" "containment-manual"
+assert_not_contains "containment: unique branch kept"        "$rem_lb"  "unique (was"
+assert_contains     "containment: unique branch kept"        "$keep_lb" "unique"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 ((fail == 0))

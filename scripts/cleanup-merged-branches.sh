@@ -275,6 +275,23 @@ gh_merge_matches() {
 
 # --- merge detection --------------------------------------------------------
 
+# A merge commit is a clean auto-merge when re-merging its two parents reproduces
+# its own tree, i.e. it added no manual conflict resolution. `git cherry` ignores
+# merge commits, so an all-'-' result proves the branch's whole content is in the
+# target only when every one of its merges is a clean auto-merge.
+merge_commits_are_auto_merges() {
+  local target="$1" ref="$2" merge merge_tree merged
+  while IFS= read -r merge; do
+    [[ -n "$merge" ]] || continue
+    if ! merged="$(git merge-tree --write-tree "$merge^1" "$merge^2" 2>/dev/null)"; then
+      return 1
+    fi
+    merge_tree="${merged%%$'\n'*}"
+    [[ "$merge_tree" == "$(git rev-parse "$merge^{tree}")" ]] || return 1
+  done < <(git rev-list --merges "$target..$ref" 2>/dev/null)
+  return 0
+}
+
 local_merge_method() {
   local branch="$1" target output
   for target in ${targets[@]+"${targets[@]}"}; do
@@ -291,9 +308,9 @@ local_merge_method() {
     output="$(git cherry "$target" "$branch" 2>/dev/null || true)"
     # git cherry ignores merge commits, so a branch that merged a ref other than the
     # target and added a unique conflict resolution can look patch-equivalent. Only
-    # trust the patch check when no merge commits remain beyond the target.
+    # trust the patch check when every one of its merges is a clean auto-merge.
     if [[ -n "$output" ]] && ! grep -q '^+' <<<"$output" &&
-      [[ -z "$(git rev-list --merges "$target..$branch" 2>/dev/null)" ]]; then
+      merge_commits_are_auto_merges "$target" "$branch"; then
       printf 'patch'
       return 0
     fi
