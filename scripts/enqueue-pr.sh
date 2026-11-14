@@ -21,6 +21,10 @@
 
 set -euo pipefail
 
+# Polling interval while waiting for GitHub to register a freshly pushed PR's
+# checks; overridable so a test or tight loop does not sleep.
+ENQUEUE_PR_RETRY_SECONDS="${ENQUEUE_PR_RETRY_SECONDS:-10}"
+
 if [[ $# -ne 1 || "$1" == "-h" || "$1" == "--help" ]]; then
   sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
   [[ $# -eq 1 ]] && exit 0
@@ -33,11 +37,25 @@ if [[ ! "$pr" =~ ^[1-9][0-9]*$ ]]; then
   exit 2
 fi
 
+# `gh pr checks` exits non-zero both when a check failed and when no checks are
+# reported yet (a push GitHub has not registered). Wait the latter out so a
+# freshly pushed PR is not mistaken for a failure; any other result returns at
+# once, so a real failure still reaches the watch below.
+wait_for_checks() {
+  local attempt result
+  for ((attempt = 0; attempt < 30; attempt++)); do
+    if result="$(gh pr checks "$pr" 2>&1)"; then return 0; fi
+    [[ "$result" == *"no checks reported"* ]] || return 0
+    sleep "$ENQUEUE_PR_RETRY_SECONDS"
+  done
+}
+
 # `gh pr checks --watch` redraws the whole check table every few seconds and
 # exits 8 while checks are still pending rather than 0. Keep that redraw out of
 # the helper's output — it is meant to be read as a few lines — and classify the
 # non-zero exit by the PR's state: a merged or closed PR will never report again.
 watch_checks() {
+  wait_for_checks
   local status=0
   gh pr checks "$pr" --watch --fail-fast >/dev/null 2>&1 || status=$?
   case "$status" in

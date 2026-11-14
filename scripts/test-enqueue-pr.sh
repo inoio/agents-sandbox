@@ -31,6 +31,15 @@ set -euo pipefail
 printf '%s\n' "$*" >>"${GH_ARGV:?}"
 case " $* " in
   *" pr checks "*)
+    if [[ "${GH_CHECKS_NOREPORT:-0}" -gt 0 ]]; then
+      n=0
+      [[ -f "${GH_CHECKS_NOREPORT_FILE:?}" ]] && n="$(cat "$GH_CHECKS_NOREPORT_FILE")"
+      if [[ "$n" -lt "$GH_CHECKS_NOREPORT" ]]; then
+        echo "$((n + 1))" >"$GH_CHECKS_NOREPORT_FILE"
+        echo "no checks reported on the 'x' branch" >&2
+        exit 1
+      fi
+    fi
     echo "fake-tests	pass	pass	1m	https://example.test/checks"
     exit "${GH_CHECKS_EXIT:-0}"
     ;;
@@ -79,6 +88,7 @@ export GH_ARGV="$fixture_root/argv.txt"
 export GH_PR_VIEW="$fixture_root/pr_view.json"
 export GH_PR_VIEW_INDEX="$fixture_root/pr_view_index"
 unset GH_CHECKS_EXIT GH_ENQUEUE_EXIT
+export ENQUEUE_PR_RETRY_SECONDS=0
 
 # run_script seeds the view payload, clears the argv recorder, and captures both
 # streams into out and err, returning the helper's exit status.
@@ -109,6 +119,15 @@ assert_contains "sends the enqueue mutation" "$(argv)" "enqueuePullRequest(input
 assert_contains "passes the node id" "$(argv)" "id=PR_2"
 assert_contains "prints the queue position" "$out" "enqueued at position 3"
 assert_not_contains "does not dump the live check table" "$out" "fake-tests"
+
+echo "# enqueue-pr.sh (checks not yet registered)"
+export GH_CHECKS_NOREPORT=2
+export GH_CHECKS_NOREPORT_FILE="$fixture_root/noreport"
+rm -f "$GH_CHECKS_NOREPORT_FILE"
+run_script '{"state":"OPEN","id":"PR_8"}' 42
+if [[ "$status" -eq 0 ]]; then ok "waits for checks to register"; else bad "waits for checks to register (got $status)"; fi
+assert_contains "enqueues once the checks appear" "$out" "enqueued at position 3"
+unset GH_CHECKS_NOREPORT GH_CHECKS_NOREPORT_FILE
 
 echo "# enqueue-pr.sh (checks fail)"
 export GH_CHECKS_EXIT=1
