@@ -7,8 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 command reports the bare version (e.g. `0.1.0`).
 
 This file is assembled at release time from the fragment files in `changelog.d/`; add entries there,
-not here. The `[Unreleased]` section below holds only entries from before the fragment workflow and is
-emptied at the next release.
+not here.
 
 ## [Unreleased]
 
