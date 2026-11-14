@@ -90,6 +90,8 @@ new_fixture() { # [config_dir] [config_branch] [relative|absolute|none] [dirty 0
     git -C "$proj" worktree add -q --detach "$proj/detached-contained" "$old"
     git -C "$proj" worktree add -q --detach "$proj/detached-unique" "$(git -C "$proj" rev-parse unique)"
     git -C "$proj" worktree add -q --detach "$proj/detached-current" "$(git -C "$proj" rev-parse main)"
+    git -C "$proj" update-ref refs/remotes/origin/containment "$(git -C "$proj" rev-parse containment)"
+    git -C "$proj" update-ref refs/remotes/origin/unique-remote "$(git -C "$proj" rev-parse unique)"
   fi
   [[ "$dirty" == 1 ]] && echo scratch >"$proj/$config_dir/untracked.txt"
 
@@ -228,6 +230,15 @@ echo scratch >>"$proj/detached-contained/scratch.txt"
 out="$(run_cleanup "$proj")"
 keep_wt="$(section "$out" 'Remaining worktrees:')"
 assert_contains "detached: dirty kept without --force" "$keep_wt" "$proj/detached-contained"
+
+# Remote branches get the same content proof.
+proj="$(new_fixture config agents-sandbox-config relative 0 1)"
+out="$(run_cleanup "$proj")"
+rem_rb="$(section "$out" 'Origin branches to delete:')"
+keep_rb="$(section "$out" 'Remaining origin branches:')"
+assert_contains     "remote: contained branch removed" "$rem_rb"  "origin/containment"
+assert_not_contains "remote: unique branch kept"       "$rem_rb"  "origin/unique-remote"
+assert_contains     "remote: unique branch kept"       "$keep_rb" "origin/unique-remote"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 ((fail == 0))

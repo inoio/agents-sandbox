@@ -321,21 +321,6 @@ local_merge_method() {
   return 1
 }
 
-remote_merge_method() {
-  local name="$1" ref="origin/$1" target
-  for target in ${targets[@]+"${targets[@]}"}; do
-    git merge-base --is-ancestor "$ref" "$target" 2>/dev/null && {
-      printf 'ancestry'
-      return 0
-    }
-  done
-  gh_merge_matches "$name" "$(git rev-parse "$ref" 2>/dev/null || true)" && {
-    printf 'pr'
-    return 0
-  }
-  return 1
-}
-
 NOW="$(date +%s)"
 commit_age() {
   local committed
@@ -648,7 +633,7 @@ while IFS= read -r ref; do
   [[ "$name" == HEAD ]] && continue
   short="origin/$name"
   age="$(commit_age "$ref")"
-  method="$(remote_merge_method "$name" || true)"
+  method="$(local_merge_method "origin/$name" "$name" || true)"
 
   note=""
   if [[ -z "$method" ]]; then
