@@ -7,16 +7,24 @@ fixture test is.
 
 ## Merge detection
 
-A branch is removed when its tip is:
+A branch or worktree is removed when it is provable that every change it carries is
+already in a target (`origin/main` or any `origin/release/*`), regardless of how it got
+there. Three checks, in order:
 
-- an ancestor of `origin/main` or any `origin/release/*` (fast-forward / merge-commit);
-- equal to the head commit of a merged PR (`gh pr list`) — catches squash/rebase merges;
-- patch-equivalent via `git cherry` — catches rebase merges offline. `git cherry`
-  ignores merge commits, so this check only applies when the branch has no merge
-  commits of its own beyond the target; a branch that merged another ref and added a
-  unique resolution is left in place rather than mistaken for merged.
+- the ref is an ancestor of a target (fast-forward / merge-commit);
+- the ref's tip equals the head commit of a merged PR (`gh pr list`) — catches squash and
+  rebase merges;
+- the ref is patch-equivalent via `git cherry` — catches rebase merges offline. `git
+  cherry` ignores merge commits, so the patch check is trusted only when every merge
+  commit in `target..ref` is a clean auto-merge: re-merging its parents (`git merge-tree
+  --write-tree`) reproduces its own tree. A merge that carries a manual conflict
+  resolution leaves the ref in place.
 
-The PR check requires the branch tip to equal the PR head commit. Matching by branch name
+Detached worktrees have no branch name, so they are tested by their HEAD commit against
+the same three checks, and the PR check matches the tip alone. Origin branches use the
+same proof, not ancestry and PR alone.
+
+The PR check requires the tip to equal the PR head commit. Matching by branch name
 alone is unsafe: a branch can gain commits after its PR merges, and deleting it would
 discard them.
 
@@ -49,6 +57,12 @@ gate, so the prompt is approved against the exact names, not a count. `--quiet` 
 summary but omits the remaining inventory. The plan states intent, not outcome: a removal that
 fails on a non-dry run is still named under its plan heading — the error goes to stderr — while
 the closing summary, which counts successes only, excludes it.
+
+A kept entry that could not be proven contained carries the reason in its note: how many
+of its commits are absent from `origin/main` (`<n> commit(s) not in origin/main`, or
+`unmerged` when none are), and, when `gh` links the branch, the PR context (`merged PR
+#N, branch moved since`, or `PR #N closed, not merged`). A kept detached worktree
+prefixes `detached;`.
 
 ## Safety
 
