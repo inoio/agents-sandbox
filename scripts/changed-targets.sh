@@ -124,6 +124,7 @@ if [[ -z "$selected" ]]; then
       scripts/test-envelope.sh|scripts/test-envelope_test.sh) add_targets envelope-test; known=1 ;;
       scripts/upstream-drift.sh|scripts/test-upstream-drift.sh) add_targets upstream-drift-test; known=1 ;;
       scripts/rebase-status.sh|scripts/test-rebase-status.sh) add_targets rebase-status-test; known=1 ;;
+      scripts/enqueue-pr.sh|scripts/test-enqueue-pr.sh) add_targets enqueue-pr-test; known=1 ;;
     esac
     case "$path" in
       */*.md) known=1 ;; # nested markdown: no `make check` target reads it
