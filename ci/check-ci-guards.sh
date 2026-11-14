@@ -298,6 +298,110 @@ else
   fi
 fi
 
+# --- Fast-path and fail-closed workflow invariants. ---------------------------
+#
+# The `changes` gate emits two outputs, `code` and `exec`, both derived from the
+# shared `ci/event-base.sh`: the Go jobs gate on `merge_group || exec` (a
+# docs-only change is inert for them too), the integration jobs on `code`. These
+# invariants tie that shape down. A job that re-inlines the merge-base, swallows
+# a failed diff, drops the `docs/` exec rule, forgets a `needs:`, loses its
+# timeout, or reverts a consumer to `== 'true'` silently undoes the optimization
+# or the fail-closed behavior. Every message names the job and the missing token.
+
+# job_block JOB: print JOB's block (its `  <job>:` line's body up to the next
+# top-level job key). Scoping to the block keeps a job-local assertion honest:
+# the `changelog` job legitimately keeps a `git diff ... || true`, and a
+# whole-file grep would false-positive on it.
+job_block() {
+  awk -v want="$1" '
+    /^jobs:[[:space:]]*$/ { in_jobs = 1; next }
+    in_jobs && /^[^[:space:]]/ { in_jobs = 0 }
+    in_jobs && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ {
+      name = $0
+      sub(/^  /, "", name)
+      sub(/:.*$/, "", name)
+      if (name == want) { in_job = 1; next }
+      if (in_job) exit
+      next
+    }
+    in_job { print }
+  ' "$CI_YML"
+}
+
+# job_names: every job key under `jobs:`, in order (the `on:` events share the
+# two-space indent, so the section boundary has to be tracked).
+job_names() {
+  awk '
+    /^jobs:[[:space:]]*$/ { in_jobs = 1; next }
+    in_jobs && /^[^[:space:]]/ { in_jobs = 0 }
+    in_jobs && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ {
+      name = $0
+      sub(/^  /, "", name)
+      sub(/:.*$/, "", name)
+      print name
+    }
+  ' "$CI_YML"
+}
+
+# has_token BLOCK TOKEN MESSAGE: report MESSAGE when BLOCK lacks TOKEN.
+has_token() {
+  printf '%s\n' "$1" | grep -qF -- "$2" || report "$3"
+}
+
+changes_block="$(job_block changes)"
+has_token "$changes_block" 'ci/event-base.sh' \
+  "ci.yml: 'changes' does not call ci/event-base.sh (the merge-base must not be re-inlined)"
+has_token "$(job_block changelog)" 'ci/event-base.sh' \
+  "ci.yml: 'changelog' does not call ci/event-base.sh (the merge-base must not be re-inlined)"
+
+# A `git diff ... || true` in `changes` hides a failed diff, so the fail-closed
+# branch never runs and the gate can run nothing.
+if printf '%s\n' "$changes_block" | grep -qE 'git diff.*\|\|[[:space:]]*true'; then
+  report "ci.yml: 'changes' keeps a 'git diff ... || true' that hides a failed diff"
+fi
+
+# The exec rule and its derivation from code: a docs/ change runs the Go jobs
+# (a default-suite test reads docs/), an execution-inert change skips them.
+has_token "$changes_block" "grep -qE '^docs/'" \
+  "ci.yml: 'changes' is missing the exec rule grep -qE '^docs/'"
+has_token "$changes_block" '[ "$code" = true ]' \
+  "ci.yml: 'changes' does not derive exec from code (missing [ \"\$code\" = true ])"
+
+# The four Go jobs depend on the changes gate.
+for job in lint test race deadcode; do
+  needs_line="$(printf '%s\n' "$(job_block "$job")" | grep -E '^    needs:' || true)"
+  if [[ "$needs_line" != *changes* ]]; then
+    report "ci.yml: '$job' needs: does not include 'changes'"
+  fi
+done
+
+# The exec-gated body steps must keep `merge_group` running (the queue) and skip
+# only on an execution-inert changeset.
+for job in test race deadcode; do
+  gate_lines="$(
+    printf '%s\n' "$(job_block "$job")" \
+      | grep -E '^        if:' | grep -F "needs.changes.outputs.exec != 'false'" || true
+  )"
+  if [[ -z "$gate_lines" ]]; then
+    report "ci.yml: '$job' body-step if: is missing needs.changes.outputs.exec != 'false'"
+  elif ! printf '%s\n' "$gate_lines" | grep -qF merge_group; then
+    report "ci.yml: '$job' body-step if: is missing merge_group (the gate must keep the merge queue running)"
+  fi
+done
+
+# The code-affecting integration jobs gate on code, not the rawer exec.
+for job in integration integration-cache-writer vulncheck; do
+  has_token "$(job_block "$job")" "needs.changes.outputs.code != 'false'" \
+    "ci.yml: '$job' if: is missing needs.changes.outputs.code != 'false'"
+done
+
+# Every job bounds itself with a timeout; a hung job otherwise burns a runner.
+while IFS= read -r job; do
+  [[ -n "$job" ]] || continue
+  printf '%s\n' "$(job_block "$job")" | grep -qE '^    timeout-minutes:[[:space:]]*[0-9]+' \
+    || report "ci.yml: '$job' is missing a job-level timeout-minutes"
+done <<<"$(job_names)"
+
 violations="$(grep -c '^v$' "$violations_file" || true)"
 if [[ "$violations" -gt 0 ]]; then
   printf 'ci-guards: %d violation(s) found\n' "$violations"

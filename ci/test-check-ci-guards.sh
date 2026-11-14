@@ -23,6 +23,9 @@ new_fixture() {
   dir="$(mktemp -d "$fixture_root/root.XXXXXX")"
   mkdir -p "$dir/.github/workflows" "$dir/ci"
 
+  # Structurally close to the real ci.yml: jobs at two-space indent, job keys at
+  # four, so the checker's job-scoped extraction works and the one-line perl
+  # mutations below land where intended.
   cat >"$dir/.github/workflows/ci.yml" <<'EOF'
 on:
   push:
@@ -31,20 +34,152 @@ on:
     types: [opened, synchronize, reopened, labeled]
   merge_group:
   workflow_dispatch:
+  schedule:
+    - cron: "43 2 * * *"
 
 jobs:
   changes:
-    runs-on: ubuntu-latest
-    steps:
-      - run: |
-          if printf '%s\n' "$files" | grep -vqE '^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/|\.agents-sandbox/)|\.md$|^\.gitignore$'; then
-            echo "code=true"
-          fi
-  integration:
+    name: changes
     if: github.event_name != 'merge_group'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+      exec: ${{ steps.filter.outputs.exec }}
     steps:
-      - run: echo 'integration'
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Classify the changeset
+        id: filter
+        run: |
+          set -euo pipefail
+          code=false
+          exec=false
+          if base=$(ci/event-base.sh) && files=$(git diff --name-only "$base" "$GITHUB_SHA"); then
+            if printf '%s\n' "$files" | grep -vqE '^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/|\.agents-sandbox/)|\.md$|^\.gitignore$'; then
+              code=true
+            fi
+            if [ "$code" = true ] || printf '%s\n' "$files" | grep -qE '^docs/'; then
+              exec=true
+            fi
+          else
+            code=true
+            exec=true
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "exec=$exec" >> "$GITHUB_OUTPUT"
+
+  changelog:
+    name: changelog
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Compute changed files
+        run: |
+          set -euo pipefail
+          base=$(ci/event-base.sh || true)
+          git diff --name-only "${base:-}" "$GITHUB_SHA" > /tmp/changed.txt 2>/dev/null || true
+
+  lint:
+    name: lint
+    needs: [changes]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: golangci/golangci-lint-action@v9
+        if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
+        with:
+          version: v2.15
+      - run: make docs-linkcheck
+
+  test:
+    name: test
+    needs: [changes]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - run: make coverage-junit
+        if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
+
+  race:
+    name: race
+    needs: [changes]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - run: make test-race
+        if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
+
+  deadcode:
+    name: deadcode
+    needs: [changes]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - run: make deadcode
+        if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
+
+  vulncheck:
+    name: vulncheck
+    needs: [changes]
+    if: >-
+      !cancelled() &&
+      github.event_name != 'merge_group' &&
+      (github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref, 'refs/tags/') ||
+      needs.changes.outputs.code != 'false')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - run: make vulncheck
+
+  integration:
+    name: integration (docker build)
+    needs: [changes]
+    if: >-
+      !cancelled() &&
+      (github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref, 'refs/tags/') ||
+      (github.event_name == 'pull_request' && needs.changes.outputs.code != 'false'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - run: make test-integration
+
+  integration-cache-writer:
+    name: integration (docker build, cache writer)
+    needs: [changes]
+    if: >-
+      !cancelled() &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.changes.outputs.code != 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - run: make test-integration
+
+  integration-fresh:
+    name: integration (docker build, fresh)
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - run: make test-integration
 EOF
 
   cat >"$dir/.github/workflows/mutation.yml" <<'EOF'
@@ -237,6 +372,55 @@ expect "pull_request.types block-sequence dropping a default" "$blkdrop" 1 "defa
 notypes="$(new_fixture)"
 perl -ni -e 'print unless m/^    types: \[opened/' "$notypes/.github/workflows/ci.yml"
 expect "pull_request with no types declared" "$notypes" 1 "declares no types"
+
+echo "# check-ci-guards.sh: fast-path and fail-closed invariants"
+
+# The exec rule's docs/ anchor removed: a bare `docs/` would exempt any path
+# containing it, letting an execution-relevant change skip the Go suite.
+noanchor="$(new_fixture)"
+perl -pi -e "s{\Qgrep -qE '^docs/'\E}{grep -qE 'docs/'}" "$noanchor/.github/workflows/ci.yml"
+expect "changes exec rule losing its ^docs/ anchor" "$noanchor" 1 "missing the exec rule"
+
+# A `git diff ... || true` in `changes` swallows a failed diff, so the fail-closed
+# branch never runs and the gate can run nothing. The same `|| true` is
+# legitimate in `changelog`, so the guard must scope its check to `changes`.
+swallow="$(new_fixture)"
+perl -pi -e 's{\(git diff --name-only "\$base" "\$GITHUB_SHA"\)}{$& || true}' "$swallow/.github/workflows/ci.yml"
+expect "changes hiding a failed diff behind || true" "$swallow" 1 "hides a failed diff"
+
+# A code consumer back to the old `== 'true'`: a skipped `changes` job emits an
+# empty output, so `== 'true'` skips the build the fail-closed gate should run.
+consumer="$(new_fixture)"
+perl -pi -e "s{(github\.event_name == 'pull_request' && needs\.changes\.outputs\.code) != 'false'}{\$1 == 'true'}" "$consumer/.github/workflows/ci.yml"
+expect "integration gating on code == 'true'" "$consumer" 1 "outputs.code != 'false'"
+
+# A job dropping its `needs: [changes]` no longer waits on the gate.
+noneeds="$(new_fixture)"
+perl -pi -e 'if (m/^    needs: \[changes\]/ && !$done++) { $_ = "" }' "$noneeds/.github/workflows/ci.yml"
+expect "a gated job dropping needs: changes" "$noneeds" 1 "does not include 'changes'"
+
+# `merge_group` dropped from a body-step gate: the queue would then skip the Go
+# suite on its throwaway ref instead of running it.
+nogroup="$(new_fixture)"
+perl -pi -e 's/github\.event_name == .merge_group. \|\| //' "$nogroup/.github/workflows/ci.yml"
+expect "body-step gate dropping merge_group" "$nogroup" 1 "missing merge_group"
+
+# A job without a timeout can burn a runner indefinitely.
+notimeout="$(new_fixture)"
+perl -pi -e 'if (m/^    timeout-minutes:/ && !$done++) { $_ = "" }' "$notimeout/.github/workflows/ci.yml"
+expect "job missing timeout-minutes" "$notimeout" 1 "missing a job-level timeout-minutes"
+
+# Re-inlining the merge-base replaces the tested ci/event-base.sh with untested
+# shell that can drift from the fail-closed contract.
+inlined="$(new_fixture)"
+perl -pi -e 'if (m{ci/event-base\.sh} && !$seen++) { s{ci/event-base\.sh}{git merge-base origin/main "\$GITHUB_SHA"} }' "$inlined/.github/workflows/ci.yml"
+expect "changes re-inlining the merge-base" "$inlined" 1 "'changes' does not call ci/event-base.sh"
+
+# The `changelog` job must source the shared helper too ($seen skips the
+# `changes` occurrence so only `changelog` is mutated).
+nobase="$(new_fixture)"
+perl -pi -e 'if (m{ci/event-base\.sh} && $seen++) { s{ci/event-base\.sh}{git merge-base origin/main "\$GITHUB_SHA"} }' "$nobase/.github/workflows/ci.yml"
+expect "changelog not calling ci/event-base.sh" "$nobase" 1 "'changelog' does not call ci/event-base.sh"
 
 echo "# check-ci-guards.sh: the real repository passes"
 expect "this repository" "$(cd "$SCRIPT_DIR/.." && pwd)" 0 ""
