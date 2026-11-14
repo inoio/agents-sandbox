@@ -384,11 +384,36 @@ has_token "$classify_content" "grep -qE '^docs/'" \
   "ci/classify-changes.sh: missing the exec rule grep -qE '^docs/'"
 has_token "$classify_content" '[ "$code" = true ]' \
   "ci/classify-changes.sh: does not derive exec from code (missing [ \"\$code\" = true ])"
-# It must read the file directly: a producer piped into grep's quiet mode fails
-# open on a list larger than the pipe buffer.
-if grep -qE 'printf[^|]*\|[^|]*grep -q' "$CLASSIFY_SH"; then
+# It must read the file directly: any producer piped into grep's quiet mode
+# fails open on a list larger than the pipe buffer (the producer dies of SIGPIPE
+# and pipefail reads the 141 as a non-match). Producer-agnostic — `printf`,
+# `cat`, `git diff`, … — and the `([^|]|^)\|` prefix keeps it from matching the
+# `|| grep -q` of a logical OR, so the classifier's own exec-rule line is not a
+# false positive.
+quiet_grep_pipe='([^|]|^)\|[^|]*grep[[:space:]]+-[[:alpha:]]*q'
+if grep -qE "$quiet_grep_pipe" "$CLASSIFY_SH"; then
   report "ci/classify-changes.sh: pipes a producer into grep -q (a list past the pipe buffer fails open)"
 fi
+
+# The same hazard in the `changes` step's own inline shell: a future
+# `git diff … | grep -q` classification would fail open exactly as the old
+# inline form did.
+if printf '%s\n' "$changes_block" | grep -qE "$quiet_grep_pipe"; then
+  report "ci.yml: 'changes' pipes a producer into grep -q (a list past the pipe buffer fails open)"
+fi
+
+# Rename detection is on by default, and `--name-only` then prints only the
+# destination of a detected rename: `git mv internal/foo/bar.go
+# .agents-sandbox/bar.go` yields one `.agents-sandbox/**` path, so the change
+# classifies as non-code and every required job's work is skipped while the run
+# reports green. `--no-renames` keeps the source path in the diff. The
+# `changelog` job builds the same list for its presence rule, so it needs the
+# flag too.
+if ! printf '%s\n' "$changes_block" | grep -qE 'git diff[^|]*--no-renames'; then
+  report "ci.yml: 'changes' git diff is missing --no-renames (a detected rename collapses to its destination and classifies as non-code)"
+fi
+has_token "$(job_block changelog)" '--no-renames' \
+  "ci.yml: 'changelog' git diff is missing --no-renames (a detected rename hides the source path from the presence rule)"
 
 # A release tag forces the full set: a force-updated tag can carry a resolvable
 # `before`, so a diff that looks execution-inert could otherwise skip a required

@@ -59,7 +59,7 @@ jobs:
           set -euo pipefail
           code=false
           exec=false
-          if base=$(ci/event-base.sh) && git diff --name-only "$base" "$GITHUB_SHA" > /tmp/changed.txt; then
+          if base=$(ci/event-base.sh) && git diff --no-renames --name-only "$base" "$GITHUB_SHA" > /tmp/changed.txt; then
             output="$(ci/classify-changes.sh /tmp/changed.txt)"
             code="$(printf '%s\n' "$output" | sed -n 's/^code=//p')"
             exec="$(printf '%s\n' "$output" | sed -n 's/^exec=//p')"
@@ -84,7 +84,7 @@ jobs:
         run: |
           set -euo pipefail
           base=$(ci/event-base.sh || true)
-          git diff --name-only "${base:-}" "$GITHUB_SHA" > /tmp/changed.txt 2>/dev/null || true
+          git diff --no-renames --name-only "${base:-}" "$GITHUB_SHA" > /tmp/changed.txt 2>/dev/null || true
 
   lint:
     name: lint
@@ -433,10 +433,23 @@ expect "changes dropping the classifier invocation" "$noinvoke" 1 "does not call
 
 # The classifier must read the file directly: a producer piped into grep's quiet
 # mode fails open once the list outgrows the pipe buffer (the regression Finding
-# A fixes), skipping every required job.
+# A fixes), skipping every required job. The detector is producer-agnostic, so
+# the `printf … | grep -q` and `cat … | grep -vq` spellings are both caught.
 piped="$(new_fixture)"
 perl -pi -e 's{^code=false$}{printf "%s\\n" "$changed_files" | grep -q x || true\ncode=false}' "$piped/ci/classify-changes.sh"
 expect "classifier re-inlining a producer into grep -q" "$piped" 1 "pipes a producer into grep -q"
+
+# The `cat … | grep -vq` spelling: the old `printf … | grep -q`-only detector
+# missed it, so a future regression could reintroduce the round-1 fail-open.
+catpiped="$(new_fixture)"
+perl -pi -e 's{^code=false$}{cat "$changed_files" | grep -vq x || true\ncode=false}' "$catpiped/ci/classify-changes.sh"
+expect "classifier piping cat into grep -vq" "$catpiped" 1 "pipes a producer into grep -q"
+
+# The `changes` step's own inline shell: a `git diff … | grep -q` classification
+# fails open exactly as the old inline form did.
+diffpiped="$(new_fixture)"
+perl -pi -e 's{output="\$\(ci/classify-changes\.sh /tmp/changed\.txt\)"}{output="$(git diff --no-renames --name-only "$base" "$GITHUB_SHA" | grep -q foo)"}' "$diffpiped/.github/workflows/ci.yml"
+expect "changes step piping a git diff into grep -q" "$diffpiped" 1 "pipes a producer into grep -q"
 
 # Dropping the forced-full-set rule lets a force-updated release tag take the
 # fast path and skip a required check's work.
@@ -448,8 +461,16 @@ expect "changes dropping the forced-full-set tag rule" "$notag" 1 "refs/tags/"
 # branch never runs and the gate can run nothing. The same `|| true` is
 # legitimate in `changelog`, so the guard must scope its check to `changes`.
 swallow="$(new_fixture)"
-perl -pi -e 's{git diff --name-only "\$base" "\$GITHUB_SHA" > /tmp/changed\.txt}{$& || true}' "$swallow/.github/workflows/ci.yml"
+perl -pi -e 's{git diff --no-renames --name-only "\$base" "\$GITHUB_SHA" > /tmp/changed\.txt}{$& || true}' "$swallow/.github/workflows/ci.yml"
 expect "changes hiding a failed diff behind || true" "$swallow" 1 "hides a failed diff"
+
+# Dropping `--no-renames` restores git's default rename detection, so a
+# `git mv internal/foo/bar.go .agents-sandbox/bar.go` collapses to one
+# `.agents-sandbox/**` path and classifies as non-code: every required job's
+# work is skipped while the run reports green.
+norenames="$(new_fixture)"
+perl -pi -e 's/git diff --no-renames --name-only/git diff --name-only/' "$norenames/.github/workflows/ci.yml"
+expect "changes dropping --no-renames" "$norenames" 1 "--no-renames"
 
 # A code consumer back to the old `== 'true'`: a skipped `changes` job emits an
 # empty output, so `== 'true'` skips the build the fail-closed gate should run.

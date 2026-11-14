@@ -69,7 +69,12 @@ jobs:
           set -euo pipefail
           code=false
           exec=false
-          if base=$(ci/event-base.sh) && git diff --name-only "$base" "$GITHUB_SHA" > /tmp/changed.txt; then
+          # `--no-renames` is load-bearing: git's rename detection is on by
+          # default, so without it `--name-only` prints only the destination of
+          # a detected rename — `git mv internal/foo/bar.go .agents-sandbox/bar.go`
+          # yields a single `.agents-sandbox/**` path, classifies as non-code,
+          # and skips every required job's work while reporting green.
+          if base=$(ci/event-base.sh) && git diff --no-renames --name-only "$base" "$GITHUB_SHA" > /tmp/changed.txt; then
             # `ci/classify-changes.sh` owns the exempt set and the two outputs;
             # it lives in a tested script because a producer piped into `grep -q`
             # fails open once the list outgrows the pipe buffer. The exempt set
@@ -115,7 +120,9 @@ jobs:
         run: |
           set -euo pipefail
           base=$(ci/event-base.sh || true)
-          git diff --name-only "${base:-}" "$GITHUB_SHA" > /tmp/changed.txt 2>/dev/null || true
+          # `--no-renames` for the same reason as the `changes` step: a detected
+          # rename would otherwise hide the source path from the presence rule.
+          git diff --no-renames --name-only "${base:-}" "$GITHUB_SHA" > /tmp/changed.txt 2>/dev/null || true
       - name: Check fragments
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -165,6 +172,8 @@ jobs:
       - run: make docs-linkcheck-test
       - run: make ci-guards-check
       - run: make ci-guards-check-test
+      - run: make classify-changes-test
+      - run: make event-base-test
       - run: make actionlint
       - run: make cleanup-branches-test
       - run: make envelope-test
