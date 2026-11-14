@@ -464,10 +464,40 @@ jobs:
           echo "DOCKER_HOST=$DOCKER_HOST" >> "$GITHUB_ENV"
       - run: make test-integration
 
+  tag-guard:
+    name: tag-guard
+    # A release tag must be on main or a release branch, so a tag can never
+    # publish a commit that bypassed the required checks. A patch release tags
+    # the tip of release/<major>.<minor>, not main, so both lines are accepted.
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: The tag must be on main or a release branch
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          git fetch --no-tags origin '+refs/heads/release/*:refs/remotes/origin/release/*' || true
+          if git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "tag ${GITHUB_REF_NAME} is on main"
+            exit 0
+          fi
+          while IFS= read -r ref; do
+            if git merge-base --is-ancestor "$GITHUB_SHA" "$ref"; then
+              echo "tag ${GITHUB_REF_NAME} is on $ref"
+              exit 0
+            fi
+          done < <(git for-each-ref --format='%(refname)' 'refs/remotes/origin/release/')
+          echo "::error::tag ${GITHUB_REF_NAME} (${GITHUB_SHA}) is not on main or a release/* branch" >&2
+          exit 1
+
   release:
     name: release (${{ matrix.target }})
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [lint, test, integration, integration-podman]
+    needs: [tag-guard, lint, test, integration, integration-podman]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
