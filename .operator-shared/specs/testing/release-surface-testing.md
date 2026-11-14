@@ -138,7 +138,7 @@ Config shapes are owned by `docs/get-started.md`/`docs/sandboxes.md`.
 - [ ] **Step 1: Read-only surface.** `asb --help`, `asb help run`, `asb tree`, `asb version`, `asb completion
   bash|zsh|fish|powershell`, `asb config paths`, `asb config agent opencode2`, `asb config home`, `asb list`,
   `asb image list`, `asb volume list`, `asb df`. Expected: every command exits 0 and its output matches `docs/commands.md`
-  (flags, aliases, columns); a deprecated form (`--names`, `--age`, `--opencode-version`, `--dind`) is honored with a
+  (flags, aliases, columns); a deprecated form (`--names`, `--age`, `--dind`) is honored with a
   warning. Evidence: captured output. (Design coverage item 1.)
 - [ ] **Step 2: Doctor.** `asb doctor`. Expected: each prerequisite reported; on a healthy host all pass. Evidence:
   capture stdout.

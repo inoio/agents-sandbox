@@ -119,13 +119,13 @@ files.
 - **Landed (#196 Phase 1):** the roles and composites above; `roles_boundary_test.go` pins
   composite == role-union; the standalone role doubles; `notify`, `image`, `reprovision` and the
   narrowing-capable `session` helpers accept roles (`storage` needed none — its only contact was an
-  internal seam; `resourceproposal.MemoryReads` was already narrow).
+  internal seam).
 - **Landed (#196 Phase 2):** the dependency-free option families flow as launcher-owned request
   types — `Shell`/`Exec`/`ShellStream` take `ExecRequest`, `AttachWith` takes `AttachRequest`,
   `ExecDetached` takes `JobSpec`, `ListJobs` takes `JobQuery`, `Stop`/`Kill`/`Destroy` take
   `LifecycleOptions`, `Logs` takes `LogQuery`, `Compact` takes `CompactionRequest` — with the
   adapter translating each through `translate.go` (defaults omitted, so a zero request emits no
-  option). `resourceproposal.MemoryReads` follows the `SandboxObserver.Logs` shape.
+  option).
 - **Landed (#196 Phase 3):** the interfaces now return launcher-owned value types:
   `*StorageReport`/`StorageCategory`/`StorageItem` and `PruneRequest`/`PruneReport` (`StorageStore`);
   `JobInfo`/`JobLogEntry`/`JobLogQuery`/`LogEntry`/`Metrics` (`SandboxJobs`, `Job`, `SandboxObserver`,

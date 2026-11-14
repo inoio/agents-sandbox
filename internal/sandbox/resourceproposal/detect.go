@@ -12,13 +12,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// MemoryReads abstracts the live-VM reads a memory-hit detection performs. Both
-// msb.Sandbox and msb.SandboxHandle satisfy it.
-type MemoryReads interface {
-	Metrics(ctx context.Context) (*msb.Metrics, error)
-	Logs(ctx context.Context, query msb.LogQuery) ([]msb.LogEntry, error)
-}
-
 // MemoryLimits are the figures a memory offer is bounded by; a zero CurrentMiB
 // or BootMaxMiB means unknown.
 type MemoryLimits struct {
@@ -57,7 +50,7 @@ type MemoryLimits struct {
 func DetectAndOfferMemoryRaise(
 	ctx context.Context,
 	k state.Key,
-	r MemoryReads,
+	r msb.SandboxObserver,
 	marker *state.ResourcePressureState,
 	limits MemoryLimits,
 	witnessedHeadroomTrip bool,
@@ -177,7 +170,7 @@ func DetectAndOfferMemoryRaise(
 // withBootStart extends a tail read holding an OOM line with everything logged
 // before it, so the kill's boot start, which its fingerprint is anchored at, is
 // present even when it has left the tail. A failed read keeps the tail.
-func withBootStart(ctx context.Context, r MemoryReads, tail []msb.LogEntry, ui termio.Logger) []msb.LogEntry {
+func withBootStart(ctx context.Context, r msb.SandboxObserver, tail []msb.LogEntry, ui termio.Logger) []msb.LogEntry {
 	loggedAt, found := pressure.NewestOOMLoggedAt(tail)
 	if !found {
 		// gomutants:disable-next-line RETURN_ZERO reason="a tail without an OOM line yields no kill whether it is returned or dropped"

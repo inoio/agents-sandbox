@@ -34,7 +34,7 @@ func countFlagDeprecationWarnings(s, flagName string) int {
 //
 // Resolution for each alias is covered separately: --dind by
 // TestResolveBuildDeprecatedDindFlag and TestResolveBuildDockerFlagWinsOverDind,
-// --opencode-version by TestBuildCommandOpenCodeVersionFallback, --age/-a by
+// --age/-a by
 // TestPruneOlderThanAndAgeConflict and TestPruneAgeDeprecated, and --names by
 // TestListSandboxesQuietNames.
 func TestDeprecatedFlagAliasesWarnExactlyOnce(t *testing.T) {
@@ -45,7 +45,6 @@ func TestDeprecatedFlagAliasesWarnExactlyOnce(t *testing.T) {
 	}{
 		{"dind", []string{cmdBuild, "--" + flagDind, "--dry-run"}, flagDind},
 		{"dockerfile-dind", []string{cmdBuild, cmdDockerfile, "--" + flagDind}, flagDind},
-		{"opencode-version", []string{cmdBuild, "--" + flagOpenCodeVersion, "1.2.3", "--dry-run"}, flagOpenCodeVersion},
 		{"age", []string{cmdPrune, "--" + flagAge, "7d", "--yes"}, flagAge},
 		{"age-shorthand", []string{cmdPrune, "-" + flagAge[:1], "7d", "--yes"}, flagAge},
 		{"sandbox-list-names", []string{cmdList, "--" + pFlagNames}, pFlagNames},

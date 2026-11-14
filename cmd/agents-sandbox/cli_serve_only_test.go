@@ -11,6 +11,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/upgrade"
@@ -19,7 +20,7 @@ import (
 // TestServeOnlyContextCancelWiring verifies that calling the cancel function
 // from serveOnlyContext causes <-ctx.Done() to fire within a timeout.
 func TestServeOnlyContextCancelWiring(t *testing.T) {
-	ctx, cancel := serveOnlyContext(context.Background())
+	ctx, cancel := serveOnlyContext(context.Background(), nil)
 	done := make(chan struct{})
 	go func() {
 		<-ctx.Done()
@@ -34,15 +35,11 @@ func TestServeOnlyContextCancelWiring(t *testing.T) {
 	}
 }
 
-// TestServeOnlyContextNoStdinWatchWhenNotTerminal verifies that the stdin EOF
-// watcher is not wired when stdin is not an interactive terminal: a closed
-// non-TTY stdin must not cancel the context mid-flight (#387).
+// TestServeOnlyContextNoStdinWatchWhenNotTerminal verifies that a nil stdin
+// reader — the non-terminal case, per serveOnlyStdinReader — is not watched: a
+// closed non-TTY stdin must not cancel the context mid-flight (#387).
 func TestServeOnlyContextNoStdinWatchWhenNotTerminal(t *testing.T) {
-	restore := serveOnlyStdinReader
-	serveOnlyStdinReader = func() io.Reader { return nil }
-	t.Cleanup(func() { serveOnlyStdinReader = restore })
-
-	ctx, cancel := serveOnlyContext(context.Background())
+	ctx, cancel := serveOnlyContext(context.Background(), nil)
 	defer cancel()
 
 	select {
@@ -54,13 +51,10 @@ func TestServeOnlyContextNoStdinWatchWhenNotTerminal(t *testing.T) {
 }
 
 // TestServeOnlyContextCancelsOnStdinEOF verifies that the stdin EOF watcher
-// still cancels the context for an interactive terminal (Ctrl-D).
+// cancels the context when a stdin reader is supplied (an interactive terminal's
+// Ctrl-D).
 func TestServeOnlyContextCancelsOnStdinEOF(t *testing.T) {
-	restore := serveOnlyStdinReader
-	serveOnlyStdinReader = func() io.Reader { return strings.NewReader("") }
-	t.Cleanup(func() { serveOnlyStdinReader = restore })
-
-	ctx, cancel := serveOnlyContext(context.Background())
+	ctx, cancel := serveOnlyContext(context.Background(), strings.NewReader(""))
 	defer cancel()
 
 	select {
@@ -104,6 +98,37 @@ func TestRunServeOnlyWrapsContextForCancellation(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("serve-only context was not cancelled on stdin EOF")
+	}
+}
+
+// TestWithServeOnlyStdin pins the CLI-boundary link the serve-only message
+// depends on: opts records whether an interactive stdin (a non-nil reader) is
+// watched, and the reader is handed on to the context. Without it the message
+// would always offer Ctrl-D, which cannot work for a non-terminal stdin.
+func TestWithServeOnlyStdin(t *testing.T) {
+	interactive := strings.NewReader("")
+	tests := []struct {
+		name   string
+		reader io.Reader
+		want   bool
+	}{
+		{"terminal stdin is watched", interactive, true},
+		{"non-terminal stdin is not watched", nil, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			restore := serveOnlyStdinReader
+			serveOnlyStdinReader = func() io.Reader { return tc.reader }
+			t.Cleanup(func() { serveOnlyStdinReader = restore })
+
+			opts, stdin := withServeOnlyStdin(options.RunOptions{})
+			if opts.ServeOnlyStdinWatched != tc.want {
+				t.Errorf("ServeOnlyStdinWatched = %v, want %v", opts.ServeOnlyStdinWatched, tc.want)
+			}
+			if stdin != tc.reader {
+				t.Errorf("stdin = %v, want the resolved reader %v", stdin, tc.reader)
+			}
+		})
 	}
 }
 

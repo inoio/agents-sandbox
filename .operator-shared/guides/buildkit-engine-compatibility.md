@@ -5,8 +5,7 @@ read_if: Considering or implementing a BuildKit runner-image build, or diagnosin
 
 # BuildKit engine compatibility
 
-The contract this study informs is `../specs/runner-image/buildkit-build.md`; the implementation is planned in
-`../plans/2026-11-08-buildkit-runner-image-build.md`.
+The contract this study informs is `../specs/runner-image/buildkit-build.md`.
 
 The question: if agents-sandbox set `ImageBuildOptions.Version = client.BuilderBuildKit`
 (`"2"`) on its `dclient.ImageBuild` call, which engines it claims today would still build,

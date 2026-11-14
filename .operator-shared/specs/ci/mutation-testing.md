@@ -12,13 +12,14 @@ and assert nothing, and generated tests are prone to exactly that. Mutation test
 and checks whether the suite fails. A mutant the suite does not react to ("LIVED") marks either a missing assertion or a
 mutation that cannot change behaviour.
 
-This is a **standing, cautious practice**, not a fire drill. It runs on every release, over the changes that release
-carries, so tests that guard behaviour are strengthened as they land rather than after a defect escapes.
+This is a **standing, cautious practice**, not a fire drill. The advisory `mutation` workflow sweeps every
+code-changing pull request, so tests that guard behaviour are strengthened as they land rather than after a defect
+escapes. A release-time sweep over the previous tag is optional — a cross-PR view, not a step the release requires.
 
 ## Contract
 
-- **Never a gate, never a score.** A `make mutation` target, invoked by a person at release time or on demand, plus an
-  advisory CI workflow that runs the sweep on every PR. It is **never** wired into `make check`, `make verify`, `make all`,
+- **Never a gate, never a score.** A `make mutation` target, invoked by a person on demand (a release-time sweep is
+  optional), plus an advisory CI workflow that runs the sweep on every PR. It is **never** wired into `make check`, `make verify`, `make all`,
   or a required CI check: runtime is minutes-to-hours and a LIVED mutant needs human judgement, so a gate would be wrong.
   gomutants has no threshold, so the target exits zero on survivors and the workflow stays green; a red step means the
   sweep (or its reporting) failed, not that mutants survived.

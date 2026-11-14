@@ -163,12 +163,9 @@ func TestBuildCommandHasAgentVersionFlag(t *testing.T) {
 	if agentVersion.Name != "agent-version" {
 		t.Errorf("flag name = %q, want %q", agentVersion.Name, "agent-version")
 	}
-	openCodeVersion := foundCmd.Flags().Lookup(flagOpenCodeVersion)
-	if openCodeVersion == nil {
-		t.Fatal("build command must keep --opencode-version as a deprecated alias")
-	}
-	if openCodeVersion.Name != "opencode-version" {
-		t.Errorf("flag name = %q, want %q", openCodeVersion.Name, "opencode-version")
+	openCodeVersion := foundCmd.Flags().Lookup("opencode-version")
+	if openCodeVersion != nil {
+		t.Errorf("build command must not carry the removed --opencode-version flag, got %q", openCodeVersion.Name)
 	}
 }
 
@@ -694,30 +691,13 @@ func TestBuildChecksDockerBeforeAdoption(t *testing.T) {
 	}
 }
 
-// TestResolveBuildAgentVersion pins the --agent-version/--opencode-version
-// precedence: --agent-version wins and the deprecated alias only applies when
-// --agent-version was not given.
-func TestResolveBuildAgentVersion(t *testing.T) {
-	tests := []struct {
-		name string
-		args []string
-		want string
-	}{
-		{"none", nil, ""},
-		{"agent-version", []string{"--agent-version", "1.2.3"}, "1.2.3"},
-		{"opencode-version fallback", []string{"--opencode-version", "9.9.9"}, "9.9.9"},
-		{"agent-version wins", []string{"--agent-version", "1.2.3", "--opencode-version", "9.9.9"}, "1.2.3"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			cmd := buildBuildCmd(&termiotest.Mock{})
-			if err := cmd.Flags().Parse(tc.args); err != nil {
-				t.Fatalf("parse %v: %v", tc.args, err)
-			}
-			if got := resolveBuildAgentVersion(cmd); got != tc.want {
-				t.Errorf("resolveBuildAgentVersion = %q, want %q", got, tc.want)
-			}
-		})
+// TestBuildRejectsRemovedOpenCodeVersionFlag pins that the removed
+// --opencode-version alias is no longer accepted by build; only --agent-version
+// remains.
+func TestBuildRejectsRemovedOpenCodeVersionFlag(t *testing.T) {
+	cmd := buildBuildCmd(&termiotest.Mock{})
+	if err := cmd.Flags().Parse([]string{"--opencode-version", "9.9.9"}); err == nil {
+		t.Fatal("build must reject the removed --opencode-version flag")
 	}
 }
 

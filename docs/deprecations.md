@@ -34,7 +34,6 @@ This list is the current register. It is also recorded in the `Deprecated` secti
 | `sandbox list --names` | global `-q` / `--quiet` | 0.8.0 |
 | `prune --age` (and `-a`) | `--older-than` | 0.8.0 |
 | `volume migrate` / `reset` / `edit` `--rebuild` | run `agents-sandbox build` first | 0.8.0 |
-| `--opencode-version` | `--agent-version` | 0.7.0 |
 
 The removal column is an **eligibility floor, not a promise**: a removed form only disappears in a minor release, never a
 patch.

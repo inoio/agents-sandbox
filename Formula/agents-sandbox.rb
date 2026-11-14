@@ -10,20 +10,20 @@ class AgentsSandbox < Formula
 
   on_macos do
     on_arm do
-      url "https://github.com/inoio/agents-sandbox/releases/download/v0.6.0/agents-sandbox-darwin-arm64"
-      sha256 "34281ebbe3d504f38f36e53201396167553840e416fdd66270272a924690f7ce"
+      url "https://github.com/inoio/agents-sandbox/releases/download/v0.7.0/agents-sandbox-darwin-arm64"
+      sha256 "03c9a8eca273c1cb37774e2d1a806318e4b4c6509ca8d786a2b690c1ed338f39"
     end
   end
 
   on_linux do
     on_intel do
-      url "https://github.com/inoio/agents-sandbox/releases/download/v0.6.0/agents-sandbox-linux-amd64"
-      sha256 "db2a93d8cf63ed0fea7b7e4825a70e33711bcc62eb91af9ca11d179521f26d2e"
+      url "https://github.com/inoio/agents-sandbox/releases/download/v0.7.0/agents-sandbox-linux-amd64"
+      sha256 "9cf2e429f07197bc7c824d3e775d6385ab84f65982a578d453e4820f74d60858"
     end
 
     on_arm do
-      url "https://github.com/inoio/agents-sandbox/releases/download/v0.6.0/agents-sandbox-linux-arm64"
-      sha256 "9322c2e989fddf27ff9c8891db9a2b9aaa272f3f7916c8db78c6d3970667d99c"
+      url "https://github.com/inoio/agents-sandbox/releases/download/v0.7.0/agents-sandbox-linux-arm64"
+      sha256 "f1a1f83ab9235ec499b822fbea8fcf2ed05741d4fabced329c80359accdb5d97"
     end
   end
 

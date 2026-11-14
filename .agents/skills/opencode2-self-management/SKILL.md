@@ -1,6 +1,6 @@
 ---
 name: opencode2-self-management
-description: Drive your own opencode2 session from inside an agents-sandbox VM - request a context compaction through the session.compact API, tell the TUI's --port server from the CLI's `serve --service` background service, and refresh an edited skill or scope a skill query. Use when an agent is asked to compact/shrink its own context, when an edited skill "didn't change", or when a project skill is missing from the bare /api/skill list.
+description: Drive your own opencode2 session from inside an agents-sandbox VM - request a context compaction through the session.compact API, tell the TUI's --port server from the CLI's `serve --service` background service, refresh an edited skill or scope a skill query, or clean up a scratch `opencode2 serve` without killing the session's own daemon. Use when an agent is asked to compact/shrink its own context, when an edited skill "didn't change", when a project skill is missing from the bare /api/skill list, or before `pkill`-ing a scratch server.
 ---
 
 # Managing your own opencode2 session from inside the VM
@@ -28,6 +28,16 @@ database at `~/.local/share/opencode/opencode.db`, so `$OPENCODE_SESSION_ID` and
 either. Bare CLI commands talk to the background service; pass `--server http://127.0.0.1:<port>` to target a
 specific one. `opencode2 service status` prints the background-service URL; `opencode2 api get /api/info` prints
 `{version,pid,urls,capabilities}` for whichever server answered.
+
+## Never `pkill -f "opencode2 serve"`
+
+The daemon the session runs on has the same argv shape as any scratch server (`opencode2 serve
+--hostname 127.0.0.1 --port 4096`), so a broad pattern matches both and kills your own session. Clean up a
+throwaway server by its recorded PID (`pid=$!` after the `nohup … &`, then `kill "$pid"`) or by its unique
+port (`pkill -f 'port 4599'`), never by the binary and subcommand alone. The launcher's daemon carries an
+`AGENTS_SANDBOX_DETACHED_JOB=agent-daemon` marker, but env is not argv, so `pkill -f` cannot key on it. The
+killed daemon is a launcher-owned job that restarts on the next client attach, so the symptom is an
+`ECONNREFUSED` reconnect loop, not a permanent outage.
 
 ## Skill content is cached per location
 

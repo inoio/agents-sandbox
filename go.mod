@@ -11,14 +11,14 @@ require (
 	github.com/go-viper/mapstructure/v2 v2.5.0
 	github.com/moby/buildkit v0.35.0
 	github.com/moby/docker-image-spec v1.3.1
-	github.com/moby/moby/api v1.56.1
-	github.com/moby/moby/client v0.6.2
+	github.com/moby/moby/api v1.57.0
+	github.com/moby/moby/client v0.6.3
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.1.0
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.12.1
-	github.com/superradcompany/microsandbox/sdk/go v0.7.14
+	github.com/superradcompany/microsandbox/sdk/go v0.7.15
 	github.com/titanous/json5 v1.0.0
 	github.com/tonistiigi/fsutil v0.0.0-20261103125000-e075fd9305eb
 	go.yaml.in/yaml/v4 v4.0.0

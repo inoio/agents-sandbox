@@ -18,7 +18,7 @@ func TestRunCommandHasNoOpenCodeVersionFlag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Find %q: %v", cmdRun, err)
 	}
-	if flag := foundCmd.Flags().Lookup(flagOpenCodeVersion); flag != nil {
+	if flag := foundCmd.Flags().Lookup("opencode-version"); flag != nil {
 		t.Errorf("run command must NOT have --opencode-version flag, got %q", flag.Name)
 	}
 }

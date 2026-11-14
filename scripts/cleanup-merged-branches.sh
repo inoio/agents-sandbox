@@ -244,15 +244,23 @@ done < <(git for-each-ref --format='%(refname:short)' 'refs/remotes/origin/relea
 # --- merged pull requests (via gh) ------------------------------------------
 
 gh_available=false
-gh_merged_pairs=() # "<headRefName> <headRefOid>" for merged PRs
+gh_merged_pairs=() # "<headRefName> <headRefOid>" for merged PRs into a target
+gh_pr_records=()   # "<number> <state> <baseRefName> <headRefName> <headRefOid>" for every PR
 repo_slug=""
 if $use_gh && command -v gh >/dev/null 2>&1; then
   if repo_slug="$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)" && [[ -n "$repo_slug" ]]; then
-    if merged="$(gh pr list --state merged --limit 2000 --json headRefName,headRefOid --jq '.[] | "\(.headRefName) \(.headRefOid)"' 2>/dev/null)"; then
+    if prs="$(gh pr list --state all --limit 5000 --json number,state,baseRefName,headRefName,headRefOid --jq '.[] | "\(.number) \(.state) \(.baseRefName) \(.headRefName) \(.headRefOid)"' 2>/dev/null)"; then
       gh_available=true
-      while IFS= read -r pair; do
-        [[ -n "$pair" ]] && gh_merged_pairs+=("$pair")
-      done <<<"$merged"
+      while IFS= read -r record; do
+        [[ -n "$record" ]] || continue
+        gh_pr_records+=("$record")
+        read -r _num state base head oid <<<"$record"
+        # A merged PR proves content only when it landed on a target; the tip
+        # then matches a target's history by construction.
+        if [[ "$state" == MERGED ]] && contains "origin/$base" ${targets[@]+"${targets[@]}"}; then
+          gh_merged_pairs+=("$head $oid")
+        fi
+      done <<<"$prs"
     fi
   fi
 fi
@@ -268,41 +276,35 @@ gh_merge_matches() {
   for pair in ${gh_merged_pairs[@]+"${gh_merged_pairs[@]}"}; do
     pair_name="${pair%% *}"
     pair_oid="${pair##* }"
-    [[ "$pair_name" == "$name" && "$pair_oid" == "$tip" ]] && return 0
+    [[ "$pair_oid" == "$tip" ]] || continue
+    [[ -z "$name" || "$pair_name" == "$name" ]] && return 0
   done
   return 1
 }
 
 # --- merge detection --------------------------------------------------------
 
-local_merge_method() {
-  local branch="$1" target output
-  for target in ${targets[@]+"${targets[@]}"}; do
-    git merge-base --is-ancestor "$branch" "$target" 2>/dev/null && {
-      printf 'ancestry'
-      return 0
-    }
-  done
-  gh_merge_matches "$branch" "$(git rev-parse "$branch" 2>/dev/null || true)" && {
-    printf 'pr'
-    return 0
-  }
-  for target in ${targets[@]+"${targets[@]}"}; do
-    output="$(git cherry "$target" "$branch" 2>/dev/null || true)"
-    # git cherry ignores merge commits, so a branch that merged a ref other than the
-    # target and added a unique conflict resolution can look patch-equivalent. Only
-    # trust the patch check when no merge commits remain beyond the target.
-    if [[ -n "$output" ]] && ! grep -q '^+' <<<"$output" &&
-      [[ -z "$(git rev-list --merges "$target..$branch" 2>/dev/null)" ]]; then
-      printf 'patch'
-      return 0
+# A merge commit is a clean auto-merge when re-merging its two parents reproduces
+# its own tree, i.e. it added no manual conflict resolution. `git cherry` ignores
+# merge commits, so an all-'-' result proves the branch's whole content is in the
+# target only when every one of its merges is a clean auto-merge.
+merge_commits_are_auto_merges() {
+  local target="$1" ref="$2" merge merge_tree merged
+  while IFS= read -r merge; do
+    [[ -n "$merge" ]] || continue
+    if ! merged="$(git merge-tree --write-tree "$merge^1" "$merge^2" 2>/dev/null)"; then
+      return 1
     fi
-  done
-  return 1
+    merge_tree="${merged%%$'\n'*}"
+    [[ "$merge_tree" == "$(git rev-parse "$merge^{tree}")" ]] || return 1
+  done < <(git rev-list --merges "$target..$ref" 2>/dev/null)
+  return 0
 }
 
-remote_merge_method() {
-  local name="$1" ref="origin/$1" target
+local_merge_method() {
+  # <ref> is a branch name or any commit-ish (a detached worktree's HEAD); <name>
+  # is the branch name for the merged-PR lookup, or empty to match the tip alone.
+  local ref="$1" name="${2-$1}" target output
   for target in ${targets[@]+"${targets[@]}"}; do
     git merge-base --is-ancestor "$ref" "$target" 2>/dev/null && {
       printf 'ancestry'
@@ -313,7 +315,38 @@ remote_merge_method() {
     printf 'pr'
     return 0
   }
+  for target in ${targets[@]+"${targets[@]}"}; do
+    output="$(git cherry "$target" "$ref" 2>/dev/null || true)"
+    # git cherry ignores merge commits, so a branch that merged a ref other than the
+    # target and added a unique conflict resolution can look patch-equivalent. Only
+    # trust the patch check when every one of its merges is a clean auto-merge.
+    if [[ -n "$output" ]] && ! grep -q '^+' <<<"$output" &&
+      merge_commits_are_auto_merges "$target" "$ref"; then
+      printf 'patch'
+      return 0
+    fi
+  done
   return 1
+}
+
+# Why a ref is kept: how many of its commits are absent from the default target,
+# plus PR context when gh links it by head-name (or by tip for a detached ref).
+unmerged_note() {
+  local ref="$1" name="${2-$1}" base count record number state pbase head oid note=""
+  base="${default_ref:-origin/main}"
+  count="$(git cherry "$base" "$ref" 2>/dev/null | grep -c '^+' || true)"
+  if ((count == 1)); then note="1 commit not in $base"
+  elif ((count > 1)); then note="$count commits not in $base"
+  else note="unmerged"; fi
+  for record in ${gh_pr_records[@]+"${gh_pr_records[@]}"}; do
+    read -r number state pbase head oid <<<"$record"
+    [[ "$head" == "$name" || (-z "$name" && "$oid" == "$(git rev-parse "$ref" 2>/dev/null || true)") ]] || continue
+    if [[ "$state" == MERGED ]]; then note="$note; merged PR #$number, branch moved since"
+    elif [[ "$state" == CLOSED ]]; then note="$note; PR #$number closed, not merged"; fi
+    break
+  done
+  [[ -n "$name" ]] || note="detached; $note"
+  printf '%s' "$note"
 }
 
 NOW="$(date +%s)"
@@ -495,26 +528,42 @@ for i in "${!worktree_path[@]}"; do
   else
     age=0
   fi
+
+  # A detached worktree is tested by its HEAD commit; with no branch name the
+  # merged-PR lookup matches the tip alone.
+  if [[ -n "$branch" ]]; then
+    ref="$branch"; ref_name="$branch"
+  elif [[ -d "$path" ]]; then
+    ref="$(git -C "$path" rev-parse HEAD 2>/dev/null || true)"; ref_name=""
+  else
+    ref=""; ref_name=""
+  fi
+
   note=""
   if [[ "${worktree_prunable[$i]}" == 1 ]]; then
     note="prunable; left for the host"
   elif [[ "$(cd "$path" && pwd -P)" == "$current_worktree" ]]; then
     note="current worktree"
-  elif [[ -z "$branch" ]]; then
+  elif is_protected_config_worktree "$path" ||
+    { [[ -n "$branch" ]] && is_protected_config_branch "$branch"; }; then
+    note="config mirror; protected"
+  elif [[ -z "$ref" ]]; then
     note="detached"
   else
-    method="$(local_merge_method "$branch" || true)"
+    method="$(local_merge_method "$ref" "$ref_name" || true)"
     if [[ -z "$method" ]]; then
-      note="unmerged"
-    elif [[ "$branch" == release/* ]]; then
+      note="$(unmerged_note "$ref" "$ref_name")"
+    elif [[ -n "$branch" && "$branch" == release/* ]]; then
       note="release branch"
-    elif is_protected_config_worktree "$path" || is_protected_config_branch "$branch"; then
-      note="config mirror; protected"
-    elif is_excluded "$branch"; then
+    elif is_excluded "${branch:-$path}"; then
       note="excluded (merged)"
-    elif [[ "$method" == ancestry ]] && worktree_at_or_ahead_of_default "$branch"; then
+    elif [[ "$method" == ancestry ]] && worktree_at_or_ahead_of_default "$ref"; then
       note="default branch or newer; kept"
     elif [[ "$method" == ancestry ]] && worktree_created_recently "$path"; then
+      note="fresh session; kept"
+    elif [[ -z "$ref_name" ]] && worktree_created_recently "$path"; then
+      # A detached worktree has no branch to signal "session just created", so a
+      # recently created one is protected however its content was proven.
       note="fresh session; kept"
     elif ! older_than_allows "$age"; then
       note="younger than --older-than (merged)"
@@ -566,7 +615,7 @@ while IFS= read -r branch; do
 
   note=""
   if [[ -z "$method" ]]; then
-    note="unmerged"
+    note="$(unmerged_note "$branch")"
   elif [[ "$branch" == "$local_default" ]]; then
     note="default branch"
   elif [[ "$branch" == "$current_branch" ]]; then
@@ -616,11 +665,11 @@ while IFS= read -r ref; do
   [[ "$name" == HEAD ]] && continue
   short="origin/$name"
   age="$(commit_age "$ref")"
-  method="$(remote_merge_method "$name" || true)"
+  method="$(local_merge_method "origin/$name" "$name" || true)"
 
   note=""
   if [[ -z "$method" ]]; then
-    note="unmerged"
+    note="$(unmerged_note "origin/$name" "$name")"
   elif [[ "$short" == "$default_ref" || "$name" == main ]]; then
     note="default branch"
   elif [[ "$name" == release/* ]]; then

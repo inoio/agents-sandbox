@@ -47,6 +47,9 @@
 - `guides/github-merge-driver-support.md`
   - Description: Verdict, with primary sources, that GitHub's server-side merge and merge-queue build ignore `.gitattributes` merge drivers, so `CHANGELOG.md merge=union` does not resolve a conflict; libgit2 does implement `union` but GitHub does not consult it, and GitLab dropped it in 17.1.
   - Read If: Considering `merge=union`, a custom merge driver, or any `.gitattributes` merge attribute to auto-resolve conflicts on GitHub; or explaining why a server-side conflict persists when the CLI git merges cleanly.
+- `guides/github-pr-workflow.md`
+  - Description: The PR mechanics the issue guide does not cover: landing through the `main` merge queue (`gh pr merge` is refused; enqueue via the `enqueuePullRequest` GraphQL mutation or "Merge when ready", or `scripts/enqueue-pr.sh`), the `GITHUB_TOKEN`-authored bot PR parked at `action_required` until a maintainer approves its run, and guessing a changelog fragment's PR-number slug.
+  - Read If: Opening, merging, or troubleshooting a PR; enqueueing one into the merge queue; a bot PR that reports no checks; or naming a `changelog.d/` fragment before the PR number is known.
 - `guides/greptile-review-skill.md`
   - Description: The `greptile-review` skill — the maintainer correctness review and its third axis beside `code-review`, where its 14-family ruleset comes from (the mined `corpus.tsv`, re-mined by `mine.sh`), the RED/GREEN sample and the one known gap (PR604 reused-input dedupe), and the answer-key `.git` leak to avoid when re-running validation.
   - Read If: Running or changing `greptile-review`, adding a rule family, re-mining the Greptile corpus, or re-running its validation.
@@ -178,6 +181,3 @@
 - `plans/2026-11-07-hermetic-uid-permission-surface.md`
   - Description: Plan 2 of the hermetic design: remove the effective-uid dependence from the six tests the strict envelope runs as uid 0 (via `configmerge.readFile`, `runtimemigration.readDir`, and a `state.OverrideStateWriteForTest` hook), pin `GOTOOLCHAIN=local`, and verify `make test-hermetic` is green.
   - Read If: Implementing the uid/permission surface fix that makes the strict hermetic envelope green, or adding a read/write failure seam to `configmerge`, `runtimemigration`, or `state`.
-- `plans/2026-11-08-buildkit-runner-image-build.md`
-  - Description: TDD plan for the BuildKit runner-image build (#597) - the `DialHijack` seam, ping-based builder selection, the buildkit client + session + `dockerfile.v0`/`moby`-exporter path, the `image-cache-from`/`image-cache-to` config surface, and the CI cache (main writes, PRs restore) with the integration check made required.
-  - Read If: Implementing the BuildKit runner-image build, the engine-selected classic fallback, or the cached/required integration CI check.

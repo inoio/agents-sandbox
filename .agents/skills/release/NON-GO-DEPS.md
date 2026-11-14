@@ -16,9 +16,9 @@ during [step 9](SKILL.md#9-post-release).
 | x/tools | `0.52.0` | `.agents-sandbox/Dockerfile` (`ARG XTOOLS_VERSION`) |
 | gopls | `0.24.0` | `.agents-sandbox/Dockerfile` (`ARG GOPLS_VERSION`) |
 | gomutants | `v0.7.3` | `Makefile` (`GOMUTANTS_VERSION`) |
-| actionlint | `v1.7.7` | `Makefile` (`ACTIONLINT_VERSION`) |
+| actionlint | `v1.7.12` | `Makefile` (`ACTIONLINT_VERSION`) |
 | zig | `0.17.1` | `Makefile` (`ZIG_VERSION`), `.agents-sandbox/Dockerfile`, `.github/workflows/ci.yml` |
-| gh | `2.103.3` | `.agents-sandbox/Dockerfile` |
+| gh | `2.104.0` | `.agents-sandbox/Dockerfile` |
 | plantuml | `1.2026.10` | `.agents-sandbox/Dockerfile`, `.github/workflows/pages.yml` |
 | ast-grep-cli | `0.51.2` | `.agents-sandbox/Dockerfile` (`ARG AST_GREP_VERSION`) |
 | operator-helper | `1.12.0` | `.agents-sandbox/Dockerfile` (`ARG OPERATOR_HELPER_VERSION`) |
@@ -27,6 +27,12 @@ during [step 9](SKILL.md#9-post-release).
 A tool's version lives in more than one place; update every location in its row. Go is the exception: `ci.yml` reads
 `.go-version` directly via setup-go's `go-version-file`, so `.go-version` is the single source there and cannot drift.
 golangci-lint is pinned exactly in the `Makefile` and Dockerfile (`2.15.0`) but only to major.minor in `ci.yml` (`v2.15`) — keep them on the same minor.
+
+## zig pin
+
+zig ships from `ziglang.org`, not GitHub releases — the `ziglang/zig` GitHub tags lag the version
+the repo pins (the pin is `0.17.1` while the newest GitHub tag is `0.15.2`). Bump `ZIG_VERSION` from
+the download index at `https://ziglang.org/download/`, not from `gh release list`.
 
 ## Node pin
 

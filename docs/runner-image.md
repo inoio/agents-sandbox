@@ -471,4 +471,4 @@ version, a rebuild that needs to install the missing binary resolves a normal re
 provenance value to the installer.
 
 `--agent-version` is available on `build`, `run`, and `shell`. On `run`/`shell` it pins the version baked into the image and
-skips the upgrade check. The deprecated `--opencode-version` alias remains `build`-only.
+skips the upgrade check.

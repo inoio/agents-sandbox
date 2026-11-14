@@ -46,9 +46,9 @@ assert_not_contains() { if grep -qF -- "$3" <<<"$2"; then bad "$1 (unexpected: $
 # The lines under a section header, up to the next blank line.
 section() { awk -v h="$2" 'BEGIN{s=0} $0==h{s=1;next} s&&NF==0{exit} s{print}' <<<"$1"; }
 
-new_fixture() { # [config_dir] [config_branch] [relative|absolute|none] [dirty 0|1] -> prints proj
+new_fixture() { # [config_dir] [config_branch] [relative|absolute|none] [dirty 0|1] [containment 0|1] -> prints proj
   local config_dir="${1:-config}" config_branch="${2:-agents-sandbox-config}"
-  local symlink="${3:-relative}" dirty="${4:-0}"
+  local symlink="${3:-relative}" dirty="${4:-0}" containment="${5:-0}"
   local root seed proj old
   root="$(mktemp -d "$fixture_root/fixture.XXXXXX")"
   seed="$root/seed"; proj="$root/proj"
@@ -61,6 +61,7 @@ new_fixture() { # [config_dir] [config_branch] [relative|absolute|none] [dirty 0
   git -C "$seed" add -A
   git -C "$seed" commit -q -m init
   git -C "$seed" branch -M main
+  [[ "$containment" == 1 ]] && build_containment_history "$seed"
 
   git clone -q --bare "$seed" "$proj/.git"
   git -C "$proj" config user.email test@example.com
@@ -85,9 +86,35 @@ new_fixture() { # [config_dir] [config_branch] [relative|absolute|none] [dirty 0
   git -C "$proj" update-ref refs/remotes/origin/"$config_branch" "$old"
   git -C "$proj" update-ref refs/remotes/origin/stale-branch "$old"
   git -C "$proj" worktree add -q "$proj/oldwork" -b old-work "$old"
+  if [[ "$containment" == 1 ]]; then
+    git -C "$proj" worktree add -q --detach "$proj/detached-contained" "$old"
+    git -C "$proj" worktree add -q --detach "$proj/detached-unique" "$(git -C "$proj" rev-parse unique)"
+    git -C "$proj" worktree add -q --detach "$proj/detached-current" "$(git -C "$proj" rev-parse main)"
+    git -C "$proj" worktree add -q --detach "$proj/detached-fresh" "$(git -C "$proj" rev-parse containment)"
+    git -C "$proj" update-ref refs/remotes/origin/containment "$(git -C "$proj" rev-parse containment)"
+    git -C "$proj" update-ref refs/remotes/origin/unique-remote "$(git -C "$proj" rev-parse unique)"
+  fi
   [[ "$dirty" == 1 ]] && echo scratch >"$proj/$config_dir/untracked.txt"
 
   printf '%s\n' "$proj"
+}
+
+# History for the content-containment cases: a branch whose only own commit is
+# patch-equivalent to a main commit plus a clean auto-merge of a sibling branch
+# (removable); the same with the merge amended by a manual edit (kept); and a
+# branch with unique commits (kept).
+build_containment_history() { # seed
+  local seed="$1" init m1 s
+  init="$(git -C "$seed" rev-parse HEAD)"
+  echo filler >"$seed/filler.txt"; git -C "$seed" add filler.txt; git -C "$seed" commit -qm filler
+  echo m1 >"$seed/a.txt"; git -C "$seed" add a.txt; git -C "$seed" commit -qm M1
+  m1="$(git -C "$seed" rev-parse HEAD)"
+  git -C "$seed" checkout -q -b S "$init"; echo s >"$seed/s.txt"; git -C "$seed" add s.txt; git -C "$seed" commit -qm S
+  s="$(git -C "$seed" rev-parse HEAD)"
+  git -C "$seed" checkout -q -b containment "$init"; git -C "$seed" cherry-pick "$m1" >/dev/null; git -C "$seed" merge -q --no-edit "$s"
+  git -C "$seed" checkout -q -b containment-manual "$init"; git -C "$seed" cherry-pick "$m1" >/dev/null; git -C "$seed" merge -q --no-edit "$s"; echo manual >"$seed/man.txt"; git -C "$seed" add man.txt; git -C "$seed" commit -q --amend --no-edit
+  git -C "$seed" checkout -q -b unique "$init"; echo u1 >"$seed/u.txt"; git -C "$seed" add u.txt; git -C "$seed" commit -qm u1; echo u2 >>"$seed/u.txt"; git -C "$seed" commit -qam u2
+  git -C "$seed" checkout -q main; git -C "$seed" merge -q --no-edit "$s"
 }
 
 run_cleanup() { # proj [extra args...]
@@ -172,6 +199,100 @@ git -C "$proj" update-ref -d refs/remotes/origin/stale-branch
     >/dev/null 2>"$stderr_file" </dev/null ) && rc=0 || rc=$?
 [[ "$rc" -eq 0 ]] && ok "zero actions exit 0" || bad "zero actions exit 0 (rc=$rc)"
 assert_not_contains "zero actions no abort" "$(cat "$stderr_file")" "refusing to delete"
+
+# Content containment: a branch whose only own commit is patch-equivalent to a
+# main commit plus a clean auto-merge is removed; a manual-resolution merge and
+# a branch with unique commits are kept.
+proj="$(new_fixture config agents-sandbox-config relative 0 1)"
+out="$(run_cleanup "$proj")"
+rem_lb="$(section "$out" 'Local branches to delete:')"
+keep_lb="$(section "$out" 'Remaining local branches:')"
+assert_contains     "containment: auto-merge branch removed" "$rem_lb"  "containment (was"
+assert_not_contains "containment: manual-merge branch kept"  "$rem_lb"  "containment-manual (was"
+assert_contains     "containment: manual-merge branch kept"  "$keep_lb" "containment-manual"
+assert_not_contains "containment: unique branch kept"        "$rem_lb"  "unique (was"
+assert_contains     "containment: unique branch kept"        "$keep_lb" "unique"
+
+# Detached worktrees are tested by their HEAD commit: a contained one is removed,
+# a unique one is kept, and one at the default-branch tip is kept.
+proj="$(new_fixture config agents-sandbox-config relative 0 1)"
+out="$(run_cleanup "$proj")"
+rem_wt="$(section "$out" 'Worktrees to remove:')"
+keep_wt="$(section "$out" 'Remaining worktrees:')"
+assert_contains     "detached: contained worktree removed" "$rem_wt"  "$proj/detached-contained"
+assert_not_contains "detached: unique worktree kept"       "$rem_wt"  "$proj/detached-unique"
+assert_contains     "detached: unique worktree kept"       "$keep_wt" "$proj/detached-unique"
+assert_contains     "detached: current worktree kept"      "$keep_wt" "$proj/detached-current"
+assert_contains     "detached: current kept as default"    "$keep_wt" "[default branch or newer; kept]"
+
+# A dirty detached worktree is kept without --force.
+proj="$(new_fixture config agents-sandbox-config relative 1 1)"
+echo scratch >>"$proj/detached-contained/scratch.txt"
+out="$(run_cleanup "$proj")"
+keep_wt="$(section "$out" 'Remaining worktrees:')"
+assert_contains "detached: dirty kept without --force" "$keep_wt" "$proj/detached-contained"
+
+# Remote branches get the same content proof.
+proj="$(new_fixture config agents-sandbox-config relative 0 1)"
+out="$(run_cleanup "$proj")"
+rem_rb="$(section "$out" 'Origin branches to delete:')"
+keep_rb="$(section "$out" 'Remaining origin branches:')"
+assert_contains     "remote: contained branch removed" "$rem_rb"  "origin/containment"
+assert_not_contains "remote: unique branch kept"       "$rem_rb"  "origin/unique-remote"
+assert_contains     "remote: unique branch kept"       "$keep_rb" "origin/unique-remote"
+
+# Kept-but-unprovable entries carry a reason.
+proj="$(new_fixture config agents-sandbox-config relative 0 1)"
+out="$(run_cleanup "$proj")"
+keep_lb="$(section "$out" 'Remaining local branches:')"
+assert_contains "note: unique commit count"   "$keep_lb" "[2 commits not in origin/main]"
+assert_contains "note: manual merge unmerged" "$keep_lb" "[unmerged]"
+
+# A fresh detached worktree is kept even when its content is provable (not only
+# when it is an ancestor of the default branch).
+proj="$(new_fixture config agents-sandbox-config relative 0 1)"
+out="$(run_cleanup "$proj" --fresh 30m)"
+rem_wt="$(section "$out" 'Worktrees to remove:')"
+keep_wt="$(section "$out" 'Remaining worktrees:')"
+assert_not_contains "fresh: fresh detached not removed" "$rem_wt"  "$proj/detached-fresh"
+assert_contains     "fresh: fresh detached kept"        "$keep_wt" "$proj/detached-fresh"
+assert_contains     "fresh: fresh detached note"        "$keep_wt" "[fresh session; kept]"
+
+# With gh, a closed-unmerged PR is named; a merged PR is proof only when it
+# landed on a target.
+make_gh_stub() { # dir record-line...
+  local dir="$1"; shift
+  mkdir -p "$dir"
+  {
+    printf '#!/bin/sh\ncase "${1:-}" in\n'
+    printf '  repo) echo "inoio/agents-sandbox" ;;\n'
+    printf '  pr) printf "%%s\\n"'
+    printf ' "%s"' "$@"
+    printf ' ;;\n'
+    printf '  api) exit 1 ;;\n'
+    printf 'esac\n'
+  } >"$dir/gh"
+  chmod +x "$dir/gh"
+}
+run_cleanup_gh() { # proj stubdir [extra args...]
+  local proj="$1" stub="$2"; shift 2
+  ( cd "$proj/main" && PATH="$stub:$PATH" bash "$CLEANUP" --dry-run --no-fetch --fresh 0 --color never "$@" )
+}
+proj="$(new_fixture config agents-sandbox-config relative 0 1)"
+git -C "$proj" update-ref refs/remotes/origin/fix-issue-94 "$(git -C "$proj" rev-parse unique)"
+stub="$fixture_root/gh-stub"; make_gh_stub "$stub" "98 CLOSED main fix-issue-94 1111111111111111111111111111111111111111"
+out="$(run_cleanup_gh "$proj" "$stub")"
+keep_rb="$(section "$out" 'Remaining origin branches:')"
+assert_contains "note: closed PR context" "$keep_rb" "PR #98 closed, not merged"
+
+proj="$(new_fixture config agents-sandbox-config relative 0 1)"
+unique_tip="$(git -C "$proj" rev-parse unique)"
+stub="$fixture_root/gh-stub-base"; make_gh_stub "$stub" "777 MERGED feature-base unique $unique_tip"
+out="$(run_cleanup_gh "$proj" "$stub")"
+rem_lb="$(section "$out" 'Local branches to delete:')"
+keep_lb="$(section "$out" 'Remaining local branches:')"
+assert_not_contains "gh: non-target base not deleted" "$rem_lb"  "unique (was"
+assert_contains     "gh: non-target base kept"        "$keep_lb" "unique"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 ((fail == 0))

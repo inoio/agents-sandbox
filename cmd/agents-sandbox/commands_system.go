@@ -228,19 +228,6 @@ func parseLabelFlags(values []string) (map[string]string, error) {
 	return labels, nil
 }
 
-// resolveBuildAgentVersion resolves the agent version for the build command:
-// --agent-version wins, falling back to the deprecated --opencode-version alias
-// only when --agent-version was not given explicitly.
-func resolveBuildAgentVersion(cmd *cobra.Command) string {
-	agentVersion, _ := cmd.Flags().GetString(flagAgentVersion)
-	// The fallback reads the deprecated alias whenever --agent-version was not
-	// given; an unchanged alias is empty, so no separate Changed check is needed.
-	if !cmd.Flags().Changed(flagAgentVersion) {
-		agentVersion, _ = cmd.Flags().GetString(flagOpenCodeVersion)
-	}
-	return agentVersion
-}
-
 // resolveBuildDockerSetting returns the effective docker setting for a build.
 // It resolves through runoptions.ResolveDockerSetting — the same shared
 // docker/dind precedence the run path uses, so a build and a run of one project
@@ -260,7 +247,7 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			force, _ := cmd.Flags().GetBool(flagRebuild)
 			dryRun, _ := cmd.Flags().GetBool(flagDryRun)
-			openCodeVersion := resolveBuildAgentVersion(cmd)
+			agentVersionPin, _ := cmd.Flags().GetString(flagAgentVersion)
 			a, err := resolveAgentFlag(cmd)
 			if err != nil {
 				return err
@@ -276,7 +263,7 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 			client := msb.Get()
 			paths := configpaths.Get()
 			buildImage := func(ctx context.Context, key state.Key) (image.ImageInfo, error) {
-				agentVersion, userProvided := prepare.ResolveAgentVersionForBuild(key, openCodeVersion)
+				agentVersion, userProvided := prepare.ResolveAgentVersionForBuild(key, agentVersionPin)
 				return image.Build(
 					ctx,
 					docker.Get(),
@@ -324,9 +311,6 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 	registerDockerFlags(cmd)
 	cmd.Flags().
 		String(flagAgentVersion, "", "Pin the agent version baked into the runner image (default: latest release)")
-	cmd.Flags().
-		String(flagOpenCodeVersion, "", "Deprecated alias for --agent-version")
-	_ = cmd.Flags().MarkDeprecated(flagOpenCodeVersion, "use --agent-version instead")
 
 	cmd.AddCommand(buildDockerfileCmd(ui))
 	return cmd
