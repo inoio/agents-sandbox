@@ -40,10 +40,10 @@ jobs:
   # Whether a push to main changed anything that can affect the runner image or
   # the tests. The costly integration jobs gate on this so a docs- or
   # brain-only merge to main does not pay a ~16-minute image build. It runs on
-  # every event except a merge group, where no consumer reads its output (the
-  # gated jobs all exclude `merge_group`): a skipped dependency skips them, the
-  # same Success-on-skip the queue already relies on, so the queue skips the
-  # checkout and diff too.
+  # every event except a merge group: each consumer declares `needs: [changes]`
+  # with `!cancelled()` and forces its step gate open on a merge group, so a
+  # skipped dependency does not skip them, and the queue skips the checkout and
+  # diff without dropping a required job.
   changes:
     name: changes
     if: github.event_name != 'merge_group'
@@ -64,6 +64,7 @@ jobs:
           GITHUB_BASE_REF: ${{ github.base_ref }}
           GITHUB_BEFORE: ${{ github.event.before }}
           GITHUB_MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          GITHUB_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
           code=false
@@ -82,6 +83,12 @@ jobs:
             fi
           else
             # Fail closed: an undecidable base or a failed diff runs everything.
+            code=true
+            exec=true
+          fi
+          # A release tag always runs the full set: a force-updated tag can carry
+          # a resolvable `before`, and no release may skip a required check's work.
+          if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
             code=true
             exec=true
           fi
@@ -321,8 +328,10 @@ jobs:
 
   integration-cache-writer:
     name: integration (docker build, cache writer)
-    # The single writer of the GHCR build cache: a code-affecting push to main
-    # builds from scratch and exports the chain. It is a separate job so
+    # The single writer of the GHCR build cache: a code-affecting main push
+    # imports the previous chain and re-exports only the changed layers; the cold
+    # build is proven by the scheduled `integration-fresh` job and the release
+    # tag. It is a separate job so
     # `packages: write` is confined here — a PR, tag, or dispatch run gets the
     # read-only `integration` job above and cannot overwrite the shared cache.
     # This job carries the main push's build; the required
@@ -400,17 +409,18 @@ jobs:
     # endpoint instead of Docker Engine: podman serves the Docker API, so it is
     # expected to work, and this job is what makes it a tested engine. Its own
     # opt-in label keeps a podman-only failure from blocking a PR a maintainer
-    # ran docker for. It no longer runs on a main push — the scheduled run below
-    # covers the unscheduled engine validation — and it stays in `release.needs`
-    # so a tag still gates the release on it (GitHub has no cross-workflow
-    # `needs`).
+    # ran docker for. It no longer runs on a main push — the nightly schedule
+    # covers the engine validation off the merge path — and it stays in
+    # `release.needs` so a tag still gates the release on it (GitHub has no
+    # cross-workflow `needs`).
     needs: [changes]
     if: >-
-      github.event_name == 'schedule' ||
+      !cancelled() &&
+      (github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/tags/') ||
       (github.event_name == 'pull_request' &&
-      contains(github.event.pull_request.labels.*.name, 'run-integration-podman'))
+      contains(github.event.pull_request.labels.*.name, 'run-integration-podman')))
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:

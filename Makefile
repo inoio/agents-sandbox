@@ -432,7 +432,7 @@ changelog-check-test:
 
 # Test the CI base-SHA resolver itself (fixtures only: never touches this repo).
 event-base-test:
-	./ci/test-check-event-base.sh
+	ci/test-check-event-base.sh
 
 # Serve the docs locally the same way GitHub Pages does (Jekyll build + live reload) at http://localhost:4000/.
 docs-serve: docs-diagrams

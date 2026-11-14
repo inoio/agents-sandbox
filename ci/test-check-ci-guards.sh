@@ -23,9 +23,9 @@ new_fixture() {
   dir="$(mktemp -d "$fixture_root/root.XXXXXX")"
   mkdir -p "$dir/.github/workflows" "$dir/ci"
 
-  # Structurally close to the real ci.yml: jobs at two-space indent, job keys at
-  # four, so the checker's job-scoped extraction works and the one-line perl
-  # mutations below land where intended.
+  # Structurally close to the real ci.yml: job keys at two-space indent, their
+  # keys at four, so the checker's job-scoped extraction works and the one-line
+  # perl mutations below land where intended.
   cat >"$dir/.github/workflows/ci.yml" <<'EOF'
 on:
   push:
@@ -52,6 +52,9 @@ jobs:
           fetch-depth: 0
       - name: Classify the changeset
         id: filter
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
           code=false
@@ -64,6 +67,10 @@ jobs:
               exec=true
             fi
           else
+            code=true
+            exec=true
+          fi
+          if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
             code=true
             exec=true
           fi
@@ -385,6 +392,12 @@ echo "# check-ci-guards.sh: fast-path and fail-closed invariants"
 noanchor="$(new_fixture)"
 perl -pi -e "s{\Qgrep -qE '^docs/'\E}{grep -qE 'docs/'}" "$noanchor/.github/workflows/ci.yml"
 expect "changes exec rule losing its ^docs/ anchor" "$noanchor" 1 "missing the exec rule"
+
+# Dropping the forced-full-set rule lets a force-updated release tag take the
+# fast path and skip a required check's work.
+notag="$(new_fixture)"
+perl -ni -e 'print unless m{== refs/tags/}' "$notag/.github/workflows/ci.yml"
+expect "changes dropping the forced-full-set tag rule" "$notag" 1 "refs/tags/"
 
 # A `git diff ... || true` in `changes` swallows a failed diff, so the fail-closed
 # branch never runs and the gate can run nothing. The same `|| true` is

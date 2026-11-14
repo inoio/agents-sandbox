@@ -367,6 +367,12 @@ has_token "$changes_block" "grep -qE '^docs/'" \
 has_token "$changes_block" '[ "$code" = true ]' \
   "ci.yml: 'changes' does not derive exec from code (missing [ \"\$code\" = true ])"
 
+# A release tag forces the full set: a force-updated tag can carry a resolvable
+# `before`, so a diff that looks execution-inert could otherwise skip a required
+# check's work on a release.
+has_token "$changes_block" 'refs/tags/' \
+  "ci.yml: 'changes' is missing the forced-full-set rule refs/tags/ (a release tag must force code=true and exec=true)"
+
 # The four Go jobs depend on the changes gate.
 for job in lint test race deadcode; do
   needs_line="$(printf '%s\n' "$(job_block "$job")" | grep -E '^    needs:' || true)"
