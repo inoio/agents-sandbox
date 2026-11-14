@@ -108,6 +108,7 @@ assert_contains "watches the checks" "$(argv)" "pr checks 42 --watch --fail-fast
 assert_contains "sends the enqueue mutation" "$(argv)" "enqueuePullRequest(input:{pullRequestId:\$id})"
 assert_contains "passes the node id" "$(argv)" "id=PR_2"
 assert_contains "prints the queue position" "$out" "enqueued at position 3"
+assert_not_contains "does not dump the live check table" "$out" "fake-tests"
 
 echo "# enqueue-pr.sh (checks fail)"
 export GH_CHECKS_EXIT=1
@@ -129,7 +130,7 @@ echo "# enqueue-pr.sh (closed while waiting)"
 export GH_CHECKS_EXIT=1
 run_script '[{"state":"OPEN","id":"PR_5"},{"state":"CLOSED","id":"PR_5"}]' 42
 if [[ "$status" -ne 0 ]]; then ok "closed during the watch exits non-zero"; else bad "closed during the watch exits non-zero"; fi
-assert_contains "reports the PR is closed" "$err" "checks did not pass"
+assert_contains "reports the PR is closed" "$err" "closed while waiting"
 assert_not_contains "does not enqueue a closed PR" "$(argv)" "api graphql"
 unset GH_CHECKS_EXIT
 
