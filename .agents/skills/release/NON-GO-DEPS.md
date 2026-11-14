@@ -16,9 +16,9 @@ during [step 9](SKILL.md#9-post-release).
 | x/tools | `0.52.0` | `.agents-sandbox/Dockerfile` (`ARG XTOOLS_VERSION`) |
 | gopls | `0.24.0` | `.agents-sandbox/Dockerfile` (`ARG GOPLS_VERSION`) |
 | gomutants | `v0.7.3` | `Makefile` (`GOMUTANTS_VERSION`) |
-| actionlint | `v1.7.7` | `Makefile` (`ACTIONLINT_VERSION`) |
+| actionlint | `v1.7.12` | `Makefile` (`ACTIONLINT_VERSION`) |
 | zig | `0.17.1` | `Makefile` (`ZIG_VERSION`), `.agents-sandbox/Dockerfile`, `.github/workflows/ci.yml` |
-| gh | `2.103.3` | `.agents-sandbox/Dockerfile` |
+| gh | `2.104.0` | `.agents-sandbox/Dockerfile` |
 | plantuml | `1.2026.10` | `.agents-sandbox/Dockerfile`, `.github/workflows/pages.yml` |
 | ast-grep-cli | `0.51.2` | `.agents-sandbox/Dockerfile` (`ARG AST_GREP_VERSION`) |
 | operator-helper | `1.12.0` | `.agents-sandbox/Dockerfile` (`ARG OPERATOR_HELPER_VERSION`) |
