@@ -74,6 +74,8 @@ run_local "added changelog fragment" changelog.d/999.changed.md "note" "changelo
 run_local "modified docs checker" ci/check-docs.sh "# x" "docs-linkcheck docs-linkcheck-test"
 run_local "modified changelog checker" ci/check-changelog.sh "# x" "changelog-check changelog-check-test ci-guards-check"
 run_local "modified deadcode checker" ci/check-deadcode.sh "# x" "deadcode-test"
+run_local "modified changed-files script" scripts/changed-files.sh "# x" "changed-files-test"
+run_local "modified changed-files test" scripts/test-changed-files.sh "# x" "changed-files-test"
 run_local "modified upstream-drift script" scripts/upstream-drift.sh "# x" "upstream-drift-test"
 run_local "modified rebase-status script" scripts/rebase-status.sh "# x" "rebase-status-test"
 run_local "modified envelope test" scripts/test-envelope.sh "# x" "envelope-test"
