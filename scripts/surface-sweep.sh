@@ -16,10 +16,16 @@
 # microsandbox refuses a data home under an ancestor another account could
 # rename ("permits path substitution").
 #
+# `init` records the runner images present before the run (`<root>/.runner-images`),
+# and `sweep` removes the ones that appeared since, so the Docker daemon does not
+# accumulate a tagged image per journey. Both are docker-dependent and
+# best-effort: an unreachable docker, or a missing baseline, skips cleanup with a
+# warning rather than guessing.
+#
 # Usage:
-#   surface-sweep.sh init          # create <root>/{data,runs}; print <root>
+#   surface-sweep.sh init          # create <root>/{data,runs}; record the runner-image baseline; print <root>
 #   surface-sweep.sh env <journey> # print shell exports for that journey
-#   surface-sweep.sh sweep         # remove every sandbox and home volume (lock held)
+#   surface-sweep.sh sweep         # remove every sandbox and home volume, and the run's runner images (lock held)
 #   surface-sweep.sh lock          # take <root>.lock for the run (portable mkdir)
 #   surface-sweep.sh unlock        # release <root>.lock
 #
@@ -43,6 +49,56 @@ socket_path_len() {
   printf '%s' "$ROOT/data/agents-sandbox/msb" | wc -c | tr -d ' '
 }
 
+# The runner-image baseline: the runner tags present before the run. Sweep
+# removes every runner tag absent from the baseline, so it cleans up what the run
+# added (including an image an [M] task built); a tag the baseline already had is
+# never touched.
+runner_image_baseline_file() { printf '%s/.runner-images' "$ROOT"; }
+
+# list_runner_images prints one runner image repository:tag per line. The
+# reference filter excludes dangling images, which are not tagged.
+list_runner_images() {
+  docker images --format '{{.Repository}}:{{.Tag}}' \
+    --filter reference='agents-sandbox/runner-*'
+}
+
+# record_runner_image_baseline records the runner tags present now. An
+# unreachable docker is a warning, not fatal: sweep then skips docker cleanup,
+# because an absent baseline must never mean "remove every runner image".
+record_runner_image_baseline() {
+  if ! list_runner_images >"$(runner_image_baseline_file)" 2>/dev/null; then
+    rm -f "$(runner_image_baseline_file)"
+    echo "init: docker is not reachable; sweep will not clean up runner images" >&2
+  fi
+}
+
+# cleanup_runner_images removes the runner tags that appeared since the baseline,
+# best-effort: a failure is reported and fails the sweep but does not stop it, and
+# an absent baseline or unreachable docker skips cleanup with a warning.
+cleanup_runner_images() {
+  local baseline current tag status=0
+  baseline="$(runner_image_baseline_file)"
+  if [[ ! -f "$baseline" ]]; then
+    echo "sweep: no runner-image baseline; skipping docker cleanup" >&2
+    return 0
+  fi
+  current="$(mktemp)"
+  if ! list_runner_images >"$current" 2>/dev/null; then
+    rm -f "$current"
+    echo "sweep: docker is not reachable; skipping runner-image cleanup" >&2
+    return 0
+  fi
+  while read -r tag; do
+    [[ -n "$tag" ]] || continue
+    if ! docker rmi --no-prune "$tag" >/dev/null 2>&1; then
+      echo "sweep: failed to remove runner image $tag" >&2
+      status=1
+    fi
+  done < <(comm -23 <(sort "$current") <(sort "$baseline"))
+  rm -f "$current"
+  return "$status"
+}
+
 # Runs for every subcommand, not just init, so an env/sweep from a fresh shell
 # cannot stage a root whose derived sandbox socket path overflows sun_path.
 check_root_fits_sandbox_socket() {
@@ -59,6 +115,7 @@ cmd_init() {
   # microsandbox refuses a data home under an ancestor that "permits path
   # substitution"; 0700 matches mkdtemp's protection.
   chmod 700 "$ROOT"
+  record_runner_image_baseline
   echo "$ROOT"
 }
 
@@ -174,6 +231,7 @@ cmd_sweep() {
       failed=1
     fi
   done <<<"$volumes"
+  cleanup_runner_images || failed=1
   rm -f "$envfile"
   return "$failed"
 }

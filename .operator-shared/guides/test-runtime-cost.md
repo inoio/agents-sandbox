@@ -177,14 +177,14 @@ host-tier changes below):
 - `make test-integration` ~3m56s warm / ~4m45s cold. `internal/sandbox/image` is ~221s of it;
   every other package is ≤17s. The cost is real docker builds, largest single test
   `TestRenderDockerfileAgentVersionRebuildsInstall`.
-- `make test-msb` ~13m37s warm / ~14m38s cold. `test/harness` is ~813s (`TestHarnessSmoke`
+- `make test-msb-cold` ~13m37s warm / ~14m38s cold. `test/harness` is ~813s (`TestHarnessSmoke`
   one-off setup ~471s + 7 subtests ~228s; the docker-storage smoke ~106s, then a top-level
   `TestDockerStorageDriverIsFuseOverlayfs`, now `runDockerStorageDriverSmoke` inside `TestHarnessSmoke`), and
   `internal/sandbox/msb` ~45s runs concurrently.
 
-After the 2026-11-07 host-tier changes (same host, warm caches, `make test-msb-reuse`):
+After the 2026-11-07 host-tier changes (same host, warm caches, the caching `make test-msb`):
 
-- `make test-msb-reuse` ~20s (from ~13m37s): `internal/sandbox/msb` ~10s runs concurrently, so `test/harness` is
+- `make test-msb` ~20s (from ~13m37s): `internal/sandbox/msb` ~10s runs concurrently, so `test/harness` is
   ~20s. That package is now one top-level test, `TestHarnessSmoke`, whose parallel subtests are the seven harnesses
   plus the docker-storage smoke as a sibling — so it is bounded by its slowest subtest (hermes ~15s) rather than a
   sum. Both oh-my-pi and the docker-storage shell ready on a real signal (a startup marker; the shell's first echoed
@@ -200,8 +200,8 @@ Two structural costs dominate, neither visible from the call sites:
   `InstallIsolatedRuntimeHome` for the msb package), so the microsandbox image
   cache never survives between runs and the transfer is repaid in full each time (hermes alone
   ~190s of the ~420s prebuild; its docker build is ~7s). The `AGENTS_SANDBOX_SMOKE_ROOT` /
-  `AGENTS_SANDBOX_MSB_TEST_HOME` reuse opt-in (`make test-msb-reuse`) keeps the home between
-  runs so the transfer is paid once; `make test-msb` stays fresh-per-run.
+  `AGENTS_SANDBOX_MSB_TEST_HOME` reuse (`make test-msb`, the default) keeps the home between
+  runs so the transfer is paid once; `make test-msb-cold` stays fresh-per-run and removes the runner images it built.
 - The classic builder's intermediate-layer cache lives in untagged parent images. Test image
   removal must use `PruneChildren: false` (`removeTestImage`) to preserve it;
   `PruneChildren: true` deletes those parents and forces every later build — and every later
