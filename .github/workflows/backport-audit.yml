@@ -1,0 +1,118 @@
+name: backport-audit
+
+# Every fix lands on the default branch and is cherry-picked onto the newest
+# release/<major>.<minor> line. This workflow reconciles the two: it reports a
+# merged `needs-backport` pull request whose commits never reached the release
+# line, opens the missing backport pull requests, and keeps one rolling issue
+# current. It is deliberately not a gate — a nightly schedule and a manual
+# dispatch only, never a PR check and never a member of `release.needs` — so a
+# forgotten port is surfaced, never enforced: a red run here reports debt and
+# blocks nothing.
+#
+# The detector (`scripts/backport-audit.sh`) and the porter
+# (`scripts/open-backport-pr.sh`) apply the grace period and the already-open-
+# backport-PR noise rule themselves; this workflow only sequences them and
+# reports.
+on:
+  schedule:
+    # Nightly, from the default branch only, on a slot clear of the fuzz
+    # (`17 3 * * *`) and ci (`43 2 * * *`) schedules.
+    - cron: "23 4 * * *"
+  workflow_dispatch:
+
+# Least privilege by default; the audit job raises this for itself, since it
+# pushes a backport branch, opens pull requests, and maintains the rolling
+# issue. A job-level `permissions` block replaces this one rather than merging
+# with it, so the job repeats `contents` at the wider scope it needs.
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: backport audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    timeout-minutes: 15
+    env:
+      # `gh` reads GH_TOKEN; the default token is enough for the audit's reads
+      # and the job's writes.
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The audit resolves the newest release branch and walks the merge
+          # commits of the labeled pull requests, so it needs the full history,
+          # not the single checked-out branch.
+          fetch-depth: 0
+      - name: Fetch the release branches
+        # A full-history checkout still leaves the release branches to the local
+        # resolver only when their refs exist; fetch them explicitly.
+        run: git fetch --prune origin '+refs/heads/release/*:refs/remotes/origin/release/*'
+      - name: Detect the backport debt
+        # A detector exit of 1 means debt was found — the signal, not a failure —
+        # so it is tolerated. Only debt lines (`#<number>\t…`) form the input to
+        # the steps below; the detector also prints a plain sentence when there
+        # is no release branch at all.
+        run: scripts/backport-audit.sh | grep -E '^#[0-9]+' > backport-debt.txt || true
+      - name: Open the missing backport pull requests
+        # Not a gate: a conflict (the porter aborts without pushing) is logged
+        # and left in the rolling issue rather than failing the run, and one
+        # port never blocks the next.
+        #
+        # A pull request this step opens is authored by GITHUB_TOKEN, so its own
+        # workflow run parks at `action_required` until a maintainer approves
+        # it. That is expected, not a bug.
+        run: |
+          if [ ! -s backport-debt.txt ]; then
+            echo "No backport debt; nothing to port."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          while IFS=$'\t' read -r number title _; do
+            [ -n "$number" ] || continue
+            pr="${number#\#}"
+            echo "::group::Porting ${number} (${title})"
+            if scripts/open-backport-pr.sh "$pr"; then
+              echo "Opened the backport pull request for ${number}."
+            else
+              echo "Could not open a backport pull request for ${number}; it stays in the rolling issue."
+            fi
+            echo "::endgroup::"
+          done < backport-debt.txt
+      - name: Update the rolling issue
+        # One open issue titled "Backport debt" always mirrors the current
+        # audit: its body is rewritten from this run's output, it is closed once
+        # the debt clears, and it is created when it reopens.
+        run: |
+          issue="$(gh issue list --state open --search 'Backport debt in:title' --json number --jq '.[0].number // empty')"
+          if [ ! -s backport-debt.txt ]; then
+            if [ -n "$issue" ]; then
+              gh issue close "$issue" --comment "The nightly backport audit found no outstanding debt."
+              echo "Closed the rolling issue (#${issue})."
+            else
+              echo "No backport debt and no open rolling issue."
+            fi
+            exit 0
+          fi
+          {
+            echo "Merged \`needs-backport\` fixes whose commits are missing from the latest \`release/<major>.<minor>\` line, as detected by the nightly [\`backport-audit\`](${{ github.server_url }}/${{ github.repository }}/actions/workflows/backport-audit.yml) run."
+            echo
+            echo "| Pull request | Title | Missing commits |"
+            echo "| --- | --- | --- |"
+            while IFS=$'\t' read -r number title url missing; do
+              [ -n "$number" ] || continue
+              printf '| [%s](%s) | %s | %s |\n' "$number" "$url" "${title//|/\\|}" "${missing#missing:}"
+            done < backport-debt.txt
+            echo
+            echo "_This issue is maintained by the \`backport-audit\` workflow; its body is rewritten on every run._"
+          } > backport-debt-issue.md
+          if [ -n "$issue" ]; then
+            gh issue edit "$issue" --body-file backport-debt-issue.md
+            echo "Updated the rolling issue (#${issue})."
+          else
+            gh issue create --title "Backport debt" --body-file backport-debt-issue.md
+          fi
