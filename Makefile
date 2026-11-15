@@ -210,11 +210,13 @@ test-msb:
 	CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/harness/... ./internal/sandbox/msb/...
 
 # Like test-msb, but on a fresh, isolated microsandbox home that caches nothing
-# between runs. The suite removes the runner images it built (and its temp root),
+# between runs. It forces the reuse variables unset, so an exported
+# AGENTS_SANDBOX_SMOKE_ROOT or AGENTS_SANDBOX_MSB_TEST_HOME cannot turn it into a
+# caching run. The suite removes the runner images it built (and its temp root),
 # untagging only the leaf so the classic builder's layer cache survives, so a
 # cold run leaves no tagged runner image.
 test-msb-cold:
-	AGENTS_SANDBOX_MSB_PARALLEL=$(MSB_PARALLEL) CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/harness/... ./internal/sandbox/msb/...
+	AGENTS_SANDBOX_SMOKE_ROOT= AGENTS_SANDBOX_MSB_TEST_HOME= AGENTS_SANDBOX_MSB_PARALLEL=$(MSB_PARALLEL) CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/harness/... ./internal/sandbox/msb/...
 
 # Compile every test binary including build-tagged files (`//go:build
 # integration`, `//go:build msb`) so a regression that only breaks tagged code

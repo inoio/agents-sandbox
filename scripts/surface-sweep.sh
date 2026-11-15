@@ -49,8 +49,10 @@ socket_path_len() {
   printf '%s' "$ROOT/data/agents-sandbox/msb" | wc -c | tr -d ' '
 }
 
-# The runner-image baseline: the tags present before the run, so sweep removes
-# only the ones this run added and never a maintainer's manual images.
+# The runner-image baseline: the runner tags present before the run. Sweep
+# removes every runner tag absent from the baseline, so it cleans up what the run
+# added (including an image an [M] task built); a tag the baseline already had is
+# never touched.
 runner_image_baseline_file() { printf '%s/.runner-images' "$ROOT"; }
 
 # list_runner_images prints one runner image repository:tag per line. The
