@@ -126,6 +126,7 @@ assert_contains "env drops the AGENTS_SANDBOX override" "AGENTS_SANDBOX_NETWORK_
 assert_contains "env drops the OPENCODE_SANDBOX alias" "OPENCODE_SANDBOX_CPUS" "$leak_out"
 assert_contains "env drops the MSB override" "MSB_HOME" "$leak_out"
 eval_out="$(
+  # shellcheck disable=SC2016 # literal script body passed to bash -c
   env "${leak_env[@]}" bash -c '
     eval "$(ASB_SURFACE_ROOT="$1" bash "$2" env leaky)"
     printf "%s|%s\n" "${AGENTS_SANDBOX_NETWORK_PROFILE-unset}" "${MSB_HOME-unset}"

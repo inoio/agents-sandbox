@@ -1,3 +1,4 @@
+# shellcheck shell=sh
 # Restore the runner image's composed PATH after a login shell resets it.
 #
 # /etc/profile on Debian and most distributions replaces PATH with a hard-coded

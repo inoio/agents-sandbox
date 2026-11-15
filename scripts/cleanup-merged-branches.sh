@@ -177,7 +177,7 @@ done
 
 case "$color_when" in auto | always | never) ;; *) die "invalid --color value: $color_when" ;; esac
 case "$output" in text | json) ;; *) die "invalid --format value: $output" ;; esac
-[[ "$output" == json ]] && command -v jq >/dev/null 2>&1 || true
+if [[ "$output" == json ]]; then command -v jq >/dev/null 2>&1 || true; fi
 if [[ "$output" == json ]] && ! command -v jq >/dev/null 2>&1; then
   die "jq is required for --format json"
 fi
@@ -332,14 +332,14 @@ local_merge_method() {
 # Why a ref is kept: how many of its commits are absent from the default target,
 # plus PR context when gh links it by head-name (or by tip for a detached ref).
 unmerged_note() {
-  local ref="$1" name="${2-$1}" base count record number state pbase head oid note=""
+  local ref="$1" name="${2-$1}" base count record number state head oid note=""
   base="${default_ref:-origin/main}"
   count="$(git cherry "$base" "$ref" 2>/dev/null | grep -c '^+' || true)"
   if ((count == 1)); then note="1 commit not in $base"
   elif ((count > 1)); then note="$count commits not in $base"
   else note="unmerged"; fi
   for record in ${gh_pr_records[@]+"${gh_pr_records[@]}"}; do
-    read -r number state pbase head oid <<<"$record"
+    read -r number state _ head oid <<<"$record"
     [[ "$head" == "$name" || (-z "$name" && "$oid" == "$(git rev-parse "$ref" 2>/dev/null || true)") ]] || continue
     if [[ "$state" == MERGED ]]; then note="$note; merged PR #$number, branch moved since"
     elif [[ "$state" == CLOSED ]]; then note="$note; PR #$number closed, not merged"; fi

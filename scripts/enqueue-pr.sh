@@ -142,6 +142,7 @@ watch_checks
 refuse_if_conflicted || exit 1
 
 printf 'enqueue-pr: PR #%s: enqueueing\n' "$pr"
+# shellcheck disable=SC2016 # GraphQL $id is literal, not shell expansion
 mutation='mutation($id:ID!){ enqueuePullRequest(input:{pullRequestId:$id}){ mergeQueueEntry { position } } }'
 if ! enqueue_result="$(gh api graphql -f query="$mutation" -f id="$pr_node_id")"; then
   printf 'enqueue-pr: PR #%s: enqueue request failed (its required checks must have passed)\n' "$pr" >&2
