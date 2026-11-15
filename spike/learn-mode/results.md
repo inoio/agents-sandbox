@@ -15,7 +15,7 @@ approaches"). Run date, host, and the resolving `msb`/SDK versions at the top.
 
 | Experiment | Result | Decision taken |
 |---|---|---|
-| S1 | not run (needs interactive per-harness provider setup) | |
+| S1 | opencode2: config dir empty; credential is inline JSON in `opencode.db` (SQLite); logs name the host | A must read the agent's SQLite DB, not only config files |
 | S2 | fail as scripted: custom upstream honoured, but no query reached the host listener | DNS dropped; D1 already yields destinations |
 | S3 | pass for `http` under `none` (dial bypasses policy); gateway-IP address fails; `socks5` not truly tested | B is viable; proxy dial needs no policy widening |
 | S4 | inconclusive as scripted: blind mitmproxy logs no flows; guest traffic (ip literal, git, ssh, apk) succeeded | learned set stays advisory |
@@ -45,8 +45,8 @@ approaches"). Run date, host, and the resolving `msb`/SDK versions at the top.
 ## Deviations and gaps
 
 - Experiments not run, and why:
-  - S1 (home-volume read-back) needs the launcher driven interactively once per harness (provider setup /
-    login); it is the only non-scriptable part.
+  - S1 for the other six harnesses (`claude-code codex hermes oh-my-pi opencode pi`): each needs the
+    launcher driven interactively with a real provider setup. `opencode2` was run (see below).
 - Places the plan/runbook was wrong (all now fixed in the drivers — see the patch):
   - `s1_home_readback` etc. leaked every sandbox: `msb remove` refuses a running sandbox without `--force`,
     so `spike_rm` failed silently. Fixed (`spike_rm` uses `--force`).
@@ -98,6 +98,34 @@ primary IP: dnsmasq logged no query lines in any case (the guest saw the runtime
 `172.16.0.5:53`). The runtime's DNS proxy evidently does not dial the configured upstream from the host
 loopback, so a host-side logging resolver is not a usable corroboration channel as the runbook scripted it.
 With D1 already yielding destinations from the runtime's own debug log, DNS is not needed for approach B.
+
+### S1 finding (opencode2)
+
+Run: a scratch project (`/tmp/opencode/s1-scratch`, fresh `git init` for a distinct checkout slug) with
+`AGENTS_SANDBOX_PROVISION_HOST_CONFIG=false` and `--agent opencode2`; one provider configured with a
+deliberately wrong OpenAI API key, one prompt sent, then the volume dumped.
+
+- **Config:** `~/.config/opencode/` exists but is **empty** — opencode2 writes no config file for this setup.
+  Its settings live in the SQLite DB and small state files (`~/.local/state/opencode/model.json`,
+  `latest/tui/*.json`).
+- **Credentials: not a file.** The API key sits **inline** in `~/.local/share/opencode/opencode.db`, table
+  `credential` (`integration_id=openai`, `label=OpenAI`, `active=1`), column `value` = JSON
+  `{"type":"key","key":"<the api key>"}`. `account`/`control_account` are empty (a static key, not a login).
+  So fact 2 is available, but only by reading a SQLite row.
+- **Transcripts/sessions:** also in the DB (`session_v2` with the model `gpt-6-sol`/provider `openai`;
+  `session_message`) plus `~/.local/state/opencode/prompt-history.jsonl`.
+- **Logs:** `~/.local/share/opencode/log/opencode.log` names the destination host — the failed OpenAI call
+  reports `platform.openai.com` — and echoes a **masked** key (`fdsa_fds*****************fdsa`); its
+  session lines carry the server URL (`http://127.0.0.1:4096`).
+- **Volume shape:** ~29 MB over ~40 files; `opencode.db` is 12.9 MB, almost all of it the `kv` row
+  `models-dev:v2:catalog` (~12.5 MB), a churny model catalog. A whole-file-hash baseline (the spec's Session
+  boundary manifest) must expect a large, frequently-changing DB.
+- Read-back is host-stable (`agents-sandbox volume inspect --format json` → `.path`), but the DB/WAL are live
+  while the VM runs; take the stopped-vs-running dump to confirm the WAL checkpoints into the main file.
+
+Verdict for opencode2: facts 1–3 are available from the home volume, but approach A must parse the agent's
+SQLite DB — the credential is not in a config file. This does not fail S1; it re-scopes A's "read the home
+volume" to include the database.
 
 ## Outcome
 
