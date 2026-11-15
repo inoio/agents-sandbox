@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-reuse compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic envelope-test check verify check-local-changes check-branch-changes changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test event-base-test classify-changes-test docs-serve
+.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-cold compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic envelope-test check verify check-local-changes check-branch-changes changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test event-base-test classify-changes-test docs-serve
 
 VERSION ?= dev
 
@@ -39,9 +39,9 @@ INTEGRATION_PARALLEL ?= 4
 # the image builds lengthens the one binary that dominates the run.
 INTEGRATION_TIMEOUT ?= 60m
 MSB_PARALLEL ?=
-# Stable root for `test-msb-reuse`: it must stay short enough for microsandbox's
-# derived sandbox control socket (see test/harness/harness.go). Remove it to
-# start fresh.
+# Standing root for the caching `test-msb`: it must stay short enough for
+# microsandbox's derived sandbox control socket (see test/harness/harness.go).
+# Remove it to start fresh.
 MSB_REUSE_ROOT ?= /tmp/asb-reuse
 # The SDK's microsandbox_ffi_path tag swaps its //go:embed for reading the FFI
 # library from $MICROSANDBOX_FFI_PATH at runtime. The unit and integration
@@ -196,22 +196,24 @@ test-integration:
 # harness to its TUI in a real microsandbox VM, and drive the real SDK client
 # against the host runtime. Host-only (needs /dev/kvm, a docker daemon, and
 # network); excluded from test/check via the `msb` build tag. These keep the
-# embedded native library: they are the tests that actually load it. Each run
-# uses a fresh, isolated microsandbox home.
+# embedded native library: they are the tests that actually load it.
+#
+# test-msb reuses a standing microsandbox home and smoke root, so the multi-GB
+# `docker save | msb ImageLoad` transfer and the docker layers are paid once and
+# each agent's runner image is rebuilt in place under one tag. The home outlives
+# the run, so remove $(MSB_REUSE_ROOT) to start fresh, and a reused home is held
+# under a lock so a second run waits rather than racing. Add -v for timings.
 test-msb:
-	AGENTS_SANDBOX_MSB_PARALLEL=$(MSB_PARALLEL) CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/harness/... ./internal/sandbox/msb/...
-
-# Like test-msb, but reuses a stable microsandbox home so the multi-GB
-# `docker save | msb ImageLoad` each prebuild otherwise repays is paid once.
-# Local iteration only: the home outlives the run, so remove $(MSB_REUSE_ROOT)
-# to start fresh. A reused home is held under a lock, so a second concurrent
-# run waits instead of racing on it. Add -v to see the per-image prebuild
-# timings.
-test-msb-reuse:
 	AGENTS_SANDBOX_SMOKE_ROOT=$(MSB_REUSE_ROOT)/smoke \
 	AGENTS_SANDBOX_MSB_TEST_HOME=$(MSB_REUSE_ROOT)/msb \
 	AGENTS_SANDBOX_MSB_PARALLEL=$(MSB_PARALLEL) \
 	CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/harness/... ./internal/sandbox/msb/...
+
+# Like test-msb, but on a fresh, isolated microsandbox home that caches nothing
+# between runs. The suite removes the runner images it built and its temp root,
+# so a cold run leaves no docker residue.
+test-msb-cold:
+	AGENTS_SANDBOX_MSB_PARALLEL=$(MSB_PARALLEL) CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/harness/... ./internal/sandbox/msb/...
 
 # Compile every test binary including build-tagged files (`//go:build
 # integration`, `//go:build msb`) so a regression that only breaks tagged code
