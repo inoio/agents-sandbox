@@ -32,21 +32,24 @@ func projectDir(root, name string) string {
 }
 
 // projectAgent is one project dir and the agent its runner image is built for.
+// Docker marks the image built with `--docker` (a docker-enabled VM).
 type projectAgent struct {
 	Project string
 	Agent   string
+	Docker  bool
 }
 
-// harnessProjectAgents lists the project/agent pairs the suite builds images
-// for: every registered harness in its own project dir, plus the docker-storage
-// project's docker-enabled opencode image.
-func harnessProjectAgents() []projectAgent {
+// suiteProjectAgents lists the runner images the suite builds: every registered
+// harness in its own project dir, plus the docker-storage project's
+// docker-enabled opencode image. It is the single source the prebuild and the
+// cleanup both read, so they cannot drift.
+func suiteProjectAgents() []projectAgent {
 	names := agent.Names()
 	pairs := make([]projectAgent, 0, len(names)+1)
 	for _, name := range names {
-		pairs = append(pairs, projectAgent{Project: name, Agent: name})
+		pairs = append(pairs, projectAgent{Project: name, Agent: name, Docker: false})
 	}
-	return append(pairs, projectAgent{Project: dockerStorageProject, Agent: "opencode"})
+	return append(pairs, projectAgent{Project: dockerStorageProject, Agent: "opencode", Docker: true})
 }
 
 // harnessRunnerImageTags returns the Docker runner-image tags the suite built,
@@ -55,7 +58,7 @@ func harnessProjectAgents() []projectAgent {
 // it) skips only that tag: the resolvable tags come back with the skips joined
 // into the error, so a partway-failed run still cleans the images it built.
 func harnessRunnerImageTags(root string) ([]string, error) {
-	pairs := harnessProjectAgents()
+	pairs := suiteProjectAgents()
 	tags := make([]string, 0, len(pairs))
 	var failures []error
 	for _, pair := range pairs {

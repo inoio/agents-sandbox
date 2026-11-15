@@ -16,7 +16,7 @@ import (
 // harnessRunnerImageTags can resolve all of them.
 func seedProjectDirs(t *testing.T, root string) {
 	t.Helper()
-	for _, pair := range harnessProjectAgents() {
+	for _, pair := range suiteProjectAgents() {
 		if err := os.MkdirAll(projectDir(root, pair.Project), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -34,6 +34,33 @@ func expectedTags(t *testing.T, root string) map[string]string {
 	}
 	want[dockerStorageProject] = tagFor(t, projectDir(root, dockerStorageProject), "opencode")
 	return want
+}
+
+// TestSuiteProjectAgentsCoverEveryBuiltImage pins the one list the prebuild and
+// cleanup share: every harness in its own project dir, plus the docker-enabled
+// docker-storage pair.
+func TestSuiteProjectAgentsCoverEveryBuiltImage(t *testing.T) {
+	pairs := suiteProjectAgents()
+	if len(pairs) != len(agent.Names())+1 {
+		t.Fatalf("pairs = %d, want one per harness plus docker-storage (%d)", len(pairs), len(agent.Names())+1)
+	}
+	for _, name := range agent.Names() {
+		if !slices.Contains(pairs, projectAgent{Project: name, Agent: name}) {
+			t.Errorf("missing pair for harness %s; got %v", name, pairs)
+		}
+	}
+	if !slices.Contains(pairs, projectAgent{Project: dockerStorageProject, Agent: "opencode", Docker: true}) {
+		t.Errorf("missing the docker-enabled docker-storage pair; got %v", pairs)
+	}
+	docker := 0
+	for _, pair := range pairs {
+		if pair.Docker {
+			docker++
+		}
+	}
+	if docker != 1 {
+		t.Errorf("docker-enabled pairs = %d, want exactly 1", docker)
+	}
 }
 
 func tagFor(t *testing.T, dir, agentName string) string {

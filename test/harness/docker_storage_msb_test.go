@@ -3,13 +3,9 @@
 package harness
 
 import (
-	"context"
-	"fmt"
 	"os"
-	"os/exec"
 	"regexp"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 )
@@ -147,38 +143,6 @@ var devUIDPattern = regexp.MustCompile(`__DEVUID=__([0-9]+)__END__`)
 // fuseDriverMarker is the driver name dockerd must report in a VM whose runner
 // image carries fuse-overlayfs and a usable /dev/fuse.
 const fuseDriverMarker = "fuse-overlayfs"
-
-var (
-	prebuildDockerOnce sync.Once
-	errPrebuildDocker  error
-)
-
-// prebuildDockerStorageImage builds the docker-enabled opencode runner image in
-// the docker-storage project's directory once, so the docker-storage subtest
-// only pays its VM start rather than a cold image build. It runs in the suite's
-// serial prebuild phase, after the docker preflight.
-func prebuildDockerStorageImage(t *testing.T, root string) {
-	t.Helper()
-
-	prebuildDockerOnce.Do(func() {
-		dir := projectDir(root, dockerStorageProject)
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			errPrebuildDocker = fmt.Errorf("create docker-storage project dir: %w", err)
-			return
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), prepareTimeout)
-		defer cancel()
-		build := exec.CommandContext(ctx, smokeBinary, "build", "--agent", "opencode", "--docker")
-		build.Dir = dir
-		build.Env = isolatedEnv(root, root, os.Environ())
-		if out, err := build.CombinedOutput(); err != nil {
-			errPrebuildDocker = fmt.Errorf("prebuild docker runner image: %w\n%s", err, out)
-		}
-	})
-	if errPrebuildDocker != nil {
-		t.Fatalf("prebuild docker runner image: %v", errPrebuildDocker)
-	}
-}
 
 // writeUntilMarker writes command to the session on an interval until marker
 // appears, failing if the session exits or a ceiling elapses first. It is the
