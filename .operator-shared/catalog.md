@@ -193,3 +193,6 @@
 - `plans/2026-11-14-release-branch-ci-plan.md`
   - Description: TDD implementation plan for release-branch CI parity and the tag precondition.
   - Read If: Implementing or revising the release-branch CI plan tasks.
+- `plans/2026-11-15-shared-suite-project-agents.md`
+  - Description: Handoff plan closing a deferred #694 review finding: unify "what the msb harness smoke suite builds" into one `suiteProjectAgents()` list (with a `Docker` flag) consumed by both the image prebuild and the runner-image cleanup, collapsing the two prebuild loops into one.
+  - Read If: Implementing the shared suite project/agent list, or changing which runner images the harness smoke suite builds.
