@@ -15,14 +15,14 @@ approaches"). Run date, host, and the resolving `msb`/SDK versions at the top.
 
 | Experiment | Result | Decision taken |
 |---|---|---|
-| S1 | opencode2: config dir empty; credential is inline JSON in `opencode.db` (SQLite); logs name the host | A must read the agent's SQLite DB, not only config files |
+| S1 | partial (opencode2 only): config dir empty; credential is inline JSON in `opencode.db` (SQLite); logs name the host | A must read the agent's SQLite DB, not only config files |
 | S2 | pass: host listener receives the guest's queries; under `none` only allowlisted names are forwarded | DNS is a usable corroboration channel (the earlier "fail" was a broken listener) |
 | S3 | `http` and `socks5` at `127.0.0.1` both reach/forward under bare `none` (dial bypasses policy); gateway rows used a stale address (invalid) | B is viable; proxy dial needs no policy widening |
 | S4 | no TCP bypass: with a logging (terminating) proxy, ip-literal, git-https, ssh:22 and apk all appear; QUIC untested | learned set authoritative for TCP |
 | S5 | fail: denial not in any launcher-readable runtime log; only the guest's own error | UC2 detection stays guest/file-attributed |
 | S6 | pass: termination works; credential header name and destination visible | C is viable; a terminating proxy sees real secrets |
 | S7 | pass: no measurable overhead; streaming unbuffered; ~4% CPU, unprivileged | proxy can be default-on transport-wise |
-| D (D1 destinations / D2 attribution) | D1 yes, D2 no (successful substitutions) | D = certificate-free destination source, not a C replacement |
+| D (D1 destinations / D2 attribution) | D1 yes, D2 no (successful substitutions) | dropped — C ships regardless; a terminating proxy is needed for fact 7 |
 
 ## Sub-step D — runtime interception as an observation channel
 
@@ -155,11 +155,11 @@ volume" to include the database.
 
 ## Outcome
 
-- Observation approach chosen (A / B / C / D, and why): **C (launcher-owned terminating proxy) for
-  attribution, with D as a cheap certificate-free destination source**. S6 shows termination works for the
-  system-store consumers and that the credential header name and destination are visible; D shows the
-  runtime's own interception reveals destinations but not the header field name for successful
-  substitutions, so D cannot supply fact 7.
+- Observation approach chosen: **C (launcher-owned terminating proxy) plus A (passive read-back)**. S6 shows
+  termination works for the system-store consumers and that the credential header name and destination are visible.
+  The runtime's own interception (D) was dropped: it reveals destinations but not the header field name for
+  successful substitutions, so it cannot supply fact 7 and C ships regardless. `#151` is therefore optional — its
+  only use is to turn the runtime's layer off; left on, the two layers chain and attribution still holds.
 - Does UC2 detection need a permanent proxy, or is the runtime log enough (S5)? A permanent proxy (or an
   equivalent channel). No launcher-readable runtime log records a denied destination; under `none` a
   non-allowlisted host fails at DNS and the only trace is the guest's own error.
