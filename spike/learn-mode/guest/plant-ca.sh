@@ -22,7 +22,9 @@ else
   echo "plant-ca: created /.msb/tls/ca.pem"
 fi
 
-# 2. System store (Debian/Alpine tooling).
+# 2. System store. Alpine's base image ships only ca-certificates-bundle (the
+#    bundle file) without update-ca-certificates, so fall back to appending the
+#    PEM straight to the OpenSSL bundle apk and curl read.
 mkdir -p /usr/local/share/ca-certificates
 cp "$pem" /usr/local/share/ca-certificates/spike-ca.crt
 if command -v update-ca-certificates >/dev/null 2>&1; then
@@ -32,7 +34,14 @@ if command -v update-ca-certificates >/dev/null 2>&1; then
     echo "plant-ca: system-store update failed (continuing)" >&2
   fi
 else
-  echo "plant-ca: update-ca-certificates absent; skipped the system store" >&2
+  bundle=/etc/ssl/certs/ca-certificates.crt
+  [ -f "$bundle" ] || bundle=/etc/ssl/cert.pem
+  if [ -f "$bundle" ]; then
+    cat "$pem" >>"$bundle"
+    echo "plant-ca: no update-ca-certificates; appended to $bundle"
+  else
+    echo "plant-ca: no system CA bundle found; skipped the system store" >&2
+  fi
 fi
 
 # 3. Application stores the system store cannot reach.

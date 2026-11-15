@@ -43,6 +43,23 @@ spike_capture_dir() {
   printf '%s\n' "$SPIKE_CAPTURE_DIR"
 }
 
+# spike_timeout <seconds> <cmd...> — run a real command under a wall-clock cap so
+# a wedged runtime dial (e.g. a SOCKS5 proxy) cannot stall a driver. Uses GNU
+# `timeout`, or `gtimeout` from coreutils on macOS; otherwise runs unbounded.
+# It cannot wrap a shell function (timeout execs a binary), so drivers set
+# SPIKE_EXEC_TIMEOUT and let spike_exec apply it to `msb` itself.
+spike_timeout() {
+  local seconds="$1"
+  shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$seconds" "$@"
+  elif command -v gtimeout >/dev/null 2>&1; then
+    gtimeout "$seconds" "$@"
+  else
+    "$@"
+  fi
+}
+
 # The address a guest uses to reach the host. The microsandbox runtime dials a
 # proxy host-side, so 127.0.0.1 usually works; this probes the gateway form for
 # the cases where it does not. Override by exporting HOST_GATEWAY_IP.
@@ -166,11 +183,17 @@ spike_create() {
 spike_exec() {
   local name="$1"
   shift
-  "$MSB" exec "$name" -- "$@"
+  if [ -n "${SPIKE_EXEC_TIMEOUT:-}" ]; then
+    spike_timeout "$SPIKE_EXEC_TIMEOUT" "$MSB" exec "$name" -- "$@"
+  else
+    "$MSB" exec "$name" -- "$@"
+  fi
 }
 
 spike_rm() {
-  "$MSB" remove "$1" >/dev/null 2>&1 || true
+  # --force: msb refuses to remove a running sandbox without it, so a plain
+  # remove silently leaks the VM.
+  "$MSB" remove --force "$1" >/dev/null 2>&1 || true
 }
 
 # spike_dump_logs <name> — all sources (stdout/stderr/output/system) to a file.

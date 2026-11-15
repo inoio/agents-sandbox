@@ -35,11 +35,13 @@ spike_create "$name" alpine \
 spike_exec "$name" sh -lc '
   chmod +x /usr/local/bin/msb-trust /tmp/plant-ca.sh
   sh /tmp/plant-ca.sh /tmp/spike-ca.pem
-  apk add --no-cache curl git nodejs npm py3-pip >/dev/null 2>&1
+  apk add --no-cache curl git nodejs npm py3-pip >/dev/null 2>&1 || echo "apk add failed"
   echo "== curl =="; curl -sS -m 20 -o /dev/null -w "%{http_code}\n" https://example.com/ || echo failed
   echo "== git https =="; git ls-remote https://github.com/git/git HEAD >/dev/null 2>&1 && echo ok || echo failed
   echo "== npm =="; npm ping --registry=https://registry.npmjs.org >/dev/null 2>&1 && echo ok || echo failed
   echo "== pip =="; (pip install --quiet --disable-pip-version-check requests || pip3 install --quiet --disable-pip-version-check requests) && echo ok || echo failed
+  echo "== curl with a static credential (header-name visibility) =="
+  curl -sS -m 20 -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer spike-static-key" -H "X-Api-Key: spike-static-key" https://example.com/ || echo failed
 ' | tee "$dir/s6-consumers.txt"
 
 spike_dump_logs "$name"
@@ -48,19 +50,29 @@ echo
 echo "== 4. collision: a configured secret turns on the runtime interception too =="
 export SPIKE_TOKEN="${SPIKE_TOKEN:-spike-token-0123456789}"
 coll="$name-collision"
+# A secret makes the runtime intercept too. The guest trusts the runtime's CA
+# (agentd installs it in the system bundle), but the runtime is now the client to
+# OUR terminating proxy, so it must trust mitmproxy's CA: --tls-upstream-ca-cert.
 spike_create "$coll" alpine --proxy "http://$proxy_ip:$PROXY_PORT" \
   --net-default-egress deny --net-strict=false --net-rule 'allow@example.com' \
-  --secret "SPIKE_TOKEN@example.com"
-spike_exec "$coll" sh -lc 'env | grep SPIKE_TOKEN || true; curl -sS -m 20 -o /dev/null -w "%{http_code}\n" https://example.com/ || echo failed' \
-  | tee "$dir/s6-collision.txt"
+  --tls-upstream-ca-cert "$ca" \
+  --secret "SPIKE_TOKEN@example.com" \
+  --copy-file "$ca:/tmp/spike-ca.pem" \
+  --copy-file "$SPIKE_DIR/guest/plant-ca.sh:/tmp/plant-ca.sh"
+spike_exec "$coll" sh -lc '
+  sh /tmp/plant-ca.sh /tmp/spike-ca.pem >/dev/null 2>&1
+  env | grep SPIKE_TOKEN || true
+  echo "== wget with Authorization placeholder =="
+  wget -q -O /dev/null -T 20 --header "Authorization: $SPIKE_TOKEN" https://example.com/ && echo "wget ok" || echo "wget failed"
+' | tee "$dir/s6-collision.txt"
 spike_dump_logs "$coll"
 spike_rm "$coll"
 
 spike_proxy_down terminate
 spike_proxy_render terminate
 echo "-- credential-bearing header names seen by the proxy --"
-grep -ioE '^(authorization|x-api-key|cookie|api-key|proxy-authorization):' "$dir/proxy-terminate.txt" 2>/dev/null \
-  | sort | uniq -c | tee "$dir/s6-headers.txt" || echo "(none)"
+grep -ioE '^[[:space:]]*(authorization|x-api-key|cookie|api-key|proxy-authorization):' "$dir/proxy-terminate.txt" 2>/dev/null \
+  | sed -E 's/^[[:space:]]*//' | sort | uniq -c | tee "$dir/s6-headers.txt" || echo "(none)"
 
 echo
 echo "Record: which consumers trust the CA and which break; whether the header name is"

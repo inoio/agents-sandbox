@@ -26,6 +26,10 @@ dir="$(spike_capture_dir)"
 proxy_ip="${PROXY_IP:-127.0.0.1}"
 gw_ip="$(spike_host_ip)"
 
+# A SOCKS5 dial the runtime cannot complete stalls the guest past wget's own
+# timeout; cap the exec so one wedged case cannot stall the sweep.
+SPIKE_EXEC_TIMEOUT="${SPIKE_EXEC_TIMEOUT:-60}"
+
 spike_proxy_up blind
 trap 'spike_proxy_down blind' EXIT
 
@@ -48,7 +52,7 @@ run_case() {
       'wget -q -O- -T 15 https://example.com >/dev/null && echo "    wget https://example.com -> ok"' 2>&1; then
       echo "    wget: ok"
     else
-      echo "    wget: FAILED (denied, or proxy unreachable)"
+      echo "    wget: FAILED (denied, proxy unreachable, or timed out)"
     fi
   } | tee "$dir/s3-$desc.txt"
   spike_rm "$name"

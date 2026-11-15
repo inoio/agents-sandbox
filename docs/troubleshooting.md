@@ -80,6 +80,26 @@ after a downgrade. Upgrade with `agents-sandbox upgrade`, or run the newer binar
 an older stable release, `agents-sandbox upgrade` reports that you are up to date; run
 `agents-sandbox upgrade --channel canary` instead.
 
+#### "catalog ancestor ... permits path substitution"
+
+The bundled runtime refuses to use its data directory when any ancestor of it is writable by other accounts, because
+such a path can be swapped under it:
+
+```console
+error: io error: catalog ancestor /home/you/.local/share permits path substitution; use a storage root protected from other accounts
+```
+
+The launcher's runtime home is `<data dir>/agents-sandbox/msb` — `~/.local/share/agents-sandbox/msb`, or
+`$XDG_DATA_HOME/agents-sandbox/msb`. A `umask` of `002` makes new directories group-writable, so `~/.local/share` can
+carry it. Remove the group and other write bits on the ancestor the error names:
+
+```console
+chmod g-w,o-w ~/.local/share
+```
+
+and use `umask 022` so directories you create later are not group-writable. To avoid the default location entirely,
+point `XDG_DATA_HOME` at a directory whose ancestors are not group- or other-writable.
+
 If you encounter a runtime error, submit a bug report at:
 
 <https://github.com/inoio/agents-sandbox/issues/new?template=bug_report.yml>
