@@ -14,8 +14,9 @@ read_if: Changing the idle timeout default, Config.AutoStopTimeout/Config.IdleTi
   `Config.IdleTimeout()` accessor and no hardcoded fallback in `viperconfig`.
   `runoptions.Build` assigns `opts.IdleTimeout = cfg.AutoStopTimeout`.
 - The VM lifecycle applies the default: `idleTimeout := opts.IdleTimeout; if
-  idleTimeout <= 0 { idleTimeout = options.DefaultVMIdleTimeout }`, then
-  `msbSdk.WithIdleTimeout(idleTimeout)`.
+  idleTimeout <= 0 { idleTimeout = options.DefaultVMIdleTimeout }`, then sets
+  `msb.SandboxSpec.IdleTimeout`; the `msb` seam translates a non-zero value to
+  `msbSdk.WithIdleTimeout`.
 - The fallback is load-bearing: the SDK's `WithIdleTimeout` treats zero as
   *unlimited*, so a zero `RunOptions.IdleTimeout` must never reach the SDK.
 

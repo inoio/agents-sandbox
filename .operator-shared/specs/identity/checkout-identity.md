@@ -68,9 +68,11 @@ slugs keep the `<folder>-<hash>` shape they already parse.
 unresolvable cwd or git dir instead of hashing a fallback path — the raw input or the unresolved absolute
 path — which would silently mint a new checkout identity (state, VM, home volume) for the same physical
 project (#354). The cwd-derived test accessors `MustRepoSlug`/`MustCheckoutSlug` panic rather than return
-such a slug; production reads the `Identity` fields. `configpaths.resolveProjectConfig` is the one caller
-that stays tolerant: it degrades to the relative base on that error, because the project config directory
-is not identity-keyed. `git.ProjectSlug()` retires in favor of `ResolveIdentity`; `internal/git` stays a leaf
+such a slug; production reads the `Identity` fields. `git.BareCheckoutRoots` is the one other
+`ResolveIdentity` consumer and stays tolerant: it reports "not in a bare checkout" on that error (installed
+into `configpaths` through `UseBareCheckoutLocator`), so an unresolvable cwd degrades the project-config base
+to the relative constant instead of failing the read, because the project config directory is not
+identity-keyed. `git.ProjectSlug()` retires in favor of `ResolveIdentity`; `internal/git` stays a leaf
 — hashing and layout inspection only, no knowledge of state paths or config dirs — which keeps
 `cmd`/`session`/`vm` cycle-free.
 

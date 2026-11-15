@@ -28,12 +28,14 @@ tests never execute is the failure mode this catches.
     predicate proved it parses — return the parsed value from the predicate, so there is only one parse).
 - **Match the coverage of the sibling you mirror.** The existing tests show the expected depth: `TestLatestReleaseNon200`
   and `TestLatestReleaseDecodeError` cover `latestRelease`'s status and decode failures, and
-  `TestDownloadAssetNetworkError` covers a transport failure. New code of the same shape carries the same tests.
+  `TestDownloadAssetToDirFailsWhenTheDownloadFails` covers the download's request, transport, status, missing-directory,
+  and truncated-body failures. New code of the same shape carries the same tests.
 - **Tests that mutate a package-level seam restore it with `t.Cleanup` and do not call `t.Parallel`,** matching the
   existing `serveReleases`/`serveLatest` helpers.
 - **Test doubles (`testmock.go` and the role-split `testmock_*.go`) are not product code and are excluded from
-  coverage** (`.codecov.yml` `ignore` matches `**/testmock*.go`, so a new double file is covered by policy without a
-  config change).
+  coverage** (`.codecov.yml` `ignore` matches `**/testmock*.go`, and lists the doubles under other names —
+  `termiotest/mock.go`, `msbtest/runtime/*.go` — explicitly, so a new central double file is covered by policy
+  without a config change).
   Their own tests pin only what would otherwise fail open: fail-fast clients panic, the `With*Mock`/`Install*` helpers
   install and restore the seam, and mock paths and `$HOME` stay inside the test's temp tree. Defaults, `Fn`
   delegation, accessors and call recording are not tested on the double: the consuming tests break when they are
@@ -52,9 +54,9 @@ tests never execute is the failure mode this catches.
   second upload (`report_type: test_results`, `junit.xml`) feeds Codecov Test Analytics, whose PR comment the
   `comment:` block does not govern.
 - **codecov is not a required status check on `main`.** The required checks come from the repository ruleset
-  `protect main`, which requires `lint`, `test`, `race`, and `deadcode` (see `specs/ci/ci-pipeline.md`); classic branch
-  protection has no required contexts, so consult the ruleset, not `branches/main/protection`. A failing
-  `codecov/patch` therefore leaves a PR `MERGEABLE` with
+  `protect main`, which requires `lint`, `test`, `race`, `deadcode`, `changelog`, and `integration` (see
+  `specs/ci/ci-pipeline.md`); classic branch protection has no required contexts, so consult the ruleset, not
+  `branches/main/protection`. A failing `codecov/patch` therefore leaves a PR `MERGEABLE` with
   `mergeStateStatus: UNSTABLE` — mergeable with a failing non-required check; while a required check is still running the
   status is `BLOCKED` instead. Do not read `UNSTABLE` as "nothing is wrong".
 - **Observed behaviour (PR #271, 2026-10-22):** `codecov/patch` failed at 93.88% (6 of 98 patch lines missing) and

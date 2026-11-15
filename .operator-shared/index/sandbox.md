@@ -21,7 +21,8 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 ### `docker/` — Docker client wrapper and guards
 
 - `docker.go`, `dockercontext.go` — Docker client/context
-- `testmock.go`, `*_test.go` — mocks and tests
+- `registryauth.go` — resolves registry credentials from the docker CLI config (auths/credsStore/credHelpers) so a private base image builds as it does under `docker`; every lookup failure falls back to anonymous access
+- `dockertest/` — the Docker-client test double (`testmock.go`); `*_test.go` — unit and `integration`-tagged tests
 
 ### `doctor/` — Environment diagnostics and prerequisite fixes
 
@@ -85,7 +86,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 - `upgrade.go`, `upgrade_state.go`, `upgrade_migration.go` — the resolve-version decision (`resolveBuildVersion`, the upgrade prompt, `ResolveAgentVersionForBuild` shared with `build`) and the legacy `updater.yaml` fold
 - `reconfig.go` — the plan-reconfig decision: `readLiveProjectVM`, `resolveReconfigDecision`, `applyReconfigHomeAction`
 - `run_envstate.go`, `shared_git_dir_mount.go` — fingerprint persistence and the shared-git-dir mount for an outside-worktree checkout
-- `fuzz_test.go` — `FuzzParseLegacyUpdaterState`: the retired `updater.yaml` reader is panic-free and folds a flat `last_checked` into the opencode agent entry
+- `prepare_sandbox_flow_test.go` (the prepare flow through `PrepareSandbox`), `prepare_sandbox_flow_integration_test.go` — flow and `integration`-tagged tests; `upgrade_migration_test.go` holds `FuzzParseLegacyUpdaterState`: the retired `updater.yaml` reader is panic-free and folds a flat `last_checked` into the opencode agent entry
 
 ### `pressure/` — VM resource-limit classification
 
@@ -142,7 +143,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 - `daemon.go`, `dockerd.go`, `detached.go`, `detached_service.go`, `exit.go`, `inspect.go`, `list.go`, `remove.go`, `provenance.go`, `setup_sandbox.go`, `vm_control.go`, `vm_env.go`, `vm_lifecycle.go`, `vm_name.go`, `vm_resources.go`, `worktree.go` (`inspect.go` is `InspectSandbox`: the sandbox-inspect detail seam; `vm_lifecycle.go` holds `EnsureProjectVM`, `vm_name.go` `FindProjectVM`/`ProjectVMName`/`ProjectVMHomeVolume`, `setup_sandbox.go` `SetUpSandbox` (config files, startup hooks, dockerd, agent daemon, attach target); `remove.go` holds `RemoveSandbox`; `daemon.go`/`dockerd.go` launch the serve daemon and dockerd as runtime-owned detached jobs, with `detached.go` the shared readiness/kill helpers and `detached_service.go` the ensure-detached-service recipe)
 - `adopt.go` — `AdoptLegacyIdentity`/`IdentityAdoption`: the #144 first-run migration (destroy the legacy repo-slug VM, then merge the state onto the checkout slug) and the notice block, including the dry-run variant that stays on the legacy slug; the lost-state VM-only arm records the destroyed VM's home volume in the checkout state (`recovered_home_volume`) before the destroy, and keeps the trigger live until the legacy VM is gone.
-- `create_project_vm_test.go`, `ensure_project_vm_test.go`, `setupsandbox_test.go` — lifecycle setup tests
+- `vm_lifecycle_test.go`, `setup_sandbox_test.go`, `setup_sandbox_flow_test.go`, `*_test.go` — lifecycle and setup tests plus one test file per unit
 
 ### `volume/` — Volume management
 

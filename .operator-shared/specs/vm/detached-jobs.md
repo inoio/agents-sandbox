@@ -11,9 +11,10 @@ read_if: Working on the VM's dockerd/agent-serve startup, readiness, or restart 
   `internal/sandbox/msb` seam (`Sandbox.ExecDetached` plus a minimal `Job` of `Inspect/Kill/Logs/Close`). The
   runtime owns the process: it survives client disconnect and is inspectable/killable by any later client.
 - **No shell fallback.** The previous `nohup … &` backgrounding, `/var/log/dockerd.log` (and agent `*-serve.log`)
-  redirects, `pkill -f '… serve'`, and `pkill dockerd` plumbing are removed. The jobs ABI is an optional native symbol
-  (`has_msb_jobs`); an unsupported runtime surfaces the SDK's `JobError{Code:"unsupported_feature"}`, and the launcher
-  trusts the pinned SDK plus the force-reinstalled private runtime rather than degrading to a shell path.
+  redirects, `pkill -f '… serve'`, and `pkill dockerd` plumbing are removed. The jobs ABI belongs to the pinned SDK,
+  whose own capability check is `has_msb_jobs`; an unsupported native bundle surfaces its `unsupported_feature` error,
+  and the launcher trusts the pinned SDK plus the force-reinstalled private runtime rather than probing for or
+  degrading to a shell path.
 - **Readiness is health-probe based**, not `Job.Wait`: `docker info` for dockerd, the agent health endpoint for the
   daemon. Each poll iteration consults `Job.Inspect` and fails fast (structured failure naming the exit code) when the
   process has exited (`JobInfo.ExitCode != nil`). On timeout it embeds a `Job.Logs` tail (`tail=100`, as the runtime
@@ -22,9 +23,9 @@ read_if: Working on the VM's dockerd/agent-serve startup, readiness, or restart 
   per-poll detail is still logged) and job logs are read only on failure/timeout.
 - **Idempotency is health-probe based, with a command-line identity.** A healthy dockerd/daemon is left running; before
   (re)starting, any live job belonging to the helper is killed first. The jobs ABI exposes no labels — `JobInfo` carries
-  only the id, the recorded command, and the process state — so identity is embedded in the command line: a helper
-  launches as `env AGENTS_SANDBOX_DETACHED_JOB=<dockerd|agent-daemon> <binary> <args…>` (`env` execs the helper, so the
-  process, exit code, and logs stay the helper's), and rediscovery matches the marker at `JobInfo.Command[0:2]` (the
+  the id, the recorded command, and the process state, nothing naming a helper — so identity is embedded in the command
+  line: a helper launches as `env AGENTS_SANDBOX_DETACHED_JOB=<dockerd|agent-daemon> <binary> <args…>` (`env` execs the
+  helper, so the process, exit code, and logs stay the helper's), and rediscovery matches the marker at `JobInfo.Command[0:2]` (the
   default `ListJobs` → `GetJob(id)` → `Kill`). Listing is the default, not `WithAllJobs`: the default returns only the
   current runtime generation's **active** jobs, while `WithAllJobs` also returns retained **terminal** records — finished
   jobs, including ones an earlier boot left behind, whose owning runtime is gone — which can never be killed and so only
