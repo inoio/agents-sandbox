@@ -45,7 +45,7 @@ read_if: Navigating the codebase.
 - `hostlock/` — Advisory `flock` file locks, shared by the state transactions and the per-project VM lock.
 - `notify/` — Desktop notifications (backend, dedup, events, watch); `notifytest/` — its test double.
 - `opener/` — Host link-opener channel: watches the home volume's spool for in-VM `xdg-open` requests, allowlist-checks the target, and hands it to the host handler.
-- `termio/` — Terminal UI: role interfaces (`Logger`/`Output`/`Prompter`/`SpinnerFactory`/`TerminalState`/`Streams`), printer, table, spinner, ansi, levels; `termiotest/` — its test double.
+- `termio/` — Terminal UI: role interfaces (`Logger`/`Output`/`Prompter`/`SpinnerFactory`/`TerminalState`/`Streams`), printer, table, spinner, ansi, levels; `termiotest/` — its test double; and the terminal-reset emit (`ResetTerminal`/`TerminalResetSequence`), shared by the agent attach and the startup-hook attach.
 - `upgrade/` — Self-upgrade (channel selection, Homebrew).
 - `projectguard/` — Leaf holding, for one command, the digests of the approved project files; `ReadFile` verifies every project read against them and records a violation the image build and VM stage stop on.
 - `projecttrust/` — Project config trust gate: the `.agents-sandbox` layer's projection (`Compute`), the decision against the per-checkout approval in `RootState` (`Evaluate`), the approval prompt/refusal, and the launcher-write approval (`ApproveSettingWrite`); wired into the root command's `PersistentPreRunE` (`cmd/agents-sandbox/trust.go`).

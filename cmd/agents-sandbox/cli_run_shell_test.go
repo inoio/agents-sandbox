@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -835,4 +836,95 @@ func TestShellCommandInvalidSize(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "invalid --tmp-size") {
 		t.Fatalf("expected invalid --tmp-size error, got %v", err)
 	}
+}
+
+// startupHookSandbox records every command an attach or a streaming exec ran,
+// so a test can tell a startup hook apart from the agent session attach, which
+// also goes through AttachWith.
+type startupHookSandbox struct {
+	*msbtest.MockSandbox
+
+	attachCmds []string
+	streamCmds []string
+}
+
+func (s *startupHookSandbox) AttachWith(
+	ctx context.Context,
+	command string,
+	args []string,
+	req sandboxmsb.AttachRequest,
+) (int, error) {
+	s.attachCmds = append(s.attachCmds, command)
+	return s.MockSandbox.AttachWith(ctx, command, args, req)
+}
+
+func (s *startupHookSandbox) ExecStream(
+	ctx context.Context,
+	command string,
+	args []string,
+	req sandboxmsb.ExecRequest,
+) (sandboxmsb.StreamHandle, error) {
+	s.streamCmds = append(s.streamCmds, command)
+	return s.MockSandbox.ExecStream(ctx, command, args, req)
+}
+
+// TestRunStartupHookHonoursTheInjectedTerminal pins that the run's hook
+// interactivity seam reaches the VM stage: with no terminal a hook runs through
+// the streaming exec, with one it attaches interactively. It drives `run`, the
+// path `--serve-only` shares, because serve-only blocks waiting for input once
+// setup completes; the literal `--serve-only </dev/null` sweep is host-only.
+func TestRunStartupHookHonoursTheInjectedTerminal(t *testing.T) {
+	const hookCommand = "/home/dev/.hello.sh"
+	for _, tc := range []struct {
+		name        string
+		interactive bool
+	}{
+		{"no terminal streams without input", false},
+		{"terminal attaches", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			initTestProjectDir(t)
+
+			seams := runSeams
+			runSeams.HookInteractive = func() bool { return tc.interactive }
+			t.Cleanup(func() { runSeams = seams })
+
+			mock := &msbtest.MockMsbClient{}
+			sb := &startupHookSandbox{MockSandbox: &msbtest.MockSandbox{}}
+			cmd, _ := setupRunMocks(t, mock, sb, "run")
+			writeStartupHookConfig(t)
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("run: %v", err)
+			}
+
+			if tc.interactive {
+				if !slices.Contains(sb.attachCmds, hookCommand) {
+					t.Errorf("hook did not attach; attach commands = %v, stream commands = %v",
+						sb.attachCmds, sb.streamCmds)
+				}
+				if slices.Contains(sb.streamCmds, hookCommand) {
+					t.Errorf("hook streamed %v, want the interactive attach", sb.streamCmds)
+				}
+				return
+			}
+			if !slices.Contains(sb.streamCmds, hookCommand) {
+				t.Errorf("hook did not stream; stream commands = %v, attach commands = %v",
+					sb.streamCmds, sb.attachCmds)
+			}
+			if slices.Contains(sb.attachCmds, hookCommand) {
+				t.Errorf("hook attached %v, want the streaming exec", sb.attachCmds)
+			}
+		})
+	}
+}
+
+// writeStartupHookConfig writes a user-level config that provisions and runs one
+// startup hook, resolving its source next to the config file. The source file
+// exists so provisioning succeeds and the boot-time hook runs.
+func writeStartupHookConfig(t *testing.T) {
+	t.Helper()
+	userConfigDir := configpaths.Get().UserConfigDir()
+	testutil.WriteFile(t, userConfigDir, "hello.sh", "#!/bin/sh\necho hello\n")
+	testutil.WriteFile(t, userConfigDir, "config.yaml",
+		"home:\n  .hello.sh:\n    source: hello.sh\n    hook: startup\n")
 }

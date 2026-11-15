@@ -119,7 +119,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 ### `session/` — Session run and reaper
 
-- `run.go`, `reaper.go`, `host_opener.go`, `pressure_watch.go`, `run_pressure.go`, `termreset.go` — the run/shell session loop, the idle reaper, the host-opener channel wiring (`internal/opener`), the post-attach resource-pressure probes, and the terminal-reset emit
+- `run.go`, `reaper.go`, `host_opener.go`, `pressure_watch.go`, `run_pressure.go` — the run/shell session loop, the idle reaper, the host-opener channel wiring (`internal/opener`), and the post-attach resource-pressure probes
 
 ### `state/` — State transactions, locking, and project state
 

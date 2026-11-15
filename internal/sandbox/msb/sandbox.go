@@ -88,6 +88,15 @@ type SandboxAttacher interface {
 	Detach(ctx context.Context) error
 }
 
+// AttachEndedAbnormally reports whether an interactive attach ended abnormally:
+// a signal death (the guest reports exit code -1 for any signal) or a non-nil
+// attach error. A clean exit, or a deliberate non-zero exit code, is normal.
+// Callers use it to decide whether to clear the terminal's guest-TUI modes and
+// whether the end warrants a resource-raise offer.
+func AttachEndedAbnormally(attachErr error, exitCode int) bool {
+	return attachErr != nil || exitCode == -1
+}
+
 // SandboxJobs runs and lists detached jobs in a sandbox.
 type SandboxJobs interface {
 	ExecDetached(ctx context.Context, cmd string, args []string, spec JobSpec) (Job, error)

@@ -3,7 +3,12 @@ package vm
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+
+	"golang.org/x/term"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
@@ -24,17 +29,53 @@ const RootUser = "root"
 // not declare a shebang.
 const defaultHookInterpreter = "/bin/sh"
 
-// runStartupHooks runs each configured startup hook inside the VM via a
-// non-interactive streaming exec, so a run without a TTY still runs the hooks.
-// A hook with a shebang is executed directly so the VM kernel resolves the
-// interpreter; one without falls back to /bin/sh. Hook scripts are marked
-// executable during provisioning, so no +x bit is required on the host source.
-// The hook's HOME is set so scripts can rely on it. Output is written verbatim
-// to the session's stdout/stderr as the hook produces it; the agent waits for
-// the exec to finish and a hook that must outlive it is responsible for
-// daemonizing itself. A hook that cannot start, or that exits non-zero, is
-// reported with its target and the reason. Failures are logged, not fatal.
-func runStartupHooks(ctx context.Context, sb msb.Sandbox, hooks []homeconfig.HookSpec, ui termio.UI) {
+// hookFDIsTerminal is the terminal probe behind the production hook
+// interactivity default; a variable so a test can pin the two-fd requirement.
+var hookFDIsTerminal = term.IsTerminal
+
+// hookInteractiveDefault reports whether a startup hook may run interactively:
+// both the launcher's stdin and stdout are terminals. Requiring stdout keeps a
+// redirected or piped run (agents-sandbox | tee log) on the non-interactive
+// path, so a prompting hook fails visibly instead of blocking on a prompt the
+// user cannot see.
+func hookInteractiveDefault() bool {
+	return hookFDIsTerminal(int(os.Stdin.Fd())) && hookFDIsTerminal(int(os.Stdout.Fd()))
+}
+
+// hookInteractiveFor resolves the hook interactivity the run was given: the
+// injected seam when set, the production default otherwise.
+func hookInteractiveFor(seams options.Seams) bool {
+	if seams.HookInteractive != nil {
+		return seams.HookInteractive()
+	}
+	return hookInteractiveDefault()
+}
+
+// runStartupHooks runs each configured startup hook inside the VM. When the
+// launcher has a terminal (interactive) each hook runs through the interactive
+// PTY attach, so a hook may prompt for a password or MFA; otherwise it runs
+// through a non-interactive streaming exec with stdin closed, so a run without a
+// TTY still runs the hooks. A hook with a shebang is executed directly so the VM
+// kernel resolves the interpreter; one without falls back to /bin/sh. Hook
+// scripts are marked executable during provisioning, so no +x bit is required on
+// the host source. The hook's HOME is set so scripts can rely on it. The
+// non-interactive arm's output is written verbatim to the session's
+// stdout/stderr as the hook produces it; the interactive arm's output goes to
+// the terminal through the PTY. The agent waits for the hook to finish and a
+// hook that must outlive it is responsible for daemonizing itself. A hook that
+// cannot start, or that exits non-zero, is reported with its target and the
+// reason. Failures are logged, not fatal.
+//
+// It returns true when the user interrupted an interactive hook (Ctrl-C): the
+// remaining hooks are skipped, because a hook the user stopped is usually a
+// prerequisite a later one depends on, and the caller aborts the run.
+func runStartupHooks(
+	ctx context.Context,
+	sb msb.Sandbox,
+	hooks []homeconfig.HookSpec,
+	ui termio.UI,
+	interactive bool,
+) bool {
 	for _, h := range hooks {
 		user := DefaultSandboxUser
 		home := "/home/dev"
@@ -49,8 +90,11 @@ func runStartupHooks(ctx context.Context, sb msb.Sandbox, hooks []homeconfig.Hoo
 			args = []string{h.Target}
 		}
 		ui.Infof("running startup hook %s (as %s, via %s)", h.Target, user, command)
-		runStartupHook(ctx, sb, h.Target, command, args, user, home, ui)
+		if runStartupHook(ctx, sb, h.Target, command, args, user, home, interactive, ui) {
+			return true
+		}
 	}
+	return false
 }
 
 // stderrTailBytes is the cap on stderr retained for a hook's failure warning.
@@ -79,23 +123,29 @@ func (t *stderrTail) Write(p []byte) {
 // String returns the retained tail with surrounding whitespace trimmed.
 func (t *stderrTail) String() string { return strings.TrimSpace(string(t.buf)) }
 
-// runStartupHook runs one hook through the streaming exec seam and writes its
-// output verbatim to the session's stdout/stderr. The streaming seam is
-// required, not the collected Exec: the collected response buffer is capped at
-// ~1 MiB, so a hook that emits more would be cut off and misreported as failed
-// even though it exited 0. A chunk is an arbitrary byte range, not a line, so
-// the bytes go to the raw streams rather than through a line logger, which
-// would add a newline per chunk and split lines that straddle chunks. The exit
-// code is surfaced by the exited event; a hook that never starts, or a stream
-// error, is logged as a warning, not fatal.
+// runStartupHook runs one hook through the interactive PTY attach when the
+// launcher has a terminal, or through the streaming exec seam otherwise. The
+// interactive path streams the hook's output to the terminal itself; the
+// streaming path is required, not the collected Exec: the collected response
+// buffer is capped at ~1 MiB, so a hook that emits more would be cut off and
+// misreported as failed even though it exited 0. A chunk is an arbitrary byte
+// range, not a line, so the bytes go to the raw streams rather than through a
+// line logger, which would add a newline per chunk and split lines that straddle
+// chunks. The exit code is surfaced by the exited event; a hook that never
+// starts, or a stream error, is logged as a warning, not fatal. It returns true
+// only when the user interrupted the interactive hook.
 func runStartupHook(
 	ctx context.Context,
 	sb msb.Sandbox,
 	target, command string,
 	args []string,
 	user, home string,
+	interactive bool,
 	ui termio.UI,
-) {
+) bool {
+	if interactive {
+		return runStartupHookInteractive(ctx, sb, target, command, args, user, home, ui)
+	}
 	handle, err := sb.ExecStream(
 		ctx,
 		command,
@@ -104,7 +154,7 @@ func runStartupHook(
 	)
 	if err != nil {
 		ui.Warnf("startup hook %s failed: %v", target, err)
-		return
+		return false
 	}
 	defer handle.Close()
 
@@ -113,10 +163,10 @@ func runStartupHook(
 		event, err := handle.Recv(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
-				return
+				return false
 			}
 			ui.Warnf("startup hook %s failed: %v", target, err)
-			return
+			return false
 		}
 		switch event.Kind {
 		case msb.StreamEventStdout:
@@ -128,16 +178,69 @@ func runStartupHook(
 			if event.ExitCode != 0 {
 				ui.Warnf("startup hook %s failed: %s", target, exitReason(event.ExitCode, stderr.String()))
 			}
-			return
+			return false
 		case msb.StreamEventFailed:
 			if event.Failure != "" {
 				ui.Warnf("startup hook %s failed: %s", target, event.Failure)
 			} else {
 				ui.Warnf("startup hook %s failed: could not start", target)
 			}
-			return
+			return false
 		}
 	}
+}
+
+// runStartupHookInteractive runs one hook through the interactive PTY attach, so
+// a hook that prompts for a password or MFA can read it from the launcher's
+// terminal. The attach streams the hook's output itself and returns only an exit
+// code, so the failure warning names the code without a stderr tail. It runs
+// under SIGINT/SIGTERM cancellation like the agent attach, so Ctrl-C ends the
+// hook and its terminal is restored instead of killing the launcher mid-attach,
+// and it clears any guest-TUI emulator modes after an abnormal end (a signal
+// death or an attach error) before the next launcher message. A failure is
+// logged, not fatal; a failed attach is not retried through the streaming exec,
+// because re-running a hook whose side effects may have started is worse than
+// skipping it.
+//
+// It returns true when the user interrupted the hook (Ctrl-C or SIGTERM): the
+// terminal is restored and the caller aborts the run, matching the agent attach,
+// which also ends the run on a signal.
+func runStartupHookInteractive(
+	ctx context.Context,
+	sb msb.Sandbox,
+	target, command string,
+	args []string,
+	user, home string,
+	ui termio.UI,
+) bool {
+	attachCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+
+	code, err := sb.AttachWith(
+		attachCtx,
+		command,
+		args,
+		msb.AttachRequest{User: user, Env: map[string]string{"HOME": home}},
+	)
+	interrupted := attachCtx.Err() != nil && ctx.Err() == nil
+	if msb.AttachEndedAbnormally(err, code) || interrupted {
+		termio.ResetTerminal(ui.StdOut())
+	}
+	if ctx.Err() != nil {
+		return false
+	}
+	if interrupted {
+		ui.Warnf("startup hook %s interrupted", target)
+		return true
+	}
+	if err != nil {
+		ui.Warnf("startup hook %s failed: %v", target, err)
+		return false
+	}
+	if code != 0 {
+		ui.Warnf("startup hook %s failed: exit %d", target, code)
+	}
+	return false
 }
 
 // exitReason describes a hook's non-zero exit for its failure warning: the exit
@@ -148,6 +251,12 @@ func exitReason(exitCode int, tail string) string {
 	}
 	return fmt.Sprintf("exit %d: %s", exitCode, tail)
 }
+
+// interruptedExitCode is how the launcher exits after the user interrupts an
+// interactive startup hook. 128+2 is the shell's convention for a process ended
+// by SIGINT, so an interactive abort and a plain non-interactive run that dies
+// on the signal both report 130 to a wrapping script.
+const interruptedExitCode = 130
 
 // SetUpSandbox provisions a running project VM and returns the attach target.
 // It writes the agent config files, records image provenance on a fresh boot,
@@ -195,7 +304,13 @@ func SetUpSandbox(
 	}
 
 	if boot.Booted() {
-		runStartupHooks(ctx, sb, cfs.Hooks, ui)
+		// Serve-only owns stdin with its stop watcher (serveOnlyContext), so a
+		// hook prompt could not reach a reader; every other run may prompt when
+		// the launcher has a terminal.
+		interactive := hookInteractiveFor(seams) && !opts.ServeOnly
+		if runStartupHooks(ctx, sb, cfs.Hooks, ui, interactive) {
+			return "", &ExitError{Code: interruptedExitCode}
+		}
 	}
 
 	if dockerErr := startDockerdIfPresent(ctx, sb, ui); dockerErr != nil {

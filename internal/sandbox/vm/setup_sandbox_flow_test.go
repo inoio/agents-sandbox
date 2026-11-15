@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
@@ -254,6 +257,7 @@ func TestSetUpSandboxStopsWhenDockerdCannotStart(t *testing.T) {
 // daemon restart.
 func TestSetUpSandboxReportsWhatItDoes(t *testing.T) {
 	seams := healthyOpencodeDaemon(t)
+	seams.HookInteractive = func() bool { return false }
 	configpathstest.WithMockConfigPaths(t)
 	sb := &msbtest.MockSandbox{Name_: "vm", FSValue_: msbtest.NewTestFS(nil)}
 	ui := termiotest.NewTestMock(t)
@@ -459,6 +463,7 @@ func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
 // skipped when the VM was already running and merely connected to.
 func TestSetUpSandboxRunsHooksOnlyOnBoot(t *testing.T) {
 	seams := healthyOpencodeDaemon(t)
+	seams.HookInteractive = func() bool { return false }
 
 	fs := msbtest.NewTestFS(nil)
 	sb := &msbtest.MockSandbox{Name_: "test-vm", FSValue_: fs}
@@ -502,7 +507,109 @@ func TestSetUpSandboxRunsHooksOnlyOnBoot(t *testing.T) {
 			if ran != tc.expect {
 				t.Errorf("hook ran = %v, want %v", ran, tc.expect)
 			}
+			if sb.AttachCmd != "" {
+				t.Errorf("hook attached %q, want the non-interactive streaming exec", sb.AttachCmd)
+			}
 		})
+	}
+}
+
+// TestSetUpSandboxRunsHooksNonInteractivelyUnderServeOnly pins that serve-only
+// opts out of interactive hooks: its stdin is owned by the stop watcher, so a
+// prompt could not reach a reader and the hook must run without input.
+func TestSetUpSandboxRunsHooksNonInteractivelyUnderServeOnly(t *testing.T) {
+	seams := healthyOpencodeDaemon(t)
+	seams.HookInteractive = func() bool { return true }
+
+	fs := msbtest.NewTestFS(nil)
+	sb := &msbtest.MockSandbox{Name_: "test-vm", FSValue_: fs}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
+	cfs := &reprovision.ConfigFiles{
+		Hooks: []homeconfig.HookSpec{
+			{Target: "/home/dev/.hello.sh", Source: "x", HasShebang: true},
+		},
+	}
+
+	if _, err := SetUpSandbox(
+		context.Background(),
+		testVMKey(),
+		sb,
+		opencodeResolved(t),
+		options.RunOptions{Agent: "opencode", ServeOnly: true},
+		seams,
+		cfs,
+		ui,
+		false,
+		VMBootStarted,
+		mounts.WorkspaceMountPath,
+	); err != nil {
+		t.Fatalf("SetUpSandbox: %v", err)
+	}
+	if sb.ExecStreamCmd == "" {
+		t.Errorf("serve-only hook did not stream; AttachCmd = %q", sb.AttachCmd)
+	}
+	if sb.AttachCmd != "" {
+		t.Errorf("serve-only hook attached %q, want the non-interactive streaming exec", sb.AttachCmd)
+	}
+}
+
+// TestSetUpSandboxAbortsTheRunOnInterruptedHook pins that an interrupt during an
+// interactive hook stops the run with the SIGINT exit code, rather than
+// proceeding to dockerd, the daemon and the attach after the user cancelled a
+// prerequisite.
+func TestSetUpSandboxAbortsTheRunOnInterruptedHook(t *testing.T) {
+	guard := make(chan os.Signal, 1)
+	signal.Notify(guard, os.Interrupt)
+	defer signal.Stop(guard)
+
+	seams := healthyOpencodeDaemon(t)
+	seams.HookInteractive = func() bool { return true }
+	configpathstest.WithMockConfigPaths(t)
+	sb := &msbtest.MockSandbox{
+		Name_:    "test-vm",
+		FSValue_: msbtest.NewTestFS(nil),
+		AttachFn: func(ctx context.Context) (int, error) {
+			//testenv:allow sends SIGINT to this process to exercise the signal scope
+			if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
+				return 0, err
+			}
+			select {
+			case <-ctx.Done():
+				return 0, nil
+			case <-time.After(5 * time.Second):
+				// A missing signal handler would otherwise hang the test; fail
+				// the assertions below instead.
+				return 0, errors.New("SIGINT did not cancel the attach")
+			}
+		},
+	}
+	ui := &termiotest.Mock{}
+	cfs := &reprovision.ConfigFiles{
+		Hooks: []homeconfig.HookSpec{
+			{Target: "/home/dev/.hello.sh", Source: "x", HasShebang: true},
+		},
+	}
+
+	_, err := SetUpSandbox(
+		context.Background(),
+		testVMKey(),
+		sb,
+		opencodeResolved(t),
+		options.RunOptions{Agent: "opencode"},
+		seams,
+		cfs,
+		ui,
+		false,
+		VMBootStarted,
+		mounts.WorkspaceMountPath,
+	)
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("SetUpSandbox error = %v, want an *ExitError", err)
+	}
+	if exitErr.Code != 130 {
+		t.Errorf("exit code = %d, want 130", exitErr.Code)
 	}
 }
 
