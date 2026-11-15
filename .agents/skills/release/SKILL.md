@@ -23,9 +23,16 @@ advances the maintenance line, and starts with step 1.
 
 ## The one hard rule
 
-Steps 0-4 run locally and reach no remote. Step 5 is a gate: present the release and wait for an explicit
-go. Land the changelog (6), push the tag (7), and set the notes (8) only after the maintainer
-approves, and only for the version they chose. On abort, stop.
+The release's own artifacts stay local until the maintainer approves: steps 1-4 reach no remote, and
+step 5 is a gate — present the release and wait for an explicit go. Land the changelog (6), push the
+tag (7), and set the notes (8) only after the maintainer approves, and only for the version they
+chose. On abort, stop.
+
+Step 0 is the one exception, and it is not part of the release's artifacts. Its audit
+(`scripts/backport-audit.sh`) and `git cherry` checks are local and read-only, but the port it may call
+for (`scripts/open-backport-pr.sh <n>`) pushes a branch and opens a PR — an ordinary fix PR against the
+release branch, subject to review and merge like any other, not a release artifact. Opening it does not
+push a tag, land the changelog, or otherwise publish the release, so it needs no step-5 approval.
 
 ## Flow
 
