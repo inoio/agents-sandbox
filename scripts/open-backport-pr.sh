@@ -13,8 +13,9 @@
 #
 # Exit status: 0 when the backport branch is pushed and the PR is opened; 1 when
 # the cherry-pick conflicts (nothing is pushed), the PR is unknown or unmerged,
-# or there is no release branch; 2 on a usage error; 3 when every source commit
-# is already on the release line, so nothing is pushed and no PR is opened.
+# or there is no release branch; 2 on a usage error; 3 when nothing needed
+# porting (every source commit is already on the release line, or every
+# remaining pick came out empty), so nothing is pushed and no PR is opened.
 #
 # Env (all overridable):
 #   BACKPORT_REPO            repository to operate on (default: .)

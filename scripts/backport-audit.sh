@@ -260,7 +260,11 @@ debt="$(
       fi
       while IFS= read -r sha; do
         [[ -n "$sha" ]] || continue
-        patch_id="$(git -C "$repo" show "$sha" | git patch-id --stable | awk '{print $1}')"
+        if ! patch_id="$(git -C "$repo" show "$sha" | git patch-id --stable | awk '{print $1}')"; then
+          printf 'backport-audit: could not read the patch-id of %s (PR #%s); fetch and rerun\n' \
+            "$sha" "$number" >&2
+          exit 2
+        fi
         # An empty patch-id is a commit that changes nothing (an empty commit),
         # so there is nothing to port and it can never be debt.
         [[ -n "$patch_id" ]] || continue
