@@ -5,8 +5,10 @@ read_if: Working on learn mode, the after-run analyser, a `run --learn` / `confi
 
 # Learn mode
 
-Status: designed; the observation approach is unresolved and is settled by the validation spike recorded in
-`plans/2026-11-15-learn-mode-spike.md`. Everything except "Observation approaches" is independent of that outcome.
+Status: designed. The observation approach is unresolved: it depends on a validation spike whose experiments decide
+whether a finished session's destinations can be observed at all (home-volume read-back per harness, host DNS resolver
+under each profile, outbound-proxy reachability and completeness, denial observability, TLS-interception prerequisites,
+streaming cost). Everything except "Observation approaches" is independent of that outcome.
 
 ## Intent
 

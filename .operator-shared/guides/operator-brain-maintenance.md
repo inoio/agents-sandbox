@@ -45,3 +45,11 @@ The catalog is a map, not a second copy of the docs.
 - **Index** (`index/`) maps the *codebase*: architecture, packages, files.
 - **Catalog** (`catalog.md`) maps the *brain*: which spec/guide/plan to read, and when.
 - Do not cross the two. The catalog never lists repo source files; the index never lists brain documents.
+
+## Mechanical checks
+
+`make brain-check` (`scripts/brain-check.sh`) enforces the structural rules above: a non-empty `description`/`read_if`
+on every index and spec, resolving relative links, catalog coverage of spec subsystems/guides/plans and existence of
+every catalogued path, no plan citation from a spec, no "Implementing…" Read If prefix, and no shared reference into
+the private partition. It proves structural consistency, not accuracy: a stale-but-consistent document still passes,
+so the content rules stay a reading task.

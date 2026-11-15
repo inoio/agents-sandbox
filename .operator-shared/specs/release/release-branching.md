@@ -119,7 +119,10 @@ query: enumerate what should be on the branch and verify each is.
   import-only — the cache-reading `integration` reader runs, the single cache writer stays on `main`.
 - **Protecting the line is a manual admin step**: a `protect release/*` ruleset must require the same
   six branch checks `protect main` does, without the merge queue. Until it exists, the branch runs CI
-  but does not enforce it.
+  but does not enforce it. `race`/`deadcode` are absent from `release.needs` (they do not block
+  publishing), which is only sound because `tag-guard` plus that ruleset prove the tagged tree passed
+  them; adding them to `release.needs` is the backstop if a release branch is ever pushed without the
+  ruleset.
 
 ## Cutting a release
 

@@ -21,7 +21,7 @@ read_if: Navigating the codebase.
 - `GLOSSARY.md` — Project terminology.
 - `CHANGELOG.md`, `CHANGELOG` fragments in `changelog.d/`, `ROADMAP.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `LICENSE.md`, `SECURITY.md` — Project metadata and policy.
 - `Makefile` — fmt/lint/test/build targets.
-- `scripts/` — Repo-maintenance shell scripts: `cleanup-merged-branches.sh` (`make cleanup-branches`), `upstream-drift.sh`, `rebase-status.sh`, the hermetic envelope driver `test-envelope.sh` (`make test-scrubbed`/`test-hermetic`; see `specs/testing/test-isolation.md`), and the changed-file pair `changed-files.sh` (the local/branch diff, the single source of truth, behind `make changelog-presence`) and `changed-targets.sh` (the changed-file→`check`-target map behind `make check-local-changes`/`check-branch-changes`; see `specs/ci/quality-gates.md`); each has a `test-*.sh` harness.
+- `scripts/` — Repo-maintenance shell scripts: `cleanup-merged-branches.sh` (`make cleanup-branches`), `upstream-drift.sh`, `rebase-status.sh`, `enqueue-pr.sh` (the merge-queue enqueue/watch helper behind `make enqueue-pr-test`), `surface-sweep.sh` (the release-surface sweep isolation helper; see `specs/testing/release-surface-testing.md`), `brain-check.sh` (the Operator brain's structural gate, `make brain-check`; see `.operator-shared/guides/operator-brain-maintenance.md`), the hermetic envelope driver `test-envelope.sh` (`make test-scrubbed`/`test-hermetic`; see `specs/testing/test-isolation.md`), and the changed-file pair `changed-files.sh` (the local/branch diff, the single source of truth, behind `make changelog-presence`) and `changed-targets.sh` (the changed-file→`check`-target map behind `make check-local-changes`/`check-branch-changes`; see `specs/ci/quality-gates.md`); each has a `test-*.sh` harness.
 - `go.mod`, `go.sum`, `.go-version` — Module deps (cobra, viper, go-git, msb SDK, docker/moby, testify) and the pinned Go toolchain.
 - `opencode.jsonc` — opencode config for this repo.
 - `.golangci.yml`, `.gitignore` — Lint config and ignore rules.
@@ -36,16 +36,16 @@ read_if: Navigating the codebase.
 ### `internal/` — Core packages (non-sandbox)
 
 - `agent/` — Agent profiles (opencode/opencode2/claudecode/codex/pi/hermes/oh-my-pi): version resolution, capabilities, config-dir names, image selection.
-- `configpaths/` — Config/home path resolution and guards, plus shared config-file discovery (`FindConfigFile`) used by both config loaders.
+- `configpaths/` — Config/home path resolution and guards, plus shared config-file discovery (`FindConfigFile`) used by both config loaders; `configpathstest/` — its test double.
 - `configread/` — `ReadFile` under a 16 MiB cap (`MaxBytes`/`ErrTooLarge`) for untrusted config, secret, and snippet reads.
 - `configdecode/` — The one config-file read/classify/decode core (`FormatFor`/`Decode`/`DecodeFile`) over `configread` and `configpaths`; JSON5/JSONC via `json5`, YAML via `go.yaml.in/yaml/v4`, TOML via `go-toml/v2`.
 - `homeconfig/` — Provisions arbitrary user files (the `home:` key) into a sandbox home from the ordered config scopes.
 - `docslink/` — Composes links to the published docs site (`BaseURL`, section anchors) for the doctor and build-error `Docs:` hints.
 - `git/` — Git helpers (go-git wrapper) and project identity: the repo slug (origin-derived; per-slug config dir, grouping label) vs the checkout slug (git common dir; state/VM/volume/locks/image tag).
 - `hostlock/` — Advisory `flock` file locks, shared by the state transactions and the per-project VM lock.
-- `notify/` — Desktop notifications (backend, dedup, events, watch).
+- `notify/` — Desktop notifications (backend, dedup, events, watch); `notifytest/` — its test double.
 - `opener/` — Host link-opener channel: watches the home volume's spool for in-VM `xdg-open` requests, allowlist-checks the target, and hands it to the host handler.
-- `termio/` — Terminal UI: role interfaces (`Logger`/`Output`/`Prompter`/`SpinnerFactory`/`TerminalState`/`Streams`), printer, table, spinner, ansi, levels.
+- `termio/` — Terminal UI: role interfaces (`Logger`/`Output`/`Prompter`/`SpinnerFactory`/`TerminalState`/`Streams`), printer, table, spinner, ansi, levels; `termiotest/` — its test double.
 - `upgrade/` — Self-upgrade (channel selection, Homebrew).
 - `projectguard/` — Leaf holding, for one command, the digests of the approved project files; `ReadFile` verifies every project read against them and records a violation the image build and VM stage stop on.
 - `projecttrust/` — Project config trust gate: the `.agents-sandbox` layer's projection (`Compute`), the decision against the per-checkout approval in `RootState` (`Evaluate`), the approval prompt/refusal, and the launcher-write approval (`ApproveSettingWrite`); wired into the root command's `PersistentPreRunE` (`cmd/agents-sandbox/trust.go`).
@@ -67,6 +67,7 @@ read_if: Navigating the codebase.
 ### `ci/` — Build and verification scripts
 
 - `check-docs.sh`/`test-check-docs.sh` (doc link/style gate), `check-deadcode.sh`/`test-check-deadcode.sh` + `deadcodecheck/` (dead-code gate driver and helper), `check-changelog.sh`/`test-check-changelog.sh` (changelog fragments).
+- `check-ci-guards.sh`/`test-check-ci-guards.sh` (the `github.event_name`/`on.pull_request.types` invariants and the four exempt-path copies), `event-base.sh`/`test-check-event-base.sh` (the single base-SHA resolver), `classify-changes.sh`/`test-check-classify-changes.sh` (the `changes` job's `code`/`exec` classification); see `specs/ci/ci-pipeline.md`.
 
 ### `Formula/` — Homebrew formula
 
@@ -87,4 +88,4 @@ read_if: Navigating the codebase.
 - `handle-pr-feedback/`, `maintain/`, `pr/` — repo-adapted skills: the PR-mergeability loop, the GitHub maintainer flow, and the PR-body template.
 - `compacting-context/` — the `session.compact` recipe so an agent told to compact its own context loads the skill instead of scanning for a nonexistent tool; `opencode2-self-management/`, `opencode2-probe/`, `terminal-reset/` — runbooks retired from the shared brain (the `session.compact` API, driving the opencode2 daemon's event stream, and verifying the post-attach terminal reset).
 - `upstream-drift/`, `rebase-status/` — the two reporter scripts (`scripts/upstream-drift.sh`, `scripts/rebase-status.sh`) for checking how far `origin/main` moved before a rebase, and the state of an in-progress rebase.
-- `greptile-review/` — a maintainer-run correctness review (cross-component bugs, invariant bypasses, under-asserting tests, overstated docs), the third axis beside `code-review`; ships `RULES.md` (14 families), `mine.sh`+`corpus.tsv` (the mined Greptile corpus), and `validation.md` (RED/GREEN records). See `guides/greptile-review-skill.md`.
+- `greptile-review/` — a maintainer-run correctness review (cross-component bugs, invariant bypasses, under-asserting tests, overstated docs), the third axis beside `code-review`; ships `RULES.md` (14 families), `mine.sh`+`corpus.tsv` (the mined Greptile corpus), and `validation.md` (RED/GREEN records).

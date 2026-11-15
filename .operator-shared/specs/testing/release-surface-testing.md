@@ -34,7 +34,7 @@ interactive screens; `script(1)` for a session typescript; `jq`/`yq`, `curl`/`nc
 
 ## Global constraints
 
-- **Candidate**: `main` HEAD, cut as the next minor. Delta base `v0.6.0` (`git diff v0.6.0..main`).
+- **Candidate**: `main` HEAD, cut as the next minor. Delta base: the previous release tag (`git diff <prev-tag>..main`).
 - **Binary under test**: `make install-head` for `asb`; `go run ./cmd/agents-sandbox` for `asb-dev`. Use `asb` for
   install/upgrade journeys, `asb-dev` for the rest unless a step says otherwise.
 - **Isolation A**: every `[I]` step runs under the sweep env from Task 0. A step that would touch
