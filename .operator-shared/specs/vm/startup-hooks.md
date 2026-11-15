@@ -27,8 +27,11 @@ this spec covers only their execution contract.
 - A failed attach is a warning and the remaining hooks still run. There is no automatic fallback
   from a failed attach to the exec path: re-running a hook whose side effects may already have
   started is worse than skipping it.
-- The predicate takes no `RunOptions`, so `--yes` does not disable hook interactivity. Interactivity
-  is a property of the terminal, not of the launcher's confirmation mode.
+- The terminal predicate takes no `RunOptions`, so `--yes` does not disable hook interactivity:
+  interactivity is a property of the terminal, not of the launcher's confirmation mode.
+- `--serve-only` runs hooks non-interactively regardless of the terminal. Its stdin is owned by the
+  stop watcher (`serveOnlyContext`), so a hook prompt could not reach a reader; `SetUpSandbox`
+  suppresses interactivity for it with an explicit guard, not by changing the predicate.
 - Hooks run only when the VM boots (created, recreated, or booted from stopped/crashed), never on
   attach to an already-running VM.
 
@@ -36,5 +39,5 @@ this spec covers only their execution contract.
 
 `options.Seams.HookInteractive func() bool` injects the predicate; nil uses the production default
 (`hookInteractiveDefault`, stdin and stdout both terminals). `SetUpSandbox` resolves it once per
-boot and threads the resulting bool, so `runStartupHooks` stays pure over a bool and a test never
-reads the ambient TTY.
+boot and threads the resulting bool, so `runStartupHooks` stays pure over a bool; a test that
+exercises the hooks injects the seam rather than depending on the ambient TTY.

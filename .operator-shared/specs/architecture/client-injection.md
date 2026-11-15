@@ -57,7 +57,8 @@ globals — and the process-root path lookups that stay global by design.
 injected struct of functions, `options.Seams`, carried on
 `options.RunOptions` (#518). Its zero value is production: each consumer
 (`projectVMLock`, `daemonHealth`, `agentLatestVersionFor`,
-`runtimeHomeMigrationOffer`, and `prepare`'s `agentVersionResolverFor`) uses the
+`runtimeHomeMigrationOffer`, `hookInteractiveFor`, and `prepare`'s
+`agentVersionResolverFor`) uses the
 package default when its field is nil, so tests stop touching package state.
 `cmd` threads the struct into the run stages through the boundary seam var
 `runSeams` (the cmd→run route). Unlike the clients, these are behavior seams, not

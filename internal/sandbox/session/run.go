@@ -440,11 +440,11 @@ func runAttach(
 			// messages re-enter the terminal. A clean exit restored them
 			// itself, and leaving the alternate screen again would restore a
 			// stale saved cursor. ui.StdOut() is the real os.Stdout here;
-			// resetTerminal's TTY check only accepts an *os.File, so a
+			// termio.ResetTerminal's TTY check only accepts an *os.File, so a
 			// wrapping writer would silently disable the reset.
 			endedAbnormally := abnormalEnd(attachErr, exitCode) || interrupted
 			if endedAbnormally {
-				resetTerminal(ui.StdOut())
+				termio.ResetTerminal(ui.StdOut())
 			}
 			// Stop sampling and read the summary while the VM is still alive
 			// and before the lease is released and the VM reaped.

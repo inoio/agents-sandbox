@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"golang.org/x/term"
 
@@ -56,12 +58,13 @@ func hookInteractiveFor(seams options.Seams) bool {
 // TTY still runs the hooks. A hook with a shebang is executed directly so the VM
 // kernel resolves the interpreter; one without falls back to /bin/sh. Hook
 // scripts are marked executable during provisioning, so no +x bit is required on
-// the host source. The hook's HOME is set so scripts can rely on it. Output is
-// written verbatim to the session's stdout/stderr as the hook produces it; the
-// agent waits for the hook to finish and a hook that must outlive it is
-// responsible for daemonizing itself. A hook that cannot start, or that exits
-// non-zero, is reported with its target and the reason. Failures are logged, not
-// fatal.
+// the host source. The hook's HOME is set so scripts can rely on it. The
+// non-interactive arm's output is written verbatim to the session's
+// stdout/stderr as the hook produces it; the interactive arm's output goes to
+// the terminal through the PTY. The agent waits for the hook to finish and a
+// hook that must outlive it is responsible for daemonizing itself. A hook that
+// cannot start, or that exits non-zero, is reported with its target and the
+// reason. Failures are logged, not fatal.
 func runStartupHooks(
 	ctx context.Context,
 	sb msb.Sandbox,
@@ -183,10 +186,14 @@ func runStartupHook(
 // runStartupHookInteractive runs one hook through the interactive PTY attach, so
 // a hook that prompts for a password or MFA can read it from the launcher's
 // terminal. The attach streams the hook's output itself and returns only an exit
-// code, so the failure warning names the code without a stderr tail. A failure
-// is logged, not fatal; a failed attach is not retried through the streaming
-// exec, because re-running a hook whose side effects may have started is worse
-// than skipping it.
+// code, so the failure warning names the code without a stderr tail. It runs
+// under SIGINT/SIGTERM cancellation like the agent attach, so Ctrl-C ends the
+// hook and its terminal is restored instead of killing the launcher mid-attach,
+// and it clears any guest-TUI emulator modes after an abnormal end (a signal
+// death or an attach error) before the next launcher message. A failure is
+// logged, not fatal; a failed attach is not retried through the streaming exec,
+// because re-running a hook whose side effects may have started is worse than
+// skipping it.
 func runStartupHookInteractive(
 	ctx context.Context,
 	sb msb.Sandbox,
@@ -195,16 +202,27 @@ func runStartupHookInteractive(
 	user, home string,
 	ui termio.UI,
 ) {
+	attachCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+
 	code, err := sb.AttachWith(
-		ctx,
+		attachCtx,
 		command,
 		args,
 		msb.AttachRequest{User: user, Env: map[string]string{"HOME": home}},
 	)
+	interrupted := attachCtx.Err() != nil && ctx.Err() == nil
+	if err != nil || code == -1 || interrupted {
+		termio.ResetTerminal(ui.StdOut())
+	}
+	if ctx.Err() != nil {
+		return
+	}
+	if interrupted {
+		ui.Warnf("startup hook %s interrupted", target)
+		return
+	}
 	if err != nil {
-		if ctx.Err() != nil {
-			return
-		}
 		ui.Warnf("startup hook %s failed: %v", target, err)
 		return
 	}
@@ -268,7 +286,11 @@ func SetUpSandbox(
 	}
 
 	if boot.Booted() {
-		runStartupHooks(ctx, sb, cfs.Hooks, ui, hookInteractiveFor(seams))
+		// Serve-only owns stdin with its stop watcher (serveOnlyContext), so a
+		// hook prompt could not reach a reader; every other run may prompt when
+		// the launcher has a terminal.
+		interactive := hookInteractiveFor(seams) && !opts.ServeOnly
+		runStartupHooks(ctx, sb, cfs.Hooks, ui, interactive)
 	}
 
 	if dockerErr := startDockerdIfPresent(ctx, sb, ui); dockerErr != nil {
