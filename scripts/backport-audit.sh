@@ -26,8 +26,17 @@
 #   refs/heads/release/* and refs/remotes/origin/release/*. With none it prints
 #   "backport-audit: no release branch; nothing to audit" and exits 0.
 #
-#   Expected set: gh pr list --state merged --base "$DEFAULT" --label "$LABEL"
-#   --json number,title,url,mergedAt,mergeCommit --limit 200.
+#   Expected set (union, deduplicated by PR number):
+#   A. gh pr list --state merged --base "$DEFAULT" --label "$LABEL"
+#      --json number,title,url,mergedAt,mergeCommit --limit 200.
+#   B. every merged PR that closes a `$LABEL`-labeled issue:
+#      gh issue list --state all --label "$LABEL"
+#      --json number,closedByPullRequestsReferences --limit 200, then
+#      gh pr view <n> --json number,title,url,mergedAt,mergeCommit,state for
+#      each referenced PR, keeping only state MERGED. The issue label is the
+#      durable record; enqueue-pr.sh also copies it onto the PR, but a merge
+#      path that skips the copy (the raw mutation, "Merge when ready") must not
+#      hide a fix.
 #
 #   Landed test: the release branch's patch-id set is
 #   git log -p --no-merges "<release>" | git patch-id --stable | awk '{print $1}' | sort -u.
@@ -72,7 +81,8 @@ fi
 # The highest-semver release/<major>.<minor> as "<major> <minor> <git-ref>
 # <branch-name>", or nothing when the repository has no release branch. The
 # git-ref is what `git log` is resolved against; the branch-name is what gh's
-# --base wants. A local branch is preferred over an equally-versioned remote.
+# --base wants. When the same version exists both locally and on origin the
+# remote-tracking ref sorts last and wins the version tie.
 latest_release_branch() {
   local refs refname name version major minor
   refs="$(git -C "$repo" for-each-ref --format='%(refname)' \
@@ -123,12 +133,37 @@ if [[ -z "$release_line" ]]; then
 fi
 read -r _major _minor release_ref release_name <<<"$release_line"
 
-# The merged labeled PRs, one "<number>\t<title>\t<url>\t<mergedAt>\t<merge-oid>"
-# record per line. gh's built-in jq flattens the JSON so no external parser is
-# needed; a null mergeCommit leaves the last field empty and the PR is skipped.
-merged="$(gh pr list --state merged --base "$default_branch" --label "$label" \
+# The expected set is the union of two sources, one
+# "<number>\t<title>\t<url>\t<mergedAt>\t<merge-oid>" record per line. gh's
+# built-in jq flattens the JSON so no external parser is needed; a null
+# mergeCommit leaves the last field empty and the PR is skipped.
+
+# Source A: PRs merged to the default branch that carry the label themselves.
+pr_labeled="$(gh pr list --state merged --base "$default_branch" --label "$label" \
   --json number,title,url,mergedAt,mergeCommit --limit 200 \
   --jq '.[] | [(.number|tostring), .title, .url, .mergedAt, .mergeCommit.oid] | @tsv')"
+
+# Source B: the issue label is the durable record. enqueue-pr.sh copies it onto
+# the PR, but a merge path that skips the copy (the raw mutation, "Merge when
+# ready") leaves the merged PR unlabeled. Resolve each labeled issue's closing
+# PRs and keep the merged ones, so no merge path hides a fix. The referenced
+# field may be a list of objects or of numbers; both flatten to the number.
+issue_pr_numbers="$(gh issue list --state all --label "$label" \
+  --json number,closedByPullRequestsReferences --limit 200 \
+  --jq '.[] | .closedByPullRequestsReferences[]? | if type == "object" then .number else . end' \
+  | sort -u)"
+
+issue_labeled=""
+while IFS= read -r number; do
+  [[ -n "$number" ]] || continue
+  issue_labeled+="$(gh pr view "$number" \
+    --json number,title,url,mergedAt,mergeCommit,state \
+    --jq 'select(.state == "MERGED") | [(.number|tostring), .title, .url, .mergedAt, .mergeCommit.oid] | @tsv')"$'\n'
+done <<<"$issue_pr_numbers"
+
+# Union the two sources, keeping the first record for any PR number.
+merged="$(printf '%s\n%s\n' "$pr_labeled" "$issue_labeled" \
+  | awk -F'\t' 'NF && !seen[$1]++')"
 if [[ -z "$merged" ]]; then
   exit 0
 fi

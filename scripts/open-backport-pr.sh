@@ -67,8 +67,9 @@ if ! git -C "$repo" rev-parse --git-dir >/dev/null 2>&1; then
 fi
 
 # The highest-semver release/<major>.<minor> as "<major> <minor> <git-ref>
-# <branch-name>", or nothing when the repository has no release branch. A local
-# branch is preferred over an equally-versioned remote.
+# <branch-name>", or nothing when the repository has no release branch. When the
+# same version exists both locally and on origin the remote-tracking ref sorts
+# last and wins the version tie.
 latest_release_branch() {
   local refs refname name version major minor
   refs="$(git -C "$repo" for-each-ref --format='%(refname)' \

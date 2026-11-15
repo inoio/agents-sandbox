@@ -18,35 +18,53 @@ ok()  { pass=$((pass + 1)); printf 'ok   - %s\n' "$1"; }
 bad() { fail=$((fail + 1)); printf 'FAIL - %s\n' "$1"; }
 assert_contains()     { if grep -qF -- "$3" <<<"$2"; then ok "$1"; else bad "$1 (missing: $3)"; fi; }
 assert_not_contains() { if grep -qF -- "$3" <<<"$2"; then bad "$1 (unexpected: $3)"; else ok "$1"; fi; }
+assert_eq_count() { local n; n="$(grep -cF -- "$3" <<<"$2" || true)"; if [[ "$n" == "$4" ]]; then ok "$1"; else bad "$1 (got $n want $4)"; fi; }
 
-# The fake `gh`: gh_argv.txt records one call per line and the canned merged
-# (`$GH_MERGED_JSON`) / open (`$GH_OPEN_JSON`) documents are served, honouring
-# gh's --jq/-q the way the real CLI does.
+# The fake `gh`: gh_argv.txt records one call per line and canned documents are
+# served, honouring gh's --jq/-q the way the real CLI does. `pr list` reads
+# `$GH_MERGED_JSON` (or `$GH_OPEN_JSON` for --state open), `issue list` reads
+# `$GH_ISSUES_JSON`, and `pr view <n>` reads `$GH_PR_VIEW_DIR/pr-<n>.json`
+# (or `{}` when that file is absent).
 fake_bin="$fixture_root/bin"
 mkdir -p "$fake_bin"
 cat >"$fake_bin/gh" <<'GH'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >>"${GH_ARGV:?}"
+
+serve_json() {
+  local doc_file="$1" doc query="" arg
+  doc="$(cat "$doc_file")"
+  shift
+  while [[ $# -gt 0 ]]; do
+    arg="$1"
+    case "$arg" in
+      -q|--jq) shift; query="$1" ;;
+    esac
+    shift
+  done
+  if [[ -n "$query" ]]; then
+    printf '%s' "$doc" | jq -r "$query"
+  else
+    printf '%s' "$doc"
+  fi
+}
+
 case " $* " in
   *" pr list "*)
-    doc_file="$GH_MERGED_JSON"
     case " $* " in
-      *" --state open "*) doc_file="$GH_OPEN_JSON" ;;
+      *" --state open "*) serve_json "$GH_OPEN_JSON" "$@" ;;
+      *) serve_json "$GH_MERGED_JSON" "$@" ;;
     esac
-    doc="$(cat "$doc_file")"
-    query=""
-    for ((i = 1; i <= $#; i++)); do
-      if [[ "${!i}" == "-q" || "${!i}" == "--jq" ]]; then
-        j=$((i + 1))
-        query="${!j}"
-      fi
-    done
-    if [[ -n "$query" ]]; then
-      printf '%s' "$doc" | jq -r "$query"
-    else
-      printf '%s' "$doc"
-    fi
+    exit 0
+    ;;
+  *" issue list "*)
+    serve_json "$GH_ISSUES_JSON" "$@"
+    exit 0
+    ;;
+  *" pr view "*)
+    pr_file="$GH_PR_VIEW_DIR/pr-$3.json"
+    if [[ -f "$pr_file" ]]; then serve_json "$pr_file" "$@"; else printf '{}\n'; fi
     exit 0
     ;;
 esac
@@ -58,7 +76,11 @@ export PATH="$fake_bin:$PATH"
 export GH_ARGV="$fixture_root/argv.txt"
 export GH_MERGED_JSON="$fixture_root/merged.json"
 export GH_OPEN_JSON="$fixture_root/open.json"
+export GH_ISSUES_JSON="$fixture_root/issues.json"
+export GH_PR_VIEW_DIR="$fixture_root/pr-view"
+mkdir -p "$GH_PR_VIEW_DIR"
 printf '[]\n' >"$GH_OPEN_JSON"
+printf '[]\n' >"$GH_ISSUES_JSON"
 
 # unset_audit_env clears every knob a case may set, so the defaults are the
 # baseline each case departs from.
@@ -73,6 +95,8 @@ unset_audit_env() {
 seed_fixture() {
   REPO="$fixture_root/repo-$1"
   rm -rf "$REPO"
+  rm -f "$GH_PR_VIEW_DIR"/*.json
+  printf '[]\n' >"$GH_ISSUES_JSON"
   mkdir -p "$REPO"
   git -C "$REPO" init -q -b main
   git -C "$REPO" config user.email t@t
@@ -87,6 +111,20 @@ seed_fixture() {
 write_merged() {
   printf '[{"number":7,"title":"Fix the bug","url":"https://github.com/o/r/pull/7","mergedAt":"%s","mergeCommit":{"oid":"%s"}}]\n' \
     "$1" "$MERGE" >"$GH_MERGED_JSON"
+}
+
+# write_issue_links PR... writes one labeled issue (#5) whose
+# closedByPullRequestsReferences name the given PR numbers.
+write_issue_links() {
+  local refs="" n
+  for n in "$@"; do refs+="{\"number\":$n},"; done
+  printf '[{"number":5,"closedByPullRequestsReferences":[%s]}]\n' "${refs%,}" >"$GH_ISSUES_JSON"
+}
+
+# write_pr_view N STATE writes the `pr view` document for PR N.
+write_pr_view() {
+  printf '{"number":%s,"title":"Fix the bug","url":"https://github.com/o/r/pull/%s","mergedAt":"2020-01-01T00:00:00Z","mergeCommit":{"oid":"%s"},"state":"%s"}\n' \
+    "$1" "$1" "$MERGE" "$2" >"$GH_PR_VIEW_DIR/pr-$1.json"
 }
 
 run_audit() {
@@ -183,6 +221,33 @@ write_merged 2020-01-01T00:00:00Z
 run_audit
 if [[ "$status" -eq 1 ]]; then ok "an adapted port is reported as debt"; else bad "an adapted port is reported as debt (got $status)"; fi
 assert_contains "names the adapted PR" "$out" "#7"
+
+echo "# backport-audit.sh (issue label, unlabeled PR)"
+seed_fixture issue-label
+printf '[]\n' >"$GH_MERGED_JSON"
+write_issue_links 7
+write_pr_view 7 MERGED
+run_audit
+if [[ "$status" -eq 1 ]]; then ok "an issue-labeled unlabeled PR is audited and is debt"; else bad "an issue-labeled unlabeled PR is audited and is debt (got $status)"; fi
+assert_contains "reports the issue-linked PR" "$out" "#7"
+assert_contains "reads the labeled issues" "$(argv)" "issue list"
+assert_contains "resolves the referenced PR" "$(argv)" "pr view 7"
+
+echo "# backport-audit.sh (issue and PR label, one record)"
+seed_fixture both-labels
+write_merged 2020-01-01T00:00:00Z
+write_issue_links 7
+write_pr_view 7 MERGED
+run_audit
+assert_eq_count "a PR labeled on both the issue and the PR is reported once" "$out" "#7" "1"
+
+echo "# backport-audit.sh (issue references an unmerged PR)"
+seed_fixture issue-unmerged
+printf '[]\n' >"$GH_MERGED_JSON"
+write_issue_links 7
+write_pr_view 7 OPEN
+run_audit
+if [[ "$status" -eq 0 ]]; then ok "an issue referencing an unmerged PR is skipped"; else bad "an issue referencing an unmerged PR is skipped (got $status)"; fi
 
 echo "# backport-audit.sh (usage)"
 if "$AUDIT" --help >/dev/null 2>&1; then ok "--help exits 0"; else bad "--help exits 0"; fi

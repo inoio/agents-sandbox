@@ -27,6 +27,15 @@ on:
 permissions:
   contents: read
 
+# One audit at a time. A manual dispatch racing the nightly would otherwise run
+# two audits that each create a "Backport debt" issue, breaking the one-rolling-
+# issue invariant. Never cancel a run in progress — it may be mid-way through
+# opening backport pull requests — so a superseded pending run is dropped and
+# the running one finishes (mirrors fuzz.yml).
+concurrency:
+  group: backport-audit
+  cancel-in-progress: false
+
 jobs:
   audit:
     name: backport audit

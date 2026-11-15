@@ -40,7 +40,9 @@ push a tag, land the changelog, or otherwise publish the release, so it needs no
 
 A micro's fixes are authored on `main` and cherry-picked down onto the current release branch, so the
 branch must hold nothing `main` lacks. Run this **before** authoring the release's own changelog/tag
-commit (step 6), which is the one branch-local commit allowed and so is never in scope here.
+commit (step 6): that is *this* micro's one branch-local commit and so is never in scope here. It is
+not the branch's only one — every earlier micro already assembled a changelog and tagged the branch,
+and its release commit stays on the line.
 
 Run `scripts/backport-audit.sh`. It exits non-zero when a merged `needs-backport` PR on `main` has a
 commit missing from the latest `release/<major>.<minor>` line. Present each reported fix and stop
@@ -49,15 +51,19 @@ reported PR, `scripts/open-backport-pr.sh <n>` performs the port (cherry-pick do
 against the branch); let it merge, then rerun the audit.
 
 Then run `git cherry main release/<major>.<minor>` as the wrong-direction tripwire. Every commit on the
-branch must be patch-equivalent to a `main` commit; a `+` line is a branch commit `main` lacks. A `+`
-is a **question for the maintainer, not an automatic failure**: an adapted port (conflict resolved
-differently) has a different patch-id and legitimately shows as `+`, and so does an urgent fix
-authored straight on the branch. Surface each `+` line for the maintainer to confirm "adapted, not
-missed" and proceed; a fix authored directly on the branch is debt to clear by getting its patch onto
-`main`.
+branch must be patch-equivalent to a `main` commit; a `+` line is a branch commit `main` lacks. Three
+kinds of `+` are legitimate, not missed:
 
-Completion: the audit is clean (or the maintainer overrode it), and every `+` line is confirmed
-adapted or is known branch debt.
+- **a prior micro's release commit** — each shipped micro assembled a changelog and tagged the branch,
+  and that commit stays on the line. At the next micro it is in scope; one per micro is expected.
+- **an adapted port** — a conflict resolved differently, so a different patch-id.
+- **an urgent fix authored straight on the branch** — permitted, but debt to clear by getting its
+  patch onto `main`.
+
+Surface each `+` line for the maintainer to confirm "adapted, not missed" and proceed.
+
+Completion: the audit is clean (or the maintainer overrode it), and every `+` line is accounted for as
+a prior micro's release commit, an adapted port, or known branch debt.
 
 ### 1. Curate the changelog
 

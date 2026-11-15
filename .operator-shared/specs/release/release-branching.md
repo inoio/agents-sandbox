@@ -1,5 +1,5 @@
 ---
-description: Contract for the release model — `main` as the source of truth, fixes cherry-picked down (`git cherry-pick -x`) to the single maintained `release/<major>.<minor>` branch, the patch-id containment invariant checked by `git cherry` (not ancestry) before the micro's own changelog/tag commit, the micro/minor/major tag roles, the `needs-backport` marker, the `release` skill's `backport-audit` tag precondition, the nightly reconciliation workflow and its rolling `Backport debt` issue, and that a release tag is refused unless it is on `main` or a release branch.
+description: Contract for the release model — `main` as the source of truth, fixes cherry-picked down (`git cherry-pick -x`) to the single maintained `release/<major>.<minor>` branch, the patch-id containment invariant checked by `git cherry` (not ancestry) before the micro's own changelog/tag commit and the one prior-micro release commit per shipped micro that legitimately shows as `+`, the micro/minor/major tag roles, the `needs-backport` marker, the `release` skill's `backport-audit` tag precondition, the nightly reconciliation workflow and its rolling `Backport debt` issue, and that a release tag is refused unless it is on `main` or a release branch.
 read_if: Deciding where a release tag or a fix lands, cherry-picking a fix down to a release line, backporting a fix, the `needs-backport` marker, the backport audit or its nightly workflow, protecting a release branch, or changing the release branch name or flow.
 ---
 
@@ -21,16 +21,18 @@ read_if: Deciding where a release tag or a fix lands, cherry-picking a fix down 
   commit and would defeat the invariant check).
 - **The containment invariant is patch-id-based, not ancestry.** A cherry-picked commit is a new SHA,
   so `git merge-base --is-ancestor` is the wrong test and reports a false failure. The test is
-  `git cherry main release/<X>` with **no `+` lines**: every branch commit must be patch-equivalent to
-  a `main` commit.
+  `git cherry main release/<X>`: every branch commit must be patch-equivalent to a `main` commit.
 - **The invariant is a precondition, not a post-hoc check.** It runs *before* the micro's own
-  changelog/tag commit, so that one branch-local commit is never in scope — the branch may
-  legitimately hold it. Everything else on the branch must be patch-equivalent to `main`.
-- **A `+` line is a question, not a failure.** An adapted port (a conflict resolved differently)
-  produces a different patch-id and legitimately shows as `+`; so does an urgent fix authored
-  straight on the branch. The skill surfaces each `+` line for the maintainer to confirm "adapted,
-  not missed" and proceeds. A fix authored directly on the branch is debt to clear by getting its
-  patch onto `main`. The check is a **tripwire in the skill**, not a CI gate.
+  changelog/tag commit, so that commit is never in scope. But the branch is not otherwise
+  commit-free: **every earlier micro already left one branch-local changelog/tag commit on it**, and
+  at the next micro that commit is in scope — `git cherry` prints `+` for it. One such commit per
+  shipped micro is expected, never a failure.
+- **A `+` line is a question, not a failure.** An *unexpected* `+` is one that is neither a prior
+  micro's release commit, nor an adapted port (a conflict resolved differently, giving a different
+  patch-id), nor an urgent fix authored straight on the branch. The skill surfaces each `+` line for
+  the maintainer to confirm "adapted, not missed" and proceeds. A fix authored directly on the branch
+  is debt to clear by getting its patch onto `main`. The check is a **tripwire in the skill**, not a
+  CI gate.
 - **Tag roles.** A **micro** (patch) release is tagged on the current `release/<major>.<minor>`
   branch and contains only fixes cherry-picked from `main`. A **minor** release is tagged on `main`
   and advances the maintenance line to `release/<new minor>`. A **major** release is tagged on `main`
@@ -52,8 +54,11 @@ read_if: Deciding where a release tag or a fix lands, cherry-picking a fix down 
 - It is a **permanent record**, like `upstream` — it is not cleared when the port lands. Done-ness is
   decided by patch-id presence, so a stale label cannot mask an unported fix and a cleared-then-failed
   port cannot lose its record.
-- `scripts/enqueue-pr.sh` copies the marker from the linked issue onto the PR at enqueue time, which
-  is what makes the audit (below) see the fix.
+- The marker's **durable home is the issue**. `scripts/enqueue-pr.sh` also copies it from the linked
+  issue onto the PR at enqueue time, but that copy is the convenience, not the record: a PR merged by
+  the raw `enqueuePullRequest` mutation or "Merge when ready" never gets the copy. The audit (below)
+  therefore reads **both** — merged PRs carrying the label, and merged PRs that close a
+  labeled issue — so no merge path loses the marker.
 
 ## The release skill's backport checks
 
@@ -63,8 +68,9 @@ micro's changelog/tag commit:
 - **`scripts/backport-audit.sh`** — the audit. It reports, and `scripts/open-backport-pr.sh <n>`
   creates a port (cherry-pick down, open the PR against the branch); the workflow runs both. The
   audit:
-  - derives the **expected set** from merged `needs-backport` PRs on `main`, recomputed from scratch
-    and independent of whether any creation step ran;
+  - derives the **expected set** from merged `needs-backport` fixes on `main` — the union of merged
+    PRs carrying the label and merged PRs that close a labeled issue, deduplicated by PR number,
+    recomputed from scratch and independent of whether any creation step ran;
   - tests **equivalence by patch-id set containment**, not the `cherry-pick -x` trailer — the merge
     queue rebuilds a PR on `main`, so the SHAs `-x` recorded may not exist on `main`, while a
     patch-id is content-based and survives the rebase;
@@ -74,8 +80,9 @@ micro's changelog/tag commit:
     **blocks the tag** unless the maintainer overrides — this is what makes "you cannot ship a micro
     with an unported fix" true by construction. An adapted port is a different patch-id and shows as
     a false positive, advisory for a human to confirm.
-- **`git cherry main release/<X>`** — the wrong-direction tripwire described above, asserting no `+`
-  lines.
+- **`git cherry main release/<X>`** — the wrong-direction tripwire described above. The only expected
+  `+` lines are each prior micro's release commit, an adapted port, and a branch-authored fix; any
+  other `+` is an unexplained branch commit.
 
 The latest line is the highest-semver `release/<major>.<minor>` among local and origin refs; with no
 release branch the audit reports nothing to audit and exits clean.
