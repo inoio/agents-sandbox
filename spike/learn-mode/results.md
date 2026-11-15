@@ -16,8 +16,8 @@ approaches"). Run date, host, and the resolving `msb`/SDK versions at the top.
 | Experiment | Result | Decision taken |
 |---|---|---|
 | S1 | opencode2: config dir empty; credential is inline JSON in `opencode.db` (SQLite); logs name the host | A must read the agent's SQLite DB, not only config files |
-| S2 | fail as scripted: custom upstream honoured, but no query reached the host listener | DNS dropped; D1 already yields destinations |
-| S3 | pass for `http` under `none` (dial bypasses policy); gateway-IP address fails; `socks5` not truly tested | B is viable; proxy dial needs no policy widening |
+| S2 | port honoured, but no host-listener upstream is reachable (DNS upstream is not dialled host-side) | DNS dropped; D1 already yields destinations |
+| S3 | `http` at `127.0.0.1` works under bare `none` (dial bypasses policy); gateway rows used a stale address (invalid); `socks5` not truly tested | B is viable; proxy dial needs no policy widening |
 | S4 | inconclusive as scripted: blind mitmproxy logs no flows; guest traffic (ip literal, git, ssh, apk) succeeded | learned set stays advisory |
 | S5 | fail: denial not in any launcher-readable runtime log; only the guest's own error | UC2 detection stays guest/file-attributed |
 | S6 | pass: termination works; credential header name and destination visible | C is viable; a terminating proxy sees real secrets |
@@ -92,12 +92,26 @@ approaches"). Run date, host, and the resolving `msb`/SDK versions at the top.
 
 ### DNS finding (S2)
 
-`--dns-nameserver <addr>:<port>` is honoured (pointing it at a dead address breaks resolution), but queries
-never arrived at a host-owned listener on `127.0.0.1:5354`, `172.16.0.61:5354` (the gateway), or the host's
-primary IP: dnsmasq logged no query lines in any case (the guest saw the runtime's own proxy at
-`172.16.0.5:53`). The runtime's DNS proxy evidently does not dial the configured upstream from the host
-loopback, so a host-side logging resolver is not a usable corroboration channel as the runbook scripted it.
-With D1 already yielding destinations from the runtime's own debug log, DNS is not needed for approach B.
+Tested properly: `--dns-nameserver 1.1.1.1` resolves but `1.1.1.1:5353` does not, so the flag is honoured and
+the **port is used as given**. But no host-owned listener ever received a query: `127.0.0.1:5354`,
+`172.16.0.5:5354` (the sandbox gateway, which is also what `host.microsandbox.internal` resolves to under
+`--net public`), the host's primary IP, and `127.0.0.1:5354` under `--net public,host` all produced dnsmasq's
+startup lines and zero `query[]` lines. The guest's `/etc/resolv.conf` is `nameserver 172.16.0.5`, the
+runtime's own proxy.
+
+So the runtime does **not** dial the DNS upstream from the host: unlike the **proxy**, which *is* dialled
+host-side (`--proxy http://127.0.0.1:8088` works under bare `none`, S3), the DNS upstream is dialled
+somewhere the host's addresses are not reachable. A host-side logging resolver is therefore not a usable
+corroboration channel; the runbook's `DNS_UPSTREAM=127.0.0.1` default is wrong. With D1 already yielding
+destinations from the runtime's own debug log, DNS is not needed for approach B.
+
+Two procedural traps this exposed (in the method, not the drivers):
+- `spike_host_ip` resolves the host alias once and caches it; it returned `172.16.0.61` for a `--net host`
+  probe while every `--net public` sandbox reports the gateway as `172.16.0.5`. The cached value is not usable
+  as an upstream address for another sandbox; S3's gateway-IP rows and the first S2 probes used it and were
+  invalid.
+- An early probe deleted `dns.log` *after* starting dnsmasq, so it wrote to an unlinked file and the query
+  count was meaningless.
 
 ### S1 finding (opencode2)
 
