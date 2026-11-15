@@ -131,6 +131,11 @@ pr_state() {
 # PR already carries is a no-op in gh, so this is safe to repeat. The copy is
 # convenience only — the issue label is the durable record — so a refused copy
 # warns and continues rather than aborting the enqueue.
+#
+# It runs after the enqueue, not before the check watch: adding a label fires the
+# `labeled` pull_request event, and ci.yml cancels an in-flight run for the same
+# PR (`cancel-in-progress: true`), so labelling first would restart the very run
+# being watched here (Docker `integration` job included).
 carry_backport_marker() {
   local issue
   while read -r issue; do
@@ -156,8 +161,6 @@ if ! load_pr; then
   exit 1
 fi
 
-carry_backport_marker
-
 printf 'enqueue-pr: PR #%s: waiting for checks\n' "$pr"
 watch_checks
 
@@ -179,3 +182,7 @@ if [[ -n "$position" ]]; then
 else
   printf 'enqueue-pr: PR #%s: enqueued\n' "$pr"
 fi
+
+# After the enqueue, so its `labeled` event cannot cancel the run the watch above
+# just observed. The issue label is the audit's durable record either way.
+carry_backport_marker || true

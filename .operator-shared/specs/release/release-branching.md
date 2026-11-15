@@ -73,7 +73,8 @@ micro's changelog/tag commit:
     recomputed from scratch and independent of whether any creation step ran;
   - tests **equivalence by patch-id set containment**, not the `cherry-pick -x` trailer — the merge
     queue rebuilds a PR on `main`, so the SHAs `-x` recorded may not exist on `main`, while a
-    patch-id is content-based and survives the rebase;
+    patch-id is content-based and survives the rebase. A commit whose patch-id is empty changes
+    nothing (an empty commit), so it needs no port and is never debt;
   - controls **noise** by skipping a PR merged within a 2-hour grace period and skipping one whose
     commit is already covered by an open backport PR targeting the line;
   - exits `1` when a labeled fix is missing from the latest line. An unported `needs-backport` fix
@@ -82,16 +83,21 @@ micro's changelog/tag commit:
     a false positive, advisory for a human to confirm.
   - fails with **exit `2`, never clean**, when an expected-set query comes back at its row cap: `gh`
     returns the newest N rows and silently drops the rest, so a truncated set would read as no debt
-    and close the rolling issue. The caller treats anything but `0`/`1` as an operational failure.
+    and close the rolling issue. The same exit covers an unanswerable merge-commit query — a merged
+    PR's merge commit absent from the local clone (a stale fetch) would otherwise empty the walked
+    range and read as clean — so the run says to fetch and rerun. The caller treats anything but
+    `0`/`1` as an operational failure.
 - **`git cherry main release/<X>`** — the wrong-direction tripwire described above. The only expected
   `+` lines are each prior micro's release commit, an adapted port, and a branch-authored fix; any
   other `+` is an unexplained branch commit.
 
 The porter, `scripts/open-backport-pr.sh <n>`, skips a source commit whose patch-id is already on the
 line, so a partially ported PR (a commit hand-ported earlier, an adapted port) is completed instead of
-aborting on an empty cherry-pick. A fully ported PR is a no-op that pushes nothing and exits `3`
-(distinct from `0`, which means a branch was pushed and a PR opened); the workflow reports it as
-"already fully ported" rather than "opened".
+aborting on an empty cherry-pick. It also skips a commit with an empty patch-id (an empty commit) and
+a pick git reports as now empty (the change is present in another form), both with nothing to port; a
+real conflict still aborts. A fully ported PR — including one whose every remaining pick came out
+empty — is a no-op that pushes nothing and exits `3` (distinct from `0`, which means a branch was
+pushed and a PR opened); the workflow reports it as "already fully ported" rather than "opened".
 
 The latest line is the highest-semver `release/<major>.<minor>` among local and origin refs; with no
 release branch the audit reports nothing to audit and exits clean.

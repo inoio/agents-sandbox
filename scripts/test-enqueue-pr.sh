@@ -129,6 +129,20 @@ run_script() {
 }
 argv() { if [[ -f "$GH_ARGV" ]]; then cat "$GH_ARGV"; fi; }
 
+# assert_call_order NAME BEFORE AFTER asserts the BEFORE call was made before the
+# AFTER call, from the recorded argv (one line per gh invocation).
+assert_call_order() {
+  local recorded before_line after_line
+  recorded="$(argv)"
+  before_line="$(grep -nF -- "$2" <<<"$recorded" | head -n1 | cut -d: -f1)"
+  after_line="$(grep -nF -- "$3" <<<"$recorded" | head -n1 | cut -d: -f1)"
+  if [[ -n "$before_line" && -n "$after_line" && "$before_line" -lt "$after_line" ]]; then
+    ok "$1"
+  else
+    bad "$1 (before line ${before_line:-none}, after line ${after_line:-none})"
+  fi
+}
+
 echo "# enqueue-pr.sh (already merged)"
 run_script '{"state":"MERGED","id":"PR_1"}' 42
 if [[ "$status" -eq 0 ]]; then ok "already merged exits 0"; else bad "already merged exits 0 (got $status)"; fi
@@ -154,6 +168,7 @@ assert_contains "reads the linked issue's labels" "$(argv)" "issue view 7 --json
 assert_contains "copies the marker onto the PR" "$(argv)" "pr edit 42 --add-label needs-backport"
 assert_contains "prints the backport hint" "$out" "marked needs-backport (a backport PR will be opened by the backport audit)"
 assert_contains "still enqueues" "$(argv)" "api graphql"
+assert_call_order "copies the marker only after the enqueue" "api graphql" "pr edit 42 --add-label needs-backport"
 unset issue_labels
 
 echo "# enqueue-pr.sh (marker copy is refused)"
@@ -163,6 +178,7 @@ run_script '{"state":"OPEN","id":"PR_13","closingIssuesReferences":[{"number":7}
 if [[ "$status" -eq 0 ]]; then ok "a refused marker copy still exits 0"; else bad "a refused marker copy still exits 0 (got $status)"; fi
 assert_contains "warns that the copy failed" "$err" "could not copy the marker; the issue label still governs the audit"
 assert_contains "still enqueues" "$(argv)" "api graphql"
+assert_call_order "a refused copy is still attempted after the enqueue" "api graphql" "pr edit 42 --add-label needs-backport"
 assert_not_contains "claims the marker was copied" "$out" "marked needs-backport"
 unset issue_labels GH_PR_EDIT_EXIT
 
@@ -205,9 +221,12 @@ assert_contains "names the pending state" "$err" "checks are still pending"
 assert_not_contains "does not enqueue while pending" "$(argv)" "api graphql"
 unset GH_CHECKS_EXIT
 
+# The watch reaches pr_state on the fourth probe (resolve, conflict, conflict,
+# then the failure diagnostic); the marker copy no longer consumes one, because
+# it runs after the enqueue.
 echo "# enqueue-pr.sh (closed while waiting)"
 export GH_CHECKS_EXIT=1
-run_script '[{"state":"OPEN","id":"PR_5"},{"state":"OPEN","id":"PR_5"},{"state":"OPEN","id":"PR_5"},{"state":"OPEN","id":"PR_5"},{"state":"CLOSED","id":"PR_5"}]' 42
+run_script '[{"state":"OPEN","id":"PR_5"},{"state":"OPEN","id":"PR_5"},{"state":"OPEN","id":"PR_5"},{"state":"CLOSED","id":"PR_5"}]' 42
 if [[ "$status" -ne 0 ]]; then ok "closed during the watch exits non-zero"; else bad "closed during the watch exits non-zero"; fi
 assert_contains "reports the PR is closed" "$err" "closed while waiting"
 assert_not_contains "does not enqueue a closed PR" "$(argv)" "api graphql"

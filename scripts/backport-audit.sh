@@ -11,9 +11,10 @@
 #   backport-audit.sh
 #
 # Exit status: 0 when no backport debt is outstanding, 1 when at least one
-# labeled PR is missing from the release branch, 2 on a usage error or when an
-# expected-set query came back full (truncated) — the caller must treat that as
-# an error, never as clean.
+# labeled PR is missing from the release branch, 2 on a usage error, when an
+# expected-set query came back full (truncated), when a merged PR's merge commit
+# is not in the local clone, or when a merged PR's commits cannot be read — the
+# caller must treat every 2 as an error, never as clean.
 #
 # Env (all overridable):
 #   BACKPORT_AUDIT_REPO            repository to inspect (default: .)
@@ -63,7 +64,14 @@
 #   Port test: a PR's commits are
 #   git log --no-merges --reverse --format=%H "<merge>^1..<merge>"; each commit's
 #   patch-id is git show "<sha>" | git patch-id --stable | awk '{print $1}'.
-#   The PR is debt when any of its patch-ids is absent from the branch set.
+#   The PR is debt when any of its patch-ids is absent from the branch set. An
+#   empty patch-id means the commit changes nothing (an empty commit), so it
+#   needs no port and is never debt.
+#
+#   Unanswerable query: a merge commit the local clone does not have (a stale
+#   clone, or the API's merge oid not fetched yet) cannot be walked, so the run
+#   aborts with 2 and says to fetch and rerun. Treating the empty range as
+#   "nothing missing" would report a false clean.
 #
 #   Noise control (skip, not debt): mergedAt strictly within GRACE_SECONDS of
 #   NOW, or an open PR targeting the release branch whose body references this
@@ -226,6 +234,7 @@ references_open_backport() {
   return 1
 }
 
+debt_status=0
 debt="$(
   printf '%s\n' "$merged" | while IFS=$'\t' read -r number title url merged_at merge_oid; do
     [[ -n "$number" ]] || continue
@@ -234,10 +243,27 @@ debt="$(
 
     missing=0
     if [[ -n "$merge_oid" ]]; then
-      commits="$(git -C "$repo" log --no-merges --reverse --format=%H "${merge_oid}^1..${merge_oid}" 2>/dev/null || true)"
+      # A merge commit the clone does not have (its origin/main was not fetched
+      # since the PR merged) makes `git log <merge>^1..<merge>` exit 128 with
+      # empty stdout, which would read as "no commits missing" — a false clean.
+      # The question is unanswerable, so fail closed and tell the operator how
+      # to make it answerable.
+      if ! git -C "$repo" cat-file -e "${merge_oid}^{commit}" 2>/dev/null; then
+        printf 'backport-audit: merge commit %s for PR #%s is not in the local clone; fetch origin and the release branches, then rerun\n' \
+          "$merge_oid" "$number" >&2
+        exit 2
+      fi
+      if ! commits="$(git -C "$repo" log --no-merges --reverse --format=%H "${merge_oid}^1..${merge_oid}")"; then
+        printf 'backport-audit: could not read the commits of PR #%s (merge commit %s); fetch and rerun\n' \
+          "$number" "$merge_oid" >&2
+        exit 2
+      fi
       while IFS= read -r sha; do
         [[ -n "$sha" ]] || continue
         patch_id="$(git -C "$repo" show "$sha" | git patch-id --stable | awk '{print $1}')"
+        # An empty patch-id is a commit that changes nothing (an empty commit),
+        # so there is nothing to port and it can never be debt.
+        [[ -n "$patch_id" ]] || continue
         if ! printf '%s\n' "$branch_ids" | grep -qxF -- "$patch_id"; then
           missing=$((missing + 1))
         fi
@@ -248,7 +274,13 @@ debt="$(
       printf '#%s\t%s\t%s\tmissing:%s\n' "$number" "$title" "$url" "$missing"
     fi
   done
-)"
+)" || debt_status=$?
+
+# The loop above reports an unanswerable query by exiting 2 inside the
+# substitution, so re-exit with that status: a non-zero here is never clean.
+if [[ "$debt_status" -ne 0 ]]; then
+  exit "$debt_status"
+fi
 
 if [[ -n "$debt" ]]; then
   printf '%s\n' "$debt"

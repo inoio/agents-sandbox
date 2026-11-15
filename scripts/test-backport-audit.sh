@@ -124,10 +124,11 @@ seed_fixture() {
   MERGE="$(git -C "$REPO" rev-parse HEAD)"
 }
 
-# write_merged MERGED_AT writes one labeled #7 PR whose merge commit is MERGE.
+# write_merged MERGED_AT [MERGE_OID] writes one labeled #7 PR whose merge commit
+# is MERGE (or the given oid, to model one the clone does not have).
 write_merged() {
   printf '[{"number":7,"title":"Fix the bug","url":"https://github.com/o/r/pull/7","mergedAt":"%s","mergeCommit":{"oid":"%s"}}]\n' \
-    "$1" "$MERGE" >"$GH_MERGED_JSON"
+    "$1" "${2:-$MERGE}" >"$GH_MERGED_JSON"
 }
 
 # write_issue_links PR... writes one labeled issue (#5) whose
@@ -217,6 +218,33 @@ unset_audit_env
 
 echo "# backport-audit.sh (commits read from the merged range)"
 assert_not_contains "never asks the API for the original commits" "$truncation_argv" "--json commits"
+
+echo "# backport-audit.sh (merge commit not in the local clone)"
+seed_fixture missing-merge
+absent_merge="0123456789abcdef0123456789abcdef01234567"
+write_merged 2020-01-01T00:00:00Z "$absent_merge"
+run_audit
+if [[ "$status" -eq 2 ]]; then ok "an unresolvable merge commit exits 2"; else bad "an unresolvable merge commit exits 2 (got $status)"; fi
+assert_contains "names the unresolved merge commit" "$(err)" "$absent_merge"
+assert_contains "names the PR" "$(err)" "#7"
+assert_contains "says to fetch and rerun" "$(err)" "fetch"
+if [[ -z "$out" ]]; then ok "prints no clean result for an unresolvable merge commit"; else bad "prints no clean result for an unresolvable merge commit (got: $out)"; fi
+
+# The same fixture with the real merge oid is answerable, so it audits and
+# reports the debt instead of aborting.
+write_merged 2020-01-01T00:00:00Z
+run_audit
+if [[ "$status" -eq 1 ]]; then ok "a resolvable merge commit is still audited"; else bad "a resolvable merge commit is still audited (got $status)"; fi
+assert_contains "reports the resolvable PR's debt" "$out" "#7"
+
+echo "# backport-audit.sh (empty commit)"
+seed_fixture empty-commit
+git -C "$REPO" commit -q --allow-empty -m "empty"
+empty_merge="$(git -C "$REPO" rev-parse HEAD)"
+write_merged 2020-01-01T00:00:00Z "$empty_merge"
+run_audit
+if [[ "$status" -eq 0 ]]; then ok "an empty commit is not debt"; else bad "an empty commit is not debt (got $status)"; fi
+assert_not_contains "reports no debt for the empty commit" "$out" "#7"
 
 echo "# backport-audit.sh (ported PR)"
 seed_fixture ported

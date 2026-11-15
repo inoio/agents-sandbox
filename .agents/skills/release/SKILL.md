@@ -44,6 +44,10 @@ commit (step 6): that is *this* micro's one branch-local commit and so is never 
 not the branch's only one — every earlier micro already assembled a changelog and tagged the branch,
 and its release commit stays on the line.
 
+Run `git fetch origin main 'refs/heads/release/*:refs/remotes/origin/release/*'` first: the audit
+resolves a merged PR through its merge commit and the release branch's patch-ids from the local
+clone, so a clone whose refs are stale fails the run (exit 2) instead of answering it.
+
 Run `scripts/backport-audit.sh`. It exits non-zero when a merged `needs-backport` PR on `main` has a
 commit missing from the latest `release/<major>.<minor>` line. Present each reported fix and stop
 unless the maintainer overrides — a micro must not ship with a fix stranded off the line. For a

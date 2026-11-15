@@ -99,6 +99,33 @@ seed_two_commit_fixture() {
   git -C "$REPO" push -q origin main release/0.1
 }
 
+# seed_empty_commit_fixture NAME builds a repo whose #7 has three commits on one
+# topic branch: a real change, an empty commit, then another real change; MERGE
+# is the merge commit, so `git log <merge>^1..<merge>` yields all three.
+seed_empty_commit_fixture() {
+  REPO="$fixture_root/repo-$1"
+  ORIGIN="$fixture_root/origin-$1.git"
+  rm -rf "$REPO" "$ORIGIN"
+  mkdir -p "$REPO"
+  git init -q --bare "$ORIGIN"
+  git -C "$REPO" init -q -b main
+  git -C "$REPO" config user.email t@t
+  git -C "$REPO" config user.name t
+  printf 'a\n' >"$REPO/f"; git -C "$REPO" add f; git -C "$REPO" commit -qm base
+  git -C "$REPO" branch release/0.1
+  git -C "$REPO" checkout -q -b topic
+  printf 'b\n' >"$REPO/f"; git -C "$REPO" commit -qam first
+  git -C "$REPO" commit -q --allow-empty -m "empty"
+  printf 'c\n' >"$REPO/g"; git -C "$REPO" add g; git -C "$REPO" commit -qm second
+  FIRST_SHA="$(git -C "$REPO" rev-parse HEAD~2)"
+  SECOND_SHA="$(git -C "$REPO" rev-parse HEAD)"
+  git -C "$REPO" checkout -q main
+  git -C "$REPO" merge -q --no-ff -m "Merge pull request #7" topic
+  MERGE="$(git -C "$REPO" rev-parse HEAD)"
+  git -C "$REPO" remote add origin "$ORIGIN"
+  git -C "$REPO" push -q origin main release/0.1
+}
+
 # run_open PR [MERGE_OID] runs the script; MERGE_OID overrides what the fake gh
 # serves for `pr view` (an empty value models an unknown or unmerged PR).
 run_open() {
@@ -166,6 +193,38 @@ assert_contains "carries the -x trailer for the ported commit" \
 assert_not_contains "does not replay the already-present commit" \
   "$pushed_log" "(cherry picked from commit $FIRST_SHA)"
 assert_contains "opens the PR" "$(argv)" "pr create"
+
+echo "# open-backport-pr.sh (empty commit)"
+seed_empty_commit_fixture empty
+run_open 7
+assert_eq "a PR containing an empty commit exits 0" "$status" "0"
+assert_contains "skips the empty pick" "$out" "nothing to port"
+assert_contains "opens the PR" "$(argv)" "pr create"
+assert_eq "ports the two real commits" \
+  "$(git -C "$REPO" rev-list --count origin/release/0.1..origin/backport/7-0.1)" "2"
+pushed_log="$(git -C "$REPO" log --format=%B origin/release/0.1..origin/backport/7-0.1)"
+assert_contains "ports the first real commit" "$pushed_log" "(cherry picked from commit $FIRST_SHA)"
+assert_contains "ports the second real commit" "$pushed_log" "(cherry picked from commit $SECOND_SHA)"
+assert_not_contains "never replays the empty commit" "$pushed_log" "empty"
+
+echo "# open-backport-pr.sh (change already present in another form)"
+seed_fixture applied-elsewhere
+git -C "$REPO" checkout -q release/0.1
+printf 'b\n' >"$REPO/f"; printf 'h\n' >"$REPO/h"
+git -C "$REPO" add f h; git -C "$REPO" commit -qm "release-side equivalent"
+git -C "$REPO" push -q origin release/0.1
+git -C "$REPO" checkout -q main
+before="$(git -C "$REPO" ls-remote origin)"
+run_open 7
+assert_eq "a pick that becomes empty exits 3 (nothing to do)" "$status" "3"
+assert_contains "says there is nothing to do" "$out" "already fully ported onto release/0.1"
+assert_eq "pushes nothing for an empty pick" "$(git -C "$REPO" ls-remote origin)" "$before"
+assert_not_contains "opens no empty PR" "$(argv)" "pr create"
+if git -C "$REPO" show-ref --verify --quiet refs/heads/backport/7-0.1; then
+  bad "deletes the otherwise-empty backport branch"
+else
+  ok "deletes the otherwise-empty backport branch"
+fi
 
 echo "# open-backport-pr.sh (fully ported)"
 seed_two_commit_fixture fully-ported
