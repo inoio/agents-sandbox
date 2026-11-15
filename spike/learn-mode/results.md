@@ -16,7 +16,7 @@ approaches"). Run date, host, and the resolving `msb`/SDK versions at the top.
 | Experiment | Result | Decision taken |
 |---|---|---|
 | S1 | opencode2: config dir empty; credential is inline JSON in `opencode.db` (SQLite); logs name the host | A must read the agent's SQLite DB, not only config files |
-| S2 | port honoured, but no host-listener upstream is reachable (DNS upstream is not dialled host-side) | DNS dropped; D1 already yields destinations |
+| S2 | pass: host listener receives the guest's queries; under `none` only allowlisted names are forwarded | DNS is a usable corroboration channel (the earlier "fail" was a broken listener) |
 | S3 | `http` at `127.0.0.1` works under bare `none` (dial bypasses policy); gateway rows used a stale address (invalid); `socks5` not truly tested | B is viable; proxy dial needs no policy widening |
 | S4 | inconclusive as scripted: blind mitmproxy logs no flows; guest traffic (ip literal, git, ssh, apk) succeeded | learned set stays advisory |
 | S5 | fail: denial not in any launcher-readable runtime log; only the guest's own error | UC2 detection stays guest/file-attributed |
@@ -62,6 +62,10 @@ approaches"). Run date, host, and the resolving `msb`/SDK versions at the top.
     `--tls-upstream-ca-cert` (so the runtime trusts mitmproxy upstream), and plant the CA.
   - A socks5 dial the runtime cannot complete stalls the guest; added `SPIKE_EXEC_TIMEOUT` (applied inside
     `spike_exec`) so one wedged case cannot stall a sweep.
+  - S2's host listener was silently broken: `spike_dns_up` passed `--listen-address=0.0.0.0`, which makes
+    dnsmasq bind every interface but answer only queries addressed to the literal `0.0.0.0`. It dropped (and
+    did not log) every loopback query, so S2 read as a runtime failure when the fault was the listener. Fixed
+    in `lib.sh` (the flag is dropped).
   - S3's `socks5` cases were never valid: `spike_proxy_up` starts mitmproxy in HTTP `regular` mode, which is
     not a SOCKS5 server, so the runtime's SOCKS5 dial cannot complete. Testing SOCKS5 needs a SOCKS5 listener
     (mitmproxy's `--mode socks5`), which the driver does not start.
@@ -92,26 +96,30 @@ approaches"). Run date, host, and the resolving `msb`/SDK versions at the top.
 
 ### DNS finding (S2)
 
-Tested properly: `--dns-nameserver 1.1.1.1` resolves but `1.1.1.1:5353` does not, so the flag is honoured and
-the **port is used as given**. But no host-owned listener ever received a query: `127.0.0.1:5354`,
-`172.16.0.5:5354` (the sandbox gateway, which is also what `host.microsandbox.internal` resolves to under
-`--net public`), the host's primary IP, and `127.0.0.1:5354` under `--net public,host` all produced dnsmasq's
-startup lines and zero `query[]` lines. The guest's `/etc/resolv.conf` is `nameserver 172.16.0.5`, the
-runtime's own proxy.
+My earlier "DNS is unusable" result was a **broken test**. With the listener fixed, S2 passes.
 
-So the runtime does **not** dial the DNS upstream from the host: unlike the **proxy**, which *is* dialled
-host-side (`--proxy http://127.0.0.1:8088` works under bare `none`, S3), the DNS upstream is dialled
-somewhere the host's addresses are not reachable. A host-side logging resolver is therefore not a usable
-corroboration channel; the runbook's `DNS_UPSTREAM=127.0.0.1` default is wrong. With D1 already yielding
-destinations from the runtime's own debug log, DNS is not needed for approach B.
+- **The runtime dials the DNS upstream host-side.** tcpdump shows the guest's query forwarded as
+  `127.0.0.1:<src> > 127.0.0.1:5354` on the host loopback, and the `msb machine` runtime is in the host netns
+  (`net:[4026531833]`, same as our shell). So the runbook's `DNS_UPSTREAM=127.0.0.1` is correct.
+- **The listener was misconfigured.** `spike_dns_up` passed `--listen-address=0.0.0.0`. dnsmasq then binds every
+  interface but answers only queries whose *destination address* is the literal `0.0.0.0` — it silently drops
+  every loopback query and logs nothing (`ss` shows it bound; a host `dig @127.0.0.1 -p 5354` times out; tcpdump
+  shows the query in with no reply). Dropping the flag fixes it: a host dig answers, and so does a sandbox.
+- **Result after the fix** (`s2_dns.sh public` and `s2_dns.sh none-allow`): the host listener receives the
+  guest's queries from `127.0.0.1`. Under `public`, every consumer's names arrive (example.com, github.com,
+  dl-cdn.alpinelinux.org, and the not-allowlisted denied.example.net → NODATA). Under `none`+allowlist, only the
+  allowlisted names arrive and `denied.example.net` never reaches the listener — the runtime's proxy answers
+  NXDOMAIN itself, exactly the documented `none` DNS behaviour.
+- So a host-owned resolver **is** a usable corroboration channel. The runbook's "the proxy log supersedes DNS"
+  is a preference (the proxy gives ports and success), not a fallback forced by DNS being unavailable.
 
-Two procedural traps this exposed (in the method, not the drivers):
-- `spike_host_ip` resolves the host alias once and caches it; it returned `172.16.0.61` for a `--net host`
-  probe while every `--net public` sandbox reports the gateway as `172.16.0.5`. The cached value is not usable
-  as an upstream address for another sandbox; S3's gateway-IP rows and the first S2 probes used it and were
-  invalid.
-- An early probe deleted `dns.log` *after* starting dnsmasq, so it wrote to an unlinked file and the query
-  count was meaningless.
+Procedural traps this exposed:
+- `--listen-address=0.0.0.0` in `spike_dns_up` (fixed in `lib.sh`: the flag is dropped; dnsmasq's default is to
+  listen on every interface and answer any destination).
+- `spike_host_ip` resolves the host alias once and caches it; it returned `172.16.0.61` for a `--net host` probe
+  while every `--net public` sandbox reports the gateway as `172.16.0.5`. The cached value is not usable as an
+  upstream address for another sandbox; S3's gateway-IP rows used it and are invalid.
+- An early probe deleted `dns.log` *after* starting dnsmasq, so it wrote to an unlinked file.
 
 ### S1 finding (opencode2)
 

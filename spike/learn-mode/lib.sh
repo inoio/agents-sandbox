@@ -157,7 +157,7 @@ spike_dns_up() {
   # unaffected — the dir is already owned by it.
   local user_args=()
   [ "$(id -u)" -eq 0 ] && user_args=(--user="$(id -un)")
-  dnsmasq --conf-file=/dev/null --port="$DNS_PORT" --listen-address=0.0.0.0 \
+  dnsmasq --conf-file=/dev/null --port="$DNS_PORT" \
     "${user_args[@]}" \
     --no-hosts --no-resolv --server=1.1.1.1 --log-queries \
     --log-facility="$dir/dns.log" --pid-file="$dir/dns.pid"
