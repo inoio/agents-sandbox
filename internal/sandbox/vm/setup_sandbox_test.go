@@ -305,7 +305,8 @@ func (*recvErrorStreamHandle) Close() error { return nil }
 
 // TestRunStartupHooksWarnsWhenTheExecCannotStart pins that a streaming exec
 // that cannot be opened is reported with its target and the error, not
-// swallowed.
+// swallowed, and is a warning rather than an interrupt: the run continues past a
+// hook that could not start.
 func TestRunStartupHooksWarnsWhenTheExecCannotStart(t *testing.T) {
 	sb := &msbtest.MockSandbox{
 		Name_: "vm",
@@ -315,10 +316,13 @@ func TestRunStartupHooksWarnsWhenTheExecCannotStart(t *testing.T) {
 	}
 	ui := termiotest.NewTestMock(t)
 
-	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
+	interrupted := runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
 		{Target: "/home/dev/.hook.sh", Source: "x", HasShebang: true},
 	}, &ui, false)
 
+	if interrupted {
+		t.Error("runStartupHooks() = true, want a hook that cannot start to warn, not abort the run")
+	}
 	if len(ui.WarnCalls) != 1 {
 		t.Fatalf("warnings = %v, want one for the hook that could not start", ui.WarnCalls)
 	}
@@ -330,7 +334,8 @@ func TestRunStartupHooksWarnsWhenTheExecCannotStart(t *testing.T) {
 }
 
 // TestRunStartupHooksWarnsWhenTheStreamFails pins that a receive error while
-// the context is live is reported with its target and the error.
+// the context is live is reported with its target and the error, and does not
+// abort the run.
 func TestRunStartupHooksWarnsWhenTheStreamFails(t *testing.T) {
 	sb := &msbtest.MockSandbox{
 		Name_: "vm",
@@ -343,10 +348,13 @@ func TestRunStartupHooksWarnsWhenTheStreamFails(t *testing.T) {
 	}
 	ui := termiotest.NewTestMock(t)
 
-	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
+	interrupted := runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
 		{Target: "/home/dev/.hook.sh", Source: "x", HasShebang: true},
 	}, &ui, false)
 
+	if interrupted {
+		t.Error("runStartupHooks() = true, want a broken stream to warn, not abort the run")
+	}
 	if len(ui.WarnCalls) != 1 {
 		t.Fatalf("warnings = %v, want one for the failed stream", ui.WarnCalls)
 	}
@@ -358,7 +366,8 @@ func TestRunStartupHooksWarnsWhenTheStreamFails(t *testing.T) {
 }
 
 // TestRunStartupHooksStaysSilentOnACancelledStream pins that a receive that
-// fails because the context was cancelled is not reported as a hook failure.
+// fails because the context was cancelled is not reported as a hook failure or
+// as an interrupt: a cancelled run is not a Ctrl-C the run should abort on.
 func TestRunStartupHooksStaysSilentOnACancelledStream(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -373,10 +382,13 @@ func TestRunStartupHooksStaysSilentOnACancelledStream(t *testing.T) {
 	}
 	ui := termiotest.NewTestMock(t)
 
-	runStartupHooks(ctx, sb, []homeconfig.HookSpec{
+	interrupted := runStartupHooks(ctx, sb, []homeconfig.HookSpec{
 		{Target: "/home/dev/.hook.sh", Source: "x", HasShebang: true},
 	}, &ui, false)
 
+	if interrupted {
+		t.Error("runStartupHooks() = true, want a cancelled receive not reported as an interrupt")
+	}
 	if len(ui.WarnCalls) != 0 {
 		t.Errorf("warnings = %v, want none for a cancelled receive", ui.WarnCalls)
 	}
@@ -550,6 +562,13 @@ func TestHookInteractiveForUsesTheSeamOrTheDefault(t *testing.T) {
 	if got := hookInteractiveFor(options.Seams{}); !got {
 		t.Error("hookInteractiveFor(zero Seams) = false, want the production default's true")
 	}
+
+	// The default tracks the terminal probe, so a non-terminal run stays
+	// non-interactive rather than falling through to a hard-coded true.
+	hookFDIsTerminal = func(int) bool { return false }
+	if got := hookInteractiveFor(options.Seams{}); got {
+		t.Error("hookInteractiveFor(zero Seams) = true, want the production default's false")
+	}
 }
 
 // TestRunStartupHooksAttachesInteractively pins the interactive arm: the hook
@@ -668,7 +687,8 @@ func TestRunStartupHooksInteractiveWarnsOnNonZeroExit(t *testing.T) {
 }
 
 // TestRunStartupHooksInteractiveStaysSilentOnACancelledContext pins that a
-// cancelled context during the attach is not reported as a hook failure.
+// cancelled context during the attach is not reported as a hook failure or as an
+// interrupt: only a user's Ctrl-C aborts the run, not a cancelled run context.
 func TestRunStartupHooksInteractiveStaysSilentOnACancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -678,10 +698,13 @@ func TestRunStartupHooksInteractiveStaysSilentOnACancelledContext(t *testing.T) 
 	}
 	ui := termiotest.NewTestMock(t)
 
-	runStartupHooks(ctx, sb, []homeconfig.HookSpec{
+	interrupted := runStartupHooks(ctx, sb, []homeconfig.HookSpec{
 		{Target: "/home/dev/.hook.sh", Source: "x", HasShebang: true},
 	}, &ui, true)
 
+	if interrupted {
+		t.Error("runStartupHooks() = true, want a cancelled attach not reported as an interrupt")
+	}
 	if len(ui.WarnCalls) != 0 {
 		t.Errorf("warnings = %v, want none for a cancelled attach", ui.WarnCalls)
 	}
@@ -809,5 +832,63 @@ func TestRunStartupHooksInteractiveResetsTerminalOnAbnormalEnd(t *testing.T) {
 				t.Errorf("terminal received %q, want reset=%v", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestRunStartupHooksInteractiveResetsTerminalOnInterrupt pins that Ctrl-C
+// during an interactive hook clears the terminal's guest-TUI emulator modes even
+// when the cancelled attach reports a clean exit code: from the terminal's point
+// of view the interrupt is an abnormal end, and the reset must happen before the
+// run aborts.
+func TestRunStartupHooksInteractiveResetsTerminalOnInterrupt(t *testing.T) {
+	guard := make(chan os.Signal, 1)
+	signal.Notify(guard, os.Interrupt)
+	defer signal.Stop(guard)
+
+	ui, written := newTerminalStdoutUI(t)
+	sb := &msbtest.MockSandbox{
+		Name_: "vm",
+		AttachFn: func(ctx context.Context) (int, error) {
+			//testenv:allow sends SIGINT to this process to exercise the signal scope
+			if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
+				return 0, err
+			}
+			select {
+			case <-ctx.Done():
+				return 0, nil
+			case <-time.After(5 * time.Second):
+				return 0, errors.New("SIGINT did not cancel the attach")
+			}
+		},
+	}
+
+	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
+		{Target: "/home/dev/.hook.sh", Source: "x", HasShebang: true},
+	}, ui, true)
+
+	if got := written(); !strings.Contains(got, termio.TerminalResetSequence) {
+		t.Errorf("terminal received %q, want a reset after the interrupt", got)
+	}
+}
+
+// TestRunStartupHooksInteractiveDoesNotResetOnACancelledContext pins that a
+// cancelled run context is not a user interrupt: when the attach ends cleanly
+// there is no guest-TUI state to clear, so the terminal is left untouched and the
+// run is not reported as interrupted.
+func TestRunStartupHooksInteractiveDoesNotResetOnACancelledContext(t *testing.T) {
+	ui, written := newTerminalStdoutUI(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	sb := &msbtest.MockSandbox{Name_: "vm", AttachFn: func(context.Context) (int, error) { return 0, nil }}
+
+	interrupted := runStartupHooks(ctx, sb, []homeconfig.HookSpec{
+		{Target: "/home/dev/.hook.sh", Source: "x", HasShebang: true},
+	}, ui, true)
+
+	if interrupted {
+		t.Error("runStartupHooks() = true, want a cancelled run not reported as an interrupt")
+	}
+	if got := written(); strings.Contains(got, termio.TerminalResetSequence) {
+		t.Errorf("terminal received %q, want no reset for a clean attach under a cancelled context", got)
 	}
 }
