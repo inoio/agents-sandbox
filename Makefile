@@ -299,12 +299,13 @@ actionlint:
 
 # Lint every tracked shell script with the shellcheck installed in the dev image
 # and on the CI runner. Deliberately unpinned: the two environments' builds
-# differ today (0.11.0 vs 0.9.0) and a finding from either must be fixed.
+# differ today (0.11.0 vs 0.9.0) and a finding from either must be fixed. The
+# file list is carried NUL-separated, so a path containing whitespace survives.
 shellcheck:
-	@files="$$(git ls-files '*.sh')"; \
-	test -n "$$files" || { echo "shellcheck: no tracked *.sh files found" >&2; exit 1; }; \
+	@count="$$(git ls-files '*.sh' | wc -l | tr -d '[:space:]')"; \
+	test "$$count" -gt 0 || { echo "shellcheck: no tracked *.sh files found" >&2; exit 1; }; \
 	shellcheck --version | grep '^version:'; \
-	shellcheck -- $$files
+	git ls-files -z '*.sh' | xargs -0 shellcheck --
 
 run:
 	go run ./cmd/agents-sandbox
