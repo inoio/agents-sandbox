@@ -8,11 +8,20 @@
 # proxy host-side, so 127.0.0.1 is the natural address; the gateway form is
 # tried for completeness. A `none` policy names only the destination host
 # (example.com) and, in the -allow-proxy cases, the proxy itself.
+#
+# The client-side probe is BusyBox `wget`, not `curl`: under `none` the guest
+# cannot `apk add` a client without widening the policy, and socks5 needs no
+# client-side SOCKS support (the runtime dials the proxy transparently).
+#
+# Note on the `-allow-proxy` cases: because the runtime dials the proxy
+# host-side, a guest-visible `allow@<proxy-addr>:tcp:<port>` rule is almost
+# certainly a no-op — the proxy address never appears as a guest destination.
+# The rule is kept for the record, not because it is expected to matter.
 set -euo pipefail
 # shellcheck source=lib.sh disable=SC1091
 source "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 
-spike_require msb mitmdump curl
+spike_require msb mitmdump
 dir="$(spike_capture_dir)"
 proxy_ip="${PROXY_IP:-127.0.0.1}"
 gw_ip="$(spike_host_ip)"
@@ -36,10 +45,10 @@ run_case() {
       return
     fi
     if spike_exec "$name" sh -lc \
-      'curl -sS -m 15 -o /dev/null -w "    curl https://example.com -> %{http_code}\n" https://example.com' 2>&1; then
-      echo "    curl: ok"
+      'wget -q -O- -T 15 https://example.com >/dev/null && echo "    wget https://example.com -> ok"' 2>&1; then
+      echo "    wget: ok"
     else
-      echo "    curl: FAILED (denied, or proxy unreachable)"
+      echo "    wget: FAILED (denied, or proxy unreachable)"
     fi
   } | tee "$dir/s3-$desc.txt"
   spike_rm "$name"
@@ -48,9 +57,9 @@ run_case() {
 for addr in "$proxy_ip" "$gw_ip"; do
   for proto in http socks5; do
     run_case "none-$proto-$addr" "$addr" "$proto" \
-      --net-default-egress deny --net-strict=false --net-rule 'allow@dns' --net-rule 'allow@example.com'
+      --net-default-egress deny --net-strict=false --net-rule 'allow@example.com'
     run_case "none-allowproxy-$proto-$addr" "$addr" "$proto" \
-      --net-default-egress deny --net-strict=false --net-rule 'allow@dns' --net-rule 'allow@example.com' \
+      --net-default-egress deny --net-strict=false --net-rule 'allow@example.com' \
       --net-rule "allow@$addr:tcp:$PROXY_PORT"
     run_case "public-$proto-$addr" "$addr" "$proto" --net public
     run_case "public-host-$proto-$addr" "$addr" "$proto" --net public,host

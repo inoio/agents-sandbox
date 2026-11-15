@@ -11,17 +11,23 @@ set -euo pipefail
 # shellcheck source=lib.sh disable=SC1091
 source "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 
-spike_require msb curl
+spike_require msb
 dir="$(spike_capture_dir)"
 
+# `--conf` is the whole single-sandbox document, so the HTTP block nests under
+# `network:`; the unwrapped form belongs to `--net-conf`, which conflicts with
+# the `--net-rule`/`--net-default-egress` policy flags below.
 cat >"$dir/deny-json.yaml" <<'YAML'
-http:
-  deny_response: true
-  deny_response_format: json
+network:
+  http:
+    deny_response: true
+    deny_response_format: json
 YAML
 
+# `none` with an explicit allow list omits the gateway-DNS rule (the launcher's
+# `none` does too); allowlisted names still resolve through the proxy.
 net_args=(--net-default-egress deny --net-strict=false
-  --net-rule 'allow@dns' --net-rule 'allow@example.com')
+  --net-rule 'allow@example.com')
 
 run_case() {
   local desc="$1"
@@ -32,7 +38,7 @@ run_case() {
     echo "### $desc"
     spike_create "$name" alpine "$@"
     spike_exec "$name" sh -lc \
-      'curl -sS -m 15 -w "\n-> %{http_code}\n" https://denied.example.net/ ; echo "curl exit=$?"' 2>&1 || true
+      'wget -S -O- -T 15 https://denied.example.net/ 2>&1 ; echo "wget exit=$?"' 2>&1 || true
   } | tee "$dir/s5-$desc.guest.txt"
   spike_dump_logs "$name"
   spike_dump_metrics "$name"

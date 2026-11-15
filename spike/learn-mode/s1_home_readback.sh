@@ -46,15 +46,15 @@ list_files() {
   echo
   echo "## likely credential files (inline vs referenced)"
   find "$path" -type f 2>/dev/null | grep -iE '/(auth|credential|token|secret|key|\.netrc|oauth|account)' \
-    | sort | sed "s#^$path/##"
+    | sort | sed "s#^$path/##" || true
   echo
   echo "## hosts / URLs mentioned in text files"
   grep -rIn --exclude-dir=.git -E 'https?://[a-zA-Z0-9._-]+' "$path" 2>/dev/null \
-    | sed "s#^$path/##" | sort -u | head -200
+    | sed "s#^$path/##" | sort -u | head -200 || true
   echo
   echo "## denial / block / forbidden / 403 mentions"
   grep -rIn --exclude-dir=.git -iE 'denied|blocked|forbidden|\b403\b|not allowed' "$path" 2>/dev/null \
-    | sed "s#^$path/##" | sort -u | head -100
+    | sed "s#^$path/##" | sort -u | head -100 || true
 } | tee "$out"
 
 echo

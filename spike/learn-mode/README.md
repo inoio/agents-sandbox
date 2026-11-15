@@ -22,7 +22,11 @@ the launcher's home volume and harnesses.
 | `mitmdump` (mitmproxy ≥ 10) | the host-owned CONNECT proxy, blind and terminating | `pipx install mitmproxy` or `brew install mitmproxy` |
 | `dnsmasq` | the logging DNS listener (S2) | `brew install dnsmasq` / `apt install dnsmasq` |
 | `jq` | reading `msb metrics --format json` | `brew install jq` / `apt install jq` |
-| `curl`, `openssl`, `git` | guest-side consumers | present |
+| `openssl` | generates the interception CA (D) | `brew install openssl` / `apt install openssl` |
+
+Guest-side HTTP/git clients are the drivers' concern, not host prerequisites. The `public` cases `apk add` what
+they need; the `none` cases use BusyBox `wget`, because installing a client there is blocked and widening the policy
+to allow it would defeat the point of the case.
 
 Confirm the host can start a VM before anything else:
 
@@ -57,7 +61,7 @@ export HOST_GATEWAY_IP=                             # leave unset to probe it; s
 `lib.sh` resolves the guest-visible host address once and caches it. Discover it by hand if you prefer:
 
 ```console
-msb run alpine --net-rule allow@host -- getent hosts host.microsandbox.internal
+msb run alpine --net host -- getent hosts host.microsandbox.internal
 ```
 
 ## Amendments to the plan
@@ -144,10 +148,13 @@ misses (UDP, IP-literal fallbacks), which would make it a cheap corroborating so
 
 - proxy address `127.0.0.1:$PROXY_PORT` (the runtime dials host-side) and `$HOST_GATEWAY_IP:$PROXY_PORT`;
 - policy `none`, `none` + `allow@<proxy-ip>`, `public`, `public` + `host`;
-- protocol `http_connect` and `socks5`.
+- protocol `http` and `socks5`;
 
-Each case creates a sandbox and runs `curl -sS https://example.com` (an allowlisted host under `none`), recording
-whether it succeeded and whether the proxy log saw the CONNECT.
+Each case creates a sandbox and probes with BusyBox `wget https://example.com` (an allowlisted host under `none`),
+recording whether it succeeded and whether the proxy log saw the CONNECT. Because the runtime dials the proxy
+host-side, the `allow@<proxy-ip>:tcp:<port>` rule in the `-allow-proxy` cases is almost certainly a no-op — the proxy
+address never appears as a guest-visible destination; the rule is kept for the record, not because it is expected to
+matter.
 
 **Record.** Which combinations connect; whether denial is silent (guest sees a connection failure) or reported;
 whether the proxy dial bypasses the policy; whether a vsock route avoids the policy (optional — needs a guest-side
@@ -183,8 +190,8 @@ log, from a metric, or only from the guest's error?
 
 **Method.** `s5_denials.sh` denies a known host, attempts it, then inspects everything the launcher can read:
 `msb logs --source all`, `msb metrics --format json`, and the guest's own HTTP response in JSON deny mode
-(`http.deny_response_format: json`). Whether the *runtime's* interception is also observable is sub-step D
-(`d_runtime_interception.sh`).
+(`network.http.deny_response_format: json`, wrapped because `--conf` is the whole sandbox document). Whether the
+*runtime's* interception is also observable is sub-step D (`d_runtime_interception.sh`).
 
 **Record.** Every place a denied destination appears (or does not), and its exact text/shape.
 

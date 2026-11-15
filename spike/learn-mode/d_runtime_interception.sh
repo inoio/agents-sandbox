@@ -17,13 +17,17 @@ set -euo pipefail
 # shellcheck source=lib.sh disable=SC1091
 source "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 
-spike_require msb curl openssl
+spike_require msb openssl
 dir="$(spike_capture_dir)"
 name="$(spike_sandbox_name d)"
 allowed="example.com"
 disallowed="www.iana.org"
 
+# -addext makes the CA constraints explicit: the runtime signs leaf certs with
+# this key, so it must be a CA (openssl req -x509 does not always add them).
 openssl req -x509 -newkey rsa:2048 -nodes -days 30 \
+  -addext "basicConstraints=critical,CA:TRUE" \
+  -addext "keyUsage=critical,keyCertSign,cRLSign" \
   -keyout "$dir/spike-ca.key" -out "$dir/spike-ca.crt" -subj "/CN=spike-ca" >/dev/null 2>&1
 
 export SPIKE_TOKEN="${SPIKE_TOKEN:-spike-token-0123456789}"
@@ -41,6 +45,7 @@ spike_create "$name" alpine \
 
 # shellcheck disable=SC2016 # $SPIKE_TOKEN must be expanded in the guest shell
 spike_exec "$name" sh -lc '
+  apk add --no-cache curl >/dev/null 2>&1 || echo "apk add curl failed"
   echo "placeholder visible to the guest: $SPIKE_TOKEN"
   echo "== success: placeholder to the allowed host =="
   curl -sS -m 20 -o /dev/null -w "%{http_code}\n" \

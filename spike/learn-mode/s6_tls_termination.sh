@@ -49,7 +49,7 @@ echo "== 4. collision: a configured secret turns on the runtime interception too
 export SPIKE_TOKEN="${SPIKE_TOKEN:-spike-token-0123456789}"
 coll="$name-collision"
 spike_create "$coll" alpine --proxy "http://$proxy_ip:$PROXY_PORT" \
-  --net-default-egress deny --net-strict=false --net-rule 'allow@dns' --net-rule 'allow@example.com' \
+  --net-default-egress deny --net-strict=false --net-rule 'allow@example.com' \
   --secret "SPIKE_TOKEN@example.com"
 spike_exec "$coll" sh -lc 'env | grep SPIKE_TOKEN || true; curl -sS -m 20 -o /dev/null -w "%{http_code}\n" https://example.com/ || echo failed' \
   | tee "$dir/s6-collision.txt"

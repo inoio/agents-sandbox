@@ -19,11 +19,14 @@ spike_self_dir() {
 }
 
 SPIKE_DIR="$(spike_self_dir)"
+# Repo root; the drivers that source this file use it for the built launcher and
+# vendored assets, so it is not referenced within lib.sh itself.
+# shellcheck disable=SC2034
 SPIKE_ROOT="$(cd "$SPIKE_DIR/../.." && pwd)"
 MSB="${MSB:-msb}"
 PROXY_PORT="${PROXY_PORT:-8088}"
 DNS_PORT="${DNS_PORT:-5354}"
-SPIKE_CAPTURE_DIR="${SPIKE_CAPTURE_DIR:-$SPIKE_ROOT/spike-capture}"
+SPIKE_CAPTURE_DIR="${SPIKE_CAPTURE_DIR:-$SPIKE_DIR/spike-capture}"
 
 spike_require() {
   local tool
@@ -55,7 +58,7 @@ spike_host_ip() {
   fi
   spike_capture_dir >/dev/null
   local ip
-  ip="$("$MSB" run alpine --net-rule allow@host -- sh -lc \
+  ip="$("$MSB" run alpine --net host -- sh -lc \
     'getent hosts host.microsandbox.internal || nslookup host.microsandbox.internal' 2>/dev/null |
     awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) { print $i; exit } }')"
   [ -n "$ip" ] || {
@@ -132,7 +135,13 @@ spike_dns_up() {
   local dir
   dir="$(spike_capture_dir)"
   spike_dns_down >/dev/null 2>&1 || true
+  # Only started as root does dnsmasq drop to `nobody` (and then fail to write
+  # the capture dir); keep the invoking user in that case. Non-root is
+  # unaffected — the dir is already owned by it.
+  local user_args=()
+  [ "$(id -u)" -eq 0 ] && user_args=(--user="$(id -un)")
   dnsmasq --conf-file=/dev/null --port="$DNS_PORT" --listen-address=0.0.0.0 \
+    "${user_args[@]}" \
     --no-hosts --no-resolv --server=1.1.1.1 --log-queries \
     --log-facility="$dir/dns.log" --pid-file="$dir/dns.pid"
   echo "dns listener up on 0.0.0.0:$DNS_PORT, queries -> $dir/dns.log"

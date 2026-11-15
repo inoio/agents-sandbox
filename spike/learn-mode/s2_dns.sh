@@ -12,7 +12,7 @@ set -euo pipefail
 # shellcheck source=lib.sh disable=SC1091
 source "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 
-spike_require msb dnsmasq curl
+spike_require msb dnsmasq
 variant="${1:-public}"
 dns_upstream="${DNS_UPSTREAM:-127.0.0.1}:$DNS_PORT"
 name="$(spike_sandbox_name s2 "$variant")"
@@ -26,7 +26,6 @@ case "$variant" in
   public) net_args+=(--net public) ;;
   none-allow)
     net_args+=(--net-default-egress deny --net-strict=false
-      --net-rule 'allow@dns'
       --net-rule 'allow@example.com,allow@github.com'
       --net-rule 'allow@dl-cdn.alpinelinux.org,allow@mirror.leaseweb.com')
     ;;
@@ -37,6 +36,7 @@ trap 'spike_rm "$name"; spike_dns_down' EXIT
 
 spike_create "$name" alpine "${net_args[@]}"
 spike_exec "$name" sh -lc '
+  apk add --no-cache curl git >/dev/null 2>&1 || echo "apk add curl git failed"
   curl -sS -m 15 -o /dev/null -w "curl example.com -> %{http_code}\n" https://example.com || echo "curl example.com failed"
   curl -sS -m 15 -o /dev/null -w "curl denied.example.net -> %{http_code}\n" https://denied.example.net || echo "curl denied.example.net failed (expected under none-allow)"
   apk update >/dev/null 2>&1 && echo "apk update ok" || echo "apk update failed"
@@ -44,7 +44,7 @@ spike_exec "$name" sh -lc '
 '
 
 echo "--- $variant: queries seen by the host listener ---"
-grep -iE 'query|reply' "$dir/dns.log" 2>/dev/null | tail -200 | tee "$dir/dns-$variant.log"
+grep -iE 'query|reply' "$dir/dns.log" 2>/dev/null | tail -200 | tee "$dir/dns-$variant.log" || true
 echo
 echo "Record: did every consumer's query arrive? Did the container engine's? What did a"
 echo "not-in-allow host produce under none (NXDOMAIN / timeout / forwarded-then-blocked)?"
