@@ -59,6 +59,7 @@ spike_create "$coll" alpine --proxy "http://$proxy_ip:$PROXY_PORT" \
   --secret "SPIKE_TOKEN@example.com" \
   --copy-file "$ca:/tmp/spike-ca.pem" \
   --copy-file "$SPIKE_DIR/guest/plant-ca.sh:/tmp/plant-ca.sh"
+# shellcheck disable=SC2016 # $SPIKE_TOKEN must be expanded in the guest shell
 spike_exec "$coll" sh -lc '
   sh /tmp/plant-ca.sh /tmp/spike-ca.pem >/dev/null 2>&1
   env | grep SPIKE_TOKEN || true
