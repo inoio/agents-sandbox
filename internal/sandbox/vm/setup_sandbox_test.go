@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -63,7 +64,7 @@ func TestRunStartupHooksExecutesEachHook(t *testing.T) {
 			sb := &msbtest.MockSandbox{Name_: "vm"}
 			ui := termiotest.NewTestMock(t)
 
-			runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{tc.hook}, &ui)
+			runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{tc.hook}, &ui, false)
 
 			if sb.ExecStreamUser != tc.wantUser || sb.ExecStreamEnv["HOME"] != tc.wantHome {
 				t.Errorf("executed as %q with HOME %q, want %q with %q",
@@ -97,7 +98,7 @@ func TestRunStartupHooksContinuesPastAFailingHook(t *testing.T) {
 	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
 		{Target: "/home/dev/.first.sh", Source: "x", HasShebang: true},
 		{Target: "/home/dev/.second.sh", Source: "x", HasShebang: true},
-	}, &ui)
+	}, &ui, false)
 
 	if sb.ExecStreamCmd != "/home/dev/.second.sh" {
 		t.Errorf("last executed hook = %q, want the second hook to run after the first failed", sb.ExecStreamCmd)
@@ -130,7 +131,7 @@ func TestRunStartupHooksWarnsWhenAHookExitsNonZero(t *testing.T) {
 	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
 		{Target: "/home/dev/.first.sh", Source: "x"},
 		{Target: "/home/dev/.second.sh", Source: "x"},
-	}, &ui)
+	}, &ui, false)
 
 	if sb.ExecStreamCmd != "/bin/sh" || !slices.Equal(sb.ExecStreamArgs, []string{"/home/dev/.second.sh"}) {
 		t.Errorf("last executed hook = %q %v, want the second hook to run after the first failed",
@@ -169,7 +170,7 @@ func TestRunStartupHooksStreamsUnboundedHookOutput(t *testing.T) {
 
 	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
 		{Target: "/home/dev/.big.sh", Source: "x", HasShebang: true},
-	}, &ui)
+	}, &ui, false)
 
 	if len(ui.WarnCalls) != 0 {
 		t.Errorf("warnings = %v, want none for a hook that exits 0 however much it prints", ui.WarnCalls)
@@ -198,7 +199,7 @@ func TestRunStartupHooksWritesOutputVerbatim(t *testing.T) {
 
 	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
 		{Target: "/home/dev/.hook.sh", Source: "x", HasShebang: true},
-	}, &ui)
+	}, &ui, false)
 
 	if got := ui.StdOutBuffer.String(); got != "hello\n" {
 		t.Errorf("stdout = %q, want %q (verbatim, no added newlines)", got, "hello\n")
@@ -233,7 +234,7 @@ func TestRunStartupHooksBoundsRetainedStderr(t *testing.T) {
 
 	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
 		{Target: "/home/dev/.big.sh", Source: "x", HasShebang: true},
-	}, &ui)
+	}, &ui, false)
 
 	if len(ui.WarnCalls) != 1 {
 		t.Fatalf("warnings = %v, want one for the failed hook", ui.WarnCalls)
@@ -266,7 +267,7 @@ func TestRunStartupHooksReportsWhyAHookCouldNotStart(t *testing.T) {
 
 	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
 		{Target: "/home/dev/.hook.sh", Source: "x", HasShebang: true},
-	}, &ui)
+	}, &ui, false)
 
 	if len(ui.WarnCalls) != 1 {
 		t.Fatalf("warnings = %v, want one for the failed hook", ui.WarnCalls)
@@ -309,7 +310,7 @@ func TestRunStartupHooksWarnsWhenTheExecCannotStart(t *testing.T) {
 
 	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
 		{Target: "/home/dev/.hook.sh", Source: "x", HasShebang: true},
-	}, &ui)
+	}, &ui, false)
 
 	if len(ui.WarnCalls) != 1 {
 		t.Fatalf("warnings = %v, want one for the hook that could not start", ui.WarnCalls)
@@ -337,7 +338,7 @@ func TestRunStartupHooksWarnsWhenTheStreamFails(t *testing.T) {
 
 	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
 		{Target: "/home/dev/.hook.sh", Source: "x", HasShebang: true},
-	}, &ui)
+	}, &ui, false)
 
 	if len(ui.WarnCalls) != 1 {
 		t.Fatalf("warnings = %v, want one for the failed stream", ui.WarnCalls)
@@ -367,7 +368,7 @@ func TestRunStartupHooksStaysSilentOnACancelledStream(t *testing.T) {
 
 	runStartupHooks(ctx, sb, []homeconfig.HookSpec{
 		{Target: "/home/dev/.hook.sh", Source: "x", HasShebang: true},
-	}, &ui)
+	}, &ui, false)
 
 	if len(ui.WarnCalls) != 0 {
 		t.Errorf("warnings = %v, want none for a cancelled receive", ui.WarnCalls)
@@ -496,4 +497,196 @@ func TestRestartDaemonsRestartsServe(t *testing.T) {
 		t.Errorf("expected one opencode serve launch, got %+v", *calls)
 	}
 	assertDetachedHelperLaunch(t, *calls, "agent-daemon", "opencode")
+}
+
+// TestHookInteractiveDefaultRequiresBothStdinAndStdout pins the production
+// predicate: a hook may run interactively only when both the launcher's stdin
+// and stdout are terminals, so a redirected or piped run stays non-interactive.
+func TestHookInteractiveDefaultRequiresBothStdinAndStdout(t *testing.T) {
+	orig := hookFDIsTerminal
+	t.Cleanup(func() { hookFDIsTerminal = orig })
+
+	for _, tc := range []struct {
+		stdin, stdout, want bool
+	}{
+		{true, true, true},
+		{true, false, false},
+		{false, true, false},
+		{false, false, false},
+	} {
+		hookFDIsTerminal = func(fd int) bool {
+			if fd == int(os.Stdin.Fd()) {
+				return tc.stdin
+			}
+			return tc.stdout
+		}
+		if got := hookInteractiveDefault(); got != tc.want {
+			t.Errorf("hookInteractiveDefault(stdin=%v, stdout=%v) = %v, want %v",
+				tc.stdin, tc.stdout, got, tc.want)
+		}
+	}
+}
+
+// TestHookInteractiveForUsesTheSeamOrTheDefault pins the resolution: the
+// injected seam wins, and absent one the production default answers.
+func TestHookInteractiveForUsesTheSeamOrTheDefault(t *testing.T) {
+	if got := hookInteractiveFor(options.Seams{HookInteractive: func() bool { return true }}); !got {
+		t.Error("hookInteractiveFor() = false, want the seam's true")
+	}
+	if got := hookInteractiveFor(options.Seams{HookInteractive: func() bool { return false }}); got {
+		t.Error("hookInteractiveFor() = true, want the seam's false")
+	}
+}
+
+// TestRunStartupHooksAttachesInteractively pins the interactive arm: the hook
+// runs through the PTY attach as the right user with its HOME, and the streaming
+// exec is not used.
+func TestRunStartupHooksAttachesInteractively(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		hook     homeconfig.HookSpec
+		wantUser string
+		wantHome string
+		wantCmd  string
+		wantArgs []string
+	}{
+		{
+			name:     "shebang runs directly",
+			hook:     homeconfig.HookSpec{Target: "/home/dev/.foo.sh", Source: "x", HasShebang: true},
+			wantUser: DefaultSandboxUser,
+			wantHome: "/home/dev",
+			wantCmd:  "/home/dev/.foo.sh",
+		},
+		{
+			name:     "no shebang runs through /bin/sh",
+			hook:     homeconfig.HookSpec{Target: "/home/dev/.vpn/connect.sh", Source: "x"},
+			wantUser: DefaultSandboxUser,
+			wantHome: "/home/dev",
+			wantCmd:  "/bin/sh",
+			wantArgs: []string{"/home/dev/.vpn/connect.sh"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sb := &msbtest.MockSandbox{Name_: "vm"}
+			ui := termiotest.NewTestMock(t)
+
+			runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{tc.hook}, &ui, true)
+
+			if sb.AttachCmd != tc.wantCmd || !slices.Equal(sb.AttachArgs, tc.wantArgs) {
+				t.Errorf("attached %q %v, want %q %v", sb.AttachCmd, sb.AttachArgs, tc.wantCmd, tc.wantArgs)
+			}
+			if sb.AttachUser != tc.wantUser || sb.AttachEnv["HOME"] != tc.wantHome {
+				t.Errorf("attached as %q with HOME %q, want %q with %q",
+					sb.AttachUser, sb.AttachEnv["HOME"], tc.wantUser, tc.wantHome)
+			}
+			if sb.ExecStreamCmd != "" {
+				t.Errorf("interactive hook used the streaming exec %q", sb.ExecStreamCmd)
+			}
+		})
+	}
+}
+
+// TestRunStartupHooksInteractiveAttachFailureWarnsAndContinues pins that an
+// attach that cannot start is a warning and the remaining hooks still run, with
+// no fallback to the streaming exec.
+func TestRunStartupHooksInteractiveAttachFailureWarnsAndContinues(t *testing.T) {
+	attaches := 0
+	sb := &msbtest.MockSandbox{
+		Name_: "vm",
+		AttachFn: func(_ context.Context) (int, error) {
+			attaches++
+			if attaches == 1 {
+				return 0, errors.New("no such device or address")
+			}
+			return 0, nil
+		},
+	}
+	ui := termiotest.NewTestMock(t)
+
+	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
+		{Target: "/home/dev/.first.sh", Source: "x", HasShebang: true},
+		{Target: "/home/dev/.second.sh", Source: "x", HasShebang: true},
+	}, &ui, true)
+
+	if len(ui.WarnCalls) != 1 || !strings.Contains(ui.WarnCalls[0], "startup hook /home/dev/.first.sh failed") {
+		t.Errorf("warnings = %v, want one for the failed attach", ui.WarnCalls)
+	}
+	if sb.AttachCmd != "/home/dev/.second.sh" {
+		t.Errorf("last attached hook = %q, want the second hook to run after the first failed", sb.AttachCmd)
+	}
+	if sb.ExecStreamCmd != "" {
+		t.Errorf("a failed attach fell back to the streaming exec %q", sb.ExecStreamCmd)
+	}
+}
+
+// TestRunStartupHooksInteractiveWarnsOnNonZeroExit pins the interactive failure
+// warning: the exit code, with no stderr tail (the attach streams output itself).
+func TestRunStartupHooksInteractiveWarnsOnNonZeroExit(t *testing.T) {
+	attaches := 0
+	sb := &msbtest.MockSandbox{
+		Name_: "vm",
+		AttachFn: func(_ context.Context) (int, error) {
+			attaches++
+			if attaches == 1 {
+				return 2, nil
+			}
+			return 0, nil
+		},
+	}
+	ui := termiotest.NewTestMock(t)
+
+	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
+		{Target: "/home/dev/.first.sh", Source: "x", HasShebang: true},
+		{Target: "/home/dev/.second.sh", Source: "x", HasShebang: true},
+	}, &ui, true)
+
+	if len(ui.WarnCalls) != 1 || !strings.Contains(ui.WarnCalls[0], "exit 2") {
+		t.Fatalf("warnings = %v, want one naming exit 2", ui.WarnCalls)
+	}
+	if sb.AttachCmd != "/home/dev/.second.sh" {
+		t.Errorf("last attached hook = %q, want the second hook to run on", sb.AttachCmd)
+	}
+}
+
+// TestRunStartupHooksInteractiveStaysSilentOnACancelledContext pins that a
+// cancelled context during the attach is not reported as a hook failure.
+func TestRunStartupHooksInteractiveStaysSilentOnACancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	sb := &msbtest.MockSandbox{
+		Name_:    "vm",
+		AttachFn: func(context.Context) (int, error) { return 0, context.Canceled },
+	}
+	ui := termiotest.NewTestMock(t)
+
+	runStartupHooks(ctx, sb, []homeconfig.HookSpec{
+		{Target: "/home/dev/.hook.sh", Source: "x", HasShebang: true},
+	}, &ui, true)
+
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("warnings = %v, want none for a cancelled attach", ui.WarnCalls)
+	}
+}
+
+// TestRunStartupHooksNonInteractivePassesNoStdin pins that the non-interactive
+// arm leaves stdin unconnected, so a prompting hook reads EOF instead of
+// blocking on input no terminal can supply.
+func TestRunStartupHooksNonInteractivePassesNoStdin(t *testing.T) {
+	var got msb.ExecRequest
+	sb := &msbtest.MockSandbox{
+		Name_: "vm",
+		ExecStreamFn: func(_ context.Context, _ string, _ []string, req msb.ExecRequest) (msb.StreamHandle, error) {
+			got = req
+			return msbtest.NewScriptedStreamHandle(msb.StreamEvent{Kind: msb.StreamEventExited}), nil
+		},
+	}
+	ui := termiotest.NewTestMock(t)
+
+	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
+		{Target: "/home/dev/.hook.sh", Source: "x", HasShebang: true},
+	}, &ui, false)
+
+	if got.TTY || got.StdinPipe {
+		t.Errorf("exec request = %+v, want no TTY and no stdin pipe", got)
+	}
 }
