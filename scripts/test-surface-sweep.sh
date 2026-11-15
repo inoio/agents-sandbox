@@ -43,6 +43,22 @@ EOF
 chmod +x "$stub"
 export ASB_BIN="$stub"
 
+# A stub `docker` on PATH so the init/sweep runner-image cleanup is
+# deterministic without a daemon. DOCKER_STUB_LOG records its argv; it prints
+# DOCKER_STUB_IMAGES for `images`.
+mkdir -p "$tmp/bin"
+export DOCKER_STUB_LOG="$tmp/docker.log"
+export DOCKER_STUB_IMAGES=""
+cat >"$tmp/bin/docker" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"${DOCKER_STUB_LOG:?}"
+case "$*" in
+  images*) printf '%s\n' "${DOCKER_STUB_IMAGES:-}" | grep -v '^$' || true ;;
+esac
+EOF
+chmod +x "$tmp/bin/docker"
+export PATH="$tmp/bin:$PATH"
+
 # --- init rejects a root whose derived socket path is too long ---------------
 long_root="$tmp/$(printf 'x%.0s' {1..120})"
 set +e
@@ -253,6 +269,82 @@ set -e
 assert_nonzero "sweep fails when a volume removal fails" "$volume_remove_status"
 assert_contains "sweep names the failed volume" "failed to remove volume vol-a" "$(cat "$tmp/sweep.err")"
 assert_contains "sweep still removes the later volume" "volume remove --force --yes vol-b" "$(cat "$ASB_STUB_LOG")"
+
+# --- init records the runner-image baseline ---------------------------------
+: >"$DOCKER_STUB_LOG"
+DOCKER_STUB_IMAGES="agents-sandbox/runner-kept-aaaaaaaaaaaaaa:opencode-latest" \
+  ASB_SURFACE_ROOT="$root" bash "$sweep" init >/dev/null
+assert_eq "init records the runner-image baseline" \
+  "agents-sandbox/runner-kept-aaaaaaaaaaaaaa:opencode-latest" \
+  "$(cat "$root/.runner-images")"
+
+# --- sweep removes only the tags the run added ------------------------------
+cat >"$stub" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  "sandbox list -q"|"volume list -q") : ;;
+esac
+EOF
+chmod +x "$stub"
+: >"$DOCKER_STUB_LOG"
+DOCKER_STUB_IMAGES="agents-sandbox/runner-kept-aaaaaaaaaaaaaa:opencode-latest
+agents-sandbox/runner-new-bbbbbbbbbbbbbb:opencode-latest" \
+  ASB_SURFACE_ROOT="$root" bash "$sweep" sweep
+docker_log="$(cat "$DOCKER_STUB_LOG")"
+assert_contains "sweep removes the new runner image" \
+  "rmi agents-sandbox/runner-new-bbbbbbbbbbbbbb:opencode-latest" "$docker_log"
+if grep -qF "rmi agents-sandbox/runner-kept-aaaaaaaaaaaaaa:opencode-latest" <<<"$docker_log"; then
+  fail "sweep kept the baseline runner image"
+else
+  ok "sweep kept the baseline runner image"
+fi
+
+# --- an unreachable docker at init leaves no baseline -----------------------
+rm -f "$root/.runner-images"
+cat >"$tmp/bin/docker" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+chmod +x "$tmp/bin/docker"
+set +e
+init_err="$(ASB_SURFACE_ROOT="$root" bash "$sweep" init 2>&1 >/dev/null)"
+init_status=$?
+set -e
+assert_eq "init still succeeds without docker" "0" "$init_status"
+assert_contains "init warns that docker is unreachable" "not reachable" "$init_err"
+if [[ -f "$root/.runner-images" ]]; then fail "no baseline written without docker"; else ok "no baseline written without docker"; fi
+
+# --- a sweep without a baseline skips docker cleanup ------------------------
+: >"$DOCKER_STUB_LOG"
+ASB_SURFACE_ROOT="$root" bash "$sweep" sweep >/dev/null 2>"$tmp/sweep.err"
+assert_contains "sweep warns it is skipping runner-image cleanup" "skipping docker cleanup" "$(cat "$tmp/sweep.err")"
+
+# --- a failed rmi is reported and fails the sweep ---------------------------
+printf 'agents-sandbox/runner-kept-aaaaaaaaaaaaaa:opencode-latest\n' >"$root/.runner-images"
+cat >"$tmp/bin/docker" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"${DOCKER_STUB_LOG:?}"
+case "$*" in
+  images*) printf 'agents-sandbox/runner-new-bbbbbbbbbbbbbb:opencode-latest\n' ;;
+  rmi*) exit 1 ;;
+esac
+EOF
+chmod +x "$tmp/bin/docker"
+set +e
+ASB_SURFACE_ROOT="$root" bash "$sweep" sweep >/dev/null 2>"$tmp/sweep.err"
+rmi_status=$?
+set -e
+assert_nonzero "sweep fails when an rmi fails" "$rmi_status"
+assert_contains "sweep names the failed rmi" "failed to remove runner image" "$(cat "$tmp/sweep.err")"
+
+# --- reset the docker stub so the following tests do no docker work ---------
+cat >"$tmp/bin/docker" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  images*) : ;;
+esac
+EOF
+chmod +x "$tmp/bin/docker"
 
 # Release the lock the sweep tests held, before the lock-subcommand tests.
 ASB_SURFACE_ROOT="$root" bash "$sweep" unlock

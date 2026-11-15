@@ -87,7 +87,9 @@ Failure modes the surface implies; each is pinned by a check in the task named.
 - `scripts/test-surface-sweep.sh` — its tests, runnable without a VM or a real `asb`.
 
 **Interfaces:**
-- `surface-sweep.sh init` → prints the root path, creating `<root>/{data,runs}`, `chmod 700`-ing the root, and
+- `surface-sweep.sh init` → prints the root path, creating `<root>/{data,runs}`, `chmod 700`-ing the root, recording
+  the runner images present before the run (`<root>/.runner-images`; an unreachable docker warns and records none),
+  and
   validating the socket-path budget (`len("<root>/data/agents-sandbox/msb") + 50 < 104`); the budget is re-checked for
   every subcommand, and a relative `ASB_SURFACE_ROOT` is resolved absolute first.
 - `surface-sweep.sh env <journey>` → creates `<root>/runs/<journey>/{home,config,state,cache,tmp,project}` and prints
@@ -95,7 +97,9 @@ Failure modes the surface implies; each is pinned by a check in the task named.
   `XDG_CACHE_HOME`, `TMPDIR`, prefixed by `unset`s of the ambient `AGENTS_SANDBOX_*`/`OPENCODE_SANDBOX_*`/`MSB_*`;
   `PATH`/`TERM`/etc. are inherited from the caller.
 - `surface-sweep.sh sweep` → `sandbox list -q` / `sandbox remove --force --yes` and `volume list -q` / `volume remove
-  --force --yes` over the shared data home. Requires the lock (refuses otherwise) and exits non-zero if any removal
+  --force --yes` over the shared data home, then removes the runner images that appeared since `init`'s baseline
+  (best-effort; skips with a warning when the baseline or docker is absent, and never touches the baseline images).
+  Requires the lock (refuses otherwise) and exits non-zero if any removal
   fails, after still attempting the rest.
 - `surface-sweep.sh lock` / `unlock` → take/release `<root>.lock` (an atomic `mkdir`/`rmdir`, portable to macOS where
   `flock(1)` is absent) for the whole run.
@@ -409,5 +413,6 @@ Real state only; `~/.microsandbox` is read, never written.
 - [ ] **Step 2: Record the unexercised.** List each surface that could not be exercised and why (no egress, no
   credentials, `[M]` not run, `oh-my-pi` wizard, …).
 - [ ] **Step 3: Sweep the shared home.** `surface-sweep.sh sweep` (coordinator only, once, at the very end; it removes
-  every sandbox and home volume in the shared data home), then release the lock (`surface-sweep.sh unlock`). Confirm
+  every sandbox and home volume in the shared data home, plus the runner images the run added), then release the lock
+  (`surface-sweep.sh unlock`). Confirm
   `list`/`volume list` are empty and no real artifact was touched.
