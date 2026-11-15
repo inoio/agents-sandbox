@@ -32,6 +32,11 @@ this spec covers only their execution contract.
 - `--serve-only` runs hooks non-interactively regardless of the terminal. Its stdin is owned by the
   stop watcher (`serveOnlyContext`), so a hook prompt could not reach a reader; `SetUpSandbox`
   suppresses interactivity for it with an explicit guard, not by changing the predicate.
+- Ctrl-C during an interactive hook (SIGINT/SIGTERM) cancels the attach, restores the terminal, skips
+  the remaining hooks and ends the run with `ExitError{Code: 130}` (128+SIGINT, the shell's
+  convention for a signal-killed process), so a hook the user cancelled does not let the run proceed
+  into the agent. The interactive arm runs the attach under `signal.NotifyContext`, like the agent
+  attach; the non-interactive arm has no handler and dies on the signal.
 - Hooks run only when the VM boots (created, recreated, or booted from stopped/crashed), never on
   attach to an already-running VM.
 

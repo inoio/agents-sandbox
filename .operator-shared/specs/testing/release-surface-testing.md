@@ -365,7 +365,8 @@ Shapes: `docs/configuration/opening-links.md`, `docs/configuration/notifications
 - [ ] **Step 2: Notify.** `--notify on|off|desktop|audio` with an opencode/opencode2 session; confirm the event fires
   (on-input/on-done/on-error) and is suppressed when off. Other agents ignore it.
 - [ ] **Step 3: Home provisioning + hook.** A `home:` entry with `hook: startup` runs on VM start only (not on attach),
-  interactively, as `dev` or `root: true`; a bad `hook` value is rejected. `asb config home` lists the mapping.
+  interactively when the launcher's stdin and stdout are both terminals (never under `--serve-only`), as `dev` or
+  `root: true`; a bad `hook` value is rejected. `asb config home` lists the mapping.
 - [ ] **Step 4: Mounts.** A `mounts:` entry appears in `sandbox inspect`; a managed target (`/home/dev`, `/workspace`,
   `/tmp`) is rejected; a missing host source is rejected; a change recreates the VM.
 - [ ] **Step 5: Git access wiring.** Against a local/loopback remote (no real SSH host), clone/fetch/push inside the VM.

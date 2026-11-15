@@ -65,13 +65,17 @@ func hookInteractiveFor(seams options.Seams) bool {
 // hook that must outlive it is responsible for daemonizing itself. A hook that
 // cannot start, or that exits non-zero, is reported with its target and the
 // reason. Failures are logged, not fatal.
+//
+// It returns true when the user interrupted an interactive hook (Ctrl-C): the
+// remaining hooks are skipped, because a hook the user stopped is usually a
+// prerequisite a later one depends on, and the caller aborts the run.
 func runStartupHooks(
 	ctx context.Context,
 	sb msb.Sandbox,
 	hooks []homeconfig.HookSpec,
 	ui termio.UI,
 	interactive bool,
-) {
+) bool {
 	for _, h := range hooks {
 		user := DefaultSandboxUser
 		home := "/home/dev"
@@ -86,8 +90,11 @@ func runStartupHooks(
 			args = []string{h.Target}
 		}
 		ui.Infof("running startup hook %s (as %s, via %s)", h.Target, user, command)
-		runStartupHook(ctx, sb, h.Target, command, args, user, home, interactive, ui)
+		if runStartupHook(ctx, sb, h.Target, command, args, user, home, interactive, ui) {
+			return true
+		}
 	}
+	return false
 }
 
 // stderrTailBytes is the cap on stderr retained for a hook's failure warning.
@@ -125,7 +132,8 @@ func (t *stderrTail) String() string { return strings.TrimSpace(string(t.buf)) }
 // range, not a line, so the bytes go to the raw streams rather than through a
 // line logger, which would add a newline per chunk and split lines that straddle
 // chunks. The exit code is surfaced by the exited event; a hook that never
-// starts, or a stream error, is logged as a warning, not fatal.
+// starts, or a stream error, is logged as a warning, not fatal. It returns true
+// only when the user interrupted the interactive hook.
 func runStartupHook(
 	ctx context.Context,
 	sb msb.Sandbox,
@@ -134,10 +142,9 @@ func runStartupHook(
 	user, home string,
 	interactive bool,
 	ui termio.UI,
-) {
+) bool {
 	if interactive {
-		runStartupHookInteractive(ctx, sb, target, command, args, user, home, ui)
-		return
+		return runStartupHookInteractive(ctx, sb, target, command, args, user, home, ui)
 	}
 	handle, err := sb.ExecStream(
 		ctx,
@@ -147,7 +154,7 @@ func runStartupHook(
 	)
 	if err != nil {
 		ui.Warnf("startup hook %s failed: %v", target, err)
-		return
+		return false
 	}
 	defer handle.Close()
 
@@ -156,10 +163,10 @@ func runStartupHook(
 		event, err := handle.Recv(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
-				return
+				return false
 			}
 			ui.Warnf("startup hook %s failed: %v", target, err)
-			return
+			return false
 		}
 		switch event.Kind {
 		case msb.StreamEventStdout:
@@ -171,14 +178,14 @@ func runStartupHook(
 			if event.ExitCode != 0 {
 				ui.Warnf("startup hook %s failed: %s", target, exitReason(event.ExitCode, stderr.String()))
 			}
-			return
+			return false
 		case msb.StreamEventFailed:
 			if event.Failure != "" {
 				ui.Warnf("startup hook %s failed: %s", target, event.Failure)
 			} else {
 				ui.Warnf("startup hook %s failed: could not start", target)
 			}
-			return
+			return false
 		}
 	}
 }
@@ -194,6 +201,10 @@ func runStartupHook(
 // logged, not fatal; a failed attach is not retried through the streaming exec,
 // because re-running a hook whose side effects may have started is worse than
 // skipping it.
+//
+// It returns true when the user interrupted the hook (Ctrl-C or SIGTERM): the
+// terminal is restored and the caller aborts the run, matching the agent attach,
+// which also ends the run on a signal.
 func runStartupHookInteractive(
 	ctx context.Context,
 	sb msb.Sandbox,
@@ -201,7 +212,7 @@ func runStartupHookInteractive(
 	args []string,
 	user, home string,
 	ui termio.UI,
-) {
+) bool {
 	attachCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
 
@@ -212,23 +223,24 @@ func runStartupHookInteractive(
 		msb.AttachRequest{User: user, Env: map[string]string{"HOME": home}},
 	)
 	interrupted := attachCtx.Err() != nil && ctx.Err() == nil
-	if err != nil || code == -1 || interrupted {
+	if msb.AttachEndedAbnormally(err, code) || interrupted {
 		termio.ResetTerminal(ui.StdOut())
 	}
 	if ctx.Err() != nil {
-		return
+		return false
 	}
 	if interrupted {
 		ui.Warnf("startup hook %s interrupted", target)
-		return
+		return true
 	}
 	if err != nil {
 		ui.Warnf("startup hook %s failed: %v", target, err)
-		return
+		return false
 	}
 	if code != 0 {
 		ui.Warnf("startup hook %s failed: exit %d", target, code)
 	}
+	return false
 }
 
 // exitReason describes a hook's non-zero exit for its failure warning: the exit
@@ -239,6 +251,13 @@ func exitReason(exitCode int, tail string) string {
 	}
 	return fmt.Sprintf("exit %d: %s", exitCode, tail)
 }
+
+// interruptedExitCode is how the launcher exits after the user interrupts an
+// interactive startup hook. 128+2 is the shell's convention for a process ended
+// by SIGINT, so a script wrapping the launcher sees the same code whether it ran
+// the interactive arm and aborted or the non-interactive arm and died on the
+// signal.
+const interruptedExitCode = 130
 
 // SetUpSandbox provisions a running project VM and returns the attach target.
 // It writes the agent config files, records image provenance on a fresh boot,
@@ -290,7 +309,9 @@ func SetUpSandbox(
 		// hook prompt could not reach a reader; every other run may prompt when
 		// the launcher has a terminal.
 		interactive := hookInteractiveFor(seams) && !opts.ServeOnly
-		runStartupHooks(ctx, sb, cfs.Hooks, ui, interactive)
+		if runStartupHooks(ctx, sb, cfs.Hooks, ui, interactive) {
+			return "", &ExitError{Code: interruptedExitCode}
+		}
 	}
 
 	if dockerErr := startDockerdIfPresent(ctx, sb, ui); dockerErr != nil {

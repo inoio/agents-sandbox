@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
@@ -548,6 +550,59 @@ func TestSetUpSandboxRunsHooksNonInteractivelyUnderServeOnly(t *testing.T) {
 	}
 	if sb.AttachCmd != "" {
 		t.Errorf("serve-only hook attached %q, want the non-interactive streaming exec", sb.AttachCmd)
+	}
+}
+
+// TestSetUpSandboxAbortsTheRunOnInterruptedHook pins that an interrupt during an
+// interactive hook stops the run with the SIGINT exit code, rather than
+// proceeding to dockerd, the daemon and the attach after the user cancelled a
+// prerequisite.
+func TestSetUpSandboxAbortsTheRunOnInterruptedHook(t *testing.T) {
+	guard := make(chan os.Signal, 1)
+	signal.Notify(guard, os.Interrupt)
+	defer signal.Stop(guard)
+
+	seams := healthyOpencodeDaemon(t)
+	seams.HookInteractive = func() bool { return true }
+	configpathstest.WithMockConfigPaths(t)
+	sb := &msbtest.MockSandbox{
+		Name_:    "test-vm",
+		FSValue_: msbtest.NewTestFS(nil),
+		AttachFn: func(ctx context.Context) (int, error) {
+			//testenv:allow sends SIGINT to this process to exercise the signal scope
+			if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
+				return 0, err
+			}
+			<-ctx.Done()
+			return 0, nil
+		},
+	}
+	ui := &termiotest.Mock{}
+	cfs := &reprovision.ConfigFiles{
+		Hooks: []homeconfig.HookSpec{
+			{Target: "/home/dev/.hello.sh", Source: "x", HasShebang: true},
+		},
+	}
+
+	_, err := SetUpSandbox(
+		context.Background(),
+		testVMKey(),
+		sb,
+		opencodeResolved(t),
+		options.RunOptions{Agent: "opencode"},
+		seams,
+		cfs,
+		ui,
+		false,
+		VMBootStarted,
+		mounts.WorkspaceMountPath,
+	)
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("SetUpSandbox error = %v, want an *ExitError", err)
+	}
+	if exitErr.Code != interruptedExitCode {
+		t.Errorf("exit code = %d, want %d", exitErr.Code, interruptedExitCode)
 	}
 }
 

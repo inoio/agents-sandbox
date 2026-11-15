@@ -6,8 +6,10 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/signal"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/creack/pty"
@@ -674,6 +676,46 @@ func TestRunStartupHooksInteractiveStaysSilentOnACancelledContext(t *testing.T) 
 
 	if len(ui.WarnCalls) != 0 {
 		t.Errorf("warnings = %v, want none for a cancelled attach", ui.WarnCalls)
+	}
+}
+
+// TestRunStartupHooksStopsAndReportsOnInterrupt pins that Ctrl-C during an
+// interactive hook skips the remaining hooks and reports the interrupt to the
+// caller, so the run stops instead of continuing past a prerequisite the user
+// cancelled.
+func TestRunStartupHooksStopsAndReportsOnInterrupt(t *testing.T) {
+	guard := make(chan os.Signal, 1)
+	signal.Notify(guard, os.Interrupt)
+	defer signal.Stop(guard)
+
+	attaches := 0
+	sb := &msbtest.MockSandbox{
+		Name_: "vm",
+		AttachFn: func(ctx context.Context) (int, error) {
+			attaches++
+			//testenv:allow sends SIGINT to this process to exercise the signal scope
+			if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
+				return 0, err
+			}
+			<-ctx.Done()
+			return 0, nil
+		},
+	}
+	ui := termiotest.NewTestMock(t)
+
+	interrupted := runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
+		{Target: "/home/dev/.first.sh", Source: "x", HasShebang: true},
+		{Target: "/home/dev/.second.sh", Source: "x", HasShebang: true},
+	}, &ui, true)
+
+	if !interrupted {
+		t.Error("runStartupHooks() = false, want the interrupt reported")
+	}
+	if attaches != 1 {
+		t.Errorf("attaches = %d, want the remaining hook skipped after the interrupt", attaches)
+	}
+	if len(ui.WarnCalls) != 1 || !strings.Contains(ui.WarnCalls[0], "interrupted") {
+		t.Errorf("warnings = %v, want one naming the interrupt", ui.WarnCalls)
 	}
 }
 

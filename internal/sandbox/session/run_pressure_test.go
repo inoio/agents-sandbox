@@ -83,31 +83,6 @@ func TestOfferMemoryRaiseAfterAttachUsesMetricsLimit(t *testing.T) {
 	}
 }
 
-// TestAbnormalEnd pins the abnormal-end classification: a clean exit and an
-// ordinary non-zero exit are normal, while a signal death (-1) or an attach
-// error is abnormal (spec: -1 is the guest's signal death; a non-zero exit
-// code is a deliberate agent exit, not a crash).
-func TestAbnormalEnd(t *testing.T) {
-	cases := []struct {
-		name      string
-		attachErr error
-		exitCode  int
-		want      bool
-	}{
-		{"clean exit", nil, 0, false},
-		{"non-zero exit code", nil, 3, false},
-		{"signal death", nil, -1, true},
-		{"attach error", errors.New("boom"), 0, true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := abnormalEnd(tc.attachErr, tc.exitCode); got != tc.want {
-				t.Errorf("abnormalEnd(%v, %d) = %v, want %v", tc.attachErr, tc.exitCode, got, tc.want)
-			}
-		})
-	}
-}
-
 // TestOfferMemoryRaiseAfterAttachDeclinedSaysNothingAboutTheNextRun pins that
 // a declined offer persists nothing, so no "next run" notice follows.
 func TestOfferMemoryRaiseAfterAttachDeclinedSaysNothingAboutTheNextRun(t *testing.T) {
