@@ -24,12 +24,31 @@ The `maintain` skill's state machine maps onto these actual repo labels:
 - **Category** (exactly one): `bug`, `enhancement`, `chore`, `documentation`.
 - **State** (exactly one): `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`,
   `wontfix`.
-- **Marker** (at most one): `upstream` — depends on an external project (microsandbox, opencode, …).
-  An `upstream`-marked issue **may omit the state role**: the maintainer does not require one for it
-  (an external dependency is not a triage stage). Issues that do carry a state keep it.
+- **Markers** (orthogonal to category and state; each at most once, independently of the other):
+  - `upstream` — depends on an external project (microsandbox, opencode, …). An `upstream`-marked issue
+    **may omit the state role**: the maintainer does not require one for it (an external dependency is
+    not a triage stage). Issues that do carry a state keep it.
+  - `needs-backport` — the fix must also land on the current `release/<major>.<minor>` line (see
+    [`specs/release/release-branching.md`](../specs/release/release-branching.md)). It is the **only
+    trigger** for a port: a bug without it is intentionally `main`-only. The marker is a **permanent
+    record** — it is not cleared when the port lands; the nightly `backport-audit` workflow decides
+    done-ness by patch-id presence. The issue is the marker's **durable home**: `scripts/enqueue-pr.sh`
+    also copies it onto the PR at enqueue, but only one of the three documented merge paths runs that
+    script, so the audit reads **both** the merged PRs carrying the label and the merged PRs that
+    close a labeled issue (see [`guides/github-pr-workflow.md`](github-pr-workflow.md)).
+
+  An issue may carry both markers: they are independent axes (an upstream-blocked fix that also needs a
+  port carries `upstream` and `needs-backport`).
 - **Priority** (orthogonal, not part of the state machine): `priority:critical`, `priority:high`,
   `priority:medium`, `priority:low` (rubric in `.agents/skills/maintain/PRIORITIES.md`).
 - **Maintainer-only**: `security`.
+
+The marker labels are repo-level and created once by a maintainer:
+
+```
+gh label create upstream --description "Depends on an external project" --color 5319E7
+gh label create needs-backport --description "Fix must also land on the current release branch" --color 1D76DB
+```
 
 Dependabot's ecosystem labels (`dependencies`, `github_actions`, `go`) belong to PRs, which this repo
 does not triage.

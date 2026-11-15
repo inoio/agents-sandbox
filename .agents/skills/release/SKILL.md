@@ -10,6 +10,10 @@ Cut a release of `agents-sandbox`. `release` prepares the release end to end, th
 sign-off gate; nothing reaches a remote until the maintainer approves. One release per invocation,
 and the maintainer decides the version and who pushes the tag.
 
+There are two flows. A **micro** release (a patch: only fixes) tags the current
+`release/<major>.<minor>` branch and starts with step 0. A **minor** (or major) release tags `main`,
+advances the maintenance line, and starts with step 1.
+
 ## Reference docs
 
 - [RELEASE-NOTES.md](RELEASE-NOTES.md): the release-note structure and how to pull contributors,
@@ -19,18 +23,58 @@ and the maintainer decides the version and who pushes the tag.
 
 ## The one hard rule
 
-Steps 1-4 run locally and reach no remote. Step 5 is a gate: present the release and wait for an explicit
-go. Land the changelog (6), push the tag (7), and set the notes (8) only after the maintainer
-approves, and only for the version they chose. On abort, stop.
+The release's own artifacts stay local until the maintainer approves: steps 1-4 reach no remote, and
+step 5 is a gate — present the release and wait for an explicit go. Land the changelog (6), push the
+tag (7), and set the notes (8) only after the maintainer approves, and only for the version they
+chose. On abort, stop.
+
+Step 0 is the one exception, and it is not part of the release's artifacts. Its audit
+(`scripts/backport-audit.sh`) and `git cherry` checks are local and read-only, but the port it may call
+for (`scripts/open-backport-pr.sh <n>`) pushes a branch and opens a PR — an ordinary fix PR against the
+release branch, subject to review and merge like any other, not a release artifact. Opening it does not
+push a tag, land the changelog, or otherwise publish the release, so it needs no step-5 approval.
 
 ## Flow
+
+### 0. Backport precondition (a micro release)
+
+A micro's fixes are authored on `main` and cherry-picked down onto the current release branch, so the
+branch must hold nothing `main` lacks. Run this **before** authoring the release's own changelog/tag
+commit (step 6): that is *this* micro's one branch-local commit and so is never in scope here. It is
+not the branch's only one — every earlier micro already assembled a changelog and tagged the branch,
+and its release commit stays on the line.
+
+Run `git fetch origin main 'refs/heads/release/*:refs/remotes/origin/release/*'` first: the audit
+resolves a merged PR through its merge commit and the release branch's patch-ids from the local
+clone, so a clone whose refs are stale fails the run (exit 2) instead of answering it.
+
+Run `scripts/backport-audit.sh`. It exits non-zero when a merged `needs-backport` PR on `main` has a
+commit missing from the latest `release/<major>.<minor>` line. Present each reported fix and stop
+unless the maintainer overrides — a micro must not ship with a fix stranded off the line. For a
+reported PR, `scripts/open-backport-pr.sh <n>` performs the port (cherry-pick down, open the PR
+against the branch); let it merge, then rerun the audit.
+
+Then run `git cherry main release/<major>.<minor>` as the wrong-direction tripwire. Every commit on the
+branch must be patch-equivalent to a `main` commit; a `+` line is a branch commit `main` lacks. Three
+kinds of `+` are legitimate, not missed:
+
+- **a prior micro's release commit** — each shipped micro assembled a changelog and tagged the branch,
+  and that commit stays on the line. At the next micro it is in scope; one per micro is expected.
+- **an adapted port** — a conflict resolved differently, so a different patch-id.
+- **an urgent fix authored straight on the branch** — permitted, but debt to clear by getting its
+  patch onto `main`.
+
+Surface each `+` line for the maintainer to confirm "adapted, not missed" and proceed.
+
+Completion: the audit is clean (or the maintainer overrode it), and every `+` line is accounted for as
+a prior micro's release commit, an adapted port, or known branch debt.
 
 ### 1. Curate the changelog
 
 Assemble `changelog.d/` into the changelog, then curate. Read every fragment in `changelog.d/` (the
 ignored `README.md` aside) together with the legacy `[Unreleased]` section of `CHANGELOG.md`, and turn
 them into the entries a reader wants. Read from the branch that will be tagged (step 7): `main` for a
-minor or major release, `release/<major>.<minor>` for a patch release, where the line's fixes and
+minor or major release, `release/<major>.<minor>` for a micro release, where the line's fixes and
 their fragments live. Order the fragments by section (`Added`, `Changed`, `Deprecated`, `Docs`,
 `Fixed`) and, within a section, by filename ascending, per
 [`specs/ci/ci-pipeline.md`](../../../.operator-shared/specs/ci/ci-pipeline.md).
@@ -79,9 +123,19 @@ harness-smoke steps run or noted for the maintainer.
 ### 3. Choose a version
 
 Pick the next version by SemVer from the curated content: a breaking change bumps the major, a new
-feature the minor, fixes the patch. A release carrying big user-facing features may warrant a
+feature the minor, fixes the patch (micro). A release carrying big user-facing features may warrant a
 pre-release (`vX.Y.Z-alpha.N`). State the version and the reasoning; the maintainer makes the final
 call.
+
+Two prompts shape the choice, and neither fires on its own:
+
+- **Micro offer after a down-port.** Immediately after a backport PR (step 0) merges, offer a micro
+  release. There is no change threshold and no batching rule — one down-ported fix is enough to offer.
+- **Minor proposal.** Propose a minor only when **both** hold: `changelog.d/` holds at least one
+  user-visible fragment (a `changelog.d/*.<type>.md` other than the ignored `README.md`), **and** the
+  last minor release is at least `MINOR_RELEASE_MIN_AGE` (30 days) old. Age alone never fires it, and a
+  fragment alone never fires it — a busy week on a young line is not a minor. A major is never
+  proposed: it is a stability commitment the maintainer calls explicitly.
 
 Completion: one proposed version with its rationale.
 
@@ -99,12 +153,18 @@ Stop and present, in one message: the proposed version, the curated `[Unreleased
 drafted release notes, and the tag-push options (the maintainer pushes from the host, or the agent
 creates the tag through `gh`). Wait for an explicit decision.
 
+For a minor (or major) release, also **offer** deleting the previous line's branch
+(`release/<previous minor>`). The maintenance line moves to `release/<new minor>` and only one line is
+maintained — a dropped line silently receiving fixes is the failure this avoids. The deletion is
+offered here, never automatic: the maintainer confirms after the new line's tag is verified (step 7),
+and a dropped line's users move forward.
+
 ### 6. Land the changelog
 
 On approval, open a PR that assembles `changelog.d/` and the legacy `[Unreleased]` content into
 `## [X.Y.Z] - <today>`, deletes the fragment files, and adds a fresh empty `[Unreleased]` above the
 new section; merge it to the branch being tagged (step 1) — `main` for a minor or major release, the
-existing `release/<major>.<minor>` branch for a patch release. The tag must point at the merged
+existing `release/<major>.<minor>` branch for a micro release. The tag must point at the merged
 content.
 
 `main` merges through a queue and repo auto-merge is disabled, so `gh pr merge` is refused. Enqueue
@@ -115,9 +175,11 @@ required checks on the combined tree before it merges.
 ### 7. Create the release branch and push the tag
 
 Every minor (or major) release gets a release branch `release/<major>.<minor>` at the merged `main`
-tip; the tag lands on that branch. `main` keeps taking new work, and a released line's fixes land on
-its release branch — forward-port anything that still applies to `main`. See
-[`specs/release/release-branching.md`](../../../.operator-shared/specs/release/release-branching.md).
+tip; the tag lands on `main` and the branch marks the new maintenance line. `main` keeps taking new
+work; a fix that affects the shipped line is authored on `main` and cherry-picked down (step 0) onto
+`release/<major>.<minor>`, so the branch never holds a fix `main` lacks. Only one line is maintained:
+once the new line's tag is verified, the previous branch is offered for deletion in the step-5 gate.
+See [`specs/release/release-branching.md`](../../../.operator-shared/specs/release/release-branching.md).
 
 The maintainer may push from the host, or ask the agent to do it through `gh`:
 
@@ -128,7 +190,7 @@ gh api "repos/$repo/git/refs" -f ref="refs/heads/release/<major>.<minor>" -f sha
 gh api "repos/$repo/git/refs" -f ref="refs/tags/vX.Y.Z" -f sha="$sha"
 ```
 
-A patch release tags the tip of the existing `release/<major>.<minor>` branch instead:
+A micro release tags the tip of the current `release/<major>.<minor>` branch instead:
 
 ```
 sha=$(gh api "repos/$repo/commits/release/<major>.<minor>" --jq .sha)
