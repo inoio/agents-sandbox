@@ -1,49 +1,133 @@
 ---
-description: Contract for the per-minor release branch `release/<major>.<minor>` — cut at the release commit, the branch the line's patch releases are tagged from, and where fixes for a released line land while `main` keeps new work; including that the branch runs the same CI as `main` and that a release tag is refused unless it is on `main` or a release branch.
-read_if: Deciding where a release tag or a fix lands, cutting a patch release for a released line, backporting a fix, protecting a release branch, or changing the release branch name or flow.
+description: Contract for the release model — `main` as the source of truth, fixes cherry-picked down (`git cherry-pick -x`) to the single maintained `release/<major>.<minor>` branch, the patch-id containment invariant checked by `git cherry` (not ancestry) before the micro's own changelog/tag commit and the one prior-micro release commit per shipped micro that legitimately shows as `+`, the micro/minor/major tag roles, the `needs-backport` marker, the `release` skill's `backport-audit` tag precondition, the nightly reconciliation workflow and its rolling `Backport debt` issue, and that a release tag is refused unless it is on `main` or a release branch.
+read_if: Deciding where a release tag or a fix lands, cherry-picking a fix down to a release line, backporting a fix, the `needs-backport` marker, the backport audit or its nightly workflow, protecting a release branch, or changing the release branch name or flow.
 ---
 
 # Release branching
 
 ## Contract
 
-- `main` is the development line: new features and non-urgent fixes land there.
-- Every **minor** (and **major**) release cuts a long-lived release branch
-  `release/<major>.<minor>` (for example `release/0.6`) at the commit the release is tagged on.
-- **Patch releases for a line are cut from that line's release branch.** The fix merges into
-  `release/<major>.<minor>` and the tag `vX.Y.(Z+1)` lands on that branch's tip.
-- A fix that also applies to `main` is forward-ported there. `main` is never reset to, or held at,
-  a release branch.
-- At a minor release the tag is reachable from both lines (the branch is created at the same
-  commit); at a patch release it is on the release branch only.
-- A `release/<major>.<minor>` branch runs the **same CI as `main`**: a push to it triggers
-  `.github/workflows/ci.yml` and runs every required check (`lint`, `test`, `race`, `deadcode`,
-  `changelog`) plus the Docker `integration` build when the push is code-affecting, so a backport
-  merged onto the line is verified at the merge rather than only when the line is tagged. The build
-  is import-only — the
-  cache-reading `integration` reader runs, the single cache writer stays on `main` — so a release
-  push never overwrites `main`'s GHCR build cache.
-- **Protecting the line is a manual admin step**: a `protect release/*` ruleset must require the
-  same six branch checks `protect main` does (`lint`, `test`, `race`, `deadcode`, `changelog`, and
-  the `integration (docker build)` context), without the merge queue. The workflow file cannot set
-  it; until it exists, the branch runs CI but does not enforce it. `race`/`deadcode` are absent from
-  `release.needs` (they do not block publishing), which is only sound because `tag-guard` plus that
-  ruleset prove the tagged tree passed them; adding them to `release.needs` is the backstop if a
-  release branch is ever pushed without the ruleset.
-- **A release tag is refused unless its commit is on `main` or a release branch.** The `tag-guard`
-  job fails the run (and `release` waits on it) when the tagged SHA is not an ancestor of `main`
-  or of some `release/*`, so a tag can never publish a commit that bypassed the checks. Both
-  lines are accepted because a patch release tags the release branch's tip, not `main`; a
-  `main`-only rule would reject legitimate patch tags.
-- **Push the branch before the tag.** `tag-guard` admits a tag only when the tagged commit is
-  already reachable from `origin/main` or a pushed `origin/release/*` branch, so the documented flow
-  creates and pushes `release/<major>.<minor>` before the tag. A tag created before its branch ref
-  exists gives the guard no branch to see and is refused as a stray commit.
+- **`main` is the source of truth.** New features and non-urgent fixes land there, and every fix that
+  must reach a shipped line is **authored on `main` first**. Agents start from `main`; targeting a
+  release branch is never their first move.
+- **One maintained release branch.** Exactly one `release/<major>.<minor>` line is maintained at a
+  time (for example `release/0.6`). Cutting a minor release advances the line to
+  `release/<new minor>`; the previous line is dropped, not kept alive. A user pinned to a dropped
+  line moves forward and gets no further fix.
+- **Fixes flow down, never up.** A fix that affects the shipped line is authored on `main` and
+  cherry-picked onto the current line with `git cherry-pick -x`. The branch therefore never holds a
+  fix `main` lacks. The down-port unit is the PR's **constituent commits**, cherry-picked in order —
+  not the merge commit (`-m 1` would collapse the PR into one commit whose patch-id matches no `main`
+  commit and would defeat the invariant check).
+- **The containment invariant is patch-id-based, not ancestry.** A cherry-picked commit is a new SHA,
+  so `git merge-base --is-ancestor` is the wrong test and reports a false failure. The test is
+  `git cherry main release/<X>`: every branch commit must be patch-equivalent to a `main` commit.
+- **The invariant is a precondition, not a post-hoc check.** It runs *before* the micro's own
+  changelog/tag commit, so that commit is never in scope. But the branch is not otherwise
+  commit-free: **every earlier micro already left one branch-local changelog/tag commit on it**, and
+  at the next micro that commit is in scope — `git cherry` prints `+` for it. One such commit per
+  shipped micro is expected, never a failure.
+- **A `+` line is a question, not a failure.** An *unexpected* `+` is one that is neither a prior
+  micro's release commit, nor an adapted port (a conflict resolved differently, giving a different
+  patch-id), nor an urgent fix authored straight on the branch. The skill surfaces each `+` line for
+  the maintainer to confirm "adapted, not missed" and proceeds. A fix authored directly on the branch
+  is debt to clear by getting its patch onto `main`. The check is a **tripwire in the skill**, not a
+  CI gate.
+- **Tag roles.** A **micro** (patch) release is tagged on the current `release/<major>.<minor>`
+  branch and contains only fixes cherry-picked from `main`. A **minor** release is tagged on `main`
+  and advances the maintenance line to `release/<new minor>`. A **major** release is tagged on `main`
+  with the same mechanics as a minor while major is `0`; it is called explicitly and never proposed.
+- **Fix branches and the line's fragments.** A down-port carries the PR's `changelog.d/` fragment
+  along with the fix (the fragment commit is part of the PR), and the micro's changelog assembly
+  consumes it on the branch. `main` keeps its own copy until its next release, so a fix appears in
+  both the micro's notes and the next minor's notes.
+- **Push the branch before the tag.** `tag-guard` admits a tag only when the tagged commit is already
+  reachable from `origin/main` or a pushed `origin/release/*`, so `release/<major>.<minor>` is created
+  and pushed before its first tag. A tag whose commit is not on `main` or a release branch is refused,
+  so a tag can never publish a commit that bypassed CI checks.
+
+## The `needs-backport` marker
+
+- `needs-backport` is the **only trigger** for a down-port: it marks a fix that affects a shipped line
+  and must be cherry-picked onto the current release branch. A bug without it is intentionally
+  `main`-only. It is a marker beside `upstream`, orthogonal to category, state, and priority.
+- It is a **permanent record**, like `upstream` — it is not cleared when the port lands. Done-ness is
+  decided by patch-id presence, so a stale label cannot mask an unported fix and a cleared-then-failed
+  port cannot lose its record.
+- The marker's **durable home is the issue**. `scripts/enqueue-pr.sh` also copies it from the linked
+  issue onto the PR at enqueue time, but that copy is the convenience, not the record: a PR merged by
+  the raw `enqueuePullRequest` mutation or "Merge when ready" never gets the copy. The audit (below)
+  therefore reads **both** — merged PRs carrying the label, and merged PRs that close a
+  labeled issue — so no merge path loses the marker.
+
+## The release skill's backport checks
+
+The `release` skill runs these as the **tag precondition** for a micro release, before authoring the
+micro's changelog/tag commit:
+
+- **`scripts/backport-audit.sh`** — the audit. It reports, and `scripts/open-backport-pr.sh <n>`
+  creates a port (cherry-pick down, open the PR against the branch); the workflow runs both. The
+  audit:
+  - derives the **expected set** from merged `needs-backport` fixes on `main` — the union of merged
+    PRs carrying the label and merged PRs that close a labeled issue, deduplicated by PR number,
+    recomputed from scratch and independent of whether any creation step ran;
+  - tests **equivalence by patch-id set containment**, not the `cherry-pick -x` trailer — the merge
+    queue rebuilds a PR on `main`, so the SHAs `-x` recorded may not exist on `main`, while a
+    patch-id is content-based and survives the rebase. A commit whose patch-id is empty changes
+    nothing (an empty commit), so it needs no port and is never debt;
+  - controls **noise** by skipping a PR merged within a 2-hour grace period and skipping one whose
+    commit is already covered by an open backport PR targeting the line;
+  - exits `1` when a labeled fix is missing from the latest line. An unported `needs-backport` fix
+    **blocks the tag** unless the maintainer overrides — this is what makes "you cannot ship a micro
+    with an unported fix" true by construction. An adapted port is a different patch-id and shows as
+    a false positive, advisory for a human to confirm.
+  - fails with **exit `2`, never clean**, when an expected-set query comes back at its row cap: `gh`
+    returns the newest N rows and silently drops the rest, so a truncated set would read as no debt
+    and close the rolling issue. The same exit covers an unanswerable merge-commit query — a merged
+    PR's merge commit absent from the local clone (a stale fetch) would otherwise empty the walked
+    range and read as clean — so the run says to fetch and rerun. The caller treats anything but
+    `0`/`1` as an operational failure.
+- **`git cherry main release/<X>`** — the wrong-direction tripwire described above. The only expected
+  `+` lines are each prior micro's release commit, an adapted port, and a branch-authored fix; any
+  other `+` is an unexplained branch commit.
+
+The porter, `scripts/open-backport-pr.sh <n>`, skips a source commit whose patch-id is already on the
+line, so a partially ported PR (a commit hand-ported earlier, an adapted port) is completed instead of
+aborting on an empty cherry-pick. It also skips a commit with an empty patch-id (an empty commit) and
+a pick git reports as now empty (the change is present in another form), both with nothing to port; a
+real conflict still aborts. A fully ported PR — including one whose every remaining pick came out
+empty — is a no-op that pushes nothing and exits `3` (distinct from `0`, which means a branch was
+pushed and a PR opened); the workflow reports it as "already fully ported" rather than "opened".
+
+The latest line is the highest-semver `release/<major>.<minor>` among local and origin refs; with no
+release branch the audit reports nothing to audit and exits clean.
+
+## Nightly reconciliation
+
+`.github/workflows/backport-audit.yml` is a **non-gating nightly** (a schedule and a manual dispatch,
+never a PR check and never a member of `release.needs`). It runs the same audit off `main`, opens the
+missing backport PRs, and keeps **one rolling, idempotent `Backport debt` issue** current — updated in
+place and closed when the debt clears, rather than failing a scheduled build. Git's `git cherry`
+cannot see a missed port (an absent commit is simply absent), so correctness rests on this reverse
+query: enumerate what should be on the branch and verify each is.
+
+## CI and protection
+
+- A `release/*` push runs the **same CI as `main`**: every required check (`lint`, `test`, `race`,
+  `deadcode`, `changelog`) plus the Docker `integration` build when the push is code-affecting, so a
+  backport merged onto the line is verified at the merge rather than only at the tag. The build is
+  import-only — the cache-reading `integration` reader runs, the single cache writer stays on `main`.
+- **Protecting the line is a manual admin step**: a `protect release/*` ruleset must require the same
+  six branch checks `protect main` does, without the merge queue. Until it exists, the branch runs CI
+  but does not enforce it. `race`/`deadcode` are absent from `release.needs` (they do not block
+  publishing), which is only sound because `tag-guard` plus that ruleset prove the tagged tree passed
+  them; adding them to `release.needs` is the backstop if a release branch is ever pushed without the
+  ruleset.
 
 ## Cutting a release
 
-At a minor release the branch and the tag are created at the same commit — the merged `main` tip
-that carries the release commit. Through `gh`:
+A minor release creates the branch and tags `main` at the same commit — the merged `main` tip that
+carries the release commit:
 
 ```
 repo=$(gh repo view --json nameWithOwner -q .nameWithOwner)
@@ -52,13 +136,15 @@ gh api "repos/$repo/git/refs" -f ref="refs/heads/release/<major>.<minor>" -f sha
 gh api "repos/$repo/git/refs" -f ref="refs/tags/vX.Y.Z" -f sha="$sha"
 ```
 
-A patch release tags the tip of the existing `release/<major>.<minor>` branch instead:
+A micro release tags the tip of the current `release/<major>.<minor>` branch instead:
 
 ```
 sha=$(gh api "repos/$repo/commits/release/<major>.<minor>" --jq .sha)
 gh api "repos/$repo/git/refs" -f ref="refs/tags/vX.Y.Z" -f sha="$sha"
 ```
 
-Either can be pushed from the host rather than through `gh`. CI then cross-compiles the targets,
-publishes the GitHub Release, and opens the Homebrew bump PR; verify the release artifacts, the
-bump PR, and the docs deploy.
+Dropping the previous line is **offered, not automatic**: the `release` skill flags
+`release/<old>` for deletion in its sign-off gate after the new line's tag is verified, and the
+maintainer confirms. Either push can be done from the host rather than through `gh`. CI then
+cross-compiles the targets, publishes the GitHub Release, opens the Homebrew bump PR, and publishes
+the docs; verify the release artifacts, the bump PR, and the docs deploy.

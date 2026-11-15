@@ -12,7 +12,8 @@ batch plan of actions across its areas, and executes only the approved rows.
 `maintain` supersedes the `triage` skill: it carries the same issue state machine
 and adds issue priority labeling, dependabot PR handling, and security-alert
 assessment. The scope is deliberately narrow — no unattended execution, no new
-labels, and no work outside the three areas below.
+labels beyond the `needs-backport` marker this skill applies during triage, and
+no work outside the three areas below.
 
 ## Reference docs
 
@@ -44,10 +45,15 @@ Four **category** roles (exactly one per issue):
 - `chore`: maintenance, refactoring, or tech debt
 - `documentation`: improvements or additions to documentation
 
-One optional **marker**, orthogonal to category and state and applied at most
-once:
+Optional **markers**, orthogonal to category and state, each applied at most once
+and independently of the other:
 
 - `upstream`: depends on an external project (microsandbox, opencode, ...)
+- `needs-backport`: the fix must also land on the current `release/<major>.<minor>`
+  line. A permanent record — it is not cleared when the port lands; the nightly
+  backport audit decides done-ness by patch-id presence. It is the only trigger
+  for a port: a bug without it is intentionally `main`-only. `scripts/enqueue-pr.sh`
+  copies the marker onto the PR when the fix is enqueued.
 
 Five **state** roles:
 
@@ -58,9 +64,11 @@ Five **state** roles:
 - `wontfix`: will not be actioned
 
 Every triaged issue carries exactly one category role and one state role; it may
-additionally carry the `upstream` marker when the work depends on an external
-project. If state roles conflict, flag it and ask the maintainer before doing
-anything else.
+additionally carry each marker at most once, independently of the other —
+`upstream` when the work depends on an external project, `needs-backport` when a
+fix must also land on the current release line. Both may be set on one issue: an
+upstream-blocked fix that also needs a port carries both. If state roles
+conflict, flag it and ask the maintainer before doing anything else.
 
 `priority:*` labels are orthogonal and set per [PRIORITIES.md](PRIORITIES.md);
 they are not part of the state machine. The dependabot ecosystem labels

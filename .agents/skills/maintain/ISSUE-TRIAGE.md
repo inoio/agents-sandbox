@@ -18,8 +18,10 @@ Present three buckets, oldest first:
    re-evaluation.
 
 Show counts and a one-line summary per item, each with a proposed
-category/state/priority, plus the `upstream` marker when the request depends on
-an external project. Let the maintainer pick.
+category/state/priority, plus each marker that applies: `upstream` when the
+request depends on an external project, `needs-backport` when the fix must also
+land on the current `release/<major>.<minor>` line. Both may apply. Let the
+maintainer pick.
 
 ## Maintain a specific issue
 
@@ -34,10 +36,13 @@ an external project. Let the maintainer pick.
    that resembles this request.
 
 2. **Recommend.** State your category, state, and priority recommendation with
-   reasoning, plus the `upstream` marker when the work depends on an external
-   project (microsandbox, opencode, ...), and a brief codebase summary relevant
-   to the request (including whether it's already implemented). Wait for
-   direction.
+   reasoning, plus each marker that applies: the `upstream` marker when the work
+   depends on an external project (microsandbox, opencode, ...), and the
+   `needs-backport` marker when the fix must also land on the current
+   `release/<major>.<minor>` line — it is the only trigger for a port, so a bug
+   without it is intentionally `main`-only. Both may apply. Then give a brief
+   codebase summary relevant to the request (including whether it's already
+   implemented). Wait for direction.
 
 3. **Verify the claim.** Before any grilling, check that the claim holds up. For
    a bug, reproduce it from the reporter's steps. For an enhancement, confirm

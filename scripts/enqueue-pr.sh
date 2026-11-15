@@ -124,6 +124,33 @@ pr_state() {
   gh pr view "$pr" --json state -q .state 2>/dev/null || printf 'UNKNOWN'
 }
 
+# A fix that must also reach the shipped release line carries the marker on its
+# GitHub issue (the maintainer sets it; a bug without it is intentionally
+# main-only). The nightly backport audit reads the marker from the merged PR, so
+# copy it across from any linked issue before the PR merges. Adding a label the
+# PR already carries is a no-op in gh, so this is safe to repeat. The copy is
+# convenience only — the issue label is the durable record — so a refused copy
+# warns and continues rather than aborting the enqueue.
+#
+# It runs after the enqueue, not before the check watch: adding a label fires the
+# `labeled` pull_request event, and ci.yml cancels an in-flight run for the same
+# PR (`cancel-in-progress: true`), so labelling first would restart the very run
+# being watched here (Docker `integration` job included).
+carry_backport_marker() {
+  local issue
+  while read -r issue; do
+    [[ -n "$issue" ]] || continue
+    if gh issue view "$issue" --json labels -q '.labels[].name' 2>/dev/null | grep -qx 'needs-backport'; then
+      if gh pr edit "$pr" --add-label needs-backport >/dev/null; then
+        printf 'enqueue-pr: PR #%s: marked needs-backport (a backport PR will be opened by the backport audit)\n' "$pr"
+      else
+        printf 'enqueue-pr: PR #%s: could not copy the marker; the issue label still governs the audit\n' "$pr" >&2
+      fi
+      return 0
+    fi
+  done < <(gh pr view "$pr" --json closingIssuesReferences -q '.closingIssuesReferences[].number' 2>/dev/null || true)
+}
+
 printf 'enqueue-pr: PR #%s: resolving\n' "$pr"
 if ! load_pr; then
   # A merged PR is the goal state, not a failure; a closed one is not.
@@ -155,3 +182,7 @@ if [[ -n "$position" ]]; then
 else
   printf 'enqueue-pr: PR #%s: enqueued\n' "$pr"
 fi
+
+# After the enqueue, so its `labeled` event cannot cancel the run the watch above
+# just observed. The issue label is the audit's durable record either way.
+carry_backport_marker || true
