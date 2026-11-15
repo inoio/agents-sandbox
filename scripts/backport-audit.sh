@@ -11,7 +11,9 @@
 #   backport-audit.sh
 #
 # Exit status: 0 when no backport debt is outstanding, 1 when at least one
-# labeled PR is missing from the release branch, 2 on a usage error.
+# labeled PR is missing from the release branch, 2 on a usage error or when an
+# expected-set query came back full (truncated) — the caller must treat that as
+# an error, never as clean.
 #
 # Env (all overridable):
 #   BACKPORT_AUDIT_REPO            repository to inspect (default: .)
@@ -28,15 +30,21 @@
 #
 #   Expected set (union, deduplicated by PR number):
 #   A. gh pr list --state merged --base "$DEFAULT" --label "$LABEL"
-#      --json number,title,url,mergedAt,mergeCommit --limit 200.
+#      --json number,title,url,mergedAt,mergeCommit --limit 201.
 #   B. every merged PR that closes a `$LABEL`-labeled issue:
 #      gh issue list --state all --label "$LABEL"
-#      --json number,closedByPullRequestsReferences --limit 200, then
+#      --json number,closedByPullRequestsReferences --limit 201, then
 #      gh pr view <n> --json number,title,url,mergedAt,mergeCommit,state for
 #      each referenced PR, keeping only state MERGED. The issue label is the
 #      durable record; enqueue-pr.sh also copies it onto the PR, but a merge
 #      path that skips the copy (the raw mutation, "Merge when ready") must not
 #      hide a fix.
+#
+#   Complete set: gh returns the newest N rows and drops the rest with no
+#   signal, so a truncated window would read as clean and close the rolling
+#   issue. Each source is therefore requested with --limit 201 and a page that
+#   comes back with 201 or more rows fails loudly (exit 2) instead of being
+#   audited. The open-backport suppression query carries the same cap and guard.
 #
 #   Landed test: the release branch's patch-id set is
 #   git log -p --no-merges "<release>" | git patch-id --stable | awk '{print $1}' | sort -u.
@@ -133,24 +141,47 @@ if [[ -z "$release_line" ]]; then
 fi
 read -r _major _minor release_ref release_name <<<"$release_line"
 
+# gh returns the newest N rows and silently drops the rest. Every expected-set
+# query asks for one more than the usable window and a page at the cap aborts
+# with 2: a truncated set must never read as clean, because the next step would
+# then close the rolling issue and erase the signal.
+PAGE_LIMIT=201
+
+# require_complete_page SOURCE COUNT fails when a page came back at the cap.
+require_complete_page() {
+  local source="$1" count="$2"
+  if [[ "$count" -ge "$PAGE_LIMIT" ]]; then
+    printf 'backport-audit: %s returned %s rows, at the --limit %s cap; the set is truncated, so this run cannot be trusted as clean\n' \
+      "$source" "$count" "$PAGE_LIMIT" >&2
+    exit 2
+  fi
+}
+
+count_lines() {
+  if [[ -z "$1" ]]; then printf '0'; return 0; fi
+  printf '%s\n' "$1" | wc -l | tr -d ' '
+}
+
 # The expected set is the union of two sources, one
-# "<number>\t<title>\t<url>\t<mergedAt>\t<merge-oid>" record per line. gh's
-# built-in jq flattens the JSON so no external parser is needed; a null
+# "<number>\t<title>\t<url>\t<mergedAt>\t<merge-oid>" record per line. A null
 # mergeCommit leaves the last field empty and the PR is skipped.
 
 # Source A: PRs merged to the default branch that carry the label themselves.
 pr_labeled="$(gh pr list --state merged --base "$default_branch" --label "$label" \
-  --json number,title,url,mergedAt,mergeCommit --limit 200 \
+  --json number,title,url,mergedAt,mergeCommit --limit "$PAGE_LIMIT" \
   --jq '.[] | [(.number|tostring), .title, .url, .mergedAt, .mergeCommit.oid] | @tsv')"
+require_complete_page "gh pr list (merged, labeled)" "$(count_lines "$pr_labeled")"
 
 # Source B: the issue label is the durable record. enqueue-pr.sh copies it onto
 # the PR, but a merge path that skips the copy (the raw mutation, "Merge when
 # ready") leaves the merged PR unlabeled. Resolve each labeled issue's closing
 # PRs and keep the merged ones, so no merge path hides a fix. The referenced
 # field may be a list of objects or of numbers; both flatten to the number.
-issue_pr_numbers="$(gh issue list --state all --label "$label" \
-  --json number,closedByPullRequestsReferences --limit 200 \
-  --jq '.[] | .closedByPullRequestsReferences[]? | if type == "object" then .number else . end' \
+labeled_issues="$(gh issue list --state all --label "$label" \
+  --json number,closedByPullRequestsReferences --limit "$PAGE_LIMIT")"
+require_complete_page "gh issue list (labeled)" "$(printf '%s' "$labeled_issues" | jq 'length')"
+issue_pr_numbers="$(printf '%s' "$labeled_issues" \
+  | jq -r '.[] | .closedByPullRequestsReferences[]? | if type == "object" then .number else . end' \
   | sort -u)"
 
 issue_labeled=""
@@ -169,7 +200,10 @@ if [[ -z "$merged" ]]; then
 fi
 
 branch_ids="$(branch_patch_ids)"
-open_bodies="$(gh pr list --state open --base "$release_name" --json number,body --jq '.[].body')"
+open_backports="$(gh pr list --state open --base "$release_name" \
+  --json number,body --limit "$PAGE_LIMIT")"
+require_complete_page "gh pr list (open backports)" "$(printf '%s' "$open_backports" | jq 'length')"
+open_bodies="$(printf '%s' "$open_backports" | jq -r '.[].body // ""')"
 
 # A shipped backport PR targeting the release branch suppresses its source PR's
 # debt: the body references the source as #<number> or by its full URL.

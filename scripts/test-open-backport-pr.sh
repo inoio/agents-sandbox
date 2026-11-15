@@ -73,6 +73,33 @@ seed_fixture() {
   git -C "$REPO" push -q origin main release/0.1
 }
 
+# seed_two_commit_fixture NAME builds a repo whose #7 has two commits: a topic
+# branch carrying FIRST_SHA then SECOND_SHA, merged into main with a merge
+# commit MERGE, so `git log <merge>^1..<merge>` yields both. release/0.1 sits on
+# the base commit, below both.
+seed_two_commit_fixture() {
+  REPO="$fixture_root/repo-$1"
+  ORIGIN="$fixture_root/origin-$1.git"
+  rm -rf "$REPO" "$ORIGIN"
+  mkdir -p "$REPO"
+  git init -q --bare "$ORIGIN"
+  git -C "$REPO" init -q -b main
+  git -C "$REPO" config user.email t@t
+  git -C "$REPO" config user.name t
+  printf 'a\n' >"$REPO/f"; git -C "$REPO" add f; git -C "$REPO" commit -qm base
+  git -C "$REPO" branch release/0.1
+  git -C "$REPO" checkout -q -b topic
+  printf 'b\n' >"$REPO/f"; git -C "$REPO" commit -qam first
+  printf 'c\n' >"$REPO/g"; git -C "$REPO" add g; git -C "$REPO" commit -qm second
+  FIRST_SHA="$(git -C "$REPO" rev-parse HEAD^)"
+  SECOND_SHA="$(git -C "$REPO" rev-parse HEAD)"
+  git -C "$REPO" checkout -q main
+  git -C "$REPO" merge -q --no-ff -m "Merge pull request #7" topic
+  MERGE="$(git -C "$REPO" rev-parse HEAD)"
+  git -C "$REPO" remote add origin "$ORIGIN"
+  git -C "$REPO" push -q origin main release/0.1
+}
+
 # run_open PR [MERGE_OID] runs the script; MERGE_OID overrides what the fake gh
 # serves for `pr view` (an empty value models an unknown or unmerged PR).
 run_open() {
@@ -121,6 +148,44 @@ assert_status_nonzero "a conflict exits non-zero" "$status"
 assert_contains "explains the conflict" "$(stderr)" "conflict"
 assert_eq "leaves origin unchanged" "$(git -C "$REPO" ls-remote origin)" "$before"
 assert_not_contains "opens no PR" "$(argv)" "pr create"
+
+echo "# open-backport-pr.sh (partially ported)"
+seed_two_commit_fixture partial
+git -C "$REPO" checkout -q release/0.1
+git -C "$REPO" cherry-pick -x "$FIRST_SHA" >/dev/null
+git -C "$REPO" checkout -q main
+git -C "$REPO" push -q origin release/0.1
+run_open 7
+assert_eq "a partially ported PR still exits 0" "$status" "0"
+assert_contains "pushes the backport branch" "$(git -C "$REPO" ls-remote origin)" "refs/heads/backport/7-0.1"
+assert_eq "ports only the missing commit" \
+  "$(git -C "$REPO" rev-list --count origin/release/0.1..origin/backport/7-0.1)" "1"
+pushed_log="$(git -C "$REPO" log --format=%B origin/release/0.1..origin/backport/7-0.1)"
+assert_contains "ports the second commit" "$pushed_log" "second"
+assert_contains "carries the -x trailer for the ported commit" \
+  "$pushed_log" "(cherry picked from commit $SECOND_SHA)"
+assert_not_contains "does not replay the already-present commit" \
+  "$pushed_log" "(cherry picked from commit $FIRST_SHA)"
+assert_contains "opens the PR" "$(argv)" "pr create"
+
+echo "# open-backport-pr.sh (fully ported)"
+seed_two_commit_fixture fully-ported
+git -C "$REPO" checkout -q release/0.1
+git -C "$REPO" cherry-pick -x "$FIRST_SHA" >/dev/null
+git -C "$REPO" cherry-pick -x "$SECOND_SHA" >/dev/null
+git -C "$REPO" checkout -q main
+git -C "$REPO" push -q origin release/0.1
+before="$(git -C "$REPO" ls-remote origin)"
+run_open 7
+assert_eq "a fully ported PR exits 0" "$status" "0"
+assert_contains "says there is nothing to do" "$out" "already fully ported onto release/0.1"
+assert_eq "pushes nothing" "$(git -C "$REPO" ls-remote origin)" "$before"
+assert_not_contains "opens no PR for a fully ported PR" "$(argv)" "pr create"
+if git -C "$REPO" show-ref --verify --quiet refs/heads/backport/7-0.1; then
+  bad "creates no backport branch for a fully ported PR"
+else
+  ok "creates no backport branch for a fully ported PR"
+fi
 
 echo "# open-backport-pr.sh (no release branch)"
 seed_fixture no-release

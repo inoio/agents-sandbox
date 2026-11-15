@@ -156,6 +156,16 @@ assert_contains "prints the backport hint" "$out" "marked needs-backport (a back
 assert_contains "still enqueues" "$(argv)" "api graphql"
 unset issue_labels
 
+echo "# enqueue-pr.sh (marker copy is refused)"
+export issue_labels='{"7":["needs-backport"]}'
+export GH_PR_EDIT_EXIT=1
+run_script '{"state":"OPEN","id":"PR_13","closingIssuesReferences":[{"number":7}]}' 42
+if [[ "$status" -eq 0 ]]; then ok "a refused marker copy still exits 0"; else bad "a refused marker copy still exits 0 (got $status)"; fi
+assert_contains "warns that the copy failed" "$err" "could not copy the marker; the issue label still governs the audit"
+assert_contains "still enqueues" "$(argv)" "api graphql"
+assert_not_contains "claims the marker was copied" "$out" "marked needs-backport"
+unset issue_labels GH_PR_EDIT_EXIT
+
 echo "# enqueue-pr.sh (linked issue does not need a backport)"
 export issue_labels='{"7":[]}'
 run_script '{"state":"OPEN","id":"PR_11","closingIssuesReferences":[{"number":7}]}' 42

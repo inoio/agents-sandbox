@@ -80,9 +80,16 @@ micro's changelog/tag commit:
     **blocks the tag** unless the maintainer overrides — this is what makes "you cannot ship a micro
     with an unported fix" true by construction. An adapted port is a different patch-id and shows as
     a false positive, advisory for a human to confirm.
+  - fails with **exit `2`, never clean**, when an expected-set query comes back at its row cap: `gh`
+    returns the newest N rows and silently drops the rest, so a truncated set would read as no debt
+    and close the rolling issue. The caller treats anything but `0`/`1` as an operational failure.
 - **`git cherry main release/<X>`** — the wrong-direction tripwire described above. The only expected
   `+` lines are each prior micro's release commit, an adapted port, and a branch-authored fix; any
   other `+` is an unexplained branch commit.
+
+The porter, `scripts/open-backport-pr.sh <n>`, skips a source commit whose patch-id is already on the
+line, so a partially ported PR (a commit hand-ported earlier, an adapted port) is completed instead of
+aborting on an empty cherry-pick, and a fully ported PR is a no-op that pushes nothing.
 
 The latest line is the highest-semver `release/<major>.<minor>` among local and origin refs; with no
 release branch the audit reports nothing to audit and exits clean.

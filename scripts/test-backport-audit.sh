@@ -24,7 +24,9 @@ assert_eq_count() { local n; n="$(grep -cF -- "$3" <<<"$2" || true)"; if [[ "$n"
 # served, honouring gh's --jq/-q the way the real CLI does. `pr list` reads
 # `$GH_MERGED_JSON` (or `$GH_OPEN_JSON` for --state open), `issue list` reads
 # `$GH_ISSUES_JSON`, and `pr view <n>` reads `$GH_PR_VIEW_DIR/pr-<n>.json`
-# (or `{}` when that file is absent).
+# (or `{}` when that file is absent). GH_MERGED_ROWS, when set, replaces the
+# merged `pr list` document with that many rows, to model a full (truncated)
+# page.
 fake_bin="$fixture_root/bin"
 mkdir -p "$fake_bin"
 cat >"$fake_bin/gh" <<'GH'
@@ -32,9 +34,8 @@ cat >"$fake_bin/gh" <<'GH'
 set -euo pipefail
 printf '%s\n' "$*" >>"${GH_ARGV:?}"
 
-serve_json() {
-  local doc_file="$1" doc query="" arg
-  doc="$(cat "$doc_file")"
+serve_doc() {
+  local doc="$1" query="" arg
   shift
   while [[ $# -gt 0 ]]; do
     arg="$1"
@@ -50,11 +51,26 @@ serve_json() {
   fi
 }
 
+serve_json() {
+  serve_doc "$(cat "$1")" "${@:2}"
+}
+
+many_merged_rows() {
+  jq -nc --argjson n "$GH_MERGED_ROWS" \
+    '[range($n) | {number: (1000 + .), title: "t", url: "u", mergedAt: "2020-01-01T00:00:00Z", mergeCommit: {oid: ""}}]'
+}
+
 case " $* " in
   *" pr list "*)
     case " $* " in
       *" --state open "*) serve_json "$GH_OPEN_JSON" "$@" ;;
-      *) serve_json "$GH_MERGED_JSON" "$@" ;;
+      *)
+        if [[ -n "${GH_MERGED_ROWS:-}" ]]; then
+          serve_doc "$(many_merged_rows)" "$@"
+        else
+          serve_json "$GH_MERGED_JSON" "$@"
+        fi
+        ;;
     esac
     exit 0
     ;;
@@ -136,6 +152,7 @@ run_audit() {
   set -e
 }
 argv() { [[ -f "$GH_ARGV" ]] && cat "$GH_ARGV" || true; }
+err() { cat "$fixture_root/stderr" 2>/dev/null || true; }
 
 # iso_from_epoch EPOCH prints the UTC ISO-8601 timestamp gh reports as mergedAt,
 # via whichever `date` spelling the host offers (GNU or BSD).
@@ -166,6 +183,17 @@ assert_contains "reports the PR number" "$out" "#7"
 assert_contains "counts the missing patch-ids" "$out" "missing:1"
 assert_contains "labels the filter" "$(argv)" "--label needs-backport"
 assert_contains "asks for the merge commit" "$(argv)" "--json number,title,url,mergedAt,mergeCommit"
+assert_contains "asks for one row past the window" "$(argv)" "--limit 201"
+
+echo "# backport-audit.sh (truncated expected set)"
+seed_fixture truncated
+export GH_MERGED_ROWS=201
+run_audit
+if [[ "$status" -eq 2 ]]; then ok "a full page exits 2"; else bad "a full page exits 2 (got $status)"; fi
+assert_contains "names the truncated source" "$(err)" "gh pr list (merged, labeled)"
+assert_contains "explains the truncation" "$(err)" "truncated"
+if [[ -z "$out" ]]; then ok "prints no clean result"; else bad "prints no clean result (got: $out)"; fi
+unset GH_MERGED_ROWS
 
 echo "# backport-audit.sh (commits read from the merged range)"
 assert_not_contains "never asks the API for the original commits" "$(argv)" "--json commits"
@@ -232,6 +260,18 @@ if [[ "$status" -eq 1 ]]; then ok "an issue-labeled unlabeled PR is audited and 
 assert_contains "reports the issue-linked PR" "$out" "#7"
 assert_contains "reads the labeled issues" "$(argv)" "issue list"
 assert_contains "resolves the referenced PR" "$(argv)" "pr view 7"
+
+echo "# backport-audit.sh (issue label, ported PR)"
+seed_fixture issue-label-ported
+printf '[]\n' >"$GH_MERGED_JSON"
+write_issue_links 7
+write_pr_view 7 MERGED
+git -C "$REPO" checkout -q release/0.1
+git -C "$REPO" cherry-pick -x "$MERGE" >/dev/null
+git -C "$REPO" checkout -q main
+run_audit
+if [[ "$status" -eq 0 ]]; then ok "an issue-labeled PR whose commits are on the line is not debt"; else bad "an issue-labeled PR whose commits are on the line is not debt (got $status)"; fi
+assert_not_contains "reports no debt for the ported issue-linked PR" "$out" "#7"
 
 echo "# backport-audit.sh (issue and PR label, one record)"
 seed_fixture both-labels
