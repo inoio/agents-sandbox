@@ -287,6 +287,14 @@ would re-derive is not redundant code either: dropping it would ignore an error,
   `os.Stdout` for an `os.Pipe` write end around the call, restore `os.Stdout` and close the write end *before* any
   `t.Errorf` (the test framework's own output goes to stdout too), then assert the read end contains the error's path —
   the mutated branch prints nothing, or `<nil>` when the condition is negated.
+- **A best-effort helper's `t.Logf` diagnostics are observable through a recording `testing.TB`; assert them instead of
+  recording a "log only" claim.** `cleanupRunnerImages` logs a skipped project dir and each failed `docker rmi`; a
+  `recordingTB{TB: t}` that overrides `Logf` (embedding `testing.TB` supplies its private method) pins the failure text,
+  which kills the `STATEMENT_REMOVE` and the `BRANCH_IF`. Add a case that logs nothing on the success path: the
+  `CONDITIONALS_NEGATION` (`err != nil` → `==`) inverts *which* outcomes are reported, so only that case kills it.
+- **An `if len(xs) == 0 { return }` directly before `for … range xs` is redundant; delete the guard, not its mutants.**
+  Its "nothing happens without input" test passes under the removed guard because the empty range also does nothing, so
+  the branch and its integer mutants are unobservable by construction.
 - **`// gomutants:disable` is same-line-scoped, so a standalone comment above a statement records nothing.** gomutants
   parses a bare `disable` as `directiveSameLine` and matches it against mutants on *the comment's own line*
   (`internal/discover/directives.go` in v0.7.1); the only other forms are `disable-next-line`, `disable-func`, and

@@ -1,11 +1,15 @@
 package harness
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/git"
@@ -116,23 +120,33 @@ func TestHarnessRunnerImageTagsArePathScoped(t *testing.T) {
 // TestHarnessRunnerImageTagsSkipsUnresolvableProject pins the spec's failure
 // mode: a project dir missing (a prebuild that failed before creating it) skips
 // only that tag, so the tags that were built are still returned for cleanup.
+// The missing dir is the first project, so a walk that stops on the skip is
+// observable as the later tags going missing too.
 func TestHarnessRunnerImageTagsSkipsUnresolvableProject(t *testing.T) {
 	root := t.TempDir()
 	seedProjectDirs(t, root)
-	if err := os.RemoveAll(projectDir(root, dockerStorageProject)); err != nil {
+	missing := agent.Names()[0]
+	if err := os.RemoveAll(projectDir(root, missing)); err != nil {
 		t.Fatal(err)
 	}
 	got, err := harnessRunnerImageTags(root)
-	if err == nil {
-		t.Error("a missing project dir = nil error, want the skipped dir reported")
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("err = %v, want it wrapping fs.ErrNotExist for the missing project dir", err)
 	}
 	if len(got) != len(agent.Names()) {
 		t.Fatalf("tags = %d, want the resolvable projects only (%d)", len(got), len(agent.Names()))
 	}
 	for _, name := range agent.Names() {
+		if name == missing {
+			continue
+		}
 		if !slices.Contains(got, tagFor(t, projectDir(root, name), name)) {
 			t.Errorf("missing tag for the resolvable project %s", name)
 		}
+	}
+	dockerTag := tagFor(t, projectDir(root, dockerStorageProject), "opencode")
+	if !slices.Contains(got, dockerTag) {
+		t.Errorf("missing the docker-storage tag %q after a skip; got %v", dockerTag, got)
 	}
 }
 
@@ -143,6 +157,27 @@ func TestHarnessRunnerImageTagsAllMissing(t *testing.T) {
 	}
 	if len(tags) != 0 {
 		t.Errorf("tags = %v, want none when no project dir resolves", tags)
+	}
+}
+
+// recordingTB captures the diagnostics cleanupRunnerImages emits. Embedding
+// testing.TB satisfies its private method; Logf is the recorded call.
+type recordingTB struct {
+	testing.TB
+
+	logs []string
+}
+
+func (r *recordingTB) Logf(format string, args ...any) {
+	r.logs = append(r.logs, fmt.Sprintf(format, args...))
+}
+
+// TestRunnerImageRemoveTimeoutIsThirtySeconds pins the literal bound: a
+// one-second change is not observable through a docker stub that answers at
+// once, so assert the value itself.
+func TestRunnerImageRemoveTimeoutIsThirtySeconds(t *testing.T) {
+	if runnerImageRemoveTimeout != 30*time.Second {
+		t.Errorf("runnerImageRemoveTimeout = %v, want 30s", runnerImageRemoveTimeout)
 	}
 }
 
@@ -159,9 +194,16 @@ func TestCleanupRunnerImagesIsBestEffort(t *testing.T) {
 		}
 		return nil, nil
 	}
-	cleanupRunnerImages(t, root) // must not fail the test or stop after the first error
+	recorder := &recordingTB{TB: t}
+	cleanupRunnerImages(recorder, root) // must not fail the test or stop after the first error
 	if len(removed) != len(agent.Names())+1 {
 		t.Errorf("attempted %d removals, want one per project (%d)", len(removed), len(agent.Names())+1)
+	}
+	if len(recorder.logs) != 1 {
+		t.Fatalf("logs = %q, want exactly the failed removal", recorder.logs)
+	}
+	if log := recorder.logs[0]; !strings.Contains(log, removed[0]) || !strings.Contains(log, "boom") {
+		t.Errorf("log = %q, want the failed tag %q and docker's output", log, removed[0])
 	}
 }
 
@@ -175,9 +217,13 @@ func TestCleanupRunnerImagesRemovesNothingWithoutProjectDirs(t *testing.T) {
 		calls++
 		return nil, nil
 	}
-	cleanupRunnerImages(t, t.TempDir())
+	recorder := &recordingTB{TB: t}
+	cleanupRunnerImages(recorder, t.TempDir())
 	if calls != 0 {
 		t.Errorf("removals attempted = %d, want 0 when no tag can be derived", calls)
+	}
+	if len(recorder.logs) != 1 || !strings.Contains(recorder.logs[0], "could not be derived") {
+		t.Errorf("logs = %q, want one report of the underived tags", recorder.logs)
 	}
 }
 

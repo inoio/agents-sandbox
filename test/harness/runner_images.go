@@ -45,7 +45,7 @@ type projectAgent struct {
 // cleanup both read, so they cannot drift.
 func suiteProjectAgents() []projectAgent {
 	names := agent.Names()
-	pairs := make([]projectAgent, 0, len(names)+1)
+	var pairs []projectAgent
 	for _, name := range names {
 		pairs = append(pairs, projectAgent{Project: name, Agent: name, Docker: false})
 	}
@@ -91,15 +91,13 @@ var removeDockerImage = func(env []string, tag string) ([]byte, error) {
 // run built, so a cold run leaves no docker residue. A tag that cannot be
 // removed (absent, or a docker failure) is logged, never fatal: cleanup must not
 // mask a test result.
-func cleanupRunnerImages(t *testing.T, root string) {
+func cleanupRunnerImages(t testing.TB, root string) {
+	// gomutants:disable-next-line STATEMENT_REMOVE reason="Helper only shifts the location a cleanup log reports; no behaviour depends on it"
 	t.Helper()
 
 	tags, err := harnessRunnerImageTags(root)
 	if err != nil {
 		t.Logf("cleanup: some runner image tags could not be derived: %v", err)
-	}
-	if len(tags) == 0 {
-		return
 	}
 	env := isolatedEnv(root, root, os.Environ())
 	for _, tag := range tags {
