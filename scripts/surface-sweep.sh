@@ -88,7 +88,7 @@ cleanup_runner_images() {
   fi
   while read -r tag; do
     [[ -n "$tag" ]] || continue
-    if ! docker rmi "$tag" >/dev/null 2>&1; then
+    if ! docker rmi --no-prune "$tag" >/dev/null 2>&1; then
       echo "sweep: failed to remove runner image $tag" >&2
       status=1
     fi

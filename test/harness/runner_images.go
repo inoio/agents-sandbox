@@ -1,7 +1,9 @@
+//deadcode:ignore reason="test support: referenced only by _test.go files"
 package harness
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -49,18 +51,23 @@ func harnessProjectAgents() []projectAgent {
 
 // harnessRunnerImageTags returns the Docker runner-image tags the suite built,
 // deriving each project's slug the way the launcher does so no tag is guessed.
+// A project dir that does not resolve (a prebuild that failed before creating
+// it) skips only that tag: the resolvable tags come back with the skips joined
+// into the error, so a partway-failed run still cleans the images it built.
 func harnessRunnerImageTags(root string) ([]string, error) {
 	pairs := harnessProjectAgents()
 	tags := make([]string, 0, len(pairs))
+	var failures []error
 	for _, pair := range pairs {
 		dir := projectDir(root, pair.Project)
 		identity, err := git.ResolveIdentity(dir)
 		if err != nil {
-			return nil, fmt.Errorf("resolve identity for %s: %w", dir, err)
+			failures = append(failures, fmt.Errorf("resolve identity for %s: %w", dir, err))
+			continue
 		}
 		tags = append(tags, naming.DockerImageRef(identity.CheckoutSlug, pair.Agent))
 	}
-	return tags, nil
+	return tags, errors.Join(failures...)
 }
 
 // runnerImageRemoveTimeout bounds one docker rmi so a wedged daemon cannot hang
@@ -72,7 +79,7 @@ const runnerImageRemoveTimeout = 30 * time.Second
 var removeDockerImage = func(env []string, tag string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), runnerImageRemoveTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "docker", "rmi", tag)
+	cmd := exec.CommandContext(ctx, "docker", "rmi", "--no-prune", tag)
 	cmd.Env = env
 	return cmd.CombinedOutput()
 }
@@ -86,7 +93,9 @@ func cleanupRunnerImages(t *testing.T, root string) {
 
 	tags, err := harnessRunnerImageTags(root)
 	if err != nil {
-		t.Logf("cleanup: derive runner image tags: %v", err)
+		t.Logf("cleanup: some runner image tags could not be derived: %v", err)
+	}
+	if len(tags) == 0 {
 		return
 	}
 	env := isolatedEnv(root, root, os.Environ())

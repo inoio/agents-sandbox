@@ -203,8 +203,10 @@ home; it lists with `sandbox list -q` and removes each name with `sandbox remove
 required, or the non-interactive remove blocks on its confirmation). A freshly created temp root's removal is
 registered as soon as the root is created, so a skip (the docker preflight) or a failed launcher build removes
 it too; a reused root (`AGENTS_SANDBOX_SMOKE_ROOT`) is kept. A fresh root's cleanup also removes the runner-image
-tags the run built (`cleanupRunnerImages`, deriving each tag from `git.ResolveIdentity` over the project dir), so a
-cold run leaves no docker residue; a reused root keeps its tags, which are rebuilt in place on the next run. The
+tags the run built (`cleanupRunnerImages`, deriving each tag from `git.ResolveIdentity` over the project dir, skipping
+a project dir that did not resolve), untagging the leaf only (`docker rmi --no-prune`) so the classic builder's layer
+cache survives: a cold run leaves no tagged runner image; a reused root keeps its tags, which are rebuilt in place on
+the next run. The
 sandbox sweep stays separate because it needs
 the binary and a reachable docker daemon, and the reuse lock is released after it (cleanups run LIFO), so a
 waiting run only proceeds once the sweep sharing the root is done.

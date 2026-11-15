@@ -292,8 +292,8 @@ agents-sandbox/runner-new-bbbbbbbbbbbbbb:opencode-latest" \
   ASB_SURFACE_ROOT="$root" bash "$sweep" sweep
 docker_log="$(cat "$DOCKER_STUB_LOG")"
 assert_contains "sweep removes the new runner image" \
-  "rmi agents-sandbox/runner-new-bbbbbbbbbbbbbb:opencode-latest" "$docker_log"
-if grep -qF "rmi agents-sandbox/runner-kept-aaaaaaaaaaaaaa:opencode-latest" <<<"$docker_log"; then
+  "rmi --no-prune agents-sandbox/runner-new-bbbbbbbbbbbbbb:opencode-latest" "$docker_log"
+if grep -qF "rmi --no-prune agents-sandbox/runner-kept-aaaaaaaaaaaaaa:opencode-latest" <<<"$docker_log"; then
   fail "sweep kept the baseline runner image"
 else
   ok "sweep kept the baseline runner image"

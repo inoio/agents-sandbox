@@ -3,6 +3,7 @@ package harness
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -85,9 +86,36 @@ func TestHarnessRunnerImageTagsArePathScoped(t *testing.T) {
 	}
 }
 
-func TestHarnessRunnerImageTagsMissingProjectDir(t *testing.T) {
-	if _, err := harnessRunnerImageTags(t.TempDir()); err == nil {
-		t.Error("harnessRunnerImageTags with no project dirs = nil error, want a resolve failure")
+// TestHarnessRunnerImageTagsSkipsUnresolvableProject pins the spec's failure
+// mode: a project dir missing (a prebuild that failed before creating it) skips
+// only that tag, so the tags that were built are still returned for cleanup.
+func TestHarnessRunnerImageTagsSkipsUnresolvableProject(t *testing.T) {
+	root := t.TempDir()
+	seedProjectDirs(t, root)
+	if err := os.RemoveAll(projectDir(root, dockerStorageProject)); err != nil {
+		t.Fatal(err)
+	}
+	got, err := harnessRunnerImageTags(root)
+	if err == nil {
+		t.Error("a missing project dir = nil error, want the skipped dir reported")
+	}
+	if len(got) != len(agent.Names()) {
+		t.Fatalf("tags = %d, want the resolvable projects only (%d)", len(got), len(agent.Names()))
+	}
+	for _, name := range agent.Names() {
+		if !slices.Contains(got, tagFor(t, projectDir(root, name), name)) {
+			t.Errorf("missing tag for the resolvable project %s", name)
+		}
+	}
+}
+
+func TestHarnessRunnerImageTagsAllMissing(t *testing.T) {
+	tags, err := harnessRunnerImageTags(t.TempDir())
+	if err == nil {
+		t.Error("no project dirs = nil error, want every skipped dir reported")
+	}
+	if len(tags) != 0 {
+		t.Errorf("tags = %v, want none when no project dir resolves", tags)
 	}
 }
 
@@ -107,5 +135,52 @@ func TestCleanupRunnerImagesIsBestEffort(t *testing.T) {
 	cleanupRunnerImages(t, root) // must not fail the test or stop after the first error
 	if len(removed) != len(agent.Names())+1 {
 		t.Errorf("attempted %d removals, want one per project (%d)", len(removed), len(agent.Names())+1)
+	}
+}
+
+// TestCleanupRunnerImagesRemovesNothingWithoutProjectDirs pins the derive-failure
+// path: when no tag can be derived, cleanup logs and removes nothing.
+func TestCleanupRunnerImagesRemovesNothingWithoutProjectDirs(t *testing.T) {
+	calls := 0
+	restore := removeDockerImage
+	t.Cleanup(func() { removeDockerImage = restore })
+	removeDockerImage = func(_ []string, _ string) ([]byte, error) {
+		calls++
+		return nil, nil
+	}
+	cleanupRunnerImages(t, t.TempDir())
+	if calls != 0 {
+		t.Errorf("removals attempted = %d, want 0 when no tag can be derived", calls)
+	}
+}
+
+// TestRemoveDockerImagePreservesParentLayers pins the concrete docker command:
+// removing a runner tag must not delete the classic builder's untagged parent
+// images, which are its layer cache (the repo's removeTestImage rule).
+func TestRemoveDockerImagePreservesParentLayers(t *testing.T) {
+	stubDir := t.TempDir()
+	logPath := filepath.Join(stubDir, "docker.log")
+	stub := filepath.Join(stubDir, "docker")
+	// The absolute shebang needs no PATH entry; exec.Command resolves `docker`
+	// through the process PATH, so the stub dir must be the PATH.
+	if err := os.WriteFile(
+		stub,
+		[]byte("#!/bin/bash\nprintf '%s\\n' \"$*\" >\"$DOCKER_STUB_LOG\"\n"),
+		0o755,
+	); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", stubDir)
+	env := []string{"DOCKER_STUB_LOG=" + logPath}
+	tag := "agents-sandbox/runner-stub-aaaaaaaaaaaaaa:opencode-latest"
+	if _, err := removeDockerImage(env, tag); err != nil {
+		t.Fatalf("removeDockerImage: %v", err)
+	}
+	got, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "rmi --no-prune " + tag + "\n"; string(got) != want {
+		t.Errorf("docker argv = %q, want %q", string(got), want)
 	}
 }

@@ -210,8 +210,9 @@ test-msb:
 	CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/harness/... ./internal/sandbox/msb/...
 
 # Like test-msb, but on a fresh, isolated microsandbox home that caches nothing
-# between runs. The suite removes the runner images it built and its temp root,
-# so a cold run leaves no docker residue.
+# between runs. The suite removes the runner images it built (and its temp root),
+# untagging only the leaf so the classic builder's layer cache survives, so a
+# cold run leaves no tagged runner image.
 test-msb-cold:
 	AGENTS_SANDBOX_MSB_PARALLEL=$(MSB_PARALLEL) CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/harness/... ./internal/sandbox/msb/...
 
