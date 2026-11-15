@@ -55,7 +55,7 @@ Don't install additional tools yourself without permission.
 
 (see .agents-sandbox/Dockerfile)
 
-- go, gofmt, golangci-lint, gcc (for CGO), zig (for cross-compilation)
+- go, gofmt, golangci-lint, gcc (for CGO), zig (for cross-compilation), shellcheck (the `make shellcheck` gate)
 - msb (microsandbox cli) - since /dev/kvm is not functional in the VM, you can't actually start VMs yourself. Must be
   tested manually by the user, unless you run on the host (see Development)
 - docker
@@ -83,6 +83,7 @@ Common development commands (run from the Go module root):
   `CGO_ENABLED=1 go test -tags msb -run <Test> ./internal/sandbox/msb/`) whenever you are on the host.
 - `make lint`/`golangci-lint run` — run the linter over the `integration`, `msb`, and `microsandbox_ffi_path`
   build-tagged files too. ALWAYS use! DON'T use `go vet`!
+- `make shellcheck` — lint every tracked shell script (`git ls-files '*.sh'`) with shellcheck
 - `make fmt`/`golangci-lint fmt` — format all files. ALWAYS use! DON'T manually rewrite / use `go fmt`!
 - `go mod tidy` — sync `go.mod`/`go.sum` (run after adding/removing imports).
 - `make build` - build binary to `./agents-sandbox`
