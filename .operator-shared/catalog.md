@@ -119,8 +119,8 @@
 #### `specs/onboarding/` - First-run guidance and config migration
 
 - `specs/onboarding/`
-  - Description: `onboarding.md` — guiding a fresh install to a working sandbox: safe config migration, the tiered `config wizard`, `config harden`, and the doctor-remediation + Get started docs flow.
-  - Read If: Working on `config migrate`/`config wizard`/`config harden`, first-run guidance, credential/auth handling, network egress derivation, the `Guide` outcomes, the doctor output/troubleshooting anchors, or the Get started docs.
+  - Description: `onboarding.md` — guiding a fresh install to a working sandbox: safe config migration, the tiered `config wizard`, `config harden`, and the doctor-remediation + Get started docs flow; `learn-mode.md` — learning the configuration from a real session instead of declaring it: the user-facing first-run choices, the four journeys, `config harden` collapsing into run analysis, and the passive-read-back / launcher-owned-network / interception approaches.
+  - Read If: Working on `config migrate`/`config wizard`/`config harden`, first-run guidance, credential/auth handling, network egress derivation, the `Guide` outcomes, the doctor output/troubleshooting anchors, or the Get started docs; or on learn mode, the after-run analyser, a `run --learn`/`config learn` surface, a learned network policy or secret proposal, or the observation channel (host DNS resolver, outbound proxy, TLS interception).
 
 #### `specs/release/` - Release branching, assets, self-upgrade, darwin cross-build
 
@@ -150,7 +150,7 @@
 
 - `specs/testing/`
   - Description: Test contracts: `test-coverage.md` (the coverage bar and codecov thresholds), `test-isolation.md` (keeping tests off real host state), `harness-smoke-tests.md` (the `msb`-tagged harness smoke tests), `release-surface-testing.md` (the manual release-surface sweep: journeys, isolation, execution strategy, findings).
-  - Read If: Deciding what to test or triaging a failing `codecov/patch`/`codecov/project`; adding a test package/`TestMain`/double, debugging a test that reads real host state or fails under `-count>1`, the `//testenv:allow` ambient gate, or a state/config write to an unresolved root; the harness smoke tests, `make test-msb`/`test-msb-reuse`, `AGENTS_SANDBOX_MSB_PARALLEL`/`AGENTS_SANDBOX_SMOKE_ROOT`, or a harness TUI's startup/quit behavior; or verifying a release before tagging, running the surface sweep, adding a surface journey, or building its isolation helper.
+  - Read If: Deciding what to test or triaging a failing `codecov/patch`/`codecov/project`; adding a test package/`TestMain`/double, debugging a test that reads real host state or fails under `-count>1`, the `//testenv:allow` ambient gate, or a state/config write to an unresolved root; the harness smoke tests, `make test-msb`/`make test-msb-cold`, `AGENTS_SANDBOX_MSB_PARALLEL`/`AGENTS_SANDBOX_SMOKE_ROOT`, or a harness TUI's startup/quit behavior; or verifying a release before tagging, running the surface sweep, adding a surface journey, or building its isolation helper.
 
 #### `specs/vm/` - VM lifecycle and per-VM behaviours
 
@@ -193,3 +193,6 @@
 - `plans/2026-11-14-release-branch-ci-plan.md`
   - Description: TDD implementation plan for release-branch CI parity and the tag precondition.
   - Read If: Implementing or revising the release-branch CI plan tasks.
+- `plans/2026-11-15-learn-mode-spike.md`
+  - Description: Validation spike for learn mode - seven experiments deciding whether a session's destinations can be observed (home-volume read-back per harness, host DNS resolver under each profile, outbound-proxy reachability and completeness, denial observability, interception prerequisites, streaming cost), each with its pass condition and the decision it changes.
+  - Read If: Running or revising the learn-mode spike, choosing between the passive-read-back / launcher-owned-network / interception approaches, or picking up an unverified observation assumption (proxy reachability under `none`, egress bypass, denial logging, DNS coverage).

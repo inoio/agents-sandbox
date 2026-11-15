@@ -118,8 +118,10 @@ where a runtime left by a pre-decoupling agents-sandbox install fails sandbox cr
 
 A set `AGENTS_SANDBOX_MSB_TEST_HOME` overrides this with a directory kept between runs (and the harness suite's
 `AGENTS_SANDBOX_SMOKE_ROOT` does the same for its temp root), so the SDK runtime and cached images are not
-reinstalled or re-transferred on every run — `make test-msb-reuse`. It is an explicit local-iteration opt-in
-(the microsandbox image transfer dominates the suite's wall time), so the default stays fresh per process. The
+reinstalled or re-transferred on every run — the caching `make test-msb`, which also keeps one runner-image tag per
+agent rebuilt in place. `make test-msb-cold` is the fresh, self-cleaning tier: no reuse, and the runner images it
+built are removed at teardown (the microsandbox image transfer dominates the suite's wall time, so the cold tier is
+the exception rather than the default). The
 reuse directory is resolved to an absolute path and held under an exclusive lock beside it for the run's
 lifetime, so two runs that share it serialize instead of one run's post-run sandbox sweep destroying the other's
 live VMs.
