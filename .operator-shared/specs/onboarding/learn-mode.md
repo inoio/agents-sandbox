@@ -243,6 +243,21 @@ wildcard entry) or, when a session has been analysed, evidenced by that session.
    different feature and must not be mixed in.
 6. **Non-interactive never hangs.** Warn and continue, as everywhere else in onboarding.
 
+## Open validation
+
+The 2026-11-15 spike settled the channel but left four checks unrun; none blocks the design, and each is a known
+limitation of what the proposal may claim until it is closed:
+
+- **Per-harness read-back (S1)** — verified for opencode2 only (whose credential is a SQLite row). The other harnesses'
+  layouts, and whether any keep config outside the home volume, are unverified.
+- **QUIC/HTTP3 bypass** — with the proxy active, only TCP consumers were tested; a QUIC client may reach the network
+  directly, so the learned destination set is authoritative for TCP, not exhaustive.
+- **Certificate pinning** — no pinning client was available to test, so the fallback to config-derived attribution is
+  unverified.
+- **`msb-trust java` / `chrome`** — the base image has neither, so the Java/Chrome trust imports are unverified.
+- **The end-to-end agent turn through the proxy** — measured only with synthetic operations; the real streaming turn
+  awaits the launcher's proxy surface (`#149`).
+
 ## Deferred
 
 - A `header_fields` scope derived from attribution (`#150`): attribution names the header, so the scope can be derived
