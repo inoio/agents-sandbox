@@ -305,8 +305,8 @@ emptied at the next release.
 - The `--notify <mode>` and `--open-links <bool>` space forms are parsed as flags on `run` instead of
   forwarded to the agent, with the value validated exactly like the `=` form; a plain word
   (`--notify fix the bug`) stays a positional argument (#659).
-- A `home:` `hook: startup` script runs in a non-TTY session too, so a fresh non-interactive launch no
-  longer silently skips it with a terminal error (#664).
+- A `home:` `hook: startup` script no longer fails with a terminal error when the launcher has
+  no terminal; it runs without input (#664).
 - The `--dns` flag and the resolved network policy are validated at options resolution and again before a
   recreate removes the running VM, so an invalid value is rejected by `--dry-run` before any VM work
   (#663).
