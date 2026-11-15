@@ -1,12 +1,13 @@
 ---
-description: Contract for learn mode - a session in which the user sets an agent up inside the sandbox and exercises it, after which the launcher reads the sandbox home back, derives what the session actually used, and proposes agents-sandbox managed configuration (agent config, static secrets, network posture) for the per-slug user scope; the three first-run choices, the four journeys, the three observation approaches, and the invariants that bind the proposal.
-read_if: Working on learn mode, the after-run analyser, a `run --learn` / `config learn` surface, the first-run choice between learning and self-configuration, proposing a learned network policy or secrets from a session, folding `config harden` into run analysis, or the observation channel (host DNS resolver, outbound proxy, TLS interception); or choosing between the passive-read-back, launcher-owned-network, and interception approaches.
+description: Contract for learn mode - a session in which the user sets an agent up inside the sandbox and exercises it, after which the launcher reads the sandbox home back, derives what the session actually used, and proposes agents-sandbox managed configuration (agent config, static secrets, network posture) for the per-slug user scope; the three first-run choices, the four journeys, the four observation approaches, and the invariants that bind the proposal.
+read_if: Working on learn mode, the after-run analyser, a `run --learn` / `config learn` surface, the first-run choice between learning and self-configuration, proposing a learned network policy or secrets from a session, folding `config harden` into run analysis, or the observation channel (host DNS resolver, outbound proxy, TLS interception, the runtime's own interception); or choosing between the passive-read-back, launcher-owned-network, interception, and runtime-interception approaches.
 ---
 
 # Learn mode
 
-Status: designed; the observation approach is unresolved and is settled by the validation spike recorded in
-`plans/2026-11-15-learn-mode-spike.md`. Everything except "Observation approaches" is independent of that outcome.
+Status: designed; the observation approach is unresolved and is settled by a host-only validation spike (the
+destination and attribution checks under "Observation approaches"). Everything except "Observation approaches" is
+independent of that outcome.
 
 ## Intent
 
@@ -77,8 +78,8 @@ Without the channel the analyser still establishes 1–3 and proposes no network
 
 ## Observation approaches
 
-Three approaches, ordered by cost. All three are viable; they differ in fidelity and in what they require of the
-runtime.
+The candidate approaches are ordered by cost; all are viable, and they differ in fidelity and in what they require of
+the runtime.
 
 ### A — passive read-back
 
@@ -122,12 +123,31 @@ the credential-bearing header.
   both terminate the same connection, so explicit control (`#151`) is a prerequisite — not to observe, but to keep the
   runtime's interception off while ours runs.
 
+### D — the runtime's own interception
+
+microsandbox terminates TLS itself and installs an interception CA into the guest's trust stores — the system store,
+and (through the vendored `msb-trust` helper) Java and Chrome. The launcher can point that interception at a CA it
+supplies, so the runtime becomes the terminating channel and there is no proxy of our own to run.
+
+- Needs: the explicit-interception control (`#151`) and a launcher-supplied CA. No proxy, and unlike C the trust-store
+  install is the runtime's job rather than ours.
+- Gives: destinations if the runtime records them in a launcher-readable log, and violation records (a placeholder sent
+  where substitution is not permitted) carrying host, request path, and the secret's identity.
+- Does not give, on present evidence: a successful substitution or a header field name, so fact 7 may stay out of
+  reach. The spike's two checks — D1 destinations, D2 attribution — settle which of the above holds.
+- If D1 holds and D2 does not, D is a certificate-free variant of B and C still ships for attribution; if D2 also
+  holds, D replaces C and the launcher-owned proxy loses its reason.
+
 ### Recommended approach
 
 One component, not two: a launcher-owned host proxy that logs every destination and terminates TLS for attribution.
 B's blind tunnel and C's termination are the same proxy at two settings, and the attribution requirement makes the
 terminating setting the one that ships. A remains the only source of the config and secret facts either way, and is
 the only path that works when the channel is unavailable.
+
+This recommendation is for **attribution**: D can be a cheaper source of destinations if the runtime's logs expose
+them, but on present evidence D does not expose the credential, so the terminating proxy still ships to satisfy fact
+7. If the spike's D2 check shows the runtime exposes attribution too, D replaces C.
 
 The alternatives not carried forward: harvesting denial messages from the agent's own output (brittle per harness, and
 only sees failures); keeping the curated provider table as the source (the declaration model this replaces); and
@@ -136,13 +156,15 @@ provider received", which is what the proposal promises).
 
 ## Prerequisites and phasing
 
-Approach A, the analyser, and `config harden` need nothing that is not in `main`. The proxy needs the `proxy:` config
-surface (`#149`) to ship and explicit interception control (`#151`) to coexist with microsandbox's own interception;
-neither is a prerequisite for the spike, which drives the SDK and a standalone proxy directly.
+Approach A, the analyser, and `config harden` need nothing that is not in `main`. The pinned SDK (v0.7.15) already
+exposes the outbound proxy (SOCKS4/5, HTTP CONNECT) and explicit TLS interception with a launcher-supplied CA; `#149`
+and `#151` are the launcher's own config surfaces for those, not SDK prerequisites. Neither is needed for the spike,
+which drives the runtime directly and runs an external proxy on the host. D depends on `#151`'s surface to be
+observable; C's terminating proxy is otherwise independent of both.
 
-Phasing: the spike first (it decides whether TLS termination is workable at all); then A plus the analyser plus
-harden; then the proxy, which adds facts 4–7 and therefore UC2's detection signal; then the `header_fields` scope
-derived from attribution.
+Phasing: the spike first (it decides whether TLS termination is workable, and whether D supplies destinations or
+attribution); then A plus the analyser plus harden; then the proxy, which adds facts 4–7 and therefore UC2's
+detection signal; then the `header_fields` scope derived from attribution.
 
 ## Session boundary
 

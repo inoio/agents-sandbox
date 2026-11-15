@@ -1,6 +1,6 @@
 ---
-description: Validation spike for learn mode - seven experiments that decide whether the launcher can observe what a session actually used (home-volume read-back per harness, host DNS resolver under each profile, outbound-proxy reachability and completeness, denial observability, interception prerequisites, streaming cost); each has a pass condition and the decision it changes.
-read_if: Running or revising the learn-mode spike, choosing between the passive-read-back / launcher-owned-network / interception approaches, or picking up an unverified observation-channel assumption (proxy reachability under `none`, egress bypass, denial logging, DNS coverage).
+description: Validation spike for learn mode - seven experiments that decide whether the launcher can observe what a session actually used (home-volume read-back per harness, host DNS resolver under each profile, outbound-proxy reachability and completeness, denial observability, interception prerequisites, streaming cost), plus sub-step D on whether the runtime's own interception is observable; each has a pass condition and the decision it changes. The host-runnable harness is `spike/learn-mode/`.
+read_if: Running or revising the learn-mode spike, choosing between the passive-read-back / launcher-owned-network / interception / runtime-interception approaches, or picking up an unverified observation-channel assumption (proxy reachability under `none`, egress bypass, denial logging, DNS coverage, whether the runtime's own logs reveal destinations or credentials).
 ---
 
 # Learn-mode validation spike
@@ -9,23 +9,33 @@ Status: not run. Host-only: needs `/dev/kvm`, a docker daemon and network, so it
 Everything here is throwaway except the results, which are folded into `specs/onboarding/learn-mode.md` before this
 plan is deleted.
 
+The harness is built and lives in `spike/learn-mode/` (tracked, throwaway): a runbook `README.md`, one driver per
+experiment, `d_runtime_interception.sh` for sub-step D, and raw evidence in the git-ignored `spike-capture/`. Run the
+runbook, not the prose below, which stays as the experiment's definition.
+
 ## What it decides
 
 Whether the launcher can establish, for one finished session, **which destinations were attempted, used, and
 denied, and which credential went to which destination** — and at what cost. Attribution is required, so the pivotal
-experiment is S6; the others size the rest of the channel. The contract in the spec does not depend on the answer,
-but the choice of observation approach and whether UC2 can be detected at all do.
+experiment is S6; the others size the rest of the channel. Sub-step D asks whether the runtime's own interception can
+supply these facts instead of a launcher-owned proxy, which shapes what the channel has to build. The contract in the
+spec does not depend on the answer, but the choice of observation approach and whether UC2 can be detected at all do.
 
 Run S6 first if there is any doubt about TLS termination being workable; the rest can follow in any order.
 
 ## S1 — What the home volume yields per harness
 
-**Question.** After a harness has been configured and used for one short turn, what does `handle.Path()` contain,
-and which of it names hosts, credentials, or both?
+**Question.** After a harness has been configured and used for one short turn, what does the home volume contain, and
+which of it names hosts, credentials, or both?
 
-**Method.** For each harness in the smoke table: start a project VM with a reused root (`AGENTS_SANDBOX_SMOKE_ROOT`
-via `make test-msb-reuse`), complete the harness's own setup (paste a key or run its login), send one prompt, exit.
-Then read the volume from the host.
+**Method.** For each harness (the smoke table's `claude-code codex hermes oh-my-pi opencode opencode2 pi`): build the
+launcher (`make build`), start it in a scratch project so it creates a home volume, complete the harness's own setup
+(paste a key or run its login), send one prompt, then exit. Dump the volume with `s1_home_readback.sh <volume-name>`
+(the driver takes a volume name, not a harness; `--list` names the volumes). The launcher's private home keeps the
+runner image warm between harnesses, so run all seven before reading anything back.
+
+The harness smoke suite (`make test-msb`; there is no `make test-msb-reuse`) only drives each harness to its TUI and
+quits, so it never completes a provider setup and cannot answer S1.
 
 **Record.** For each harness: config file paths, credential file paths and whether values are inline or referenced,
 transcript/session files and whether they contain request hosts or URLs, log files and whether they contain denial
@@ -129,6 +139,27 @@ visible in the log.
 from "what your setup used" to "what your setup is configured to use", and the spec's fact 7 becomes best-effort
 rather than required — which reverses the decision that made C mandatory.
 
+## D — Is the runtime's own interception observable
+
+**Question.** With the launcher supplying the interception CA, does the *runtime's* own TLS interception reveal
+destinations (D1) and credential attribution (D2)? If both, C needs no launcher-owned proxy.
+
+**Method** (`d_runtime_interception.sh`). Create a sandbox with `--log-level debug`, `--tls-intercept` and the
+launcher's CA (`--tls-intercept-ca-cert`/`-key`), a secret scoped to one allowed host, and a logging violation
+action. Send the placeholder to the allowed host (a successful substitution) and to a disallowed host (a violation),
+then read `msb logs --source system` and any host-side runtime log directory.
+
+**Record.** D1: does a `sni=`/`dst=`/`TLS intercept` line name the host? D2: does anything name the credential's
+header field and its destination?
+
+**Pass / fail.** Two separate answers. Reading the pinned SDK's source (v0.7.15): the TLS proxy logs the destination
+only at debug, and the secret handler logs only policy violations — never a successful substitution, never a header
+field name. That predicts D1 yes and D2 no, making D a certificate-free B rather than a C replacement; confirm against
+the captured logs.
+
+**Changes.** D1 yes lets the spec present the runtime's own interception as a cheap destination source; D2 yes would
+move attribution into the runtime and remove the launcher-owned proxy's main reason.
+
 ## S7 — What proxying costs
 
 **Question.** Does a real agent turn survive, and at what latency?
@@ -156,10 +187,11 @@ Fill in; one row per experiment.
 | S5 | | |
 | S6 | | |
 | S7 | | |
+| D (D1 destinations / D2 attribution) | | |
 
 ## Closing
 
 Fold the durable outcome into the spec's "Observation approaches" section, replacing the proposal with the resolved
 choice and its evidence; record an ADR only if the choice rejects a real alternative on grounds a future reader would
-question. Delete this plan once the spec is updated. A partial run is still useful: record which experiments were not
-run and why.
+question. Delete this plan, the `spike/learn-mode/` harness, and its captured evidence once the spec is updated. A
+partial run is still useful: record which experiments were not run and why.
