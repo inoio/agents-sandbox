@@ -52,11 +52,32 @@ jobs:
         # resolver only when their refs exist; fetch them explicitly.
         run: git fetch --prune origin '+refs/heads/release/*:refs/remotes/origin/release/*'
       - name: Detect the backport debt
-        # A detector exit of 1 means debt was found — the signal, not a failure —
-        # so it is tolerated. Only debt lines (`#<number>\t…`) form the input to
-        # the steps below; the detector also prints a plain sentence when there
-        # is no release branch at all.
-        run: scripts/backport-audit.sh | grep -E '^#[0-9]+' > backport-debt.txt || true
+        # The detector owns the status semantics: 0 clean, 1 debt found, and any
+        # other non-zero a usage or operational failure (a `gh`/`git` rate limit
+        # or network blip aborts it mid-run). Only a 0 is clean. A failure must
+        # not read as "no debt" — that would let the next step close the rolling
+        # issue and erase the signal — so it fails this step instead: non-gating
+        # (a scheduled failure blocks nothing), but the steps below are skipped
+        # and the issue is left as it was. `backport-debt.txt` holds only debt
+        # lines; the detector also prints a plain sentence when there is no
+        # release branch at all.
+        run: |
+          status=0
+          scripts/backport-audit.sh > backport-audit-raw.txt 2>&1 || status=$?
+          if [ "$status" -eq 0 ]; then
+            : > backport-debt.txt
+            exit 0
+          fi
+          if [ "$status" -ne 1 ]; then
+            echo "backport-audit: the detector exited ${status} (neither clean nor debt); leaving the rolling issue untouched." >&2
+            cat backport-audit-raw.txt >&2
+            exit "$status"
+          fi
+          if ! grep -E '^#[0-9]+' backport-audit-raw.txt > backport-debt.txt; then
+            echo "backport-audit: the detector reported debt but printed no debt line; refusing to treat it as clean." >&2
+            cat backport-audit-raw.txt >&2
+            exit 1
+          fi
       - name: Open the missing backport pull requests
         # Not a gate: a conflict (the porter aborts without pushing) is logged
         # and left in the rolling issue rather than failing the run, and one
@@ -84,9 +105,12 @@ jobs:
             echo "::endgroup::"
           done < backport-debt.txt
       - name: Update the rolling issue
-        # One open issue titled "Backport debt" always mirrors the current
-        # audit: its body is rewritten from this run's output, it is closed once
-        # the debt clears, and it is created when it reopens.
+        # Reached only when the detect step confirmed a result (clean or debt):
+        # an operational failure fails that step and skips this one, so a
+        # transient blip can never close the issue. One open issue titled
+        # "Backport debt" always mirrors the current audit: its body is
+        # rewritten from this run's output, it is closed once the debt clears,
+        # and it is created when it reopens.
         run: |
           issue="$(gh issue list --state open --search 'Backport debt in:title' --json number --jq '.[0].number // empty')"
           if [ ! -s backport-debt.txt ]; then
