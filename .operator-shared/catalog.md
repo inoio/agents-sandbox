@@ -34,7 +34,7 @@
   - Read If: Running or changing local repository maintenance, cleaning up worktrees or merged branches, or debugging a branch the sweep kept or removed.
 - `guides/buildkit-engine-compatibility.md`
   - Description: Which engines agents-sandbox claims would survive switching the runner-image build to BuildKit, per mechanism (moby `/build?version=2` with no session vs a real BuildKit client via `/grpc`+`/session`): the dockerd family survives with a registry-resolution/auth caveat, podman ignores `version` (Buildah, not BuildKit) under mechanism 1 and breaks under mechanism 2, containerd modes stay unsupported; plus the render's feature-safety and user BuildKit-only syntax.
-  - Read If: Considering or implementing a BuildKit runner-image build, or diagnosing a runner-image build that fails on a non-Docker engine.
+  - Read If: Considering support for another Docker-API engine (or a builder-selection/fallback change) by evaluating which engines survive each BuildKit mechanism, or diagnosing a runner-image build that fails on a non-Docker engine.
 - `guides/dead-code-detection-go.md`
   - Description: Using x/tools `deadcode` to find production code only tests keep alive: why staticcheck U1000 cannot, the default vs `-test` modes, the test-support paths to filter, and `-whylive` for seam-vs-accident triage.
   - Read If: Looking for dead or unreferenced production code, auditing whether a seam is still wired, or evaluating a dead-code linter; for the gate, the pin, or the `//deadcode:ignore` marker, read `specs/ci/quality-gates.md`.
@@ -50,15 +50,12 @@
 - `guides/github-pr-workflow.md`
   - Description: The PR mechanics the issue guide does not cover: landing through the `main` merge queue (`gh pr merge` is refused; enqueue via the `enqueuePullRequest` GraphQL mutation or "Merge when ready", or `scripts/enqueue-pr.sh`), the `GITHUB_TOKEN`-authored bot PR parked at `action_required` until a maintainer approves its run, and guessing a changelog fragment's PR-number slug.
   - Read If: Opening, merging, or troubleshooting a PR; enqueueing one into the merge queue; a bot PR that reports no checks; or naming a `changelog.d/` fragment before the PR number is known.
-- `guides/greptile-review-skill.md`
-  - Description: The `greptile-review` skill — the maintainer correctness review and its third axis beside `code-review`, where its 14-family ruleset comes from (the mined `corpus.tsv`, re-mined by `mine.sh`), the RED/GREEN sample and the one known gap (PR604 reused-input dedupe), and the answer-key `.git` leak to avoid when re-running validation.
-  - Read If: Running or changing `greptile-review`, adding a rule family, re-mining the Greptile corpus, or re-running its validation.
 - `guides/mutation-testing.md`
   - Description: Mutation testing for Go in this repo - the tool survey and why gomutants was chosen, how to close gomutants survivors (recurring mutant types, the equivalent-mutant traps, the record-with-a-reason fallback), and the multi-turn sweep runbook for the #268 survivor tracker.
   - Read If: Evaluating or changing a Go mutation-testing tool or the `make mutation` target; triaging LIVED mutants from a sweep; picking a `SINCE` scope for a branch/PR sweep; or coordinating a #268 survivor-reduction pass.
 - `guides/operator-brain-maintenance.md`
-  - Description: Conventions for keeping this brain small and findable: one-line catalog Descriptions, anchor-first `Read If` lines, the `specs/<subsystem>/` layout, drop-not-point for facts covered by a skill or merged spec, and retiring a plan once its work lands.
-  - Read If: Adding or editing a catalog entry, spec, plan, guide, or skill; writing a new freeform document; or curating/retiring the brain.
+  - Description: Conventions for keeping this brain small and findable: one-line catalog Descriptions, anchor-first `Read If` lines, the `specs/<subsystem>/` layout, drop-not-point for facts covered by a skill or merged spec, retiring a plan once its work lands, and the structural gate `make brain-check` enforces.
+  - Read If: Adding or editing a catalog entry, spec, plan, guide, or skill; writing a new freeform document; curating/retiring the brain; or a red `make brain-check` run.
 - `guides/podman-engine-testing.md`
   - Description: How the alternative-engine claim is verified: the `integration-podman` CI job runs the docker-build suite against a rootless podman socket, podman's unqualified-image-name refusal is the hazard the runner image avoids by qualifying its base, and the dev VM cannot run an engine build at all.
   - Read If: Verifying podman (or another Docker-API engine) against the integration suite, or investigating a build failure naming an unqualified image.
@@ -180,16 +177,4 @@
   - Read If: Picking up a hermetic surface fix, choosing the next hermetic plan's tasks, or checking the envelope's measured runtime against `make test`.
 - `plans/2026-11-07-hermetic-uid-permission-surface.md`
   - Description: Plan 2 of the hermetic design: remove the effective-uid dependence from the six tests the strict envelope runs as uid 0 (via `configmerge.readFile`, `runtimemigration.readDir`, and a `state.OverrideStateWriteForTest` hook), pin `GOTOOLCHAIN=local`, and verify `make test-hermetic` is green.
-  - Read If: Implementing the uid/permission surface fix that makes the strict hermetic envelope green, or adding a read/write failure seam to `configmerge`, `runtimemigration`, or `state`.
-- `plans/2026-11-14-ci-build-optimization-design.md`
-  - Description: Design for a fail-closed CI fast path: a `changes` classifier splitting `code` from execution-inert `exec` so required checks gate only their heavy Go steps, a GHCR cache-importing main-push build, and a nightly cold `integration-fresh` that absorbs the podman engine build.
-  - Read If: Working on the CI fast path (`ci/event-base.sh`, `ci/classify-changes.sh`, the `changes` job), the main-push cache writer, or the nightly `integration-fresh`/podman triggers.
-- `plans/2026-11-14-ci-build-optimization-plan.md`
-  - Description: TDD implementation plan for the CI build optimization: the `changes` job outputs, the per-step `exec` gating that keeps `lint`/`test`/`race`/`deadcode` always-run, the cache re-export, and the nightly trigger split.
-  - Read If: Implementing or revising the CI build-optimization plan tasks.
-- `plans/2026-11-14-release-branch-ci-design.md`
-  - Description: Design for release-branch CI parity: widen `on.push.branches` to `release/*`, keep the single cache writer on `refs/heads/main` while a read-only reader builds on a release push, and add the `tag-guard` job that refuses a tag not on `main` or a release branch.
-  - Read If: Working on release-branch triggers, the release integration reader/writer split, or the `tag-guard` tag-ancestry precondition.
-- `plans/2026-11-14-release-branch-ci-plan.md`
-  - Description: TDD implementation plan for release-branch CI parity and the tag precondition.
-  - Read If: Implementing or revising the release-branch CI plan tasks.
+  - Read If: A red `make test-hermetic` run under uid 0, the six uid/permission-dependent tests, or adding a read/write failure seam to `configmerge`, `runtimemigration`, or `state`.

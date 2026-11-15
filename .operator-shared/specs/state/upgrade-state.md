@@ -40,7 +40,7 @@ Two documents, split by application:
 
 The prompt (`promptUpgrade`) then names both `latest` and this project's `current` (`"Rebuild the runner image with <agent> <latest>? (current image has <current>)"`; the Rebuild choice reads `"Upgrade <agent> <current> → <latest>"`). Because that `current` is read from the project's own file, it cannot name another project's version.
 
-Under `--dry-run` (`ModePreview`), `resolveBuildVersion` is never reached: the session returns from the preview before it calls the setup hub. There is likewise no recorded-version substitution and no verbose dry-run line. The full `--dry-run` contract is `../architecture/dry-run-preview.md`.
+Under `--dry-run` (`ModePreview`), `resolveBuildVersion` is never reached: the session returns from the preview before it calls the setup hub, so no upgrade network check, state write, or legacy fold happens. The preview does report the version a real run would bake (the existing image's `agent-version` label, then the recorded cache) and says when the upgrade check is skipped; that reporting contract is `../architecture/dry-run-preview.md`.
 
 ## Release resolution
 
@@ -69,7 +69,7 @@ The label is the authority for an existing image and `HomeState.agent_version` i
 
 `SetUpSandbox` threads the project `state.Key` into `recordImageProvenance` (the caller already holds `k`). On boot it reads `HomeState(k)` and updates it in place — `agent_source`/`docker_source`, and for a tool-installed agent the version the `VersionProvider` detects, written to `agent_version` — so fingerprints and the offered set survive. It is a no-op when no state file exists, like every other pre-home-resolution writer. Warnings remain non-fatal.
 
-It must not be the only writer for any profile: every built-in profile implements `agent.VersionProvider` (in-VM detection) alongside the image label, so the "left empty on a fresh/repaired state, self-healed on boot" assumption holds for all of them. `TestRegisteredAgentsHaveVersionSources` (`internal/agent/version_sources_test.go`) iterates the registry and fails for a profile without an `UpgradeChecker`, an `ImageSpec.VersionArg` or a `VersionProvider`. `TestAgentVersionFollowsTheImageLabel` (`cmd`) pins the label authority end to end for opencode2: after `build` and `run` the cache equals the label, and an offline unpinned run with a stale older cache neither rebuilds toward it nor keeps it.
+It must not be the only writer for any profile: every built-in profile implements `agent.VersionProvider` (in-VM detection) alongside the image label, so the "left empty on a fresh/repaired state, self-healed on boot" assumption holds for all of them. `TestRegisteredAgentsHaveVersionSources` (`internal/agent/version_sources_contract_test.go`) iterates the registry and fails for a profile without an `UpgradeChecker`, an `ImageSpec.VersionArg` or a `VersionProvider`. `TestAgentVersionFollowsTheImageLabel` (`cmd`) pins the label authority end to end for opencode2: after `build` and `run` the cache equals the label, and an offline unpinned run with a stale older cache neither rebuilds toward it nor keeps it.
 
 ## Reconciliation
 

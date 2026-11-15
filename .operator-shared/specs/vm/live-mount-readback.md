@@ -8,7 +8,7 @@ read_if: Reading or changing how the launcher learns a live VM's mounts or publi
 ## The gap
 
 `SandboxHandle.Config()` decodes the sandbox record's `config_json` column through the Go SDK's
-`SandboxConfig.UnmarshalJSON` (`sdk/go@v0.7.13`, `options.go`), which populates a `persistedSandboxConfig` that has
+`SandboxConfig.UnmarshalJSON` (`sdk/go` `options.go`), which populates a `persistedSandboxConfig` that has
 **no mounts field and no ports field**. `cfg.Volumes` and `cfg.PortBindings` are therefore nil for any config read
 back from a live VM. Fields that do round-trip (`cfg.Image`, `cfg.RootDisk`, `cfg.Labels`, resources) are
 unaffected, which is why `rootDiskChange` works and the `cfg.Volumes`/`cfg.PortBindings` readers do not.
@@ -45,14 +45,16 @@ launcher sets.
 ## Contract
 
 - The single source of truth for a live VM's mounts is `msb.SandboxHandle.ConfigMounts()`, backed by
-  `msb.ParseConfigMounts(handle.ConfigJSON())`, and for its published ports it is
-  `msb.SandboxHandle.ConfigPorts()`, backed by `msb.ParseConfigPorts(handle.ConfigJSON())`. `cfg.Volumes` and
-  `cfg.PortBindings` must not be treated as populated on a read-back; a consumer that needs them applies
-  `ConfigMounts()`/`ConfigPorts()` first (this is the one place the SDK gap is worked around). In `prepare`,
+  `msb.ParseConfigMounts` over the handle's persisted config JSON (the `realSandboxHandleConfigJSON` seam), and for its
+  published ports it is `msb.SandboxHandle.ConfigPorts()`, backed by `msb.ParseConfigPorts` over the same JSON.
+  `cfg.Volumes` and `cfg.PortBindings` must not be treated as populated on a read-back; a consumer that needs them
+  applies `ConfigMounts()`/`ConfigPorts()` first (this is the one place the SDK gap is worked around). In `prepare`,
   `readLiveProjectVM` applies both (`applyLiveMounts`/`applyLivePorts`) before any detector sees the config.
 - `ParseConfigMounts` keys by guest path and maps the five upstream variants onto the launcher's
-  `MountConfig` directly: `Bind` → `quota_mib` + `options.readonly`, `Tmpfs` → `size_mib`, `Named` →
-  `name`, `Owned` and `DiskImage` for completeness. `Owned`'s `storage.kind` maps upstream's
+  `MountConfig` directly: `Bind` → `quota_mib`, `Tmpfs` → `size_mib`, `Named` → `name`, `Owned` and
+  `DiskImage` for completeness. Every variant keeps the nested `options` flags (`readonly`/`noexec`/
+  `nosuid`/`nodev`), and a `Bind`/`Named`/`Owned` entry also keeps its `host_permissions` and
+  `stat_virtualization`. `Owned`'s `storage.kind` maps upstream's
   `"directory"`/`"disk"` onto `VolumeKindDir`/`VolumeKindDisk` — never passed through, because
   upstream spells the directory kind `"directory"`, not `"dir"`; `DiskImage`'s `format` is lowercased,
   because upstream serializes `DiskImageFormat` as the bare variant name — `"Raw"` — while the

@@ -229,9 +229,10 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
 ### `volume remove` (cleanup path)
 
 - `agents-sandbox volume remove <name>...` (alias `rm`) deletes private home
-  volumes by name. It never prompts, and refuses when a volume is still
-  referenced by a project `state.yaml` (naming the referencing projects), so a
-  project's recorded home is never silently orphaned; `--force` overrides. This
+  volumes by name. It prompts once for confirmation after the reference guard
+  passes (unless `--yes`), and refuses when a volume is still referenced by a
+  project `state.yaml` (naming the referencing projects), so a project's recorded
+  home is never silently orphaned; `--force` overrides. This
   command exists so the ambiguous-state prompt has a sanctioned way to remove a
   copy that the user wants fully re-migrated. The reference scan is fail-closed:
   an unreadable or corrupt project state file blocks the removal (use `--force`).

@@ -23,8 +23,8 @@ call, so the two cannot drift apart (#527). Resolution order:
 2. **Live VM** — when state is absent or its recorded volume is gone, adopt the home volume the project VM still
    mounts, if that volume still exists. The mount is read from the VM's persisted config JSON as the `Named` mount at
    `mounts.VMHomeDir` (`msb.SandboxHandle.ConfigMounts()`, `specs/vm/live-mount-readback.md`); the `prepare` package supplies it
-   via `liveHomeVolume`, which delegates to `vm.ProjectVMHomeVolume` (`client.GetSandbox(ProjectVMName(k))`), because the
-   volume package cannot import vm.
+   via `liveHomeVolume`, which delegates to `vm.ProjectVMHomeVolume` (whose `FindProjectVM` lookup also falls back to
+   the legacy VM name), because the volume package cannot import vm.
 3. **Fresh prefill** — otherwise `EnsureNewHome` creates a new volume, as before.
 
 A fresh prefill that fails removes the volume it just created before returning the error (the same cleanup

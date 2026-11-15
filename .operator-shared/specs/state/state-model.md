@@ -35,7 +35,7 @@ updates:
 - One `updates:` namespace, children `launcher` (agents-sandbox itself, from the retired `upgrade.json`) and `agents` (update-check state for the tools baked into the runner image).
 - Field name is `last_checked` everywhere; `upgrade.json`'s `last_check` is gone.
 - `dismissed_versions` ("the user said do not notify me") and the per-agent `latest_version` cache keep their existing semantics.
-- `updates:` and its `launcher`/`agents` children omit themselves when empty via an `IsZero()` method (yaml.v3 honours `IsZeroer` for `omitempty` on a value struct; `time.Time` is handled natively).
+- `updates:` and its `launcher`/`agents` children omit themselves when empty via an `IsZero()` method (yaml.v4 honours `IsZeroer` for `omitempty` on a value struct; `time.Time` is handled natively).
 
 This document owns the **shape and placement** of launcher-global state; `specs/state/upgrade-state.md` owns the **semantics** of the agent check state. The `RootState.updates.agents` field path is the current shape.
 

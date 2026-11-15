@@ -26,7 +26,10 @@ read_if: Deciding where a release tag or a fix lands, cutting a patch release fo
 - **Protecting the line is a manual admin step**: a `protect release/*` ruleset must require the
   same six branch checks `protect main` does (`lint`, `test`, `race`, `deadcode`, `changelog`, and
   the `integration (docker build)` context), without the merge queue. The workflow file cannot set
-  it; until it exists, the branch runs CI but does not enforce it.
+  it; until it exists, the branch runs CI but does not enforce it. `race`/`deadcode` are absent from
+  `release.needs` (they do not block publishing), which is only sound because `tag-guard` plus that
+  ruleset prove the tagged tree passed them; adding them to `release.needs` is the backstop if a
+  release branch is ever pushed without the ruleset.
 - **A release tag is refused unless its commit is on `main` or a release branch.** The `tag-guard`
   job fails the run (and `release` waits on it) when the tagged SHA is not an ancestor of `main`
   or of some `release/*`, so a tag can never publish a commit that bypassed the checks. Both

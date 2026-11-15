@@ -35,16 +35,16 @@ stops biting.
 
 ## The Docker/msb reference split
 
-`image.ImageInfo.Tag` today is simultaneously the Docker tag and the microsandbox reference. The two must split:
+`image.ImageInfo` carries the two references separately:
 
 - `ImageInfo.DockerTag` — `agents-sandbox/runner-<slug>:<agent>-latest`; used by `buildDecision`, `buildFromPlan`,
   `docker.ImageInspect`, `docker.ImageSave`, `readImageInfoFromDocker`.
 - `ImageInfo.Ref` — the resolved microsandbox reference (new or legacy, see below); used by `ImageGet`,
   `ImageInspect`, `ImageLoad`, `ImageRemove`, and `WithImage`.
 
-The Docker tag is exactly `agents-sandbox/runner-` + the new msb ref, so the split is mechanical. Because the Docker
-tag is unchanged, this never triggers a rebuild — at most a one-time `ImageSave`/`ImageLoad` into msb under the new
-ref.
+`Ref` is rendered from the structured `naming.ImageIdentity` (`NameRef`/`Ref`), never parsed back from a string.
+`DockerTag` is the prefixed Docker tag for the same slug/agent, so it is unchanged and never triggers a rebuild — at
+most a one-time `ImageSave`/`ImageLoad` into msb under the new ref.
 
 ## Write-new, read-both
 
@@ -52,7 +52,8 @@ New artifacts are created under the new scheme; lookups accept either scheme, so
 are neither renamed, reimported nor rebuilt. `naming` owns the production constructors (`TaskSandboxName`,
 `HomeVolumeName`, `RunnerImageRef`, `ContentImageRef`, `DockerImageRef`, and `ImageIdentity`, whose `Ref`/`NameRef`
 render the image references for a structured `(slug, agent, contentID)`) and its parsers accept both shapes; the project-VM name is built
-in `vm` (it needs truncation) and legacy names are only ever parsed, never constructed in production. Tests build
+in `vm` (it needs truncation). A legacy spelling is constructed only for a lookup — `vm.legacyProjectVMName` for a
+pre-naming VM, `naming.DockerImageRef` for the prefixed image ref — never to create a new artifact. Tests build
 scheme-shaped fixtures from the exported prefixes.
 
 - **Home volume — recorded, therefore free.** The name is persisted in `HomeState.HomeVolume`, so an existing project
