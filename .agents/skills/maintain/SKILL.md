@@ -45,8 +45,8 @@ Four **category** roles (exactly one per issue):
 - `chore`: maintenance, refactoring, or tech debt
 - `documentation`: improvements or additions to documentation
 
-Optional **markers**, orthogonal to category and state and applied at most once
-each:
+Optional **markers**, orthogonal to category and state, each applied at most once
+and independently of the other:
 
 - `upstream`: depends on an external project (microsandbox, opencode, ...)
 - `needs-backport`: the fix must also land on the current `release/<major>.<minor>`
@@ -64,10 +64,11 @@ Five **state** roles:
 - `wontfix`: will not be actioned
 
 Every triaged issue carries exactly one category role and one state role; it may
-additionally carry a marker (at most one) — `upstream` when the work depends on
-an external project, `needs-backport` when a fix must also land on the current
-release line. If state roles conflict, flag it and ask the maintainer before
-doing anything else.
+additionally carry each marker at most once, independently of the other —
+`upstream` when the work depends on an external project, `needs-backport` when a
+fix must also land on the current release line. Both may be set on one issue: an
+upstream-blocked fix that also needs a port carries both. If state roles
+conflict, flag it and ask the maintainer before doing anything else.
 
 `priority:*` labels are orthogonal and set per [PRIORITIES.md](PRIORITIES.md);
 they are not part of the state machine. The dependabot ecosystem labels

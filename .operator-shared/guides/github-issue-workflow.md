@@ -24,7 +24,7 @@ The `maintain` skill's state machine maps onto these actual repo labels:
 - **Category** (exactly one): `bug`, `enhancement`, `chore`, `documentation`.
 - **State** (exactly one): `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`,
   `wontfix`.
-- **Markers** (orthogonal to category and state, at most one):
+- **Markers** (orthogonal to category and state; each at most once, independently of the other):
   - `upstream` — depends on an external project (microsandbox, opencode, …). An `upstream`-marked issue
     **may omit the state role**: the maintainer does not require one for it (an external dependency is
     not a triage stage). Issues that do carry a state keep it.
@@ -34,6 +34,9 @@ The `maintain` skill's state machine maps onto these actual repo labels:
     record** — it is not cleared when the port lands; the nightly `backport-audit` workflow decides
     done-ness by patch-id presence. `scripts/enqueue-pr.sh` copies the marker from the issue onto the
     PR at enqueue, which is what makes the audit see the fix.
+
+  An issue may carry both markers: they are independent axes (an upstream-blocked fix that also needs a
+  port carries `upstream` and `needs-backport`).
 - **Priority** (orthogonal, not part of the state machine): `priority:critical`, `priority:high`,
   `priority:medium`, `priority:low` (rubric in `.agents/skills/maintain/PRIORITIES.md`).
 - **Maintainer-only**: `security`.
