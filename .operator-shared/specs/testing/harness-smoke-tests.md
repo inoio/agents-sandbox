@@ -173,8 +173,8 @@ The shared host docker daemon builds the runner images, as the existing `integra
 do. The suite's own process installs the fail-fast seam mocks in `TestMain`; `TestMain` does nothing else, so
 `compile-all`'s `-run=^$` stays a genuine no-op. The suite's phases run in an order that lets a host which
 cannot run it skip before paying: the platform/`/dev/kvm` preflight first, then the shared root and binary
-build behind a `sync.Once`, then the isolated-env docker preflight, then the per-harness image prebuild
-behind its own `sync.Once`, then the harnesses.
+build behind a `sync.Once`, then the isolated-env docker preflight, then the suite's image prebuild
+(every harness plus the docker-storage image) behind its own `sync.Once`, then the harnesses.
 
 **Reuse escape hatch.** A set `AGENTS_SANDBOX_SMOKE_ROOT` points the suite at an existing directory it keeps
 between runs (resolved to an absolute path, validated to fit the socket-path budget) instead of a fresh temp

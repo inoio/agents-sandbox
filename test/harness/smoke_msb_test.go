@@ -316,8 +316,8 @@ func createRootAndBuildBinary() {
 	}
 }
 
-// prebuildImages builds every registered harness's runner image once, so each
-// harness's TUI budget only has to absorb its VM start rather than a cold image
+// prebuildImages builds every image in suiteProjectAgents once, so each
+// subtest's budget only has to absorb its VM start rather than a cold image
 // build. It is the first docker-dependent step, so it runs only after
 // preflightDocker has confirmed the child can reach a daemon.
 func prebuildImages(t *testing.T, root string) {
@@ -369,9 +369,20 @@ func buildHarnessImages(t *testing.T, root string) error {
 			// plus an `EnsureLoaded` transfer of a multi-GB runner image into
 			// the microsandbox cache); the per-image duration separates build
 			// from transfer when -v is in use.
-			t.Logf("prebuilt %s image in %s", pair.Agent, time.Since(started).Round(time.Millisecond))
+			t.Logf(
+				"prebuilt %s image for project %s in %s",
+				pair.Agent,
+				pair.Project,
+				time.Since(started).Round(time.Millisecond),
+			)
 			if err != nil {
-				buildErrors[index] = fmt.Errorf("prebuild image for %s: %w\n%s", pair.Agent, err, out)
+				buildErrors[index] = fmt.Errorf(
+					"prebuild image for %s (project %s): %w\n%s",
+					pair.Agent,
+					pair.Project,
+					err,
+					out,
+				)
 			}
 		})
 	}
