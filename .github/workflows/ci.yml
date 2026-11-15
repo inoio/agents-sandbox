@@ -2,7 +2,7 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'release/*']
     tags: ["v*"]
   pull_request:
     # `labeled` opts a PR into the opt-in podman integration job via the
@@ -16,6 +16,10 @@ on:
   # queue entry waits out the check-response timeout and is dropped.
   merge_group:
   workflow_dispatch:
+  schedule:
+    # The cold-image and podman validations, off the merge path. Runs from the
+    # default branch only.
+    - cron: "43 2 * * *"
 
 # Least privilege for every job. The release pipeline's `publish` job raises this
 # for itself (contents + pull-requests write, to publish the Release and open the
@@ -36,73 +40,89 @@ jobs:
   # Whether a push to main changed anything that can affect the runner image or
   # the tests. The costly integration jobs gate on this so a docs- or
   # brain-only merge to main does not pay a ~16-minute image build. It runs on
-  # every event except a merge group, where no consumer reads its output (the
-  # gated jobs all exclude `merge_group`): a skipped dependency skips them, the
-  # same Success-on-skip the queue already relies on, so the queue skips the
-  # checkout and diff too.
+  # every event except a merge group: each consumer declares `needs: [changes]`
+  # with `!cancelled()` and forces its step gate open on a merge group, so a
+  # skipped dependency does not skip them, and the queue skips the checkout and
+  # diff without dropping a required job.
   changes:
     name: changes
     if: github.event_name != 'merge_group'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      exec: ${{ steps.filter.outputs.exec }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - name: Detect code-affecting changes
+      - name: Classify the changeset
         id: filter
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+          GITHUB_BEFORE: ${{ github.event.before }}
+          GITHUB_MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          GITHUB_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
-          # A push carries the previous tip in `before`. A pull_request payload
-          # has no `before`, so diff against the base branch's merge base, which
-          # is exactly the PR's changeset. A merge_group names its base directly,
-          # since its ref is the throwaway `gh-readonly-queue/...` branch.
-          if [ '${{ github.event_name }}' = 'pull_request' ]; then
-            git fetch --no-tags origin "refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
-            base=$(git merge-base "origin/${{ github.base_ref }}" '${{ github.sha }}')
-          elif [ '${{ github.event_name }}' = 'merge_group' ]; then
-            base='${{ github.event.merge_group.base_sha }}'
+          code=false
+          exec=false
+          # `--no-renames` is load-bearing: git's rename detection is on by
+          # default, so without it `--name-only` prints only the destination of
+          # a detected rename — `git mv internal/foo/bar.go .agents-sandbox/bar.go`
+          # yields a single `.agents-sandbox/**` path, classifies as non-code,
+          # and skips every required job's work while reporting green.
+          if base=$(ci/event-base.sh) && git diff --no-renames --name-only "$base" "$GITHUB_SHA" > /tmp/changed.txt; then
+            # `ci/classify-changes.sh` owns the exempt set and the two outputs;
+            # it lives in a tested script because a producer piped into `grep -q`
+            # fails open once the list outgrows the pipe buffer. The exempt set
+            # is the complement of mutation.yml/codeql.yml's paths-ignore and
+            # check-changelog.sh's presence rule; keep the four copies in sync
+            # (ci/check-ci-guards.sh).
+            output="$(ci/classify-changes.sh /tmp/changed.txt)"
+            code="$(printf '%s\n' "$output" | sed -n 's/^code=//p')"
+            exec="$(printf '%s\n' "$output" | sed -n 's/^exec=//p')"
           else
-            base='${{ github.event.before }}'
-            if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then base='HEAD^'; fi
+            # Fail closed: an undecidable base or a failed diff runs everything.
+            code=true
+            exec=true
           fi
-          files=$(git diff --name-only "$base" '${{ github.sha }}' || true)
-          # The complement of mutation.yml's paths-ignore: docs, the operator
-          # brain, the Homebrew formula, issue templates, the dev VM
-          # (.agents-sandbox), and .gitignore.
-          if printf '%s\n' "$files" | grep -vqE '^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/|\.agents-sandbox/)|\.md$|^\.gitignore$'; then
-            echo "code=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "code=false" >> "$GITHUB_OUTPUT"
+          # A release tag always runs the full set: a force-updated tag can carry
+          # a resolvable `before`, and no release may skip a required check's work.
+          if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
+            code=true
+            exec=true
           fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "exec=$exec" >> "$GITHUB_OUTPUT"
 
   # Required check. It always runs — a gated required check reports Success
   # without running — and decides the changelog presence rule from the diff.
-  # The base computation mirrors the `changes` job above.
+  # An undecidable base degrades to shape-only rather than failing this required
+  # check: a transient fetch failure must not eject a PR.
   changelog:
     name: changelog
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Compute changed files
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+          GITHUB_BEFORE: ${{ github.event.before }}
+          GITHUB_MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
         run: |
           set -euo pipefail
-          base=""
-          if [ '${{ github.event_name }}' = 'pull_request' ]; then
-            git fetch --no-tags origin "refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}" || true
-            base=$(git merge-base "origin/${{ github.base_ref }}" '${{ github.sha }}' || true)
-          elif [ '${{ github.event_name }}' = 'merge_group' ]; then
-            base='${{ github.event.merge_group.base_sha }}'
-          else
-            base='${{ github.event.before }}'
-            if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then base='HEAD^'; fi
-          fi
-          # An undecidable base degrades to shape-only rather than failing this
-          # required check: a transient fetch failure must not eject a PR.
-          git diff --name-only "$base" '${{ github.sha }}' > /tmp/changed.txt 2>/dev/null || true
+          base=$(ci/event-base.sh || true)
+          # `--no-renames` for the same reason as the `changes` step: a detected
+          # rename would otherwise hide the source path from the presence rule.
+          git diff --no-renames --name-only "${base:-}" "$GITHUB_SHA" > /tmp/changed.txt 2>/dev/null || true
       - name: Check fragments
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -118,7 +138,16 @@ jobs:
 
   lint:
     name: lint
+    # A required check, so it always runs: `!cancelled()` (not a bare
+    # `success()`) keeps it running when the `changes` dependency was skipped on
+    # a merge group. The Go-toolchain steps below skip when the changeset is
+    # execution-inert (`changes.outputs.exec == 'false'`), but the doc- and
+    # script-gates still run — a docs-only or shell-only change is exactly what
+    # they cover.
+    needs: [changes]
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -126,6 +155,7 @@ jobs:
           go-version-file: .go-version
           cache: true
       - uses: golangci/golangci-lint-action@v9
+        if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
         with:
           version: v2.15
           # Include the integration, msb, and microsandbox_ffi_path build-tagged
@@ -135,11 +165,15 @@ jobs:
       # Compile every package including build-tagged files (`integration`) so a
       # tagged-only compile regression fails on PRs, not just on main/releases.
       - run: make compile-all
+        if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
       - run: make validate-fmt
+        if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
       - run: make docs-linkcheck
       - run: make docs-linkcheck-test
       - run: make ci-guards-check
       - run: make ci-guards-check-test
+      - run: make classify-changes-test
+      - run: make event-base-test
       - run: make actionlint
       - run: make cleanup-branches-test
       - run: make envelope-test
@@ -148,7 +182,13 @@ jobs:
 
   test:
     name: test
+    # Required check; see `lint` for why the job itself is `!cancelled()` and its
+    # Go-toolchain step skips on an execution-inert changeset. The second Codecov
+    # step's `!cancelled()` is composed with the gate, not replaced by it.
+    needs: [changes]
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -156,13 +196,15 @@ jobs:
           go-version-file: .go-version
           cache: true
       - run: make coverage-junit
+        if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
       - uses: codecov/codecov-action@v7
+        if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage.out
           fail_ci_if_error: false
       - name: Upload test results to Codecov
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && (github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false') }}
         uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -172,12 +214,15 @@ jobs:
 
   race:
     name: race
-    # A required check (see the `protect main` ruleset), so it is not gated and
-    # runs on every event. GitHub reports a job skipped by its `if` as Success,
-    # which would satisfy the required check without running it — a gated
-    # required check can go green untested. It runs in parallel with lint/test,
-    # so always-on costs the queue no extra wall-clock.
+    # A required check (see the `protect main` ruleset), so the job always runs —
+    # a gated required check reports Success without running it. Only its body
+    # step is gated by the `changes` `exec` output, so an execution-inert
+    # changeset pays the checkout but not the race suite. It runs in parallel
+    # with lint/test, so the always-on job costs the queue no extra wall-clock.
+    needs: [changes]
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -185,6 +230,7 @@ jobs:
           go-version-file: .go-version
           cache: true
       - run: make test-race
+        if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
 
   vulncheck:
     name: vulncheck
@@ -193,11 +239,13 @@ jobs:
     # throwaway ref, where it could only be noise.
     needs: [changes]
     if: >-
+      !cancelled() &&
       github.event_name != 'merge_group' &&
       (github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/tags/') ||
-      needs.changes.outputs.code == 'true')
+      needs.changes.outputs.code != 'false')
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -208,9 +256,13 @@ jobs:
 
   deadcode:
     name: deadcode
-    # A required check (see the `protect main` ruleset), so it always runs, like
-    # race.
+    # A required check (see the `protect main` ruleset), so the job always runs,
+    # like race. Only its body step is gated by the `changes` `exec` output, so
+    # an execution-inert changeset pays the checkout but not the analysis.
+    needs: [changes]
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -218,24 +270,32 @@ jobs:
           go-version-file: .go-version
           cache: true
       - run: make deadcode
+        if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
 
   integration:
     name: integration (docker build)
     # A required check (see the `protect main` ruleset). Runs on a code-affecting
-    # PR (the `changes` gate skips a docs/brain-only one), every release tag, and
-    # manual dispatch — the read-only readers. The code-affecting push to main is
-    # the write-capable `integration-cache-writer` below. It deliberately does not
-    # run on a merge group: GitHub reports a skipped required check as Success, so
+    # PR (the `changes` gate skips a docs/brain-only one), every release tag,
+    # a push to a release branch, and manual dispatch — the read-only readers.
+    # The code-affecting push to main is the write-capable
+    # `integration-cache-writer` below. It deliberately does not run on a merge
+    # group: GitHub reports a skipped required check as Success, so
     # the queue satisfies the requirement without paying the build.
     #
     # `packages: read` is least privilege: a reader only pulls the cache, so the
     # `docker login` credential it saves cannot push to the shared package even
     # when a test dependency is compromised. Only the writer job may write.
+    #
+    # The release-push arm carries the same `code` gate as the main push's build:
+    # a docs-only release push skips a build, while the release *tag* push (the
+    # clause above) always builds uncached, so a release is never left unbuilt.
     needs: [changes]
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      !cancelled() &&
+      (github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/tags/') ||
-      (github.event_name == 'pull_request' && needs.changes.outputs.code == 'true')
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/') && needs.changes.outputs.code != 'false') ||
+      (github.event_name == 'pull_request' && needs.changes.outputs.code != 'false'))
     permissions:
       contents: read
       packages: read
@@ -262,6 +322,7 @@ jobs:
       # cache miss is indistinguishable from a hit.
       AGENTS_SANDBOX_CACHE_REPORT: ${{ github.workspace }}/runner-image-cache-report.txt
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -280,17 +341,20 @@ jobs:
 
   integration-cache-writer:
     name: integration (docker build, cache writer)
-    # The single writer of the GHCR build cache: a code-affecting push to main
-    # builds from scratch and exports the chain. It is a separate job so
+    # The single writer of the GHCR build cache: a code-affecting main push
+    # imports the previous chain and re-exports only the changed layers; the cold
+    # build is proven by the scheduled `integration-fresh` job and the release
+    # tag. It is a separate job so
     # `packages: write` is confined here — a PR, tag, or dispatch run gets the
     # read-only `integration` job above and cannot overwrite the shared cache.
     # This job carries the main push's build; the required
     # `integration (docker build)` context reports Success-on-skip there.
     needs: [changes]
     if: >-
+      !cancelled() &&
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
-      needs.changes.outputs.code == 'true'
+      needs.changes.outputs.code != 'false'
     permissions:
       contents: read
       packages: write
@@ -300,12 +364,13 @@ jobs:
       # anonymous 60-requests/hour limit (see internal/agent/latest.go).
       GH_TOKEN: ${{ github.token }}
       # The runner-image BuildKit cache lives in GHCR, which has no Actions
-      # cache-budget cap. This job is the single writer: a main push builds
-      # uncached, then exports the chain. The suite keys each build's ref tag per
-      # build (keyCacheSpec), so sibling builds cannot clobber one shared tag.
-      # Credentials reach the daemon's BuildKit through the session, from the
-      # `docker login` step below.
-      AGENTS_SANDBOX_IMAGE_CACHE_FROM: ''
+      # cache-budget cap. This job is the single writer: a main push imports the
+      # previous chain, then re-exports only the layers the build changed. A cold
+      # from-scratch build is validated by `integration-fresh` and the release
+      # tag. The suite keys each build's ref tag per build (keyCacheSpec), so
+      # sibling builds cannot clobber one shared tag. Credentials reach the
+      # daemon's BuildKit through the session, from the `docker login` step below.
+      AGENTS_SANDBOX_IMAGE_CACHE_FROM: 'type=registry,ref=ghcr.io/inoio/agents-sandbox:buildcache'
       AGENTS_SANDBOX_IMAGE_CACHE_TO: 'type=registry,ref=ghcr.io/inoio/agents-sandbox:buildcache,mode=max'
       # The integration suite writes the steps each build served from the
       # imported cache here (a passing `go test` otherwise swallows the
@@ -313,6 +378,7 @@ jobs:
       # cache miss is indistinguishable from a hit.
       AGENTS_SANDBOX_CACHE_REPORT: ${{ github.workspace }}/runner-image-cache-report.txt
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -326,21 +392,50 @@ jobs:
         if: always()
         run: cat "$AGENTS_SANDBOX_CACHE_REPORT" 2>/dev/null || echo "no cache report"
 
+  integration-fresh:
+    name: integration (docker build, fresh)
+    # A scheduled cold build: no cache, so it proves the runner image builds from
+    # scratch against today's upstream agent releases. It exports nothing, so it
+    # cannot race the writer's cache tag.
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      AGENTS_SANDBOX_IMAGE_CACHE_FROM: ''
+      AGENTS_SANDBOX_IMAGE_CACHE_TO: ''
+      AGENTS_SANDBOX_CACHE_REPORT: ${{ github.workspace }}/runner-image-cache-report.txt
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: .go-version
+          cache: true
+      - run: make test-integration
+      - name: Runner-image build cache report
+        if: always()
+        run: cat "$AGENTS_SANDBOX_CACHE_REPORT" 2>/dev/null || echo "no cache report"
+
   integration-podman:
     name: integration (podman build)
     # The same full-image build as `integration`, against a rootless podman
     # endpoint instead of Docker Engine: podman serves the Docker API, so it is
     # expected to work, and this job is what makes it a tested engine. Its own
     # opt-in label keeps a podman-only failure from blocking a PR a maintainer
-    # ran docker for. Gated by `changes` on a main push like `integration`.
+    # ran docker for. It no longer runs on a main push — the nightly schedule
+    # covers the engine validation off the merge path — and it stays in
+    # `release.needs` so a tag still gates the release on it (GitHub has no
+    # cross-workflow `needs`).
     needs: [changes]
     if: >-
+      !cancelled() &&
+      (github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/tags/') ||
       (github.event_name == 'pull_request' &&
-      contains(github.event.pull_request.labels.*.name, 'run-integration-podman')) ||
-      (github.ref == 'refs/heads/main' && needs.changes.outputs.code == 'true')
+      contains(github.event.pull_request.labels.*.name, 'run-integration-podman')))
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     env:
       GH_TOKEN: ${{ github.token }}
       # Run the suite serially on podman. Buildah has a race between concurrent
@@ -348,10 +443,11 @@ jobs:
       # cached image exists from a previous build: getting top layer info: layer
       # not known", buildah#5674), which the image integration tests trigger with
       # their parallel builds plus per-subtest rmi. No apt-provided podman on the
-      # runner avoids it, so serialize; the timeout gives the serialized image
-      # binary headroom over the 60m default.
+      # runner avoids it, so serialize. The 45m test-level timeout is >3x the
+      # observed 14m serialized run and less than the job's 60m timeout, so a
+      # hung run is bounded by the job rather than the suite.
       INTEGRATION_PARALLEL: "1"
-      INTEGRATION_TIMEOUT: 120m
+      INTEGRATION_TIMEOUT: 45m
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -375,11 +471,42 @@ jobs:
           echo "DOCKER_HOST=$DOCKER_HOST" >> "$GITHUB_ENV"
       - run: make test-integration
 
+  tag-guard:
+    name: tag-guard
+    # A release tag must be on main or a release branch, so a tag can never
+    # publish a commit that bypassed the required checks. A patch release tags
+    # the tip of release/<major>.<minor>, not main, so both lines are accepted.
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: The tag must be on main or a release branch
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          git fetch --no-tags origin '+refs/heads/release/*:refs/remotes/origin/release/*' || true
+          if git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "tag ${GITHUB_REF_NAME} is on main"
+            exit 0
+          fi
+          while IFS= read -r ref; do
+            if git merge-base --is-ancestor "$GITHUB_SHA" "$ref"; then
+              echo "tag ${GITHUB_REF_NAME} is on $ref"
+              exit 0
+            fi
+          done < <(git for-each-ref --format='%(refname)' 'refs/remotes/origin/release/')
+          echo "::error::tag ${GITHUB_REF_NAME} (${GITHUB_SHA}) is not on main or a release/* branch" >&2
+          exit 1
+
   release:
     name: release (${{ matrix.target }})
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [lint, test, integration, integration-podman]
+    needs: [tag-guard, lint, test, integration, integration-podman]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -464,6 +591,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     needs: [release]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
       pull-requests: write

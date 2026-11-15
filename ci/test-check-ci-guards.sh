@@ -23,28 +23,208 @@ new_fixture() {
   dir="$(mktemp -d "$fixture_root/root.XXXXXX")"
   mkdir -p "$dir/.github/workflows" "$dir/ci"
 
+  # Structurally close to the real ci.yml: job keys at two-space indent, their
+  # keys at four, so the checker's job-scoped extraction works and the one-line
+  # perl mutations below land where intended.
   cat >"$dir/.github/workflows/ci.yml" <<'EOF'
 on:
   push:
-    branches: [main]
+    branches: [main, 'release/*']
   pull_request:
     types: [opened, synchronize, reopened, labeled]
   merge_group:
   workflow_dispatch:
+  schedule:
+    - cron: "43 2 * * *"
 
 jobs:
   changes:
-    runs-on: ubuntu-latest
-    steps:
-      - run: |
-          if printf '%s\n' "$files" | grep -vqE '^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/|\.agents-sandbox/)|\.md$|^\.gitignore$'; then
-            echo "code=true"
-          fi
-  integration:
+    name: changes
     if: github.event_name != 'merge_group'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+      exec: ${{ steps.filter.outputs.exec }}
     steps:
-      - run: echo 'integration'
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Classify the changeset
+        id: filter
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          code=false
+          exec=false
+          if base=$(ci/event-base.sh) && git diff --no-renames --name-only "$base" "$GITHUB_SHA" > /tmp/changed.txt; then
+            output="$(ci/classify-changes.sh /tmp/changed.txt)"
+            code="$(printf '%s\n' "$output" | sed -n 's/^code=//p')"
+            exec="$(printf '%s\n' "$output" | sed -n 's/^exec=//p')"
+          else
+            code=true
+            exec=true
+          fi
+          if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
+            code=true
+            exec=true
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "exec=$exec" >> "$GITHUB_OUTPUT"
+
+  changelog:
+    name: changelog
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Compute changed files
+        run: |
+          set -euo pipefail
+          base=$(ci/event-base.sh || true)
+          git diff --no-renames --name-only "${base:-}" "$GITHUB_SHA" > /tmp/changed.txt 2>/dev/null || true
+
+  lint:
+    name: lint
+    needs: [changes]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: golangci/golangci-lint-action@v9
+        if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
+        with:
+          version: v2.15
+      - run: make docs-linkcheck
+
+  test:
+    name: test
+    needs: [changes]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - run: make coverage-junit
+        if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
+      - uses: codecov/codecov-action@v7
+        if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() && (github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false') }}
+        uses: codecov/codecov-action@v7
+
+  race:
+    name: race
+    needs: [changes]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - run: make test-race
+        if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
+
+  deadcode:
+    name: deadcode
+    needs: [changes]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - run: make deadcode
+        if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
+
+  vulncheck:
+    name: vulncheck
+    needs: [changes]
+    if: >-
+      !cancelled() &&
+      github.event_name != 'merge_group' &&
+      (github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref, 'refs/tags/') ||
+      needs.changes.outputs.code != 'false')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - run: make vulncheck
+
+  integration:
+    name: integration (docker build)
+    needs: [changes]
+    if: >-
+      !cancelled() &&
+      (github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref, 'refs/tags/') ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/') && needs.changes.outputs.code != 'false') ||
+      (github.event_name == 'pull_request' && needs.changes.outputs.code != 'false'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - run: make test-integration
+
+  integration-cache-writer:
+    name: integration (docker build, cache writer)
+    needs: [changes]
+    if: >-
+      !cancelled() &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.changes.outputs.code != 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - run: make test-integration
+
+  integration-fresh:
+    name: integration (docker build, fresh)
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - run: make test-integration
+
+  tag-guard:
+    name: tag-guard
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - run: make tag-guard
+
+  release:
+    name: release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [tag-guard, lint, test, integration, integration-podman]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - run: make build-release
+EOF
+
+  cat >"$dir/ci/classify-changes.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+changed_files="$1"
+code=false
+if grep -vqE '^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/|\.agents-sandbox/)|\.md$|^\.gitignore$' "$changed_files"; then
+  code=true
+fi
+exec=false
+if [ "$code" = true ] || grep -qE '^docs/' "$changed_files"; then
+  exec=true
+fi
+printf 'code=%s\n' "$code"
+printf 'exec=%s\n' "$exec"
 EOF
 
   cat >"$dir/.github/workflows/mutation.yml" <<'EOF'
@@ -156,8 +336,8 @@ perl -0pi -e "s/  pull_request:\n    paths-ignore:\n(?:      - [^\n]*\n)+//" \
 expect "codeql.yml losing a whole paths-ignore block" "$absent" 1 "expected 2 paths-ignore block"
 
 ciy="$(new_fixture)"
-perl -pi -e 's{Formula/}{Formulae/}' "$ciy/.github/workflows/ci.yml"
-expect "ci.yml regex renaming an entry" "$ciy" 1 "ci.yml"
+perl -pi -e 's{Formula/}{Formulae/}' "$ciy/ci/classify-changes.sh"
+expect "classifier regex renaming an entry" "$ciy" 1 "ci/classify-changes.sh"
 
 chg="$(new_fixture)"
 perl -ni -e 'print unless m{_test}' "$chg/ci/check-changelog.sh"
@@ -167,8 +347,8 @@ expect "check-changelog.sh dropping the *_test.go exemption" "$chg" 1 "check-cha
 # not be silently dropped (a Makefile-only diff would otherwise read as
 # code=false and skip the integration job the spec keeps in).
 alt="$(new_fixture)"
-perl -pi -e 's{\^\Q\.gitignore\E\$}{^Makefile\$|^\Q\.gitignore\E\$}' "$alt/.github/workflows/ci.yml"
-expect "ci.yml regex gaining an unmodeled alternative" "$alt" 1 "unrecognized alternative"
+perl -pi -e 's{\^\Q\.gitignore\E\$}{^Makefile\$|^\Q\.gitignore\E\$}' "$alt/ci/classify-changes.sh"
+expect "classifier regex gaining an unmodeled alternative" "$alt" 1 "unrecognized alternative"
 
 # A derivation diagnostic must not land inside the captured glob list, and its
 # violation count must survive the command substitution. Two unmodeled
@@ -176,7 +356,7 @@ expect "ci.yml regex gaining an unmodeled alternative" "$alt" 1 "unrecognized al
 # violations: before the fix the messages were captured as glob data (sinking
 # the count to the single, incidental set-mismatch).
 deriv="$(new_fixture)"
-perl -pi -e 's{\^\Q\.gitignore\E\$}{$&|^Foo\$|^Bar\$}' "$deriv/.github/workflows/ci.yml"
+perl -pi -e 's{\^\Q\.gitignore\E\$}{$&|^Foo\$|^Bar\$}' "$deriv/ci/classify-changes.sh"
 expect "derivation diagnostics are counted and kept out of the glob set" "$deriv" 1 "2 violation(s) found"
 
 # Dropping the .gitignore clause from the presence condition must be caught by
@@ -237,6 +417,205 @@ expect "pull_request.types block-sequence dropping a default" "$blkdrop" 1 "defa
 notypes="$(new_fixture)"
 perl -ni -e 'print unless m/^    types: \[opened/' "$notypes/.github/workflows/ci.yml"
 expect "pull_request with no types declared" "$notypes" 1 "declares no types"
+
+echo "# check-ci-guards.sh: fast-path and fail-closed invariants"
+
+# The exec rule's docs/ anchor removed: a bare `docs/` would exempt any path
+# containing it, letting an execution-relevant change skip the Go suite.
+noanchor="$(new_fixture)"
+perl -pi -e "s{\Qgrep -qE '^docs/'\E}{grep -qE 'docs/'}" "$noanchor/ci/classify-changes.sh"
+expect "classifier exec rule losing its ^docs/ anchor" "$noanchor" 1 "missing the exec rule"
+
+# The code-derived exec rule dropped: without `[ "$code" = true ]` an
+# execution-relevant change that is not a docs change stops forcing exec, so a
+# required job's Go work is skipped on exactly the change it must run for.
+noderive="$(new_fixture)"
+perl -pi -e 's{\[ "\$code" = true \]}{[ "\$code" = false ]}' "$noderive/ci/classify-changes.sh"
+expect "classifier exec rule no longer derived from code" "$noderive" 1 "does not derive exec from code"
+
+# The `changes` step must invoke the tested classifier, not inline the logic.
+noinvoke="$(new_fixture)"
+perl -pi -e 's{ci/classify-changes\.sh /tmp/changed\.txt}{grep -vqE "x" /tmp/changed.txt}' "$noinvoke/.github/workflows/ci.yml"
+expect "changes dropping the classifier invocation" "$noinvoke" 1 "does not call ci/classify-changes.sh"
+
+# The classifier must read the file directly: a producer piped into grep's quiet
+# mode fails open once the list outgrows the pipe buffer (the regression Finding
+# A fixes), skipping every required job. The detector is producer-agnostic, so
+# the `printf … | grep -q` and `cat … | grep -vq` spellings are both caught.
+piped="$(new_fixture)"
+perl -pi -e 's{^code=false$}{printf "%s\\n" "$changed_files" | grep -q x || true\ncode=false}' "$piped/ci/classify-changes.sh"
+expect "classifier re-inlining a producer into grep -q" "$piped" 1 "pipes a producer into grep -q"
+
+# The `cat … | grep -vq` spelling: the old `printf … | grep -q`-only detector
+# missed it, so a future regression could reintroduce the round-1 fail-open.
+catpiped="$(new_fixture)"
+perl -pi -e 's{^code=false$}{cat "$changed_files" | grep -vq x || true\ncode=false}' "$catpiped/ci/classify-changes.sh"
+expect "classifier piping cat into grep -vq" "$catpiped" 1 "pipes a producer into grep -q"
+
+# The `changes` step's own inline shell: a `git diff … | grep -q` classification
+# fails open exactly as the old inline form did.
+diffpiped="$(new_fixture)"
+perl -pi -e 's{output="\$\(ci/classify-changes\.sh /tmp/changed\.txt\)"}{output="$(git diff --no-renames --name-only "$base" "$GITHUB_SHA" | grep -q foo)"}' "$diffpiped/.github/workflows/ci.yml"
+expect "changes step piping a git diff into grep -q" "$diffpiped" 1 "pipes a producer into grep -q"
+
+# Dropping the forced-full-set rule lets a force-updated release tag take the
+# fast path and skip a required check's work.
+notag="$(new_fixture)"
+perl -ni -e 'print unless m{== refs/tags/}' "$notag/.github/workflows/ci.yml"
+expect "changes dropping the forced-full-set tag rule" "$notag" 1 "refs/tags/"
+
+# A `git diff ... || true` in `changes` swallows a failed diff, so the fail-closed
+# branch never runs and the gate can run nothing. The same `|| true` is
+# legitimate in `changelog`, so the guard must scope its check to `changes`.
+swallow="$(new_fixture)"
+perl -pi -e 's{git diff --no-renames --name-only "\$base" "\$GITHUB_SHA" > /tmp/changed\.txt}{$& || true}' "$swallow/.github/workflows/ci.yml"
+expect "changes hiding a failed diff behind || true" "$swallow" 1 "hides a failed diff"
+
+# Dropping `--no-renames` restores git's default rename detection, so a
+# `git mv internal/foo/bar.go .agents-sandbox/bar.go` collapses to one
+# `.agents-sandbox/**` path and classifies as non-code: every required job's
+# work is skipped while the run reports green.
+norenames="$(new_fixture)"
+perl -pi -e 's/git diff --no-renames --name-only/git diff --name-only/' "$norenames/.github/workflows/ci.yml"
+expect "changes dropping --no-renames" "$norenames" 1 "--no-renames"
+
+# A code consumer back to the old `== 'true'`: a skipped `changes` job emits an
+# empty output, so `== 'true'` skips the build the fail-closed gate should run.
+# Target `vulncheck`: it carries the token only in its own whole-job clause (the
+# `integration` job now carries it in two clauses, so a block-level check cannot
+# see a single-clause revert there), which makes this fixture pin the pre-existing
+# whole-block `code`-consumer loop alone, not the new release-clause check.
+consumer="$(new_fixture)"
+perl -pi -e '
+  if (/^  vulncheck:$/) { $in = 1; next }
+  if ($in && /^  [A-Za-z0-9_-]+:$/) { $in = 0 }
+  s{needs\.changes\.outputs\.code != \x27false\x27}{needs.changes.outputs.code == \x27true\x27} if $in;
+' "$consumer/.github/workflows/ci.yml"
+expect "a code consumer gating on code == 'true'" "$consumer" 1 "outputs.code != 'false'"
+
+# `integration` carries the token in two clauses (the release-push and the PR
+# clause), so reverting just one leaves the whole-block check satisfied. Revert
+# both (fail-closed -> fail-open): the whole-block loop fires because the token
+# is now absent from the block entirely, and the fixture asserts that
+# block-scoped message (the release-clause check fires too, but its message is
+# distinct).
+consumerboth="$(new_fixture)"
+perl -pi -e '
+  if (/^  integration:$/) { $in = 1; next }
+  if ($in && /^  [A-Za-z0-9_-]+:$/) { $in = 0 }
+  s{needs\.changes\.outputs\.code != \x27false\x27}{needs.changes.outputs.code == \x27true\x27} if $in;
+' "$consumerboth/.github/workflows/ci.yml"
+expect "integration whole-block code gate reverted to == 'true'" "$consumerboth" 1 "'integration' if: is missing needs.changes.outputs.code != 'false'"
+
+# A job dropping its `needs: [changes]` no longer waits on the gate.
+noneeds="$(new_fixture)"
+perl -pi -e 'if (m/^    needs: \[changes\]/ && !$done++) { $_ = "" }' "$noneeds/.github/workflows/ci.yml"
+expect "a gated job dropping needs: changes" "$noneeds" 1 "does not include 'changes'"
+
+# A required Go job's job-level `if` must stay `!cancelled()`: a bare
+# `success()` (the default status check) skips the job when the `changes`
+# dependency was skipped on a merge group, and GitHub reports the skipped
+# required check as Success — so the queue could pass without running.
+cancelled="$(new_fixture)"
+perl -pi -e 'if (m/^    if: \$\{\{ !cancelled\(\) \}\}$/ && !$done++) { $_ = "    if: \${{ success() }}\n" }' "$cancelled/.github/workflows/ci.yml"
+expect "a Go job job-level if: dropping !cancelled()" "$cancelled" 1 "'lint' job-level if: is missing !cancelled()"
+
+# `merge_group` dropped from a body-step gate: the queue would then skip the Go
+# suite on its throwaway ref instead of running it.
+nogroup="$(new_fixture)"
+perl -pi -e 's/github\.event_name == .merge_group. \|\| //' "$nogroup/.github/workflows/ci.yml"
+expect "body-step gate dropping merge_group" "$nogroup" 1 "missing merge_group"
+
+# Dropping `merge_group` from just one gate in a multi-gate job (the fixture
+# `test` job has three) must fail too: every gated step needs the merge-group
+# fast path, not merely one of them. The whole-job fixture above cannot catch a
+# single-gate regression, because a sibling gate still carries the token.
+nogroupone="$(new_fixture)"
+perl -pi -e 'if (m/make coverage-junit/) { $want = 1 } if ($want && m/github\.event_name == .merge_group. \|\| /) { s/github\.event_name == .merge_group. \|\| //; $want = 0 }' "$nogroupone/.github/workflows/ci.yml"
+expect "one gate in a multi-gate job dropping merge_group" "$nogroupone" 1 "missing merge_group"
+
+# A job without a timeout can burn a runner indefinitely.
+notimeout="$(new_fixture)"
+perl -pi -e 'if (m/^    timeout-minutes:/ && !$done++) { $_ = "" }' "$notimeout/.github/workflows/ci.yml"
+expect "job missing timeout-minutes" "$notimeout" 1 "missing a job-level timeout-minutes"
+
+# Re-inlining the merge-base replaces the tested ci/event-base.sh with untested
+# shell that can drift from the fail-closed contract.
+inlined="$(new_fixture)"
+perl -pi -e 'if (m{ci/event-base\.sh} && !$seen++) { s{ci/event-base\.sh}{git merge-base origin/main "\$GITHUB_SHA"} }' "$inlined/.github/workflows/ci.yml"
+expect "changes re-inlining the merge-base" "$inlined" 1 "'changes' does not call ci/event-base.sh"
+
+# The `changelog` job must source the shared helper too ($seen skips the
+# `changes` occurrence so only `changelog` is mutated).
+nobase="$(new_fixture)"
+perl -pi -e 'if (m{ci/event-base\.sh} && $seen++) { s{ci/event-base\.sh}{git merge-base origin/main "\$GITHUB_SHA"} }' "$nobase/.github/workflows/ci.yml"
+expect "changelog not calling ci/event-base.sh" "$nobase" 1 "'changelog' does not call ci/event-base.sh"
+
+echo "# check-ci-guards.sh: release-branch and tag-guard invariants"
+
+# Dropping the release/* push trigger means a patch release branch never runs
+# the required checks that gate the tag.
+norpush="$(new_fixture)"
+perl -pi -e "s{, 'release/\*'}{}" "$norpush/.github/workflows/ci.yml"
+expect "on.push.branches dropping release/*" "$norpush" 1 "release/*"
+
+# Deleting the guard job lets a release tag publish a commit that never sat on
+# main or a release branch.
+notagguard="$(new_fixture)"
+perl -0pi -e 's/\n  tag-guard:\n.*?(?=\n  release:\n)//s' "$notagguard/.github/workflows/ci.yml"
+expect "deleting the tag-guard job" "$notagguard" 1 "the 'tag-guard' job is missing"
+
+# Keeping the job but widening its `if:` beyond a tag makes the guard run on
+# things that are not releases while a release tag slips past it. The job stays,
+# so this pins the token assertion inside the block, not the missing-job branch.
+notagtoken="$(new_fixture)"
+perl -pi -e '
+  if (/^  tag-guard:$/) { $in = 1; next }
+  if ($in && /^  [A-Za-z0-9_-]+:$/) { $in = 0 }
+  s{if: startsWith\(github\.ref, \x27refs/tags/\x27\)}{if: true} if $in;
+' "$notagtoken/.github/workflows/ci.yml"
+expect "tag-guard if: dropping the tag gate" "$notagtoken" 1 "startsWith(github.ref, 'refs/tags/')"
+
+# Un-gating the job while leaving the phrase in a comment must still fail: a
+# whole-block grep would find the token and pass, so the assertion has to scope
+# to the `if:` line.
+notagcomment="$(new_fixture)"
+perl -pi -e '
+  if (/^  tag-guard:$/) { $in = 1; next }
+  if ($in && /^  [A-Za-z0-9_-]+:$/) { $in = 0 }
+  if ($in && /^    if: startsWith\(github\.ref, \x27refs\/tags\/\x27\)/) {
+    $_ = "    # startsWith(github.ref, \x27refs/tags/\x27)\n    if: true\n";
+  }
+' "$notagcomment/.github/workflows/ci.yml"
+expect "tag-guard leaving its gate token only in a comment" "$notagcomment" 1 "startsWith(github.ref, 'refs/tags/')"
+
+# Leaving tag-guard out of release.needs lets the release start before the guard
+# has proven the tag's ancestry.
+notagneed="$(new_fixture)"
+perl -pi -e 's/needs: \[tag-guard, /needs: [/' "$notagneed/.github/workflows/ci.yml"
+expect "release.needs dropping tag-guard" "$notagneed" 1 "'release' needs: does not include 'tag-guard'"
+
+# Dropping a non-guard check from release.needs publishes without that gate; the
+# `.github` token is pinned too so a release cannot skip the from-scratch build.
+# `integration` is matched as its own list element, not as a substring of
+# `integration-podman`.
+nointegration="$(new_fixture)"
+perl -pi -e 's/needs: \[tag-guard, lint, test, integration, integration-podman\]/needs: [tag-guard, lint, test, integration-podman]/' "$nointegration/.github/workflows/ci.yml"
+expect "release.needs dropping integration" "$nointegration" 1 "'release' needs: does not include 'integration'"
+
+# Widening the writer's ref beyond main opens a second cache writer (a release
+# branch push, a tag) that can clobber the shared GHCR tag.
+nowriter="$(new_fixture)"
+perl -pi -e "s{github\.ref == 'refs/heads/main'}{startsWith(github.ref, 'refs/heads/')}" "$nowriter/.github/workflows/ci.yml"
+expect "cache writer losing the main-only guard" "$nowriter" 1 "refs/heads/main"
+
+# Dropping the code gate from just the release-push clause (the PR clause keeps
+# the token) makes a docs-only release push pay a build the gate should skip.
+# The existing whole-block check passes on the PR clause, so only a clause-scoped
+# check catches this.
+noreleasegate="$(new_fixture)"
+perl -pi -e "if (m{refs/heads/release/}) { s/ && needs\.changes\.outputs\.code != 'false'// }" "$noreleasegate/.github/workflows/ci.yml"
+expect "release-push clause dropping the code gate" "$noreleasegate" 1 "release-push clause is missing"
 
 echo "# check-ci-guards.sh: the real repository passes"
 expect "this repository" "$(cd "$SCRIPT_DIR/.." && pwd)" 0 ""

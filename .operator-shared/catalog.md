@@ -181,3 +181,15 @@
 - `plans/2026-11-07-hermetic-uid-permission-surface.md`
   - Description: Plan 2 of the hermetic design: remove the effective-uid dependence from the six tests the strict envelope runs as uid 0 (via `configmerge.readFile`, `runtimemigration.readDir`, and a `state.OverrideStateWriteForTest` hook), pin `GOTOOLCHAIN=local`, and verify `make test-hermetic` is green.
   - Read If: Implementing the uid/permission surface fix that makes the strict hermetic envelope green, or adding a read/write failure seam to `configmerge`, `runtimemigration`, or `state`.
+- `plans/2026-11-14-ci-build-optimization-design.md`
+  - Description: Design for a fail-closed CI fast path: a `changes` classifier splitting `code` from execution-inert `exec` so required checks gate only their heavy Go steps, a GHCR cache-importing main-push build, and a nightly cold `integration-fresh` that absorbs the podman engine build.
+  - Read If: Working on the CI fast path (`ci/event-base.sh`, `ci/classify-changes.sh`, the `changes` job), the main-push cache writer, or the nightly `integration-fresh`/podman triggers.
+- `plans/2026-11-14-ci-build-optimization-plan.md`
+  - Description: TDD implementation plan for the CI build optimization: the `changes` job outputs, the per-step `exec` gating that keeps `lint`/`test`/`race`/`deadcode` always-run, the cache re-export, and the nightly trigger split.
+  - Read If: Implementing or revising the CI build-optimization plan tasks.
+- `plans/2026-11-14-release-branch-ci-design.md`
+  - Description: Design for release-branch CI parity: widen `on.push.branches` to `release/*`, keep the single cache writer on `refs/heads/main` while a read-only reader builds on a release push, and add the `tag-guard` job that refuses a tag not on `main` or a release branch.
+  - Read If: Working on release-branch triggers, the release integration reader/writer split, or the `tag-guard` tag-ancestry precondition.
+- `plans/2026-11-14-release-branch-ci-plan.md`
+  - Description: TDD implementation plan for release-branch CI parity and the tag precondition.
+  - Read If: Implementing or revising the release-branch CI plan tasks.

@@ -16,7 +16,8 @@ references the useful contract.
 
 The `integration-podman` job in `.github/workflows/ci.yml` installs podman, starts `podman system service` on a socket,
 points `DOCKER_HOST` at it, and runs the same `make test-integration` as the Docker job. Gating, the
-`run-integration-podman` opt-in label, and why the job stays outside `release.needs`: `specs/ci/ci-pipeline.md`. A green
+`run-integration-podman` opt-in label, and why the job stays in `release.needs` even though it is off the main push:
+`specs/ci/ci-pipeline.md`. A green
 run of that job is the evidence behind the docs naming podman a **Tested** engine; without it the docs claim is
 unfounded.
 
@@ -40,15 +41,17 @@ coupling, so renaming the heading silently breaks the link the error prints.
 
 ## Parallel-build race
 
-The `integration-podman` job runs `make test-integration` with `INTEGRATION_PARALLEL=1` (and a raised
-`INTEGRATION_TIMEOUT`). Buildah has a race between concurrent `--layers` builds and `rmi`
+The `integration-podman` job runs `make test-integration` with `INTEGRATION_PARALLEL=1` and
+`INTEGRATION_TIMEOUT=45m` — lower than the Makefile's `?= 60m` default, but >3× the observed 14m
+serialized run and inside the job's 60-minute `timeout-minutes`, so a hung run is bounded by the job
+rather than the suite. Buildah has a race between concurrent `--layers` builds and `rmi`
 ([buildah#5674](https://github.com/podman-container-tools/buildah/issues/5674)): two builds read each
 other's cache-candidate layers, and a concurrent `rmi` removes one, so a build dies at its start with
 `checking if cached image exists from a previous build: getting top layer info: layer not known`. That
 is exactly what the image integration tests do — `TestRenderDockerfileBuildsEveryAgent` and
 `TestRenderDockerfileBuilds` run their subtests in parallel and each `t.Cleanup` removes its tag — so on
 a parallel run the podman job fails on an arbitrary agent/base case. Serializing removes the concurrency
-the race needs; the raised timeout covers the serialized image binary, which dominates the run.
+the race needs; the 45m test-level timeout covers the serialized image binary, which dominates the run.
 
 Do not try to fix it by upgrading podman: the runner is already `ubuntu-26.04`, whose apt podman
 (`5.7.0`) is the newest available, and the standard newer-podman channel

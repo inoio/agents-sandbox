@@ -1,19 +1,24 @@
 #!/usr/bin/env bash
 # Validate the CI gate's path classification and the workflow-condition invariants.
 #
-# Four sites classify the same paths as "not code": the `changes` gate in ci.yml,
-# the `paths-ignore` lists in mutation.yml and codeql.yml, and the changelog
-# presence rule in ci/check-changelog.sh. GitHub cannot compute those lists (a
-# workflow's `paths-ignore` is evaluated before any job runs), so each site
-# hardcodes its own copy, and nothing else keeps the copies in sync. This checker
-# is that something: it derives the exempt set from each site and fails, naming
-# the divergent file, when one drifts from the others.
+# Four sites classify the same paths as "not code": the `grep -vqE` in
+# ci/classify-changes.sh (called by ci.yml's `changes` step), the `paths-ignore`
+# lists in mutation.yml and codeql.yml, and the changelog presence rule in
+# ci/check-changelog.sh. GitHub cannot compute those lists (a workflow's
+# `paths-ignore` is evaluated before any job runs), so each site hardcodes its
+# own copy, and nothing else keeps the copies in sync. This checker is that
+# something: it derives the exempt set from each site and fails, naming the
+# divergent file, when one drifts from the others.
 #
 # It also enforces the two workflow-condition invariants actionlint does not
 # cover: every `github.event_name == '<event>'` / `!= '<event>'` condition names
 # an event declared in `on:`, and a declared `on.pull_request.types` repeats the
 # pull_request default types (`types:` replaces the default set rather than
 # extending it).
+#
+# Finally it pins the release invariants no other gate covers: the release/*
+# push trigger, the `tag-guard` job and its place in `release.needs`, and the
+# single main-push writer of the GHCR build cache.
 #
 # Usage: ci/check-ci-guards.sh [ROOT]
 #   ROOT defaults to the repository root; the test harness passes a fixture root.
@@ -27,6 +32,7 @@ CI_YML="$ROOT/.github/workflows/ci.yml"
 MUTATION_YML="$ROOT/.github/workflows/mutation.yml"
 CODEQL_YML="$ROOT/.github/workflows/codeql.yml"
 CHANGELOG_CHECK="$ROOT/ci/check-changelog.sh"
+CLASSIFY_SH="$ROOT/ci/classify-changes.sh"
 
 violations_file="$(mktemp "${TMPDIR:-/tmp}/ci-guards-violations.XXXXXX")"
 trap 'rm -f "$violations_file"' EXIT
@@ -106,14 +112,15 @@ globs_from_paths_ignore() {
   ' "$1"
 }
 
-# globs_from_changes_regex: the exempt set encoded in ci.yml's `grep -vqE` regex.
-# Every top-level alternative in the regex is decoded to a glob (a `^(a/|b/|...)`
-# group to its dir globs, `\.md$` to `**.md`, `^\.gitignore$` to `.gitignore`);
-# an alternative this derivation cannot model fails loudly rather than being
-# silently dropped, so a site that gains an exemption it does not model is caught.
+# globs_from_changes_regex: the exempt set encoded in ci/classify-changes.sh's
+# `grep -vqE` regex. Every top-level alternative in the regex is decoded to a
+# glob (a `^(a/|b/|...)` group to its dir globs, `\.md$` to `**.md`,
+# `^\.gitignore$` to `.gitignore`); an alternative this derivation cannot model
+# fails loudly rather than being silently dropped, so a site that gains an
+# exemption it does not model is caught.
 globs_from_changes_regex() {
   local line regex alt body
-  line="$(grep -F 'grep -vqE' "$CI_YML" | head -1)"
+  line="$(grep -F 'grep -vqE' "$CLASSIFY_SH" | head -1)"
   regex="$(printf '%s\n' "$line" | sed -E "s/.*grep -vqE '([^']*)'.*/\1/")"
   while IFS= read -r alt; do
     if [[ "$alt" =~ ^\^\((.+)\)$ ]]; then
@@ -124,7 +131,7 @@ globs_from_changes_regex() {
     elif [[ "$alt" == '^\.gitignore$' ]]; then
       printf '%s\n' '.gitignore'
     else
-      report "ci.yml: changes gate regex has an unrecognized alternative '$alt'"
+      report "ci/classify-changes.sh: changes gate regex has an unrecognized alternative '$alt'"
     fi
   done <<<"$(alternation_parts "$regex")"
 }
@@ -223,7 +230,7 @@ assert_paths_ignore_blocks() {
     || report "$site: expected $expected paths-ignore block(s), found $found"
 }
 
-assert_canonical ci.yml "$(globs_from_changes_regex | LC_ALL=C sort -u)"
+assert_canonical ci/classify-changes.sh "$(globs_from_changes_regex | LC_ALL=C sort -u)"
 assert_paths_ignore_blocks mutation.yml "$MUTATION_YML" 1
 assert_paths_ignore_blocks codeql.yml "$CODEQL_YML" 2
 assert_canonical check-changelog.sh "$(globs_from_changelog_check | LC_ALL=C sort -u)"
@@ -296,6 +303,249 @@ else
   if printf '%s\n' "$declared_events" | grep -qx pull_request; then
     report "ci.yml: on.pull_request declares no types: list (the default types return and 'labeled' is absent, so the podman opt-in can never fire)"
   fi
+fi
+
+# --- Fast-path and fail-closed workflow invariants. ---------------------------
+#
+# The `changes` gate emits two outputs, `code` and `exec`, both derived from the
+# shared `ci/event-base.sh` base and classified by the tested
+# `ci/classify-changes.sh`: the Go jobs gate on `merge_group || exec` (a docs-only
+# change is inert for them too), the integration jobs on `code`. These invariants
+# tie that shape down. A job that re-inlines the merge-base, swallows a failed
+# diff, drops the `docs/` exec rule, inlines classification, forgets a `needs:`,
+# loses its timeout, drops its job-level `!cancelled()`, or reverts a consumer to
+# `== 'true'` silently undoes the optimization or the fail-closed behavior. Every
+# message names the job (or the classifier) and the missing token.
+
+# job_block JOB: print JOB's block (its `  <job>:` line's body up to the next
+# top-level job key). Scoping to the block keeps a job-local assertion honest:
+# the `changelog` job legitimately keeps a `git diff ... || true`, and a
+# whole-file grep would false-positive on it.
+job_block() {
+  awk -v want="$1" '
+    /^jobs:[[:space:]]*$/ { in_jobs = 1; next }
+    in_jobs && /^[^[:space:]]/ { in_jobs = 0 }
+    in_jobs && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ {
+      name = $0
+      sub(/^  /, "", name)
+      sub(/:.*$/, "", name)
+      if (name == want) { in_job = 1; next }
+      if (in_job) exit
+      next
+    }
+    in_job { print }
+  ' "$CI_YML"
+}
+
+# job_names: every job key under `jobs:`, in order (the `on:` events share the
+# two-space indent, so the section boundary has to be tracked).
+job_names() {
+  awk '
+    /^jobs:[[:space:]]*$/ { in_jobs = 1; next }
+    in_jobs && /^[^[:space:]]/ { in_jobs = 0 }
+    in_jobs && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ {
+      name = $0
+      sub(/^  /, "", name)
+      sub(/:.*$/, "", name)
+      print name
+    }
+  ' "$CI_YML"
+}
+
+# has_token BLOCK TOKEN MESSAGE: report MESSAGE when BLOCK lacks TOKEN.
+has_token() {
+  printf '%s\n' "$1" | grep -qF -- "$2" || report "$3"
+}
+
+changes_block="$(job_block changes)"
+has_token "$changes_block" 'ci/event-base.sh' \
+  "ci.yml: 'changes' does not call ci/event-base.sh (the merge-base must not be re-inlined)"
+has_token "$(job_block changelog)" 'ci/event-base.sh' \
+  "ci.yml: 'changelog' does not call ci/event-base.sh (the merge-base must not be re-inlined)"
+
+# Classification lives in the tested ci/classify-changes.sh, never inline: a
+# producer piped into grep's quiet mode fails open once the list outgrows the
+# pipe buffer (the producer dies of SIGPIPE, pipefail reads 141 as a non-match,
+# and every required job is skipped). The `changes` step must call the script.
+has_token "$changes_block" 'ci/classify-changes.sh' \
+  "ci.yml: 'changes' does not call ci/classify-changes.sh (classification must not be inline)"
+
+# A `git diff ... || true` in `changes` hides a failed diff, so the fail-closed
+# branch never runs and the gate can run nothing.
+if printf '%s\n' "$changes_block" | grep -qE 'git diff.*\|\|[[:space:]]*true'; then
+  report "ci.yml: 'changes' keeps a 'git diff ... || true' that hides a failed diff"
+fi
+
+# The exec rule and its derivation from code live in the classifier: a docs/
+# change runs the Go jobs (a default-suite test reads docs/), an execution-inert
+# change skips them.
+classify_content="$(cat "$CLASSIFY_SH" 2>/dev/null || true)"
+has_token "$classify_content" "grep -qE '^docs/'" \
+  "ci/classify-changes.sh: missing the exec rule grep -qE '^docs/'"
+has_token "$classify_content" '[ "$code" = true ]' \
+  "ci/classify-changes.sh: does not derive exec from code (missing [ \"\$code\" = true ])"
+# It must read the file directly: any producer piped into grep's quiet mode
+# fails open on a list larger than the pipe buffer (the producer dies of SIGPIPE
+# and pipefail reads the 141 as a non-match). Producer-agnostic — `printf`,
+# `cat`, `git diff`, … — and the `([^|]|^)\|` prefix keeps it from matching the
+# `|| grep -q` of a logical OR, so the classifier's own exec-rule line is not a
+# false positive.
+quiet_grep_pipe='([^|]|^)\|[^|]*grep[[:space:]]+-[[:alpha:]]*q'
+if grep -qE "$quiet_grep_pipe" "$CLASSIFY_SH"; then
+  report "ci/classify-changes.sh: pipes a producer into grep -q (a list past the pipe buffer fails open)"
+fi
+
+# The same hazard in the `changes` step's own inline shell: a future
+# `git diff … | grep -q` classification would fail open exactly as the old
+# inline form did.
+if printf '%s\n' "$changes_block" | grep -qE "$quiet_grep_pipe"; then
+  report "ci.yml: 'changes' pipes a producer into grep -q (a list past the pipe buffer fails open)"
+fi
+
+# Rename detection is on by default, and `--name-only` then prints only the
+# destination of a detected rename: `git mv internal/foo/bar.go
+# .agents-sandbox/bar.go` yields one `.agents-sandbox/**` path, so the change
+# classifies as non-code and every required job's work is skipped while the run
+# reports green. `--no-renames` keeps the source path in the diff. The
+# `changelog` job builds the same list for its presence rule, so it needs the
+# flag too.
+if ! printf '%s\n' "$changes_block" | grep -qE 'git diff[^|]*--no-renames'; then
+  report "ci.yml: 'changes' git diff is missing --no-renames (a detected rename collapses to its destination and classifies as non-code)"
+fi
+if ! printf '%s\n' "$(job_block changelog)" | grep -qE 'git diff[^|]*--no-renames'; then
+  report "ci.yml: 'changelog' git diff is missing --no-renames (a detected rename hides the source path from the presence rule)"
+fi
+
+# A release tag forces the full set: a force-updated tag can carry a resolvable
+# `before`, so a diff that looks execution-inert could otherwise skip a required
+# check's work on a release.
+has_token "$changes_block" 'refs/tags/' \
+  "ci.yml: 'changes' is missing the forced-full-set rule refs/tags/ (a release tag must force code=true and exec=true)"
+
+# The four Go jobs depend on the changes gate.
+for job in lint test race deadcode; do
+  needs_line="$(printf '%s\n' "$(job_block "$job")" | grep -E '^    needs:' || true)"
+  if [[ "$needs_line" != *changes* ]]; then
+    report "ci.yml: '$job' needs: does not include 'changes'"
+  fi
+done
+
+# Every required Go job must always run: GitHub reports a skipped required check
+# as Success, so the job-level `if` stays `!cancelled()` — a status-check
+# function, which keeps the job running when the `changes` dependency was skipped
+# on a merge group. A bare `success()` (the default) or a missing `if` would
+# skip it and still report Success, so the queue could pass without running.
+for job in lint test race deadcode; do
+  job_if="$(printf '%s\n' "$(job_block "$job")" | grep -E '^    if:' || true)"
+  if [[ "$job_if" != *'!cancelled()'* ]]; then
+    report "ci.yml: '$job' job-level if: is missing !cancelled() (a skipped required check reports Success)"
+  fi
+done
+
+# Every exec-gated body step must keep `merge_group` running (the queue) and
+# skip only on an execution-inert changeset. Every one, not just one of them: a
+# job with several gated steps (test has three) would otherwise hide a single
+# step that lost the merge_group fast path behind a sibling that kept it.
+for job in lint test race deadcode; do
+  gate_lines="$(
+    printf '%s\n' "$(job_block "$job")" \
+      | grep -E '^        if:' | grep -F "needs.changes.outputs.exec != 'false'" || true
+  )"
+  if [[ -z "$gate_lines" ]]; then
+    report "ci.yml: '$job' body-step if: is missing needs.changes.outputs.exec != 'false'"
+    continue
+  fi
+  gate_count="$(printf '%s\n' "$gate_lines" | grep -c .)"
+  group_count="$(printf '%s\n' "$gate_lines" | grep -cF merge_group || true)"
+  [[ "$group_count" -eq "$gate_count" ]] \
+    || report "ci.yml: '$job' body-step if: is missing merge_group on $((gate_count - group_count)) of $gate_count gated step(s) (the gate must keep the merge queue running)"
+done
+
+# The code-affecting integration jobs gate on code, not the rawer exec.
+for job in integration integration-cache-writer vulncheck; do
+  has_token "$(job_block "$job")" "needs.changes.outputs.code != 'false'" \
+    "ci.yml: '$job' if: is missing needs.changes.outputs.code != 'false'"
+done
+
+# Every job bounds itself with a timeout; a hung job otherwise burns a runner.
+while IFS= read -r job; do
+  [[ -n "$job" ]] || continue
+  printf '%s\n' "$(job_block "$job")" | grep -qE '^    timeout-minutes:[[:space:]]*[0-9]+' \
+    || report "ci.yml: '$job' is missing a job-level timeout-minutes"
+done <<<"$(job_names)"
+
+# --- Release-invariant guards. -------------------------------------------------
+#
+# Five facts keep the release pipeline honest, and no other gate pins them: a
+# push to a release branch triggers CI (so a patch reaches a tag only through a
+# checked ref), a `tag-guard` job gates a release tag on main or a release branch,
+# the release waits on the guard *and* the full check set (`tag-guard`, `lint`,
+# `test`, `integration`, `integration-podman`) before publishing, and the GHCR
+# build cache keeps exactly one writer (a main push). A silent edit — dropping the
+# branch trigger, deleting the guard, unbundling the guard or a check from
+# `release.needs`, or widening the writer's ref — reopens the hole the design
+# closed. Each message names the job and the missing token.
+
+# push_branches: the `on.push.branches` list, in flow (`branches: [a, b]`) or
+# block (`branches:` then indented `- a` lines) form.
+push_branches() {
+  awk '
+    { sub(/[[:space:]]+#.*$/, "") }
+    /^  push:[[:space:]]*$/ { in_push = 1; next }
+    in_push && /^  [^[:space:]]/ { in_push = 0 }
+    in_push && /^    branches:/ { in_branches = 1; print; next }
+    in_branches && /^      - / { print; next }
+    in_branches { in_branches = 0 }
+  ' "$CI_YML"
+}
+
+if ! printf '%s\n' "$(push_branches)" | grep -qF 'release/*'; then
+  report "ci.yml: on.push.branches does not include 'release/*' (a release-branch push must run the required checks)"
+fi
+
+# The guard job's own gate is what stops a tag on nothing/another branch. Scope
+# the token to the `if:` line: a whole-block grep would pass on a job that
+# un-gated itself while leaving the phrase in a comment or `name:`.
+if printf '%s\n' "$(job_names)" | grep -qx 'tag-guard'; then
+  tag_guard_if="$(printf '%s\n' "$(job_block tag-guard)" | grep -E '^    if:' || true)"
+  if [[ "$tag_guard_if" != *"startsWith(github.ref, 'refs/tags/')"* ]]; then
+    report "ci.yml: 'tag-guard' if: is missing startsWith(github.ref, 'refs/tags/') (the guard must run on a release tag)"
+  fi
+else
+  report "ci.yml: the 'tag-guard' job is missing (a release tag must be gated on main or a release branch)"
+fi
+
+# A release must name every gate in `needs:`: the ancestry guard and the whole
+# check set. Dropping the guard starts the release before the tag's ancestry is
+# proven; dropping a check (e.g. `integration`) publishes without the
+# from-scratch build. Each missing token is reported on its own.
+release_needs="$(printf '%s\n' "$(job_block release)" | grep -E '^    needs:' || true)"
+if [[ -z "$release_needs" ]]; then
+  report "ci.yml: 'release' has no needs: list (the release must wait on the tag guard and the check set)"
+else
+  for required in tag-guard lint test integration integration-podman; do
+    # Match the token as a whole list element, so `integration` cannot be
+    # satisfied by the `integration-podman` substring.
+    if ! printf '%s\n' "$release_needs" | grep -qE "(^|[^A-Za-z0-9_-])${required}([^A-Za-z0-9_-]|\$)"; then
+      report "ci.yml: 'release' needs: does not include '$required' (the release must wait on $required)"
+    fi
+  done
+fi
+
+# Exactly one cache writer: a ref wider than main lets a release push or tag
+# clobber the shared GHCR tag a main push owns.
+has_token "$(job_block integration-cache-writer)" "github.ref == 'refs/heads/main'" \
+  "ci.yml: 'integration-cache-writer' if: is missing github.ref == 'refs/heads/main' (the build cache must keep exactly one writer, a main push)"
+
+# The reader's release-push clause must carry the same `code` gate as the main
+# push's build, so a docs-only release push skips a build. The whole-block token
+# check above passes on the pull_request clause, so this must scope to the
+# release clause itself.
+release_clause="$(printf '%s\n' "$(job_block integration)" | grep -F 'refs/heads/release/' || true)"
+if [[ -z "$release_clause" ]]; then
+  report "ci.yml: 'integration' if: is missing refs/heads/release/ (a release-branch push must run the build)"
+elif [[ "$release_clause" != *"needs.changes.outputs.code != 'false'"* ]]; then
+  report "ci.yml: 'integration' release-push clause is missing needs.changes.outputs.code != 'false'"
 fi
 
 violations="$(grep -c '^v$' "$violations_file" || true)"

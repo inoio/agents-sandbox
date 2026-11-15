@@ -53,10 +53,13 @@ The BuildKit path accepts cache **import** and **export** entries (`client.Cache
 optimization only:
 
 - A cache miss never changes the produced image and never fails the build.
-- Import and export are configured separately: a PR (and a `workflow_dispatch`) restores an existing cache without
-  publishing one, a main push builds uncached and then exports, and a release tag neither reads nor writes. Main is the
-  single writer; every other run is restore-only, so a cache a PR run *creates* (keyed to a throwaway ref, invisible to
-  main and sibling PRs) can never be published.
+- Import and export are configured separately: the read-only `integration` job restores an existing cache on a PR, a
+  `workflow_dispatch`, or a release-branch push without publishing one; the main-push writer job both **imports** the
+  previous chain and re-exports only the layers the build changed, so a main push is an incremental export rather than a
+  cold rebuild and re-seed; and a release tag neither reads nor writes, so a green release proves a from-scratch build.
+  Main is the single writer; every other run is restore-only, so a cache a PR run *creates* (keyed to a throwaway ref,
+  invisible to main and sibling PRs) can never be published. The cold from-scratch build is proven by the scheduled
+  `integration-fresh` job and by the release tag.
 - The cache is off unless configured; a normal local build carries none.
 
 The concrete backend the CI uses is `type=registry` against GHCR
@@ -80,15 +83,17 @@ CLI flag), holding one BuildKit cache spec such as
 commas (`type=`, `ref=`, `mode=`), so the keys are deliberately not `[]string` (which would comma-split an env value).
 The spec's fields are parsed as CSV, so a value carrying a comma is quoted (`type=local,"dest=/tmp/cache,run"`); only
 that quoting is interpreted, every type and attribute value still passes through uninterpreted. Empty — the default —
-means no entry. The CI sets `image-cache-to` only in the main-push writer job (the single writer) and
-`image-cache-from` only in the read-only `integration` job's restoring runs — a PR or a `workflow_dispatch`; a release
-tag sets neither, so it builds from scratch and a PR never publishes a throwaway cache. The cache spec syntax is
+means no entry. The CI sets `image-cache-to` only in the main-push writer job (the single writer), and
+`image-cache-from` on the read-only `integration` job's restoring runs — a PR, a `workflow_dispatch`, or a release-branch
+push — and in the writer too, which imports the previous chain before re-exporting the changed layers; a release tag sets
+neither, so it builds from scratch. A reader restores without publishing, so a PR or dispatch never writes a throwaway
+cache. The cache spec syntax is
 BuildKit's. Config-key registration (the golden
 env-key list, docs) follows `../configuration/config-keys.md`.
 
 The integration suite keys each build's spec to its own cache location before handing it to BuildKit (the helper
 appends the build's image tag to the spec's `scope`, or to a registry `ref`'s tag). The CI job gating and this
-main-writer/PR-restore split are owned by `../ci/ci-pipeline.md`.
+reader-restore/writer-import split are owned by `../ci/ci-pipeline.md`.
 
 ## Engine contract
 
