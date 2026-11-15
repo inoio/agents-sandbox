@@ -99,8 +99,9 @@ output (`agents-sandbox | tee run.log`, `agents-sandbox > run.log`) makes stdout
 input and a hook that prompts fails with its own end-of-input error. If you need both output capture and prompting, run
 the launcher under a pty-preserving wrapper (`script -c 'agents-sandbox' run.log` on util-linux, `script run.log
 agents-sandbox` on macOS). Pressing Ctrl-C while an interactive hook runs cancels that hook, restores the terminal, and
-stops the run with exit code 130; hooks after it do not run. `run --serve-only` always runs a hook without input — its
-stdin is the key that stops the server — so a hook cannot prompt in that mode. A VPN that needs a password or MFA and
-runs without input must get it from a provisioned file or environment variable, not from a prompt.
+stops the run with exit code 130; hooks after it do not run. The VM keeps running, so re-running attaches to it and skips
+the hooks — run `agents-sandbox stop` first to have them run again. `run --serve-only` always runs a hook without input
+— its stdin is the key that stops the server — so a hook cannot prompt in that mode. A VPN that needs a password or MFA
+and runs without input must get it from a provisioned file or environment variable, not from a prompt.
 
 Run `agents-sandbox config home` to list the resolved VM target → host source mappings.
