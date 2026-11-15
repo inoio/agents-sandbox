@@ -185,6 +185,11 @@ rather than in the queue; the podman suite is not in the queue either.
 
 - The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Release tags are `vMAJOR.MINOR.PATCH`
   (e.g. `v0.1.0`); releases and the `version` command use the bare version (e.g. `0.1.0`).
+- A fix that must also reach a shipped line carries the `needs-backport` label on its issue. That label is
+  the only trigger: a fix without it is intentionally `main`-only. It is a permanent record — the audit, not the
+  label, decides done-ness. `scripts/enqueue-pr.sh` copies the label onto the PR when the fix enters the merge
+  queue, and the nightly `backport-audit` workflow reports merged `needs-backport` PRs whose commits never reached
+  `release/<major>.<minor>`, opening the missing backport PRs.
 - Add a changelog **fragment**, don't edit `CHANGELOG.md`. For any user-visible change, create
   `changelog.d/<slug>.<type>.md`: `<slug>` is the PR number and `<type>` one of `added`, `changed`,
   `deprecated`, `docs`, `fixed`. The file holds one bullet's text, without the leading `- `, wrapped
