@@ -1,6 +1,6 @@
 ---
 description: Contract for the `msb`-tagged harness smoke tests that start every registered harness to its TUI in a real microsandbox VM (readiness by alternate-screen marker, a startup-line marker, or a settled wait; optional seeded home files), the per-harness isolated home tree with a shared microsandbox image cache, the parallel subtests sized to the host's free memory and the bounded image prebuild, the smaller per-VM memory cap, the reusable-root escape hatch, and the isolation that keeps them off the developer's existing agents-sandbox state.
-read_if: Adding or changing the harness smoke tests, the `msb` build tag, `make test-msb`/`make test-msb-reuse` or
+read_if: Adding or changing the harness smoke tests, the `msb` build tag, `make test-msb`/`make test-msb-cold` or
   `AGENTS_SANDBOX_SMOKE_ROOT`, the harness quit-press table, the readiness signals or seeded home files, the
   per-harness home split or how the harnesses' concurrency is bounded, or when a harness's TUI startup or quit behavior changes.
 ---
@@ -173,13 +173,15 @@ The shared host docker daemon builds the runner images, as the existing `integra
 do. The suite's own process installs the fail-fast seam mocks in `TestMain`; `TestMain` does nothing else, so
 `compile-all`'s `-run=^$` stays a genuine no-op. The suite's phases run in an order that lets a host which
 cannot run it skip before paying: the platform/`/dev/kvm` preflight first, then the shared root and binary
-build behind a `sync.Once`, then the isolated-env docker preflight, then the per-harness image prebuild
-behind its own `sync.Once`, then the harnesses.
+build behind a `sync.Once`, then the isolated-env docker preflight, then the suite's image prebuild
+(every harness plus the docker-storage image) behind its own `sync.Once`, then the harnesses.
 
 **Reuse escape hatch.** A set `AGENTS_SANDBOX_SMOKE_ROOT` points the suite at an existing directory it keeps
 between runs (resolved to an absolute path, validated to fit the socket-path budget) instead of a fresh temp
 root, so the microsandbox image cache under `<root>/data` survives and the per-run image transfer is paid once.
-`make test-msb` uses a fresh root; `make test-msb-reuse` sets it. The default (unset) is a fresh root removed
+The caching `make test-msb` sets it to the standing `$(MSB_REUSE_ROOT)/smoke` root, so the image cache and the
+docker layers survive and each agent's runner image is rebuilt in place under one tag; `make test-msb-cold` leaves
+it unset and so takes a fresh root. The default (unset) is a fresh root removed
 after the run; the reused directory is left in place. A reused root is held under an exclusive lock beside it for
 the run's lifetime, so a second run that shares the root waits rather than racing: the run that finishes first
 would otherwise sweep every sandbox in the shared home, destroying the other's live VMs.
@@ -200,7 +202,12 @@ the isolated home before the temp root is removed, so a failed subtest cannot le
 home; it lists with `sandbox list -q` and removes each name with `sandbox remove --force --yes` (`--yes` is
 required, or the non-interactive remove blocks on its confirmation). A freshly created temp root's removal is
 registered as soon as the root is created, so a skip (the docker preflight) or a failed launcher build removes
-it too; a reused root (`AGENTS_SANDBOX_SMOKE_ROOT`) is kept. The sandbox sweep stays separate because it needs
+it too; a reused root (`AGENTS_SANDBOX_SMOKE_ROOT`) is kept. A fresh root's cleanup also removes the runner-image
+tags the run built (`cleanupRunnerImages`, deriving each tag from `git.ResolveIdentity` over the project dir, skipping
+a project dir that did not resolve), untagging the leaf only (`docker rmi --no-prune`) so the classic builder's layer
+cache survives: a cold run leaves no tagged runner image; a reused root keeps its tags, which are rebuilt in place on
+the next run. The
+sandbox sweep stays separate because it needs
 the binary and a reachable docker daemon, and the reuse lock is released after it (cleanups run LIFO), so a
 waiting run only proceeds once the sweep sharing the root is done.
 
@@ -227,7 +234,7 @@ waiting run only proceeds once the sweep sharing the root is done.
 - The quit tap is a bound, not a diagnosis: a harness that starts ignoring its key fails after `quitTimeout` of taps
   rather than reporting why.
 - Seven harnesses mean seven runner-image builds on a cold home. The cold home also re-transfers each
-  multi-GB runner image into the microsandbox cache, which dominates the suite's wall time; `make test-msb-reuse`
+  multi-GB runner image into the microsandbox cache, which dominates the suite's wall time; the caching `make test-msb`
   keeps the home (`AGENTS_SANDBOX_SMOKE_ROOT`) so the transfer is paid once, and the prebuilds and harness
   subtests run with small bounded concurrency (the harness count sized to the host's free memory). The host-only
   placement absorbs the remaining cost.

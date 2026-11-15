@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-reuse compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic envelope-test check verify check-local-changes check-branch-changes changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test event-base-test classify-changes-test brain-check brain-check-test docs-serve
+.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-cold test-msb-reuse compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic envelope-test check verify check-local-changes check-branch-changes changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test event-base-test classify-changes-test brain-check brain-check-test shellcheck docs-serve
 
 VERSION ?= dev
 
@@ -39,9 +39,9 @@ INTEGRATION_PARALLEL ?= 4
 # the image builds lengthens the one binary that dominates the run.
 INTEGRATION_TIMEOUT ?= 60m
 MSB_PARALLEL ?=
-# Stable root for `test-msb-reuse`: it must stay short enough for microsandbox's
-# derived sandbox control socket (see test/harness/harness.go). Remove it to
-# start fresh.
+# Standing root for the caching `test-msb`: it must stay short enough for
+# microsandbox's derived sandbox control socket (see test/harness/harness.go).
+# Remove it to start fresh.
 MSB_REUSE_ROOT ?= /tmp/asb-reuse
 # The SDK's microsandbox_ffi_path tag swaps its //go:embed for reading the FFI
 # library from $MICROSANDBOX_FFI_PATH at runtime. The unit and integration
@@ -196,22 +196,27 @@ test-integration:
 # harness to its TUI in a real microsandbox VM, and drive the real SDK client
 # against the host runtime. Host-only (needs /dev/kvm, a docker daemon, and
 # network); excluded from test/check via the `msb` build tag. These keep the
-# embedded native library: they are the tests that actually load it. Each run
-# uses a fresh, isolated microsandbox home.
+# embedded native library: they are the tests that actually load it.
+#
+# test-msb reuses a standing microsandbox home and smoke root, so the multi-GB
+# `docker save | msb ImageLoad` transfer and the docker layers are paid once and
+# each agent's runner image is rebuilt in place under one tag. The home outlives
+# the run, so remove $(MSB_REUSE_ROOT) to start fresh, and a reused home is held
+# under a lock so a second run waits rather than racing. Add -v for timings.
 test-msb:
-	AGENTS_SANDBOX_MSB_PARALLEL=$(MSB_PARALLEL) CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/harness/... ./internal/sandbox/msb/...
-
-# Like test-msb, but reuses a stable microsandbox home so the multi-GB
-# `docker save | msb ImageLoad` each prebuild otherwise repays is paid once.
-# Local iteration only: the home outlives the run, so remove $(MSB_REUSE_ROOT)
-# to start fresh. A reused home is held under a lock, so a second concurrent
-# run waits instead of racing on it. Add -v to see the per-image prebuild
-# timings.
-test-msb-reuse:
 	AGENTS_SANDBOX_SMOKE_ROOT=$(MSB_REUSE_ROOT)/smoke \
 	AGENTS_SANDBOX_MSB_TEST_HOME=$(MSB_REUSE_ROOT)/msb \
 	AGENTS_SANDBOX_MSB_PARALLEL=$(MSB_PARALLEL) \
 	CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/harness/... ./internal/sandbox/msb/...
+
+# Like test-msb, but on a fresh, isolated microsandbox home that caches nothing
+# between runs. It forces the reuse variables unset, so an exported
+# AGENTS_SANDBOX_SMOKE_ROOT or AGENTS_SANDBOX_MSB_TEST_HOME cannot turn it into a
+# caching run. The suite removes the runner images it built (and its temp root),
+# untagging only the leaf so the classic builder's layer cache survives, so a
+# cold run leaves no tagged runner image.
+test-msb-cold:
+	AGENTS_SANDBOX_SMOKE_ROOT= AGENTS_SANDBOX_MSB_TEST_HOME= AGENTS_SANDBOX_MSB_PARALLEL=$(MSB_PARALLEL) CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/harness/... ./internal/sandbox/msb/...
 
 # Compile every test binary including build-tagged files (`//go:build
 # integration`, `//go:build msb`) so a regression that only breaks tagged code
@@ -297,6 +302,16 @@ validate-fmt:
 actionlint:
 	go run github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION) $(wildcard .github/workflows/*.yml)
 
+# Lint every tracked shell script with the shellcheck installed in the dev image
+# and on the CI runner. Deliberately unpinned: the two environments' builds
+# differ today (0.11.0 vs 0.9.0) and a finding from either must be fixed. The
+# file list is carried NUL-separated, so a path containing whitespace survives.
+shellcheck:
+	@count="$$(git ls-files '*.sh' | wc -l | tr -d '[:space:]')"; \
+	test "$$count" -gt 0 || { echo "shellcheck: no tracked *.sh files found" >&2; exit 1; }; \
+	shellcheck --version | grep '^version:'; \
+	git ls-files -z '*.sh' | xargs -0 shellcheck --
+
 run:
 	go run ./cmd/agents-sandbox
 
@@ -364,7 +379,7 @@ brain-check-test:
 # on macOS, with a fixed fallback; a user's own -j still bounds the jobserver.
 JOBS ?= $(shell n=$$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2); q=$$((n / 4)); [ "$$q" -lt 2 ] && q=2; echo "$$q")
 
-CHECK_TARGETS = validate-fmt lint actionlint test compile-all docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test event-base-test classify-changes-test changelog-check changelog-check-test deadcode-test changed-files-test changed-targets-test cleanup-branches-test surface-sweep-test envelope-test upstream-drift-test rebase-status-test enqueue-pr-test
+CHECK_TARGETS = validate-fmt lint actionlint shellcheck test compile-all docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test event-base-test classify-changes-test changelog-check changelog-check-test deadcode-test changed-files-test changed-targets-test cleanup-branches-test surface-sweep-test envelope-test upstream-drift-test rebase-status-test enqueue-pr-test
 VERIFY_TARGETS = $(CHECK_TARGETS) test-race vulncheck deadcode
 
 # Read-only local gate (does not modify files): formatter check + lint + test +
@@ -435,7 +450,7 @@ changed-files-test:
 changed-targets-test:
 	./scripts/test-changed-targets.sh
 
-all: fmt lint test docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test build cleanup-branches-test changed-files-test upstream-drift-test rebase-status-test enqueue-pr-test
+all: fmt lint shellcheck test docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test build cleanup-branches-test changed-files-test upstream-drift-test rebase-status-test enqueue-pr-test
 
 clean:
 	rm -f agents-sandbox

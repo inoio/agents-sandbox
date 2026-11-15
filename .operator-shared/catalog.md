@@ -86,8 +86,8 @@
 #### `specs/ci/` - CI pipeline and quality gates
 
 - `specs/ci/`
-  - Description: CI and gate contracts: `ci-pipeline.md` (workflows, required checks, merge queue, changelog fragments, the integration build cache, the `changes` gate's four exempt-path copies and the `actionlint` workflow lint), `mutation-testing.md` (the on-demand `make mutation` practice), `quality-gates.md` (golangci-lint, dead-code, doc-link, `actionlint`, and the `ci/check-ci-guards.sh` guard-consistency gate).
-  - Read If: Changing `.github/workflows/*.yml`, CI triggers, the merge queue/`merge_group`, the required-check set or `protect main` ruleset, the `changes` gate, the `run-integration*` labels or the integration jobs' `GH_TOKEN`, or changelog authoring; the `make mutation` target/`GOMUTANTS_VERSION`/triage convention or the advisory `mutation` workflow; `.golangci.yml`, the `lint` build-tag set, the dead-code gate (`make deadcode`/`//deadcode:ignore`), the doc-link gate, the `actionlint` pin, or the guard-consistency checker (`ci/check-ci-guards.sh`, the exempt-path lists, the `github.event_name`/`on.pull_request.types` invariants).
+  - Description: CI and gate contracts: `ci-pipeline.md` (workflows, required checks, merge queue, changelog fragments, the integration build cache, the `changes` gate's four exempt-path copies and the `actionlint` workflow lint), `mutation-testing.md` (the on-demand `make mutation` practice), `quality-gates.md` (golangci-lint, dead-code, doc-link, `actionlint`, the `make shellcheck` shell-script gate, and the `ci/check-ci-guards.sh` guard-consistency gate).
+  - Read If: Changing `.github/workflows/*.yml`, CI triggers, the merge queue/`merge_group`, the required-check set or `protect main` ruleset, the `changes` gate, the `run-integration*` labels or the integration jobs' `GH_TOKEN`, or changelog authoring; the `make mutation` target/`GOMUTANTS_VERSION`/triage convention or the advisory `mutation` workflow; `.golangci.yml`, the `lint` build-tag set, the dead-code gate (`make deadcode`/`//deadcode:ignore`), the doc-link gate, the `actionlint` pin, the `make shellcheck` gate, or the guard-consistency checker (`ci/check-ci-guards.sh`, the exempt-path lists, the `github.event_name`/`on.pull_request.types` invariants).
 
 #### `specs/configuration/` - Config scopes, keys, decoding, validation, project-config root and trust
 
@@ -116,8 +116,8 @@
 #### `specs/onboarding/` - First-run guidance and config migration
 
 - `specs/onboarding/`
-  - Description: `onboarding.md` — guiding a fresh install to a working sandbox: safe config migration, the tiered `config wizard`, `config harden`, and the doctor-remediation + Get started docs flow.
-  - Read If: Working on `config migrate`/`config wizard`/`config harden`, first-run guidance, credential/auth handling, network egress derivation, the `Guide` outcomes, the doctor output/troubleshooting anchors, or the Get started docs.
+  - Description: `onboarding.md` — guiding a fresh install to a working sandbox: safe config migration, the tiered `config wizard`, `config harden`, and the doctor-remediation + Get started docs flow; `learn-mode.md` — learning the configuration from a real session instead of declaring it: the user-facing first-run choices, the four journeys, `config harden` collapsing into run analysis, and the passive-read-back / launcher-owned-network / interception approaches.
+  - Read If: Working on `config migrate`/`config wizard`/`config harden`, first-run guidance, credential/auth handling, network egress derivation, the `Guide` outcomes, the doctor output/troubleshooting anchors, or the Get started docs; or on learn mode, the after-run analyser, a `run --learn`/`config learn` surface, a learned network policy or secret proposal, or the observation channel (host DNS resolver, outbound proxy, TLS interception).
 
 #### `specs/release/` - Release branching, assets, self-upgrade, darwin cross-build
 
@@ -147,7 +147,7 @@
 
 - `specs/testing/`
   - Description: Test contracts: `test-coverage.md` (the coverage bar and codecov thresholds), `test-isolation.md` (keeping tests off real host state), `harness-smoke-tests.md` (the `msb`-tagged harness smoke tests), `release-surface-testing.md` (the manual release-surface sweep: journeys, isolation, execution strategy, findings).
-  - Read If: Deciding what to test or triaging a failing `codecov/patch`/`codecov/project`; adding a test package/`TestMain`/double, debugging a test that reads real host state or fails under `-count>1`, the `//testenv:allow` ambient gate, or a state/config write to an unresolved root; the harness smoke tests, `make test-msb`/`test-msb-reuse`, `AGENTS_SANDBOX_MSB_PARALLEL`/`AGENTS_SANDBOX_SMOKE_ROOT`, or a harness TUI's startup/quit behavior; or verifying a release before tagging, running the surface sweep, adding a surface journey, or building its isolation helper.
+  - Read If: Deciding what to test or triaging a failing `codecov/patch`/`codecov/project`; adding a test package/`TestMain`/double, debugging a test that reads real host state or fails under `-count>1`, the `//testenv:allow` ambient gate, or a state/config write to an unresolved root; the harness smoke tests, `make test-msb`/`make test-msb-cold`, `AGENTS_SANDBOX_MSB_PARALLEL`/`AGENTS_SANDBOX_SMOKE_ROOT`, or a harness TUI's startup/quit behavior; or verifying a release before tagging, running the surface sweep, adding a surface journey, or building its isolation helper.
 
 #### `specs/vm/` - VM lifecycle and per-VM behaviours
 
@@ -178,3 +178,6 @@
 - `plans/2026-11-07-hermetic-uid-permission-surface.md`
   - Description: Plan 2 of the hermetic design: remove the effective-uid dependence from the six tests the strict envelope runs as uid 0 (via `configmerge.readFile`, `runtimemigration.readDir`, and a `state.OverrideStateWriteForTest` hook), pin `GOTOOLCHAIN=local`, and verify `make test-hermetic` is green.
   - Read If: A red `make test-hermetic` run under uid 0, the six uid/permission-dependent tests, or adding a read/write failure seam to `configmerge`, `runtimemigration`, or `state`.
+- `plans/2026-11-15-learn-mode-spike.md`
+  - Description: Validation spike for learn mode - seven experiments deciding whether a session's destinations can be observed (home-volume read-back per harness, host DNS resolver under each profile, outbound-proxy reachability and completeness, denial observability, interception prerequisites, streaming cost), each with its pass condition and the decision it changes.
+  - Read If: Running or revising the learn-mode spike, choosing between the passive-read-back / launcher-owned-network / interception approaches, or picking up an unverified observation assumption (proxy reachability under `none`, egress bypass, denial logging, DNS coverage).

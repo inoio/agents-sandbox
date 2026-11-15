@@ -38,7 +38,7 @@ RUN apt-get update \
       build-essential pkg-config \
       # Node tooling: the Operator Helper CLI installed below, and JS LSP servers
       nodejs \
-      # shell scripts: shellcheck (agent-run; not a make target)
+      # shell scripts: shellcheck (the make shellcheck gate)
       shellcheck \
       # Jekyll docs site (`make docs-serve`)
       bundler \

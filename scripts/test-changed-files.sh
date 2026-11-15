@@ -94,7 +94,7 @@ if "$FILES" --repo "$bproj" --base no-such-ref branch >/dev/null 2>&1; then
   bad "missing base exits non-zero"
 else
   status=0; "$FILES" --repo "$bproj" --base no-such-ref branch >/dev/null 2>&1 || status=$?
-  [[ "$status" -eq 3 ]] && ok "missing base exits 3" || bad "missing base exits 3 (got $status)"
+  if [[ "$status" -eq 3 ]]; then ok "missing base exits 3"; else bad "missing base exits 3 (got $status)"; fi
 fi
 
 echo "# changed-files.sh: usage"

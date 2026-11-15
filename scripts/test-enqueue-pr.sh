@@ -102,7 +102,7 @@ run_script() {
   set -e
   err="$(cat "$fixture_root/stderr")"
 }
-argv() { [[ -f "$GH_ARGV" ]] && cat "$GH_ARGV" || true; }
+argv() { if [[ -f "$GH_ARGV" ]]; then cat "$GH_ARGV"; fi; }
 
 echo "# enqueue-pr.sh (already merged)"
 run_script '{"state":"MERGED","id":"PR_1"}' 42

@@ -11,9 +11,12 @@ The secure default `provision-host-config: false` removed raw host credentials f
 
 1. **Prefer static secrets over interactive login.** Where a provider offers an API key or bearer token, migrate it to a microsandbox secret (placeholder in the VM, raw value on the host, host-scoped substitution) — the most secure and most deterministic path.
 2. **Never placeholder-migrate refreshable OAuth.** An OAuth access/refresh token is refreshed by the agent and rewritten inside the VM, so treating it as a static secret either materializes real tokens in the VM or depends on fragile proxy-mediated refresh.
-3. **Host-first onboarding is the documented story.** A new user sets the agent up on the host; agents-sandbox detects that config and migrates it. The wizard makes this explicit; it does not silently do nothing when config is missing or unmigratable.
-4. **Public egress by default, least privilege as an informed choice.** The default network profile is `public` (first run just works). The wizard treats least privilege (`none` plus the derived required hosts) as the recommended posture, and agents-sandbox never silently broadens or narrows a user's chosen policy.
-5. **Always explicit outcomes.** Every interactive first run ends in a named outcome (migrated, login hand-off, host-first hand-off, review hand-off, manual, dismissed). No path returns silently leaving the user with an unconfigured sandbox.
+3. **Learning in the sandbox is the documented story; host-first setup is one way in.** A new user is offered three
+   first-run choices: learn by using it, learn from the host config when one exists, or configure it myself
+   ([learn mode](learn-mode.md)). The host-first route is still the migration source when the user takes it; the wizard
+   makes the choice explicit and never silently does nothing when config is missing or unmigratable.
+4. **Public egress by default, least privilege as an informed choice.** The default network profile is `public` (first run just works). The wizard treats least privilege (`none` plus the derived required hosts) as the recommended posture, and agents-sandbox never silently broadens or narrows a user's chosen policy. How those required hosts are derived — declared from a curated table here, observed from a real session in [learn mode](learn-mode.md) — is that spec's subject.
+5. **Always explicit outcomes.** Every interactive first run ends in a named outcome (migrated, learn, login hand-off, review hand-off, manual, dismissed). No path returns silently leaving the user with an unconfigured sandbox.
 6. **Guide, don't block.** Non-interactive runs warn and continue; they never hang or fail on onboarding.
 
 ## Credential kinds
@@ -53,7 +56,7 @@ Derived each run by `Guide`:
 
 | Native config | Managed config | Decision | Outcome |
 |---|---|---|---|
-| none | none | — | host-first hand-off |
+| none | none | — | learn hand-off |
 | none | present | — | completed (nothing to do) |
 | present | none | static/settings | migrate (→ `login-pending` if OAuth also present) |
 | present | none | OAuth only | login hand-off |
@@ -77,9 +80,15 @@ Optional enhancement (not a dependency): if a stat of the persistent VM home det
 - Native config with migratable content → **Migrated**: `Review` shows generated files, placeholders, login-required providers, and warnings; `Apply` writes; then confirm start. `login-pending` providers get login guidance.
 - Native config with OAuth only → **Login hand-off**: explain why it is not copied, allow hosts, record `login-pending`. Warnings are surfaced; never a silent no-op.
 - Native config, unsupported/malformed only → **Review hand-off**: surface every warning ("review required", "skipped malformed", "found but not copied"); offer host-first, manual config, or start-anyway.
-- No native config → **Host-first hand-off**: "set up `<agent>` on the host, then rerun; agents-sandbox will migrate it", plus manual-config docs and start-anyway.
+- No native config → **Learn hand-off**: offer learn by using it (recommended), host-first setup ("set up `<agent>` on
+  the host, then rerun; agents-sandbox will migrate it"), or manual configuration, with the manual-config docs and
+  start-anyway. Choosing a learning path starts the sandbox in [learn mode](learn-mode.md) rather than returning.
+- Native config present → the same learn hand-off, seeded: the migration above produces the files the learning session
+  starts from, and the session's after-run proposal is what closes the loop.
 
-Warnings and review-required items are surfaced **before** any "has changes" gate, so a plan with nothing to write still communicates its findings. This guards against a `HasChanges()` short-circuit skipping `Guide` and `applyAuthMigration` returning before it appends warnings when the generated auth is empty.
+Warnings and review-required items are surfaced **before** any "has changes" gate, so a plan with nothing to write
+still communicates its findings. This guards against a `HasChanges()` short-circuit skipping `Guide` and
+`applyAuthMigration` returning before it appends warnings when the generated auth is empty.
 
 Non-interactive runs: warn (native config found but not migrated, etc.) and continue.
 
@@ -138,3 +147,4 @@ Pages about running agents-sandbox — the tutorial and the README quick start �
 
 - Auto-confirming in-sandbox login by statting the VM home (enhancement only).
 - Whether `LoginHosts` needs a richer per-provider structure than a host list (e.g. device-flow hosts) after real-provider testing.
+- Replacing the curated host derivation with observed traffic: see [learn mode](learn-mode.md). Until that lands, the derivation above and its provider table are the only source.

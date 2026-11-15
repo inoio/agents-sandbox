@@ -229,12 +229,14 @@ rm -rf "$d"
 
 # Terminology: an inline code span or a URL is not prose and is not flagged.
 d="$(new_fixture)"
+# shellcheck disable=SC2016 # literal markdown text, no expansion
 printf '\nThe `harness` name and [x](https://example.com/harness) are fine.\n' >>"$d/docs/introduction.md"
 expect "terminology harness in code/url ignored" 0 "all internal links are valid" "$d"
 rm -rf "$d"
 
 # Terminology: fenced code blocks (plain and inside a blockquote) are skipped.
 d="$(new_fixture)"
+# shellcheck disable=SC2016 # literal markdown text, no expansion
 printf '\n```text\nharness simply above\n```\n\n> ```console\n> harness\n> ```\n' >>"$d/docs/introduction.md"
 expect "terminology fenced code ignored" 0 "all internal links are valid" "$d"
 rm -rf "$d"
@@ -308,6 +310,7 @@ rm -rf "$d"
 
 # A backticked heading slugs its raw source text.
 d="$(new_fixture)"
+# shellcheck disable=SC2016 # literal markdown text, no expansion
 printf '\n## `agents-sandbox doctor` fails\n' >>"$d/docs/install.md"
 printf '\n[Doctor](https://inoio.github.io/agents-sandbox/install.html#agents-sandbox-doctor-fails)\n' >>"$d/README.md"
 expect "backticked heading slug" 0 "all internal links are valid" "$d"
