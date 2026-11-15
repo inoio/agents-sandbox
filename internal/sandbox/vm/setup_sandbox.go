@@ -254,9 +254,8 @@ func exitReason(exitCode int, tail string) string {
 
 // interruptedExitCode is how the launcher exits after the user interrupts an
 // interactive startup hook. 128+2 is the shell's convention for a process ended
-// by SIGINT, so a script wrapping the launcher sees the same code whether it ran
-// the interactive arm and aborted or the non-interactive arm and died on the
-// signal.
+// by SIGINT, so an interactive abort and a plain non-interactive run that dies
+// on the signal both report 130 to a wrapping script.
 const interruptedExitCode = 130
 
 // SetUpSandbox provisions a running project VM and returns the attach target.

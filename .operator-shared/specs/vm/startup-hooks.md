@@ -34,9 +34,10 @@ this spec covers only their execution contract.
   suppresses interactivity for it with an explicit guard, not by changing the predicate.
 - Ctrl-C during an interactive hook (SIGINT/SIGTERM) cancels the attach, restores the terminal, skips
   the remaining hooks and ends the run with `ExitError{Code: 130}` (128+SIGINT, the shell's
-  convention for a signal-killed process), so a hook the user cancelled does not let the run proceed
-  into the agent. The interactive arm runs the attach under `signal.NotifyContext`, like the agent
-  attach; the non-interactive arm has no handler and dies on the signal.
+  convention for a signal-ended process), so the cancelled hook does not let this run proceed into
+  the agent. Because hooks run only when the VM boots and the VM keeps running, a re-run attaches to
+  the booted VM and skips the hooks; stop the VM (`agents-sandbox stop`) to run them again. A plain
+  non-interactive run installs no handler and dies on the signal (a wrapping shell reports 130 too).
 - Hooks run only when the VM boots (created, recreated, or booted from stopped/crashed), never on
   attach to an already-running VM.
 

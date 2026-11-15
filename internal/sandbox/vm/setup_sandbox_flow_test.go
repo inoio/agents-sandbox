@@ -10,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
@@ -573,8 +574,14 @@ func TestSetUpSandboxAbortsTheRunOnInterruptedHook(t *testing.T) {
 			if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
 				return 0, err
 			}
-			<-ctx.Done()
-			return 0, nil
+			select {
+			case <-ctx.Done():
+				return 0, nil
+			case <-time.After(5 * time.Second):
+				// A missing signal handler would otherwise hang the test; fail
+				// the assertions below instead.
+				return 0, errors.New("SIGINT did not cancel the attach")
+			}
 		},
 	}
 	ui := &termiotest.Mock{}
@@ -601,8 +608,8 @@ func TestSetUpSandboxAbortsTheRunOnInterruptedHook(t *testing.T) {
 	if !errors.As(err, &exitErr) {
 		t.Fatalf("SetUpSandbox error = %v, want an *ExitError", err)
 	}
-	if exitErr.Code != interruptedExitCode {
-		t.Errorf("exit code = %d, want %d", exitErr.Code, interruptedExitCode)
+	if exitErr.Code != 130 {
+		t.Errorf("exit code = %d, want 130", exitErr.Code)
 	}
 }
 

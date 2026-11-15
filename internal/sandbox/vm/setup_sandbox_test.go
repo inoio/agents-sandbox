@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/creack/pty"
 
@@ -534,13 +535,20 @@ func TestHookInteractiveDefaultRequiresBothStdinAndStdout(t *testing.T) {
 }
 
 // TestHookInteractiveForUsesTheSeamOrTheDefault pins the resolution: the
-// injected seam wins, and absent one the production default answers.
+// injected seam wins, and an absent one falls to the production default.
 func TestHookInteractiveForUsesTheSeamOrTheDefault(t *testing.T) {
+	orig := hookFDIsTerminal
+	t.Cleanup(func() { hookFDIsTerminal = orig })
+	hookFDIsTerminal = func(int) bool { return true }
+
 	if got := hookInteractiveFor(options.Seams{HookInteractive: func() bool { return true }}); !got {
 		t.Error("hookInteractiveFor() = false, want the seam's true")
 	}
 	if got := hookInteractiveFor(options.Seams{HookInteractive: func() bool { return false }}); got {
 		t.Error("hookInteractiveFor() = true, want the seam's false")
+	}
+	if got := hookInteractiveFor(options.Seams{}); !got {
+		t.Error("hookInteractiveFor(zero Seams) = false, want the production default's true")
 	}
 }
 
@@ -697,8 +705,14 @@ func TestRunStartupHooksStopsAndReportsOnInterrupt(t *testing.T) {
 			if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
 				return 0, err
 			}
-			<-ctx.Done()
-			return 0, nil
+			select {
+			case <-ctx.Done():
+				return 0, nil
+			case <-time.After(5 * time.Second):
+				// A missing signal handler would otherwise hang the test; fail
+				// the assertion below instead.
+				return 0, errors.New("SIGINT did not cancel the attach")
+			}
 		},
 	}
 	ui := termiotest.NewTestMock(t)
