@@ -188,7 +188,7 @@ stdout_file="$fixture_root/stdout"; stderr_file="$fixture_root/stderr"
     >"$stdout_file" 2>"$stderr_file" </dev/null ) && rc=0 || rc=$?
 assert_contains     "plan names worktree before abort" "$(cat "$stdout_file")" "$proj/oldwork"
 assert_contains     "non-TTY aborts"                   "$(cat "$stderr_file")" "refusing to delete"
-[[ "$rc" -ne 0 ]] && ok "non-TTY exit non-zero" || bad "non-TTY exit non-zero"
+if [[ "$rc" -ne 0 ]]; then ok "non-TTY exit non-zero"; else bad "non-TTY exit non-zero"; fi
 
 # Zero planned actions: no prompt, no abort, exit 0.
 proj="$(new_fixture config agents-sandbox-config relative 0)"
@@ -197,7 +197,7 @@ git -C "$proj" branch -D old-work stale-branch >/dev/null
 git -C "$proj" update-ref -d refs/remotes/origin/stale-branch
 ( cd "$proj/main" && bash "$CLEANUP" --no-fetch --no-gh --fresh 0 --color never \
     >/dev/null 2>"$stderr_file" </dev/null ) && rc=0 || rc=$?
-[[ "$rc" -eq 0 ]] && ok "zero actions exit 0" || bad "zero actions exit 0 (rc=$rc)"
+if [[ "$rc" -eq 0 ]]; then ok "zero actions exit 0"; else bad "zero actions exit 0 (rc=$rc)"; fi
 assert_not_contains "zero actions no abort" "$(cat "$stderr_file")" "refusing to delete"
 
 # Content containment: a branch whose only own commit is patch-equivalent to a
@@ -264,6 +264,7 @@ make_gh_stub() { # dir record-line...
   local dir="$1"; shift
   mkdir -p "$dir"
   {
+    # shellcheck disable=SC2016 # literal shell snippet written to a file
     printf '#!/bin/sh\ncase "${1:-}" in\n'
     printf '  repo) echo "inoio/agents-sandbox" ;;\n'
     printf '  pr) printf "%%s\\n"'
