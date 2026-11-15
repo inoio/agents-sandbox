@@ -124,6 +124,23 @@ pr_state() {
   gh pr view "$pr" --json state -q .state 2>/dev/null || printf 'UNKNOWN'
 }
 
+# A fix that must also reach the shipped release line carries the marker on its
+# GitHub issue (the maintainer sets it; a bug without it is intentionally
+# main-only). The nightly backport audit reads the marker from the merged PR, so
+# copy it across from any linked issue before the PR merges. Adding a label the
+# PR already carries is a no-op in gh, so this is safe to repeat.
+carry_backport_marker() {
+  local issue
+  while read -r issue; do
+    [[ -n "$issue" ]] || continue
+    if gh issue view "$issue" --json labels -q '.labels[].name' 2>/dev/null | grep -qx 'needs-backport'; then
+      gh pr edit "$pr" --add-label needs-backport >/dev/null
+      printf 'enqueue-pr: PR #%s: marked needs-backport (a backport PR will be opened by the backport audit)\n' "$pr"
+      return 0
+    fi
+  done < <(gh pr view "$pr" --json closingIssuesReferences -q '.closingIssuesReferences[].number' 2>/dev/null || true)
+}
+
 printf 'enqueue-pr: PR #%s: resolving\n' "$pr"
 if ! load_pr; then
   # A merged PR is the goal state, not a failure; a closed one is not.
@@ -133,6 +150,8 @@ if ! load_pr; then
   fi
   exit 1
 fi
+
+carry_backport_marker
 
 printf 'enqueue-pr: PR #%s: waiting for checks\n' "$pr"
 watch_checks

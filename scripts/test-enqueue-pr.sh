@@ -20,15 +20,35 @@ assert_contains()     { if grep -qF -- "$3" <<<"$2"; then ok "$1"; else bad "$1 
 assert_not_contains() { if grep -qF -- "$3" <<<"$2"; then bad "$1 (unexpected: $3)"; else ok "$1"; fi; }
 
 # The fake `gh`: gh_argv.txt records one call per line, GH_PR_VIEW serves the
-# `gh pr view --json ...` probes, and GH_CHECKS_EXIT / GH_ENQUEUE_EXIT drive the
-# watch and the mutation. A canned view field can be an array, one JSON document
-# per call, so a test can change the PR's state between probes.
+# `gh pr view --json ...` probes, GH_ISSUE_LABELS (an issue number -> label-name
+# array map) serves `gh issue view --json labels`, and GH_CHECKS_EXIT /
+# GH_ENQUEUE_EXIT drive the watch and the mutation. A canned view field can be an
+# array, one JSON document per call, so a test can change the PR's state between
+# probes. `gh pr edit` only records argv.
 fake_bin="$fixture_root/bin"
 mkdir -p "$fake_bin"
 cat >"$fake_bin/gh" <<'GH'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >>"${GH_ARGV:?}"
+
+# Honour gh's --jq/-q the way the real CLI does, so the helper can select fields
+# exactly as it would against GitHub.
+apply_jq() {
+  local query=""
+  for ((i = 1; i <= $#; i++)); do
+    if [[ "${!i}" == "-q" || "${!i}" == "--jq" ]]; then
+      j=$((i + 1))
+      query="${!j}"
+    fi
+  done
+  if [[ -n "$query" ]]; then
+    printf '%s' "$1" | jq -r "$query"
+  else
+    printf '%s' "$1"
+  fi
+}
+
 case " $* " in
   *" pr checks "*)
     if [[ "${GH_CHECKS_NOREPORT:-0}" -gt 0 ]]; then
@@ -54,21 +74,20 @@ case " $* " in
     else
       doc="$fields"
     fi
-    # Honour gh's --jq/-q, the way the real CLI does, so the helper can select
-    # fields exactly as it would against GitHub.
-    query=""
-    for ((i = 1; i <= $#; i++)); do
-      if [[ "${!i}" == "-q" || "${!i}" == "--jq" ]]; then
-        j=$((i + 1))
-        query="${!j}"
-      fi
-    done
-    if [[ -n "$query" ]]; then
-      printf '%s' "$doc" | jq -r "$query"
-    else
-      printf '%s' "$doc"
-    fi
+    apply_jq "$doc" "$@"
     exit 0
+    ;;
+  *" issue view "*)
+    number=""
+    for ((i = 1; i <= $#; i++)); do
+      if [[ "${!i}" =~ ^[0-9]+$ ]]; then number="${!i}"; break; fi
+    done
+    doc="$(jq -c --arg n "$number" '(.[$n] // []) | {labels: map({name: .})}' "${GH_ISSUE_LABELS:?}")"
+    apply_jq "$doc" "$@"
+    exit 0
+    ;;
+  *" pr edit "*)
+    exit "${GH_PR_EDIT_EXIT:-0}"
     ;;
   *" api graphql "*)
     if [[ "${GH_ENQUEUE_EXIT:-0}" -ne 0 ]]; then
@@ -87,13 +106,19 @@ export PATH="$fake_bin:$PATH"
 export GH_ARGV="$fixture_root/argv.txt"
 export GH_PR_VIEW="$fixture_root/pr_view.json"
 export GH_PR_VIEW_INDEX="$fixture_root/pr_view_index"
-unset GH_CHECKS_EXIT GH_ENQUEUE_EXIT
+export GH_ISSUE_LABELS="$fixture_root/issue_labels.json"
+printf '{}' >"$GH_ISSUE_LABELS"
+unset GH_CHECKS_EXIT GH_ENQUEUE_EXIT GH_PR_EDIT_EXIT
 export ENQUEUE_PR_RETRY_SECONDS=0
 
 # run_script seeds the view payload, clears the argv recorder, and captures both
-# streams into out and err, returning the helper's exit status.
+# streams into out and err, returning the helper's exit status. issue_labels sets
+# the closing issues' labels for the next run (an issue number -> label array
+# map); it defaults to none, so a case opts in.
 run_script() {
   printf '%s' "$1" >"$GH_PR_VIEW"
+  printf '%s' "${issue_labels:-}" >"$GH_ISSUE_LABELS"
+  [[ -s "$GH_ISSUE_LABELS" ]] || printf '{}' >"$GH_ISSUE_LABELS"
   rm -f "$GH_ARGV" "$GH_PR_VIEW_INDEX"
   shift
   set +e
@@ -119,6 +144,31 @@ assert_contains "sends the enqueue mutation" "$(argv)" "enqueuePullRequest(input
 assert_contains "passes the node id" "$(argv)" "id=PR_2"
 assert_contains "prints the queue position" "$out" "enqueued at position 3"
 assert_not_contains "does not dump the live check table" "$out" "fake-tests"
+
+echo "# enqueue-pr.sh (linked issue needs a backport)"
+export issue_labels='{"7":["needs-backport"]}'
+run_script '{"state":"OPEN","id":"PR_10","closingIssuesReferences":[{"number":7}]}' 42
+if [[ "$status" -eq 0 ]]; then ok "a marked issue still enqueues"; else bad "a marked issue still enqueues (got $status)"; fi
+assert_contains "reads the PR's closing issues" "$(argv)" "pr view 42 --json closingIssuesReferences -q .closingIssuesReferences[].number"
+assert_contains "reads the linked issue's labels" "$(argv)" "issue view 7 --json labels -q .labels[].name"
+assert_contains "copies the marker onto the PR" "$(argv)" "pr edit 42 --add-label needs-backport"
+assert_contains "prints the backport hint" "$out" "marked needs-backport (a backport PR will be opened by the backport audit)"
+assert_contains "still enqueues" "$(argv)" "api graphql"
+unset issue_labels
+
+echo "# enqueue-pr.sh (linked issue does not need a backport)"
+export issue_labels='{"7":[]}'
+run_script '{"state":"OPEN","id":"PR_11","closingIssuesReferences":[{"number":7}]}' 42
+if [[ "$status" -eq 0 ]]; then ok "an unmarked issue still enqueues"; else bad "an unmarked issue still enqueues (got $status)"; fi
+assert_not_contains "does not label the PR" "$(argv)" "pr edit"
+assert_not_contains "prints no backport hint" "$out" "needs-backport"
+unset issue_labels
+
+echo "# enqueue-pr.sh (no closing issues)"
+run_script '{"state":"OPEN","id":"PR_12","closingIssuesReferences":[]}' 42
+if [[ "$status" -eq 0 ]]; then ok "a PR with no closing issues enqueues"; else bad "a PR with no closing issues enqueues (got $status)"; fi
+assert_not_contains "labels nothing to backport" "$(argv)" "pr edit"
+assert_not_contains "reads no issue" "$(argv)" "issue view"
 
 echo "# enqueue-pr.sh (checks not yet registered)"
 export GH_CHECKS_NOREPORT=2
@@ -147,7 +197,7 @@ unset GH_CHECKS_EXIT
 
 echo "# enqueue-pr.sh (closed while waiting)"
 export GH_CHECKS_EXIT=1
-run_script '[{"state":"OPEN","id":"PR_5"},{"state":"OPEN","id":"PR_5"},{"state":"OPEN","id":"PR_5"},{"state":"CLOSED","id":"PR_5"}]' 42
+run_script '[{"state":"OPEN","id":"PR_5"},{"state":"OPEN","id":"PR_5"},{"state":"OPEN","id":"PR_5"},{"state":"OPEN","id":"PR_5"},{"state":"CLOSED","id":"PR_5"}]' 42
 if [[ "$status" -ne 0 ]]; then ok "closed during the watch exits non-zero"; else bad "closed during the watch exits non-zero"; fi
 assert_contains "reports the PR is closed" "$err" "closed while waiting"
 assert_not_contains "does not enqueue a closed PR" "$(argv)" "api graphql"
