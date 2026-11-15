@@ -89,7 +89,9 @@ micro's changelog/tag commit:
 
 The porter, `scripts/open-backport-pr.sh <n>`, skips a source commit whose patch-id is already on the
 line, so a partially ported PR (a commit hand-ported earlier, an adapted port) is completed instead of
-aborting on an empty cherry-pick, and a fully ported PR is a no-op that pushes nothing.
+aborting on an empty cherry-pick. A fully ported PR is a no-op that pushes nothing and exits `3`
+(distinct from `0`, which means a branch was pushed and a PR opened); the workflow reports it as
+"already fully ported" rather than "opened".
 
 The latest line is the highest-semver `release/<major>.<minor>` among local and origin refs; with no
 release branch the audit reports nothing to audit and exits clean.

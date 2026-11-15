@@ -92,6 +92,12 @@ jobs:
         # and left in the rolling issue rather than failing the run, and one
         # port never blocks the next.
         #
+        # The porter's status decides the message: 0 means the branch was pushed
+        # and the PR opened, 3 means every source commit is already on the line
+        # so nothing was opened, 1 means it could not port (conflict, unknown or
+        # unmerged PR, no release branch). Any other status is unexpected and is
+        # logged as a failure too, never as an opened PR.
+        #
         # A pull request this step opens is authored by GITHUB_TOKEN, so its own
         # workflow run parks at `action_required` until a maintainer approves
         # it. That is expected, not a bug.
@@ -106,11 +112,14 @@ jobs:
             [ -n "$number" ] || continue
             pr="${number#\#}"
             echo "::group::Porting ${number} (${title})"
-            if scripts/open-backport-pr.sh "$pr"; then
-              echo "Opened the backport pull request for ${number}."
-            else
-              echo "Could not open a backport pull request for ${number}; it stays in the rolling issue."
-            fi
+            status=0
+            scripts/open-backport-pr.sh "$pr" || status=$?
+            case "$status" in
+              0) echo "Opened the backport pull request for ${number}." ;;
+              3) echo "The fix in ${number} is already fully ported onto the release branch; nothing was opened." ;;
+              1) echo "Could not open a backport pull request for ${number}; it stays in the rolling issue." ;;
+              *) echo "Backporting ${number} failed with an unexpected status (${status}); it stays in the rolling issue." ;;
+            esac
             echo "::endgroup::"
           done < backport-debt.txt
       - name: Update the rolling issue

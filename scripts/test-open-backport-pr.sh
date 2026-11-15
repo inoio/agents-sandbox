@@ -19,7 +19,6 @@ bad() { fail=$((fail + 1)); printf 'FAIL - %s\n' "$1"; }
 assert_contains()     { if grep -qF -- "$3" <<<"$2"; then ok "$1"; else bad "$1 (missing: $3)"; fi; }
 assert_not_contains() { if grep -qF -- "$3" <<<"$2"; then bad "$1 (unexpected: $3)"; else ok "$1"; fi; }
 assert_eq()           { if [[ "$2" == "$3" ]]; then ok "$1"; else bad "$1 (got '$2' want '$3')"; fi; }
-assert_status_nonzero() { if [[ "$2" -ne 0 ]]; then ok "$1"; else bad "$1 (got 0)"; fi; }
 
 # The fake `gh`: gh_argv.txt records one call per line and `pr view` serves
 # $GH_MERGE_OID while `pr create` echoes $GH_PR_URL (as the real CLI does).
@@ -144,7 +143,7 @@ git -C "$REPO" push -q origin release/0.1
 git -C "$REPO" checkout -q main
 before="$(git -C "$REPO" ls-remote origin)"
 run_open 7
-assert_status_nonzero "a conflict exits non-zero" "$status"
+assert_eq "a conflict exits 1" "$status" "1"
 assert_contains "explains the conflict" "$(stderr)" "conflict"
 assert_eq "leaves origin unchanged" "$(git -C "$REPO" ls-remote origin)" "$before"
 assert_not_contains "opens no PR" "$(argv)" "pr create"
@@ -177,7 +176,7 @@ git -C "$REPO" checkout -q main
 git -C "$REPO" push -q origin release/0.1
 before="$(git -C "$REPO" ls-remote origin)"
 run_open 7
-assert_eq "a fully ported PR exits 0" "$status" "0"
+assert_eq "a fully ported PR exits 3 (nothing to do)" "$status" "3"
 assert_contains "says there is nothing to do" "$out" "already fully ported onto release/0.1"
 assert_eq "pushes nothing" "$(git -C "$REPO" ls-remote origin)" "$before"
 assert_not_contains "opens no PR for a fully ported PR" "$(argv)" "pr create"
@@ -193,19 +192,21 @@ git -C "$REPO" branch -D release/0.1 >/dev/null
 git -C "$REPO" push -q origin --delete release/0.1
 git -C "$REPO" fetch -q --prune origin
 run_open 7
-assert_status_nonzero "no release branch exits non-zero" "$status"
+assert_eq "no release branch exits 1" "$status" "1"
 assert_not_contains "opens no PR without a release branch" "$(argv)" "pr create"
 
 echo "# open-backport-pr.sh (unknown PR)"
 seed_fixture unknown
 run_open 999 ""
-assert_status_nonzero "an unknown PR exits non-zero" "$status"
+assert_eq "an unknown PR exits 1" "$status" "1"
 assert_not_contains "opens no PR for an unknown PR" "$(argv)" "pr create"
 
 echo "# open-backport-pr.sh (usage)"
 if "$OPEN" --help >/dev/null 2>&1; then ok "--help exits 0"; else bad "--help exits 0"; fi
-if "$OPEN" >/dev/null 2>&1; then bad "no argument is a usage error"; else ok "no argument is a usage error"; fi
-if "$OPEN" abc >/dev/null 2>&1; then bad "a non-numeric argument is a usage error"; else ok "a non-numeric argument is a usage error"; fi
+set +e
+"$OPEN" >/dev/null 2>&1; assert_eq "no argument is a usage error" "$?" "2"
+"$OPEN" abc >/dev/null 2>&1; assert_eq "a non-numeric argument is a usage error" "$?" "2"
+set -e
 
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]

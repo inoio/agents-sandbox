@@ -22,6 +22,9 @@
 #                                  (default: needs-backport)
 #   BACKPORT_AUDIT_GRACE_SECONDS   skip a PR merged this recently (default: 7200)
 #   BACKPORT_AUDIT_NOW             current time in epoch seconds (default: date +%s)
+#   BACKPORT_AUDIT_PAGE_LIMIT      rows requested per expected-set query, and the
+#                                  count at which the page fails as truncated
+#                                  (default: 5000)
 #
 # Contract:
 #   Latest line: the highest-semver release/<major>.<minor> among local
@@ -30,10 +33,11 @@
 #
 #   Expected set (union, deduplicated by PR number):
 #   A. gh pr list --state merged --base "$DEFAULT" --label "$LABEL"
-#      --json number,title,url,mergedAt,mergeCommit --limit 201.
+#      --json number,title,url,mergedAt,mergeCommit --limit "$PAGE_LIMIT".
 #   B. every merged PR that closes a `$LABEL`-labeled issue:
 #      gh issue list --state all --label "$LABEL"
-#      --json number,closedByPullRequestsReferences --limit 201, then
+#      --json number,closedByPullRequestsReferences --limit "$PAGE_LIMIT",
+#      then
 #      gh pr view <n> --json number,title,url,mergedAt,mergeCommit,state for
 #      each referenced PR, keeping only state MERGED. The issue label is the
 #      durable record; enqueue-pr.sh also copies it onto the PR, but a merge
@@ -42,9 +46,16 @@
 #
 #   Complete set: gh returns the newest N rows and drops the rest with no
 #   signal, so a truncated window would read as clean and close the rolling
-#   issue. Each source is therefore requested with --limit 201 and a page that
-#   comes back with 201 or more rows fails loudly (exit 2) instead of being
-#   audited. The open-backport suppression query carries the same cap and guard.
+#   issue. Each source is therefore requested with --limit
+#   BACKPORT_AUDIT_PAGE_LIMIT (default 5000) and a page that comes back with
+#   that many rows or more fails loudly (exit 2) instead of being audited. The
+#   open-backport suppression query carries the same cap and guard. The limit is
+#   a lifetime ceiling over both cumulative queries, not a per-run one, so the
+#   default is set past any realistic accumulation; raise the knob when a
+#   repository outgrows it. No date window narrows the queries: it would drop
+#   old debt silently, which is the failure this guard exists to prevent. The
+#   cost is paging — gh fetches --limit 5000 internally, roughly 50 requests per
+#   source per run.
 #
 #   Landed test: the release branch's patch-id set is
 #   git log -p --no-merges "<release>" | git patch-id --stable | awk '{print $1}' | sort -u.
@@ -67,6 +78,7 @@ default_branch="${BACKPORT_AUDIT_DEFAULT_BRANCH:-main}"
 label="${BACKPORT_AUDIT_LABEL:-needs-backport}"
 grace_seconds="${BACKPORT_AUDIT_GRACE_SECONDS:-7200}"
 now="${BACKPORT_AUDIT_NOW:-$(date +%s)}"
+page_limit="${BACKPORT_AUDIT_PAGE_LIMIT:-5000}"
 
 if [[ $# -gt 0 ]]; then
   case "$1" in
@@ -142,17 +154,18 @@ fi
 read -r _major _minor release_ref release_name <<<"$release_line"
 
 # gh returns the newest N rows and silently drops the rest. Every expected-set
-# query asks for one more than the usable window and a page at the cap aborts
-# with 2: a truncated set must never read as clean, because the next step would
-# then close the rolling issue and erase the signal.
-PAGE_LIMIT=201
-
+# query asks for $PAGE_LIMIT rows and a page at the cap aborts with 2: a
+# truncated set must never read as clean, because the next step would then
+# close the rolling issue and erase the signal. The default sits past any
+# realistic accumulation (the queries are cumulative over the repository's whole
+# history); the knob is the escape hatch if one outgrows it.
+#
 # require_complete_page SOURCE COUNT fails when a page came back at the cap.
 require_complete_page() {
   local source="$1" count="$2"
-  if [[ "$count" -ge "$PAGE_LIMIT" ]]; then
+  if [[ "$count" -ge "$page_limit" ]]; then
     printf 'backport-audit: %s returned %s rows, at the --limit %s cap; the set is truncated, so this run cannot be trusted as clean\n' \
-      "$source" "$count" "$PAGE_LIMIT" >&2
+      "$source" "$count" "$page_limit" >&2
     exit 2
   fi
 }
@@ -168,7 +181,7 @@ count_lines() {
 
 # Source A: PRs merged to the default branch that carry the label themselves.
 pr_labeled="$(gh pr list --state merged --base "$default_branch" --label "$label" \
-  --json number,title,url,mergedAt,mergeCommit --limit "$PAGE_LIMIT" \
+  --json number,title,url,mergedAt,mergeCommit --limit "$page_limit" \
   --jq '.[] | [(.number|tostring), .title, .url, .mergedAt, .mergeCommit.oid] | @tsv')"
 require_complete_page "gh pr list (merged, labeled)" "$(count_lines "$pr_labeled")"
 
@@ -178,7 +191,7 @@ require_complete_page "gh pr list (merged, labeled)" "$(count_lines "$pr_labeled
 # PRs and keep the merged ones, so no merge path hides a fix. The referenced
 # field may be a list of objects or of numbers; both flatten to the number.
 labeled_issues="$(gh issue list --state all --label "$label" \
-  --json number,closedByPullRequestsReferences --limit "$PAGE_LIMIT")"
+  --json number,closedByPullRequestsReferences --limit "$page_limit")"
 require_complete_page "gh issue list (labeled)" "$(printf '%s' "$labeled_issues" | jq 'length')"
 issue_pr_numbers="$(printf '%s' "$labeled_issues" \
   | jq -r '.[] | .closedByPullRequestsReferences[]? | if type == "object" then .number else . end' \
@@ -201,7 +214,7 @@ fi
 
 branch_ids="$(branch_patch_ids)"
 open_backports="$(gh pr list --state open --base "$release_name" \
-  --json number,body --limit "$PAGE_LIMIT")"
+  --json number,body --limit "$page_limit")"
 require_complete_page "gh pr list (open backports)" "$(printf '%s' "$open_backports" | jq 'length')"
 open_bodies="$(printf '%s' "$open_backports" | jq -r '.[].body // ""')"
 

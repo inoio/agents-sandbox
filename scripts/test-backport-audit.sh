@@ -102,7 +102,8 @@ printf '[]\n' >"$GH_ISSUES_JSON"
 # baseline each case departs from.
 unset_audit_env() {
   unset BACKPORT_AUDIT_REPO BACKPORT_AUDIT_DEFAULT_BRANCH BACKPORT_AUDIT_LABEL \
-    BACKPORT_AUDIT_GRACE_SECONDS BACKPORT_AUDIT_NOW 2>/dev/null || true
+    BACKPORT_AUDIT_GRACE_SECONDS BACKPORT_AUDIT_NOW BACKPORT_AUDIT_PAGE_LIMIT \
+    2>/dev/null || true
 }
 
 # seed_fixture NAME builds a repo with one real fix on main, a release/0.1
@@ -183,20 +184,39 @@ assert_contains "reports the PR number" "$out" "#7"
 assert_contains "counts the missing patch-ids" "$out" "missing:1"
 assert_contains "labels the filter" "$(argv)" "--label needs-backport"
 assert_contains "asks for the merge commit" "$(argv)" "--json number,title,url,mergedAt,mergeCommit"
-assert_contains "asks for one row past the window" "$(argv)" "--limit 201"
+assert_contains "requests the default page limit" "$(argv)" "--limit 5000"
 
 echo "# backport-audit.sh (truncated expected set)"
 seed_fixture truncated
-export GH_MERGED_ROWS=201
+export BACKPORT_AUDIT_PAGE_LIMIT=5
+export GH_MERGED_ROWS=5
 run_audit
 if [[ "$status" -eq 2 ]]; then ok "a full page exits 2"; else bad "a full page exits 2 (got $status)"; fi
+truncation_argv="$(argv)"
 assert_contains "names the truncated source" "$(err)" "gh pr list (merged, labeled)"
 assert_contains "explains the truncation" "$(err)" "truncated"
+assert_contains "names the overridable cap" "$(err)" "--limit 5 cap"
+assert_contains "requests the overridden page limit" "$truncation_argv" "--limit 5"
 if [[ -z "$out" ]]; then ok "prints no clean result"; else bad "prints no clean result (got: $out)"; fi
+
+# The below-cap page's rows carry no merge commit, so none is debt; the case
+# asserts the page was audited (the open-backport query follows) rather than
+# aborted as truncated.
+echo "# backport-audit.sh (one row below the cap)"
+seed_fixture below-cap
+export BACKPORT_AUDIT_PAGE_LIMIT=5
+export GH_MERGED_ROWS=4
+run_audit
+below_cap_argv="$(argv)"
+if [[ "$status" -eq 0 ]]; then ok "a page one row below the cap is audited, not truncated"; else bad "a page one row below the cap is audited, not truncated (got $status)"; fi
+assert_contains "reaches the open-backport query" "$below_cap_argv" "--state open"
+assert_contains "requests the overridden cap" "$below_cap_argv" "--limit 5"
+assert_not_contains "does not report truncation" "$(err)" "truncated"
 unset GH_MERGED_ROWS
+unset_audit_env
 
 echo "# backport-audit.sh (commits read from the merged range)"
-assert_not_contains "never asks the API for the original commits" "$(argv)" "--json commits"
+assert_not_contains "never asks the API for the original commits" "$truncation_argv" "--json commits"
 
 echo "# backport-audit.sh (ported PR)"
 seed_fixture ported

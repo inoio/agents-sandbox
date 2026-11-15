@@ -11,10 +11,10 @@
 # Usage:
 #   open-backport-pr.sh <PR_NUMBER>
 #
-# Exit status: 0 when the backport branch is pushed and the PR is opened, or when
-# every source commit is already on the release line (nothing is done); 1 when
+# Exit status: 0 when the backport branch is pushed and the PR is opened; 1 when
 # the cherry-pick conflicts (nothing is pushed), the PR is unknown or unmerged,
-# or there is no release branch; 2 on a usage error.
+# or there is no release branch; 2 on a usage error; 3 when every source commit
+# is already on the release line, so nothing is pushed and no PR is opened.
 #
 # Env (all overridable):
 #   BACKPORT_REPO            repository to operate on (default: .)
@@ -43,7 +43,7 @@
 #   origin <branch>; gh pr create --base "<release>" --head "<branch>"
 #   --title "Backport #<n> to <line>" --body "<one line per ported commit +
 #   'Backport of #<n>.'>". When every source commit is already present it
-#   prints that the PR is fully ported and exits 0 without touching the remote.
+#   prints that the PR is fully ported and exits 3 without touching the remote.
 #
 #   Safety: a conflicting cherry-pick runs git cherry-pick --abort, prints why,
 #   and exits 1 without pushing - a half-applied port never reaches the remote.
@@ -151,7 +151,7 @@ done <<<"$commits"
 if [[ ${#portable_commits[@]} -eq 0 ]]; then
   printf 'open-backport-pr: PR #%s is already fully ported onto %s; nothing to do\n' \
     "$pr" "$release_name"
-  exit 0
+  exit 3
 fi
 
 backport_branch="${branch_prefix}${pr}-${line}"
