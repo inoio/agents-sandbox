@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-reuse compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic envelope-test check verify check-local-changes check-branch-changes changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test event-base-test classify-changes-test docs-serve
+.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-reuse compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic envelope-test check verify check-local-changes check-branch-changes changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test event-base-test classify-changes-test brain-check brain-check-test docs-serve
 
 VERSION ?= dev
 
@@ -340,6 +340,16 @@ rebase-status-test:
 # Test the merge-queue enqueue helper itself (fixtures only: never touches this repo).
 enqueue-pr-test:
 	./scripts/test-enqueue-pr.sh
+
+# Structural checks on the Operator brain (.operator-shared/): frontmatter,
+# relative links, catalog coverage, plan citations, Read If style, partition
+# isolation. See .operator-shared/guides/operator-brain-maintenance.md.
+brain-check:
+	./scripts/brain-check.sh
+
+# Test the brain checker itself (fixtures only: never touches this repo).
+brain-check-test:
+	./scripts/test-brain-check.sh
 
 # The gates' targets are independent and read-only, so `check` and `verify` run
 # them as parallel jobs by re-entering make with -j. -O groups each parallel
