@@ -39,6 +39,8 @@ approaches"). Run date, host, and the resolving `msb`/SDK versions at the top.
     substitution or passthrough is not permitted action=block-and-log secret_env_var=SPIKE_TOKEN
     placeholder=$MSB_SPIKE_TOKEN protocol=http/1.1 sni=www.iana.org host=www.iana.org method=GET path=/
     location=header match_form=raw guest_dst=104.18.25.232:443`.
+- Re-checked at `--log-level trace`: still no successful-substitution line and no header field name (only the
+  violation's `location=header`), so D2 = no holds at maximum verbosity.
 - If D1 yes and D2 no, D is a certificate-free B; does that change the chosen approach? It reinforces D as a
   cheap destination source (no CA needed), but not an attribution source — so it does not displace C for fact 7.
 
@@ -83,8 +85,9 @@ approaches"). Run date, host, and the resolving `msb`/SDK versions at the top.
 
 - Trusted the CA and worked through termination after the bundle fix: `curl` (200), `git` over HTTPS,
   `npm`.
-- `pip` failed with Alpine's PEP 668 `externally-managed-environment` guard — a packaging policy, not a TLS
-  failure; `pip --break-system-packages` (or a venv) would proceed.
+- `pip` is blocked by Alpine's PEP 668 `externally-managed-environment` guard — a packaging policy, not a
+  trust failure. Confirmed: `pip install --break-system-packages requests` succeeds **through** the
+  terminating proxy (rc=0, requests 2.34.2) with no CA override, so the CA itself is trusted.
 - `msb-trust java` / `msb-trust chrome` were skipped (no JDK/Chrome in the base image).
 - Destination visibility: the rendered flow shows the request-line IP plus the `Host:` header name.
 - Credential visibility: with a static `Authorization`/`X-Api-Key`, the proxy log shows the header **names**.
@@ -164,6 +167,8 @@ volume" to include the database.
   proxy, ip-literal, git-https, ssh:22 and package installs all appeared, so no tested TCP kind bypassed it.
   QUIC/HTTP3 was untested (the guest `curl` has no `--http3`), so the proposal should say "observed" rather
   than exhaustive.
-- Cost of the chosen channel (S7): no measurable per-operation overhead — streaming first-byte ~0.07-0.2s, a
-  5.8 MB tarball comparable, `git clone --depth 1` within noise — streaming stayed unbuffered, and mitmdump
-  ran unprivileged at ~4% CPU. The real agent turn is still pending #149.
+- Cost of the chosen channel (S7): no measurable per-operation overhead. Re-measured with direct and proxied
+  sandboxes in **alternating order** (the original direct-first run made the proxy look faster): streaming
+  first-byte ~0.074s both once warm, a 5.8 MB tarball ~0.50s both, mitmdump unprivileged at ~4% CPU. (The
+  re-run's clone timing read 0 because busybox `date` has no `%N`; the original seconds-based number stands.)
+  The real agent turn is still pending #149.
