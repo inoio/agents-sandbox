@@ -181,6 +181,7 @@ jobs:
       - run: make upstream-drift-test
       - run: make rebase-status-test
       - run: make backport-audit-test
+      - run: make open-backport-pr-test
 
   test:
     name: test

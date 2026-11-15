@@ -133,6 +133,7 @@ if [[ -z "$selected" ]]; then
       scripts/rebase-status.sh|scripts/test-rebase-status.sh) add_targets rebase-status-test; known=1 ;;
       scripts/enqueue-pr.sh|scripts/test-enqueue-pr.sh) add_targets enqueue-pr-test; known=1 ;;
       scripts/backport-audit.sh|scripts/test-backport-audit.sh) add_targets backport-audit-test; known=1 ;;
+      scripts/open-backport-pr.sh|scripts/test-open-backport-pr.sh) add_targets open-backport-pr-test; known=1 ;;
     esac
     # A changed shell script selects the lint gate. Two trees used to fall
     # through to the full-set fail-safe and would otherwise lose coverage: the
