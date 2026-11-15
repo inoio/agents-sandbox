@@ -459,6 +459,7 @@ func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
 // skipped when the VM was already running and merely connected to.
 func TestSetUpSandboxRunsHooksOnlyOnBoot(t *testing.T) {
 	seams := healthyOpencodeDaemon(t)
+	seams.HookInteractive = func() bool { return false }
 
 	fs := msbtest.NewTestFS(nil)
 	sb := &msbtest.MockSandbox{Name_: "test-vm", FSValue_: fs}
@@ -501,6 +502,9 @@ func TestSetUpSandboxRunsHooksOnlyOnBoot(t *testing.T) {
 			ran := sb.ExecStreamCmd != ""
 			if ran != tc.expect {
 				t.Errorf("hook ran = %v, want %v", ran, tc.expect)
+			}
+			if sb.AttachCmd != "" {
+				t.Errorf("hook attached %q, want the non-interactive streaming exec", sb.AttachCmd)
 			}
 		})
 	}
