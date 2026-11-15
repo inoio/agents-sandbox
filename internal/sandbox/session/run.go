@@ -442,7 +442,7 @@ func runAttach(
 			// stale saved cursor. ui.StdOut() is the real os.Stdout here;
 			// termio.ResetTerminal's TTY check only accepts an *os.File, so a
 			// wrapping writer would silently disable the reset.
-			endedAbnormally := abnormalEnd(attachErr, exitCode) || interrupted
+			endedAbnormally := msb.AttachEndedAbnormally(attachErr, exitCode) || interrupted
 			if endedAbnormally {
 				termio.ResetTerminal(ui.StdOut())
 			}
