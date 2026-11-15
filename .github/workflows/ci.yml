@@ -175,6 +175,7 @@ jobs:
       - run: make classify-changes-test
       - run: make event-base-test
       - run: make actionlint
+      - run: make shellcheck
       - run: make cleanup-branches-test
       - run: make envelope-test
       - run: make upstream-drift-test

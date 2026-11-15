@@ -133,6 +133,15 @@ if [[ -z "$selected" ]]; then
       scripts/rebase-status.sh|scripts/test-rebase-status.sh) add_targets rebase-status-test; known=1 ;;
       scripts/enqueue-pr.sh|scripts/test-enqueue-pr.sh) add_targets enqueue-pr-test; known=1 ;;
     esac
+    # A changed shell script selects the lint gate. Two trees used to fall
+    # through to the full-set fail-safe and would otherwise lose coverage: the
+    # map script's own test, and the image-data shims, which are embedded and
+    # asserted by `make test`.
+    case "$path" in
+      scripts/changed-targets.sh|scripts/test-changed-targets.sh) add_targets changed-targets-test shellcheck; known=1 ;;
+      internal/sandbox/image/data/*.sh) add_targets validate-fmt lint test compile-all shellcheck; known=1 ;;
+      *.sh) add_targets shellcheck; known=1 ;;
+    esac
     case "$path" in
       */*.md) known=1 ;; # nested markdown: no `make check` target reads it
     esac

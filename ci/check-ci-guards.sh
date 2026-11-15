@@ -144,7 +144,7 @@ globs_from_changes_regex() {
 # the rule no longer makes. A sub-test must be negated (`! ... =~`) to read as an
 # exemption, so reversing one is unrecognized and fails loudly too.
 globs_from_changelog_check() {
-  local cond line inner expr
+  local cond line expr
   cond="$(awk '
     /if \[\[ ! "\$line" =~/ { in_if = 1; print; next }
     in_if {
@@ -382,6 +382,7 @@ fi
 classify_content="$(cat "$CLASSIFY_SH" 2>/dev/null || true)"
 has_token "$classify_content" "grep -qE '^docs/'" \
   "ci/classify-changes.sh: missing the exec rule grep -qE '^docs/'"
+# shellcheck disable=SC2016 # literal '[ "$code" = true ]' token, not an expansion
 has_token "$classify_content" '[ "$code" = true ]' \
   "ci/classify-changes.sh: does not derive exec from code (missing [ \"\$code\" = true ])"
 # It must read the file directly: any producer piped into grep's quiet mode
