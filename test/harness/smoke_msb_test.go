@@ -118,6 +118,9 @@ func TestHarnessSmoke(t *testing.T) {
 	// not defer: it must run after the parallel subtests, which resume only once
 	// this function returns.
 	t.Cleanup(func() { cleanupSandboxes(t, root, binary) })
+	if !smokeRootReused {
+		t.Cleanup(func() { cleanupRunnerImages(t, root) })
+	}
 	prebuildImages(t, root)
 	prebuildDockerStorageImage(t, root)
 
@@ -286,13 +289,6 @@ func removeTempRoot(t *testing.T, root string) {
 	if err := os.RemoveAll(root); err != nil {
 		t.Logf("cleanup: remove temp root %s: %v", root, err)
 	}
-}
-
-// projectDir is the throwaway project directory a harness runs in. It fixes the
-// project slug the runner image is keyed by, so the prebuild's image matches
-// the one the subtest's `run` loads.
-func projectDir(root, name string) string {
-	return filepath.Join(root, "projects", name)
 }
 
 // createRootAndBuildBinary resolves the suite root and compiles the launcher

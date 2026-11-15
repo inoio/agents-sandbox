@@ -144,10 +144,6 @@ func assertRootlessEngine(t *testing.T, ses *ptySession) {
 // devUIDPattern extracts dev's uid from the rootless check's marker output.
 var devUIDPattern = regexp.MustCompile(`__DEVUID=__([0-9]+)__END__`)
 
-// dockerStorageProject is the throwaway project directory the docker-storage
-// subtest runs from, fixing the slug its runner image is keyed by.
-const dockerStorageProject = "docker-storage"
-
 // fuseDriverMarker is the driver name dockerd must report in a VM whose runner
 // image carries fuse-overlayfs and a usable /dev/fuse.
 const fuseDriverMarker = "fuse-overlayfs"
