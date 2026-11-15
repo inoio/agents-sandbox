@@ -17,8 +17,8 @@ approaches"). Run date, host, and the resolving `msb`/SDK versions at the top.
 |---|---|---|
 | S1 | opencode2: config dir empty; credential is inline JSON in `opencode.db` (SQLite); logs name the host | A must read the agent's SQLite DB, not only config files |
 | S2 | pass: host listener receives the guest's queries; under `none` only allowlisted names are forwarded | DNS is a usable corroboration channel (the earlier "fail" was a broken listener) |
-| S3 | `http` at `127.0.0.1` works under bare `none` (dial bypasses policy); gateway rows used a stale address (invalid); `socks5` not truly tested | B is viable; proxy dial needs no policy widening |
-| S4 | inconclusive as scripted: blind mitmproxy logs no flows; guest traffic (ip literal, git, ssh, apk) succeeded | learned set stays advisory |
+| S3 | `http` and `socks5` at `127.0.0.1` both reach/forward under bare `none` (dial bypasses policy); gateway rows used a stale address (invalid) | B is viable; proxy dial needs no policy widening |
+| S4 | no TCP bypass: with a logging (terminating) proxy, ip-literal, git-https, ssh:22 and apk all appear; QUIC untested | learned set authoritative for TCP |
 | S5 | fail: denial not in any launcher-readable runtime log; only the guest's own error | UC2 detection stays guest/file-attributed |
 | S6 | pass: termination works; credential header name and destination visible | C is viable; a terminating proxy sees real secrets |
 | S7 | pass: no measurable overhead; streaming unbuffered; ~4% CPU, unprivileged | proxy can be default-on transport-wise |
@@ -66,12 +66,13 @@ approaches"). Run date, host, and the resolving `msb`/SDK versions at the top.
     dnsmasq bind every interface but answer only queries addressed to the literal `0.0.0.0`. It dropped (and
     did not log) every loopback query, so S2 read as a runtime failure when the fault was the listener. Fixed
     in `lib.sh` (the flag is dropped).
-  - S3's `socks5` cases were never valid: `spike_proxy_up` starts mitmproxy in HTTP `regular` mode, which is
-    not a SOCKS5 server, so the runtime's SOCKS5 dial cannot complete. Testing SOCKS5 needs a SOCKS5 listener
-    (mitmproxy's `--mode socks5`), which the driver does not start.
-  - S4's proxy log came back empty: mitmproxy's blind mode (`--ignore-hosts '.*'`) records no flows, so S4
-    cannot see which traffic used the proxy. A destination-logging blind proxy (a small CONNECT logger, or the
-    terminating proxy) is needed; as scripted S4 is unanswerable.
+  - S3's `socks5` cases were invalid as scripted: `spike_proxy_up` starts mitmproxy in HTTP `regular` mode,
+    not a SOCKS5 server. Re-tested against a real SOCKS5 listener (`mitmdump --mode socks5`): the runtime
+    dials it and the proxy reaches the destination under both `none` and `public`, so SOCKS5 is reachable
+    like HTTP CONNECT. (mitmproxy's socks5 mode MITMs, so a request needs the CA; the dial itself worked.)
+  - S4's proxy log came back empty: mitmproxy's blind mode (`--ignore-hosts '.*'`) records no flows. Re-tested
+    with the terminating proxy (which logs every flow): ip-literal, git-https, ssh:22 (a raw TCP flow) and apk
+    all appear — no TCP bypass.
 - Things the scripts could not automate here:
   - `docker build` pull (needs a guest dockerd; the launcher VM in S1 has one).
   - a client that pins certificates (none installed).
@@ -159,9 +160,10 @@ volume" to include the database.
 - Does UC2 detection need a permanent proxy, or is the runtime log enough (S5)? A permanent proxy (or an
   equivalent channel). No launcher-readable runtime log records a denied destination; under `none` a
   non-allowlisted host fails at DNS and the only trace is the guest's own error.
-- Is the learned destination set authoritative or advisory (S4)? **Advisory** — the blind proxy logged no
-  flows, so which traffic bypassed it remains unmeasured; anything that bypassed is invisible and the
-  proposal must say so.
+- Is the learned destination set authoritative or advisory (S4)? **Authoritative for TCP** — with a logging
+  proxy, ip-literal, git-https, ssh:22 and package installs all appeared, so no tested TCP kind bypassed it.
+  QUIC/HTTP3 was untested (the guest `curl` has no `--http3`), so the proposal should say "observed" rather
+  than exhaustive.
 - Cost of the chosen channel (S7): no measurable per-operation overhead — streaming first-byte ~0.07-0.2s, a
   5.8 MB tarball comparable, `git clone --depth 1` within noise — streaming stayed unbuffered, and mitmdump
   ran unprivileged at ~4% CPU. The real agent turn is still pending #149.
