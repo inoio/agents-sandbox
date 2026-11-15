@@ -254,6 +254,7 @@ func TestSetUpSandboxStopsWhenDockerdCannotStart(t *testing.T) {
 // daemon restart.
 func TestSetUpSandboxReportsWhatItDoes(t *testing.T) {
 	seams := healthyOpencodeDaemon(t)
+	seams.HookInteractive = func() bool { return false }
 	configpathstest.WithMockConfigPaths(t)
 	sb := &msbtest.MockSandbox{Name_: "vm", FSValue_: msbtest.NewTestFS(nil)}
 	ui := termiotest.NewTestMock(t)
@@ -507,6 +508,46 @@ func TestSetUpSandboxRunsHooksOnlyOnBoot(t *testing.T) {
 				t.Errorf("hook attached %q, want the non-interactive streaming exec", sb.AttachCmd)
 			}
 		})
+	}
+}
+
+// TestSetUpSandboxRunsHooksNonInteractivelyUnderServeOnly pins that serve-only
+// opts out of interactive hooks: its stdin is owned by the stop watcher, so a
+// prompt could not reach a reader and the hook must run without input.
+func TestSetUpSandboxRunsHooksNonInteractivelyUnderServeOnly(t *testing.T) {
+	seams := healthyOpencodeDaemon(t)
+	seams.HookInteractive = func() bool { return true }
+
+	fs := msbtest.NewTestFS(nil)
+	sb := &msbtest.MockSandbox{Name_: "test-vm", FSValue_: fs}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
+	cfs := &reprovision.ConfigFiles{
+		Hooks: []homeconfig.HookSpec{
+			{Target: "/home/dev/.hello.sh", Source: "x", HasShebang: true},
+		},
+	}
+
+	if _, err := SetUpSandbox(
+		context.Background(),
+		testVMKey(),
+		sb,
+		opencodeResolved(t),
+		options.RunOptions{Agent: "opencode", ServeOnly: true},
+		seams,
+		cfs,
+		ui,
+		false,
+		VMBootStarted,
+		mounts.WorkspaceMountPath,
+	); err != nil {
+		t.Fatalf("SetUpSandbox: %v", err)
+	}
+	if sb.ExecStreamCmd == "" {
+		t.Errorf("serve-only hook did not stream; AttachCmd = %q", sb.AttachCmd)
+	}
+	if sb.AttachCmd != "" {
+		t.Errorf("serve-only hook attached %q, want the non-interactive streaming exec", sb.AttachCmd)
 	}
 }
 

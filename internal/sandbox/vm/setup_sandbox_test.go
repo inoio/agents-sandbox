@@ -4,16 +4,20 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/creack/pty"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
@@ -608,8 +612,13 @@ func TestRunStartupHooksInteractiveAttachFailureWarnsAndContinues(t *testing.T) 
 		{Target: "/home/dev/.second.sh", Source: "x", HasShebang: true},
 	}, &ui, true)
 
-	if len(ui.WarnCalls) != 1 || !strings.Contains(ui.WarnCalls[0], "startup hook /home/dev/.first.sh failed") {
-		t.Errorf("warnings = %v, want one for the failed attach", ui.WarnCalls)
+	if len(ui.WarnCalls) != 1 {
+		t.Fatalf("warnings = %v, want one for the failed attach", ui.WarnCalls)
+	}
+	for _, want := range []string{"/home/dev/.first.sh", "no such device or address"} {
+		if !strings.Contains(ui.WarnCalls[0], want) {
+			t.Errorf("warning %q missing %q", ui.WarnCalls[0], want)
+		}
 	}
 	if sb.AttachCmd != "/home/dev/.second.sh" {
 		t.Errorf("last attached hook = %q, want the second hook to run after the first failed", sb.AttachCmd)
@@ -688,5 +697,61 @@ func TestRunStartupHooksNonInteractivePassesNoStdin(t *testing.T) {
 
 	if got.TTY || got.StdinPipe {
 		t.Errorf("exec request = %+v, want no TTY and no stdin pipe", got)
+	}
+}
+
+// terminalStdoutUI is a termiotest.Mock whose stdout is a pty, so a hook attach
+// sees a real terminal and its reset reaches it.
+type terminalStdoutUI struct {
+	*termiotest.Mock
+
+	stdout *os.File
+}
+
+func (u terminalStdoutUI) StdOut() io.Writer { return u.stdout }
+
+// newTerminalStdoutUI returns a UI writing stdout to a pty and a function that
+// closes the terminal side and returns everything written to it.
+func newTerminalStdoutUI(t *testing.T) (terminalStdoutUI, func() string) {
+	t.Helper()
+	master, slave, err := pty.Open()
+	if err != nil {
+		t.Skipf("no pty available: %v", err)
+	}
+	t.Cleanup(func() { _ = master.Close(); _ = slave.Close() })
+	return terminalStdoutUI{Mock: &termiotest.Mock{}, stdout: slave}, func() string {
+		_ = slave.Close()
+		written, _ := io.ReadAll(master)
+		return string(written)
+	}
+}
+
+// TestRunStartupHooksInteractiveResetsTerminalOnAbnormalEnd pins that a hook
+// attach that ends abnormally — a signal death or an attach error — clears the
+// guest TUI's emulator modes before the next launcher message, and that a clean
+// exit leaves the terminal untouched.
+func TestRunStartupHooksInteractiveResetsTerminalOnAbnormalEnd(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		attachFn func(context.Context) (int, error)
+		want     bool
+	}{
+		{"signal death resets", func(context.Context) (int, error) { return -1, nil }, true},
+		{"attach error resets", func(context.Context) (int, error) { return 0, errors.New("boom") }, true},
+		{"clean exit does not reset", func(context.Context) (int, error) { return 0, nil }, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ui, written := newTerminalStdoutUI(t)
+			sb := &msbtest.MockSandbox{Name_: "vm", AttachFn: tc.attachFn}
+
+			runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
+				{Target: "/home/dev/.hook.sh", Source: "x", HasShebang: true},
+			}, ui, true)
+
+			got := written()
+			if contains := strings.Contains(got, termio.TerminalResetSequence); contains != tc.want {
+				t.Errorf("terminal received %q, want reset=%v", got, tc.want)
+			}
+		})
 	}
 }

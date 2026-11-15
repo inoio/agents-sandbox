@@ -412,7 +412,7 @@ func TestRunAttachEmitsTerminalResetAfterAbnormalEnd(t *testing.T) {
 
 	_ = runAttach(context.Background(), state.Key{Slug: "resetattach", Agent: "opencode"}, sb, "/workspace/sub", ui,
 		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(false, 5)}), "-l")
-	if got := written(); !strings.Contains(got, terminalReset) {
+	if got := written(); !strings.Contains(got, termio.TerminalResetSequence) {
 		t.Fatalf("terminal received %q, want the terminal reset sequence", got)
 	}
 }
@@ -430,7 +430,7 @@ func TestRunAttachSkipsTerminalResetAfterCleanExit(t *testing.T) {
 		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(false, 5)}), "-l"); err != nil {
 		t.Fatalf("runAttach failed: %v", err)
 	}
-	if got := written(); strings.Contains(got, terminalReset) {
+	if got := written(); strings.Contains(got, termio.TerminalResetSequence) {
 		t.Fatalf("terminal received the reset %q after a clean exit, want none", got)
 	}
 }
@@ -440,7 +440,6 @@ func TestRunAttachSkipsTerminalResetAfterCleanExit(t *testing.T) {
 // attach path must not write raw escape bytes into it.
 func TestRunAttachSkipsTerminalResetForNonTerminal(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	stubIsTerminalWriter(t, false)
 
 	ui := &termiotest.Mock{}
 	sb := &msbtest.MockSandbox{AttachCode: -1}
@@ -979,7 +978,7 @@ func TestShellAttachEmitsTerminalReset(t *testing.T) {
 	if !errors.As(err, &exitErr) || exitErr.Code != -1 {
 		t.Fatalf("Shell = %v, want ExitError code -1", err)
 	}
-	if got := written(); !strings.Contains(got, terminalReset) {
+	if got := written(); !strings.Contains(got, termio.TerminalResetSequence) {
 		t.Fatalf("terminal received %q, want the terminal reset sequence", got)
 	}
 }
@@ -2201,7 +2200,7 @@ func TestRunAttachResetsTheTerminalAfterASignal(t *testing.T) {
 	_ = runAttach(context.Background(), state.Key{Slug: "signalreset", Agent: "opencode"}, sb, "/workspace", ui,
 		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(false, 5)}), "-l")
 
-	if got := written(); !strings.Contains(got, terminalReset) {
+	if got := written(); !strings.Contains(got, termio.TerminalResetSequence) {
 		t.Fatalf("terminal received %q, want the reset after a signal", got)
 	}
 }
