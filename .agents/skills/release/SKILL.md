@@ -49,10 +49,13 @@ resolves a merged PR through its merge commit and the release branch's patch-ids
 clone, so a clone whose refs are stale fails the run (exit 2) instead of answering it.
 
 Run `scripts/backport-audit.sh`. It exits non-zero when a merged `needs-backport` PR on `main` has a
-commit missing from the latest `release/<major>.<minor>` line. Present each reported fix and stop
-unless the maintainer overrides — a micro must not ship with a fix stranded off the line. For a
-reported PR, `scripts/open-backport-pr.sh <n>` performs the port (cherry-pick down, open the PR
-against the branch); let it merge, then rerun the audit.
+commit missing from the latest `release/<major>.<minor>` line, and reports each fix together with its
+open backport PR, if any. Present the outstanding backports — the in-flight PRs and the unported
+fixes — and ask whether to include them. A fix may ship while other ports are pending: never hold up a
+release, in particular an urgent security fix, for unrelated backports. For an unported PR,
+`scripts/open-backport-pr.sh <n>` performs the port (cherry-pick down, open the PR against the
+branch); let it merge, then rerun the audit. Outstanding debt is mirrored in the pinned
+`[Tracker] Missing backports` issue.
 
 Then run `git cherry main release/<major>.<minor>` as the wrong-direction tripwire. Every commit on the
 branch must be patch-equivalent to a `main` commit; a `+` line is a branch commit `main` lacks. Three
@@ -66,8 +69,9 @@ kinds of `+` are legitimate, not missed:
 
 Surface each `+` line for the maintainer to confirm "adapted, not missed" and proceed.
 
-Completion: the audit is clean (or the maintainer overrode it), and every `+` line is accounted for as
-a prior micro's release commit, an adapted port, or known branch debt.
+Completion: the audit is clean (or the maintainer chose to ship without the outstanding backports), and
+every `+` line is accounted for as a prior micro's release commit, an adapted port, or known branch
+debt.
 
 ### 1. Curate the changelog
 
