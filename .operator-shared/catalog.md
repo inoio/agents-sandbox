@@ -50,6 +50,9 @@
 - `guides/github-pr-workflow.md`
   - Description: The PR mechanics the issue guide does not cover: landing through the `main` merge queue (`gh pr merge` is refused; enqueue via the `enqueuePullRequest` GraphQL mutation or "Merge when ready", or `scripts/enqueue-pr.sh`), the `GITHUB_TOKEN`-authored bot PR parked at `action_required` until a maintainer approves its run, and guessing a changelog fragment's PR-number slug.
   - Read If: Opening, merging, or troubleshooting a PR; enqueueing one into the merge queue; a bot PR that reports no checks; or naming a `changelog.d/` fragment before the PR number is known.
+- `guides/go-version-support.md`
+  - Description: The module's minimum Go version (`go 1.27.0`, set by our own use of `strings.CutLast` and promoted struct-literal keys, above the 1.26.8 dependency floor) and why it cannot be lower; the evidence and the primary sources.
+  - Read If: Changing the `go` directive, `.go-version`, or a Go pin; asking whether a lower Go version can be advertised; or diagnosing a dependency/promoted-field/GOTOOLCHAIN "requires a newer Go" error.
 - `guides/mutation-testing.md`
   - Description: Mutation testing for Go in this repo - the tool survey and why gomutants was chosen, how to close gomutants survivors (recurring mutant types, the equivalent-mutant traps, the record-with-a-reason fallback), and the multi-turn sweep runbook for the #268 survivor tracker.
   - Read If: Evaluating or changing a Go mutation-testing tool or the `make mutation` target; triaging LIVED mutants from a sweep; picking a `SINCE` scope for a branch/PR sweep; or coordinating a #268 survivor-reduction pass.
