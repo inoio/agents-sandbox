@@ -15,13 +15,17 @@
 # the cherry-pick conflicts (nothing is pushed), the PR is unknown or unmerged,
 # or there is no release branch; 2 on a usage error; 3 when nothing needed
 # porting (every source commit is already on the release line, or every
-# remaining pick came out empty), so nothing is pushed and no PR is opened.
+# remaining pick came out empty), so nothing is pushed and no PR is opened; 4
+# when the PR was opened but the carried fragment could not be renamed and
+# pushed (the PR exists but fails the changelog slug check).
 #
 # Env (all overridable):
 #   BACKPORT_REPO            repository to operate on (default: .)
 #   BACKPORT_RELEASE_BRANCH  release branch to port onto
 #                            (default: the latest release/<major>.<minor> line)
 #   BACKPORT_BRANCH_PREFIX   prefix for the backport branch (default: backport/)
+#   BACKPORT_TRACKER_ISSUE   issue number to reference as "Part of #<n>" in the
+#                            PR body (default: none)
 #
 # Contract:
 #   Latest line: the highest-semver release/<major>.<minor> among local
@@ -44,7 +48,14 @@
 #   port. Then git checkout -b "<prefix><n>-<line>" "origin/<release>"; git
 #   cherry-pick -x each remaining commit; git push -u origin <branch>; gh pr
 #   create --base "<release>" --head "<branch>" --title "Backport #<n> to
-#   <line>" --body "<one line per ported commit + 'Backport of #<n>.'>". When
+#   <line>" --body "<one line per ported commit + 'Backport of #<n>.'>", plus
+#   "Part of #<tracker>." when BACKPORT_TRACKER_ISSUE is set. The changelog gate
+#   requires an added fragment's slug to equal the pull-request number, but a
+#   backport carries the source PR's fragment (its slug is the source number), so
+#   each changelog.d/<n>.*.md is then renamed to changelog.d/<backport-PR>.*.md,
+#   a "Backport of #<n> to the <line> line." line is appended, and that second
+#   commit is pushed (exit 4 if it fails); a PR with no fragment changes nothing.
+#   When
 #   every source commit is already present, or every remaining pick turns out
 #   empty, it prints that the PR is fully ported and exits 3 without touching the
 #   remote.
@@ -201,7 +212,40 @@ git -C "$repo" push -u origin "$backport_branch"
 
 body="$(printf '%s\n' "${ported_subjects[@]}")"
 body="${body}"$'\n'"Backport of #${pr}."
+if [[ -n "${BACKPORT_TRACKER_ISSUE:-}" ]]; then
+  body="${body}"$'\n'"Part of #${BACKPORT_TRACKER_ISSUE}."
+fi
 
 url="$(gh pr create --base "$release_name" --head "$backport_branch" \
   --title "Backport #${pr} to ${line}" --body "$body")"
 printf 'open-backport-pr: %s\n' "$url"
+
+# The changelog gate requires an added fragment's slug to equal the pull request
+# number, but a backport carries the source PR's fragment (its slug is the
+# source number), so name it for this backport PR and note the backport. A PR
+# whose commits carry no fragment changes nothing. The PR is already open, so a
+# failure here is not a clean success: it exits 4 with the URL still reported.
+backport_number="$(printf '%s' "$url" | grep -oE '[0-9]+$' || true)"
+if [[ -n "$backport_number" ]]; then
+  renamed_fragment=0
+  for fragment in "$repo"/changelog.d/"$pr".*.md; do
+    [[ -e "$fragment" ]] || continue
+    fragment_name="${fragment##*/}"
+    suffix="${fragment_name#"$pr".}"
+    destination="changelog.d/${backport_number}.${suffix}"
+    git -C "$repo" mv "changelog.d/${fragment_name}" "$destination"
+    printf 'Backport of #%s to the %s line.\n' "$pr" "$line" >>"$repo/$destination"
+    renamed_fragment=1
+  done
+  if [[ "$renamed_fragment" -eq 1 ]]; then
+    git -C "$repo" add changelog.d
+    if ! git -C "$repo" commit -q -m "chore(changelog): name the backported fragment for this PR"; then
+      printf 'open-backport-pr: could not commit the renamed fragment for #%s; the PR is open but unrenamed\n' "$pr" >&2
+      exit 4
+    fi
+    if ! git -C "$repo" push origin "$backport_branch"; then
+      printf 'open-backport-pr: could not push the renamed fragment for #%s; the PR is open but unrenamed\n' "$pr" >&2
+      exit 4
+    fi
+  fi
+fi

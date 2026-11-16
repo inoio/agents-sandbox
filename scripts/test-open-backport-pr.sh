@@ -22,6 +22,8 @@ assert_eq()           { if [[ "$2" == "$3" ]]; then ok "$1"; else bad "$1 (got '
 
 # The fake `gh`: gh_argv.txt records one call per line and `pr view` serves
 # $GH_MERGE_OID while `pr create` echoes $GH_PR_URL (as the real CLI does).
+# GH_BREAK_ORIGIN_AFTER_CREATE, when set, points origin at $GH_BROKEN_ORIGIN on
+# create so the follow-up fragment push fails.
 fake_bin="$fixture_root/bin"
 mkdir -p "$fake_bin"
 cat >"$fake_bin/gh" <<'GH'
@@ -34,6 +36,9 @@ case " $* " in
     exit 0
     ;;
   *" pr create "*)
+    if [[ -n "${GH_BREAK_ORIGIN_AFTER_CREATE:-}" ]]; then
+      git -C "${BACKPORT_REPO:?}" remote set-url origin "$GH_BROKEN_ORIGIN"
+    fi
     printf '%s\n' "${GH_PR_URL:?}"
     exit 0
     ;;
@@ -67,6 +72,28 @@ seed_fixture() {
   printf 'a\n' >"$REPO/f"; git -C "$REPO" add f; git -C "$REPO" commit -qm base
   git -C "$REPO" branch release/0.1
   printf 'b\n' >"$REPO/f"; git -C "$REPO" commit -qam fix
+  MERGE="$(git -C "$REPO" rev-parse HEAD)"
+  git -C "$REPO" remote add origin "$ORIGIN"
+  git -C "$REPO" push -q origin main release/0.1
+}
+
+# seed_fragment_fixture NAME builds a repo like seed_fixture but whose #7 fix
+# also adds a changelog.d/7.fixed.md fragment, so the porter renames it for the
+# backport PR.
+seed_fragment_fixture() {
+  REPO="$fixture_root/repo-$1"
+  ORIGIN="$fixture_root/origin-$1.git"
+  rm -rf "$REPO" "$ORIGIN"
+  mkdir -p "$REPO"
+  git init -q --bare "$ORIGIN"
+  git -C "$REPO" init -q -b main
+  git -C "$REPO" config user.email t@t
+  git -C "$REPO" config user.name t
+  printf 'a\n' >"$REPO/f"; git -C "$REPO" add f; git -C "$REPO" commit -qm base
+  git -C "$REPO" branch release/0.1
+  printf 'b\n' >"$REPO/f"; git -C "$REPO" add f
+  mkdir -p "$REPO/changelog.d"; printf 'The fix.\n' >"$REPO/changelog.d/7.fixed.md"; git -C "$REPO" add changelog.d
+  git -C "$REPO" commit -qm fix
   MERGE="$(git -C "$REPO" rev-parse HEAD)"
   git -C "$REPO" remote add origin "$ORIGIN"
   git -C "$REPO" push -q origin main release/0.1
@@ -161,6 +188,50 @@ assert_eq "carries the fix onto the branch" "$(git -C "$REPO" show backport/7-0.
 refs="$(git -C "$REPO" ls-remote origin)"
 assert_contains "pushes the backport branch" "$refs" "refs/heads/backport/7-0.1"
 assert_contains "leaves the release branch on origin" "$refs" "refs/heads/release/0.1"
+
+echo "# open-backport-pr.sh (fragment named for the backport PR)"
+seed_fragment_fixture fragment
+run_open 7
+assert_eq "a port carrying a fragment exits 0" "$status" "0"
+assert_contains "prints the PR url" "$out" "$GH_PR_URL"
+if git -C "$REPO" cat-file -e origin/backport/7-0.1:changelog.d/99.fixed.md 2>/dev/null; then
+  ok "names the fragment for the backport PR"
+else
+  bad "names the fragment for the backport PR"
+fi
+if git -C "$REPO" cat-file -e origin/backport/7-0.1:changelog.d/7.fixed.md 2>/dev/null; then
+  bad "drops the source-numbered fragment"
+else
+  ok "drops the source-numbered fragment"
+fi
+fragment_content="$(git -C "$REPO" show origin/backport/7-0.1:changelog.d/99.fixed.md)"
+assert_contains "keeps the fragment content" "$fragment_content" "The fix."
+assert_contains "notes the backport in the fragment" "$fragment_content" "Backport of #7 to the 0.1 line."
+assert_eq "pushes the fix and the rename" \
+  "$(git -C "$REPO" rev-list --count origin/release/0.1..origin/backport/7-0.1)" "2"
+
+echo "# open-backport-pr.sh (references the tracker)"
+seed_fragment_fixture tracker
+export BACKPORT_TRACKER_ISSUE=42
+run_open 7
+unset BACKPORT_TRACKER_ISSUE
+assert_eq "a tracker reference still exits 0" "$status" "0"
+assert_contains "references the tracker" "$(argv)" "Part of #42"
+
+echo "# open-backport-pr.sh (no tracker reference without the knob)"
+seed_fragment_fixture no-tracker
+run_open 7
+assert_not_contains "omits the tracker reference" "$(argv)" "Part of #"
+
+echo "# open-backport-pr.sh (rename push failure)"
+seed_fragment_fixture rename-failure
+export GH_BREAK_ORIGIN_AFTER_CREATE=1
+export GH_BROKEN_ORIGIN="$fixture_root/missing.git"
+run_open 7
+unset GH_BREAK_ORIGIN_AFTER_CREATE GH_BROKEN_ORIGIN
+assert_eq "a failed rename push exits 4" "$status" "4"
+assert_contains "explains the failed rename" "$(stderr)" "could not push the renamed fragment"
+assert_contains "still reports the opened PR" "$out" "$GH_PR_URL"
 
 echo "# open-backport-pr.sh (conflict aborts without pushing)"
 seed_fixture conflict
