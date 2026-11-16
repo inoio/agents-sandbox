@@ -15,13 +15,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// abnormalEnd reports whether an attach ended abnormally: a signal death (the
-// guest reports exit code -1 for any signal) or a non-nil attach error
-// (specs/resources/resource-limit-proposal.md).
-func abnormalEnd(attachErr error, exitCode int) bool {
-	return attachErr != nil || exitCode == -1
-}
-
 // bootMaxMemoryMiB and hostAvailableMemoryMiB are the host-RAM reads the offer
 // bounds come from. They are vars so a test can pin a host, rather than assert
 // against the installed RAM and /proc/meminfo of the machine running the suite

@@ -1,12 +1,12 @@
 ---
 name: terminal-reset
-description: Verify the post-attach terminal reset by hand - which DEC private modes and keyboard protocols each harness TUI enables, how to simulate a TUI kill (not a real OOM), and the per-terminal checklist for the residue a kill leaves. Use when changing session.terminalReset or when it is emitted, adding a harness, or checking a report of a broken terminal after an agent was killed.
+description: Verify the post-attach terminal reset by hand - which DEC private modes and keyboard protocols each harness TUI enables, how to simulate a TUI kill (not a real OOM), and the per-terminal checklist for the residue a kill leaves. Use when changing termio.TerminalResetSequence or when it is emitted, adding a harness, or checking a report of a broken terminal after an agent was killed.
 ---
 
 # Verifying the post-attach terminal reset
 
 When a harness TUI dies without restoring the terminal (an OOM kill, a `kill -9`), the modes it enabled stay set on
-the host terminal. The launcher emits `session.terminalReset` after an abnormal attach end (`specs/resources/resource-limit-proposal.md` §2). This guide records which modes the harnesses enable and how to check by hand
+the host terminal. The launcher emits `termio.TerminalResetSequence` (via `termio.ResetTerminal`) after an abnormal attach end, from the agent attach and the startup-hook attach alike (`specs/resources/resource-limit-proposal.md` §2). This guide records which modes the harnesses enable and how to check by hand
 what residue a kill leaves in a real terminal emulator, which a pty-based test cannot show.
 
 ## Modes the harnesses enable
@@ -72,6 +72,6 @@ and inside tmux). Bash re-enables bracketed paste at its own prompt, so check pa
 7. Switching the system between light and dark prints nothing (2031).
 8. The reset itself leaves no visible characters in terminals that do not know a sequence it sends.
 
-Record per terminal and harness which items fail. Each failing item names the sequence to add to `terminalReset`:
+Record per terminal and harness which items fail. Each failing item names the sequence to add to `termio.TerminalResetSequence`:
 `?1002l ?1003l ?1007l` (mouse), `?1004l`, `?2004l`, `?2031l`, `?7h`, `CSI > 4 ; 0 m` (modifyOtherKeys) and
 `CSI < u` repeated or `CSI < Ps u` (kitty keyboard pop), each checked against item 8.

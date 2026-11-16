@@ -33,4 +33,8 @@ type Seams struct {
 	// RuntimeHomeMigrationOffer offers the opt-in legacy home-volume copy at
 	// session start.
 	RuntimeHomeMigrationOffer func(ctx context.Context, client msb.Client, ui termio.UI) error
+	// HookInteractive reports whether a startup hook may run interactively. Nil
+	// uses the production default: the launcher's stdin and stdout are both
+	// terminals.
+	HookInteractive func() bool
 }

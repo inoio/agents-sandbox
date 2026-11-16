@@ -1,4 +1,4 @@
-package session
+package termio
 
 import (
 	"bytes"
@@ -23,8 +23,8 @@ func stubIsTerminalWriter(t *testing.T, isTerminal bool) {
 func TestResetTerminalWritesSequenceToTerminal(t *testing.T) {
 	stubIsTerminalWriter(t, true)
 	var b bytes.Buffer
-	resetTerminal(&b)
-	if b.String() != terminalReset {
+	ResetTerminal(&b)
+	if b.String() != TerminalResetSequence {
 		t.Fatalf("got %q", b.String())
 	}
 }
@@ -38,12 +38,12 @@ func TestResetTerminalWritesSequenceToRealTTY(t *testing.T) {
 	}
 	defer func() { _ = master.Close() }()
 
-	resetTerminal(slave)
+	ResetTerminal(slave)
 	_ = slave.Close()
 
 	got, _ := io.ReadAll(master)
-	if !bytes.Contains(got, []byte(terminalReset)) {
-		t.Fatalf("terminal received %q, want the reset sequence %q", got, terminalReset)
+	if !bytes.Contains(got, []byte(TerminalResetSequence)) {
+		t.Fatalf("terminal received %q, want the reset sequence %q", got, TerminalResetSequence)
 	}
 }
 
@@ -56,7 +56,7 @@ func TestResetTerminalSkipsNonTerminalFile(t *testing.T) {
 	}
 	defer func() { _ = file.Close() }()
 
-	resetTerminal(file)
+	ResetTerminal(file)
 
 	got, err := os.ReadFile(file.Name())
 	if err != nil {
@@ -71,18 +71,18 @@ func TestResetTerminalSkipsNonTerminalFile(t *testing.T) {
 // *os.File receives nothing.
 func TestResetTerminalSkipsNonFileWriter(t *testing.T) {
 	var buffer bytes.Buffer
-	resetTerminal(&buffer)
+	ResetTerminal(&buffer)
 	if buffer.Len() != 0 {
 		t.Fatalf("captured output received %q, want nothing", buffer.String())
 	}
 }
 
-// TestResetTerminalSkipsNonTerminalWriter pins the Greptile fix through the
-// seam: a writer the check reports as not a terminal receives nothing.
+// TestResetTerminalSkipsNonTerminalWriter pins that a writer the check reports
+// as not a terminal receives nothing.
 func TestResetTerminalSkipsNonTerminalWriter(t *testing.T) {
 	stubIsTerminalWriter(t, false)
 	var b bytes.Buffer
-	resetTerminal(&b)
+	ResetTerminal(&b)
 	if b.Len() != 0 {
 		t.Fatalf("got %q, want nothing written to a non-terminal", b.String())
 	}
@@ -108,12 +108,12 @@ func TestDefaultIsTerminalWriter(t *testing.T) {
 }
 
 func TestResetTerminalNilWriter(t *testing.T) {
-	resetTerminal(nil) // must not panic
+	ResetTerminal(nil) // must not panic
 }
 
 // TestResetTerminalTypedNilFile pins the production predicate against a
 // typed-nil *os.File: File.Fd() returns ^uintptr(0) on a nil receiver, so the
 // writer is not a terminal and nothing is written (and nothing panics).
 func TestResetTerminalTypedNilFile(t *testing.T) {
-	resetTerminal((*os.File)(nil)) // must not panic or write
+	ResetTerminal((*os.File)(nil)) // must not panic or write
 }

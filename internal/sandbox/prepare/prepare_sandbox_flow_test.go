@@ -2217,6 +2217,9 @@ func sandboxRunOptions(t *testing.T, opts options.RunOptions) options.RunOptions
 	if opts.Seams.DaemonHealth == nil {
 		opts.Seams.DaemonHealth = daemonHealthSeams(t).DaemonHealth
 	}
+	if opts.Seams.HookInteractive == nil {
+		opts.Seams.HookInteractive = func() bool { return false }
+	}
 	return resolvedRunOptions(t, opts)
 }
 

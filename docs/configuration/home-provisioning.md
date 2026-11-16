@@ -71,8 +71,9 @@ Rules:
   `hook` value is rejected as a parse error.
 - The hook runs only when the VM is **started** — freshly created, recreated, or booted from a stopped/crashed state. It
   is **not** re-run when you attach to an already-running VM.
-- The hook runs non-interactively: it cannot read from user input (stdin is closed), so it cannot prompt for passwords
-  or MFA and never waits on input — startup blocks until the script finishes, and its stdout and stderr stream to the
+- The hook's interactivity follows the launcher's terminal: when both the launcher's stdin and stdout are terminals the
+  hook runs through an interactive attach and may prompt for a password or MFA; otherwise it runs without input (stdin
+  is closed) and cannot prompt — startup blocks until the script finishes, and its stdout and stderr stream to the
   session as it runs, so a hook may print unbounded output (progress, build logs, `curl -v`). When the hook finishes,
   microsandbox ends every process of the hook's session, including ones started with `nohup ... &`: `nohup` only ignores
   the hangup signal, but the process stays in the session. A hook that must keep running for the VM's lifetime (e.g. a
@@ -93,7 +94,14 @@ home:
   .vpn/config: .vpn/config
 ```
 
-The hook runs without a terminal, so a VPN that needs a password or MFA must get it from a provisioned file or
-environment variable, not from a prompt.
+A hook can prompt only when the launcher's stdin and stdout are both terminals; piping or redirecting the launcher's
+output (`agents-sandbox | tee run.log`, `agents-sandbox > run.log`) makes stdout a pipe or a file, so hooks run without
+input and a hook that prompts fails with its own end-of-input error. If you need both output capture and prompting, run
+the launcher under a pty-preserving wrapper (`script -c 'agents-sandbox' run.log` on util-linux, `script run.log
+agents-sandbox` on macOS). Pressing Ctrl-C while an interactive hook runs cancels that hook, restores the terminal, and
+stops the run with exit code 130; hooks after it do not run. The VM keeps running, so re-running attaches to it and skips
+the hooks — run `agents-sandbox stop` first to have them run again. `run --serve-only` always runs a hook without input
+— its stdin is the key that stops the server — so a hook cannot prompt in that mode. A VPN that needs a password or MFA
+and runs without input must get it from a provisioned file or environment variable, not from a prompt.
 
 Run `agents-sandbox config home` to list the resolved VM target → host source mappings.

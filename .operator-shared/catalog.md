@@ -152,8 +152,8 @@
 #### `specs/vm/` - VM lifecycle and per-VM behaviours
 
 - `specs/vm/`
-  - Description: Per-VM contracts: `lifecycle.md` (the canonical run/shell stage model), `detached-jobs.md` (dockerd/agent-serve as runtime-owned jobs), `idle-timeout.md`, `live-mount-readback.md`, `reconfig-decision.md`, `session-reaper.md`, `workspace-bind-permissions.md`.
-  - Read If: Any change to a run/shell/session lifecycle stage or cross-stage value (`cmd.runFunc`, `prepare.PrepareSandbox`, `session.Run`/`Shell`, the `--dry-run*`/`--serve-only` modes); VM dockerd/agent-serve startup, readiness, or restart, or the idle timeout; reading a live VM's mounts or ports (an empty `cfg.Volumes`/`mounts (0)`); the reconfig decision (`readLiveProjectVM`/`resolveReconfigDecision`/`PlanReconfig`) or `ensure-vm.lock`; the reaper's `waitQuiescent`/`sessionPoll`/`ReapPolicy`; or the `/workspace` bind permission policy.
+  - Description: Per-VM contracts: `lifecycle.md` (the canonical run/shell stage model), `detached-jobs.md` (dockerd/agent-serve as runtime-owned jobs), `idle-timeout.md`, `live-mount-readback.md`, `reconfig-decision.md`, `session-reaper.md`, `startup-hooks.md` (the hook terminal-interactivity predicate and the streaming-exec requirement), `workspace-bind-permissions.md`.
+  - Read If: Any change to a run/shell/session lifecycle stage or cross-stage value (`cmd.runFunc`, `prepare.PrepareSandbox`, `session.Run`/`Shell`, the `--dry-run*`/`--serve-only` modes); VM dockerd/agent-serve startup, readiness, or restart, or the idle timeout; reading a live VM's mounts or ports (an empty `cfg.Volumes`/`mounts (0)`); the reconfig decision (`readLiveProjectVM`/`resolveReconfigDecision`/`PlanReconfig`) or `ensure-vm.lock`; the reaper's `waitQuiescent`/`sessionPoll`/`ReapPolicy`; a startup hook's interactivity or the `HookInteractive` seam; or the `/workspace` bind permission policy.
 
 #### `specs/volumes/` - Home volume recovery/decoupling and volume commands
 

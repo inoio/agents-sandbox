@@ -1,4 +1,4 @@
-package session
+package termio
 
 import (
 	"io"
@@ -7,10 +7,12 @@ import (
 	"golang.org/x/term"
 )
 
-// terminalReset is the sequence that clears the guest TUI's emulator modes
-// (leave alternate screen, disable mouse, show cursor, SGR reset). Emitted to
-// the host terminal after an attach returns, before any launcher message.
-const terminalReset = "\x1b[?1049l\x1b[?1000l\x1b[?1006l\x1b[?25h\x1b[0m"
+// TerminalResetSequence clears the emulator modes a guest TUI may have enabled
+// (leave the alternate screen, disable mouse reporting, show the cursor, SGR
+// reset). It is emitted to the host terminal after an interactive attach
+// returns abnormally, before the launcher's next message, so that message is
+// neither hidden by nor rendered into the leftover modes.
+const TerminalResetSequence = "\x1b[?1049l\x1b[?1000l\x1b[?1006l\x1b[?25h\x1b[0m"
 
 // isTerminalWriter reports whether w is a terminal that can safely receive the
 // reset control sequence. Only a real *os.File tied to a TTY qualifies, so a
@@ -26,11 +28,11 @@ func defaultIsTerminalWriter(w io.Writer) bool {
 	return ok && term.IsTerminal(int(file.Fd()))
 }
 
-// resetTerminal writes terminalReset to w when w is a terminal, and nothing
-// otherwise.
-func resetTerminal(w io.Writer) {
+// ResetTerminal writes TerminalResetSequence to w when w is a terminal, and
+// nothing otherwise.
+func ResetTerminal(w io.Writer) {
 	if !isTerminalWriter(w) {
 		return
 	}
-	_, _ = w.Write([]byte(terminalReset))
+	_, _ = w.Write([]byte(TerminalResetSequence))
 }
