@@ -238,11 +238,15 @@ merged_backports="$(gh pr list --state merged --base "$release_name" \
 require_complete_page "gh pr list (merged backports)" "$(count_lines "$merged_backports")"
 
 # body_references NUMBER URL BODY: whether a backport body references the
-# source PR as #<number> or by its full URL.
+# source PR as #<number> or by its full URL. BODY arrives through the query's
+# @tsv, which escapes a newline, a tab, a backslash and a carriage return to a
+# backslash sequence, so it is decoded first: undecoded, a `\n` would leave a
+# word character before a line-start reference and defeat grep's -w boundary.
 body_references() {
-  local number="$1" url="$2" body="$3"
-  printf '%s' "$body" | grep -qwF -- "#$number" && return 0
-  [[ -n "$url" ]] && printf '%s' "$body" | grep -qwF -- "$url" && return 0
+  local number="$1" url="$2" body
+  body="$(printf '%b' "$3")"
+  grep -qwF -- "#$number" <<<"$body" && return 0
+  [[ -n "$url" ]] && grep -qwF -- "$url" <<<"$body" && return 0
   return 1
 }
 

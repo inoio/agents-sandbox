@@ -308,6 +308,26 @@ if [[ "$status" -eq 1 ]]; then ok "two open PRs still leave the finding as debt"
 assert_contains "annotates with the first open PR" "$out" "open:https://github.com/o/r/pull/8"
 printf '[]\n' >"$GH_OPEN_JSON"
 
+echo "# backport-audit.sh (a reference alone on a line clears)"
+# The body reaches the matcher through the gh query's @tsv, which escapes a
+# newline to a literal backslash-n; a body whose reference starts a line (the
+# permalink shape) must still be recognized.
+seed_fixture line-start-merged
+write_merged 2020-01-01T00:00:00Z
+printf '[{"number":8,"url":"https://github.com/o/r/pull/8","body":"Hand port:\\nhttps://github.com/o/r/pull/7\\ncontext differed."}]\n' >"$GH_MERGED_BACKPORTS_JSON"
+run_audit
+if [[ "$status" -eq 0 ]]; then ok "a merged reference alone on a line clears"; else bad "a merged reference alone on a line clears (got $status)"; fi
+printf '[]\n' >"$GH_MERGED_BACKPORTS_JSON"
+
+echo "# backport-audit.sh (an open reference alone on a line is annotated)"
+seed_fixture line-start-open
+printf '[{"number":8,"url":"https://github.com/o/r/pull/8","body":"Hand port:\\n#7\\ncontext differed."}]\n' >"$GH_OPEN_JSON"
+write_merged 2020-01-01T00:00:00Z
+run_audit
+if [[ "$status" -eq 1 ]]; then ok "an open reference alone on a line is still debt"; else bad "an open reference alone on a line is still debt (got $status)"; fi
+assert_contains "annotates a line-start reference" "$out" "open:https://github.com/o/r/pull/8"
+printf '[]\n' >"$GH_OPEN_JSON"
+
 echo "# backport-audit.sh (truncated merged backports)"
 seed_fixture truncated-merged
 export BACKPORT_AUDIT_PAGE_LIMIT=5
