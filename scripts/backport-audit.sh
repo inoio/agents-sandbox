@@ -46,11 +46,11 @@
 #      hide a fix.
 #
 #   Complete set: gh returns the newest N rows and drops the rest with no
-#   signal, so a truncated window would read as clean and close the rolling
-#   issue. Each source is therefore requested with --limit
+#   signal, so a truncated window would read as clean and close the tracker.
+#   Each source is therefore requested with --limit
 #   BACKPORT_AUDIT_PAGE_LIMIT (default 5000) and a page that comes back with
 #   that many rows or more fails loudly (exit 2) instead of being audited. The
-#   open-backport suppression query carries the same cap and guard. The limit is
+#   backport queries carry the same cap and guard. The limit is
 #   a lifetime ceiling over both cumulative queries, not a per-run one, so the
 #   default is set past any realistic accumulation; raise the knob when a
 #   repository outgrows it. No date window narrows the queries: it would drop
@@ -74,10 +74,12 @@
 #   "nothing missing" would report a false clean.
 #
 #   Noise control (skip, not debt): mergedAt strictly within GRACE_SECONDS of
-#   NOW, or an open PR targeting the release branch whose body references this
-#   PR's #<number> or URL.
+#   NOW. Clearance: a merged PR targeting the release branch whose body
+#   references this PR (#<number> or URL) clears it — the record an adapted port
+#   leaves, whose patch-id differs from the source. An open PR does not clear it;
+#   the debt line carries its URL so the caller can annotate and skip re-porting.
 #
-# Output: one "#<number>\t<title>\t<url>\tmissing:<n>" line per debt PR.
+# Output: one "#<number>\t<title>\t<url>\tmissing:<n>\topen:<open-pr-url-or-empty>" line per debt PR.
 
 set -euo pipefail
 
@@ -164,7 +166,7 @@ read -r _major _minor release_ref release_name <<<"$release_line"
 # gh returns the newest N rows and silently drops the rest. Every expected-set
 # query asks for $PAGE_LIMIT rows and a page at the cap aborts with 2: a
 # truncated set must never read as clean, because the next step would then
-# close the rolling issue and erase the signal. The default sits past any
+# close the tracker and erase the signal. The default sits past any
 # realistic accumulation (the queries are cumulative over the repository's whole
 # history); the knob is the escape hatch if one outgrows it.
 #
@@ -221,16 +223,51 @@ if [[ -z "$merged" ]]; then
 fi
 
 branch_ids="$(branch_patch_ids)"
-open_backports="$(gh pr list --state open --base "$release_name" \
-  --json number,body --limit "$page_limit")"
-require_complete_page "gh pr list (open backports)" "$(printf '%s' "$open_backports" | jq 'length')"
-open_bodies="$(printf '%s' "$open_backports" | jq -r '.[].body // ""')"
 
-# A shipped backport PR targeting the release branch suppresses its source PR's
-# debt: the body references the source as #<number> or by its full URL.
-references_open_backport() {
-  if printf '%s\n' "$open_bodies" | grep -qwF -- "#$1"; then return 0; fi
-  if [[ -n "$2" ]] && printf '%s\n' "$open_bodies" | grep -qwF -- "$2"; then return 0; fi
+# An open backport PR does not clear the debt — it is noise to annotate. A
+# merged one clears it unconditionally: it is the record an adapted port
+# leaves. Both queries are scoped to the release line, so a PR based elsewhere
+# does not count.
+open_backports="$(gh pr list --state open --base "$release_name" \
+  --json number,url,body --limit "$page_limit" \
+  --jq '.[] | [.number, (.url // ""), (.body // "")] | @tsv')"
+require_complete_page "gh pr list (open backports)" "$(count_lines "$open_backports")"
+merged_backports="$(gh pr list --state merged --base "$release_name" \
+  --json number,url,body --limit "$page_limit" \
+  --jq '.[] | [.number, (.body // "")] | @tsv')"
+require_complete_page "gh pr list (merged backports)" "$(count_lines "$merged_backports")"
+
+# body_references NUMBER URL BODY: whether a backport body references the
+# source PR as #<number> or by its full URL. BODY arrives through the query's
+# @tsv, which escapes a newline, a tab, a backslash and a carriage return to a
+# backslash sequence, so it is decoded first: undecoded, a `\n` would leave a
+# word character before a line-start reference and defeat grep's -w boundary.
+body_references() {
+  local number="$1" url="$2" body
+  body="$(printf '%b' "$3")"
+  grep -qwF -- "#$number" <<<"$body" && return 0
+  [[ -n "$url" ]] && grep -qwF -- "$url" <<<"$body" && return 0
+  return 1
+}
+
+# merged_clears NUMBER URL: whether a merged backport PR references the source.
+merged_clears() {
+  local number="$1" url="$2" mnum mbody
+  while IFS=$'\t' read -r mnum mbody; do
+    [[ -n "$mnum" ]] || continue
+    body_references "$number" "$url" "$mbody" && return 0
+  done <<<"$merged_backports"
+  return 1
+}
+
+# open_annotation NUMBER URL: the URL of the first open backport PR that
+# references the source, or nothing.
+open_annotation() {
+  local number="$1" url="$2" onum ourl obody
+  while IFS=$'\t' read -r onum ourl obody; do
+    [[ -n "$onum" ]] || continue
+    if body_references "$number" "$url" "$obody"; then printf '%s' "$ourl"; return 0; fi
+  done <<<"$open_backports"
   return 1
 }
 
@@ -239,7 +276,7 @@ debt="$(
   printf '%s\n' "$merged" | while IFS=$'\t' read -r number title url merged_at merge_oid; do
     [[ -n "$number" ]] || continue
     within_grace "$merged_at" && continue
-    references_open_backport "$number" "$url" && continue
+    merged_clears "$number" "$url" && continue
 
     missing=0
     if [[ -n "$merge_oid" ]]; then
@@ -275,7 +312,8 @@ debt="$(
     fi
 
     if [[ "$missing" -gt 0 ]]; then
-      printf '#%s\t%s\t%s\tmissing:%s\n' "$number" "$title" "$url" "$missing"
+      open_pr="$(open_annotation "$number" "$url" || true)"
+      printf '#%s\t%s\t%s\tmissing:%s\topen:%s\n' "$number" "$title" "$url" "$missing" "$open_pr"
     fi
   done
 )" || debt_status=$?

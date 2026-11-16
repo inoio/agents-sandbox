@@ -1,5 +1,5 @@
 ---
-description: Contract for the release model — `main` as the source of truth, fixes cherry-picked down (`git cherry-pick -x`) to the single maintained `release/<major>.<minor>` branch, the patch-id containment invariant checked by `git cherry` (not ancestry) before the micro's own changelog/tag commit and the one prior-micro release commit per shipped micro that legitimately shows as `+`, the micro/minor/major tag roles, the `needs-backport` marker, the `release` skill's `backport-audit` tag precondition, the nightly reconciliation workflow and its rolling `Backport debt` issue, and that a release tag is refused unless it is on `main` or a release branch.
+description: Contract for the release model — `main` as the source of truth, fixes cherry-picked down (`git cherry-pick -x`) to the single maintained `release/<major>.<minor>` branch, the patch-id containment invariant checked by `git cherry` (not ancestry) before the micro's own changelog/tag commit and the one prior-micro release commit per shipped micro that legitimately shows as `+`, the micro/minor/major tag roles, the `needs-backport` marker, the `release` skill's `backport-audit` tag precondition, the nightly reconciliation workflow and its pinned `[Tracker] Missing backports` issue, and that a release tag is refused unless it is on `main` or a release branch.
 read_if: Deciding where a release tag or a fix lands, cherry-picking a fix down to a release line, backporting a fix, the `needs-backport` marker, the backport audit or its nightly workflow, protecting a release branch, or changing the release branch name or flow.
 ---
 
@@ -39,8 +39,10 @@ read_if: Deciding where a release tag or a fix lands, cherry-picking a fix down 
   with the same mechanics as a minor while major is `0`; it is called explicitly and never proposed.
 - **Fix branches and the line's fragments.** A down-port carries the PR's `changelog.d/` fragment
   along with the fix (the fragment commit is part of the PR), and the micro's changelog assembly
-  consumes it on the branch. `main` keeps its own copy until its next release, so a fix appears in
-  both the micro's notes and the next minor's notes.
+  consumes it on the branch. The porter then renames the fragment to the backport PR's number — the
+  `changelog` gate requires an added fragment's slug to equal the pull-request number, which the
+  source number is not — and appends a line noting the backport. `main` keeps its own copy until its
+  next release, so a fix appears in both the micro's notes and the next minor's notes.
 - **Push the branch before the tag.** `tag-guard` admits a tag only when the tagged commit is already
   reachable from `origin/main` or a pushed `origin/release/*`, so `release/<major>.<minor>` is created
   and pushed before its first tag. A tag whose commit is not on `main` or a release branch is refused,
@@ -52,8 +54,10 @@ read_if: Deciding where a release tag or a fix lands, cherry-picking a fix down 
   and must be cherry-picked onto the current release branch. A bug without it is intentionally
   `main`-only. It is a marker beside `upstream`, orthogonal to category, state, and priority.
 - It is a **permanent record**, like `upstream` — it is not cleared when the port lands. Done-ness is
-  decided by patch-id presence, so a stale label cannot mask an unported fix and a cleared-then-failed
-  port cannot lose its record.
+  decided by patch-id presence, or by a **merged** backport PR that references the fix (which clears
+  an adapted port, whose hand-resolved patch-id differs from the source). An **open** backport PR
+  does not clear it — it is annotated and de-duplicated, not a clearance — so a stale label cannot
+  mask an unported fix and a cleared-then-failed port cannot lose its record.
 - The marker's **durable home is the issue**. `scripts/enqueue-pr.sh` also copies it from the linked
   issue onto the PR at enqueue time, but that copy is the convenience, not the record: a PR merged by
   the raw `enqueuePullRequest` mutation or "Merge when ready" never gets the copy. The audit (below)
@@ -75,15 +79,19 @@ micro's changelog/tag commit:
     queue rebuilds a PR on `main`, so the SHAs `-x` recorded may not exist on `main`, while a
     patch-id is content-based and survives the rebase. A commit whose patch-id is empty changes
     nothing (an empty commit), so it needs no port and is never debt;
-  - controls **noise** by skipping a PR merged within a 2-hour grace period and skipping one whose
-    commit is already covered by an open backport PR targeting the line;
-  - exits `1` when a labeled fix is missing from the latest line. An unported `needs-backport` fix
-    **blocks the tag** unless the maintainer overrides — this is what makes "you cannot ship a micro
-    with an unported fix" true by construction. An adapted port is a different patch-id and shows as
-    a false positive, advisory for a human to confirm.
+  - controls **noise** by skipping a PR merged within a 2-hour grace period;
+  - **clears** a finding by patch-id containment **or** by a merged backport PR targeting the line
+    that references it (`#<number>` or URL); an open backport PR does not clear it and is instead
+    annotated on the debt line, so the porter can skip re-porting a finding whose branch already
+    exists;
+  - exits `1` when a labeled fix is missing from the latest line, leaving the tag precondition
+    unsatisfied — but it no longer blocks by itself: the skill presents the outstanding backports
+    (in-flight PRs and unported fixes) and asks, and the maintainer may ship anyway, so an urgent
+    security fix is never held up by unrelated ports. An adapted port has a different patch-id, so it
+    stays debt until a backport PR referencing the fix **merges**.
   - fails with **exit `2`, never clean**, when an expected-set query comes back at its row cap: `gh`
     returns the newest N rows and silently drops the rest, so a truncated set would read as no debt
-    and close the rolling issue. The same exit covers an unanswerable merge-commit query — a merged
+    and close the tracker. The same exit covers an unanswerable merge-commit query — a merged
     PR's merge commit absent from the local clone (a stale fetch) would otherwise empty the walked
     range and read as clean — so the run says to fetch and rerun. The caller treats anything but
     `0`/`1` as an operational failure.
@@ -97,7 +105,11 @@ aborting on an empty cherry-pick. It also skips a commit with an empty patch-id 
 a pick git reports as now empty (the change is present in another form), both with nothing to port; a
 real conflict still aborts. A fully ported PR — including one whose every remaining pick came out
 empty — is a no-op that pushes nothing and exits `3` (distinct from `0`, which means a branch was
-pushed and a PR opened); the workflow reports it as "already fully ported" rather than "opened".
+pushed and a PR opened); the workflow reports it as "already fully ported" rather than "opened". After
+opening the PR it renames the carried `changelog.d/<n>.*.md` fragments to the backport PR's number,
+appends a line noting the backport, and pushes that second commit; if that push fails it exits `4`
+(the PR exists but fails the `changelog` slug check). It references the tracker as `Part of #<n>`
+(non-closing, so merging a backport does not close the tracker) when `BACKPORT_TRACKER_ISSUE` is set.
 
 The latest line is the highest-semver `release/<major>.<minor>` among local and origin refs; with no
 release branch the audit reports nothing to audit and exits clean.
@@ -106,8 +118,10 @@ release branch the audit reports nothing to audit and exits clean.
 
 `.github/workflows/backport-audit.yml` is a **non-gating nightly** (a schedule and a manual dispatch,
 never a PR check and never a member of `release.needs`). It runs the same audit off `main`, opens the
-missing backport PRs, and keeps **one rolling, idempotent `Backport debt` issue** current — updated in
-place and closed when the debt clears, rather than failing a scheduled build. Git's `git cherry`
+missing backport PRs, and keeps **one idempotent, pinned `[Tracker] Missing backports` issue** current
+— pinned to the top of the issue list while open, body rewritten in place, and unpinned and closed when
+the debt clears, rather than failing a scheduled build. A finding that already has an open backport PR
+is not re-ported: the tracker lists that PR and waits for a merge. Git's `git cherry`
 cannot see a missed port (an absent commit is simply absent), so correctness rests on this reverse
 query: enumerate what should be on the branch and verify each is.
 
