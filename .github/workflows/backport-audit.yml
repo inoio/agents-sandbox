@@ -28,7 +28,7 @@ permissions:
   contents: read
 
 # One audit at a time. A manual dispatch racing the nightly would otherwise run
-# two audits that each create a "Backport debt" issue, breaking the one-rolling-
+# two audits that each create a "[Tracker] Missing backports" issue, breaking the one-rolling-
 # issue invariant. Never cancel a run in progress — it may be mid-way through
 # opening backport pull requests — so a superseded pending run is dropped and
 # the running one finishes (mirrors fuzz.yml).
@@ -87,16 +87,55 @@ jobs:
             cat backport-audit-raw.txt >&2
             exit 1
           fi
+      - name: Ensure the missing-backports tracker
+        # The tracker must exist before the porter runs so each backport PR can
+        # reference it as "Part of #<n>". It is found by exact title (GitHub
+        # tokenizes "[Tracker]" away, so a title search's first hit is not
+        # trustworthy), created when debt appears, and pinned to the top of the
+        # issue list. A later run that finds no debt closes and unpins it, so it
+        # is not a permanent always-open issue.
+        run: |
+          if [ ! -s backport-debt.txt ]; then
+            echo "No backport debt; no tracker needed."
+            exit 0
+          fi
+          tracker="$(gh issue list --state open --json number,title --limit 5000 \
+            --jq '[.[] | select(.title == "[Tracker] Missing backports")][0].number // empty')"
+          if [ -z "$tracker" ]; then
+            tracker_url="$(gh issue create --title "[Tracker] Missing backports" \
+              --body "Tracking \`needs-backport\` fixes not yet on the maintained release line; maintained by the nightly backport audit.")"
+            tracker="${tracker_url##*/}"
+          fi
+          echo "TRACKER=${tracker}" >> "$GITHUB_ENV"
+          tracker_id="$(gh issue view "$tracker" --json id --jq .id)"
+          owner="${GITHUB_REPOSITORY%/*}"
+          name="${GITHUB_REPOSITORY#*/}"
+          pinned="$(gh api graphql \
+            -f query="query(\$o:String!,\$n:String!){repository(owner:\$o,name:\$n){pinnedIssues(first:3){nodes{issue{number}}}}}" \
+            -f o="$owner" -f n="$name" \
+            --jq '.data.repository.pinnedIssues.nodes[].issue.number' 2>/dev/null || true)"
+          if printf '%s\n' "$pinned" | grep -qx "$tracker"; then
+            echo "The tracker (#${tracker}) is already pinned."
+          elif gh api graphql -f query="mutation(\$id:ID!){pinIssue(input:{issueId:\$id}){issue{number}}}" -f id="$tracker_id" >/dev/null; then
+            echo "Pinned the tracker (#${tracker})."
+          else
+            echo "::warning::could not pin the tracker (#${tracker}); leaving it unpinned"
+          fi
       - name: Open the missing backport pull requests
         # Not a gate: a conflict (the porter aborts without pushing) is logged
-        # and left in the rolling issue rather than failing the run, and one
-        # port never blocks the next.
+        # and left in the tracker rather than failing the run, and one port never
+        # blocks the next.
         #
         # The porter's status decides the message: 0 means the branch was pushed
         # and the PR opened, 3 means every source commit is already on the line
         # so nothing was opened, 1 means it could not port (conflict, unknown or
-        # unmerged PR, no release branch). Any other status is unexpected and is
-        # logged as a failure too, never as an opened PR.
+        # unmerged PR, no release branch), 4 means the PR opened but its fragment
+        # could not be renamed (it fails the changelog slug check). Any other
+        # status is unexpected and is logged as a failure too, never as an
+        # opened PR.
+        #
+        # A finding that already has an open backport PR is not re-ported: its
+        # branch and PR exist, so the tracker lists it and waits for a merge.
         #
         # A pull request this step opens is authored by GITHUB_TOKEN, so its own
         # workflow run parks at `action_required` until a maintainer approves
@@ -108,53 +147,69 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          while IFS=$'\t' read -r number title _; do
+          while IFS=$'\t' read -r number title _ _ open_pr; do
             [ -n "$number" ] || continue
             pr="${number#\#}"
+            open_ref="${open_pr#open:}"
+            if [ -n "$open_ref" ]; then
+              echo "Skipping ${number}: ${open_ref} is already open."
+              continue
+            fi
             echo "::group::Porting ${number} (${title})"
             status=0
-            scripts/open-backport-pr.sh "$pr" || status=$?
+            BACKPORT_TRACKER_ISSUE="${TRACKER:-}" scripts/open-backport-pr.sh "$pr" || status=$?
             case "$status" in
               0) echo "Opened the backport pull request for ${number}." ;;
               3) echo "The fix in ${number} is already fully ported onto the release branch; nothing was opened." ;;
-              1) echo "Could not open a backport pull request for ${number}; it stays in the rolling issue." ;;
-              *) echo "Backporting ${number} failed with an unexpected status (${status}); it stays in the rolling issue." ;;
+              4) echo "Opened a pull request for ${number} but could not rename its fragment; it stays in the tracker." ;;
+              1) echo "Could not open a backport pull request for ${number}; it stays in the tracker." ;;
+              *) echo "Backporting ${number} failed with an unexpected status (${status}); it stays in the tracker." ;;
             esac
             echo "::endgroup::"
           done < backport-debt.txt
-      - name: Update the rolling issue
+      - name: Update the missing-backports tracker
         # Reached only when the detect step confirmed a result (clean or debt):
         # an operational failure fails that step and skips this one, so a
-        # transient blip can never close the issue. One open issue titled
-        # "Backport debt" always mirrors the current audit: its body is
-        # rewritten from this run's output, it is closed once the debt clears,
-        # and it is created when it reopens.
+        # transient blip can never close the tracker. One open issue titled
+        # "[Tracker] Missing backports" mirrors the current audit: its body is
+        # rewritten from this run's output, it is unpinned and closed once the
+        # debt clears, and it is created when it reopens.
         run: |
-          issue="$(gh issue list --state open --search 'Backport debt in:title' --json number --jq '.[0].number // empty')"
+          tracker="$(gh issue list --state open --json number,title --limit 5000 \
+            --jq '[.[] | select(.title == "[Tracker] Missing backports")][0].number // empty')"
           if [ ! -s backport-debt.txt ]; then
-            if [ -n "$issue" ]; then
-              gh issue close "$issue" --comment "The nightly backport audit found no outstanding debt."
-              echo "Closed the rolling issue (#${issue})."
+            if [ -n "$tracker" ]; then
+              tracker_id="$(gh issue view "$tracker" --json id --jq .id)"
+              gh api graphql -f query="mutation(\$id:ID!){unpinIssue(input:{issueId:\$id}){issue{number}}}" -f id="$tracker_id" >/dev/null \
+                || echo "::warning::could not unpin the tracker (#${tracker})"
+              gh issue close "$tracker" --comment "The nightly backport audit found no outstanding debt."
+              echo "Closed the tracker (#${tracker})."
             else
-              echo "No backport debt and no open rolling issue."
+              echo "No backport debt and no open tracker."
             fi
             exit 0
           fi
           {
             echo "Merged \`needs-backport\` fixes whose commits are missing from the latest \`release/<major>.<minor>\` line, as detected by the nightly [\`backport-audit\`](${{ github.server_url }}/${{ github.repository }}/actions/workflows/backport-audit.yml) run."
             echo
-            echo "| Pull request | Title | Missing commits |"
-            echo "| --- | --- | --- |"
-            while IFS=$'\t' read -r number title url missing; do
+            echo "| Pull request | Title | Missing commits | In flight |"
+            echo "| --- | --- | --- | --- |"
+            while IFS=$'\t' read -r number title url missing open_pr; do
               [ -n "$number" ] || continue
-              printf '| [%s](%s) | %s | %s |\n' "$number" "$url" "${title//|/\\|}" "${missing#missing:}"
+              open_ref="${open_pr#open:}"
+              if [ -n "$open_ref" ]; then
+                in_flight="[open](${open_ref}) — merge or close it"
+              else
+                in_flight="—"
+              fi
+              printf '| [%s](%s) | %s | %s | %s |\n' "$number" "$url" "${title//|/\\|}" "${missing#missing:}" "$in_flight"
             done < backport-debt.txt
             echo
             echo "_This issue is maintained by the \`backport-audit\` workflow; its body is rewritten on every run._"
           } > backport-debt-issue.md
-          if [ -n "$issue" ]; then
-            gh issue edit "$issue" --body-file backport-debt-issue.md
-            echo "Updated the rolling issue (#${issue})."
+          if [ -n "$tracker" ]; then
+            gh issue edit "$tracker" --body-file backport-debt-issue.md
+            echo "Updated the tracker (#${tracker})."
           else
-            gh issue create --title "Backport debt" --body-file backport-debt-issue.md
+            gh issue create --title "[Tracker] Missing backports" --body-file backport-debt-issue.md
           fi
