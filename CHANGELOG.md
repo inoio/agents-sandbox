@@ -12,6 +12,13 @@ emptied at the next release.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-16
+
+### Fixed
+
+- A `home:` `hook: startup` script runs through the interactive attach when the launcher has a terminal, so it can
+  prompt for a password or MFA again; without a terminal it still runs without input (#629).
+
 ## [0.7.0] - 2026-11-14
 
 ### Added
