@@ -226,9 +226,18 @@ through the queue like any other PR.
 
 ### 9. Post-release
 
-- `make upgrade-deps`, then PR any `go.mod`/`go.sum` changes.
-- Bump the non-Go tool versions per [NON-GO-DEPS.md](NON-GO-DEPS.md), then PR them.
-- Confirm `[Unreleased]` is empty again and `changelog.d/` holds only `README.md`.
+On any release:
+
+- On the origin branch (`main` for minor/major release, `release/<major>.<minor>` for micro release:
+  Confirm `[Unreleased]` is empty and `changelog.d/` holds only `README.md`.
+
+On major/minor releases (from `main` branch):
+
+- `make upgrade-deps`, push any `go.mod`/`go.sum` changes to PR
+- Bump the non-Go tool versions per [NON-GO-DEPS.md](NON-GO-DEPS.md), push to PR
+
+Completion: the bumps are on `main` (or found unnecessary), and the tagged branch's `[Unreleased]`/`changelog.d/`
+invariant holds.
 
 ## Non-goals
 
