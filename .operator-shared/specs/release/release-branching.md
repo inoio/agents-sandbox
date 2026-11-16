@@ -84,12 +84,11 @@ micro's changelog/tag commit:
     that references it (`#<number>` or URL); an open backport PR does not clear it and is instead
     annotated on the debt line, so the porter can skip re-porting a finding whose branch already
     exists;
-  - exits `1` when a labeled fix is missing from the latest line. An unported `needs-backport` fix
-    keeps the tag precondition unsatisfied — this is what makes "you cannot ship a micro with an
-    unported fix" true by construction. An adapted port has a different patch-id, so it stays debt
-    until a backport PR referencing the fix **merges**; the skill presents the outstanding backports
-    and asks, and the maintainer may ship anyway (an urgent security fix is never held up by
-    unrelated ports).
+  - exits `1` when a labeled fix is missing from the latest line, leaving the tag precondition
+    unsatisfied — but it no longer blocks by itself: the skill presents the outstanding backports
+    (in-flight PRs and unported fixes) and asks, and the maintainer may ship anyway, so an urgent
+    security fix is never held up by unrelated ports. An adapted port has a different patch-id, so it
+    stays debt until a backport PR referencing the fix **merges**.
   - fails with **exit `2`, never clean**, when an expected-set query comes back at its row cap: `gh`
     returns the newest N rows and silently drops the rest, so a truncated set would read as no debt
     and close the tracker. The same exit covers an unanswerable merge-commit query — a merged

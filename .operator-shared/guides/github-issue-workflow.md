@@ -32,7 +32,8 @@ The `maintain` skill's state machine maps onto these actual repo labels:
     [`specs/release/release-branching.md`](../specs/release/release-branching.md)). It is the **only
     trigger** for a port: a bug without it is intentionally `main`-only. The marker is a **permanent
     record** — it is not cleared when the port lands; the nightly `backport-audit` workflow decides
-    done-ness by patch-id presence. The issue is the marker's **durable home**: `scripts/enqueue-pr.sh`
+    done-ness by patch-id presence or by a merged backport PR that references the fix. The issue is
+     the marker's **durable home**: `scripts/enqueue-pr.sh`
     also copies it onto the PR at enqueue, but only one of the three documented merge paths runs that
     script, so the audit reads **both** the merged PRs carrying the label and the merged PRs that
     close a labeled issue (see [`guides/github-pr-workflow.md`](github-pr-workflow.md)).
