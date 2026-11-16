@@ -180,18 +180,18 @@ type pruneJSONDetail struct {
 }
 
 type pruneJSONReport struct {
-	DryRun                        bool              `json:"dry_run"`
+	ImageBytesReclaimed           *uint64           `json:"image_bytes_reclaimed"`
+	RuntimePhysicalBytesReclaimed *uint64           `json:"runtime_physical_bytes_reclaimed"`
+	Details                       []pruneJSONDetail `json:"details"`
+	RetiredProjects               []string          `json:"retired_projects"`
 	Sandboxes                     int               `json:"sandboxes"`
 	Volumes                       int               `json:"volumes"`
 	Images                        int               `json:"images"`
 	DockerImages                  int               `json:"docker_images"`
-	SkippedImagesInUse            uint32            `json:"skipped_images_in_use"`
-	ImageBytesReclaimed           *uint64           `json:"image_bytes_reclaimed"`
 	RuntimeFilesRemoved           uint64            `json:"runtime_files_removed"`
 	RuntimeLogicalBytesRemoved    uint64            `json:"runtime_logical_bytes_removed"`
-	RuntimePhysicalBytesReclaimed *uint64           `json:"runtime_physical_bytes_reclaimed"`
-	Details                       []pruneJSONDetail `json:"details"`
-	RetiredProjects               []string          `json:"retired_projects"`
+	SkippedImagesInUse            uint32            `json:"skipped_images_in_use"`
+	DryRun                        bool              `json:"dry_run"`
 }
 
 func unmarshalPruneJSON(t *testing.T, outCalls []string) pruneJSONReport {

@@ -10,23 +10,23 @@ import "time"
 //
 //exhaustruct:ignore
 type SandboxSpec struct {
+	Env          map[string]string
+	Labels       map[string]string
+	Mounts       map[string]MountConfig
 	Image        string
-	CPUs         uint8
-	MaxCPUs      uint8
+	Workdir      string
+	Network      NetworkSpec
+	Ports        []PortBinding
+	Secrets      []SecretEntry
+	IdleTimeout  time.Duration
 	MemoryMiB    uint32
 	MaxMemoryMiB uint32
 	// RootDiskMiB sets a managed root disk of this size; 0 leaves the runtime
 	// default (no managed root disk).
 	RootDiskMiB uint32
-	Workdir     string
+	CPUs        uint8
+	MaxCPUs     uint8
 	Detached    bool
-	IdleTimeout time.Duration
-	Env         map[string]string
-	Labels      map[string]string
-	Mounts      map[string]MountConfig
-	Ports       []PortBinding
-	Secrets     []SecretEntry
-	Network     NetworkSpec
 }
 
 // VolumeSpec is the launcher's input to CreateVolume.

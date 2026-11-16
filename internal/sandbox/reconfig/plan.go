@@ -120,12 +120,12 @@ func SizeChange(label string, old, newSize uint32, oldRaw, newRaw string) Change
 //
 //exhaustruct:ignore
 type Plan struct {
-	Recreate       bool
-	RestartDaemons bool
-	Changes        []Change
+	Changes []Change
 	// ServeHostPort is the resolved published host port for serve-only mode (0
 	// when not serving).
-	ServeHostPort int
+	ServeHostPort  int
+	Recreate       bool
+	RestartDaemons bool
 	// PortsChanged reports whether the desired published port bindings differ
 	// from the ones the existing VM carries.
 	PortsChanged bool

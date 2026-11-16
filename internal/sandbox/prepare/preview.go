@@ -20,6 +20,9 @@ import (
 // version, the image build decision, and the home volume a real run would use.
 type Preview struct {
 	AgentVersion          string
+	ImageTag              string
+	HomeVolume            string
+	BuildReasons          []string
 	ResolveVersionAtBuild bool
 	// UpgradeCheckSkipped is true when a concrete agent version is known
 	// (recovered from the image label or the recorded cache) but the real run's
@@ -28,10 +31,7 @@ type Preview struct {
 	// user-provided agent (never upgrade-checked), and when resolution is
 	// deferred to build time.
 	UpgradeCheckSkipped bool
-	ImageTag            string
 	BuildImage          bool
-	BuildReasons        []string
-	HomeVolume          string
 	CreateHome          bool
 }
 

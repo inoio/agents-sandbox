@@ -18,14 +18,13 @@ const kibPerMiB = 1024
 // shares (tmpfs is RAM-backed), and the free space on the host filesystems a
 // root-disk and a quota raise draw on, each with whether it is known.
 type DiskLimits struct {
-	RootMiB           uint32
-	WorkspaceQuotaMiB uint32
-	TmpMiB            uint32
-	MemoryMiB         uint32
-
+	RootMiB                uint32
+	WorkspaceQuotaMiB      uint32
+	TmpMiB                 uint32
+	MemoryMiB              uint32
 	RootHostFreeMiB        uint32
-	RootHostFreeKnown      bool
 	WorkspaceHostFreeMiB   uint32
+	RootHostFreeKnown      bool
 	WorkspaceHostFreeKnown bool
 }
 

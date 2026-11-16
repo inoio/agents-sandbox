@@ -6,20 +6,20 @@ import "time"
 // Timestamps are Unix milliseconds. Optional fields stay nil when the runtime
 // does not report them, so unknown never reads as zero.
 type JobInfo struct {
-	ID            string
-	RuntimeBootID string
-	Command       []string
-	State         string
-	TTY           bool
-	StdinClosed   bool
 	PID           *uint32
-	CreatedAt     int64
 	StartedAt     *int64
 	FinishedAt    *int64
 	ExitCode      *int
-	TimedOut      bool
 	Failure       *ExecFailure
 	Error         *string
+	ID            string
+	RuntimeBootID string
+	State         string
+	Command       []string
+	CreatedAt     int64
+	TTY           bool
+	StdinClosed   bool
+	TimedOut      bool
 }
 
 // ExecFailure carries a detached job's structured launch failure.
