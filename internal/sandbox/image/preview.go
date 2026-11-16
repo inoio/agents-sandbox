@@ -13,9 +13,9 @@ import (
 // ImagePreview is a read-only description of what EnsureImage would do.
 type ImagePreview struct {
 	Tag                   string
-	NeedsBuild            bool
-	Reasons               []string
 	AgentVersion          string
+	Reasons               []string
+	NeedsBuild            bool
 	ResolveVersionAtBuild bool
 }
 

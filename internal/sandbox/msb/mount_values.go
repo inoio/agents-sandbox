@@ -52,36 +52,36 @@ type MountOwner struct {
 //
 //exhaustruct:ignore
 type MountConfig struct {
-	Kind               MountKind
+	Owner              *MountOwner
 	Bind               string
 	Named              string
 	Disk               string
 	Owned              string
 	Format             string
 	Fstype             string
+	StatVirtualization StatVirtualization
+	HostPermissions    HostPermissions
 	QuotaMiB           uint32
 	SizeMiB            uint32
+	Kind               MountKind
 	Readonly           bool
 	Noexec             bool
 	Nosuid             bool
 	Nodev              bool
-	StatVirtualization StatVirtualization
-	HostPermissions    HostPermissions
-	Owner              *MountOwner
 }
 
 // MountOptions tunes bind and named mount factories.
 //
 //exhaustruct:ignore
 type MountOptions struct {
+	Owner              *MountOwner
+	StatVirtualization StatVirtualization
+	HostPermissions    HostPermissions
+	QuotaMiB           uint32
 	Readonly           bool
 	Noexec             bool
 	Nosuid             bool
 	Nodev              bool
-	StatVirtualization StatVirtualization
-	HostPermissions    HostPermissions
-	Owner              *MountOwner
-	QuotaMiB           uint32
 }
 
 // TmpfsOptions tunes the Tmpfs factory.

@@ -11,11 +11,11 @@ import (
 //
 //exhaustruct:ignore
 type ExecRequest struct {
+	Env       map[string]string
 	User      string
 	Cwd       string
-	Env       map[string]string
-	TTY       bool
 	Timeout   time.Duration
+	TTY       bool
 	StdinPipe bool
 }
 
@@ -98,7 +98,7 @@ type LogQuery struct {
 //exhaustruct:ignore
 type CompactionRequest struct {
 	Layers       *uint32
-	DryRun       bool
 	Disk         string
+	DryRun       bool
 	RootDiskOnly bool
 }

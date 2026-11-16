@@ -18,10 +18,9 @@ import (
 // bind can only be one of the two — so it is scoped as its own checkout by
 // hashing its worktree root instead.
 type Identity struct {
-	BindRoot        string // host dir to bind at /workspace
-	CheckoutRoot    string // enclosing checkout root; "" when cwd is not in a repo
-	WorktreeRoot    string // nearest dir holding a .git entry; "" when cwd is not in a repo
-	OutsideWorktree bool   // cwd is a linked worktree outside CheckoutRoot; gets its own checkout slug
+	BindRoot     string // host dir to bind at /workspace
+	CheckoutRoot string // enclosing checkout root; "" when cwd is not in a repo
+	WorktreeRoot string // nearest dir holding a .git entry; "" when cwd is not in a repo
 	// SharedGitDir is the resolved host path of an outside worktree's shared git
 	// dir, which lies outside BindRoot and must be mounted separately; "" unless
 	// OutsideWorktree.
@@ -31,7 +30,6 @@ type Identity struct {
 	// VM follows this text, so it is the guest path to mount at; "" unless
 	// OutsideWorktree.
 	RecordedSharedGitDir string
-	Bare                 bool   // the shared git dir is a bare repository
 	RepoSlug             string // origin-derived; shared by every clone of a remote
 	CheckoutSlug         string // common-dir-derived, or worktree-root-derived when outside
 	// LegacyRepoSlugs lists additional origin-keyed identities whose project state
@@ -41,6 +39,8 @@ type Identity struct {
 	// inside it kept the origin-derived slug. Adopting both keeps a bare-root
 	// user's saved home and config instead of stranding them.
 	LegacyRepoSlugs []string
+	OutsideWorktree bool // cwd is a linked worktree outside CheckoutRoot; gets its own checkout slug
+	Bare            bool // the shared git dir is a bare repository
 }
 
 // ResolveIdentity derives the workspace layout and both project slugs for cwd in

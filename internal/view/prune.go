@@ -18,28 +18,28 @@ type pruneDetailJSON struct {
 // PruneReportJSON is the --format json shape of a full prune report. Optional
 // byte counts are pointers so an unknown reclamation marshals as null, never 0.
 type PruneReportJSON struct {
-	DryRun                        bool              `json:"dry_run"`
+	ImageBytesReclaimed           *uint64           `json:"image_bytes_reclaimed"`
+	RuntimePhysicalBytesReclaimed *uint64           `json:"runtime_physical_bytes_reclaimed"`
+	Details                       []pruneDetailJSON `json:"details"`
+	RetiredProjects               []string          `json:"retired_projects"`
 	Sandboxes                     int               `json:"sandboxes"`
 	Volumes                       int               `json:"volumes"`
 	Images                        int               `json:"images"`
 	DockerImages                  int               `json:"docker_images"`
-	SkippedImagesInUse            uint32            `json:"skipped_images_in_use"`
-	ImageBytesReclaimed           *uint64           `json:"image_bytes_reclaimed"`
 	RuntimeFilesRemoved           uint64            `json:"runtime_files_removed"`
 	RuntimeLogicalBytesRemoved    uint64            `json:"runtime_logical_bytes_removed"`
-	RuntimePhysicalBytesReclaimed *uint64           `json:"runtime_physical_bytes_reclaimed"`
-	Details                       []pruneDetailJSON `json:"details"`
-	RetiredProjects               []string          `json:"retired_projects"`
+	SkippedImagesInUse            uint32            `json:"skipped_images_in_use"`
+	DryRun                        bool              `json:"dry_run"`
 }
 
 // ImageReportJSON is the --format json shape of an image prune report.
 type ImageReportJSON struct {
-	DryRun         bool              `json:"dry_run"`
+	BytesReclaimed *uint64           `json:"bytes_reclaimed"`
+	Details        []pruneDetailJSON `json:"details"`
 	Images         int               `json:"images"`
 	DockerImages   int               `json:"docker_images"`
 	SkippedInUse   uint32            `json:"skipped_in_use"`
-	BytesReclaimed *uint64           `json:"bytes_reclaimed"`
-	Details        []pruneDetailJSON `json:"details"`
+	DryRun         bool              `json:"dry_run"`
 }
 
 // VolumeReportJSON is the --format json shape of a volume prune report.

@@ -383,45 +383,45 @@ func (m *MockMsbClient) SetGetVolumeErr(err error) *MockMsbClient {
 
 // MockSandboxHandle is a test double for SandboxHandle.
 type MockSandboxHandle struct {
-	Name_        string
-	ID_          string
-	Status_      msb.SandboxStatus
-	UpdatedAt_   time.Time
-	CreatedAt_   time.Time
-	BackendKind_ msb.BackendKind
-	Image_       string
-	ConnectSb    msb.Sandbox
+	UpdatedAt_ time.Time
+	CreatedAt_ time.Time
+	ConnectSb  msb.Sandbox
+	StartSb    msb.Sandbox
+	ConnectErr error
+	StartErr   error
+	StopErr    error
+	KillErr    error
+	RemoveErr  error
+	DestroyErr error
+	ConfigErr  error
+	MountsErr  error
+	PortsErr   error
+	ModifyErr  error
+	CompactErr error
+	MetricsErr error
+	LogsErr    error
 	// ConnectOrStartFn overrides ConnectOrStart's status-driven behaviour.
 	ConnectOrStartFn func(context.Context) (msb.Sandbox, bool, error)
-	StartSb          msb.Sandbox
+	DestroyFn        func(context.Context) error
+	Cfg              *msb.SandboxConfig
+	Mounts           map[string]msb.MountConfig
+	Plan             *msb.SandboxModificationPlan
+	CompactResult    *msb.DiskCompactionResult
+	MetricsResult    *msb.Metrics
+	Name_            string
+	ID_              string
+	Status_          msb.SandboxStatus
+	BackendKind_     msb.BackendKind
+	Image_           string
+	PortBindings     []msb.PortBinding
+	ModifiedOptions  []msb.ModifyOptions
+	CompactedOptions []msb.CompactionRequest
+	LogsResult       []msb.LogEntry
+	LogsOptions      []msb.LogQuery
 	DidRmv           bool
 	DidStop          bool
 	DidKill          bool
-	ConnectErr       error
-	StartErr         error
-	StopErr          error
-	KillErr          error
-	RemoveErr        error
-	DestroyFn        func(context.Context) error
-	DestroyErr       error
 	Destroyed        bool
-	Cfg              *msb.SandboxConfig
-	ConfigErr        error
-	Mounts           map[string]msb.MountConfig
-	MountsErr        error
-	PortBindings     []msb.PortBinding
-	PortsErr         error
-	ModifyErr        error
-	Plan             *msb.SandboxModificationPlan
-	ModifiedOptions  []msb.ModifyOptions
-	CompactResult    *msb.DiskCompactionResult
-	CompactErr       error
-	CompactedOptions []msb.CompactionRequest
-	MetricsResult    *msb.Metrics
-	MetricsErr       error
-	LogsResult       []msb.LogEntry
-	LogsErr          error
-	LogsOptions      []msb.LogQuery
 }
 
 func (m *MockSandboxHandle) Name() string                 { return m.Name_ }
