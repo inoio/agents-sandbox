@@ -14,13 +14,29 @@ import (
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
-func changedDecision() Decision {
-	current := projectionOf(Input{
+// currentProjectInput is the project config an approval prompt lists.
+func currentProjectInput() Input {
+	return Input{
 		Path:    "/repo/.agents-sandbox/config.yaml",
 		Kind:    KindLauncherConfig,
-		Entries: []string{"mounts./host: \"/\x1b[2J\""},
+		Entries: []string{`mounts./host: "/\x1b[2J"`},
+	}
+}
+
+// changedDecision is a decision that differs from a previous approval, so it
+// reads as a change rather than a first approval.
+func changedDecision() Decision {
+	approved := projectionOf(Input{
+		Path:    "/repo/.agents-sandbox/config.yaml",
+		Kind:    KindLauncherConfig,
+		Entries: []string{`network.profile: "none"`},
 	})
-	return Evaluate(current, toApproval(Projection{}))
+	return Evaluate(projectionOf(currentProjectInput()), toApproval(approved))
+}
+
+// firstApprovalDecision is a decision for a checkout with nothing approved yet.
+func firstApprovalDecision() Decision {
+	return Evaluate(projectionOf(currentProjectInput()), state.ApprovedProjectLayer{})
 }
 
 // TestApproveRecordsTheProjectionOnApproval pins the interactive path: the
@@ -127,6 +143,51 @@ func TestIgnoredWarningNamesTheChangedInputs(t *testing.T) {
 	}
 }
 
+// TestFirstApprovalMessagingNamesNewConfiguration pins that a checkout with
+// nothing approved is asked to accept new configuration, not told that
+// something changed since a previous approval that never happened.
+func TestFirstApprovalMessagingNamesNewConfiguration(t *testing.T) {
+	decision := firstApprovalDecision()
+	if !decision.FirstApproval {
+		t.Fatal("a decision with no recorded approval is not a first approval")
+	}
+	rendered := RenderChanges(decision)
+	if strings.Contains(rendered, "changed since you last approved") {
+		t.Errorf("first-approval prompt reads as a change:\n%s", rendered)
+	}
+	for _, want := range []string{
+		"new configuration", "not approved", "/repo/.agents-sandbox/config.yaml", `+ mounts./host: "/\x1b[2J"`,
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("first-approval prompt %q does not mention %q", rendered, want)
+		}
+	}
+	warning := IgnoredWarning(decision)
+	if strings.Contains(warning, "changed") || !strings.Contains(warning, "not approved yet") {
+		t.Errorf("first-approval warning reads as a change:\n%s", warning)
+	}
+	err := Approve(&termiotest.Mock{}, "checkout-a", decision)
+	if !errors.Is(err, ErrApprovalRequired) || !strings.Contains(err.Error(), "no approved project config yet") {
+		t.Errorf("first-approval refusal = %v, want ErrApprovalRequired naming the missing approval", err)
+	}
+}
+
+// TestChangedDecisionMessagingNamesTheChange pins the other side: a decision
+// that differs from a recorded approval still reads as a change.
+func TestChangedDecisionMessagingNamesTheChange(t *testing.T) {
+	decision := changedDecision()
+	if decision.FirstApproval {
+		t.Fatal("a decision with a recorded approval is a first approval")
+	}
+	rendered := RenderChanges(decision)
+	if !strings.Contains(rendered, "changed since you last approved it") {
+		t.Errorf("changed prompt does not read as a change:\n%s", rendered)
+	}
+	if !strings.Contains(IgnoredWarning(decision), "changed and is not approved") {
+		t.Errorf("changed warning does not read as a change:\n%s", IgnoredWarning(decision))
+	}
+}
+
 // TestFirstRunChangeListNamesAConfigFileOnce pins F5 end to end: a first-run
 // decision computed from a real config file without home: keys is one input, so
 // the change list and every flat path list name its path once — the empty home
@@ -138,7 +199,7 @@ func TestFirstRunChangeListNamesAConfigFileOnce(t *testing.T) {
 	path := f.write(t, "config.yaml", "memory: 8G\n")
 	decision := Evaluate(f.compute(t), toApproval(Projection{}))
 
-	rendered := RenderChanges(decision.Changes)
+	rendered := RenderChanges(decision)
 	if got := strings.Count(rendered, path); got != 1 {
 		t.Errorf("RenderChanges names %q %d times, want once:\n%s", path, got, rendered)
 	}

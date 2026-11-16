@@ -248,8 +248,12 @@ still reaches the host run:
 
 - The prompt lists one block per changed input — its status (`new`, `changed`, `removed`), source path, and
   kind — with `- old` / `+ new` lines from an order-aware line diff (a moved or repeated line shows), every
-  value escaped for the terminal (`termio.EscapeControl`). It does not reuse `config harden` machinery. A first
-  approval shows every input in full.
+  value escaped for the terminal (`termio.EscapeControl`). It does not reuse `config harden` machinery.
+- A **first approval** — no previously approved projection for the checkout, including a fresh clone lost state —
+  is introduced as *new configuration to accept*, not as a change since a previous approval that never happened,
+  and shows every input in full (`new`). The warning a command prints for an ignored unapproved layer, and the
+  non-interactive refusal, use the same first-approval phrasing. A later approval is introduced as a change since
+  the last approval (`Decision.FirstApproval` chooses the wording).
 - Each snippet file is its own input with its content, not the merged output, so a snippet edit shows as an
   edit to that file.
 - A file input carries the digest of every byte next to its display lines, so any byte change — a final

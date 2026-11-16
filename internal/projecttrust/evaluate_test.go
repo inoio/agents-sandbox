@@ -73,10 +73,16 @@ func TestEvaluateListsEveryChangedInput(t *testing.T) {
 	if got.Approved || !reflect.DeepEqual(got.Changes, want) {
 		t.Errorf("Evaluate = %+v, want changes %+v", got, want)
 	}
+	if got.FirstApproval {
+		t.Error("a change against a recorded approval reads as a first approval")
+	}
 
 	first := Evaluate(projectionOf(config), state.ApprovedProjectLayer{})
 	if first.Approved || len(first.Changes) != 1 || first.Changes[0].Status != StatusAdded {
 		t.Errorf("Evaluate(no record) = %+v, want the input as added", first)
+	}
+	if !first.FirstApproval {
+		t.Error("a decision with no recorded approval does not read as a first approval")
 	}
 }
 
