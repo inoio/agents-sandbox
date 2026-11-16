@@ -1,5 +1,5 @@
 ---
-description: Contract for the release model — `main` as the source of truth, fixes cherry-picked down (`git cherry-pick -x`) to the single maintained `release/<major>.<minor>` branch, the patch-id containment invariant checked by `git cherry` (not ancestry) before the micro's own changelog/tag commit and the one prior-micro release commit per shipped micro that legitimately shows as `+`, the micro/minor/major tag roles, the `needs-backport` marker, the `release` skill's `backport-audit` tag precondition, the nightly reconciliation workflow and its rolling, pinned `[Tracker] Missing backports` issue, and that a release tag is refused unless it is on `main` or a release branch.
+description: Contract for the release model — `main` as the source of truth, fixes cherry-picked down (`git cherry-pick -x`) to the single maintained `release/<major>.<minor>` branch, the patch-id containment invariant checked by `git cherry` (not ancestry) before the micro's own changelog/tag commit and the one prior-micro release commit per shipped micro that legitimately shows as `+`, the micro/minor/major tag roles, the `needs-backport` marker, the `release` skill's `backport-audit` tag precondition, the nightly reconciliation workflow and its pinned `[Tracker] Missing backports` issue, and that a release tag is refused unless it is on `main` or a release branch.
 read_if: Deciding where a release tag or a fix lands, cherry-picking a fix down to a release line, backporting a fix, the `needs-backport` marker, the backport audit or its nightly workflow, protecting a release branch, or changing the release branch name or flow.
 ---
 
@@ -118,7 +118,7 @@ release branch the audit reports nothing to audit and exits clean.
 
 `.github/workflows/backport-audit.yml` is a **non-gating nightly** (a schedule and a manual dispatch,
 never a PR check and never a member of `release.needs`). It runs the same audit off `main`, opens the
-missing backport PRs, and keeps **one rolling, idempotent `[Tracker] Missing backports` issue** current
+missing backport PRs, and keeps **one idempotent, pinned `[Tracker] Missing backports` issue** current
 — pinned to the top of the issue list while open, body rewritten in place, and unpinned and closed when
 the debt clears, rather than failing a scheduled build. A finding that already has an open backport PR
 is not re-ported: the tracker lists that PR and waits for a merge. Git's `git cherry`

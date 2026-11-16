@@ -46,8 +46,8 @@
 #      hide a fix.
 #
 #   Complete set: gh returns the newest N rows and drops the rest with no
-#   signal, so a truncated window would read as clean and close the rolling
-#   issue. Each source is therefore requested with --limit
+#   signal, so a truncated window would read as clean and close the tracker.
+#   Each source is therefore requested with --limit
 #   BACKPORT_AUDIT_PAGE_LIMIT (default 5000) and a page that comes back with
 #   that many rows or more fails loudly (exit 2) instead of being audited. The
 #   backport queries carry the same cap and guard. The limit is
@@ -166,7 +166,7 @@ read -r _major _minor release_ref release_name <<<"$release_line"
 # gh returns the newest N rows and silently drops the rest. Every expected-set
 # query asks for $PAGE_LIMIT rows and a page at the cap aborts with 2: a
 # truncated set must never read as clean, because the next step would then
-# close the rolling issue and erase the signal. The default sits past any
+# close the tracker and erase the signal. The default sits past any
 # realistic accumulation (the queries are cumulative over the repository's whole
 # history); the knob is the escape hatch if one outgrows it.
 #

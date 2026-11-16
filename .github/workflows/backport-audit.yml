@@ -3,8 +3,8 @@ name: backport-audit
 # Every fix lands on the default branch and is cherry-picked onto the newest
 # release/<major>.<minor> line. This workflow reconciles the two: it reports a
 # merged `needs-backport` pull request whose commits never reached the release
-# line, opens the missing backport pull requests, and keeps one rolling issue
-# current. It is deliberately not a gate — a nightly schedule and a manual
+# line, opens the missing backport pull requests, and keeps its pinned
+# `[Tracker] Missing backports` issue current. It is deliberately not a gate — a nightly schedule and a manual
 # dispatch only, never a PR check and never a member of `release.needs` — so a
 # forgotten port is surfaced, never enforced: a red run here reports debt and
 # blocks nothing.
@@ -21,15 +21,15 @@ on:
   workflow_dispatch:
 
 # Least privilege by default; the audit job raises this for itself, since it
-# pushes a backport branch, opens pull requests, and maintains the rolling
-# issue. A job-level `permissions` block replaces this one rather than merging
+# pushes a backport branch, opens pull requests, and maintains the pinned
+# tracker issue. A job-level `permissions` block replaces this one rather than merging
 # with it, so the job repeats `contents` at the wider scope it needs.
 permissions:
   contents: read
 
 # One audit at a time. A manual dispatch racing the nightly would otherwise run
-# two audits that each create a "[Tracker] Missing backports" issue, breaking the one-rolling-
-# issue invariant. Never cancel a run in progress — it may be mid-way through
+# two audits that each create a "[Tracker] Missing backports" issue, breaking the one-tracker
+# invariant. Never cancel a run in progress — it may be mid-way through
 # opening backport pull requests — so a superseded pending run is dropped and
 # the running one finishes (mirrors fuzz.yml).
 concurrency:
@@ -64,8 +64,8 @@ jobs:
         # The detector owns the status semantics: 0 clean, 1 debt found, and any
         # other non-zero a usage or operational failure (a `gh`/`git` rate limit
         # or network blip aborts it mid-run). Only a 0 is clean. A failure must
-        # not read as "no debt" — that would let the next step close the rolling
-        # issue and erase the signal — so it fails this step instead: non-gating
+        # not read as "no debt" — that would let the next step close the tracker
+        # and erase the signal — so it fails this step instead: non-gating
         # (a scheduled failure blocks nothing), but the steps below are skipped
         # and the issue is left as it was. `backport-debt.txt` holds only debt
         # lines; the detector also prints a plain sentence when there is no
@@ -78,7 +78,7 @@ jobs:
             exit 0
           fi
           if [ "$status" -ne 1 ]; then
-            echo "backport-audit: the detector exited ${status} (neither clean nor debt); leaving the rolling issue untouched." >&2
+            echo "backport-audit: the detector exited ${status} (neither clean nor debt); leaving the tracker untouched." >&2
             cat backport-audit-raw.txt >&2
             exit "$status"
           fi
