@@ -226,20 +226,15 @@ through the queue like any other PR.
 
 ### 9. Post-release
 
-Dependency and tool-version hygiene lands on `main` whatever the release kind; the changelog invariant is checked on
-the branch that was tagged.
+On any release:
 
-- `make upgrade-deps`, then PR any `go.mod`/`go.sum` changes on `main`.
-- Bump the non-Go tool versions per [NON-GO-DEPS.md](NON-GO-DEPS.md), then PR them on `main`.
-- Confirm `[Unreleased]` is empty and `changelog.d/` holds only `README.md` on the branch that was tagged: `main`
-  after a minor or major release, `release/<major>.<minor>` after a micro release.
+- On the origin branch (`main` for minor/major release, `release/<major>.<minor>` for micro release:
+  Confirm `[Unreleased]` is empty and `changelog.d/` holds only `README.md`.
 
-Both bumps land on `main` because a release branch must hold no commit `main` lacks (the containment invariant in
-[`specs/release/release-branching.md`](../../../.operator-shared/specs/release/release-branching.md)), and Dependabot
-targets `main` for the same reason. The one exception is a tool that rides into the shipped artifact — the Go
-toolchain, zig, the runner image's node pin — which an urgent fix may patch straight on a release line, as branch debt
-to reconcile onto `main`. After a micro release the `main`-side bumps are normally already current from the preceding
-minor, so run them when the line advanced or enough time has passed.
+On major/minor releases (from `main` branch):
+
+- `make upgrade-deps`, push any `go.mod`/`go.sum` changes to PR
+- Bump the non-Go tool versions per [NON-GO-DEPS.md](NON-GO-DEPS.md), push to PR
 
 Completion: the bumps are on `main` (or found unnecessary), and the tagged branch's `[Unreleased]`/`changelog.d/`
 invariant holds.
