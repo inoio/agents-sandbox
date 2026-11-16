@@ -89,7 +89,7 @@ func wordingFor(firstApproval bool) approvalWording {
 	if firstApproval {
 		return approvalWording{
 			headline: "The project config (.agents-sandbox) is not approved for this checkout yet. Approve this new configuration:",
-			trailer:  "Approve this new configuration only if you expect what it does.",
+			trailer:  "Approve this new configuration only if you expect it.",
 			reason:   "the project config is not approved yet",
 			remedy:   "This checkout has no approved project config yet. Run agents-sandbox interactively in this checkout to review and approve it",
 		}
