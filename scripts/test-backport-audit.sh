@@ -22,11 +22,12 @@ assert_eq_count() { local n; n="$(grep -cF -- "$3" <<<"$2" || true)"; if [[ "$n"
 
 # The fake `gh`: gh_argv.txt records one call per line and canned documents are
 # served, honouring gh's --jq/-q the way the real CLI does. `pr list` reads
-# `$GH_MERGED_JSON` (or `$GH_OPEN_JSON` for --state open), `issue list` reads
-# `$GH_ISSUES_JSON`, and `pr view <n>` reads `$GH_PR_VIEW_DIR/pr-<n>.json`
-# (or `{}` when that file is absent). GH_MERGED_ROWS, when set, replaces the
-# merged `pr list` document with that many rows, to model a full (truncated)
-# page.
+# `$GH_MERGED_JSON` for the labeled expected-set query (--label), `$GH_OPEN_JSON`
+# for --state open, and `$GH_MERGED_BACKPORTS_JSON` for the --state merged
+# backport query; `issue list` reads `$GH_ISSUES_JSON`, and `pr view <n>` reads
+# `$GH_PR_VIEW_DIR/pr-<n>.json` (or `{}` when that file is absent). GH_MERGED_ROWS
+# and GH_MERGED_BACKPORTS_ROWS, when set, replace the corresponding document with
+# that many rows, to model a full (truncated) page.
 fake_bin="$fixture_root/bin"
 mkdir -p "$fake_bin"
 cat >"$fake_bin/gh" <<'GH'
@@ -55,8 +56,8 @@ serve_json() {
   serve_doc "$(cat "$1")" "${@:2}"
 }
 
-many_merged_rows() {
-  jq -nc --argjson n "$GH_MERGED_ROWS" \
+many_rows() {
+  jq -nc --argjson n "$1" \
     '[range($n) | {number: (1000 + .), title: "t", url: "u", mergedAt: "2020-01-01T00:00:00Z", mergeCommit: {oid: ""}}]'
 }
 
@@ -64,13 +65,21 @@ case " $* " in
   *" pr list "*)
     case " $* " in
       *" --state open "*) serve_json "$GH_OPEN_JSON" "$@" ;;
-      *)
+      *" --label "*)
         if [[ -n "${GH_MERGED_ROWS:-}" ]]; then
-          serve_doc "$(many_merged_rows)" "$@"
+          serve_doc "$(many_rows "$GH_MERGED_ROWS")" "$@"
         else
           serve_json "$GH_MERGED_JSON" "$@"
         fi
         ;;
+      *" --state merged "*)
+        if [[ -n "${GH_MERGED_BACKPORTS_ROWS:-}" ]]; then
+          serve_doc "$(many_rows "$GH_MERGED_BACKPORTS_ROWS")" "$@"
+        else
+          serve_json "$GH_MERGED_BACKPORTS_JSON" "$@"
+        fi
+        ;;
+      *) serve_json "$GH_MERGED_BACKPORTS_JSON" "$@" ;;
     esac
     exit 0
     ;;
@@ -92,10 +101,12 @@ export PATH="$fake_bin:$PATH"
 export GH_ARGV="$fixture_root/argv.txt"
 export GH_MERGED_JSON="$fixture_root/merged.json"
 export GH_OPEN_JSON="$fixture_root/open.json"
+export GH_MERGED_BACKPORTS_JSON="$fixture_root/merged-backports.json"
 export GH_ISSUES_JSON="$fixture_root/issues.json"
 export GH_PR_VIEW_DIR="$fixture_root/pr-view"
 mkdir -p "$GH_PR_VIEW_DIR"
 printf '[]\n' >"$GH_OPEN_JSON"
+printf '[]\n' >"$GH_MERGED_BACKPORTS_JSON"
 printf '[]\n' >"$GH_ISSUES_JSON"
 
 # unset_audit_env clears every knob a case may set, so the defaults are the
@@ -265,13 +276,48 @@ run_audit
 if [[ "$status" -eq 0 ]]; then ok "a PR merged within the grace window is skipped"; else bad "a PR merged within the grace window is skipped (got $status)"; fi
 unset_audit_env
 
-echo "# backport-audit.sh (open backport PR)"
+echo "# backport-audit.sh (open backport PR is not a clearance)"
 seed_fixture open-pr
-printf '[{"number":8,"body":"Backport of #7"}]\n' >"$GH_OPEN_JSON"
+printf '[{"number":8,"url":"https://github.com/o/r/pull/8","body":"Backport of #7"}]\n' >"$GH_OPEN_JSON"
 write_merged 2020-01-01T00:00:00Z
 run_audit
-if [[ "$status" -eq 0 ]]; then ok "an open backport PR suppresses the debt"; else bad "an open backport PR suppresses the debt (got $status)"; fi
+if [[ "$status" -eq 1 ]]; then ok "an open backport PR does not clear the debt"; else bad "an open backport PR does not clear the debt (got $status)"; fi
+assert_contains "annotates the finding with the open PR" "$out" "open:https://github.com/o/r/pull/8"
 printf '[]\n' >"$GH_OPEN_JSON"
+
+echo "# backport-audit.sh (merged backport PR clears an adapted port)"
+seed_fixture merged-pr
+git -C "$REPO" checkout -q release/0.1
+printf 'c\n' >"$REPO/g"; git -C "$REPO" add g; git -C "$REPO" commit -qm "adapted g"
+git -C "$REPO" checkout -q main
+write_merged 2020-01-01T00:00:00Z
+run_audit
+if [[ "$status" -eq 1 ]]; then ok "an adapted port with no backport PR is still debt"; else bad "an adapted port with no backport PR is still debt (got $status)"; fi
+printf '[{"number":8,"url":"https://github.com/o/r/pull/8","body":"Backport of #7"}]\n' >"$GH_MERGED_BACKPORTS_JSON"
+run_audit
+if [[ "$status" -eq 0 ]]; then ok "a merged backport PR clears an adapted port"; else bad "a merged backport PR clears an adapted port (got $status)"; fi
+assert_contains "scopes the merged query to the release line" "$(argv)" "pr list --state merged --base release/0.1"
+printf '[]\n' >"$GH_MERGED_BACKPORTS_JSON"
+
+echo "# backport-audit.sh (two open backport PRs)"
+seed_fixture two-open
+printf '[{"number":8,"url":"https://github.com/o/r/pull/8","body":"Backport of #7"},{"number":9,"url":"https://github.com/o/r/pull/9","body":"Backport of #7"}]\n' >"$GH_OPEN_JSON"
+write_merged 2020-01-01T00:00:00Z
+run_audit
+if [[ "$status" -eq 1 ]]; then ok "two open PRs still leave the finding as debt"; else bad "two open PRs still leave the finding as debt (got $status)"; fi
+assert_contains "annotates with the first open PR" "$out" "open:https://github.com/o/r/pull/8"
+printf '[]\n' >"$GH_OPEN_JSON"
+
+echo "# backport-audit.sh (truncated merged backports)"
+seed_fixture truncated-merged
+export BACKPORT_AUDIT_PAGE_LIMIT=5
+export GH_MERGED_BACKPORTS_ROWS=5
+write_merged 2020-01-01T00:00:00Z
+run_audit
+if [[ "$status" -eq 2 ]]; then ok "a full merged-backports page exits 2"; else bad "a full merged-backports page exits 2 (got $status)"; fi
+assert_contains "names the truncated source" "$(err)" "gh pr list (merged backports)"
+unset GH_MERGED_BACKPORTS_ROWS
+unset_audit_env
 
 echo "# backport-audit.sh (unlabeled merged PR)"
 seed_fixture unlabeled
