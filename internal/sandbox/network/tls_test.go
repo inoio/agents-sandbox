@@ -47,6 +47,30 @@ func TestPolicyFingerprintIgnoresTLSBypassUnderInterceptOff(t *testing.T) {
 	}
 }
 
+// TestPolicyFingerprintTreatsBypassUnderAutoAsOn pins that `auto` with a bypass
+// and `on` with the same bypass fingerprint alike: networkConfig emits the same
+// `TLS{Bypass}` for both, so flipping between them must not force a recreate.
+func TestPolicyFingerprintTreatsBypassUnderAutoAsOn(t *testing.T) {
+	withBypass := func(mode InterceptMode) Policy {
+		return Policy{Profiles: []Profile{ProfileNone}, InterceptTLS: mode, TLSBypass: []string{"*.internal.example"}}
+	}
+	if withBypass(InterceptAuto).Fingerprint() != withBypass(InterceptOn).Fingerprint() {
+		t.Fatalf("auto+bypass must fingerprint like on+bypass: %q vs %q",
+			withBypass(InterceptAuto).Fingerprint(), withBypass(InterceptOn).Fingerprint())
+	}
+}
+
+// TestPolicyFingerprintTreatsOffAsAutoWithoutBypass pins that `off` and `auto`
+// with no bypass fingerprint alike: both emit no TLS config, so flipping
+// between them must not force a recreate.
+func TestPolicyFingerprintTreatsOffAsAutoWithoutBypass(t *testing.T) {
+	off := Policy{Profiles: []Profile{ProfileNone}, InterceptTLS: InterceptOff}
+	auto := Policy{Profiles: []Profile{ProfileNone}, InterceptTLS: InterceptAuto}
+	if off.Fingerprint() != auto.Fingerprint() {
+		t.Fatalf("off must fingerprint like auto with no bypass: %q vs %q", off.Fingerprint(), auto.Fingerprint())
+	}
+}
+
 func TestParseInterceptModeRejectsUnknown(t *testing.T) {
 	if _, err := ParseInterceptMode("sometimes"); err == nil {
 		t.Fatal("want error for an unknown mode")

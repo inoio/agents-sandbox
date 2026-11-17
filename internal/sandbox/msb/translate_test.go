@@ -990,6 +990,16 @@ func TestNetworkConfigLeavesTLSNilForAutoWithoutBypass(t *testing.T) {
 	}
 }
 
+func TestNetworkConfigLeavesTLSNilForInterceptOff(t *testing.T) {
+	cfg, err := networkConfig(NetworkSpec{InterceptTLS: InterceptOff})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TLS != nil {
+		t.Fatal("off must not set TLS")
+	}
+}
+
 func TestNetworkConfigSetsTLSForBypassUnderAuto(t *testing.T) {
 	cfg, err := networkConfig(NetworkSpec{TLSBypass: []string{"*.internal"}})
 	if err != nil {

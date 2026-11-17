@@ -126,11 +126,15 @@ func (p Policy) Effective() Policy {
 // A `none` policy likewise contributes a marker for omitting the gateway-DNS
 // rule, so a VM created with the rule is recreated once without it.
 //
-// The TLS-interception settings contribute lines only when they change the
-// emitted policy: an auto interception mode is microsandbox's own default and
-// unset means auto, so neither contributes a line and existing digests stay
-// stable; a bypass host does unless interception is off, where it is dropped
-// and never reaches the VM; and `disable-strict=true` does when set.
+// The TLS-interception lines record the emitted TLS state, not the requested
+// mode. Only `on` with no bypass emits a TLS config carrying an empty bypass,
+// so it is the only case that contributes `intercept-tls=on`; a bypass host
+// contributes a `tls-bypass=<host>` line whenever the mode is not `off` (under
+// `off` the bypass is dropped and never reaches the VM, and `auto` with no
+// bypass emits no TLS at all). `disable-strict=true` contributes when set. The
+// result is that `auto`+bypass and `on`+bypass fingerprint alike — both emit
+// `TLS{Bypass}` — and `off` and `auto` without bypass alike — both emit no TLS —
+// so flipping between equivalent modes never forces a recreate.
 func (p Policy) Fingerprint() string {
 	p = p.Effective()
 	var lines []string
@@ -147,10 +151,14 @@ func (p Policy) Fingerprint() string {
 		lines = append(lines, "deny="+d)
 	}
 	mode := p.interceptMode()
-	if mode != InterceptAuto {
-		lines = append(lines, "intercept-tls="+string(mode))
-	}
-	if mode != InterceptOff {
+	switch {
+	case mode == InterceptOn && len(p.TLSBypass) == 0:
+		// `on` with no bypass is the only case that emits a TLS config with an
+		// empty bypass (the runtime intercepts, no host is skipped).
+		lines = append(lines, "intercept-tls=on")
+	case mode != InterceptOff:
+		// `on` or `auto` with a bypass emits a TLS config carrying the bypass;
+		// `auto` with none emits nothing.
 		for _, host := range p.TLSBypass {
 			lines = append(lines, "tls-bypass="+host)
 		}

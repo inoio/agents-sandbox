@@ -33,9 +33,8 @@ func ParseInterceptMode(s string) (InterceptMode, error) {
 	}
 }
 
-// ValidateTLSBypass validates and normalizes TLS-bypass hosts. Each entry is an
-// exact host or a `*.suffix` wildcard; entries are trimmed and empty ones are
-// rejected.
+// ValidateTLSBypass normalizes TLS-bypass hosts: each entry is trimmed and an
+// empty entry is rejected.
 func ValidateTLSBypass(in []string) ([]string, error) {
 	out := make([]string, 0, len(in))
 	for _, host := range in {
