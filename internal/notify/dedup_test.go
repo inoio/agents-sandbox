@@ -10,13 +10,25 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 )
 
+// allTriggersOn is the permissive config for the dedup tests, which exercise
+// cross-client claiming independent of the trigger toggles.
+func allTriggersOn() Config {
+	return Config{
+		OnInput:                true,
+		OnDone:                 true,
+		OnError:                true,
+		OnDoneSubagentsRunning: true,
+		OnDoneCommandsRunning:  true,
+	}
+}
+
 func TestDedupCrossClientSingleNotification(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	slug := "dedupcross-a"
 	sink := &sharedSink{}
 
-	c1 := NewDedup(slug, StateClaimer{}, sink)
-	c2 := NewDedup(slug, StateClaimer{}, sink)
+	c1 := NewDedup(slug, StateClaimer{}, allTriggersOn(), sink)
+	c2 := NewDedup(slug, StateClaimer{}, allTriggersOn(), sink)
 
 	n := Notification{SessionID: "ses_A", Trigger: TriggerDone, Title: "agents-sandbox: agent done", Body: "x"}
 	c1.Notify(n) // first claim -> delivered
@@ -37,7 +49,7 @@ func TestDedupDifferentSessionsIndependent(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	slug := "dedupses-a"
 	sink := &sharedSink{}
-	c := NewDedup(slug, StateClaimer{}, sink)
+	c := NewDedup(slug, StateClaimer{}, allTriggersOn(), sink)
 
 	c.Notify(Notification{SessionID: "ses_A", Trigger: TriggerDone})
 	c.Notify(Notification{SessionID: "ses_B", Trigger: TriggerDone})
@@ -50,7 +62,7 @@ func TestDedupDifferentTriggersIndependent(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	slug := "deduptrig-a"
 	sink := &sharedSink{}
-	c := NewDedup(slug, StateClaimer{}, sink)
+	c := NewDedup(slug, StateClaimer{}, allTriggersOn(), sink)
 
 	c.Notify(Notification{SessionID: "ses_A", Trigger: TriggerDone})
 	c.Notify(Notification{SessionID: "ses_A", Trigger: TriggerInput})
@@ -63,7 +75,7 @@ func TestDedupBypassesWhenNoSessionID(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	slug := "dedupnosid-a"
 	sink := &sharedSink{}
-	c := NewDedup(slug, StateClaimer{}, sink)
+	c := NewDedup(slug, StateClaimer{}, allTriggersOn(), sink)
 
 	c.Notify(Notification{Trigger: TriggerDone})
 	c.Notify(Notification{Trigger: TriggerDone})
@@ -75,7 +87,7 @@ func TestDedupBypassesWhenNoSessionID(t *testing.T) {
 func TestDedupSameClientSecondNotifyDropped(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	sink := &sharedSink{}
-	c := NewDedup("dedupheld-a", StateClaimer{}, sink)
+	c := NewDedup("dedupheld-a", StateClaimer{}, allTriggersOn(), sink)
 
 	n := Notification{SessionID: "ses_A", Trigger: TriggerDone}
 	c.Notify(n) // claims and delivers
@@ -93,7 +105,7 @@ func TestDedupReleasesInputClaims(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	slug := "dedupcleanup-a"
 	sink := &sharedSink{}
-	c := NewDedup(slug, StateClaimer{}, sink)
+	c := NewDedup(slug, StateClaimer{}, allTriggersOn(), sink)
 
 	c.Notify(Notification{SessionID: "ses_A", Trigger: TriggerInput, EventID: "evt_1"})
 	c.Notify(Notification{SessionID: "ses_A", Trigger: TriggerInput, EventID: "evt_2"})
@@ -118,8 +130,8 @@ func TestDedupLaterInputNotBlockedByAnotherClient(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	slug := "dedupliveness-a"
 	sink := &sharedSink{}
-	c1 := NewDedup(slug, StateClaimer{}, sink)
-	c2 := NewDedup(slug, StateClaimer{}, sink)
+	c1 := NewDedup(slug, StateClaimer{}, allTriggersOn(), sink)
+	c2 := NewDedup(slug, StateClaimer{}, allTriggersOn(), sink)
 
 	c1.Notify(Notification{SessionID: "ses_A", Trigger: TriggerInput, EventID: "evt_1"})
 	// c1's stream drops here and it never sees evt_2.
@@ -134,7 +146,7 @@ func TestDedupLaterInputNotBlockedByAnotherClient(t *testing.T) {
 // forwarded once.
 func TestDedupSameInputEventDeliveredOnce(t *testing.T) {
 	sink := &sharedSink{}
-	c := NewDedup("dedupinputrepeat-a", alwaysClaimer{}, sink)
+	c := NewDedup("dedupinputrepeat-a", alwaysClaimer{}, allTriggersOn(), sink)
 
 	n := Notification{SessionID: "ses_A", Trigger: TriggerInput, EventID: "evt_1"}
 	c.Notify(n)
@@ -150,8 +162,8 @@ func TestDedupCrossClientInputsDeliveredOnce(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	slug := "dedupcross-input-a"
 	sink := &sharedSink{}
-	c1 := NewDedup(slug, StateClaimer{}, sink)
-	c2 := NewDedup(slug, StateClaimer{}, sink)
+	c1 := NewDedup(slug, StateClaimer{}, allTriggersOn(), sink)
+	c2 := NewDedup(slug, StateClaimer{}, allTriggersOn(), sink)
 
 	n1 := Notification{SessionID: "ses_A", Trigger: TriggerInput, EventID: "evt_1"}
 	n2 := Notification{SessionID: "ses_A", Trigger: TriggerInput, EventID: "evt_2"}
@@ -164,9 +176,28 @@ func TestDedupCrossClientInputsDeliveredOnce(t *testing.T) {
 	}
 }
 
+// TestDedupGatedNotificationNotClaimed pins that a notification the trigger
+// config disables is dropped before it can spend its token: a classified done
+// (a pending reason whose toggle is off) must not swallow the later quiet done.
+func TestDedupGatedNotificationNotClaimed(t *testing.T) {
+	sink := &sharedSink{}
+	cfg := Config{OnDone: true} // both reason toggles off
+	inner := &compositeBackend{cfg: cfg, parts: []Backend{sink}}
+	c := NewDedup("dedupgated-a", alwaysClaimer{}, cfg, inner)
+
+	c.Notify(Notification{SessionID: "ses_A", Trigger: TriggerDone, DoneReasons: []DoneReason{DoneSubagentsRunning}})
+	if sink.count() != 0 {
+		t.Fatalf("gated done delivered: %+v", sink.got)
+	}
+	c.Notify(Notification{SessionID: "ses_A", Trigger: TriggerDone}) // quiet
+	if sink.count() != 1 {
+		t.Fatalf("quiet done dropped after a gated done: got %d", sink.count())
+	}
+}
+
 func TestDedupFailsOpenOnClaimError(t *testing.T) {
 	sink := &sharedSink{}
-	c := NewDedup("deduperr-a", errorClaimer{}, sink)
+	c := NewDedup("deduperr-a", errorClaimer{}, allTriggersOn(), sink)
 
 	c.Notify(Notification{SessionID: "ses_A", Trigger: TriggerDone})
 	if sink.count() != 1 {

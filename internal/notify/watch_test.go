@@ -341,7 +341,7 @@ func TestWatchDedupClearsOnBusy(t *testing.T) {
 	}
 	sb := msbtest.NewMockSandbox(msbtest.SandboxOpts{StreamHandle_: stream})
 	inner := &recordBackend{}
-	dedup := NewDedup("watchslug-a", StateClaimer{}, inner)
+	dedup := NewDedup("watchslug-a", StateClaimer{}, allTriggersOn(), inner)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -575,7 +575,7 @@ func TestWatchOnceReportsCleanStreamEnd(t *testing.T) {
 func TestHandleEventSameStepInputRequestsBothNotify(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	sink := &sharedSink{}
-	dedup := NewDedup("dedupinturn-b", StateClaimer{}, sink)
+	dedup := NewDedup("dedupinturn-b", StateClaimer{}, allTriggersOn(), sink)
 	tr := NewTracker(opencode2Spec())
 	sid := "ses_top"
 
@@ -593,7 +593,7 @@ func TestHandleEventSameStepInputRequestsBothNotify(t *testing.T) {
 func TestHandleEventRepeatedInputEventNotifiesOnce(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	sink := &sharedSink{}
-	dedup := NewDedup("dedupinturn-c", StateClaimer{}, sink)
+	dedup := NewDedup("dedupinturn-c", StateClaimer{}, allTriggersOn(), sink)
 	tr := NewTracker(opencode2Spec())
 	sid := "ses_top"
 
@@ -606,14 +606,16 @@ func TestHandleEventRepeatedInputEventNotifiesOnce(t *testing.T) {
 	}
 }
 
-// TestDedupQuietDoneDeliveredOnce drives the full claim lifecycle behind a
-// Config-gated backend: a classified silent done claims the (root, done) token
-// but the backend drops it, so the token must be released when the root returns
-// to work, letting the later genuinely-quiet done alert exactly once.
-func TestDedupQuietDoneDeliveredOnce(t *testing.T) {
+// TestDedupGatedDoneDoesNotSpendClaim pins that a done the trigger config
+// disables is dropped before claiming, so the later genuinely-quiet done still
+// alerts. The sequence has no root busy event between the two dones (models a
+// missed busy after a stream gap): with the old claim-before-gate order the
+// classified done spent the (root, done) token and the quiet done was swallowed.
+func TestDedupGatedDoneDoesNotSpendClaim(t *testing.T) {
 	sink := &sharedSink{}
-	gated := &compositeBackend{cfg: Config{OnDone: true}, parts: []Backend{sink}}
-	dedup := NewDedup("quietdone-a", alwaysClaimer{}, gated)
+	cfg := Config{OnDone: true, OnInput: true}
+	gated := &compositeBackend{cfg: cfg, parts: []Backend{sink}}
+	dedup := NewDedup("quietdone-a", alwaysClaimer{}, cfg, gated)
 	tr := NewTracker(opencode2Spec())
 	const root = "ses_root"
 
@@ -621,20 +623,20 @@ func TestDedupQuietDoneDeliveredOnce(t *testing.T) {
 		{Type: execStarted, SessionID: root},                           // root busy
 		{Type: sessionCreated, SessionID: "ses_child", ParentID: root}, // child linked
 		{Type: execStarted, SessionID: "ses_child"},                    // child live
-		{Type: execSucceeded, SessionID: root},                         // classified done: claimed, then gated silent
+		{Type: execSucceeded, SessionID: root},                         // classified done: gated, must not claim
 		{Type: execSucceeded, SessionID: "ses_child"},                  // child settles
-		{Type: execStarted, SessionID: root},                           // root busy -> releases the claim
+		{Type: "permission.asked", SessionID: root, EventID: "evt_1"},  // input -> delivered
 		{Type: execSucceeded, SessionID: root},                         // quiet done -> delivered
 	}
 	for _, e := range events {
 		handleEvent(tr, dedup, e)
 	}
 
-	if sink.count() != 1 {
-		t.Fatalf("delivered %d notifications, want exactly one quiet done: %+v", sink.count(), sink.got)
+	if sink.count() != 2 {
+		t.Fatalf("delivered %d notifications, want the input and the quiet done: %+v", sink.count(), sink.got)
 	}
-	if got := sink.got[0]; got.Trigger != TriggerDone || len(got.DoneReasons) != 0 {
-		t.Fatalf("delivered = %+v, want a plain done", got)
+	if got := sink.got[1]; got.Trigger != TriggerDone || len(got.DoneReasons) != 0 {
+		t.Fatalf("second delivery = %+v, want a plain done", got)
 	}
 }
 
