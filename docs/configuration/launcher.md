@@ -180,8 +180,9 @@ Configuration is resolved in this order (later entries override earlier ones):
 | `notify.on-done-commands-running` | —                       | `AGENTS_SANDBOX_NOTIFY_ON_DONE_COMMANDS_RUNNING`                | Let a done alert fire while a background command is still running (default false, see [Notifications]({% link configuration/notifications.md %}))                                                                        |
 | `notify` (override)              | `--notify`               | `AGENTS_SANDBOX_NOTIFY`                                         | Override the notify mode for one invocation: `on`, `off`, `desktop`, or `audio` (see [Notifications]({% link configuration/notifications.md %}))                                                                                                        |
 
-Every field in this table can also be set with its environment variable, except the list and map fields shown with
-`—` (`network.egress-allow`, `network.egress-deny`, `network.tls-bypass`, `allow-placeholder-for`, and `mounts`), which are set in the config file. Env vars take precedence over config files
+Every field in this table can also be set with its environment variable, except the config-file-only list and map
+fields (`network.egress-allow`, `network.egress-deny`, `network.tls-bypass`, `allow-placeholder-for`, and `mounts`)
+and the CLI-only `network.proxy (override)` row. Env vars take precedence over config files
 but lose to an explicitly passed CLI flag. The prefix is `AGENTS_SANDBOX_`; dashes and dots in the field name become
 underscores.
 

@@ -172,7 +172,8 @@ environment variables.
 ## Outbound proxy
 
 Use an outbound proxy when the VM must reach the internet through a corporate egress proxy instead of dialing
-destinations directly. The VM sends its traffic to the proxy, and the proxy makes the outbound connection.
+destinations directly. The runtime dials the proxy on the host and relays the VM's egress through it, so the proxy
+makes the outbound connection.
 
 Configure the proxy with a `proxy:` block under `network:`:
 
@@ -201,9 +202,10 @@ credentials — the flag replaces the whole block, so `--proxy` cannot supply a 
 keys when the proxy needs credentials.
 
 The proxy address needs **no** `egress-allow` entry. The runtime dials the proxy on the host, outside the VM's egress
-policy, so the destination's allow rules govern what the VM may reach and the proxy address does not. The launcher
-adds nothing to `egress-allow` for the proxy and does not reject a policy that omits it, and the VM never sees the
-proxy address as a destination.
+policy, so the destination's allow rules govern what the VM may reach and the proxy address does not. This matters
+most under the `none` profile, where egress is allowlist-only and every other destination needs an explicit rule: the
+proxy address still needs none. The launcher adds nothing to `egress-allow` for the proxy and does not reject a policy
+that omits it, and the VM never sees the proxy address as a destination.
 
 > **Note:** Under the runtime's strict-hostname mode, the destination's own egress can still be denied before the
 > proxy is consulted. See [TLS interception and the strict-hostname mode](#tls-interception-and-the-strict-hostname-mode).
