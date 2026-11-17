@@ -24,12 +24,29 @@ const opencode2ProbeID = "opencode2-sqlite"
 // to the sandbox home.
 const opencode2DatabasePath = ".local/share/opencode/opencode.db"
 
+// maxProbeValueBytes caps the value the probe materializes from one credential
+// row. A credential value is a small JSON blob; the sandboxed agent controls the
+// table, so a larger value is host-memory pressure the probe refuses to pay.
+// The query asks SQLite for the value's length and only a bounded prefix, so an
+// over-cap value never enters the projection.
+const maxProbeValueBytes = 64 * 1024
+
+// maxProbeProjectedBytes caps the total row projection the probe materializes,
+// so a store packed with many small rows is bounded too. Both bounds are far
+// above any real credential set.
+const maxProbeProjectedBytes = 256 * 1024
+
 // opencode2Probe reads opencode2's credential table only. The database is
 // ~13 MB and mostly a churny model catalog, so its file is never hashed: the
 // digest covers the credential rows, which is what a credential change moves.
 //
 // A missing database means a home that never stored a credential: the probe
 // reports nothing and hashes the empty row set, never an error.
+//
+// A row the agent made larger than maxProbeValueBytes, or rows whose combined
+// projection exceeds maxProbeProjectedBytes, make the store unreadable: the
+// oversized content is never materialized, and the caller reports the probe as
+// undetermined rather than silently dropping the row.
 //
 //deadcode:ignore reason="opencode2's credential reader; invoked through runCredentialProbe once the pending S6 analyser reads the home back"
 func opencode2Probe(agentName, home string) (probeResult, error) {
@@ -46,7 +63,11 @@ func opencode2Probe(agentName, home string) (probeResult, error) {
 
 	rows, err := db.QueryContext(
 		context.Background(),
-		`SELECT integration_id, label, active, value FROM credential`,
+		`SELECT integration_id, label, active,
+		        length(CAST(value AS BLOB)) AS value_bytes,
+		        substr(CAST(value AS BLOB), 1, ?) AS value_prefix
+		 FROM credential`,
+		maxProbeValueBytes+1,
 	)
 	if err != nil {
 		return probeResult{}, fmt.Errorf("query opencode2 credential rows: %w", err)
@@ -55,16 +76,27 @@ func opencode2Probe(agentName, home string) (probeResult, error) {
 
 	var projected []string
 	var credentials []Credential
+	projectedBytes := 0
 	for rows.Next() {
-		var integrationID, label, value string
-		var active sql.NullInt64
-		if scanErr := rows.Scan(&integrationID, &label, &active, &value); scanErr != nil {
+		var integrationID, label string
+		var active, valueBytes sql.NullInt64
+		var valuePrefix []byte
+		if scanErr := rows.Scan(&integrationID, &label, &active, &valueBytes, &valuePrefix); scanErr != nil {
 			return probeResult{}, fmt.Errorf("scan opencode2 credential row: %w", scanErr)
 		}
+		if valueBytes.Valid && valueBytes.Int64 > maxProbeValueBytes {
+			return unreadableProbeResult(), nil
+		}
+		value := string(valuePrefix)
 		isActive := active.Valid && active.Int64 != 0
-		projected = append(projected, strings.Join(
+		projection := strings.Join(
 			[]string{integrationID, label, strconv.FormatBool(isActive), value}, "\x00",
-		))
+		)
+		projectedBytes += len(projection) + 1
+		if projectedBytes > maxProbeProjectedBytes {
+			return unreadableProbeResult(), nil
+		}
+		projected = append(projected, projection)
 		if !isActive {
 			// Only an active credential is a fact; an inactive row stays in the
 			// digest so a deactivation is still a change.
@@ -139,6 +171,16 @@ const unreadableProbeMarker = "unreadable"
 // unreadability is detected, while two consecutive failures compare equal.
 var unreadableProbeHash = hashCredentialRows([]string{unreadableProbeMarker})
 
+// unreadableProbeResult is a probe's outcome when its store could not be read or
+// exceeded the probe's read bound: the sentinel digest, no credentials, and the
+// unreadable flag the caller turns into ReadBack.Unreadable. Both cases are
+// undetermined, never an empty credential set.
+//
+//deadcode:ignore reason="builds a probe's unreadable outcome; reached through opencode2Probe and runCredentialProbe"
+func unreadableProbeResult() probeResult {
+	return probeResult{Credentials: nil, RowHash: unreadableProbeHash, Unreadable: true}
+}
+
 // probeResult is one probe's reading of a credential store.
 //
 //exhaustruct:ignore
@@ -159,11 +201,11 @@ type probeResult struct {
 //deadcode:ignore reason="dispatches an agent's declared credential probes; reached through Read and TakeManifest from the pending S6 analyser"
 func runCredentialProbe(agentName, home, probe string) probeResult {
 	if probe != opencode2ProbeID {
-		return probeResult{Credentials: nil, RowHash: unreadableProbeHash, Unreadable: true}
+		return unreadableProbeResult()
 	}
 	result, err := opencode2Probe(agentName, home)
 	if err != nil {
-		return probeResult{Credentials: nil, RowHash: unreadableProbeHash, Unreadable: true}
+		return unreadableProbeResult()
 	}
 	return result
 }

@@ -38,6 +38,11 @@ Reading the database is not literally read-only: even an SQLite connection opene
 `opencode.db-shm` shared-memory file beside `opencode.db`, so the volume directory must stay host-writable for the
 read-back.
 
+The read is bounded because the sandboxed agent controls the database. A credential row's value is materialized
+only through a length-capped SQL projection, and a store whose rows exceed the probe's bound is recorded unreadable
+rather than loaded into host memory; the probe still contributes exactly one manifest entry, carrying the unreadable
+sentinel digest.
+
 ## Baseline manifest
 
 Change detection rests on a manifest of the agent config dirs and the known credential paths — **path, size, mtime,

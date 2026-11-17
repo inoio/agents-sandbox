@@ -150,6 +150,49 @@ func TestTakeManifestProbeFiresOnCredentialChange(t *testing.T) {
 	require.Equal(t, []string{opencode2ProbeKey}, next.Changed(base))
 }
 
+// TestReadOpenCode2ProbeOverCapValueIsUnreadable: the sandboxed agent controls
+// the credential table, so a row whose value exceeds the probe's bound is not
+// materialized. The trip is surfaced through Unreadable, not hidden as an
+// absent credential, and the probe still emits exactly one manifest entry.
+func TestReadOpenCode2ProbeOverCapValueIsUnreadable(t *testing.T) {
+	home := t.TempDir()
+	oversized := strings.Repeat("x", maxProbeValueBytes+1)
+	writeOpenCode2DB(t, home, [2]string{"openai", `{"type":"key","key":"` + oversized + `"}`})
+
+	rb, err := Read(home, "opencode2", Manifest{})
+
+	require.NoError(t, err)
+	require.Empty(t, rb.Static, "an over-cap value is never materialized")
+	require.Empty(t, rb.Login)
+	require.Equal(t, []string{opencode2ProbeKey}, rb.Unreadable,
+		"an over-cap credential row must be surfaced, not silently dropped")
+
+	manifest, err := TakeManifest(home, "opencode2")
+	require.NoError(t, err)
+	entry, ok := entryFor(manifest, opencode2ProbeKey)
+	require.True(t, ok, "the probe still emits exactly one manifest entry")
+	require.Equal(t, unreadableProbeHash, entry.Hash, "a tripped bound carries the sentinel hash")
+}
+
+// TestReadOpenCode2ProbeTotalProjectionCap: a store packed with many
+// near-cap rows trips the total projected-bytes budget and is reported
+// unreadable, so host memory stays bounded by row count as well.
+func TestReadOpenCode2ProbeTotalProjectionCap(t *testing.T) {
+	home := t.TempDir()
+	value := strings.Repeat("x", maxProbeValueBytes)
+	writeOpenCode2DB(t, home,
+		[2]string{"a", value}, [2]string{"b", value}, [2]string{"c", value},
+		[2]string{"d", value}, [2]string{"e", value},
+	)
+
+	rb, err := Read(home, "opencode2", Manifest{})
+
+	require.NoError(t, err)
+	require.Empty(t, rb.Static)
+	require.Equal(t, []string{opencode2ProbeKey}, rb.Unreadable,
+		"a projection over the total budget is undetermined, not empty")
+}
+
 // TestReadOpenCode2ProbeUnreadableDatabase: a database the probe cannot read
 // still contributes exactly one entry, carrying the sentinel hash, so a
 // transient failure cannot be mistaken for the probe's removal. Read stays
