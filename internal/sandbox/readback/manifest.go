@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
@@ -43,11 +42,12 @@ type Manifest struct {
 }
 
 // TakeManifest records a ManifestEntry for every declared path of the named
-// agent plus one probe digest per agent credential probe. Files over
-// maxHashedBytes are recorded opaque (size+mtime, no hash). An agent with no
-// declared paths yields an empty manifest, never an error; a declared path that
-// does not exist yet is simply absent, so a first run has nothing to compare
-// against.
+// agent plus exactly one probe digest per agent credential probe. Files over
+// maxHashedBytes are recorded opaque (size+mtime, no hash); a probe entry
+// carries neither size nor mtime, only the digest of the rows it read — or the
+// sentinel hash when that read failed. An agent with no declared paths yields
+// an empty manifest, never an error; a declared path that does not exist yet is
+// simply absent, so a first run has nothing to compare against.
 func TakeManifest(home, agentName string) (Manifest, error) {
 	var manifest Manifest
 	seen := map[string]bool{}
@@ -56,8 +56,30 @@ func TakeManifest(home, agentName string) (Manifest, error) {
 			return Manifest{}, err
 		}
 	}
+	appendCredentialProbes(&manifest, seen, home, agentName)
 	sortEntries(manifest.Entries)
 	return manifest, nil
+}
+
+// appendCredentialProbes appends exactly one entry per credential probe the
+// named agent declares, keyed "<agent>:<probe>" and carrying the digest of the
+// rows the probe read — or the sentinel hash when that read failed, so an
+// unreadable database never looks like a removed probe.
+func appendCredentialProbes(manifest *Manifest, seen map[string]bool, home, agentName string) {
+	for _, probe := range declaredCredentialProbes(agentName) {
+		key := probeSource(agentName, probe)
+		if seen[key] {
+			continue
+		}
+		result := runCredentialProbe(home, probe)
+		seen[key] = true
+		manifest.Entries = append(manifest.Entries, ManifestEntry{
+			Key:     key,
+			Size:    0,
+			ModTime: time.Time{},
+			Hash:    result.RowHash,
+		})
+	}
 }
 
 // declaredReadBackPaths returns the home-relative paths the named agent's
@@ -74,6 +96,27 @@ func declaredReadBackPaths(agentName string) []string {
 		return nil
 	}
 	return describer.ReadBackPaths()
+}
+
+// declaredCredentialProbes returns the credential probes the named agent's
+// read-back declares, or nothing for an agent without a ReadBackDescriber. An
+// unverified agent yields no probe, never an error.
+func declaredCredentialProbes(agentName string) []string {
+	a, ok := agent.Lookup(agentName)
+	if !ok {
+		return nil
+	}
+	describer, ok := agent.AsReadBackDescriber(a)
+	if !ok {
+		return nil
+	}
+	return describer.CredentialProbes()
+}
+
+// probeSource names a credential probe in a Credential source or a manifest
+// key: "<agent>:<probe>".
+func probeSource(agentName, probe string) string {
+	return agentName + ":" + probe
 }
 
 // appendDeclaredPath walks one declared path (a file or a glob) under home and
@@ -124,9 +167,9 @@ func describeFile(home string, entry filewalk.Entry) (ManifestEntry, error) {
 	return manifestEntry, nil
 }
 
-// Changed returns the keys whose size, mtime, or hash differs from prev (a
-// probe entry is compared on its hash alone), plus keys present in one manifest
-// and not the other, sorted.
+// Changed returns the keys whose size, mtime, or hash differs from prev, plus
+// keys present in one manifest and not the other, sorted. A probe entry carries
+// neither a size nor an mtime, so it is compared on its hash alone.
 func (m Manifest) Changed(prev Manifest) []string {
 	previous := indexEntries(prev.Entries)
 	current := indexEntries(m.Entries)
@@ -157,13 +200,12 @@ func indexEntries(entries []ManifestEntry) map[string]ManifestEntry {
 }
 
 // differs reports whether the current entry's size, mtime, or hash differs from
-// the previous one. A probe entry carries neither size nor mtime, so it is
-// compared on its hash alone.
+// the previous one. A probe entry is compared on its hash alone.
 func differs(current, previous ManifestEntry) bool {
 	if current.Hash != previous.Hash {
 		return true
 	}
-	if isProbe(current.Key) {
+	if isProbe(current) {
 		return false
 	}
 	return current.Size != previous.Size || !current.ModTime.Equal(previous.ModTime)
@@ -174,8 +216,9 @@ func sortEntries(entries []ManifestEntry) {
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Key < entries[j].Key })
 }
 
-// isProbe reports whether key names a credential probe rather than a file. A
-// filename never contains a colon on the platforms we read (the home volume).
-func isProbe(key string) bool {
-	return strings.Contains(key, ":")
+// isProbe reports whether entry names a credential probe rather than a file. A
+// probe carries neither a size nor an mtime, while every file entry carries at
+// least one of them (a file's mtime is never zero).
+func isProbe(entry ManifestEntry) bool {
+	return entry.Size == 0 && entry.ModTime.IsZero()
 }

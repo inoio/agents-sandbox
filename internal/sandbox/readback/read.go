@@ -66,8 +66,9 @@ func Read(home, agentName string, baseline Manifest) (ReadBack, error) {
 
 	readBack := ReadBack{ConfigPaths: nil, Static: nil, Login: nil, Changed: current.Changed(baseline)}
 	for _, entry := range current.Entries {
-		if isProbe(entry.Key) {
-			// A credential probe's entry is read by the probe itself, not here.
+		if isProbe(entry) {
+			// A credential probe's entry carries no path: the probe itself
+			// supplies the credentials, below.
 			continue
 		}
 		loginProvider, isLogin := loginCredentialProviders[entry.Key]
@@ -88,8 +89,26 @@ func Read(home, agentName string, baseline Manifest) (ReadBack, error) {
 			readBack.ConfigPaths = append(readBack.ConfigPaths, entry.Key)
 		}
 	}
+	readBack.appendProbeCredentials(home, agentName)
 	sort.Strings(readBack.ConfigPaths)
 	return readBack, nil
+}
+
+// appendProbeCredentials runs the named agent's credential probes (its agent
+// database, which holds a credential no declared path exposes) and appends what
+// they found. A probe whose store could not be read contributes nothing: the
+// read-back stays best-effort, and the manifest's sentinel digest records that
+// the probe failed. The same reader produces both, so the two cannot disagree.
+func (r *ReadBack) appendProbeCredentials(home, agentName string) {
+	for _, probe := range declaredCredentialProbes(agentName) {
+		for _, credential := range runCredentialProbe(home, probe).Credentials {
+			if credential.Kind == CredentialLogin {
+				r.Login = append(r.Login, credential)
+				continue
+			}
+			r.Static = append(r.Static, credential)
+		}
+	}
 }
 
 // dotenvFileName is the static-secret file name: a declared path with this base
