@@ -85,6 +85,22 @@ func TestParseOpencodeV2Event(t *testing.T) {
 			StreamEvent{Type: "session.shell.ended", SessionID: "ses_root", ShellID: "sh_1"},
 			true,
 		},
+		{
+			// The agent's shell tool emits shell.created with the shell id and
+			// session id nested under info; a still-running tool shell at the
+			// top-level idle is a background command.
+			"tool shell created reads info",
+			`{"type":"shell.created","data":{"info":{"id":"sh_9","status":"running","metadata":{"sessionID":"ses_root"}}}}`,
+			StreamEvent{Type: "shell.created", SessionID: "ses_root", ShellID: "sh_9", ShellBackground: true},
+			true,
+		},
+		{
+			// shell.exited carries no session id, only the shell id at data.id.
+			"tool shell exited has no session",
+			`{"type":"shell.exited","data":{"id":"sh_9","exit":0,"status":"exited"}}`,
+			StreamEvent{Type: "shell.exited", ShellID: "sh_9"},
+			true,
+		},
 		{"undecodable", `not json`, StreamEvent{}, false},
 		{"missing type", `{"data":{"sessionID":"ses_1"}}`, StreamEvent{}, false},
 	}

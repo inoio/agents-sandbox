@@ -266,8 +266,8 @@ func (opencode2Profile) EventStream() EventStreamSpec {
 		StickyErrorEvents:  nil,
 		SessionEvents:      []string{"session.created", "session.renamed"},
 		SubtreeDoneStates:  true,
-		ShellStartedEvents: []string{"session.shell.started"},
-		ShellEndedEvents:   []string{"session.shell.ended"},
+		ShellStartedEvents: []string{"session.shell.started", "shell.created"},
+		ShellEndedEvents:   []string{"session.shell.ended", "shell.exited"},
 		InterruptedEvents:  []string{"session.execution.interrupted"},
 		SessionList: NewSessionList(
 			"curl "+opencode2CurlFlags+" "+opencode2CurlAuth+" "+opencode2ServerURL+"/api/session",
@@ -279,10 +279,13 @@ func (opencode2Profile) EventStream() EventStreamSpec {
 }
 
 // parseOpencodeV2Event decodes v2's /api/event SSE payload: the event type and
-// session id live at data.sessionID, with two fallbacks the flat envelope makes
-// necessary — a form.created nests its session id under data.form.sessionID, and
-// a session event carries the parent (non-empty for a subagent session) under
-// data.info.parentID.
+// session id live at data.sessionID, with the fallbacks the flat envelope makes
+// necessary — a form.created nests its session id under data.form.sessionID, a
+// session event carries the parent (non-empty for a subagent session) under
+// data.info.parentID, and the agent's shell tool nests a shell's session id
+// under data.info.metadata.sessionID. The tool's shell.created/shell.exited
+// carry the shell id at data.info.id and data.id respectively (shell.exited
+// carries no session id).
 func parseOpencodeV2Event(payload []byte) (StreamEvent, bool) {
 	var raw struct {
 		ID   string `json:"id"`
@@ -291,11 +294,16 @@ func parseOpencodeV2Event(payload []byte) (StreamEvent, bool) {
 			SessionID string `json:"sessionID"`
 			ParentID  string `json:"parentID"`
 			Title     string `json:"title"`
+			ID        string `json:"id"`
 			Form      struct {
 				SessionID string `json:"sessionID"`
 			} `json:"form"`
 			Info struct {
 				ParentID string `json:"parentID"`
+				ID       string `json:"id"`
+				Metadata struct {
+					SessionID string `json:"sessionID"`
+				} `json:"metadata"`
 			} `json:"info"`
 			Shell struct {
 				ID       string `json:"id"`
@@ -315,9 +323,25 @@ func parseOpencodeV2Event(payload []byte) (StreamEvent, bool) {
 	if sessionID == "" {
 		sessionID = raw.Data.Form.SessionID
 	}
+	if sessionID == "" {
+		sessionID = raw.Data.Info.Metadata.SessionID
+	}
 	parentID := raw.Data.ParentID
 	if parentID == "" {
 		parentID = raw.Data.Info.ParentID
+	}
+	shellID := raw.Data.Shell.ID
+	shellBackground := raw.Data.Shell.Metadata.Background
+	switch raw.Type {
+	case "shell.created":
+		// The shell tool's start: the shell resource is a command the session
+		// left running, so it counts even though a foreground one exits before
+		// the top-level execution succeeds.
+		shellID = raw.Data.Info.ID
+		shellBackground = true
+	case "shell.exited":
+		// The tool's end carries no session id, only the shell id.
+		shellID = raw.Data.ID
 	}
 	return StreamEvent{
 		Type:            raw.Type,
@@ -325,8 +349,8 @@ func parseOpencodeV2Event(payload []byte) (StreamEvent, bool) {
 		ParentID:        parentID,
 		EventID:         raw.ID,
 		Title:           raw.Data.Title,
-		ShellID:         raw.Data.Shell.ID,
-		ShellBackground: raw.Data.Shell.Metadata.Background,
+		ShellID:         shellID,
+		ShellBackground: shellBackground,
 	}, true
 }
 

@@ -87,15 +87,19 @@ func (t *Tracker) ResetTransient() {
 //
 // Learnings (title, parent link, running shells) are recorded first so a
 // lifecycle event that is also a busy event still marks its session busy. A
-// child session never notifies for its own done/error/interrupt, but its input
-// request surfaces as its top-level ancestor's input.
+// child session never notifies for its own done/error/interrupt; under the
+// subtree model its input request surfaces as its top-level ancestor's input,
+// while off the subtree model (v1) it stays fully suppressed.
 func (t *Tracker) Handle(e agent.StreamEvent) *Notification {
 	t.observe(e)
 
 	// An interrupt settles the session with no alert, for a child or a
 	// top-level session: a child must settle or its parent's done never drains.
+	// A session-less interrupt settles nothing.
 	if eventTypeIn(e.Type, t.spec.InterruptedEvents) {
-		t.states[e.SessionID] = stateIdle
+		if e.SessionID != "" {
+			t.states[e.SessionID] = stateIdle
+		}
 		return nil
 	}
 
@@ -106,16 +110,7 @@ func (t *Tracker) Handle(e agent.StreamEvent) *Notification {
 			t.states[e.SessionID] = stateBusy
 		}
 	case eventTypeIn(e.Type, t.spec.AwaitingInput):
-		// A request notifies from busy or idle as before. From awaiting input it
-		// notifies only when its envelope id is new, so a second request in the
-		// same step (no step boundary to re-arm busy) still alerts while a
-		// repeat of the same event does not.
-		newRequest := e.EventID != "" && e.EventID != t.lastInput[e.SessionID]
-		if st != stateError && (st == stateBusy || st == stateIdle || newRequest) {
-			t.lastInput[e.SessionID] = e.EventID
-			t.states[e.SessionID] = stateAwaitingInput
-			return t.inputNotification(e)
-		}
+		return t.handleInput(e, st)
 	case eventTypeIn(e.Type, t.spec.IdleEvents):
 		if st == stateBusy || st == stateAwaitingInput {
 			t.states[e.SessionID] = stateIdle
@@ -143,10 +138,36 @@ func (t *Tracker) Handle(e agent.StreamEvent) *Notification {
 	return nil
 }
 
+// handleInput applies the awaiting-input arm. A request notifies from busy or
+// idle as before, and from awaiting input only when its envelope id is new for
+// the session, so a second request in the same step (no step boundary to
+// re-arm busy) still alerts while a repeat of the same event does not; it
+// records the id either way. From stateError nothing fires. The child-input
+// exception is part of the subtree model: off SubtreeDoneStates (v1), a child
+// stays fully suppressed — its state updates, but it returns no notification.
+func (t *Tracker) handleInput(e agent.StreamEvent, st state) *Notification {
+	newRequest := e.EventID != "" && e.EventID != t.lastInput[e.SessionID]
+	if st == stateError || (st != stateBusy && st != stateIdle && !newRequest) {
+		return nil
+	}
+	t.lastInput[e.SessionID] = e.EventID
+	t.states[e.SessionID] = stateAwaitingInput
+	if t.isChild(e.SessionID) && !t.spec.SubtreeDoneStates {
+		return nil
+	}
+	return t.inputNotification(e)
+}
+
 // observe records what an event teaches the tracker, independent of whether it
 // notifies: a session title, a child's parent link, and a background shell's
 // start or end.
 func (t *Tracker) observe(e agent.StreamEvent) {
+	// A shell end may carry no session id (the shell tool's shell.exited), so
+	// it is handled before the empty-session-id guard.
+	if eventTypeIn(e.Type, t.spec.ShellEndedEvents) {
+		t.removeShell(e.ShellID)
+		return
+	}
 	if e.SessionID == "" {
 		return
 	}
@@ -156,16 +177,24 @@ func (t *Tracker) observe(e agent.StreamEvent) {
 	if e.ParentID != "" && eventTypeIn(e.Type, t.spec.SessionEvents) {
 		t.parentOf[e.SessionID] = e.ParentID
 	}
-	switch {
-	case eventTypeIn(e.Type, t.spec.ShellStartedEvents):
-		if e.ShellBackground && e.ShellID != "" {
-			if t.shells[e.SessionID] == nil {
-				t.shells[e.SessionID] = map[string]bool{}
-			}
-			t.shells[e.SessionID][e.ShellID] = true
+	if eventTypeIn(e.Type, t.spec.ShellStartedEvents) && e.ShellBackground && e.ShellID != "" {
+		if t.shells[e.SessionID] == nil {
+			t.shells[e.SessionID] = map[string]bool{}
 		}
-	case eventTypeIn(e.Type, t.spec.ShellEndedEvents):
-		delete(t.shells[e.SessionID], e.ShellID)
+		t.shells[e.SessionID][e.ShellID] = true
+	}
+}
+
+// removeShell deletes shellID from every session's running set. A tool shell's
+// end carries no session id, so the owning session cannot be named; a shell id
+// is unique, so scanning every set is unambiguous and a no-op when the start
+// never added it.
+func (t *Tracker) removeShell(shellID string) {
+	if shellID == "" {
+		return
+	}
+	for _, running := range t.shells {
+		delete(running, shellID)
 	}
 }
 
@@ -237,9 +266,17 @@ func (t *Tracker) isChild(sessionID string) bool {
 	return t.parentOf[sessionID] != ""
 }
 
-// topLevelAncestor walks the parent chain to the session with no parent.
+// topLevelAncestor walks the parent chain to the session with no parent. A
+// malformed chain (a self-parent or a cycle, from a bad seed or a replayed
+// session.created) terminates by returning the first repeated session instead
+// of spinning: the notify goroutine Watch joins on stop must always return.
 func (t *Tracker) topLevelAncestor(sessionID string) string {
+	visited := map[string]bool{sessionID: true}
 	for parent := t.parentOf[sessionID]; parent != ""; parent = t.parentOf[sessionID] {
+		if visited[parent] {
+			return parent
+		}
+		visited[parent] = true
 		sessionID = parent
 	}
 	return sessionID
@@ -260,12 +297,18 @@ func (t *Tracker) liveDescendants(sessionID string) int {
 	return count
 }
 
-// descendsFrom reports whether sessionID's parent chain reaches ancestor.
+// descendsFrom reports whether sessionID's parent chain reaches ancestor. A
+// malformed chain (a cycle) terminates via the visited set.
 func (t *Tracker) descendsFrom(sessionID, ancestor string) bool {
+	visited := map[string]bool{sessionID: true}
 	for parent := t.parentOf[sessionID]; parent != ""; parent = t.parentOf[parent] {
 		if parent == ancestor {
 			return true
 		}
+		if visited[parent] {
+			return false
+		}
+		visited[parent] = true
 	}
 	return false
 }
