@@ -12,7 +12,7 @@
 
 **Consumes (from S2):** the `network.Policy`/`msb.NetworkSpec` seam and `Fingerprint`/`Describe`.
 **Consumes (from S1):** the proxy-reachability composition decision (auto-allow the proxy vs fail with an actionable error).
-**Produces (for S4 and the program index):** `network.ProxyProtocol` (`ProxyHTTPConnect`/`ProxySOCKS5`/`ProxySOCKS4`), `network.Proxy`, `network.Policy.Proxy`, `msb.NetworkSpec.Proxy`.
+**Produces (for S4 and the program index):** `network.ProxyProtocol` (`ProxyHTTPConnect`/`ProxySOCKS5`/`ProxySOCKS4`), `network.Proxy`, `network.Policy.Proxy`, `msb.ProxySpec`, `msb.NetworkSpec.Proxy`.
 
 ## Global Constraints
 
@@ -21,7 +21,7 @@ See `2026-11-17-learn-mode-program.md` → Global Constraints. **Serialize after
 ## Review Focus
 
 1. **A proxy address the policy denies** — silently denies all egress; auto-allow it or fail with an actionable error. (Task 1.)
-2. **Credentials on HTTP CONNECT / SOCKS4** — the SDK rejects them; fail fast at config time, not at creation. (Task 3.)
+2. **Credentials on SOCKS4** — the SDK carries credentials for SOCKS5 and HTTP CONNECT but has no credential support for SOCKS4; fail fast at config time, not at creation. (Task 3.)
 3. **A stale VM** — a proxy change must recreate the VM. (Task 1 fingerprint; Task 4.)
 
 ---
@@ -45,33 +45,36 @@ See `2026-11-17-learn-mode-program.md` → Global Constraints. **Serialize after
       PasswordEnv string        `mapstructure:"password-env"`
   }
   func ParseProxy(s string) (*Proxy, error)      // "protocol://host:port"
-  func (p Policy) ProxySpec() (msb.ProxySpec, error)
   ```
-  `Policy` gains `Proxy *Proxy \`mapstructure:"proxy"\``; `Fingerprint`/`Describe`/`Empty` include it. `Validate`/`Spec` enforce the composition rule from S1.
+  `Policy` gains `Proxy Proxy \`mapstructure:"proxy"\`` — value-typed so the derived key registry recurses into `network.proxy.*`; `Fingerprint`/`Describe`/`Empty` include it. This task must compile on its own, so it does **not** touch `Policy.Spec()` or any `msb` type. `Validate` enforces the composition rule from S1.
 
 - [ ] **Step 1: Write the failing test**
 
 ```go
-func TestProxyCredentialsRejectedForHTTPConnect(t *testing.T) {
-    policy := Policy{Profiles: []Profile{ProfileNone}, Proxy: &Proxy{
-        Protocol: ProxyHTTPConnect, Address: "10.0.0.1:3128", Username: "u", PasswordEnv: "P",
+func TestProxyCredentialsRejectedForSOCKS4(t *testing.T) {
+    policy := Policy{Profiles: []Profile{ProfileNone}, Proxy: Proxy{
+        Protocol: ProxySOCKS4, Address: "10.0.0.1:1080", Username: "u", PasswordEnv: "P",
     }}
-    if err := policy.Validate(); err == nil { t.Fatal("http-connect credentials must be rejected") }
+    if err := policy.Validate(); err == nil { t.Fatal("socks4 credentials must be rejected") }
 }
 func TestProxyAddressMustBeReachableUnderNone(t *testing.T) {
-    policy := Policy{Profiles: []Profile{ProfileNone}, Proxy: &Proxy{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080"}}
-    if err := policy.Validate(); err == nil { t.Fatal("proxy not in egress-allow under none must be rejected or auto-allowed") }
+    policy := Policy{Profiles: []Profile{ProfileNone}, Proxy: Proxy{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080"}}
+    // Per S1's recorded decision: either Validate rejects it, or the address is auto-allowed.
+    err := policy.Validate()
+    allowed := slices.Contains(policy.Effective().EgressAllow, "10.0.0.1:1080")
+    if err == nil && !allowed { t.Fatal("a proxy the policy accepts must be auto-added to egress-allow") }
+    if err != nil && allowed { t.Fatal("Validate rejected an auto-allowed proxy") }
 }
 func TestProxyChangesFingerprint(t *testing.T) {
     base := Policy{Profiles: []Profile{ProfileNone}}
     withProxy := base
-    withProxy.Proxy = &Proxy{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080"}
+    withProxy.Proxy = Proxy{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080"}
     if base.Fingerprint() == withProxy.Fingerprint() { t.Fatal("proxy must change the fingerprint") }
 }
 ```
 
 - [ ] **Step 2: Run to verify it fails** — `go test ./internal/sandbox/network/ -run 'TestProxy'`. Expected: FAIL.
-- [ ] **Step 3: Implement** `proxy.go` (parse, validate, credential rules, composition guard per S1), extend `Policy`.
+- [ ] **Step 3: Implement** `proxy.go` (parse, validate, credential rules for SOCKS4, composition guard per S1), extend `Policy` and its `Fingerprint`/`Describe`/`Empty`. No `msb` wiring here — Task 2 adds it.
 - [ ] **Step 4: Run the tests** — `go test ./internal/sandbox/network/`. Expected: PASS.
 - [ ] **Step 5: Commit**
 
@@ -85,26 +88,29 @@ git commit -m "feat(network): add outbound-proxy policy"
 ### Task 2: Project the proxy to the SDK in `msb`
 
 **Files:**
-- Modify: `internal/sandbox/msb/network_values.go`, `internal/sandbox/msb/translate.go`, `internal/sandbox/msb/translate_test.go`
+- Modify: `internal/sandbox/msb/network_values.go`, `internal/sandbox/msb/translate.go`, `internal/sandbox/msb/translate_test.go`, `internal/sandbox/network/network.go`
 
 **Interfaces:**
-- Consumes: `network.ProxySpec` (Task 1).
-- Produces: `NetworkSpec.Proxy *ProxySpec`; `sandboxOptions` appends `msbSdk.WithProxy(...)` (choosing `HTTPConnectProxy`/`SOCKS5Proxy`/`SOCKS4Proxy`, `.Credentials(username, msbSdk.SecretSourceEnv(env))` when set); `"Proxy"` moves from `sandboxConfigNotModeled` to `sandboxConfigProjected`.
+- Consumes: `network.Proxy`, `network.ProxyProtocol`, `network.Policy.Proxy` (Task 1).
+- Produces: `msb.ProxyProtocol` (mirror), `msb.ProxySpec{Protocol ProxyProtocol; Address, Username, PasswordEnv string}`, `NetworkSpec.Proxy ProxySpec`, and the `network.Policy.Spec()` wiring that fills it from `Policy.Proxy`; `sandboxOptions` appends `msbSdk.WithProxy(...)` (choosing `HTTPConnectProxy`/`SOCKS5Proxy`/`SOCKS4Proxy`, `.Credentials(username, msbSdk.SecretSourceEnv(env))` when set); `"Proxy"` moves from `sandboxConfigNotModeled` to `sandboxConfigProjected`.
 
 - [ ] **Step 1: Write the failing test**
 
 ```go
 func TestSandboxOptionsProjectProxy(t *testing.T) {
     spec := SandboxSpec{Image: "alpine:3.19", Network: NetworkSpec{
-        Proxy: &ProxySpec{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080", Username: "u", PasswordEnv: "PW"},
+        Proxy: ProxySpec{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080", Username: "u", PasswordEnv: "PW"},
     }}
-    cfg := applyOptionsForTest(t, mustOptions(t, spec))
+    opts, err := sandboxOptions(spec)
+    if err != nil { t.Fatal(err) }
+    var cfg msbSdk.SandboxConfig
+    for _, opt := range opts { opt(&cfg) }
     if cfg.Proxy == nil { t.Fatal("proxy not projected") }
 }
 ```
 
 - [ ] **Step 2: Run to verify it fails** — `go test ./internal/sandbox/msb/ -run 'TestSandboxOptionsProjectProxy|TestSDKStructFieldsAreClassified'`. Expected: FAIL.
-- [ ] **Step 3: Implement** the spec field, the option, and the map move; `TestSDKStructFieldsAreClassified` still passes.
+- [ ] **Step 3: Implement** the `msb` mirror and spec field, the `Policy.Spec()` wiring, the option, and the map move; `TestSDKStructFieldsAreClassified` still passes.
 - [ ] **Step 4: Run the tests** — `go test ./internal/sandbox/msb/`. Expected: PASS.
 - [ ] **Step 5: Commit**
 
@@ -122,17 +128,17 @@ git commit -m "feat(msb): translate the launcher proxy to the SDK"
 
 **Interfaces:**
 - Consumes: `network.ParseProxy` (Task 1).
-- Produces: derived keys `proxy.protocol`, `proxy.address`, `proxy.username`, `proxy.password-env`; a `--proxy protocol://host:port` flag overriding the block; validation failing fast on credentials a protocol cannot carry.
+- Produces: derived keys `network.proxy.protocol`, `network.proxy.address`, `network.proxy.username`, `network.proxy.password-env` (env `AGENTS_SANDBOX_NETWORK_PROXY_*`); a `--proxy protocol://host:port` flag overriding the block; validation failing fast on credentials SOCKS4 cannot carry.
 
 - [ ] **Step 1: Write the failing test**
 
 ```go
 func TestProxyFlagWinsOverBlock(t *testing.T) {
-    // block socks5://10.0.0.1:1080, --proxy http-connect://10.0.0.2:3128
+    // network.proxy block socks5://10.0.0.1:1080, --proxy http-connect://10.0.0.2:3128
     // expect resolved Policy.Proxy.Protocol == http-connect
 }
-func TestProxyHTTPConnectWithPasswordEnvFailsFast(t *testing.T) {
-    // AGENTS_SANDBOX_PROXY_{PROTOCOL,ADDRESS,USERNAME,PASSWORD_ENV} set; expect load error
+func TestProxySOCKS4WithPasswordEnvFailsFast(t *testing.T) {
+    // AGENTS_SANDBOX_NETWORK_PROXY_{PROTOCOL,ADDRESS,USERNAME,PASSWORD_ENV} = socks4,…; expect load error
 }
 ```
 
@@ -175,7 +181,7 @@ git commit -m "test(vm): pin outbound-proxy reachability and composition"
 - Modify: `docs/configuration/networking.md`, `docs/configuration/home-provisioning.md` (cross-link #30)
 - Create: `changelog.d/<PR>.added.md`
 
-- [ ] **Step 1:** Document `proxy.*`/`--proxy`, the protocol/credential matrix, and the composition rule under `none`.
+- [ ] **Step 1:** Document `network.proxy.*`/`--proxy`, the protocol/credential matrix (credentials for SOCKS5 and HTTP CONNECT; none for SOCKS4), and the composition rule under `none`.
 - [ ] **Step 2: Verify** — `make check`. Expected: PASS.
 - [ ] **Step 3: Commit**
 

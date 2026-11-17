@@ -10,7 +10,7 @@
 
 **Spec:** `.operator-shared/specs/network-and-secrets/interception-and-proxy.md`; issue #151. Channel context: `.operator-shared/specs/onboarding/learn-mode/observation-channel.md`.
 
-**Consumes (from S1):** the `off`-with-secrets decision — if `off` is not expressible, Task 2 returns an error naming the limitation instead of silently leaving interception on.
+**Consumes (from S1):** the `off`-with-secrets decision — if `off` is not expressible, Task 2 returns an error naming the limitation instead of silently leaving interception on — and the strict-hostname bypass result, which the `tls-bypass` contract must state.
 **Produces (for S3/S4 and the program index):** `network.InterceptMode` (`InterceptAuto`/`InterceptOn`/`InterceptOff`), `network.Policy.InterceptTLS`, `network.Policy.TLSBypass`, `msb.NetworkSpec.InterceptTLS`, `msb.NetworkSpec.TLSBypass`.
 
 ## Global Constraints
@@ -40,7 +40,7 @@ See `2026-11-17-learn-mode-program.md` → Global Constraints.
   func ParseInterceptMode(s string) (InterceptMode, error) // "", "auto", "on", "off"; else error
   func ValidateTLSBypass(in []string) ([]string, error)    // host or "*.suffix"; reject empty
   ```
-  `Policy` gains `InterceptTLS InterceptMode \`mapstructure:"intercept-tls"\`` and `TLSBypass []string \`mapstructure:"tls-bypass" env:"-"\``; `Spec` populates `msb.NetworkSpec.InterceptTLS`/`TLSBypass` (Task 2 adds the fields); `Fingerprint`/`Describe`/`Empty` include both.
+  `Policy` gains `InterceptTLS InterceptMode \`mapstructure:"intercept-tls"\`` and `TLSBypass []string \`mapstructure:"tls-bypass" env:"-"\``; `Fingerprint`/`Describe`/`Empty` include both. This task must compile on its own, so it does **not** touch `Policy.Spec()` or any `msb` type — the `msb` mirror, the `NetworkSpec` fields, and the `Spec()` wiring are Task 2's.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -78,7 +78,7 @@ git commit -m "feat(network): add TLS-interception policy fields"
 
 **Interfaces:**
 - Consumes: `network.InterceptMode` (Task 1).
-- Produces: an `msb`-local `InterceptMode` mirror (`InterceptAuto`/`InterceptOn`/`InterceptOff` — no SDK type crosses the seam) and `NetworkSpec.InterceptTLS`/`TLSBypass`. `networkConfig(spec NetworkSpec) (*msbSdk.NetworkConfig, error)` sets `cfg.TLS`: `nil` when mode is `auto` and no bypass; `&msbSdk.TLSConfig{Bypass: spec.TLSBypass}` when mode is `on` or bypass is set. `off` follows S1's decision; if inexpressible, `networkConfig` returns an error (pinned by a test asserting the message).
+- Produces: an `msb`-local `InterceptMode` mirror (`InterceptAuto`/`InterceptOn`/`InterceptOff` — no SDK type crosses the seam), the `NetworkSpec.InterceptTLS`/`TLSBypass` fields, and the `network.Policy.Spec()` wiring that populates them from the Task 1 `Policy` fields. `networkConfig(spec NetworkSpec) (*msbSdk.NetworkConfig, error)` sets `cfg.TLS`: `nil` when mode is `auto` and no bypass; `&msbSdk.TLSConfig{Bypass: spec.TLSBypass}` when mode is `on` or bypass is set. `off` follows S1's decision; if inexpressible, `networkConfig` returns an error (pinned by a test asserting the message).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -120,11 +120,13 @@ git commit -m "feat(msb): translate launcher TLS-interception policy to the SDK"
 ```go
 func TestNetworkInterceptTLSKeyAndEnv(t *testing.T) {
     t.Setenv("AGENTS_SANDBOX_NETWORK_INTERCEPT_TLS", "on")
-    if loadConfigForTest(t).Network.InterceptTLS != network.InterceptOn { t.Fatal("mode not decoded") }
+    r, err := NewResolver(nil, configpaths.Get(), "")
+    if err != nil { t.Fatal(err) }
+    if r.cfg.Network.InterceptTLS != network.InterceptOn { t.Fatal("mode not decoded") }
 }
 func TestNetworkInterceptTLSRejectsBogus(t *testing.T) {
     t.Setenv("AGENTS_SANDBOX_NETWORK_INTERCEPT_TLS", "sometimes")
-    if _, err := loadConfigForTestErr(t); err == nil { t.Fatal("want error") }
+    if _, err := NewResolver(nil, configpaths.Get(), ""); err == nil { t.Fatal("want error") }
 }
 ```
 
@@ -140,23 +142,23 @@ git commit -m "feat(config): expose network.intercept-tls and network.tls-bypass
 
 ---
 
-### Task 4: Host verification — recreate and the docker build
+### Task 4: Recreate pin and the docker build
 
 **Files:**
-- Create: `internal/sandbox/vm/vm_network_tls_msb_test.go` (`msb` build tag)
+- Create: `internal/sandbox/state/network_tls_recreate_test.go` (untagged — the assertion is pure fingerprints and needs no VM)
 
 **Interfaces:**
 - Consumes: Tasks 1–3.
-- Produces: an `msb`-tagged test pinning the recreate, and a recorded host run of the acceptance case.
+- Produces: an untagged regression pin on the recreate, and a recorded host run of the acceptance case.
 
-- [ ] **Step 1: Write the failing test** asserting `state.NetworkChanged(applied, policyWithBypass)` is true when `applied` came from `policyWithoutBypass`.
-- [ ] **Step 2: Run it** — `CGO_ENABLED=1 go test ./internal/sandbox/vm/ -tags msb -run TestNetworkTLSRecreate`. Expected: PASS via the Task 1 fingerprint (keep as a regression pin).
+- [ ] **Step 1: Write the failing test** asserting `state.NetworkChanged(state.BuildNetworkState(policyWithoutBypass), policyWithBypass)` is true.
+- [ ] **Step 2: Run it** — `go test ./internal/sandbox/state/ -run TestNetworkTLSRecreate`. Expected: PASS via the Task 1 fingerprint (keep as a regression pin; it runs under `make test`, unlike an `msb`-tagged `vm` test no gate runs).
 - [ ] **Step 3 (human accept):** on a KVM host, create a project VM with `intercept-tls: on`; confirm an in-VM `docker build` pulling a base image succeeds (the #151 case), and a `tls-bypass` entry makes a listed host skip interception. Record in the PR body.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add internal/sandbox/vm/vm_network_tls_msb_test.go
-git commit -m "test(vm): pin TLS-interception recreate and docker-build acceptance"
+git add internal/sandbox/state/network_tls_recreate_test.go
+git commit -m "test(state): pin the TLS-interception recreate"
 ```
 
 ---
@@ -164,15 +166,15 @@ git commit -m "test(vm): pin TLS-interception recreate and docker-build acceptan
 ### Task 5: Document #151
 
 **Files:**
-- Modify: `docs/configuration/networking.md`, `docs/configuration/secrets.md`, `AGENTS.md` (the docker-CA note)
+- Modify: `docs/configuration/networking.md`, `docs/configuration/secrets.md` (the "Containers built inside the VM" docker-CA note)
 - Create: `changelog.d/<PR>.added.md`
 
-- [ ] **Step 1:** Document `network.intercept-tls` (auto/on/off and the secret-implied default) and `network.tls-bypass`; remove the `AGENTS.md` workaround if bypass supersedes it.
+- [ ] **Step 1:** Document `network.intercept-tls` (auto/on/off and the secret-implied default) and `network.tls-bypass`; update the docker-CA note in `docs/configuration/secrets.md` if bypass supersedes it.
 - [ ] **Step 2: Verify** — `make check`. Expected: PASS.
 - [ ] **Step 3: Commit**
 
 ```bash
-git add docs/ AGENTS.md changelog.d/
+git add docs/ changelog.d/
 git commit -m "docs: document TLS-interception control"
 ```
 
@@ -180,7 +182,7 @@ git commit -m "docs: document TLS-interception control"
 
 ## Self-review
 
-**Coverage.** #151's proposed change (explicit control, `tls-bypass`, fingerprint the TLS settings, strict-hostname verification) maps to Tasks 1–3; the strict-hostname question is settled by S1 (the composition/`off` probe) and recorded in the spec. The docker CA workaround is Task 4/5.
+**Coverage.** #151's proposed change (explicit control, `tls-bypass`, fingerprint the TLS settings, strict-hostname verification) maps to Tasks 1–3; the strict-hostname verification is S1's fourth question, recorded in the spec and consumed here. The docker CA workaround is Task 4/5.
 
 **Proportion.** Only signatures and test assertions; no bodies.
 

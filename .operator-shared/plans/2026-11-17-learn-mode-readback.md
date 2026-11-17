@@ -71,17 +71,18 @@ git commit -m "feat(readback): resolve the home volume host path"
   ```go
   type ManifestEntry struct {
       Key     string    // sandbox-home-relative file path, or "<agent>:<probe>" for a DB probe
-      Size    int64
-      ModTime time.Time
-      Hash    string    // sha256 hex; "" for an opaque (over-cap) entry or a probe
+      Size    int64     // 0 for a probe
+      ModTime time.Time // zero for a probe
+      Hash    string    // sha256 hex; empty only for an opaque (over-cap) file entry; for a probe, the digest of the probed rows
   }
   type Manifest struct { Entries []ManifestEntry }
   // TakeManifest records a ManifestEntry for every declared path plus one probe
   // digest per agent credential probe. Files over maxHashedBytes are recorded
   // opaque (size+mtime, no hash).
   func TakeManifest(home, agentName string) (Manifest, error)
-  // Changed returns the keys whose size, mtime, or hash differs from prev, plus
-  // keys present in one manifest and not the other, sorted.
+  // Changed returns the keys whose size, mtime, or hash differs from prev (a probe
+  // entry is compared on its hash alone), plus keys present in one manifest and not
+  // the other, sorted.
   func (m Manifest) Changed(prev Manifest) []string
   const maxHashedBytes = 256 * 1024
   ```
@@ -101,13 +102,16 @@ func TestManifestChangedDetectsContentAndPresence(t *testing.T) {
 }
 func TestManifestOpaqueOverCap(t *testing.T) {
     home := t.TempDir()
-    writeFileSized(t, home, ".local/share/opencode/opencode.db", maxHashedBytes+1)
-    m, _ := TakeManifest(home, "opencode2")
+    writeFileSized(t, home, ".config/opencode/opencode.jsonc", maxHashedBytes+1)
+    m, _ := TakeManifest(home, "opencode")
+    found := false
     for _, e := range m.Entries {
-        if e.Key == ".local/share/opencode/opencode.db" && e.Hash != "" {
-            t.Fatal("over-cap file must be opaque")
+        if e.Key == ".config/opencode/opencode.jsonc" {
+            found = true
+            if e.Hash != "" { t.Fatal("over-cap file must be recorded opaque") }
         }
     }
+    if !found { t.Fatal("an over-cap declared file must still appear as an opaque entry") }
 }
 ```
 

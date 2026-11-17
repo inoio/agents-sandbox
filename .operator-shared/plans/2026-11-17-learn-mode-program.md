@@ -65,8 +65,22 @@ type Proxy struct {
     Protocol    ProxyProtocol `mapstructure:"protocol"`
     Address     string        `mapstructure:"address"`
     Username    string        `mapstructure:"username"`
-    PasswordEnv string        `mapstructure:"password-env"` // host env var name; SOCKS5 only
+    PasswordEnv string        `mapstructure:"password-env"` // host env var name; SOCKS5 and HTTP CONNECT carry credentials, SOCKS4 does not
 }
+
+// Policy (internal/sandbox/network) gains these value fields — value-typed so the
+// derived key registry recurses and `network.<key>.*` derives:
+//   InterceptTLS InterceptMode `mapstructure:"intercept-tls"`          // S2
+//   TLSBypass    []string      `mapstructure:"tls-bypass" env:"-"`     // S2
+//   Proxy        Proxy         `mapstructure:"proxy"`                  // S3
+// Fingerprint/Describe/Empty include all three.
+
+// internal/sandbox/msb — the projection handed to the SDK. Owned by the subplan
+// named; no SDK type crosses the seam.
+//   S2: type InterceptMode string (mirror of network.InterceptMode)
+//       NetworkSpec gains: InterceptTLS InterceptMode; TLSBypass []string
+//   S3: type ProxyProtocol string (mirror); type ProxySpec struct{ Protocol ProxyProtocol; Address, Username, PasswordEnv string }
+//       NetworkSpec gains: Proxy ProxySpec
 ```
 
 ```go
@@ -112,7 +126,7 @@ CHANNEL TRACK                                          LEARN TRACK
 | Subplan | Plan file | Deliverable | SDD? | Depends on | Parallel with |
 |---|---|---|---|---|---|
 | S0 settled-design | `2026-11-17-learn-mode-settled-design.md` | hub + subspecs on `main` | no | — | all |
-| S1 sdk-semantics | `2026-11-17-learn-mode-sdk-semantics.md` | T1/T2, `off` semantics, proxy-dial exemption recorded | **no** — host spike | S0 | — |
+| S1 sdk-semantics | `2026-11-17-learn-mode-sdk-semantics.md` | T1/T2, `off` semantics, proxy-dial exemption, strict-hostname bypass recorded | **no** — host spike | S0 | — |
 | S2 tls-interception | `2026-11-17-learn-mode-tls-interception.md` | #151 shipped | yes | S1 (only the `off` branch) | S5 |
 | S3 outbound-proxy | `2026-11-17-learn-mode-outbound-proxy.md` | #149 shipped | yes | S2 (shared files) | S5 |
 | S4 observation-channel | `2026-11-17-learn-mode-observation-channel.md` (stub) | channel component | yes | S1, S2, S3 | — |
@@ -130,6 +144,7 @@ CHANNEL TRACK                                          LEARN TRACK
 - **E2 — prompt backend (#20 / PR #119).** Interactive first-run, per-finding review, harden. Land before S9.
 - **E3 — new-user-journey e2e (#252).** Acceptance harness. Define before S9.
 - **E4 — microsandbox/superradcompany#2080 (filed).** Requests the runtime log successful substitutions with destination + header field. If it lands, S4 shrinks (read the runtime's surface) and S1's T1/T2 decision is moot. Track; do not block.
+- **Retirement (deferred, not in this DAG).** #697 supersedes the declaration model in #54/#99/#118. Once the learned path ships, retire `config migrate`'s curated provider table (and the `config harden` proposal in #118). Record it as the follow-up that closes #697; it needs no plan until the learned path lands.
 
 ## Rollout
 
