@@ -146,6 +146,7 @@ func TestConfigEnvKeysGoldenSet(t *testing.T) {
 		keyProvisionHostConfig, KeyOpenLinks,
 		keyAutoStopOnActiveSessions, keyAutoStopTimeout, keyAutoStopMaxSessionRetries,
 		keyNetworkProfile, keyNetworkDNSServers, keyPorts,
+		"network.intercept-tls", "network.disable-strict",
 		keyUpgradeMode, keyUpgradeInterval, keyUpgradeChannel,
 		"image-cache-from", "image-cache-to",
 		KeyDind,

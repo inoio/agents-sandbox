@@ -341,7 +341,10 @@ func resolveNetwork(cfg *viperconfig.Config, cmd *cobra.Command, opts *options.R
 		if err != nil {
 			return err
 		}
-		opts.Network = network.Policy{Profiles: profiles, EgressAllow: nil, EgressDeny: nil, DNSServers: nil}
+		opts.Network = network.Policy{
+			Profiles: profiles, EgressAllow: nil, EgressDeny: nil, DNSServers: nil,
+			InterceptTLS: "", TLSBypass: nil, DisableStrict: false,
+		}
 	} else if cfg != nil {
 		opts.Network = cfg.Network.Effective()
 	}

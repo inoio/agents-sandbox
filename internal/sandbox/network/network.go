@@ -72,9 +72,10 @@ func checkProfileCombination(profiles []Profile) error {
 
 // Policy is the resolved launcher network policy. The mapstructure tags let
 // viper decode the nested `network:` YAML block (profile, egress-allow,
-// egress-deny, dns-servers) directly into this struct. The `profile` key
-// accepts a single name, a comma-separated string, or a YAML list; viperconfig's
-// string-to-slice decode hook normalizes the scalar forms into Profiles.
+// egress-deny, dns-servers, intercept-tls, tls-bypass, disable-strict) directly
+// into this struct. The `profile` key accepts a single name, a comma-separated
+// string, or a YAML list; viperconfig's string-to-slice decode hook normalizes
+// the scalar forms into Profiles.
 type Policy struct {
 	Profiles []Profile `mapstructure:"profile"`
 	// EgressAllow and EgressDeny have no env var and no CLI flag: they are set
@@ -83,11 +84,20 @@ type Policy struct {
 	EgressAllow []string `mapstructure:"egress-allow" env:"-"`
 	EgressDeny  []string `mapstructure:"egress-deny"  env:"-"`
 	DNSServers  []string `mapstructure:"dns-servers"`
+	// InterceptTLS selects the sandbox's TLS interception mode; the empty value
+	// means auto. TLSBypass lists hosts microsandbox must not intercept, and,
+	// like the egress lists, is config-file-only. DisableStrict drops
+	// microsandbox's strict-hostname enforcement, which otherwise denies a
+	// request whose host the rule set does not match exactly.
+	InterceptTLS  InterceptMode `mapstructure:"intercept-tls"`
+	TLSBypass     []string      `mapstructure:"tls-bypass"     env:"-"`
+	DisableStrict bool          `mapstructure:"disable-strict"`
 }
 
 // Empty reports whether the policy is unset (zero value).
 func (p Policy) Empty() bool {
-	return len(p.Profiles) == 0 && len(p.EgressAllow) == 0 && len(p.EgressDeny) == 0 && len(p.DNSServers) == 0
+	return len(p.Profiles) == 0 && len(p.EgressAllow) == 0 && len(p.EgressDeny) == 0 &&
+		len(p.DNSServers) == 0 && p.InterceptTLS == "" && len(p.TLSBypass) == 0 && !p.DisableStrict
 }
 
 // Effective applies the default profile when no profile was selected.
@@ -100,7 +110,8 @@ func (p Policy) Effective() Policy {
 
 // Fingerprint returns a stable SHA-256 hex digest of the policy, for detecting
 // changes across runs. It hashes the profile and the sorted allow/deny/dns
-// lists, independent of the microsandbox SDK's canonical NetworkConfig shape.
+// lists plus the TLS-interception settings, independent of the microsandbox
+// SDK's canonical NetworkConfig shape.
 //
 // A deny-bearing policy that composes a profile also contributes a rule-order
 // marker. The marker is not policy content: it records that the policy is
@@ -129,6 +140,13 @@ func (p Policy) Fingerprint() string {
 	for _, d := range p.EgressDeny {
 		lines = append(lines, "deny="+d)
 	}
+	lines = append(lines, "intercept-tls="+string(p.interceptMode()))
+	for _, host := range p.TLSBypass {
+		lines = append(lines, "tls-bypass="+host)
+	}
+	if p.DisableStrict {
+		lines = append(lines, "disable-strict=true")
+	}
 	if p.denyPrecedesProfileAllow() {
 		lines = append(lines, "rule-order=deny-before-profile")
 	}
@@ -142,8 +160,8 @@ func (p Policy) Fingerprint() string {
 
 // Describe returns the effective policy as display lines named after the config
 // keys: the deduplicated profiles, then the egress-allow, egress-deny, and DNS
-// server entries, each group sorted. Unlike Fingerprint it carries no emission
-// markers, only what the user configured.
+// server entries, then the TLS-interception settings, each group sorted. Unlike
+// Fingerprint it carries no emission markers, only what the user configured.
 func (p Policy) Describe() []string {
 	p = p.Effective()
 	var lines []string
@@ -151,7 +169,21 @@ func (p Policy) Describe() []string {
 	lines = append(lines, prefixedSorted("egress-allow: ", p.EgressAllow)...)
 	lines = append(lines, prefixedSorted("egress-deny: ", p.EgressDeny)...)
 	lines = append(lines, prefixedSorted("dns-server: ", p.DNSServers)...)
+	lines = append(lines, "intercept-tls: "+string(p.interceptMode()))
+	lines = append(lines, prefixedSorted("tls-bypass: ", p.TLSBypass)...)
+	if p.DisableStrict {
+		lines = append(lines, "disable-strict: true")
+	}
 	return lines
+}
+
+// interceptMode returns InterceptTLS with the empty value normalized to auto,
+// so an unset key and an explicit `auto` fingerprint and display identically.
+func (p Policy) interceptMode() InterceptMode {
+	if p.InterceptTLS == "" {
+		return InterceptAuto
+	}
+	return p.InterceptTLS
 }
 
 func profileNames(profiles []Profile) []string {
