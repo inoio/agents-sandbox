@@ -606,6 +606,38 @@ func TestHandleEventRepeatedInputEventNotifiesOnce(t *testing.T) {
 	}
 }
 
+// TestDedupQuietDoneDeliveredOnce drives the full claim lifecycle behind a
+// Config-gated backend: a classified silent done claims the (root, done) token
+// but the backend drops it, so the token must be released when the root returns
+// to work, letting the later genuinely-quiet done alert exactly once.
+func TestDedupQuietDoneDeliveredOnce(t *testing.T) {
+	sink := &sharedSink{}
+	gated := &compositeBackend{cfg: Config{OnDone: true}, parts: []Backend{sink}}
+	dedup := NewDedup("quietdone-a", alwaysClaimer{}, gated)
+	tr := NewTracker(opencode2Spec())
+	const root = "ses_root"
+
+	events := []agent.StreamEvent{
+		{Type: execStarted, SessionID: root},                           // root busy
+		{Type: sessionCreated, SessionID: "ses_child", ParentID: root}, // child linked
+		{Type: execStarted, SessionID: "ses_child"},                    // child live
+		{Type: execSucceeded, SessionID: root},                         // classified done: claimed, then gated silent
+		{Type: execSucceeded, SessionID: "ses_child"},                  // child settles
+		{Type: execStarted, SessionID: root},                           // root busy -> releases the claim
+		{Type: execSucceeded, SessionID: root},                         // quiet done -> delivered
+	}
+	for _, e := range events {
+		handleEvent(tr, dedup, e)
+	}
+
+	if sink.count() != 1 {
+		t.Fatalf("delivered %d notifications, want exactly one quiet done: %+v", sink.count(), sink.got)
+	}
+	if got := sink.got[0]; got.Trigger != TriggerDone || len(got.DoneReasons) != 0 {
+		t.Fatalf("delivered = %+v, want a plain done", got)
+	}
+}
+
 func TestParseSSEBlockDelegatesToSpecParse(t *testing.T) {
 	var seen []byte
 	parse := func(payload []byte) (agent.StreamEvent, bool) {
