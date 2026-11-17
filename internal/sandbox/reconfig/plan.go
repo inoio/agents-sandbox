@@ -163,7 +163,6 @@ func changeListUnder(heading string, changes []Change) string {
 // attaches.
 func warnAloneChange(ui termio.Logger, action string, changes []Change) {
 	heading := "Project VM config changed; " + action + " (no other client attached):"
-	// codeql[go/clear-text-logging] the value is a host env-var name, not a secret; the runtime resolves the secret via msb SecretSourceEnv.
 	ui.Warn(changeListUnder(heading, changes))
 }
 

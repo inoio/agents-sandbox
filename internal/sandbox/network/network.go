@@ -184,7 +184,6 @@ func (p Policy) Fingerprint() string {
 		lines = append(lines, "gateway-dns=omitted")
 	}
 	sort.Strings(lines)
-	// codeql[go/weak-sensitive-data-hashing] this digest is change detection, and its input is the proxy-password-env NAME, not a password; the runtime resolves the secret via msb SecretSourceEnv.
 	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
 	return hex.EncodeToString(sum[:])
 }
