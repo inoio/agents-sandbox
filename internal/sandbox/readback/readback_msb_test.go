@@ -14,12 +14,14 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest/runtime"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -42,9 +44,15 @@ import (
 const (
 	// readbackAgentName is the harness under test.
 	readbackAgentName = "opencode2"
-	// readbackRunnerSlug fixes the fallback-built runner image's identity; a
-	// stable slug lets a later run reuse the loaded image instead of reloading.
-	readbackRunnerSlug = "readback-msb-test"
+	// readbackProjectSlug is the project identity the test seeds state under; its
+	// runner-image slug shape is arbitrary here because the test reuses or builds
+	// the image through the launcher.
+	readbackProjectSlug = "readback-msb-test"
+	// readbackRunnerSlug fixes the fallback-built runner image's identity. It has
+	// the slug shape naming.IsRunnerImageRef accepts (ending in a 14-character
+	// base36 hash), so a later run recognises the image as ours and reuses it
+	// instead of reloading.
+	readbackRunnerSlug = "readback-1mjusbm3wikhb0"
 	// readbackCredentialProvider is the integration id the test's static key is
 	// stored under; the probe reports it as Credential.Provider.
 	readbackCredentialProvider = "openai"
@@ -106,7 +114,28 @@ func TestReadBackOpenCode2(t *testing.T) {
 		t.Fatalf("stop opencode2 VM: %v", err)
 	}
 
-	assertStaticCredentialReadBack(t, homeVolume.Path())
+	assertStaticCredentialReadBack(t, readBackHomeVolumePath(t, ctx, homeVolume.Name()))
+}
+
+// readBackHomeVolumePath seeds the test project's state with the VM's home
+// volume name and resolves it through HomeVolumePath, exercising the
+// state→volume→host-path chain against the real runtime rather than reading the
+// volume handle's path directly.
+func readBackHomeVolumePath(t *testing.T, ctx context.Context, volumeName string) string {
+	t.Helper()
+	configpathstest.WithMockConfigPaths(t)
+	key := state.Key{Slug: readbackProjectSlug, Agent: readbackAgentName}
+	if err := state.WithHomeState(key, func(cur *state.HomeState, _ bool) (bool, error) {
+		cur.HomeVolume = volumeName
+		return true, nil
+	}); err != nil {
+		t.Fatalf("seed home state for %+v: %v", key, err)
+	}
+	path, err := HomeVolumePath(ctx, key)
+	if err != nil {
+		t.Fatalf("HomeVolumePath(%+v): %v", key, err)
+	}
+	return path
 }
 
 // realMsbClientForTest swaps the fail-fast client for the production one for the
@@ -174,19 +203,26 @@ func ensureOpenCode2RunnerImage(t *testing.T, ctx context.Context, client sandbo
 	return info.Ref
 }
 
-// cachedOpenCode2RunnerImage returns the cached runner image whose reference
-// names the opencode2 agent, or "" when none is cached.
+// cachedOpenCode2RunnerImage returns the newest cached runner image whose
+// reference names the opencode2 agent, or "" when none is cached. The newest is
+// chosen by creation time so a stale earlier image is not preferred.
 func cachedOpenCode2RunnerImage(ctx context.Context, client sandboxmsb.Client) string {
 	handles, err := client.ImageList(ctx)
 	if err != nil {
 		return ""
 	}
+	newest := ""
+	var newestAt time.Time
 	for _, handle := range handles {
-		if naming.ParseImageTag(handle.Reference()).Agent == readbackAgentName {
-			return handle.Reference()
+		if naming.ParseImageTag(handle.Reference()).Agent != readbackAgentName {
+			continue
+		}
+		if newest == "" || handle.CreatedAt().After(newestAt) {
+			newest = handle.Reference()
+			newestAt = handle.CreatedAt()
 		}
 	}
-	return ""
+	return newest
 }
 
 // readbackTestUI is a quiet production UI for the image build: the build's
@@ -283,6 +319,12 @@ func assertStaticCredentialReadBack(t *testing.T, home string) {
 	readBack, err := Read(home, readbackAgentName, Manifest{})
 	if err != nil {
 		t.Fatalf("Read(%s, %q): %v", home, readbackAgentName, err)
+	}
+	if len(readBack.Unreadable) != 0 {
+		t.Fatalf(
+			"read-back could not read %v; the credential store is undetermined, not empty",
+			readBack.Unreadable,
+		)
 	}
 	var found []Credential
 	for _, credential := range readBack.Static {

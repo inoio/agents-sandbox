@@ -41,20 +41,44 @@ func TestReadClassifiesLoginStore(t *testing.T) {
 	require.Equal(t, ".codex/auth.json", rb.Login[0].Source)
 	require.Equal(t, "codex", rb.Login[0].Provider)
 	require.Empty(t, rb.Login[0].Value, "a login value is never read")
-	require.Empty(t, rb.ConfigPaths, "a login store is not a config path")
+	require.Equal(t, []string{".codex/auth.json"}, rb.ConfigPaths,
+		"a login store is also a config fact")
+}
+
+// TestReadScopesSharedAuthStoreToOpenCode: the shared opencode auth.json is a
+// login for opencode (v1) only. opencode2 keeps credentials in its database and
+// never imports the file, so it must not report a login for it.
+func TestReadScopesSharedAuthStoreToOpenCode(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".local/share/opencode/auth.json", `{"openai":{"type":"api"}}`)
+
+	openCodeReadBack, err := Read(home, "opencode", Manifest{})
+	require.NoError(t, err)
+	require.Len(t, openCodeReadBack.Login, 1)
+	require.Equal(t, "opencode", openCodeReadBack.Login[0].Provider)
+
+	openCode2ReadBack, err := Read(home, "opencode2", Manifest{})
+	require.NoError(t, err)
+	require.Empty(t, openCode2ReadBack.Login, "opencode2 must not report the v1 auth store as a login")
 }
 
 // TestReadClassifiesStaticDotenv: a declared .env file yields one static
-// credential per KEY=VALUE line, with the value extracted in memory only.
+// credential per secret-looking KEY=VALUE line, with the value extracted in
+// memory only. Obvious non-secrets are not credentials.
 func TestReadClassifiesStaticDotenv(t *testing.T) {
 	home := t.TempDir()
-	writeFile(t, home, ".hermes/.env", "# comment\n\nOPENAI_API_KEY=sk-secret\nANTHROPIC_API_KEY=other\nUNKNOWN=bare\n")
+	writeFile(
+		t,
+		home,
+		".hermes/.env",
+		"# comment\n\nDEBUG=true\nOPENAI_API_KEY=sk-secret\nANTHROPIC_API_KEY=other\nLOGGING=verbose\n",
+	)
 
 	rb, err := Read(home, "hermes", Manifest{})
 
 	require.NoError(t, err)
 	require.Empty(t, rb.Login)
-	require.Len(t, rb.Static, 3, "each non-comment KEY=VALUE line is one static credential")
+	require.Len(t, rb.Static, 2, "only the secret-looking KEY=VALUE lines are credentials")
 
 	openai := rb.Static[0]
 	require.Equal(t, CredentialStatic, openai.Kind)
@@ -65,11 +89,20 @@ func TestReadClassifiesStaticDotenv(t *testing.T) {
 
 	anthropic := rb.Static[1]
 	require.Equal(t, "anthropic", anthropic.Provider)
+	require.Equal(t, "x-api-key", anthropic.Field)
 	require.Equal(t, "other", anthropic.Value)
+}
 
-	unknown := rb.Static[2]
-	require.Empty(t, unknown.Provider, "an unrecognised key yields no provider hint")
-	require.Equal(t, "bare", unknown.Value)
+// TestReadStaticCredentialsIgnoreNonSecrets: a key that does not name a secret
+// (DEBUG, LOG_LEVEL) is configuration, not a static credential.
+func TestReadStaticCredentialsIgnoreNonSecrets(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/.env", "DEBUG=true\nLOG_LEVEL=info\n")
+
+	rb, err := Read(home, "hermes", Manifest{})
+
+	require.NoError(t, err)
+	require.Empty(t, rb.Static)
 }
 
 // TestReadListsConfigPaths: a declared config file is a fact-1 config path, not

@@ -3,8 +3,6 @@ package readback
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"time"
@@ -49,29 +47,64 @@ type Manifest struct {
 // an empty manifest, never an error; a declared path that does not exist yet is
 // simply absent, so a first run has nothing to compare against.
 func TakeManifest(home, agentName string) (Manifest, error) {
+	collection, err := collectReadBack(home, agentName)
+	if err != nil {
+		return Manifest{}, err
+	}
+	return collection.manifest, nil
+}
+
+// readBackCollection is one pass over an agent's home: the baseline manifest and
+// the outcome of each credential probe. TakeManifest and Read share it, so a
+// probe's manifest digest and the credentials Read reports come from the same
+// database read and cannot disagree.
+type readBackCollection struct {
+	manifest Manifest
+	probes   []probeOutcome
+}
+
+// probeOutcome is one credential probe's result: the source key it is recorded
+// under, the credentials it found, and whether its store was unreadable this run.
+//
+//exhaustruct:ignore
+type probeOutcome struct {
+	source      string
+	credentials []Credential
+	unreadable  bool
+}
+
+// collectReadBack walks the named agent's declared paths and runs its credential
+// probes once, producing the manifest together with the probe outcomes.
+func collectReadBack(home, agentName string) (readBackCollection, error) {
 	var manifest Manifest
 	seen := map[string]bool{}
 	for _, declaredPath := range declaredReadBackPaths(agentName) {
 		if err := appendDeclaredPath(&manifest, seen, home, declaredPath); err != nil {
-			return Manifest{}, err
+			return readBackCollection{}, err
 		}
 	}
-	appendCredentialProbes(&manifest, seen, home, agentName)
+	probes := appendCredentialProbes(&manifest, seen, home, agentName)
 	sortEntries(manifest.Entries)
-	return manifest, nil
+	return readBackCollection{manifest: manifest, probes: probes}, nil
 }
 
 // appendCredentialProbes appends exactly one entry per credential probe the
 // named agent declares, keyed "<agent>:<probe>" and carrying the digest of the
 // rows the probe read — or the sentinel hash when that read failed, so an
-// unreadable database never looks like a removed probe.
-func appendCredentialProbes(manifest *Manifest, seen map[string]bool, home, agentName string) {
+// unreadable database never looks like a removed probe. It returns each probe's
+// outcome for Read to report.
+func appendCredentialProbes(
+	manifest *Manifest,
+	seen map[string]bool,
+	home, agentName string,
+) []probeOutcome {
+	var outcomes []probeOutcome
 	for _, probe := range declaredCredentialProbes(agentName) {
 		key := probeSource(agentName, probe)
 		if seen[key] {
 			continue
 		}
-		result := runCredentialProbe(home, probe)
+		result := runCredentialProbe(agentName, home, probe)
 		seen[key] = true
 		manifest.Entries = append(manifest.Entries, ManifestEntry{
 			Key:     key,
@@ -79,7 +112,13 @@ func appendCredentialProbes(manifest *Manifest, seen map[string]bool, home, agen
 			ModTime: time.Time{},
 			Hash:    result.RowHash,
 		})
+		outcomes = append(outcomes, probeOutcome{
+			source:      key,
+			credentials: result.Credentials,
+			unreadable:  result.Unreadable,
+		})
 	}
+	return outcomes
 }
 
 // declaredReadBackPaths returns the home-relative paths the named agent's
@@ -132,11 +171,8 @@ func appendDeclaredPath(manifest *Manifest, seen map[string]bool, home, declared
 		matches, err := filepath.Match(base, rel)
 		return err == nil && matches
 	}
-	return filewalk.Walk(root, take, func(entry filewalk.Entry) error {
-		manifestEntry, err := describeFile(home, entry)
-		if err != nil {
-			return err
-		}
+	return filewalk.WalkCapped(root, maxHashedBytes, take, func(entry filewalk.Entry) error {
+		manifestEntry := describeFile(home, entry)
 		if seen[manifestEntry.Key] {
 			return nil
 		}
@@ -147,24 +183,22 @@ func appendDeclaredPath(manifest *Manifest, seen map[string]bool, home, declared
 }
 
 // describeFile records the size and mtime of the file behind entry, keyed by its
-// sandbox-home-relative path, and hashes its content when it is within the cap.
-// An over-cap file is recorded opaque.
-func describeFile(home string, entry filewalk.Entry) (ManifestEntry, error) {
+// sandbox-home-relative path, and hashes its content when the walk read it. The
+// walk leaves an over-cap file's data nil, so that entry stays opaque. A path
+// that cannot be made home-relative falls back to its walk-relative name rather
+// than dropping the entry: the walk is best-effort.
+func describeFile(home string, entry filewalk.Entry) ManifestEntry {
 	key, err := filepath.Rel(home, entry.Path)
 	if err != nil {
-		return ManifestEntry{}, fmt.Errorf("relativize declared path %s: %w", entry.Path, err)
+		key = entry.Rel
 	}
-	info, err := os.Stat(entry.Path)
-	if err != nil {
-		return ManifestEntry{}, fmt.Errorf("stat declared path %s: %w", key, err)
-	}
-	manifestEntry := ManifestEntry{Key: key, Size: info.Size(), ModTime: info.ModTime(), Hash: ""}
-	if info.Size() > maxHashedBytes {
-		return manifestEntry, nil
+	manifestEntry := ManifestEntry{Key: key, Size: entry.Size, ModTime: entry.ModTime, Hash: ""}
+	if entry.Data == nil {
+		return manifestEntry
 	}
 	digest := sha256.Sum256(entry.Data)
 	manifestEntry.Hash = hex.EncodeToString(digest[:])
-	return manifestEntry, nil
+	return manifestEntry
 }
 
 // Changed returns the keys whose size, mtime, or hash differs from prev, plus

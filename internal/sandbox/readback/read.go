@@ -1,8 +1,10 @@
 package readback
 
 import (
+	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -37,13 +39,17 @@ type Credential struct {
 }
 
 // ReadBack is the result of reading one agent's home back: the declared config
-// paths that exist, the credentials found, and the keys changed since the
-// baseline manifest.
+// paths that exist, the credentials found, the keys changed since the baseline
+// manifest, and the credential probes whose store could not be read this run.
 type ReadBack struct {
 	ConfigPaths []string
 	Static      []Credential
 	Login       []Credential
 	Changed     []string
+	// Unreadable names the probe sources (e.g. "opencode2:opencode2-sqlite")
+	// whose read failed this run. A non-empty entry means the absence of that
+	// source's credentials is undetermined, not a confirmed "no credentials".
+	Unreadable []string
 }
 
 // Read inspects the agent's declared config and credential paths under home and
@@ -59,49 +65,58 @@ func Read(home, agentName string, baseline Manifest) (ReadBack, error) {
 		return ReadBack{}, nil
 	}
 
-	current, err := TakeManifest(home, agentName)
+	collection, err := collectReadBack(home, agentName)
 	if err != nil {
 		return ReadBack{}, err
 	}
 
-	readBack := ReadBack{ConfigPaths: nil, Static: nil, Login: nil, Changed: current.Changed(baseline)}
-	for _, entry := range current.Entries {
+	readBack := ReadBack{
+		ConfigPaths: nil,
+		Static:      nil,
+		Login:       nil,
+		Changed:     collection.manifest.Changed(baseline),
+		Unreadable:  nil,
+	}
+	for _, entry := range collection.manifest.Entries {
 		if isProbe(entry) {
-			// A credential probe's entry carries no path: the probe itself
-			// supplies the credentials, below.
+			// A credential probe's entry carries no path: its outcome supplies
+			// the credentials below.
 			continue
 		}
-		loginProvider, isLogin := loginCredentialProviders[entry.Key]
-		switch {
-		case isLogin:
+		loginStore, isLogin := loginCredentialStores[entry.Key]
+		if isLogin && loginStore.appliesTo(agentName) {
 			readBack.Login = append(readBack.Login, Credential{
 				Kind:     CredentialLogin,
 				Source:   entry.Key,
-				Provider: loginProvider,
+				Provider: loginStore.provider,
 			})
-		case filepath.Base(entry.Key) == dotenvFileName:
-			content, err := os.ReadFile(filepath.Join(home, entry.Key))
-			if err != nil {
+		}
+		if filepath.Base(entry.Key) == dotenvFileName {
+			content, ok := readCappedFile(filepath.Join(home, entry.Key), maxHashedBytes)
+			if !ok {
 				continue
 			}
 			readBack.Static = append(readBack.Static, staticCredentials(entry.Key, content)...)
-		default:
-			readBack.ConfigPaths = append(readBack.ConfigPaths, entry.Key)
+			continue
 		}
+		// A login store is also a config fact: it appears in ConfigPaths too.
+		readBack.ConfigPaths = append(readBack.ConfigPaths, entry.Key)
 	}
-	readBack.appendProbeCredentials(home, agentName)
+	readBack.appendProbeCredentials(collection.probes)
 	sort.Strings(readBack.ConfigPaths)
+	sort.Strings(readBack.Unreadable)
 	return readBack, nil
 }
 
-// appendProbeCredentials runs the named agent's credential probes (its agent
-// database, which holds a credential no declared path exposes) and appends what
-// they found. A probe whose store could not be read contributes nothing: the
-// read-back stays best-effort, and the manifest's sentinel digest records that
-// the probe failed. The same reader produces both, so the two cannot disagree.
-func (r *ReadBack) appendProbeCredentials(home, agentName string) {
-	for _, probe := range declaredCredentialProbes(agentName) {
-		for _, credential := range runCredentialProbe(home, probe).Credentials {
+// appendProbeCredentials reports the credentials each credential probe found and
+// names the probe sources whose store was unreadable. The outcomes come from the
+// same pass that produced the manifest digest, so the two cannot disagree.
+func (r *ReadBack) appendProbeCredentials(probes []probeOutcome) {
+	for _, probe := range probes {
+		if probe.unreadable {
+			r.Unreadable = append(r.Unreadable, probe.source)
+		}
+		for _, credential := range probe.credentials {
 			if credential.Kind == CredentialLogin {
 				r.Login = append(r.Login, credential)
 				continue
@@ -115,19 +130,63 @@ func (r *ReadBack) appendProbeCredentials(home, agentName string) {
 // is parsed as KEY=VALUE lines whose values are static credentials.
 const dotenvFileName = ".env"
 
-// loginCredentialProviders maps a declared login store (sandbox-home-relative
-// path) to the provider its credential authenticates. A login store's value is
-// never read: the read-back records only that the store exists.
-var loginCredentialProviders = map[string]string{
-	".claude/settings.json":           "claude-code",
-	".codex/auth.json":                "codex",
-	".local/share/opencode/auth.json": "opencode",
-	".pi/agent/settings.json":         "pi",
+// loginCredentialStore classifies a declared login store: the provider its
+// credential authenticates, and the agents the store applies to (nil = every
+// agent that declares the path). A login store's value is never read: the
+// read-back records only that the store exists.
+//
+//exhaustruct:ignore
+type loginCredentialStore struct {
+	provider string
+	agents   []string
+}
+
+// appliesTo reports whether the store classifies as a login for agentName.
+func (s loginCredentialStore) appliesTo(agentName string) bool {
+	return s.agents == nil || slices.Contains(s.agents, agentName)
+}
+
+// loginCredentialStores maps a declared login store (sandbox-home-relative path)
+// to its rule. The shared opencode auth.json is scoped to opencode (v1):
+// opencode2 keeps credentials in its database and a fresh database never imports
+// the file, so reporting it as an opencode2 login would be a false positive.
+var loginCredentialStores = map[string]loginCredentialStore{
+	".claude/settings.json":           {provider: "claude-code"},
+	".codex/auth.json":                {provider: "codex"},
+	".local/share/opencode/auth.json": {provider: "opencode", agents: []string{"opencode"}},
+	".pi/agent/settings.json":         {provider: "pi"},
+}
+
+// secretKeyMarkers are the case-insensitive substrings that mark a dotenv key as
+// a secret. A key without one is ordinary configuration, not a credential.
+var secretKeyMarkers = []string{"KEY", "TOKEN", "SECRET", "PASSWORD"}
+
+// looksLikeSecretKey reports whether a dotenv key names a secret, so obvious
+// non-secrets (DEBUG=true, LOG_LEVEL=info) stay out of the static credentials.
+func looksLikeSecretKey(key string) bool {
+	upper := strings.ToUpper(key)
+	return slices.ContainsFunc(secretKeyMarkers, func(marker string) bool {
+		return strings.Contains(upper, marker)
+	})
+}
+
+// credentialProviders maps a provider token in a secret's key name to the
+// request header field that carries it. An unrecognised provider contributes no
+// field hint.
+var credentialProviders = []struct {
+	token    string
+	provider string
+	field    string
+}{
+	{token: "OPENAI", provider: "openai", field: "authorization"},
+	{token: "ANTHROPIC", provider: "anthropic", field: "x-api-key"},
+	{token: "GEMINI", provider: "gemini", field: "x-goog-api-key"},
 }
 
 // staticCredentials parses a dotenv file's KEY=VALUE lines into static
-// credentials. Blank lines and # comments are skipped; the value comes from the
-// right-hand side, and Provider/Field are derived from a recognisable key name.
+// credentials. Blank lines, # comments, and keys that do not look like secrets
+// are skipped; the value comes from the right-hand side, and Provider/Field are
+// derived from a recognisable provider name in the key.
 func staticCredentials(source string, content []byte) []Credential {
 	var credentials []Credential
 	for line := range strings.SplitSeq(string(content), "\n") {
@@ -140,7 +199,7 @@ func staticCredentials(source string, content []byte) []Credential {
 			continue
 		}
 		key = strings.TrimSpace(key)
-		if key == "" {
+		if key == "" || !looksLikeSecretKey(key) {
 			continue
 		}
 		provider, field := staticCredentialProviderField(key)
@@ -156,12 +215,33 @@ func staticCredentials(source string, content []byte) []Credential {
 }
 
 // staticCredentialProviderField derives a provider and header-field hint from a
-// dotenv key when the key names an API key variable (OPENAI_API_KEY → provider
+// dotenv key when the key names a known provider (OPENAI_API_KEY → provider
 // "openai", field "authorization"). Both are empty for an unrecognised key.
 func staticCredentialProviderField(key string) (string, string) {
-	name, ok := strings.CutSuffix(key, "_API_KEY")
-	if !ok || name == "" {
-		return "", ""
+	upper := strings.ToUpper(key)
+	for _, known := range credentialProviders {
+		if strings.HasPrefix(upper, known.token) {
+			return known.provider, known.field
+		}
 	}
-	return strings.ToLower(name), "authorization"
+	return "", ""
+}
+
+// readCappedFile reads path's contents, bounded by maxBytes. ok is false when
+// the file cannot be read or exceeds the cap: a secret file larger than the cap
+// is not parsed whole into host memory.
+func readCappedFile(path string, maxBytes int64) ([]byte, bool) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, false
+	}
+	defer func() { _ = file.Close() }()
+	data, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
+	if err != nil {
+		return nil, false
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, false
+	}
+	return data, true
 }

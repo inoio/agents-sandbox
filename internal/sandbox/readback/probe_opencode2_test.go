@@ -163,6 +163,8 @@ func TestReadOpenCode2ProbeUnreadableDatabase(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, rb.Static)
 	require.Empty(t, rb.Login)
+	require.Equal(t, []string{opencode2ProbeKey}, rb.Unreadable,
+		"an unreadable store must be named, not silently reported as no credentials")
 
 	manifest, err := TakeManifest(home, "opencode2")
 	require.NoError(t, err)
@@ -171,6 +173,55 @@ func TestReadOpenCode2ProbeUnreadableDatabase(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, unreadableProbeHash, entry.Hash, "a failing probe carries the sentinel hash")
 	require.NotEqual(t, hashCredentialRows(nil), entry.Hash, "the sentinel is not the empty-set digest")
+}
+
+// TestReadOpenCode2ProbeSkipsInactiveCredentials: only an active credential row
+// is a fact. An inactive row is skipped, while the store stays readable.
+func TestReadOpenCode2ProbeSkipsInactiveCredentials(t *testing.T) {
+	home := t.TempDir()
+	writeOpenCode2DB(t, home, [2]string{"openai", `{"type":"key","key":"sk-test"}`})
+	db, err := sql.Open("sqlite", filepath.Join(home, opencode2DBPath))
+	require.NoError(t, err)
+	_, err = db.Exec(`UPDATE credential SET active = 0 WHERE integration_id = 'openai'`)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	rb, err := Read(home, "opencode2", Manifest{})
+
+	require.NoError(t, err)
+	require.Empty(t, rb.Static, "an inactive credential is not a fact")
+	require.Empty(t, rb.Unreadable, "the store was readable")
+}
+
+// TestReadOpenCode2ProbeToleratesNullActive: a NULL active column does not abort
+// the probe; the row is simply treated as inactive.
+func TestReadOpenCode2ProbeToleratesNullActive(t *testing.T) {
+	home := t.TempDir()
+	full := filepath.Join(home, opencode2DBPath)
+	require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o750))
+	db, err := sql.Open("sqlite", full)
+	require.NoError(t, err)
+	_, err = db.Exec(`CREATE TABLE credential (
+		integration_id TEXT NOT NULL, label TEXT NOT NULL, active INTEGER, value TEXT NOT NULL)`)
+	require.NoError(t, err)
+	_, err = db.Exec(
+		`INSERT INTO credential (integration_id, label, active, value) VALUES ('null-active', 'X', NULL, ?)`,
+		`{"type":"key","key":"ignored"}`,
+	)
+	require.NoError(t, err)
+	_, err = db.Exec(
+		`INSERT INTO credential (integration_id, label, active, value) VALUES ('openai', 'O', 1, ?)`,
+		`{"type":"key","key":"sk"}`,
+	)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	rb, err := Read(home, "opencode2", Manifest{})
+
+	require.NoError(t, err)
+	require.Empty(t, rb.Unreadable, "a NULL active row must not abort the probe")
+	require.Len(t, rb.Static, 1)
+	require.Equal(t, "openai", rb.Static[0].Provider)
 }
 
 // TestTakeManifestUnreadableProbeIsStable: two failed reads produce the same

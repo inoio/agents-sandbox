@@ -12,6 +12,11 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/volume"
 )
 
+// ErrNoHomeVolume reports that a project's state exists but records no home
+// volume, which is distinct from a state file that is missing entirely
+// (state.ErrStateNotFound). The read-back needs a volume to look up.
+var ErrNoHomeVolume = errors.New("no home volume recorded")
+
 // VolumeInspector is the read-back's volume dependency: the one volume lookup
 // that turns a recorded volume name into its host filesystem path.
 type VolumeInspector interface {
@@ -32,23 +37,27 @@ func (productionInspector) InspectVolume(ctx context.Context, name string) (volu
 }
 
 // HomeVolumePath returns the host filesystem path of the given project's home
-// volume, from the volume recorded in state. A state file that is missing or
-// records no home volume is an error naming the project whose volume is
-// unknown: the read-back has nothing to look up.
+// volume, from the volume recorded in state. A missing state file wraps
+// state.ErrStateNotFound and a state that records no volume wraps
+// ErrNoHomeVolume; both name the project whose volume is unknown, because the
+// read-back has nothing to look up.
 func HomeVolumePath(ctx context.Context, k state.Key) (string, error) {
 	homeState, err := state.ReadState(k)
-	if err != nil && !errors.Is(err, state.ErrStateNotFound) {
+	if err != nil {
 		return "", fmt.Errorf("read state for %s/%s: %w", k.Slug, k.Agent, err)
 	}
 	if homeState == nil || homeState.HomeVolume == "" {
 		return "", fmt.Errorf(
 			"no home volume recorded for project %q agent %q: %w",
-			k.Slug, k.Agent, state.ErrStateNotFound,
+			k.Slug, k.Agent, ErrNoHomeVolume,
 		)
 	}
 	detail, err := volumeInspector.InspectVolume(ctx, homeState.HomeVolume)
 	if err != nil {
 		return "", fmt.Errorf("inspect home volume %q: %w", homeState.HomeVolume, err)
+	}
+	if detail.Path == "" {
+		return "", fmt.Errorf("home volume %q has no host path", homeState.HomeVolume)
 	}
 	return detail.Path, nil
 }

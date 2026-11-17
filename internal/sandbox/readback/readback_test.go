@@ -76,9 +76,23 @@ func TestHomeVolumePathErrorsWhenStateRecordsNoVolume(t *testing.T) {
 	_, err := HomeVolumePath(context.Background(), readbackKey)
 
 	require.Error(t, err)
+	require.ErrorIs(t, err, ErrNoHomeVolume)
 	require.Contains(t, err.Error(), "home volume")
 	require.Contains(t, err.Error(), readbackKey.Slug)
 	require.Empty(t, stub.probed, "no volume must be inspected when state records none")
+}
+
+// TestHomeVolumePathErrorsWhenVolumeHasNoHostPath: an inspected volume with an
+// empty path is an error naming the volume, not an empty path returned silently.
+func TestHomeVolumePathErrorsWhenVolumeHasNoHostPath(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	seedHomeVolume(t, readbackKey, "pathless-vol")
+	withInspector(t, &stubInspector{paths: map[string]string{"pathless-vol": ""}})
+
+	_, err := HomeVolumePath(context.Background(), readbackKey)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "pathless-vol")
 }
 
 func TestHomeVolumePathErrorsWhenStateIsMissing(t *testing.T) {

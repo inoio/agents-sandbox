@@ -30,7 +30,7 @@ const opencode2DatabasePath = ".local/share/opencode/opencode.db"
 //
 // A missing database means a home that never stored a credential: the probe
 // reports nothing and hashes the empty row set, never an error.
-func opencode2Probe(home string) (probeResult, error) {
+func opencode2Probe(agentName, home string) (probeResult, error) {
 	databasePath := filepath.Join(home, opencode2DatabasePath)
 	if _, err := os.Stat(databasePath); errors.Is(err, os.ErrNotExist) {
 		return probeResult{Credentials: nil, RowHash: hashCredentialRows(nil)}, nil
@@ -55,14 +55,20 @@ func opencode2Probe(home string) (probeResult, error) {
 	var credentials []Credential
 	for rows.Next() {
 		var integrationID, label, value string
-		var active bool
+		var active sql.NullInt64
 		if scanErr := rows.Scan(&integrationID, &label, &active, &value); scanErr != nil {
 			return probeResult{}, fmt.Errorf("scan opencode2 credential row: %w", scanErr)
 		}
+		isActive := active.Valid && active.Int64 != 0
 		projected = append(projected, strings.Join(
-			[]string{integrationID, label, strconv.FormatBool(active), value}, "\x00",
+			[]string{integrationID, label, strconv.FormatBool(isActive), value}, "\x00",
 		))
-		credentials = append(credentials, opencode2Credential(integrationID, value)...)
+		if !isActive {
+			// Only an active credential is a fact; an inactive row stays in the
+			// digest so a deactivation is still a change.
+			continue
+		}
+		credentials = append(credentials, opencode2Credential(agentName, integrationID, value)...)
 	}
 	if err := rows.Err(); err != nil {
 		return probeResult{}, fmt.Errorf("read opencode2 credential rows: %w", err)
@@ -74,7 +80,7 @@ func opencode2Probe(home string) (probeResult, error) {
 // credential it describes. A "key" value carries the secret inline, so
 // it is a static credential; any other type (opencode2's "oauth") is a login,
 // whose value is not read out.
-func opencode2Credential(integrationID, value string) []Credential {
+func opencode2Credential(agentName, integrationID, value string) []Credential {
 	var stored struct {
 		Type string `json:"type"`
 		Key  string `json:"key"`
@@ -86,14 +92,14 @@ func opencode2Credential(integrationID, value string) []Credential {
 	case credentialTypeKey:
 		return []Credential{{
 			Kind:     CredentialStatic,
-			Source:   probeSource("opencode2", opencode2ProbeID),
+			Source:   probeSource(agentName, opencode2ProbeID),
 			Provider: integrationID,
 			Value:    stored.Key,
 		}}
 	case credentialTypeOAuth:
 		return []Credential{{
 			Kind:     CredentialLogin,
-			Source:   probeSource("opencode2", opencode2ProbeID),
+			Source:   probeSource(agentName, opencode2ProbeID),
 			Provider: integrationID,
 		}}
 	default:
@@ -133,19 +139,23 @@ var unreadableProbeHash = hashCredentialRows([]string{unreadableProbeMarker})
 type probeResult struct {
 	Credentials []Credential
 	RowHash     string
+	// Unreadable records that the store could not be read, so the caller can
+	// name the probe in ReadBack.Unreadable rather than silently reporting no
+	// credentials.
+	Unreadable bool
 }
 
 // runCredentialProbe runs the named probe and returns what it read. A read
-// failure yields the sentinel hash and no credentials rather than no result:
-// the caller must still record exactly one entry per declared probe, so a
-// transient failure is not mistaken for the probe's removal.
-func runCredentialProbe(home, probe string) probeResult {
+// failure yields the sentinel hash, no credentials, and Unreadable true rather
+// than no result: the caller must still record exactly one entry per declared
+// probe, so a transient failure is not mistaken for the probe's removal.
+func runCredentialProbe(agentName, home, probe string) probeResult {
 	if probe != opencode2ProbeID {
-		return probeResult{Credentials: nil, RowHash: unreadableProbeHash}
+		return probeResult{Credentials: nil, RowHash: unreadableProbeHash, Unreadable: true}
 	}
-	result, err := opencode2Probe(home)
+	result, err := opencode2Probe(agentName, home)
 	if err != nil {
-		return probeResult{Credentials: nil, RowHash: unreadableProbeHash}
+		return probeResult{Credentials: nil, RowHash: unreadableProbeHash, Unreadable: true}
 	}
-	return probeResult{Credentials: result.Credentials, RowHash: result.RowHash}
+	return result
 }
