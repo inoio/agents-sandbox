@@ -267,7 +267,13 @@ func caseOff(ctx context.Context, image, allowedHost string) verdict {
 	if !out.success || strings.Contains(out.stdout, "denied") || strings.Contains(out.stdout, "403") {
 		endpoint = "blocked"
 	}
-	return verdict{Case: name, Connected: out.success, ExitCode: out.exit, Endpoint: endpoint, Detail: combine(out, sb, ctx)}
+	return verdict{
+		Case:      name,
+		Connected: out.success,
+		ExitCode:  out.exit,
+		Endpoint:  endpoint,
+		Detail:    combine(out, sb, ctx),
+	}
 }
 
 // caseAllow answers the strict-mode control for q3/q4: with no proxy and no
@@ -292,7 +298,13 @@ func caseAllow(ctx context.Context, image, allowedHost string, strict bool) verd
 	if out.success {
 		endpoint = "allowed"
 	}
-	return verdict{Case: name, Connected: out.success, ExitCode: out.exit, Endpoint: endpoint, Detail: combine(out, sb, ctx)}
+	return verdict{
+		Case:      name,
+		Connected: out.success,
+		ExitCode:  out.exit,
+		Endpoint:  endpoint,
+		Detail:    combine(out, sb, ctx),
+	}
 }
 
 // caseComposition answers Q3: with a proxy configured and bare `none`, is the
@@ -313,7 +325,13 @@ func caseComposition(ctx context.Context, obs *observer, image, allowedHost, pro
 		}
 		proxy = msb.SOCKS5Proxy(obs.socksAddr)
 	}
-	sb, err := createSandbox(ctx, "spike-s8-q3", image, msb.WithNetwork(noneAllow(strict, allowedHost)), msb.WithProxy(proxy))
+	sb, err := createSandbox(
+		ctx,
+		"spike-s8-q3",
+		image,
+		msb.WithNetwork(noneAllow(strict, allowedHost)),
+		msb.WithProxy(proxy),
+	)
 	if err != nil {
 		return verdict{Case: name, Detail: "create: " + err.Error()}
 	}
@@ -325,7 +343,14 @@ func caseComposition(ctx context.Context, obs *observer, image, allowedHost, pro
 	if len(conns) > 0 {
 		endpoint = "connect-only"
 	}
-	return verdict{Case: name, Connected: len(conns) > 0, ExitCode: out.exit, Endpoint: endpoint, Header: observedHosts(conns), Detail: combine(out, sb, ctx)}
+	return verdict{
+		Case:      name,
+		Connected: len(conns) > 0,
+		ExitCode:  out.exit,
+		Endpoint:  endpoint,
+		Header:    observedHosts(conns),
+		Detail:    combine(out, sb, ctx),
+	}
 }
 
 // caseBypass answers Q4: a host that is both tls-bypassed and egress-allowlisted
@@ -352,7 +377,13 @@ func caseBypass(ctx context.Context, image, bypassHost string, strict bool) verd
 	if out.success {
 		endpoint = "direct"
 	}
-	return verdict{Case: name, Connected: out.success, ExitCode: out.exit, Endpoint: endpoint, Detail: combine(out, sb, ctx)}
+	return verdict{
+		Case:      name,
+		Connected: out.success,
+		ExitCode:  out.exit,
+		Endpoint:  endpoint,
+		Detail:    combine(out, sb, ctx),
+	}
 }
 
 func interceptedVerdict(name string, obs *observer, before int, out guestResult, detail string) verdict {
@@ -376,7 +407,14 @@ func interceptedVerdict(name string, obs *observer, before int, out guestResult,
 	if endpoint == "none" && sawTLSFailure {
 		endpoint = "tls-failed"
 	}
-	return verdict{Case: name, Connected: out.success, ExitCode: out.exit, Endpoint: endpoint, Header: header, Detail: detail}
+	return verdict{
+		Case:      name,
+		Connected: out.success,
+		ExitCode:  out.exit,
+		Endpoint:  endpoint,
+		Header:    header,
+		Detail:    detail,
+	}
 }
 
 func observedHosts(conns []observedConn) string {
@@ -774,7 +812,13 @@ func (o *observer) terminate(conn net.Conn, host string) {
 		}
 	}
 	observed.HeaderNames = strings.Join(names, ",")
-	logf("TLS ok for %s: headers=%q real=%v placeholder=%v", host, observed.HeaderNames, observed.SawReal, observed.SawPlaceholder)
+	logf(
+		"TLS ok for %s: headers=%q real=%v placeholder=%v",
+		host,
+		observed.HeaderNames,
+		observed.SawReal,
+		observed.SawPlaceholder,
+	)
 	o.record(observed)
 
 	_, _ = tlsConn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"))

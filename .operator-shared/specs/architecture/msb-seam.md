@@ -69,7 +69,9 @@ provider-owned split avoids an adapter per consumer.
   `msb.SandboxStatus` string-mirrors `msbSdk.SandboxStatus` so `string(x)` and `==` keep working), and
   the sync guards below cover them.
 - **Target.** No production file outside `internal/sandbox/msb` imports `msbSdk`, pinned by
-  `phase4_boundary_test.go` (no residue: the boundary has zero exemptions). `storage`, `pressure`,
+  `phase4_boundary_test.go` (no residue: the boundary has zero exemptions). The scan scopes to this
+  module: a nested directory carrying its own `go.mod` owns its own import graph and is skipped, so
+  the throwaway spike modules under `spike/` may import the SDK. `storage`, `pressure`,
   `resourceproposal`, `image` and `session` were the first to drop it (`phase3_boundary_test.go`);
   `reconfig`, `prepare`, `vm`, `volume` and `pruning` dropped it with the Phase-4b read-back model;
   `runtime` dropped it with the runtime-residue follow-up, which moved its
