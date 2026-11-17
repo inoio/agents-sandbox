@@ -630,3 +630,17 @@ func TestDescribeUnsetPolicyNamesTheDefaultProfile(t *testing.T) {
 		t.Errorf("Describe(zero) = %q, want the default profile", got)
 	}
 }
+
+// TestDescribeNormalizesProxy pins that Describe normalizes the proxy exactly
+// as Fingerprint does, so a whitespace-padded configuration displays in its
+// canonical form rather than with the padding intact.
+func TestDescribeNormalizesProxy(t *testing.T) {
+	got := (Policy{Profiles: []Profile{ProfileNone}, Proxy: Proxy{
+		Protocol: ProxyProtocol(" socks5 "),
+		Address:  " 10.0.0.1:1080 ",
+	}}).Describe()
+	want := []string{"profile: none", "proxy: socks5://10.0.0.1:1080"}
+	if !slices.Equal(got, want) {
+		t.Errorf("Describe = %q, want %q", got, want)
+	}
+}

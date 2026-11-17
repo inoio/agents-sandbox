@@ -205,7 +205,9 @@ func (p Policy) Fingerprint() string {
 // auto interception mode is the microsandbox default and unset means auto, so
 // neither is displayed; only an explicit on or off is. Unlike Fingerprint, a
 // bypass host is displayed even under `off`, since Describe reports the
-// configured policy and does not model what reaches the VM.
+// configured policy and does not model what reaches the VM. The proxy is
+// normalized exactly as Spec emits it (protocol parsed, address trimmed), so a
+// whitespace-padded configuration displays in its canonical form.
 func (p Policy) Describe() []string {
 	p = p.Effective()
 	var lines []string
@@ -221,12 +223,13 @@ func (p Policy) Describe() []string {
 		lines = append(lines, "disable-strict: true")
 	}
 	if !p.Proxy.Empty() {
-		lines = append(lines, "proxy: "+string(p.Proxy.Protocol)+"://"+p.Proxy.Address)
-		if p.Proxy.Username != "" {
-			lines = append(lines, "proxy-username: "+p.Proxy.Username)
+		proxy := p.proxyEmission()
+		lines = append(lines, "proxy: "+string(proxy.Protocol)+"://"+proxy.Address)
+		if proxy.Username != "" {
+			lines = append(lines, "proxy-username: "+proxy.Username)
 		}
-		if p.Proxy.PasswordEnv != "" {
-			lines = append(lines, "proxy-password-env: "+p.Proxy.PasswordEnv)
+		if proxy.PasswordEnv != "" {
+			lines = append(lines, "proxy-password-env: "+proxy.PasswordEnv)
 		}
 	}
 	return lines
