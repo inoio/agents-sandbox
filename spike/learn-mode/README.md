@@ -43,6 +43,7 @@ spike/learn-mode/
 ├── guest/plant-ca.sh          installs a CA PEM in the guest three ways (S6)
 ├── s1..s7_*.sh                one driver per experiment
 ├── d_runtime_interception.sh  sub-step D (runtime interception as a channel)
+├── s8_sdk_channel/            S1's SDK channel-semantics probe (own Go module)
 └── results.md                 the recorded results; they become the spec update
 ```
 
