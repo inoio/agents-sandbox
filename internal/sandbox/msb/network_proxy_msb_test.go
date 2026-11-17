@@ -39,7 +39,7 @@ func TestRealOutboundProxyTraversal(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 
-	proxyAddress, observed := startSOCKS5Recorder(t)
+	proxyAddress, observed := startSOCKS5Recorder(t, ctx)
 
 	const (
 		destinationHost = "203.0.113.10"
@@ -84,17 +84,25 @@ func TestRealOutboundProxyTraversal(t *testing.T) {
 		guestCommand, output.ExitCode(), strings.TrimSpace(output.Stdout()),
 	)
 
-	select {
-	case got := <-observed:
-		if got.host != destinationHost || got.port != destinationPort {
-			t.Errorf("proxy CONNECT = %s:%d, want %s:%d", got.host, got.port, destinationHost, destinationPort)
+	// The runtime may open extra CONNECTs (e.g. a health probe) before the
+	// guest's own, so drain the recorder until the destination matches rather
+	// than asserting on whichever CONNECT arrives first.
+awaitDestination:
+	for {
+		select {
+		case got := <-observed:
+			if got.host == destinationHost && got.port == destinationPort {
+				break awaitDestination
+			}
+			t.Logf("ignoring proxy CONNECT to %s:%d; not the destination", got.host, got.port)
+		case <-ctx.Done():
+			t.Fatalf(
+				"the runtime never dialed the configured proxy for %s:%d: the guest command produced no "+
+					"matching observer record (guest command %q exited %d; the proxy was not used, or nc "+
+					"could not reach it)",
+				destinationHost, destinationPort, guestCommand, output.ExitCode(),
+			)
 		}
-	case <-time.After(30 * time.Second):
-		t.Fatalf(
-			"the runtime never dialed the configured proxy: the guest command produced no observer record "+
-				"(guest command %q exited %d; the proxy was not used, or nc could not reach %s:%d)",
-			guestCommand, output.ExitCode(), destinationHost, destinationPort,
-		)
 	}
 }
 
@@ -107,14 +115,20 @@ type observedSOCKS5Connect struct {
 // startSOCKS5Recorder listens on the host loopback and reports the address it
 // bound. Every SOCKS5 CONNECT it accepts is answered with a success so the
 // dialing runtime keeps the tunnel open; the recorder never forwards, because
-// the test only asserts that the runtime chose the proxy at all.
-func startSOCKS5Recorder(t *testing.T) (string, <-chan observedSOCKS5Connect) {
+// the test only asserts that the runtime chose the proxy at all. The recorder's
+// connection deadline follows the test context, so it never outlives the test.
+func startSOCKS5Recorder(t *testing.T, ctx context.Context) (string, <-chan observedSOCKS5Connect) {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen for the SOCKS5 recorder: %v", err)
 	}
 	t.Cleanup(func() { _ = listener.Close() })
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("the SOCKS5 recorder needs a test context with a deadline")
+	}
 
 	observed := make(chan observedSOCKS5Connect, 16)
 	go func() {
@@ -123,7 +137,7 @@ func startSOCKS5Recorder(t *testing.T) (string, <-chan observedSOCKS5Connect) {
 			if acceptErr != nil {
 				return
 			}
-			go recordSOCKS5Connect(conn, observed)
+			go recordSOCKS5Connect(conn, observed, deadline)
 		}
 	}()
 	return listener.Addr().String(), observed
@@ -131,10 +145,10 @@ func startSOCKS5Recorder(t *testing.T) (string, <-chan observedSOCKS5Connect) {
 
 // recordSOCKS5Connect completes a no-auth SOCKS5 greeting and CONNECT on conn,
 // reports the requested destination, then holds the tunnel until the client
-// closes it.
-func recordSOCKS5Connect(conn net.Conn, observed chan<- observedSOCKS5Connect) {
+// closes it or the deadline passes.
+func recordSOCKS5Connect(conn net.Conn, observed chan<- observedSOCKS5Connect, deadline time.Time) {
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(2 * time.Minute))
+	_ = conn.SetDeadline(deadline)
 	if err := socks5Greeting(conn); err != nil {
 		return
 	}
