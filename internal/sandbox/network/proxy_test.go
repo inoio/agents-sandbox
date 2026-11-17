@@ -156,11 +156,20 @@ func TestProxyFieldsChangeFingerprint(t *testing.T) {
 
 // TestProxyZeroValueKeepsFingerprintStable pins that an unset proxy contributes
 // no digest lines, so every existing (proxy-less) VM keeps its network hash and
-// is not recreated merely because the field was added.
+// is not recreated merely because the field was added. The digest is pinned
+// against a golden rather than against another live computation, so a
+// regression that emits a proxy line for the zero value — the case this test
+// names — changes the hash and fails here.
 func TestProxyZeroValueKeepsFingerprintStable(t *testing.T) {
-	if (Policy{Profiles: []Profile{ProfileNone}}).Fingerprint() !=
-		(Policy{Profiles: []Profile{ProfileNone}, Proxy: Proxy{}}).Fingerprint() {
-		t.Fatal("an explicitly zero proxy must fingerprint like an unset one")
+	const noneGolden = "7a0868d7bf7fe9ca7e6f5522454be701374788b3ca8a31d6b9c3fde28fe442c6"
+	policy := Policy{Profiles: []Profile{ProfileNone}}
+	if got := policy.Fingerprint(); got != noneGolden {
+		t.Fatalf("zero-proxy fingerprint = %q, want golden %q", got, noneGolden)
+	}
+	for _, line := range policy.Describe() {
+		if strings.HasPrefix(line, "proxy") {
+			t.Fatalf("zero proxy must contribute no proxy line, got %q", line)
+		}
 	}
 }
 
