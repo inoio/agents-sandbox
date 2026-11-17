@@ -77,8 +77,8 @@
 #### `specs/agents/` - Agent profiles and their daemons
 
 - `specs/agents/`
-  - Description: Agent-profile contracts: `hermes-agent.md` (the Hermes profile, its installer/tool-store, `HERMES_HOME`), `notify.md` (the desktop-notify event watcher on opencode/opencode2), `opencode2.md` (the opencode2 profile: config namespace, basic auth, credential store, v2 worktree API).
-  - Read If: Adding or changing an agent profile (the `hermes` install/`OwnsToolTree`, or the opencode2 config-namespace fork / `ConfigDirAliaser` / `OPENCODE_SERVER_PASSWORD` / `DaemonHealthCmd`); the notify decode seam (`agent.EventStreamSpec`/`Parse`/`SessionListSpec`) or `parentID` subagent filtering; or diagnosing a dead-looking opencode2 daemon, an opencode2 provider without a connection, a `--worktree` that 404s, "notify does nothing on opencode2", or a Hermes launch that fails before its REPL.
+  - Description: Agent-profile contracts: `hermes-agent.md` (the Hermes profile, its installer/tool-store, `HERMES_HOME`), `notify.md` (the desktop-notify event watcher on opencode/opencode2: the decode seam, the subtree-aware done model, shells, titles, and the `agents-sandbox:` messages), `opencode2.md` (the opencode2 profile: config namespace, basic auth, credential store, v2 worktree API).
+  - Read If: Adding or changing an agent profile (the `hermes` install/`OwnsToolTree`, or the opencode2 config-namespace fork / `ConfigDirAliaser` / `OPENCODE_SERVER_PASSWORD` / `DaemonHealthCmd`); the notify decode seam (`agent.EventStreamSpec`/`Parse`/`SessionListSpec`/`SessionRef`), `parentID` subagent filtering, the subtree done reasons (`DoneReasons`/`SubtreeDoneStates`/`notify.on-done-subagents-running`), or the message format; or diagnosing a dead-looking opencode2 daemon, an opencode2 provider without a connection, a `--worktree` that 404s, "notify does nothing on opencode2", a done firing while a subagent runs, or a Hermes launch that fails before its REPL.
 
 #### `specs/architecture/` - Cross-cutting package seams and run orchestration
 
@@ -184,3 +184,6 @@
 - `plans/2026-11-15-learn-mode-spike.md`
   - Description: Validation spike for learn mode - seven experiments deciding whether a session's destinations can be observed (home-volume read-back per harness, host DNS resolver under each profile, outbound-proxy reachability and completeness, denial observability, interception prerequisites, streaming cost), each with its pass condition and the decision it changes.
   - Read If: Running or revising the learn-mode spike, choosing between the passive-read-back / launcher-owned-network / interception approaches, or picking up an unverified observation assumption (proxy reachability under `none`, egress bypass, denial logging, DNS coverage).
+- `plans/2026-11-16-notify-done-states.md`
+  - Description: TDD plan for the subtree-aware done notification on opencode2 - the pending reasons (`subagents`, `commands`), the new `on-done-*` config keys, the agent decode fields (`title`, shell state, `SessionRef`), the reconnect reset, and the `agents-sandbox:` message format.
+  - Read If: A task in `internal/notify`/`internal/agent`/`internal/viperconfig` for the notify change; the symbols `DoneReasons`, `SubtreeDoneStates`, `ResetTransient`, `SessionRef`, or the `on-done-*` keys; or a session where a done fires while a subagent runs, a blocked subagent never alarms, or a done stays silent after a reconnect.
