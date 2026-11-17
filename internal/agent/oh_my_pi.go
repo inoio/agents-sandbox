@@ -103,11 +103,13 @@ func (ohMyPiProfile) ProvisionRules() []ProvisionRule {
 	}
 }
 
-// ReadBackPaths declares omp's settings, its models file, and its dotenv: the
-// first two are config facts, the .env holds the static provider keys.
+// ReadBackPaths declares omp's settings (either extension it falls back to), its
+// models file, and its dotenv: the first two are config facts, the .env holds
+// the static provider keys.
 func (ohMyPiProfile) ReadBackPaths() []string {
 	return []string{
 		ohMyPiConfigDir + "/" + ohMyPiConfigFileName,
+		ohMyPiConfigDir + "/" + ohMyPiConfigFileNameAlt,
 		ohMyPiConfigDir + "/models.yml",
 		ohMyPiConfigDir + "/.env",
 	}
