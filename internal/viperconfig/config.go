@@ -176,6 +176,10 @@ const (
 	keyNotifyOnInput = "notify.on-input"
 	keyNotifyOnDone  = "notify.on-done"
 	keyNotifyOnError = "notify.on-error"
+	// keyNotifyOnDoneSubagentsRunning and keyNotifyOnDoneCommandsRunning gate
+	// the done alerts that leave work pending; both default false.
+	keyNotifyOnDoneSubagentsRunning = "notify.on-done-subagents-running"
+	keyNotifyOnDoneCommandsRunning  = "notify.on-done-commands-running"
 )
 
 // The env-var and CLI-flag key sets (configEnvKeys, configBindKeys) are derived

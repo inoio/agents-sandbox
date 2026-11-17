@@ -27,6 +27,11 @@ func (StateClaimer) Acquire(slug, key string) (func(), bool, error) {
 // SessionBusy when the session returns to work, so a later transition can
 // notify again, and release removes the claim file so tokens do not accumulate.
 //
+// A notification the trigger config disables is dropped before claiming, so a
+// classified silent done never spends the (session, done) token: the later
+// genuinely-quiet done still alerts. Gating also means two clients with
+// different trigger configs do not contend for a token neither should deliver.
+//
 // Input notifications also carry the source event's envelope id, which is part
 // of the token. A turn can raise two requests back to back in one step, so each
 // request needs its own token; sharing one token would make a later request
@@ -34,6 +39,7 @@ func (StateClaimer) Acquire(slug, key string) (func(), bool, error) {
 type Dedup struct {
 	slug    string
 	claimer claimer
+	cfg     Config
 	inner   Backend
 	mu      sync.Mutex
 	// claims records, per session, the release func for each token this client
@@ -42,11 +48,13 @@ type Dedup struct {
 }
 
 // NewDedup builds a Backend that deduplicates notifications for slug across
-// clients, forwarding claimed notifications to inner.
-func NewDedup(slug string, c claimer, inner Backend) *Dedup {
+// clients, forwarding claimed notifications to inner. cfg gates the claim: a
+// notification the trigger config disables is dropped without spending a token.
+func NewDedup(slug string, c claimer, cfg Config, inner Backend) *Dedup {
 	return &Dedup{
 		slug:    slug,
 		claimer: c,
+		cfg:     cfg,
 		inner:   inner,
 		mu:      sync.Mutex{},
 		claims:  map[string]map[string]func(){},
@@ -65,8 +73,13 @@ func claimKey(n Notification) string {
 }
 
 // Notify claims the token for n and forwards it to inner only when this client
-// wins the claim. Notifications without a session ID bypass dedup.
+// wins the claim. A notification the trigger config disables is dropped before
+// claiming, so it never spends a token. Notifications without a session ID
+// bypass dedup.
 func (d *Dedup) Notify(n Notification) {
+	if !triggersEnabled(d.cfg, n) {
+		return
+	}
 	if n.SessionID == "" {
 		d.inner.Notify(n)
 		return

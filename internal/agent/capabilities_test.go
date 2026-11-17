@@ -119,9 +119,9 @@ func TestNewSessionListRejectsIncompletePairs(t *testing.T) {
 	tests := []struct {
 		name    string
 		command string
-		parse   func([]byte) []string
+		parse   func([]byte) []agent.SessionRef
 	}{
-		{name: "empty command", command: "", parse: func([]byte) []string { return nil }},
+		{name: "empty command", command: "", parse: func([]byte) []agent.SessionRef { return nil }},
 		{name: "nil parser", command: "cmd", parse: nil},
 	}
 	for _, tt := range tests {
@@ -137,13 +137,13 @@ func TestNewSessionListRejectsIncompletePairs(t *testing.T) {
 }
 
 func TestNewSessionListKeepsCommandAndParser(t *testing.T) {
-	got := agent.NewSessionList("cmd", func(payload []byte) []string {
-		return []string{"child:" + string(payload)}
+	got := agent.NewSessionList("cmd", func(payload []byte) []agent.SessionRef {
+		return []agent.SessionRef{{ID: "child:" + string(payload)}}
 	})
 	if got.Command() != "cmd" {
 		t.Errorf("Command() = %q, want %q", got.Command(), "cmd")
 	}
-	if children := got.Parse([]byte("raw")); len(children) != 1 || children[0] != "child:raw" {
+	if children := got.Parse([]byte("raw")); len(children) != 1 || children[0].ID != "child:raw" {
 		t.Errorf("Parse() = %v, want [child:raw]", children)
 	}
 }

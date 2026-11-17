@@ -498,18 +498,22 @@ func TestOpencode2EventStream(t *testing.T) {
 	}
 	if children := got.SessionList.Parse([]byte(
 		`{"data":[{"id":"ses_child","parentID":"ses_top"}]}`,
-	)); len(children) != 1 || children[0] != "ses_child" {
+	)); len(children) != 1 || children[0].ID != "ses_child" {
 		t.Errorf("SessionList.Parse() = %v, want [ses_child]", children)
 	}
 	got.SessionList = nil
 	want := agent.EventStreamSpec{
-		StreamCommand: "curl -N -s -u opencode:opencode http://127.0.0.1:4096/api/event",
-		BusyEvents:    []string{"session.execution.started", "session.step.started"},
-		AwaitingInput: []string{"permission.asked", "form.created"},
-		IdleEvents:    []string{"session.execution.succeeded"},
-		ErrorEvents:   []string{"session.error", "session.execution.failed"},
-		SessionEvents: []string{"session.created"},
-		Name:          "opencode2",
+		StreamCommand:      "curl -N -s -u opencode:opencode http://127.0.0.1:4096/api/event",
+		BusyEvents:         []string{"session.execution.started", "session.step.started"},
+		AwaitingInput:      []string{"permission.asked", "form.created"},
+		IdleEvents:         []string{"session.execution.succeeded"},
+		ErrorEvents:        []string{"session.error", "session.execution.failed"},
+		SessionEvents:      []string{"session.created", "session.renamed"},
+		SubtreeDoneStates:  true,
+		ShellStartedEvents: []string{"session.shell.started", "shell.created"},
+		ShellEndedEvents:   []string{"session.shell.ended", "shell.exited"},
+		InterruptedEvents:  []string{"session.execution.interrupted"},
+		Name:               "opencode2",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("EventStream() = %+v, want %+v", got, want)

@@ -19,7 +19,7 @@ read_if: A task in `internal/notify`/`internal/agent`/`internal/viperconfig` for
 
 - opencode2 only for the done model. `opencode` (v1) keeps `SubtreeDoneStates: false` and empty new lists; its trigger semantics must not change. Both agents' *wording* moves to the shared `agents-sandbox:` strings.
 - No new channels, no new `--notify` value. `--notify`/`AGENTS_SANDBOX_NOTIFY` still set channels only.
-- New config keys, exact: `notify.on-done-subagents-running` (default `false`), `notify.on-done-commands-running` (default `true`). Env: `AGENTS_SANDBOX_NOTIFY_ON_DONE_SUBAGENTS_RUNNING`, `AGENTS_SANDBOX_NOTIFY_ON_DONE_COMMANDS_RUNNING`.
+- New config keys, exact: `notify.on-done-subagents-running` (default `false`), `notify.on-done-commands-running` (default `false`). Env: `AGENTS_SANDBOX_NOTIFY_ON_DONE_SUBAGENTS_RUNNING`, `AGENTS_SANDBOX_NOTIFY_ON_DONE_COMMANDS_RUNNING`.
 - Message title prefix, exact: `agents-sandbox: `. Titles: `agent done`, `input requested`, `session error`; a done with pending work appends the reasons. Body: `in session '<title>'`.
 - The watcher's only sandbox dependency stays the two-method `notify.StreamOpener` seam. No daemon changes; only events already on `GET /api/event`.
 - Follow `AGENTS.md`: TDD; `make fmt` and `make lint` (never `go vet`/`go fmt`); test a unit in its `<unit>_test.go`; add `changelog.d/<PR>.<type>.md`; keep `docs/` (except `docs/superpowers`) in sync.
@@ -296,12 +296,12 @@ git commit -am "fix(notify): reset subtree liveness on reconnect"
 - [ ] **Step 1: Write the failing test.**
 
 ```go
-func TestDecodeNotifyDoneReasons() // section present, keys unset -> OnDoneSubagentsRunning false, OnDoneCommandsRunning true, others true; keys set override each
+func TestDecodeNotifyDoneReasons() // section present, keys unset -> OnDoneSubagentsRunning false, OnDoneCommandsRunning false, others true; keys set override each
 ```
 
 - [ ] **Step 2: Run to verify it fails.** `go test -tags microsandbox_ffi_path ./internal/viperconfig/ -run TestDecodeNotify -v` → FAIL.
 
-- [ ] **Step 3: Implement.** Add the two key consts (`"notify.on-done-subagents-running"`, `"notify.on-done-commands-running"`), add both to `notifyEnvKeys`, and in `decodeNotify` include them in the "section set" check, default `OnDoneSubagentsRunning=false`/`OnDoneCommandsRunning=true` after the existing defaults, and override when set.
+- [ ] **Step 3: Implement.** Add the two key consts (`"notify.on-done-subagents-running"`, `"notify.on-done-commands-running"`), add both to `notifyEnvKeys`, and in `decodeNotify` include them in the "section set" check, default `OnDoneSubagentsRunning=false`/`OnDoneCommandsRunning=false` after the existing defaults, and override when set.
 
 - [ ] **Step 4: Run to verify it passes.** Also confirm env binding: `go test -tags microsandbox_ffi_path ./internal/viperconfig/`.
 
@@ -323,7 +323,7 @@ git commit -am "feat(config): notify done-with-subagents/commands toggles"
 
 The `.operator-shared/specs/agents/notify.md` contract is already written (this plan's spec); no further brain edit is needed unless a clause proves wrong.
 
-- [ ] **Step 1: Update `docs/configuration/notifications.md`.** Add `on-done-subagents-running` (default `false`) and `on-done-commands-running` (default `true`); state that a done alert names the session title and that v1's wording also moved to `agents-sandbox:`.
+- [ ] **Step 1: Update `docs/configuration/notifications.md`.** Add `on-done-subagents-running` (default `false`) and `on-done-commands-running` (default `false`); state that under the defaults only a fully-at-rest session notifies, that a done alert names the session title, and that v1's wording also moved to `agents-sandbox:`.
 - [ ] **Step 2: Add the changelog fragment** (`changelog.d/<PR-number>.feature.md`; see `CONTRIBUTING.md`).
 - [ ] **Step 3: Run the doc gate.** `make check-docs` (or `bash ci/check-docs.sh`). Expected: pass.
 - [ ] **Step 4: Commit.**

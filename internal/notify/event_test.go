@@ -1,9 +1,23 @@
 package notify
 
 import (
+	"slices"
 	"testing"
+	"time"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+)
+
+// reason-events are the opencode2 event kinds the subtree-aware done tests
+// drive directly, named so a test reads as the flow it models.
+const (
+	execStarted     = "session.execution.started"
+	execSucceeded   = "session.execution.succeeded"
+	execInterrupted = "session.execution.interrupted"
+	sessionCreated  = "session.created"
+	permissionAsked = "permission.asked"
+	shellStarted    = "session.shell.started"
+	shellEnded      = "session.shell.ended"
 )
 
 func TestTrackerAwaitingInputFromIdle(t *testing.T) {
@@ -114,22 +128,40 @@ func TestTrackerDedupesRepeatedIdle(t *testing.T) {
 	}
 }
 
-func TestTrackerTitlesUseSpecName(t *testing.T) {
+// TestTrackerMessageWording pins the fixed message text: a product-name title
+// prefix (the agent name is dropped), and a body naming the session when its
+// title is known, falling back to the original sentence otherwise.
+func TestTrackerMessageWording(t *testing.T) {
 	tr := NewTracker(opencodeSpec())
 	tr.Handle(agent.StreamEvent{Type: "message.part.updated"}) // busy
 	n := tr.Handle(agent.StreamEvent{Type: "session.idle"})
-	if n == nil || n.Title != "opencode: done" {
-		t.Fatalf("expected title 'opencode: done', got %+v", n)
+	if n == nil || n.Title != "agents-sandbox: agent done" || n.Body != "The agent finished." {
+		t.Fatalf("done = %+v, want the fixed title and fallback body", n)
 	}
 	tr.Handle(agent.StreamEvent{Type: "message.part.updated"}) // busy
 	n = tr.Handle(agent.StreamEvent{Type: "question.asked"})
-	if n == nil || n.Title != "opencode: input needed" {
-		t.Fatalf("expected title 'opencode: input needed', got %+v", n)
+	if n == nil || n.Title != "agents-sandbox: input requested" ||
+		n.Body != "The agent is waiting for your input." {
+		t.Fatalf("input = %+v, want the fixed title and fallback body", n)
 	}
 	tr.Handle(agent.StreamEvent{Type: "message.part.updated"}) // busy
 	n = tr.Handle(agent.StreamEvent{Type: "session.error"})
-	if n == nil || n.Title != "opencode: error" {
-		t.Fatalf("expected title 'opencode: error', got %+v", n)
+	if n == nil || n.Title != "agents-sandbox: session error" ||
+		n.Body != "The session reported an error." {
+		t.Fatalf("error = %+v, want the fixed title and fallback body", n)
+	}
+}
+
+// TestTrackerMessageNamesKnownSession pins the body naming a known title: the
+// tracker learns it from a lifecycle event's Title (or the seed) and puts it in
+// the body.
+func TestTrackerMessageNamesKnownSession(t *testing.T) {
+	tr := NewTracker(opencodeSpec())
+	tr.Handle(agent.StreamEvent{Type: "session.created", SessionID: "ses_1", Title: "my run"})
+	tr.Handle(agent.StreamEvent{Type: "message.part.updated", SessionID: "ses_1"})
+	n := tr.Handle(agent.StreamEvent{Type: "session.idle", SessionID: "ses_1"})
+	if n == nil || n.Body != "in session 'my run'" {
+		t.Fatalf("done = %+v, want the session title in the body", n)
 	}
 }
 
@@ -189,7 +221,7 @@ func TestTrackerSeededChildIsSuppressed(t *testing.T) {
 	spec := opencodeSpec()
 	spec.SessionEvents = []string{"session.created", "session.updated"}
 	tr := NewTracker(spec)
-	tr.SeedChildren([]string{"ses_seeded", ""})
+	tr.Seed([]agent.SessionRef{{ID: "ses_seeded", ParentID: "ses_root"}, {ID: ""}})
 
 	tr.Handle(agent.StreamEvent{Type: "message.part.updated", SessionID: "ses_seeded"})
 	if n := tr.Handle(agent.StreamEvent{Type: "session.idle", SessionID: "ses_seeded"}); n != nil {
@@ -222,8 +254,8 @@ func TestTrackerHonorsCustomSpec(t *testing.T) {
 	tr := NewTracker(spec)
 	tr.Handle(agent.StreamEvent{Type: "busy.evt"})
 	n := tr.Handle(agent.StreamEvent{Type: "idle.evt"})
-	if n == nil || n.Trigger != TriggerDone || n.Title != "pi: done" {
-		t.Fatalf("expected 'pi: done' done notification, got %+v", n)
+	if n == nil || n.Trigger != TriggerDone || n.Title != "agents-sandbox: agent done" {
+		t.Fatalf("expected 'agents-sandbox: agent done' done notification, got %+v", n)
 	}
 }
 
@@ -353,5 +385,575 @@ func TestTrackerIgnoresParentOnSessionlessEvents(t *testing.T) {
 	tr.Handle(agent.StreamEvent{Type: "session.created", ParentID: "ses_root"})
 	if n := tr.Handle(agent.StreamEvent{Type: "session.error"}); n == nil || n.Trigger != TriggerError {
 		t.Fatalf("session-less error = %+v, want an error notification", n)
+	}
+}
+
+// TestDoneReasonsSubagents pins the no-hold model: a top-level succeeded while
+// a subagent is still live emits a done (it is never held or synthesized)
+// carrying the DoneSubagentsRunning reason; once the child settles, the next
+// top-level succeeded is a plain done.
+func TestDoneReasonsSubagents(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	const root = "ses_root"
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_child", ParentID: root})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: "ses_child"})
+
+	n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+	if n == nil || n.Trigger != TriggerDone {
+		t.Fatalf("root succeeded with a live child = %+v, want a done", n)
+	}
+	if !slices.Equal(n.DoneReasons, []DoneReason{DoneSubagentsRunning}) {
+		t.Fatalf("DoneReasons = %v, want [subagents]", n.DoneReasons)
+	}
+	if n.Title != "agents-sandbox: agent done (1 subagent)" {
+		t.Fatalf("Title = %q, want the subagent reason appended", n.Title)
+	}
+
+	tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: "ses_child"})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+	n = tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+	if n == nil || n.Trigger != TriggerDone || len(n.DoneReasons) != 0 ||
+		n.Title != "agents-sandbox: agent done" {
+		t.Fatalf("root succeeded after the child settled = %+v, want a plain done", n)
+	}
+}
+
+// TestDoneReasonsCommands pins that a background shell running for the
+// top-level session classifies its done as done-with-a-command-running; once
+// the shell ends the reason is gone.
+func TestDoneReasonsCommands(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	const root = "ses_root"
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+	tr.Handle(agent.StreamEvent{Type: shellStarted, SessionID: root, ShellID: "sh_1", ShellBackground: true})
+
+	n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+	if !slices.Equal(n.DoneReasons, []DoneReason{DoneCommandsRunning}) {
+		t.Fatalf("DoneReasons = %v, want [commands]", n.DoneReasons)
+	}
+	if n.Title != "agents-sandbox: agent done (1 command running)" {
+		t.Fatalf("Title = %q, want the command reason appended", n.Title)
+	}
+
+	tr.Handle(agent.StreamEvent{Type: shellEnded, SessionID: root, ShellID: "sh_1"})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+	n = tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+	if len(n.DoneReasons) != 0 || n.Title != "agents-sandbox: agent done" {
+		t.Fatalf("done after the shell ended = %+v, want a plain done", n)
+	}
+}
+
+// TestDoneReasonsIndependentTopLevelSessions pins that one top-level session's
+// live children do not classify another top-level session's done: done reasons
+// are computed per top-level session.
+func TestDoneReasonsIndependentTopLevelSessions(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	const rootA, rootB = "ses_a", "ses_b"
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: rootA})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: rootB})
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_a_child", ParentID: rootA})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: "ses_a_child"})
+
+	n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: rootB})
+	if n == nil || n.Trigger != TriggerDone || len(n.DoneReasons) != 0 {
+		t.Fatalf("B's done with A's live child = %+v, want a plain done", n)
+	}
+}
+
+// TestDoneReasonsToolShell pins the agent's shell tool path: the tool emits
+// shell.created/shell.exited (never session.shell.*), and shell.exited carries
+// no session id, so the end must clear the shell by id across every session.
+// A tool shell running when the top-level turn succeeds is done-with-a-command;
+// once it exits, the next succeeded is a plain done.
+func TestDoneReasonsToolShell(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	const root = "ses_root"
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+	tr.Handle(agent.StreamEvent{Type: "shell.created", SessionID: root, ShellID: "sh_tool", ShellBackground: true})
+
+	n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+	if n == nil || !slices.Equal(n.DoneReasons, []DoneReason{DoneCommandsRunning}) {
+		t.Fatalf("root succeeded with a running tool shell = %+v, want [commands]", n)
+	}
+
+	// The exit has no session id: it must still clear the root's running shell.
+	tr.Handle(agent.StreamEvent{Type: "shell.exited", ShellID: "sh_tool"})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+	n = tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+	if n == nil || len(n.DoneReasons) != 0 || n.Title != "agents-sandbox: agent done" {
+		t.Fatalf("done after the tool shell exited = %+v, want a plain done", n)
+	}
+}
+
+// TestDoneReasonsBoth pins the combined message: a live subagent and a running
+// command are one done naming both, subagents first.
+func TestDoneReasonsBoth(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	const root = "ses_root"
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_child_a", ParentID: root})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: "ses_child_a"})
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_child_b", ParentID: root})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: "ses_child_b"})
+	tr.Handle(agent.StreamEvent{Type: shellStarted, SessionID: root, ShellID: "sh_1", ShellBackground: true})
+
+	n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+	if !slices.Equal(n.DoneReasons, []DoneReason{DoneSubagentsRunning, DoneCommandsRunning}) {
+		t.Fatalf("DoneReasons = %v, want [subagents commands]", n.DoneReasons)
+	}
+	if n.Title != "agents-sandbox: agent done (2 subagents, 1 command running)" {
+		t.Fatalf("Title = %q, want both reasons, subagents first", n.Title)
+	}
+}
+
+// TestInterruptedSettlesChild pins that an interrupted child settles with no
+// alert, so the parent's next succeeded is a plain done rather than one still
+// naming a live subagent.
+func TestInterruptedSettlesChild(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	const root = "ses_root"
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_child", ParentID: root})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: "ses_child"})
+
+	if n := tr.Handle(agent.StreamEvent{Type: execInterrupted, SessionID: "ses_child"}); n != nil {
+		t.Fatalf("interrupted child notified: %+v", n)
+	}
+	n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+	if n == nil || n.Trigger != TriggerDone || len(n.DoneReasons) != 0 {
+		t.Fatalf("root succeeded after the child was interrupted = %+v, want a plain done", n)
+	}
+}
+
+// TestInterruptedTopLevelIsSilent pins the other direction of the interrupt
+// invariant: a top-level interrupt is not an alert, but it settles the session
+// instead of latching an error, so the next busy->succeeded turn still notifies.
+func TestInterruptedTopLevelIsSilent(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	const root = "ses_root"
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+
+	if n := tr.Handle(agent.StreamEvent{Type: execInterrupted, SessionID: root}); n != nil {
+		t.Fatalf("interrupted top-level session notified: %+v", n)
+	}
+
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+	n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+	if n == nil || n.Trigger != TriggerDone {
+		t.Fatalf("succeeded after an interrupt = %+v, want a done (the interrupt settled, not latched)", n)
+	}
+}
+
+// TestDoneReasonsGrandchild pins that the done classification walks the whole
+// parent chain: a live grandchild (root -> child -> grandchild) classifies the
+// root's succeeded, not only a direct child.
+func TestDoneReasonsGrandchild(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	const root = "ses_root"
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_child", ParentID: root})
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_grandchild", ParentID: "ses_child"})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: "ses_grandchild"})
+
+	n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+	if n == nil || n.Trigger != TriggerDone {
+		t.Fatalf("root succeeded with a live grandchild = %+v, want a done", n)
+	}
+	if !slices.Equal(n.DoneReasons, []DoneReason{DoneSubagentsRunning}) {
+		t.Fatalf("DoneReasons = %v, want [subagents] from the grandchild", n.DoneReasons)
+	}
+}
+
+// TestSeedSkipsEmptyID pins that a malformed seed entry with an empty id marks
+// nothing: the empty session id never becomes a child, so a session-less
+// done/error still notifies, while the entry's parent does not leak onto the
+// empty id either.
+func TestSeedSkipsEmptyID(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	tr.Seed([]agent.SessionRef{
+		{ID: "", ParentID: "ses_root"},
+		{ID: "ses_child", ParentID: "ses_root"},
+	})
+
+	if tr.isChild("") {
+		t.Fatalf("the empty session id was marked a child")
+	}
+
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: ""})
+	if n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: ""}); n == nil || n.Trigger != TriggerDone {
+		t.Fatalf("session-less done = %+v, want it to notify (empty id is not a child)", n)
+	}
+	n := tr.Handle(agent.StreamEvent{Type: "session.error", SessionID: ""})
+	if n == nil || n.Trigger != TriggerError {
+		t.Fatalf("session-less error = %+v, want it to notify (empty id is not a child)", n)
+	}
+
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: "ses_child"})
+	if n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: "ses_child"}); n != nil {
+		t.Fatalf("seeded child notified: %+v", n)
+	}
+}
+
+// TestDoneReasonsChildShellDoesNotClassifyRoot pins that the command reason is
+// the top-level session's own running shells: a background shell attributed to a
+// child session must not classify the root's done.
+func TestDoneReasonsChildShellDoesNotClassifyRoot(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	const root = "ses_root"
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_child", ParentID: root})
+	tr.Handle(agent.StreamEvent{
+		Type: "shell.created", SessionID: "ses_child", ShellID: "sh_child", ShellBackground: true,
+	})
+
+	n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+	if n == nil || n.Trigger != TriggerDone {
+		t.Fatalf("root succeeded = %+v, want a done", n)
+	}
+	if len(n.DoneReasons) != 0 || n.Title != "agents-sandbox: agent done" {
+		t.Fatalf("done = %+v, want a plain done: a child's shell is not the root's", n)
+	}
+}
+
+// TestErrorBodyNamesKnownTitle pins the error trigger's body: with the session
+// titled, it names the session like the done and input triggers do, instead of
+// the fallback sentence.
+func TestErrorBodyNamesKnownTitle(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	const root = "ses_root"
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: root, Title: "my task"})
+
+	n := tr.Handle(agent.StreamEvent{Type: "session.error", SessionID: root})
+	if n == nil || n.Trigger != TriggerError {
+		t.Fatalf("error = %+v, want an error notification", n)
+	}
+	if n.Body != "in session 'my task'" {
+		t.Fatalf("Body = %q, want the known title, not the fallback", n.Body)
+	}
+}
+
+// TestChildInputSurfacesAsTopLevel pins the one child notification: a child's
+// input request is attributed to the top-level ancestor, carrying the child's
+// request id and the ancestor's title.
+func TestChildInputSurfacesAsTopLevel(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	const root = "ses_root"
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: root, Title: "my task"})
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_child", ParentID: root})
+
+	n := tr.Handle(agent.StreamEvent{Type: permissionAsked, SessionID: "ses_child", EventID: "evt_child"})
+	if n == nil || n.Trigger != TriggerInput {
+		t.Fatalf("child input = %+v, want an input notification", n)
+	}
+	if n.SessionID != root || n.EventID != "evt_child" {
+		t.Fatalf("attribution = session %q event %q, want the root and the child's request id",
+			n.SessionID, n.EventID)
+	}
+	if n.Title != "agents-sandbox: input requested" || n.Body != "in session 'my task'" {
+		t.Fatalf("message = %q / %q, want the fixed title and the root's title", n.Title, n.Body)
+	}
+}
+
+// TestChildInputSuppressedWithoutSubtreeStates pins v1's frozen semantics: with
+// SubtreeDoneStates off, a child session is fully suppressed, including its
+// input — the child-input exception belongs to the subtree model only. The
+// child's state still updates.
+func TestChildInputSuppressedWithoutSubtreeStates(t *testing.T) {
+	spec := opencodeSpec()
+	spec.SessionEvents = []string{"session.created"}
+	tr := NewTracker(spec)
+	tr.Handle(agent.StreamEvent{Type: "session.created", SessionID: "ses_child", ParentID: "ses_root"})
+
+	if n := tr.Handle(
+		agent.StreamEvent{Type: permissionAsked, SessionID: "ses_child", EventID: "evt_child"},
+	); n != nil {
+		t.Fatalf("v1 child input notified: %+v, want suppression", n)
+	}
+	if tr.states["ses_child"] != stateAwaitingInput {
+		t.Fatalf("child state = %v, want awaitingInput (the state still updates)", tr.states["ses_child"])
+	}
+}
+
+// TestCyclicParentLinksTerminate pins that a malformed parentOf (a self-parent
+// or an A→B→A cycle, from a bad seed or a duplicated session.created) cannot
+// spin the parent walk forever: topLevelAncestor and descendsFrom are bounded,
+// so the notify goroutine Watch joins on stop still returns.
+func TestCyclicParentLinksTerminate(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	tr.Seed([]agent.SessionRef{
+		{ID: "A", ParentID: "B"},
+		{ID: "B", ParentID: "A"},
+		{ID: "S", ParentID: "S"},
+	})
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		// Input on a cycle walks topLevelAncestor; a succeeded classifies via
+		// liveDescendants/descendsFrom.
+		tr.Handle(agent.StreamEvent{Type: permissionAsked, SessionID: "A", EventID: "e1"})
+		tr.Handle(agent.StreamEvent{Type: permissionAsked, SessionID: "S", EventID: "e2"})
+		tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: "A"})
+		tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: "A"})
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("parent walk did not terminate on a cyclic parentOf")
+	}
+
+	if got := tr.topLevelAncestor("S"); got != "S" {
+		t.Errorf("topLevelAncestor(self-parent) = %q, want S", got)
+	}
+	if got := tr.topLevelAncestor("A"); got != "A" && got != "B" {
+		t.Errorf("topLevelAncestor(A→B→A) = %q, want an ancestor in the cycle", got)
+	}
+}
+
+// TestNestedChildInputUsesRoot pins that input from a grandchild walks the
+// parent chain to the top-level session.
+func TestNestedChildInputUsesRoot(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	const root = "ses_root"
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: root, Title: "root task"})
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_child", ParentID: root})
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_grandchild", ParentID: "ses_child"})
+
+	n := tr.Handle(agent.StreamEvent{Type: permissionAsked, SessionID: "ses_grandchild", EventID: "evt_grand"})
+	if n == nil || n.SessionID != root || n.Body != "in session 'root task'" {
+		t.Fatalf("grandchild input = %+v, want attribution to the root", n)
+	}
+}
+
+// TestDoneWithoutSubtreeStates pins v1's frozen trigger semantics: with
+// SubtreeDoneStates off, a top-level idle transition notifies done regardless
+// of live descendants, with no reasons.
+func TestDoneWithoutSubtreeStates(t *testing.T) {
+	spec := opencodeSpec()
+	spec.SessionEvents = []string{"session.created"}
+	tr := NewTracker(spec)
+	const root = "ses_root"
+	tr.Handle(agent.StreamEvent{Type: "message.part.updated", SessionID: root})
+	tr.Handle(agent.StreamEvent{Type: "session.created", SessionID: "ses_child", ParentID: root})
+	tr.Handle(agent.StreamEvent{Type: "message.part.updated", SessionID: "ses_child"})
+
+	n := tr.Handle(agent.StreamEvent{Type: "session.idle", SessionID: root})
+	if n == nil || n.Trigger != TriggerDone || len(n.DoneReasons) != 0 ||
+		n.Title != "agents-sandbox: agent done" {
+		t.Fatalf("v1 done with a live child = %+v, want today's plain done", n)
+	}
+}
+
+// TestResetTransientClearsChildStateAndShells pins what a fresh stream cannot
+// replay: a child's live state and every running background shell are dropped,
+// while the top-level session's state, the parent links, and the titles survive
+// (they come from the seed or the stream, not from liveness).
+func TestResetTransientClearsChildStateAndShells(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	const root = "ses_root"
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: root, Title: "root task"})
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_child", ParentID: root})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: "ses_child"})
+	tr.Handle(agent.StreamEvent{Type: shellStarted, SessionID: root, ShellID: "sh_1", ShellBackground: true})
+
+	tr.ResetTransient()
+
+	if tr.states["ses_child"] != stateIdle {
+		t.Errorf("child state after reset = %v, want idle", tr.states["ses_child"])
+	}
+	if len(tr.shells[root]) != 0 {
+		t.Errorf("shells after reset = %v, want none", tr.shells[root])
+	}
+	if tr.states[root] != stateBusy {
+		t.Errorf("top-level state after reset = %v, want it to persist as busy", tr.states[root])
+	}
+	if tr.parentOf["ses_child"] != root || tr.titles[root] != "root task" {
+		t.Errorf("parent links/titles lost: parentOf=%q titles=%q", tr.parentOf["ses_child"], tr.titles[root])
+	}
+
+	// The reset must also remove the child's liveness from the done
+	// classification: the next top-level succeeded is a plain done.
+	n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+	if n == nil || n.Trigger != TriggerDone || len(n.DoneReasons) != 0 {
+		t.Fatalf("done after reset = %+v, want a plain done", n)
+	}
+}
+
+// TestShellTrackingRequiresStartBackgroundAndID pins the three operands of the
+// shell-start guard: only an event from a ShellStartedEvents list, flagged
+// background, with a non-empty shell id registers a running shell. A done while
+// any operand fails is plain; the positive control still reports the command
+// reason.
+func TestShellTrackingRequiresStartBackgroundAndID(t *testing.T) {
+	const root = "ses_root"
+	notAShellStart := []struct {
+		name  string
+		event agent.StreamEvent
+	}{
+		{
+			name:  "foreground shell",
+			event: agent.StreamEvent{Type: shellStarted, SessionID: root, ShellID: "sh_fg"},
+		},
+		{
+			name:  "non-start event carrying shell fields",
+			event: agent.StreamEvent{Type: execStarted, SessionID: root, ShellID: "sh_x", ShellBackground: true},
+		},
+		{
+			name:  "background shell with no id",
+			event: agent.StreamEvent{Type: shellStarted, SessionID: root, ShellBackground: true},
+		},
+	}
+	for _, tc := range notAShellStart {
+		t.Run(tc.name, func(t *testing.T) {
+			tr := NewTracker(opencode2Spec())
+			tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+			tr.Handle(tc.event)
+			n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+			if n == nil || n.Trigger != TriggerDone {
+				t.Fatalf("done = %+v, want a done", n)
+			}
+			if len(n.DoneReasons) != 0 || n.Title != "agents-sandbox: agent done" {
+				t.Fatalf("done = %+v, want a plain done (shell not registered)", n)
+			}
+		})
+	}
+
+	t.Run("background shell start registers", func(t *testing.T) {
+		tr := NewTracker(opencode2Spec())
+		tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+		tr.Handle(agent.StreamEvent{Type: shellStarted, SessionID: root, ShellID: "sh_ok", ShellBackground: true})
+		n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+		if n == nil || !slices.Equal(n.DoneReasons, []DoneReason{DoneCommandsRunning}) {
+			t.Fatalf("done = %+v, want [commands]", n)
+		}
+	})
+}
+
+// TestLiveDescendantsCountsAwaitingInputChild pins that an awaiting-input child
+// is live: a subagent blocked on a request still classifies the root's done.
+func TestLiveDescendantsCountsAwaitingInputChild(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	const root = "ses_root"
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_child", ParentID: root})
+	tr.Handle(agent.StreamEvent{Type: permissionAsked, SessionID: "ses_child", EventID: "e1"})
+
+	n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+	if n == nil || !slices.Equal(n.DoneReasons, []DoneReason{DoneSubagentsRunning}) {
+		t.Fatalf("done with a child awaiting input = %+v, want [subagents]", n)
+	}
+}
+
+// TestLiveDescendantsSkipsNonDescendantsBeforeLaterOnes pins the per-candidate
+// skip: a parentOf entry that is not a descendant of the done session must not
+// stop the walk before a later, real descendant is counted. The determinism —
+// and so the continue-vs-break kill — depends on liveDescendants iterating in
+// sorted order: the skipped id must sort first.
+func TestLiveDescendantsSkipsNonDescendantsBeforeLaterOnes(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	const root = "ses_root"
+	tr.Seed([]agent.SessionRef{
+		{ID: "ses_a", ParentID: "ses_other"}, // not a descendant, sorts first
+		{ID: "ses_child", ParentID: root},
+	})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: "ses_child"})
+
+	n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+	if n == nil || !slices.Equal(n.DoneReasons, []DoneReason{DoneSubagentsRunning}) {
+		t.Fatalf("done = %+v, want [subagents] from the descendant after the skipped entry", n)
+	}
+}
+
+// TestLiveDescendantsExcludesSessionItself pins that a session is never counted
+// as its own descendant, even on a malformed self-parent chain.
+func TestLiveDescendantsExcludesSessionItself(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	tr.Seed([]agent.SessionRef{{ID: "S", ParentID: "S"}})
+	tr.states["S"] = stateBusy
+
+	if got := tr.liveDescendants("S"); got != 0 {
+		t.Fatalf("liveDescendants(self-parent) = %d, want 0", got)
+	}
+}
+
+// TestDescendsFromRejectsACycleOffTheAncestor pins the cycle answer directly,
+// without a timeout: a chain that enters a cycle the ancestor is not on is not a
+// descendant chain, so descendsFrom(S, X) is false for an unrelated X. The
+// positive controls cover the two true paths — an ancestor on the chain before
+// the cycle (B) and one inside the cycle (C) — so a guard that answered true for
+// every repeat can no longer over-count live descendants.
+func TestDescendsFromRejectsACycleOffTheAncestor(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	tr.Seed([]agent.SessionRef{
+		{ID: "S", ParentID: "B"},
+		{ID: "B", ParentID: "C"},
+		{ID: "C", ParentID: "B"},
+	})
+
+	if tr.descendsFrom("S", "X") {
+		t.Errorf("descendsFrom(S→B↔C, X) = true, want false: the chain never reaches X")
+	}
+	if !tr.descendsFrom("S", "B") {
+		t.Errorf("descendsFrom(S→B↔C, B) = false, want true: B is on the chain")
+	}
+	if !tr.descendsFrom("S", "C") {
+		t.Errorf("descendsFrom(S→B↔C, C) = false, want true: C is in the cycle")
+	}
+}
+
+// TestParentWalkIntoCycleTerminates pins that both walks terminate when a
+// parent chain leads *into* a cycle that does not contain the starting session:
+// topLevelAncestor must return, and liveDescendants must not spin. The walks are
+// called directly in a goroutine, not through Watch; termination is their only
+// observable effect, so the cycle guard is asserted via the timeout. The
+// unrelated root R walks X, whose chain X→A enters the A↔B cycle.
+func TestParentWalkIntoCycleTerminates(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	tr.Seed([]agent.SessionRef{
+		{ID: "X", ParentID: "A"},
+		{ID: "A", ParentID: "B"},
+		{ID: "B", ParentID: "A"},
+	})
+
+	result := make(chan string, 1)
+	go func() {
+		tr.liveDescendants("R")
+		result <- tr.topLevelAncestor("X")
+	}()
+
+	select {
+	case got := <-result:
+		if got != "A" && got != "B" {
+			t.Errorf("topLevelAncestor(X→A→B→A) = %q, want an ancestor in the cycle", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("parent walk into a cycle did not terminate")
+	}
+}
+
+// TestSeedRecordsTitlesAndParents pins that the seed teaches both the parent
+// link (so a later-live seeded child classifies the done) and the title (so the
+// body names the session).
+func TestSeedRecordsTitlesAndParents(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	tr.Seed([]agent.SessionRef{
+		{ID: "ses_root", Title: "seeded task"},
+		{ID: "ses_child", ParentID: "ses_root", Title: "kid"},
+		{ID: "", ParentID: "ses_root"},
+	})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: "ses_root"})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: "ses_child"})
+
+	n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: "ses_root"})
+	if !slices.Equal(n.DoneReasons, []DoneReason{DoneSubagentsRunning}) ||
+		n.Title != "agents-sandbox: agent done (1 subagent)" {
+		t.Fatalf("seeded child not classified = %+v, want the subagent reason", n)
+	}
+	if n.Body != "in session 'seeded task'" {
+		t.Fatalf("Body = %q, want the seeded title", n.Body)
 	}
 }
