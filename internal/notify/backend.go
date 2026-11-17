@@ -95,36 +95,45 @@ func (c *compositeBackend) Notify(n Notification) {
 	}
 }
 
-// triggerEnabled reports whether a notification should be delivered. Input and
-// error follow their own toggle; a done follows OnDone when nothing is pending,
-// and otherwise follows the toggle of each reason it names — one match is
-// enough. An unknown trigger is never enabled.
 func (c *compositeBackend) triggerEnabled(n Notification) bool {
+	return triggersEnabled(c.cfg, n)
+}
+
+// triggersEnabled reports whether cfg delivers n. Input and error follow their
+// own toggle; a done follows OnDone when nothing is pending, and otherwise
+// follows the toggle of each reason it names — one match is enough. An unknown
+// trigger is never enabled. The composite backend and the dedup wrapper share
+// it, so a notification the config disables is dropped before it can spend a
+// cross-client claim.
+func triggersEnabled(cfg Config, n Notification) bool {
 	switch n.Trigger {
 	case TriggerInput:
-		return c.cfg.OnInput
+		return cfg.OnInput
 	case TriggerDone:
-		return c.doneEnabled(n.DoneReasons)
+		return doneEnabled(cfg, n.DoneReasons)
 	case TriggerError:
-		return c.cfg.OnError
+		return cfg.OnError
 	default:
 		return false
 	}
 }
 
-func (c *compositeBackend) doneEnabled(reasons []DoneReason) bool {
+// doneEnabled reports whether a done is delivered: a quiet done (no reasons)
+// follows OnDone; a done naming pending work follows the toggle of any reason
+// it names.
+func doneEnabled(cfg Config, reasons []DoneReason) bool {
 	if len(reasons) == 0 {
-		return c.cfg.OnDone
+		return cfg.OnDone
 	}
-	return slices.ContainsFunc(reasons, c.reasonEnabled)
+	return slices.ContainsFunc(reasons, func(reason DoneReason) bool { return reasonEnabled(cfg, reason) })
 }
 
-func (c *compositeBackend) reasonEnabled(reason DoneReason) bool {
+func reasonEnabled(cfg Config, reason DoneReason) bool {
 	switch reason {
 	case DoneSubagentsRunning:
-		return c.cfg.OnDoneSubagentsRunning
+		return cfg.OnDoneSubagentsRunning
 	case DoneCommandsRunning:
-		return c.cfg.OnDoneCommandsRunning
+		return cfg.OnDoneCommandsRunning
 	default:
 		return false
 	}

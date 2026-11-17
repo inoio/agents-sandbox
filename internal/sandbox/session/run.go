@@ -115,7 +115,7 @@ func startNotifyWatcher(
 	}
 	backend := notify.NewBackend(cfg, ui)
 	if projectSlug != "" {
-		backend = notify.NewDedup(projectSlug, notify.StateClaimer{}, backend)
+		backend = notify.NewDedup(projectSlug, notify.StateClaimer{}, cfg, backend)
 	}
 	watchCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
