@@ -33,6 +33,32 @@ func ParseInterceptMode(s string) (InterceptMode, error) {
 	}
 }
 
+// ErrInterceptOffWithSecrets is returned when `intercept-tls: off` is combined
+// with a configured secret. microsandbox re-enables its own interception to
+// substitute secret placeholders, so the runtime cannot honour `off` alongside
+// a secret; the launcher rejects the combination rather than claiming to
+// disable interception while leaving it on.
+var ErrInterceptOffWithSecrets = errors.New(
+	"network.intercept-tls: off cannot be combined with secrets: microsandbox " +
+		"re-enables interception to substitute secret placeholders; remove the " +
+		"secret(s) or use auto/on",
+)
+
+// ValidateWithSecrets reports whether the policy can be applied alongside
+// secrets. It runs Validate and additionally rejects `intercept-tls: off` when
+// a secret is configured. It is the authoritative check the VM path runs before
+// it touches a VM (the recreate destroy included); the msb seam keeps a local
+// backstop because it cannot import this package.
+func (p Policy) ValidateWithSecrets(hasSecrets bool) error {
+	if err := p.Validate(); err != nil {
+		return err
+	}
+	if p.interceptMode() == InterceptOff && hasSecrets {
+		return ErrInterceptOffWithSecrets
+	}
+	return nil
+}
+
 // ValidateTLSBypass normalizes TLS-bypass hosts: each entry is trimmed and an
 // empty entry is rejected.
 func ValidateTLSBypass(in []string) ([]string, error) {

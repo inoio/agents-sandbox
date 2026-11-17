@@ -404,6 +404,46 @@ func TestEnsureProjectVMRejectsInvalidNetworkBeforeDestroy(t *testing.T) {
 	}
 }
 
+// TestEnsureProjectVMRejectsOffWithSecretsBeforeDestroy pins that the
+// unexpressible `intercept-tls: off` + secret combination aborts a recreate
+// before the held VM is destroyed: the runtime re-enables interception to
+// substitute secret placeholders, so the combination must cost nothing.
+func TestEnsureProjectVMRejectsOffWithSecretsBeforeDestroy(t *testing.T) {
+	ui := termiotest.NewTestMock(t)
+	held := &msbtest.MockSandboxHandle{
+		Name_:   existingVMName,
+		Status_: msb.SandboxStatusRunning,
+	}
+	client := &msbtest.MockMsbClient{}
+	creation := missingVMCreation(t, client, &ui)
+	creation.Existing = held
+	creation.Options.Recreate = true
+	creation.Options.Network = network.Policy{
+		Profiles:     []network.Profile{network.ProfileNone},
+		InterceptTLS: network.InterceptOff,
+	}
+	creation.Env = envsecret.EnvSecrets{Secrets: []msb.SecretEntry{{EnvVar: "TOKEN", Value: "v"}}}
+
+	sb, _, err := EnsureProjectVM(context.Background(), creation)
+
+	if !errors.Is(err, network.ErrInterceptOffWithSecrets) {
+		t.Fatalf("EnsureProjectVM error = %v, want ErrInterceptOffWithSecrets", err)
+	}
+	if sb != nil {
+		t.Errorf("EnsureProjectVM returned %v, want no sandbox", sb)
+	}
+	if held.DidDestroy() || held.DidStop {
+		t.Errorf(
+			"held VM was torn down (destroyed=%v stopped=%v), want it left running",
+			held.DidDestroy(),
+			held.DidStop,
+		)
+	}
+	if len(client.CreatedSandboxes) != 0 {
+		t.Errorf("created %v, want no replacement after a rejected policy", client.CreatedSandboxes)
+	}
+}
+
 // TestEnsureProjectVMFailsBeforeCreatingAVM pins that every step before a
 // missing VM is created keeps its cause, and that a failure creates nothing.
 func TestEnsureProjectVMFailsBeforeCreatingAVM(t *testing.T) {

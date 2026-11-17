@@ -1,6 +1,7 @@
 package network
 
 import (
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -90,6 +91,27 @@ func TestValidateTLSBypassRejectsEmpty(t *testing.T) {
 	got, err := ValidateTLSBypass([]string{" example.com ", "*.internal"})
 	if err != nil || len(got) != 2 || got[0] != "example.com" {
 		t.Fatalf("ValidateTLSBypass = %v, %v", got, err)
+	}
+}
+
+// TestValidateWithSecretsRejectsOffWithSecrets pins the authoritative cross-field
+// rule the VM path runs before it touches a VM: `intercept-tls: off` alongside a
+// configured secret is rejected, off without secrets and auto with secrets are
+// accepted, and a malformed policy still fails.
+func TestValidateWithSecretsRejectsOffWithSecrets(t *testing.T) {
+	off := Policy{Profiles: []Profile{ProfileNone}, InterceptTLS: InterceptOff}
+	if err := off.ValidateWithSecrets(true); !errors.Is(err, ErrInterceptOffWithSecrets) {
+		t.Fatalf("off with secrets = %v, want ErrInterceptOffWithSecrets", err)
+	}
+	if err := off.ValidateWithSecrets(false); err != nil {
+		t.Fatalf("off without secrets = %v, want nil", err)
+	}
+	auto := Policy{Profiles: []Profile{ProfileNone}, InterceptTLS: InterceptAuto}
+	if err := auto.ValidateWithSecrets(true); err != nil {
+		t.Fatalf("auto with secrets = %v, want nil", err)
+	}
+	if err := (Policy{DNSServers: []string{"garbage"}}).ValidateWithSecrets(false); err == nil {
+		t.Fatal("a malformed policy must still fail")
 	}
 }
 

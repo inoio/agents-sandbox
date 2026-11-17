@@ -460,6 +460,13 @@ func planReconfigStage(
 	opts options.RunOptions,
 	ui termio.UI,
 ) (reconfigPlan, error) {
+	// Reject the unexpressible `intercept-tls: off` + secrets combination here,
+	// before any prompt or VM read: the runtime re-enables interception to
+	// substitute secret placeholders, so a recreate cannot honour `off`, and the
+	// user must not be prompted for one that will fail.
+	if err := opts.Network.ValidateWithSecrets(len(home.env.Secrets) > 0); err != nil {
+		return reconfigPlan{}, fmt.Errorf("network config: %w", err)
+	}
 	configFiles, err := reprovision.LoadConfigFiles(session.agent, opts.ConfigSlug, ui, provisionHostConfig(opts))
 	if err != nil {
 		return reconfigPlan{}, err

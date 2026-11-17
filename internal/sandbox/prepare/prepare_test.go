@@ -18,6 +18,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
+	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -128,6 +129,53 @@ func TestPlanReconfigStageLiveVMReadError(t *testing.T) {
 	)
 	if !errors.Is(err, lookupErr) {
 		t.Fatalf("planReconfigStage error = %v, want %v", err, lookupErr)
+	}
+}
+
+// TestPlanReconfigStageRejectsOffWithSecrets pins that the unexpressible
+// `intercept-tls: off` + secrets combination fails plan-reconfig before any VM
+// lookup or recreate prompt, so the user is never prompted for a doomed recreate.
+func TestPlanReconfigStageRejectsOffWithSecrets(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	ui := termiotest.NewTestMock(t)
+	lookups := 0
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+		lookups++
+		return nil, errors.New("unexpected lookup")
+	}}
+	msbtest.WithMsbMock(t, client)
+	provisionHostConfig := false
+	opts := options.RunOptions{
+		Agent:               "opencode",
+		ProvisionHostConfig: &provisionHostConfig,
+		Network: network.Policy{
+			Profiles:     []network.Profile{network.ProfileNone},
+			InterceptTLS: network.InterceptOff,
+		},
+	}
+	session := sessionIdentity{key: testVMKey(), agent: opencodeResolved(t)}
+	home := preparedHome{
+		client:     client,
+		volumes:    volume.NewManager(docker.Get()),
+		homeVolume: "vol",
+		env:        envsecret.EnvSecrets{Secrets: []msb.SecretEntry{{EnvVar: "TOKEN", Value: "v"}}},
+	}
+
+	_, err := planReconfigStage(
+		context.Background(),
+		configpaths.Get(),
+		session,
+		image.ImageInfo{},
+		home,
+		false,
+		opts,
+		&ui,
+	)
+	if !errors.Is(err, network.ErrInterceptOffWithSecrets) {
+		t.Fatalf("planReconfigStage error = %v, want ErrInterceptOffWithSecrets", err)
+	}
+	if lookups != 0 {
+		t.Errorf("plan-reconfig looked up the VM %d times, want none before the rejection", lookups)
 	}
 }
 
