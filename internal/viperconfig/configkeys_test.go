@@ -168,7 +168,10 @@ func TestEnvKeysCoverEveryEnvironmentVariable(t *testing.T) {
 			t.Errorf("envKeys is missing %q", key)
 		}
 	}
-	wantNotify := []string{keyNotifyDesktop, keyNotifyAudio, keyNotifyOnInput, keyNotifyOnDone, keyNotifyOnError}
+	wantNotify := []string{
+		keyNotifyDesktop, keyNotifyAudio, keyNotifyOnInput, keyNotifyOnDone, keyNotifyOnError,
+		keyNotifyOnDoneSubagentsRunning, keyNotifyOnDoneCommandsRunning,
+	}
 	if !slices.Equal(notifyEnvKeys, wantNotify) {
 		t.Errorf("notifyEnvKeys = %v, want %v", notifyEnvKeys, wantNotify)
 	}
