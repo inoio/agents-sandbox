@@ -1,31 +1,43 @@
 ---
-description: Validation spike for learn mode - seven experiments that decide whether the launcher can observe what a session actually used (home-volume read-back per harness, host DNS resolver under each profile, outbound-proxy reachability and completeness, denial observability, interception prerequisites, streaming cost); each has a pass condition and the decision it changes.
-read_if: Running or revising the learn-mode spike, choosing between the passive-read-back / launcher-owned-network / interception approaches, or picking up an unverified observation-channel assumption (proxy reachability under `none`, egress bypass, denial logging, DNS coverage).
+description: Validation spike for learn mode - experiments deciding whether the launcher can observe what a session actually used (home-volume read-back per harness, host DNS resolver under each profile, outbound-proxy reachability and completeness, denial observability, TLS-termination prerequisites, streaming cost). Run 2026-11-15 on the host; S1 is still partial (opencode2 only). The host-runnable harness is `spike/learn-mode/`.
+read_if: Picking up the unrun part of the learn-mode spike (S1's per-harness home read-back), rerunning an experiment, or checking an unverified observation-channel assumption (proxy reachability under `none`, egress bypass, denial logging, DNS coverage, per-harness credential layout).
 ---
 
 # Learn-mode validation spike
 
-Status: not run. Host-only: needs `/dev/kvm`, a docker daemon and network, so it cannot run in the development VM.
-Everything here is throwaway except the results, which are folded into `specs/onboarding/learn-mode.md` before this
-plan is deleted.
+Status: partially run (2026-11-15, host: Linux x86_64, `/dev/kvm`, docker 29.1.3, `msb`/SDK 0.7.15). Results are in
+`spike/learn-mode/results.md`, and the durable outcome is folded into the `specs/onboarding/learn-mode/` subspecs. S1 is not
+finished: it ran for opencode2 only, so this plan and the `spike/learn-mode/` harness stay until the other six
+harnesses are read back. Host-only: needs `/dev/kvm`, a docker daemon and network, so it cannot run in the development
+VM.
+
+The harness in `spike/learn-mode/` (tracked, throwaway) is the runbook `README.md`, one driver per experiment, and raw
+evidence in the git-ignored `spike-capture/`. Run the runbook, not the prose below, which stays as the experiment's
+definition.
 
 ## What it decides
 
 Whether the launcher can establish, for one finished session, **which destinations were attempted, used, and
 denied, and which credential went to which destination** — and at what cost. Attribution is required, so the pivotal
-experiment is S6; the others size the rest of the channel. The contract in the spec does not depend on the answer,
-but the choice of observation approach and whether UC2 can be detected at all do.
+experiment is S6; the others size the rest of the channel. The outcome: C (a launcher-owned terminating proxy) is the
+channel, with A always; `specs/onboarding/learn-mode/observation-channel.md` carries the evidence. Whether UC2 can be detected
+without a permanent channel is settled by S5 (it cannot).
 
 Run S6 first if there is any doubt about TLS termination being workable; the rest can follow in any order.
 
 ## S1 — What the home volume yields per harness
 
-**Question.** After a harness has been configured and used for one short turn, what does `handle.Path()` contain,
-and which of it names hosts, credentials, or both?
+**Question.** After a harness has been configured and used for one short turn, what does the home volume contain, and
+which of it names hosts, credentials, or both?
 
-**Method.** For each harness in the smoke table: start a project VM with a reused root (`AGENTS_SANDBOX_SMOKE_ROOT`
-via `make test-msb-reuse`), complete the harness's own setup (paste a key or run its login), send one prompt, exit.
-Then read the volume from the host.
+**Method.** For each harness (the smoke table's `claude-code codex hermes oh-my-pi opencode opencode2 pi`): build the
+launcher (`make build`), start it in a scratch project so it creates a home volume, complete the harness's own setup
+(paste a key or run its login), send one prompt, then exit. Dump the volume with `s1_home_readback.sh <volume-name>`
+(the driver takes a volume name, not a harness; `--list` names the volumes). The launcher's private home keeps the
+runner image warm between harnesses, so run all seven before reading anything back.
+
+The harness smoke suite (`make test-msb`; `test-msb-reuse` is a stale phony target with no recipe) only drives each harness to its TUI and
+quits, so it never completes a provider setup and cannot answer S1.
 
 **Record.** For each harness: config file paths, credential file paths and whether values are inline or referenced,
 transcript/session files and whether they contain request hosts or URLs, log files and whether they contain denial
@@ -37,6 +49,10 @@ needs the observation channel for even the credential facts.
 
 **Changes if it fails.** The copy-back source for that harness becomes the observation channel or a startup hook
 export, not the home volume.
+
+**Progress (2026-11-15).** Only opencode2 was read back: its config dir is empty and its API key sits inline in
+`~/.local/share/opencode/opencode.db` (SQLite), so facts 1–3 are available but A must parse the database, not only
+config files. The other six harnesses are outstanding.
 
 ## S2 — Is DNS worth keeping as corroboration
 
@@ -145,21 +161,23 @@ transport.
 
 ## Results
 
-Fill in; one row per experiment.
+See `spike/learn-mode/results.md` for the per-experiment evidence. Summary:
 
 | Experiment | Result | Decision taken |
 |---|---|---|
-| S1 | | |
-| S2 | | |
-| S3 | | |
-| S4 | | |
-| S5 | | |
-| S6 | | |
-| S7 | | |
+| S1 | partial — opencode2 only; facts 1–3 available, but the credential is a SQLite row | A must parse the agent DB |
+| S2 | pass — the runtime forwards guest queries to the host resolver | DNS is usable corroboration |
+| S3 | pass — HTTP CONNECT and SOCKS5 both reachable under bare `none` | proxy dial needs no widening |
+| S4 | pass for TCP — no bypass; QUIC untested | learned set authoritative for TCP |
+| S5 | fail — a denial leaves no launcher-readable record | UC2 detection stays file-attributed |
+| S6 | pass — termination works; destination and header name visible | C is viable |
+| S7 | pass — no measurable overhead; the real agent turn awaits `#149` | proxy can be the default transport |
+| D (runtime interception) | destinations yes, attribution no | dropped; C ships regardless |
 
 ## Closing
 
-Fold the durable outcome into the spec's "Observation approaches" section, replacing the proposal with the resolved
-choice and its evidence; record an ADR only if the choice rejects a real alternative on grounds a future reader would
-question. Delete this plan once the spec is updated. A partial run is still useful: record which experiments were not
-run and why.
+The durable outcome is folded into `specs/onboarding/learn-mode/observation-channel.md`: C plus A, with the runtime's own interception
+dropped, `#151` demoted to optional, and invariant 3 reworded for the secrets a terminating channel handles. This plan
+and the `spike/learn-mode/` harness stay until S1 is finished for the remaining six harnesses, so A's claim rests on
+more than opencode2; then complete S1, update the A section of `specs/onboarding/learn-mode/observation-channel.md`, and delete the plan, the harness, and its captured
+evidence. Record an ADR only if a rejected alternative needs its grounds preserved.

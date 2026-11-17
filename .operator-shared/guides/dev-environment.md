@@ -1,6 +1,6 @@
 ---
-description: The development VM's installed CLI tools and the standing environment limitations (remote git over SSH, CI trigger behavior on conflicted PRs, TLS interception during image builds).
-read_if: Choosing a CLI tool for a task, or hitting an environment limitation such as an unusable SSH remote, an absent CI run on a conflicted PR, or a self-signed-cert docker build failure.
+description: The development VM's installed CLI tools and the standing environment limitations (remote git over SSH, CI trigger behavior on conflicted PRs, TLS interception during image builds, and the group-writable-ancestor storage-root refusal).
+read_if: Choosing a CLI tool for a task, or hitting an environment limitation such as an unusable SSH remote, an absent CI run on a conflicted PR, a self-signed-cert docker build failure, or a "catalog ancestor ... permits path substitution" storage-root refusal on the launcher's private runtime home.
 ---
 
 # Development environment
@@ -68,3 +68,11 @@ shell.
   # 2. Build the runner image as usual.
   go run ./cmd/agents-sandbox build -r
   ```
+- The launcher's private runtime home is `~/.local/share/agents-sandbox/msb`
+  (`$XDG_DATA_HOME/agents-sandbox/msb`). microsandbox refuses a storage root that
+  has a group- or other-writable ancestor, and this VM runs with `umask 002`, so
+  `~/.local/share` can be group-writable and the launcher then fails with
+  `catalog ancestor ... permits path substitution`. Fix with
+  `chmod g-w ~/.local/share` or run under `umask 022`. The default `~/.microsandbox`
+  home used by a bare `msb` is unaffected (its ancestors are not group-writable).
+  See `docs/troubleshooting.md` → Microsandbox runtime.

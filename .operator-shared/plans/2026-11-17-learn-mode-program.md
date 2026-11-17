@@ -143,7 +143,7 @@ CHANNEL TRACK                                          LEARN TRACK
 - **E1 — `modernc.org/sqlite`.** Approach A reads opencode2's `opencode.db` credential row. Added by S5, not by a channel subplan.
 - **E2 — prompt backend (#20 / PR #119).** Interactive first-run, per-finding review, harden. Land before S9.
 - **E3 — new-user-journey e2e (#252).** Acceptance harness. Define before S9.
-- **E4 — microsandbox/superradcompany#2080 (filed).** Requests the runtime log successful substitutions with destination + header field. If it lands, S4 shrinks (read the runtime's surface) and S1's T1/T2 decision is moot. Track; do not block.
+- **E4 — superradcompany/microsandbox#2080 (filed).** Requests the runtime log successful substitutions with destination + header field. If it lands, S4 shrinks (read the runtime's surface) and S1's T1/T2 decision is moot. Track; do not block.
 - **Retirement (deferred, not in this DAG).** #697 supersedes the declaration model in #54/#99/#118. Once the learned path ships, retire `config migrate`'s curated provider table (and the `config harden` proposal in #118). Record it as the follow-up that closes #697; it needs no plan until the learned path lands.
 
 ## Rollout
