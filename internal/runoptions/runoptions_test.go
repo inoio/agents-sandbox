@@ -737,6 +737,36 @@ func TestBuildNetworkFlagCombinesProfiles(t *testing.T) {
 	wantNetworkProfiles(t, opts.Network, network.ProfilePublic, network.ProfileHost)
 }
 
+// TestBuildNetworkFlagKeepsConfigFileOnlyFields pins that --network overrides
+// only the profile: the config-file-only egress-allow/egress-deny/tls-bypass
+// lists have no flag, so a --network override must not silently clear them.
+func TestBuildNetworkFlagKeepsConfigFileOnlyFields(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
+		"network": map[string]any{
+			"profile":      "public",
+			"egress-allow": []string{"example.com"},
+			"egress-deny":  []string{"bad.example"},
+			"tls-bypass":   []string{"registry.example.com"},
+		},
+	})
+	cmd := newRunCommand()
+	if err := cmd.Flags().Set(FlagNetwork, "none"); err != nil {
+		t.Fatalf("set network: %v", err)
+	}
+	r := mustResolver(t, cmd)
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	wantNetworkProfiles(t, opts.Network, network.ProfileNone)
+	if !slices.Equal(opts.Network.EgressAllow, []string{"example.com"}) ||
+		!slices.Equal(opts.Network.EgressDeny, []string{"bad.example"}) ||
+		!slices.Equal(opts.Network.TLSBypass, []string{"registry.example.com"}) {
+		t.Fatalf("--network cleared the config-file-only lists: %+v", opts.Network)
+	}
+}
+
 func TestBuildNetworkFromResolver(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_NETWORK_PROFILE", "private")

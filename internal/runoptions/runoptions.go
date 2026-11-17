@@ -333,20 +333,19 @@ func resolveNotifyConfig(cfg *viperconfig.Config, cmd *cobra.Command) (notify.Co
 }
 
 // resolveNetwork resolves the egress policy: the --network flag wins over the
-// resolved config; --dns then replaces the DNS servers while keeping any
-// profile and egress lists.
+// resolved config for the profile, while --dns replaces the DNS servers. The
+// config-file-only lists (egress-allow, egress-deny, tls-bypass) survive a
+// --network override, since the flag names only the profile.
 func resolveNetwork(cfg *viperconfig.Config, cmd *cobra.Command, opts *options.RunOptions) error {
+	if cfg != nil {
+		opts.Network = cfg.Network.Effective()
+	}
 	if raw, _ := cmd.Flags().GetStringSlice(FlagNetwork); len(raw) > 0 {
 		profiles, err := network.ParseProfiles(raw)
 		if err != nil {
 			return err
 		}
-		opts.Network = network.Policy{
-			Profiles: profiles, EgressAllow: nil, EgressDeny: nil, DNSServers: nil,
-			InterceptTLS: "", TLSBypass: nil, DisableStrict: false,
-		}
-	} else if cfg != nil {
-		opts.Network = cfg.Network.Effective()
+		opts.Network.Profiles = profiles
 	}
 	if dns, _ := cmd.Flags().GetStringSlice(FlagDNSServers); len(dns) > 0 {
 		opts.Network.DNSServers = dns
