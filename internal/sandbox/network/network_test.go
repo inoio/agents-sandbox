@@ -538,6 +538,49 @@ func TestFingerprintDistinguishesDNSServers(t *testing.T) {
 	}
 }
 
+// TestFingerprintNormalizesInterceptMode pins that a whitespace-padded mode
+// fingerprints as the parsed mode: the fingerprint must record the policy Spec
+// emits (`on ` parses to `on`), not the raw config text.
+func TestFingerprintNormalizesInterceptMode(t *testing.T) {
+	padded := Policy{Profiles: []Profile{ProfileNone}, InterceptTLS: InterceptMode("on ")}
+	parsed := Policy{Profiles: []Profile{ProfileNone}, InterceptTLS: InterceptOn}
+	if padded.Fingerprint() != parsed.Fingerprint() {
+		t.Fatalf("padded mode fingerprint = %q, want the parsed mode %q",
+			padded.Fingerprint(), parsed.Fingerprint())
+	}
+}
+
+// TestFingerprintNormalizesTLSBypass pins that a whitespace-padded bypass list
+// fingerprints like the trimmed list.
+func TestFingerprintNormalizesTLSBypass(t *testing.T) {
+	padded := Policy{
+		Profiles:  []Profile{ProfileNone},
+		TLSBypass: []string{" a.example.com ", " b.example.com"},
+	}
+	trimmed := Policy{
+		Profiles:  []Profile{ProfileNone},
+		TLSBypass: []string{"a.example.com", "b.example.com"},
+	}
+	if padded.Fingerprint() != trimmed.Fingerprint() {
+		t.Fatalf("padded bypass fingerprint = %q, want the trimmed %q",
+			padded.Fingerprint(), trimmed.Fingerprint())
+	}
+}
+
+// TestDescribeNormalizesTLSInterception pins the display side of the same rule:
+// a padded mode and bypass render as their trimmed values.
+func TestDescribeNormalizesTLSInterception(t *testing.T) {
+	got := (Policy{
+		Profiles:     []Profile{ProfileNone},
+		InterceptTLS: InterceptMode(" off "),
+		TLSBypass:    []string{" a.example.com "},
+	}).Describe()
+	want := []string{"profile: none", "intercept-tls: off", "tls-bypass: a.example.com"}
+	if !slices.Equal(got, want) {
+		t.Errorf("Describe = %q, want %q", got, want)
+	}
+}
+
 func TestDescribeListsTheEffectivePolicyEntries(t *testing.T) {
 	got := (Policy{
 		Profiles:    []Profile{ProfilePublic, ProfilePrivate, ProfilePublic},

@@ -151,15 +151,16 @@ func (p Policy) Fingerprint() string {
 		lines = append(lines, "deny="+d)
 	}
 	mode := p.interceptMode()
+	bypass := p.tlsBypass()
 	switch {
-	case mode == InterceptOn && len(p.TLSBypass) == 0:
+	case mode == InterceptOn && len(bypass) == 0:
 		// `on` with no bypass is the only case that emits a TLS config with an
 		// empty bypass (the runtime intercepts, no host is skipped).
 		lines = append(lines, "intercept-tls=on")
 	case mode != InterceptOff:
 		// `on` or `auto` with a bypass emits a TLS config carrying the bypass;
 		// `auto` with none emits nothing.
-		for _, host := range p.TLSBypass {
+		for _, host := range bypass {
 			lines = append(lines, "tls-bypass="+host)
 		}
 	}
@@ -195,20 +196,36 @@ func (p Policy) Describe() []string {
 	if mode := p.interceptMode(); mode != InterceptAuto {
 		lines = append(lines, "intercept-tls: "+string(mode))
 	}
-	lines = append(lines, prefixedSorted("tls-bypass: ", p.TLSBypass)...)
+	lines = append(lines, prefixedSorted("tls-bypass: ", p.tlsBypass())...)
 	if p.DisableStrict {
 		lines = append(lines, "disable-strict: true")
 	}
 	return lines
 }
 
-// interceptMode returns InterceptTLS with the empty value normalized to auto,
-// so an unset key and an explicit `auto` fingerprint and display identically.
+// interceptMode returns the interception mode parsed exactly as Spec emits it,
+// so a whitespace-padded value like "on " fingerprints and displays as "on"
+// rather than as a distinct mode. An unknown value (rejected at config load and
+// by Validate) is returned trimmed, so it still reads distinctly if it ever
+// reaches the fingerprint.
 func (p Policy) interceptMode() InterceptMode {
-	if p.InterceptTLS == "" {
-		return InterceptAuto
+	mode, err := ParseInterceptMode(string(p.InterceptTLS))
+	if err != nil {
+		return InterceptMode(strings.TrimSpace(string(p.InterceptTLS)))
 	}
-	return p.InterceptTLS
+	return mode
+}
+
+// tlsBypass returns the bypass hosts validated exactly as Spec emits them, so a
+// whitespace-padded entry fingerprints and displays trimmed. ValidateTLSBypass
+// only fails on an empty entry (rejected at config load and by Validate); on
+// that error the hosts are returned as configured.
+func (p Policy) tlsBypass() []string {
+	hosts, err := ValidateTLSBypass(p.TLSBypass)
+	if err != nil {
+		return p.TLSBypass
+	}
+	return hosts
 }
 
 func profileNames(profiles []Profile) []string {
