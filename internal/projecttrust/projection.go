@@ -135,6 +135,11 @@ func Compute(sources Sources) (Projection, error) {
 	if projectDir == "" {
 		return Projection{}, nil
 	}
+	// Resolve the base so the same physical layer reached through a different
+	// path spelling (a symlinked checkout, or a $PWD that keeps the symlink)
+	// hashes alike. The approval is keyed by the symlink-resolved checkout slug,
+	// so the content it gates must resolve the same way.
+	projectDir = resolvedPath(projectDir)
 	collector := inputCollector{byKey: map[string]Input{}, reads: map[string]projectguard.Approval{}}
 
 	manifest, err := collector.addConfigFile(projectDir)
@@ -426,6 +431,16 @@ func withResolved(path string) []string {
 		return []string{path}
 	}
 	return []string{path, resolved}
+}
+
+// resolvedPath returns path with symlinks resolved, or path as it is when it
+// does not resolve (a missing project dir, a transient failure).
+func resolvedPath(path string) string {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return path
+	}
+	return resolved
 }
 
 func within(root, path string) bool {

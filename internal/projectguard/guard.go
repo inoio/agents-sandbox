@@ -45,9 +45,9 @@ var (
 
 // Install makes reads the approval for this command: every file under roots
 // must be in reads with the digest of the bytes read, and every other path in
-// reads is verified too. Paths are compared absolute and cleaned, however they
-// are spelled. Before any Install every read passes. It returns a function
-// restoring the previous approval.
+// reads is verified too. Paths are compared absolute, cleaned, and
+// symlink-resolved, however they are spelled. Before any Install every read
+// passes. It returns a function restoring the previous approval.
 func Install(roots []string, reads map[string]Approval) func() {
 	normalized := make(map[string]Approval, len(reads))
 	for path, approval := range reads {
@@ -133,11 +133,27 @@ func (g *guard) guarded(path string) bool {
 	return false
 }
 
-// absolute returns path made absolute. Without a readable working directory
-// it is empty, which matches no approved path and lies under no root.
+// absolute returns path made absolute and, when its parent directory resolves,
+// symlink-free, so the same file reached through different path spellings is
+// verified alike (the checkout slug that keys the approval resolves symlinks).
+// The final element is left as spelled, so a symlinked file still names its
+// link and a file missing under an existing directory still maps to that
+// directory's physical path. Without a readable working directory it is empty,
+// which matches no approved path and lies under no root.
 func absolute(path string) string {
 	absolutePath, _ := filepath.Abs(path)
-	return absolutePath
+	if absolutePath == "" {
+		return ""
+	}
+	dir, name := filepath.Split(absolutePath)
+	if dir == "" {
+		return absolutePath
+	}
+	resolvedDir, err := filepath.EvalSymlinks(filepath.Clean(dir))
+	if err != nil {
+		return absolutePath
+	}
+	return filepath.Join(resolvedDir, name)
 }
 
 func digestOf(data []byte) string {
