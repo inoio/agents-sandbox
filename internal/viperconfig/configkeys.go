@@ -53,6 +53,8 @@ var notifyEnvKeys = []string{
 	keyNotifyOnInput,
 	keyNotifyOnDone,
 	keyNotifyOnError,
+	keyNotifyOnDoneSubagentsRunning,
+	keyNotifyOnDoneCommandsRunning,
 }
 
 // envKeys are every key bound to an environment variable: the derived set

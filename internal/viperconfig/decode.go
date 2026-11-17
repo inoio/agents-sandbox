@@ -101,11 +101,13 @@ func durationDecodeHook() mapstructure.DecodeHookFunc {
 
 // decodeNotify reads the notify: section from dotted viper keys. It returns an
 // inactive config when no notify key is set; otherwise channels are read as-is
-// and triggers default to true.
+// and triggers default to true. The done-subtree toggles default to false: only
+// a fully-at-rest session alerts.
 func decodeNotify(v *viper.Viper) NotifyConfig {
 	cfg := NotifyConfig{Audio: notify.AudioOff}
 	if !v.IsSet(keyNotifyDesktop) && !v.IsSet(keyNotifyAudio) &&
-		!v.IsSet(keyNotifyOnInput) && !v.IsSet(keyNotifyOnDone) && !v.IsSet(keyNotifyOnError) {
+		!v.IsSet(keyNotifyOnInput) && !v.IsSet(keyNotifyOnDone) && !v.IsSet(keyNotifyOnError) &&
+		!v.IsSet(keyNotifyOnDoneSubagentsRunning) && !v.IsSet(keyNotifyOnDoneCommandsRunning) {
 		return cfg
 	}
 	cfg.Desktop = v.GetBool(keyNotifyDesktop)
@@ -117,6 +119,8 @@ func decodeNotify(v *viper.Viper) NotifyConfig {
 	cfg.OnInput = true
 	cfg.OnDone = true
 	cfg.OnError = true
+	cfg.OnDoneSubagentsRunning = false
+	cfg.OnDoneCommandsRunning = false
 	if v.IsSet(keyNotifyOnInput) {
 		cfg.OnInput = v.GetBool(keyNotifyOnInput)
 	}
@@ -125,6 +129,12 @@ func decodeNotify(v *viper.Viper) NotifyConfig {
 	}
 	if v.IsSet(keyNotifyOnError) {
 		cfg.OnError = v.GetBool(keyNotifyOnError)
+	}
+	if v.IsSet(keyNotifyOnDoneSubagentsRunning) {
+		cfg.OnDoneSubagentsRunning = v.GetBool(keyNotifyOnDoneSubagentsRunning)
+	}
+	if v.IsSet(keyNotifyOnDoneCommandsRunning) {
+		cfg.OnDoneCommandsRunning = v.GetBool(keyNotifyOnDoneCommandsRunning)
 	}
 	return cfg
 }
