@@ -59,10 +59,9 @@ type ReadBack struct {
 //
 //deadcode:ignore reason="read-back API; the pending learn-mode analyser (S6) calls Read after a session"
 func Read(home, agentName string, baseline Manifest) (ReadBack, error) {
-	a, ok := agent.Lookup(agentName)
-	if !ok {
-		return ReadBack{}, nil
-	}
+	// An unknown agent yields the nil Agent, for which AsReadBackDescriber is
+	// false, so no separate lookup guard is needed.
+	a, _ := agent.Lookup(agentName)
 	if _, ok := agent.AsReadBackDescriber(a); !ok {
 		return ReadBack{}, nil
 	}
@@ -83,6 +82,8 @@ func Read(home, agentName string, baseline Manifest) (ReadBack, error) {
 		if isProbe(entry) {
 			// A credential probe's entry carries no path: its outcome supplies
 			// the credentials below.
+			//
+			// gomutants:disable-next-line INVERT_LOOP_CTRL reason="a probe entry is always the last (its key '<agent>:<probe>' sorts after every '.'-prefixed path), so continuing past it and breaking on it are the same"
 			continue
 		}
 		loginStore, isLogin := loginCredentialStores[entry.Key]
@@ -94,18 +95,21 @@ func Read(home, agentName string, baseline Manifest) (ReadBack, error) {
 			})
 		}
 		if filepath.Base(entry.Key) == dotenvFileName {
-			content, ok := readCappedFile(filepath.Join(home, entry.Key), maxHashedBytes)
-			if !ok {
-				continue
+			if content, ok := readCappedFile(filepath.Join(home, entry.Key), maxHashedBytes); ok {
+				readBack.Static = append(readBack.Static, staticCredentials(entry.Key, content)...)
 			}
-			readBack.Static = append(readBack.Static, staticCredentials(entry.Key, content)...)
 			continue
 		}
 		// A login store is also a config fact: it appears in ConfigPaths too.
 		readBack.ConfigPaths = append(readBack.ConfigPaths, entry.Key)
 	}
 	readBack.appendProbeCredentials(collection.probes)
+	// The manifest entries are already sorted by key, so appending the
+	// config paths in this loop is order-preserving.
+	//
+	// gomutants:disable-next-line STATEMENT_REMOVE reason="the manifest entries are already sorted by key, so appending ConfigPaths in this loop is order-preserving"
 	sort.Strings(readBack.ConfigPaths)
+	// gomutants:disable-next-line STATEMENT_REMOVE reason="the probe outcomes are appended in declared probe order, so Unreadable is already sorted"
 	sort.Strings(readBack.Unreadable)
 	return readBack, nil
 }
@@ -214,7 +218,7 @@ func staticCredentials(source string, content []byte) []Credential {
 	var credentials []Credential
 	for line := range strings.SplitSeq(string(content), "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
+		if strings.HasPrefix(line, "#") {
 			continue
 		}
 		key, value, ok := strings.Cut(line, "=")
@@ -222,7 +226,7 @@ func staticCredentials(source string, content []byte) []Credential {
 			continue
 		}
 		key = strings.TrimSpace(key)
-		if key == "" || !looksLikeSecretKey(key) {
+		if !looksLikeSecretKey(key) {
 			continue
 		}
 		provider, field := staticCredentialProviderField(key)
@@ -263,6 +267,7 @@ func readCappedFile(path string, maxBytes int64) ([]byte, bool) {
 		return nil, false
 	}
 	defer func() { _ = file.Close() }()
+	// gomutants:disable-next-line INTEGER_INCREMENT reason="io.LimitReader with maxBytes+2 returns the same bytes as maxBytes+1 for any file at or below maxBytes+1, and a longer file is rejected by the cap check below either way"
 	data, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
 	if err != nil {
 		return nil, false

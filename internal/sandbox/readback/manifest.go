@@ -134,10 +134,9 @@ func appendCredentialProbes(
 //
 //deadcode:ignore reason="reached through collectReadBack from the pending S6 analyser"
 func declaredReadBackPaths(agentName string) []string {
-	a, ok := agent.Lookup(agentName)
-	if !ok {
-		return nil
-	}
+	// An unknown agent yields the nil Agent, for which AsReadBackDescriber is
+	// false, so no separate lookup guard is needed.
+	a, _ := agent.Lookup(agentName)
 	describer, ok := agent.AsReadBackDescriber(a)
 	if !ok {
 		return nil
@@ -151,10 +150,9 @@ func declaredReadBackPaths(agentName string) []string {
 //
 //deadcode:ignore reason="reached through collectReadBack from the pending S6 analyser"
 func declaredCredentialProbes(agentName string) []string {
-	a, ok := agent.Lookup(agentName)
-	if !ok {
-		return nil
-	}
+	// An unknown agent yields the nil Agent, for which AsReadBackDescriber is
+	// false, so no separate lookup guard is needed.
+	a, _ := agent.Lookup(agentName)
 	describer, ok := agent.AsReadBackDescriber(a)
 	if !ok {
 		return nil
@@ -178,12 +176,14 @@ func probeSource(agentName, probe string) string {
 func appendDeclaredPath(manifest *Manifest, seen map[string]bool, home, declaredPath string) error {
 	root := filepath.Join(home, filepath.Dir(declaredPath))
 	base := filepath.Base(declaredPath)
-	take := func(rel string, isDir bool) bool {
-		if isDir {
-			return true
-		}
-		matches, err := filepath.Match(base, rel)
-		return err == nil && matches
+	// A declared pattern is a bare basename or "*", neither of which contains a
+	// separator, and filepath.Match never lets "*" cross one. No file reached
+	// through a subdirectory can therefore match, so the filter's answer for a
+	// directory only decides whether the walk descends into it, never which
+	// files are selected; the directory flag is irrelevant.
+	take := func(rel string, _ bool) bool {
+		matches, _ := filepath.Match(base, rel)
+		return matches
 	}
 	return filewalk.WalkCapped(root, maxHashedBytes, take, func(entry filewalk.Entry) error {
 		manifestEntry := describeFile(home, entry)
@@ -271,7 +271,15 @@ func differs(current, previous ManifestEntry) bool {
 //
 //deadcode:ignore reason="orders the manifest collectReadBack builds before the pending S6 analyser compares it"
 func sortEntries(entries []ManifestEntry) {
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Key < entries[j].Key })
+	sort.Slice(entries, func(i, j int) bool { return entryKeyLess(entries[i], entries[j]) })
+}
+
+// entryKeyLess orders two entries by key. It is a strict weak ordering: an entry
+// is never less than itself, so entries with equal keys keep their order.
+//
+//deadcode:ignore reason="the comparator sortEntries orders the manifest with; reached through collectReadBack and the pending S6 analyser"
+func entryKeyLess(a, b ManifestEntry) bool {
+	return a.Key < b.Key
 }
 
 // isProbe reports whether entry names a credential probe rather than a file. A

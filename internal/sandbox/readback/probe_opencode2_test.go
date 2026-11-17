@@ -2,6 +2,8 @@ package readback
 
 import (
 	"database/sql"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -341,4 +343,203 @@ func manifestWithout(manifest Manifest, exempt string) []string {
 		}
 	}
 	return keys
+}
+
+// TestReadOpenCode2ProbeValueCapBoundary pins the per-value bound with literal
+// sizes: a value exactly 64 KiB stays readable, one byte more marks the store
+// unreadable.
+func TestReadOpenCode2ProbeValueCapBoundary(t *testing.T) {
+	const valuePrefix = `{"type":"key","key":"`
+	const valueSuffix = `"}`
+	for _, tc := range []struct {
+		name       string
+		valueLen   int
+		unreadable bool
+	}{
+		{name: "exactly at the cap", valueLen: 64 * 1024, unreadable: false},
+		{name: "one byte over the cap", valueLen: 64*1024 + 1, unreadable: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			filler := strings.Repeat("x", tc.valueLen-len(valuePrefix)-len(valueSuffix))
+			writeOpenCode2DB(t, home, [2]string{"openai", valuePrefix + filler + valueSuffix})
+
+			rb, err := Read(home, "opencode2", Manifest{})
+
+			require.NoError(t, err)
+			if tc.unreadable {
+				require.Empty(t, rb.Static, "an over-cap value is never materialized")
+				require.Equal(t, []string{opencode2ProbeKey}, rb.Unreadable)
+			} else {
+				require.Len(t, rb.Static, 1, "a value at the cap is read")
+				require.Empty(t, rb.Unreadable)
+			}
+		})
+	}
+}
+
+// TestReadOpenCode2ProbeProjectionCapBoundary pins the total-projection bound
+// with literal sizes: a single row whose projection is exactly 256 KiB stays
+// readable, one byte more marks the store unreadable.
+func TestReadOpenCode2ProbeProjectionCapBoundary(t *testing.T) {
+	const integrationID = "openai"
+	const value = `{"type":"key","key":"k"}`
+	// projectedBytes is len(projection)+1, and projection joins integration id,
+	// label, the "true"/"false" flag, and the value with three NUL separators.
+	overhead := len(integrationID) + len("true") + len(value) + 4
+	for _, tc := range []struct {
+		name       string
+		projected  int
+		unreadable bool
+	}{
+		{name: "exactly at the cap", projected: 256 * 1024, unreadable: false},
+		{name: "one byte over the cap", projected: 256*1024 + 1, unreadable: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			writeOpenCode2DB(t, home, [2]string{integrationID, value})
+			label := strings.Repeat("L", tc.projected-overhead)
+			db, err := sql.Open("sqlite", filepath.Join(home, opencode2DBPath))
+			require.NoError(t, err)
+			_, err = db.Exec(`UPDATE credential SET label = ?`, label)
+			require.NoError(t, err)
+			require.NoError(t, db.Close())
+
+			rb, err := Read(home, "opencode2", Manifest{})
+
+			require.NoError(t, err)
+			if tc.unreadable {
+				require.Empty(t, rb.Static)
+				require.Equal(t, []string{opencode2ProbeKey}, rb.Unreadable)
+			} else {
+				require.Len(t, rb.Static, 1)
+				require.Empty(t, rb.Unreadable)
+			}
+		})
+	}
+}
+
+// TestOpenCode2ProbeQueryErrorWraps: a store without the credential table makes
+// the query fail, and the failure preserves its cause.
+func TestOpenCode2ProbeQueryErrorWraps(t *testing.T) {
+	home := t.TempDir()
+	full := filepath.Join(home, opencode2DBPath)
+	require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o750))
+	db, err := sql.Open("sqlite", full)
+	require.NoError(t, err)
+	_, err = db.Exec(`CREATE TABLE catalog (id TEXT NOT NULL)`)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	_, probeErr := opencode2Probe("opencode2", home)
+
+	require.Error(t, probeErr)
+	require.Contains(t, probeErr.Error(), "query opencode2 credential rows")
+	require.Error(t, errors.Unwrap(probeErr), "the query cause stays wrapped")
+}
+
+// TestOpenCode2ProbeScanErrorWraps: a row whose active column cannot scan fails
+// the probe rather than silently dropping the row.
+func TestOpenCode2ProbeScanErrorWraps(t *testing.T) {
+	home := t.TempDir()
+	full := filepath.Join(home, opencode2DBPath)
+	require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o750))
+	db, err := sql.Open("sqlite", full)
+	require.NoError(t, err)
+	_, err = db.Exec(`CREATE TABLE credential (
+		integration_id TEXT NOT NULL, label TEXT NOT NULL, active TEXT NOT NULL, value TEXT NOT NULL)`)
+	require.NoError(t, err)
+	_, err = db.Exec(
+		`INSERT INTO credential (integration_id, label, active, value) VALUES ('openai', 'L', 'not-an-int', ?)`,
+		`{"type":"key","key":"k"}`,
+	)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	_, probeErr := opencode2Probe("opencode2", home)
+
+	require.Error(t, probeErr)
+	require.Contains(t, probeErr.Error(), "scan opencode2 credential row")
+}
+
+// TestOpenCode2ProbeReadErrorWraps: a store whose pages are corrupt fails during
+// the row scan and preserves its cause, rather than returning a partial row set.
+func TestOpenCode2ProbeReadErrorWraps(t *testing.T) {
+	home := t.TempDir()
+	full := filepath.Join(home, opencode2DBPath)
+	require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o750))
+	db, err := sql.Open("sqlite", full)
+	require.NoError(t, err)
+	_, err = db.Exec(`CREATE TABLE credential (
+		integration_id TEXT NOT NULL, label TEXT NOT NULL, active INTEGER NOT NULL, value TEXT NOT NULL)`)
+	require.NoError(t, err)
+	tx, err := db.Begin()
+	require.NoError(t, err)
+	for i := range 200 {
+		_, err = tx.Exec(
+			`INSERT INTO credential (integration_id, label, active, value) VALUES (?, 'L', 1, ?)`,
+			fmt.Sprintf("id%04d", i), `{"type":"key","key":"k"}`,
+		)
+		require.NoError(t, err)
+	}
+	require.NoError(t, tx.Commit())
+	require.NoError(t, db.Close())
+
+	data, err := os.ReadFile(full)
+	require.NoError(t, err)
+	require.Greater(t, len(data), 4096, "the database must span several pages")
+	// Corrupt the final page (a leaf, past the schema and root pages) so the
+	// driver reports the failure while stepping rows, not while preparing.
+	for i := len(data) - 64; i < len(data); i++ {
+		data[i] ^= 0xff
+	}
+	require.NoError(t, os.WriteFile(full, data, 0o600))
+
+	_, probeErr := opencode2Probe("opencode2", home)
+
+	require.Error(t, probeErr)
+	require.Contains(t, probeErr.Error(), "read opencode2 credential rows")
+	require.Error(t, errors.Unwrap(probeErr), "the read cause stays wrapped")
+}
+
+// TestOpenCode2ProbeOpenErrorWraps: an open failure is an error that preserves
+// its cause, driven through the open seam the pure-Go driver never trips.
+func TestOpenCode2ProbeOpenErrorWraps(t *testing.T) {
+	previousOpenDatabase := openDatabase
+	openErr := errors.New("cannot open the store")
+	openDatabase = func(string) (*sql.DB, error) { return nil, openErr }
+	t.Cleanup(func() { openDatabase = previousOpenDatabase })
+	home := t.TempDir()
+	writeFile(t, home, opencode2DBPath, "exists")
+
+	_, probeErr := opencode2Probe("opencode2", home)
+
+	require.ErrorIs(t, probeErr, openErr)
+	require.Contains(t, probeErr.Error(), "open opencode2 database")
+}
+
+// TestOpenCode2CredentialClassifiesStoredValue: a row that fails to decode, or
+// carries an unknown type, yields no credential.
+func TestOpenCode2CredentialClassifiesStoredValue(t *testing.T) {
+	require.Empty(t, opencode2Credential("opencode2", "openai", `not json`))
+	require.Empty(t, opencode2Credential("opencode2", "openai", `{"type":"key","key":123}`),
+		"a value that sets the type but fails to decode is discarded")
+	require.Empty(t, opencode2Credential("opencode2", "openai", `{"type":"mystery"}`),
+		"an unknown stored type is not a credential")
+}
+
+// TestHashCredentialRowsIgnoresOrder: the digest depends on the rows' content,
+// not the order it received them in.
+func TestHashCredentialRowsIgnoresOrder(t *testing.T) {
+	require.Equal(t, hashCredentialRows([]string{"a", "b"}), hashCredentialRows([]string{"b", "a"}))
+}
+
+// TestRunCredentialProbeUnknownIsUnreadable: a probe name opencode2 does not
+// declare is undetermined, not an empty credential set.
+func TestRunCredentialProbeUnknownIsUnreadable(t *testing.T) {
+	result := runCredentialProbe("opencode2", t.TempDir(), "no-such-probe")
+
+	require.True(t, result.Unreadable)
+	require.Empty(t, result.Credentials)
+	require.Equal(t, unreadableProbeHash, result.RowHash)
 }

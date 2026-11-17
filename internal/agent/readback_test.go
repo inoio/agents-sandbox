@@ -59,3 +59,25 @@ func TestCredentialProbes(t *testing.T) {
 		})
 	}
 }
+
+// readBacklessProfile implements Agent but not ReadBackDescriber.
+type readBacklessProfile struct{}
+
+func (readBacklessProfile) Name() string               { return "readbackless" }
+func (readBacklessProfile) ConfigDirName() string      { return "readbackless" }
+func (readBacklessProfile) Experimental() bool         { return false }
+func (readBacklessProfile) ImageSpec() agent.ImageSpec { return agent.ImageSpec{} }
+
+// TestAsReadBackDescriberRejectsAnAgentWithoutTheCapability: an Agent that does
+// not implement ReadBackDescriber yields a nil describer and ok false, so a
+// caller can tell the capability is absent.
+func TestAsReadBackDescriberRejectsAnAgentWithoutTheCapability(t *testing.T) {
+	describer, ok := agent.AsReadBackDescriber(readBacklessProfile{})
+
+	if ok {
+		t.Fatal("AsReadBackDescriber ok = true, want false for an agent without the capability")
+	}
+	if describer != nil {
+		t.Errorf("AsReadBackDescriber describer = %v, want nil", describer)
+	}
+}

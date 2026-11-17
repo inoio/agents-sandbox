@@ -36,6 +36,14 @@ const maxProbeValueBytes = 64 * 1024
 // above any real credential set.
 const maxProbeProjectedBytes = 256 * 1024
 
+// openDatabase opens the probe's read-only SQLite store. It is a package seam
+// so a test can drive the open-failure branch: sql.Open defers the connection,
+// so the pure-Go driver only reports an unknown driver there and never fails on
+// a real database path.
+var openDatabase = func(dsn string) (*sql.DB, error) {
+	return sql.Open("sqlite", dsn)
+}
+
 // opencode2Probe reads opencode2's credential table only. The database is
 // ~13 MB and mostly a churny model catalog, so its file is never hashed: the
 // digest covers the credential rows, which is what a credential change moves.
@@ -55,7 +63,7 @@ func opencode2Probe(agentName, home string) (probeResult, error) {
 		return probeResult{Credentials: nil, RowHash: hashCredentialRows(nil)}, nil
 	}
 
-	db, err := sql.Open("sqlite", "file:"+databasePath+"?mode=ro")
+	db, err := openDatabase("file:" + databasePath + "?mode=ro")
 	if err != nil {
 		return probeResult{}, fmt.Errorf("open opencode2 database %s: %w", databasePath, err)
 	}
@@ -67,6 +75,7 @@ func opencode2Probe(agentName, home string) (probeResult, error) {
 		        length(CAST(value AS BLOB)) AS value_bytes,
 		        substr(CAST(value AS BLOB), 1, ?) AS value_prefix
 		 FROM credential`,
+		// gomutants:disable-next-line INTEGER_DECREMENT,INTEGER_INCREMENT reason="substr's length bound of maxProbeValueBytes+1, +0, or +2 returns identical bytes for any value not longer than the bound, and a longer value is rejected by the value_bytes check before its bytes are used"
 		maxProbeValueBytes+1,
 	)
 	if err != nil {
@@ -84,11 +93,11 @@ func opencode2Probe(agentName, home string) (probeResult, error) {
 		if scanErr := rows.Scan(&integrationID, &label, &active, &valueBytes, &valuePrefix); scanErr != nil {
 			return probeResult{}, fmt.Errorf("scan opencode2 credential row: %w", scanErr)
 		}
-		if valueBytes.Valid && valueBytes.Int64 > maxProbeValueBytes {
+		if valueBytes.Int64 > maxProbeValueBytes {
 			return unreadableProbeResult(), nil
 		}
 		value := string(valuePrefix)
-		isActive := active.Valid && active.Int64 != 0
+		isActive := active.Int64 != 0
 		projection := strings.Join(
 			[]string{integrationID, label, strconv.FormatBool(isActive), value}, "\x00",
 		)

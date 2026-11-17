@@ -29,6 +29,7 @@ type Entry struct {
 // files whose metadata or contents cannot be read are skipped, so a single bad
 // file never aborts the walk. An error returned by visit aborts the walk.
 func Walk(root string, filter func(rel string, isDir bool) bool, visit func(Entry) error) error {
+	// gomutants:disable-next-line INTEGER_DECREMENT reason="WalkCapped reads every file when maxReadBytes is zero or less, so a cap of 0 and -1 are the same"
 	return WalkCapped(root, 0, filter, visit)
 }
 

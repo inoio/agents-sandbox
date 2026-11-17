@@ -51,7 +51,7 @@ func HomeVolumePath(ctx context.Context, k state.Key) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read state for %s/%s: %w", k.Slug, k.Agent, err)
 	}
-	if homeState == nil || homeState.HomeVolume == "" {
+	if homeState.HomeVolume == "" {
 		return "", fmt.Errorf(
 			"no home volume recorded for project %q agent %q: %w",
 			k.Slug, k.Agent, ErrNoHomeVolume,

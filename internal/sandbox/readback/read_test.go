@@ -1,10 +1,15 @@
 package readback
 
 import (
+	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 )
 
 func TestReadClassifiesStaticAndLogin(t *testing.T) {
@@ -181,4 +186,142 @@ func TestReadMissingDeclaredPaths(t *testing.T) {
 	require.Empty(t, rb.ConfigPaths)
 	require.Empty(t, rb.Static)
 	require.Empty(t, rb.Login)
+}
+
+// TestReadPropagatesAWalkRefusal: a declared path the projectguard refuses to
+// list aborts the read rather than reporting fewer config facts.
+func TestReadPropagatesAWalkRefusal(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, ".config/opencode")
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	gone := filepath.Join(dir, "gone.jsonc")
+	t.Cleanup(projectguard.Install(
+		[]string{dir},
+		map[string]projectguard.Approval{gone: projectguard.ApprovalOf([]byte("x"))},
+	))
+
+	_, err := Read(home, "opencode", Manifest{})
+
+	require.ErrorIs(t, err, projectguard.ErrNotApproved)
+}
+
+// TestReadDoesNotListAProbeAsAConfigPath: a credential probe's entry carries no
+// path, so it never becomes a fact-1 config path.
+func TestReadDoesNotListAProbeAsAConfigPath(t *testing.T) {
+	home := t.TempDir()
+	writeOpenCode2DB(t, home, [2]string{"openai", `{"type":"key","key":"sk"}`})
+
+	rb, err := Read(home, "opencode2", Manifest{})
+
+	require.NoError(t, err)
+	require.Empty(t, rb.ConfigPaths, "a probe entry is not a config path")
+}
+
+// TestReadProcessesEntriesAfterADotenv: a config file sorted after the .env is
+// still listed, so the skip at the end of the dotenv branch does not stop the
+// loop.
+func TestReadProcessesEntriesAfterADotenv(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/.env", "OPENAI_API_KEY=sk\n")
+	writeFile(t, home, ".hermes/config.yaml", "x")
+
+	rb, err := Read(home, "hermes", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Static, 1)
+	require.Equal(t, []string{".hermes/config.yaml"}, rb.ConfigPaths,
+		"a config after the dotenv is still listed")
+}
+
+// TestReadStaticCredentialsMatchHyphenSegments: a '-' separates key segments
+// too, so MY-TOKEN is a whole-segment match.
+func TestReadStaticCredentialsMatchHyphenSegments(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/.env", "MY-TOKEN=t\n")
+
+	rb, err := Read(home, "hermes", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Static, 1, "a hyphen separates key segments")
+}
+
+// TestReadStaticCredentialsSkipWhitespaceComments: a comment line indented with
+// whitespace is still a comment, not a credential whose key secret looking text.
+func TestReadStaticCredentialsSkipWhitespaceComments(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/.env", "  # OPENAI_API_KEY=commented\n\tOPENAI_API_KEY=real\n")
+
+	rb, err := Read(home, "hermes", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Static, 1)
+	require.Equal(t, "real", rb.Static[0].Value)
+}
+
+// TestReadStaticCredentialsSkipLinesWithoutValue: a line without '=' is not a
+// credential, even when its text looks like a secret key.
+func TestReadStaticCredentialsSkipLinesWithoutValue(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/.env", "OPENAI_API_KEY\n")
+
+	rb, err := Read(home, "hermes", Manifest{})
+
+	require.NoError(t, err)
+	require.Empty(t, rb.Static)
+}
+
+// TestReadStaticCredentialsTrimKeyWhitespace: whitespace around the key is
+// trimmed before the secret-key test, so "KEY = value" is still a credential.
+func TestReadStaticCredentialsTrimKeyWhitespace(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/.env", "OPENAI_API_KEY = sk-x\n")
+
+	rb, err := Read(home, "hermes", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Static, 1)
+	require.Equal(t, "sk-x", rb.Static[0].Value)
+}
+
+// TestAppendProbeCredentialsKeepsLoginAndStatic: a login credential in a probe's
+// outcomes does not stop the loop, so a later static credential is still kept.
+func TestAppendProbeCredentialsKeepsLoginAndStatic(t *testing.T) {
+	var rb ReadBack
+
+	rb.appendProbeCredentials([]probeOutcome{{credentials: []Credential{
+		{Kind: CredentialLogin, Provider: "github"},
+		{Kind: CredentialStatic, Provider: "openai", Value: "sk"},
+	}}})
+
+	require.Len(t, rb.Login, 1)
+	require.Len(t, rb.Static, 1)
+}
+
+// TestReadCappedFileRejectsUnreadableAndMissing: a path that cannot be opened,
+// or whose contents cannot be read (a directory), is refused.
+func TestReadCappedFileRejectsUnreadableAndMissing(t *testing.T) {
+	data, ok := readCappedFile(filepath.Join(t.TempDir(), "missing"), 16)
+	require.False(t, ok, "a missing file is refused")
+	require.Nil(t, data)
+
+	data, ok = readCappedFile(t.TempDir(), 16)
+	require.False(t, ok, "a directory is refused")
+	require.Nil(t, data)
+}
+
+// TestReadCappedFileBoundary pins the cap exactly: a file at the cap is read
+// whole, one byte more is refused.
+func TestReadCappedFileBoundary(t *testing.T) {
+	dir := t.TempDir()
+	atCap := filepath.Join(dir, "at-cap")
+	require.NoError(t, os.WriteFile(atCap, bytes.Repeat([]byte("a"), 16), 0o600))
+	overCap := filepath.Join(dir, "over-cap")
+	require.NoError(t, os.WriteFile(overCap, bytes.Repeat([]byte("a"), 17), 0o600))
+
+	data, ok := readCappedFile(atCap, 16)
+	require.True(t, ok)
+	require.Len(t, data, 16, "a file exactly at the cap is read whole")
+
+	_, ok = readCappedFile(overCap, 16)
+	require.False(t, ok, "a file over the cap is refused")
 }
