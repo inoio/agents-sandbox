@@ -218,6 +218,16 @@ type StreamEvent struct {
 	// nor the session state distinguishes them, but their ids do. Empty when
 	// the envelope carries no id.
 	EventID string
+	// Title is the session's human title, carried on a lifecycle event. The
+	// tracker names the session in the notification body with it; a watcher
+	// that connected after creation learns it from the seed or a later rename.
+	Title string
+	// ShellID identifies a shell from a session.shell.* event. A started shell
+	// adds it to the session's running set, an ended shell removes it.
+	ShellID string
+	// ShellBackground is true when a started shell is a background command, so
+	// the tracker can classify a done with a command still running.
+	ShellBackground bool
 }
 
 // EventStreamSpec describes the SSE event stream notify watches for an agent:
@@ -236,9 +246,22 @@ type EventStreamSpec struct {
 	// notifies again on its next turn. Empty means no error event latches.
 	StickyErrorEvents []string
 	// SessionEvents are lifecycle event types whose payload may identify a
-	// session's parent. A non-empty parent ID marks the session as a subagent
-	// (child) session; no notification ever fires for a child session.
+	// session's parent or title. A non-empty parent ID marks the session as a
+	// subagent (child) session; no notification ever fires for a child session.
 	SessionEvents []string
+	// SubtreeDoneStates opts into the subtree-aware done model: a top-level
+	// idle event is classified by what is still pending in the session tree
+	// (live subagents, running background shells). Off (v1) keeps the original
+	// "notify on any top-level idle transition" behavior; the shell and
+	// interrupt lists are then empty.
+	SubtreeDoneStates bool
+	// ShellStartedEvents are types carrying a background shell's start.
+	ShellStartedEvents []string
+	// ShellEndedEvents are types carrying a shell's end.
+	ShellEndedEvents []string
+	// InterruptedEvents are types that settle a session without an alert, so an
+	// interrupted child drains its parent's pending set.
+	InterruptedEvents []string
 	// SessionList seeds the tracker with sessions created before the watcher
 	// (re)connected, by running one shell command and parsing its output. Nil
 	// disables seeding; a non-nil value always carries both the command and its
@@ -250,23 +273,32 @@ type EventStreamSpec struct {
 	Parse func(payload []byte) (StreamEvent, bool)
 }
 
+// SessionRef is one session from an agent's seed list. The parser returns
+// every session, not children only: a top-level session's title must be
+// learnable from the seed, and child links come from ParentID.
+type SessionRef struct {
+	ID       string
+	ParentID string
+	Title    string
+}
+
 // SessionListSpec is an agent's one-shot session-list command together with the
 // parser for its stdout. The two belong together: a command without a parser
 // cannot seed anything, and a nil parser once made the notify watcher silently
 // skip seeding. Build one with NewSessionList.
 type SessionListSpec struct {
 	command string
-	parse   func(payload []byte) []string
+	parse   func(payload []byte) []SessionRef
 }
 
 // NewSessionList returns the seeding spec for command, using parse to extract
-// child session IDs from its stdout. Both are required: an agent that declares
-// a session list must also declare how to read it, so an incomplete pair is a
+// the sessions from its stdout. Both are required: an agent that declares a
+// session list must also declare how to read it, so an incomplete pair is a
 // programming error and fails fast. A profile that omits its parser would
 // otherwise silently lose subagent filtering. The parser owns the list's JSON
 // shape, so the command needs no jq (or other tooling) in the runner image,
 // which a custom base need not have.
-func NewSessionList(command string, parse func(payload []byte) []string) *SessionListSpec {
+func NewSessionList(command string, parse func(payload []byte) []SessionRef) *SessionListSpec {
 	if command == "" {
 		panic("agent.NewSessionList: empty command")
 	}
@@ -279,8 +311,8 @@ func NewSessionList(command string, parse func(payload []byte) []string) *Sessio
 // Command is the shell command that prints the daemon's raw session list.
 func (s *SessionListSpec) Command() string { return s.command }
 
-// Parse extracts the child session IDs from Command's stdout.
-func (s *SessionListSpec) Parse(payload []byte) []string { return s.parse(payload) }
+// Parse extracts the sessions from Command's stdout.
+func (s *SessionListSpec) Parse(payload []byte) []SessionRef { return s.parse(payload) }
 
 // EventStreamProvider exposes the SSE event stream an agent daemon serves.
 type EventStreamProvider interface {

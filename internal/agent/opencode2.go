@@ -258,13 +258,17 @@ func (opencode2Profile) AttachCommand(target string, args []string) string {
 // permission.asked or form.created event.
 func (opencode2Profile) EventStream() EventStreamSpec {
 	return EventStreamSpec{
-		StreamCommand:     "curl -N -s " + opencode2CurlAuth + " " + opencode2ServerURL + "/api/event",
-		BusyEvents:        []string{"session.execution.started", "session.step.started"},
-		AwaitingInput:     []string{"permission.asked", "form.created"},
-		IdleEvents:        []string{"session.execution.succeeded"},
-		ErrorEvents:       []string{sessionErrorEvent, "session.execution.failed"},
-		StickyErrorEvents: nil,
-		SessionEvents:     []string{"session.created"},
+		StreamCommand:      "curl -N -s " + opencode2CurlAuth + " " + opencode2ServerURL + "/api/event",
+		BusyEvents:         []string{"session.execution.started", "session.step.started"},
+		AwaitingInput:      []string{"permission.asked", "form.created"},
+		IdleEvents:         []string{"session.execution.succeeded"},
+		ErrorEvents:        []string{sessionErrorEvent, "session.execution.failed"},
+		StickyErrorEvents:  nil,
+		SessionEvents:      []string{"session.created", "session.renamed"},
+		SubtreeDoneStates:  true,
+		ShellStartedEvents: []string{"session.shell.started"},
+		ShellEndedEvents:   []string{"session.shell.ended"},
+		InterruptedEvents:  []string{"session.execution.interrupted"},
 		SessionList: NewSessionList(
 			"curl "+opencode2CurlFlags+" "+opencode2CurlAuth+" "+opencode2ServerURL+"/api/session",
 			parseOpencodeV2SessionList,
@@ -286,12 +290,19 @@ func parseOpencodeV2Event(payload []byte) (StreamEvent, bool) {
 		Data struct {
 			SessionID string `json:"sessionID"`
 			ParentID  string `json:"parentID"`
+			Title     string `json:"title"`
 			Form      struct {
 				SessionID string `json:"sessionID"`
 			} `json:"form"`
 			Info struct {
 				ParentID string `json:"parentID"`
 			} `json:"info"`
+			Shell struct {
+				ID       string `json:"id"`
+				Metadata struct {
+					Background bool `json:"background"`
+				} `json:"metadata"`
+			} `json:"shell"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(payload, &raw); err != nil {
@@ -308,17 +319,25 @@ func parseOpencodeV2Event(payload []byte) (StreamEvent, bool) {
 	if parentID == "" {
 		parentID = raw.Data.Info.ParentID
 	}
-	return StreamEvent{Type: raw.Type, SessionID: sessionID, ParentID: parentID, EventID: raw.ID}, true
+	return StreamEvent{
+		Type:            raw.Type,
+		SessionID:       sessionID,
+		ParentID:        parentID,
+		EventID:         raw.ID,
+		Title:           raw.Data.Title,
+		ShellID:         raw.Data.Shell.ID,
+		ShellBackground: raw.Data.Shell.Metadata.Background,
+	}, true
 }
 
-// parseOpencodeV2SessionList extracts child session ids from v2's /api/session
+// parseOpencodeV2SessionList extracts sessions from v2's /api/session
 // response, which wraps the array under "data".
-func parseOpencodeV2SessionList(payload []byte) []string {
+func parseOpencodeV2SessionList(payload []byte) []SessionRef {
 	var body struct {
 		Data []sessionParent `json:"data"`
 	}
 	if err := json.Unmarshal(payload, &body); err != nil {
 		return nil
 	}
-	return childSessionIDs(body.Data)
+	return sessionRefs(body.Data)
 }
