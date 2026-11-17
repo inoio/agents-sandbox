@@ -140,6 +140,10 @@ func (p Policy) Effective() Policy {
 // result is that `auto`+bypass and `on`+bypass fingerprint alike — both emit
 // `TLS{Bypass}` — and `off` and `auto` without bypass alike — both emit no TLS —
 // so flipping between equivalent modes never forces a recreate.
+//
+// The proxy lines record the proxy as Spec emits it (protocol parsed, address
+// trimmed), so a whitespace-padded configuration that reaches the VM like its
+// canonical form fingerprints alike; an unset proxy contributes no lines.
 func (p Policy) Fingerprint() string {
 	p = p.Effective()
 	var lines []string
@@ -173,12 +177,13 @@ func (p Policy) Fingerprint() string {
 		lines = append(lines, "disable-strict=true")
 	}
 	if !p.Proxy.Empty() {
-		lines = append(lines, "proxy="+string(p.Proxy.Protocol)+"://"+p.Proxy.Address)
-		if p.Proxy.Username != "" {
-			lines = append(lines, "proxy-username="+p.Proxy.Username)
+		proxy := p.proxyEmission()
+		lines = append(lines, "proxy="+string(proxy.Protocol)+"://"+proxy.Address)
+		if proxy.Username != "" {
+			lines = append(lines, "proxy-username="+proxy.Username)
 		}
-		if p.Proxy.PasswordEnv != "" {
-			lines = append(lines, "proxy-password-env="+p.Proxy.PasswordEnv)
+		if proxy.PasswordEnv != "" {
+			lines = append(lines, "proxy-password-env="+proxy.PasswordEnv)
 		}
 	}
 	if p.denyPrecedesProfileAllow() {
@@ -250,6 +255,24 @@ func (p Policy) tlsBypass() []string {
 		return p.TLSBypass
 	}
 	return hosts
+}
+
+// proxyEmission returns the proxy exactly as Spec emits it, so a proxy that
+// reaches the VM identically fingerprints identically. An invalid proxy (one
+// Spec rejects) falls back to the trimmed configuration so it still
+// fingerprints distinctly rather than reading as absent; an unset proxy yields
+// the zero ProxySpec and contributes no lines.
+func (p Policy) proxyEmission() msb.ProxySpec {
+	spec, err := p.Proxy.spec()
+	if err != nil {
+		return msb.ProxySpec{
+			Protocol:    msb.ProxyProtocol(strings.TrimSpace(string(p.Proxy.Protocol))),
+			Address:     strings.TrimSpace(p.Proxy.Address),
+			Username:    p.Proxy.Username,
+			PasswordEnv: p.Proxy.PasswordEnv,
+		}
+	}
+	return spec
 }
 
 func profileNames(profiles []Profile) []string {
@@ -348,10 +371,8 @@ func NormalizeDNSServers(in []string) ([]string, error) {
 // dial bypasses the egress policy and needs no egress-allow entry for the proxy
 // address (see the network-and-secrets interception-and-proxy spec).
 func (p Policy) Validate() error {
-	if _, err := p.Spec(); err != nil {
-		return err
-	}
-	return p.Proxy.validate()
+	_, err := p.Spec()
+	return err
 }
 
 // Spec converts the policy into a launcher network spec.
@@ -365,8 +386,8 @@ func (p Policy) Validate() error {
 // profile, including one with only DNSServers set, defaults to public.
 //
 // The egress lists are deduplicated, the DNS servers normalized, and the TLS
-// interception mode and bypass hosts validated here, so the spec is the single
-// validated input the adapter composes rules from.
+// interception mode, bypass hosts, and outbound proxy validated here, so the
+// spec is the single validated input the adapter composes rules from.
 func (p Policy) Spec() (msb.NetworkSpec, error) {
 	profiles := dedupeProfiles(p.Effective().Profiles)
 	if err := checkProfileCombination(profiles); err != nil {
@@ -399,6 +420,10 @@ func (p Policy) Spec() (msb.NetworkSpec, error) {
 	if err != nil {
 		return msb.NetworkSpec{}, err
 	}
+	proxy, err := p.Proxy.spec()
+	if err != nil {
+		return msb.NetworkSpec{}, err
+	}
 	return msb.NetworkSpec{
 		Profiles:      msbProfiles,
 		EgressAllow:   dedupe(p.EgressAllow),
@@ -407,6 +432,7 @@ func (p Policy) Spec() (msb.NetworkSpec, error) {
 		InterceptTLS:  msb.InterceptMode(interceptMode),
 		TLSBypass:     tlsBypass,
 		DisableStrict: p.DisableStrict,
+		Proxy:         proxy,
 	}, nil
 }
 

@@ -904,6 +904,74 @@ func TestSandboxOptionsPropagateNetworkError(t *testing.T) {
 	}
 }
 
+func TestSandboxOptionsProjectProxy(t *testing.T) {
+	spec := SandboxSpec{Image: "alpine:3.19", Network: NetworkSpec{
+		Proxy: ProxySpec{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080", Username: "u", PasswordEnv: "PW"},
+	}}
+	opts, err := sandboxOptions(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg msbSdk.SandboxConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	if cfg.Proxy == nil {
+		t.Fatal("proxy not projected")
+	}
+}
+
+// TestSandboxOptionsOmitProxyWhenUnset pins that a spec with no proxy emits no
+// proxy option, so a proxy-less sandbox is not routed through an empty proxy.
+func TestSandboxOptionsOmitProxyWhenUnset(t *testing.T) {
+	opts, err := sandboxOptions(SandboxSpec{Image: "alpine:3.19"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg msbSdk.SandboxConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	if cfg.Proxy != nil {
+		t.Fatalf("Proxy = %+v, want nil without a configured proxy", cfg.Proxy)
+	}
+}
+
+// TestSandboxOptionsProjectProxyProtocols pins that every supported protocol
+// reaches the SDK through its protocol-specific constructor.
+func TestSandboxOptionsProjectProxyProtocols(t *testing.T) {
+	for _, protocol := range []ProxyProtocol{ProxyHTTPConnect, ProxySOCKS5, ProxySOCKS4} {
+		t.Run(string(protocol), func(t *testing.T) {
+			opts, err := sandboxOptions(SandboxSpec{
+				Image:   "alpine:3.19",
+				Network: NetworkSpec{Proxy: ProxySpec{Protocol: protocol, Address: "10.0.0.1:1080"}},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var cfg msbSdk.SandboxConfig
+			for _, opt := range opts {
+				opt(&cfg)
+			}
+			if cfg.Proxy == nil {
+				t.Fatalf("protocol %q not projected", protocol)
+			}
+		})
+	}
+}
+
+// TestSandboxOptionsRejectUnknownProxyProtocol pins that an unknown protocol
+// fails the translation rather than silently dropping the proxy.
+func TestSandboxOptionsRejectUnknownProxyProtocol(t *testing.T) {
+	_, err := sandboxOptions(SandboxSpec{
+		Image:   "alpine:3.19",
+		Network: NetworkSpec{Proxy: ProxySpec{Protocol: ProxyProtocol("ftp"), Address: "10.0.0.1:1080"}},
+	})
+	if err == nil {
+		t.Fatal("an unknown proxy protocol must fail the translation")
+	}
+}
+
 func TestNetworkConfigRuleOrder(t *testing.T) {
 	cfg, err := networkConfig(NetworkSpec{
 		Profiles:    []NetworkProfile{NetworkProfilePublic},

@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
 func TestParseProxy(t *testing.T) {
@@ -123,6 +125,54 @@ func TestProxyZeroValueKeepsFingerprintStable(t *testing.T) {
 	if (Policy{Profiles: []Profile{ProfileNone}}).Fingerprint() !=
 		(Policy{Profiles: []Profile{ProfileNone}, Proxy: Proxy{}}).Fingerprint() {
 		t.Fatal("an explicitly zero proxy must fingerprint like an unset one")
+	}
+}
+
+// TestSpecCarriesProxy pins that Spec projects the configured proxy into the
+// launcher network spec the adapter emits.
+func TestSpecCarriesProxy(t *testing.T) {
+	spec, err := (Policy{Profiles: []Profile{ProfileNone}, Proxy: Proxy{
+		Protocol: ProxySOCKS5, Address: "10.0.0.1:1080", Username: "u", PasswordEnv: "PW",
+	}}).Spec()
+	if err != nil {
+		t.Fatalf("Spec: %v", err)
+	}
+	want := msb.ProxySpec{
+		Protocol: msb.ProxySOCKS5, Address: "10.0.0.1:1080", Username: "u", PasswordEnv: "PW",
+	}
+	if spec.Proxy != want {
+		t.Fatalf("Spec.Proxy = %+v, want %+v", spec.Proxy, want)
+	}
+}
+
+// TestSpecNormalizesProxy pins that Spec emits the protocol parsed and the
+// address trimmed, so a whitespace-padded configuration reaches the VM as its
+// canonical form.
+func TestSpecNormalizesProxy(t *testing.T) {
+	spec, err := (Policy{Profiles: []Profile{ProfileNone}, Proxy: Proxy{
+		Protocol: ProxyProtocol("  socks5  "), Address: " 10.0.0.1:1080 ",
+	}}).Spec()
+	if err != nil {
+		t.Fatalf("Spec: %v", err)
+	}
+	if spec.Proxy.Protocol != msb.ProxySOCKS5 || spec.Proxy.Address != "10.0.0.1:1080" {
+		t.Fatalf("Spec.Proxy = %+v, want normalized socks5 / 10.0.0.1:1080", spec.Proxy)
+	}
+}
+
+// TestFingerprintProxyEmissionFaithful pins that the fingerprint hashes what
+// Spec emits, not the raw configuration: two proxies that reach the VM
+// identically (a whitespace-padded one and its canonical form) fingerprint
+// alike and never force a spurious recreate.
+func TestFingerprintProxyEmissionFaithful(t *testing.T) {
+	padded := Policy{Profiles: []Profile{ProfileNone}, Proxy: Proxy{
+		Protocol: ProxyProtocol(" socks5 "), Address: " 10.0.0.1:1080 ",
+	}}
+	clean := Policy{Profiles: []Profile{ProfileNone}, Proxy: Proxy{
+		Protocol: ProxySOCKS5, Address: "10.0.0.1:1080",
+	}}
+	if padded.Fingerprint() != clean.Fingerprint() {
+		t.Fatal("proxies that reach the VM identically must fingerprint alike")
 	}
 }
 

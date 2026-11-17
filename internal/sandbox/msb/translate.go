@@ -2,6 +2,7 @@ package msb
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -282,6 +283,7 @@ var (
 		"PortBindings": {},
 		"Network":      {},
 		"RootDisk":     {},
+		"Proxy":        {},
 	}
 
 	// sandboxConfigNotModeled names msbSdk.SandboxConfig fields the launcher
@@ -320,7 +322,6 @@ var (
 		"Ports":             "the launcher publishes ports through explicit PortBindings",
 		"PortsUDP":          "the launcher publishes ports through explicit PortBindings",
 		"Vsock":             "vsock routes are not used by the launcher",
-		"Proxy":             "an outbound proxy is not configured by the launcher",
 		"Patches":           "rootfs patches are not used by the launcher",
 		"ociUpperSizeSet":   "unexported: set internally when a root disk size is provided",
 		"registryAnonymous": "unexported: set internally by registry-auth options",
@@ -992,11 +993,11 @@ func diskCompactionDisksFrom(disks []msbSdk.DiskCompactionDiskResult) []DiskComp
 // sandboxOptions translates a SandboxSpec into the SDK option list in the order
 // the launcher has always emitted it: image, labels, mounts, secrets, env,
 // workdir, CPUs and memory bounds, detached, idle timeout, then an optional
-// managed root disk, port bindings, and the network policy. Options equal to
-// the SDK defaults are omitted, so a spec that sets nothing but a network
-// policy (the throwaway task sandboxes) does not accidentally detach, bound, or
-// size the sandbox. A network profile the runtime rejects fails the whole
-// translation.
+// managed root disk, port bindings, the network policy, and an optional
+// outbound proxy. Options equal to the SDK defaults are omitted, so a spec that
+// sets nothing but a network policy (the throwaway task sandboxes) does not
+// accidentally detach, bound, or size the sandbox. A network profile or proxy
+// protocol the runtime rejects fails the whole translation.
 func sandboxOptions(spec SandboxSpec) ([]msbSdk.SandboxOption, error) {
 	if spec.Network.InterceptTLS == InterceptOff && len(spec.Secrets) > 0 {
 		return nil, errors.New(
@@ -1053,7 +1054,40 @@ func sandboxOptions(spec SandboxSpec) ([]msbSdk.SandboxOption, error) {
 	// default is deny-by-default egress), so the network option is emitted even
 	// for an empty spec.
 	opts = append(opts, msbSdk.WithNetwork(network))
+	// A zero ProxySpec means no proxy, so only a configured one is emitted.
+	//nolint:exhaustruct_v5 // the zero value is the probe, not a partial init
+	if proxy := spec.Network.Proxy; proxy != (ProxySpec{}) {
+		option, err := sandboxProxyOption(proxy)
+		if err != nil {
+			return nil, err
+		}
+		opts = append(opts, option)
+	}
 	return opts, nil
+}
+
+// sandboxProxyOption builds the SDK proxy option for a launcher proxy spec,
+// selecting the protocol-specific constructor and attaching credentials when
+// both a username and a password environment variable are set. An unknown
+// protocol fails the whole translation rather than dropping the proxy.
+func sandboxProxyOption(proxy ProxySpec) (msbSdk.SandboxOption, error) {
+	var outboundProxy *msbSdk.OutboundProxy
+	switch proxy.Protocol {
+	case ProxyHTTPConnect:
+		outboundProxy = msbSdk.HTTPConnectProxy(proxy.Address)
+	case ProxySOCKS5:
+		outboundProxy = msbSdk.SOCKS5Proxy(proxy.Address)
+	case ProxySOCKS4:
+		outboundProxy = msbSdk.SOCKS4Proxy(proxy.Address)
+	default:
+		return nil, fmt.Errorf("unknown proxy protocol %q", proxy.Protocol)
+	}
+	if proxy.Username != "" && proxy.PasswordEnv != "" {
+		outboundProxy = outboundProxy.Credentials(
+			proxy.Username, msbSdk.SecretSourceEnv(proxy.PasswordEnv),
+		)
+	}
+	return msbSdk.WithProxy(outboundProxy), nil
 }
 
 // mountConfigs translates a guest-path-keyed map of mount descriptors,

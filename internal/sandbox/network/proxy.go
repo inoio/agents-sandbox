@@ -6,6 +6,8 @@ import (
 	"net"
 	"strconv"
 	"strings"
+
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
 // ProxyProtocol is a supported outbound-proxy protocol. It mirrors the
@@ -65,6 +67,29 @@ func ParseProxy(s string) (*Proxy, error) {
 		return nil, err
 	}
 	return &Proxy{Protocol: parsedProtocol, Address: address, Username: "", PasswordEnv: ""}, nil
+}
+
+// spec returns the proxy exactly as the launcher network spec carries it: the
+// protocol parsed and the address trimmed, so a whitespace-padded configuration
+// that reaches the VM identically fingerprints and displays identically. A zero
+// proxy yields the zero ProxySpec. It enforces the same rules as validate.
+func (p Proxy) spec() (msb.ProxySpec, error) {
+	if p.Empty() {
+		return msb.ProxySpec{}, nil
+	}
+	if err := p.validate(); err != nil {
+		return msb.ProxySpec{}, err
+	}
+	protocol, err := ParseProxyProtocol(string(p.Protocol))
+	if err != nil {
+		return msb.ProxySpec{}, err
+	}
+	return msb.ProxySpec{
+		Protocol:    msb.ProxyProtocol(protocol),
+		Address:     strings.TrimSpace(p.Address),
+		Username:    p.Username,
+		PasswordEnv: p.PasswordEnv,
+	}, nil
 }
 
 // validate checks a configured proxy: known protocol, a well-formed host:port
