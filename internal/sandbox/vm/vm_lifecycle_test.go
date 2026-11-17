@@ -444,6 +444,33 @@ func TestEnsureProjectVMRejectsOffWithSecretsBeforeDestroy(t *testing.T) {
 	}
 }
 
+// TestEnsureProjectVMAllowsOffWithoutSecrets pins that the pre-touch rejection
+// is specific to a configured secret: `intercept-tls: off` with no secret
+// reaches the create path instead of being refused for a combination the runtime
+// can honour.
+func TestEnsureProjectVMAllowsOffWithoutSecrets(t *testing.T) {
+	ui := termiotest.NewTestMock(t)
+	client := &msbtest.MockMsbClient{}
+	creation := missingVMCreation(t, client, &ui)
+	creation.Seams.ProjectVMLock = nil
+	creation.Options.Network = network.Policy{
+		Profiles:     []network.Profile{network.ProfileNone},
+		InterceptTLS: network.InterceptOff,
+	}
+
+	sb, _, err := EnsureProjectVM(context.Background(), creation)
+
+	if errors.Is(err, network.ErrInterceptOffWithSecrets) {
+		t.Fatalf("EnsureProjectVM rejected off without secrets: %v", err)
+	}
+	if err != nil {
+		t.Fatalf("EnsureProjectVM: %v", err)
+	}
+	if sb == nil {
+		t.Fatal("EnsureProjectVM returned no sandbox")
+	}
+}
+
 // TestEnsureProjectVMFailsBeforeCreatingAVM pins that every step before a
 // missing VM is created keeps its cause, and that a failure creates nothing.
 func TestEnsureProjectVMFailsBeforeCreatingAVM(t *testing.T) {

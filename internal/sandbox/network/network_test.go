@@ -581,6 +581,28 @@ func TestDescribeNormalizesTLSInterception(t *testing.T) {
 	}
 }
 
+// TestInterceptModeReportsTrimmedRawValueWhenUnparseable pins the defensive
+// branch: a mode that ParseInterceptMode rejects (rejected at config load and by
+// Validate) is reported trimmed rather than collapsing to the auto default, so a
+// fingerprint or Describe never misrepresents an unknown mode as auto.
+func TestInterceptModeReportsTrimmedRawValueWhenUnparseable(t *testing.T) {
+	p := Policy{InterceptTLS: InterceptMode(" bogus ")}
+	if got := p.interceptMode(); got != InterceptMode("bogus") {
+		t.Errorf("interceptMode() = %q, want %q", got, "bogus")
+	}
+}
+
+// TestTLSBypassReturnsConfiguredHostsWhenUnparseable pins the defensive branch:
+// a bypass list ValidateTLSBypass rejects (an empty entry, rejected at config
+// load and by Validate) is returned as configured rather than dropped, so a
+// fingerprint or Describe never silently omits hosts the user set.
+func TestTLSBypassReturnsConfiguredHostsWhenUnparseable(t *testing.T) {
+	p := Policy{TLSBypass: []string{" "}}
+	if got := p.tlsBypass(); !slices.Equal(got, []string{" "}) {
+		t.Errorf("tlsBypass() = %q, want the configured hosts", got)
+	}
+}
+
 func TestDescribeListsTheEffectivePolicyEntries(t *testing.T) {
 	got := (Policy{
 		Profiles:    []Profile{ProfilePublic, ProfilePrivate, ProfilePublic},

@@ -179,6 +179,46 @@ func TestPlanReconfigStageRejectsOffWithSecrets(t *testing.T) {
 	}
 }
 
+// TestPlanReconfigStageAllowsOffWithoutSecrets pins that the pre-touch rejection
+// is specific to a configured secret: `intercept-tls: off` with no secret passes
+// the gate and reaches the VM read, rather than being refused for a combination
+// the runtime can honour.
+func TestPlanReconfigStageAllowsOffWithoutSecrets(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	ui := termiotest.NewTestMock(t)
+	lookupErr := errors.New("msb unreachable")
+	client := (&msbtest.MockMsbClient{}).SetGetSandboxErr(lookupErr)
+	msbtest.WithMsbMock(t, client)
+	provisionHostConfig := false
+	opts := options.RunOptions{
+		Agent:               "opencode",
+		ProvisionHostConfig: &provisionHostConfig,
+		Network: network.Policy{
+			Profiles:     []network.Profile{network.ProfileNone},
+			InterceptTLS: network.InterceptOff,
+		},
+	}
+	session := sessionIdentity{key: testVMKey(), agent: opencodeResolved(t)}
+	home := preparedHome{client: client, volumes: volume.NewManager(docker.Get()), homeVolume: "vol"}
+
+	_, err := planReconfigStage(
+		context.Background(),
+		configpaths.Get(),
+		session,
+		image.ImageInfo{},
+		home,
+		false,
+		opts,
+		&ui,
+	)
+	if errors.Is(err, network.ErrInterceptOffWithSecrets) {
+		t.Fatalf("planReconfigStage rejected off without secrets: %v", err)
+	}
+	if !errors.Is(err, lookupErr) {
+		t.Fatalf("planReconfigStage error = %v, want the VM read error %v", err, lookupErr)
+	}
+}
+
 // TestPlanAndEnsureVMLookUpProjectVMOnce pins the single lookup of #341: the
 // handle plan-reconfig read the decision from is the one ensure-vm attaches to.
 func TestPlanAndEnsureVMLookUpProjectVMOnce(t *testing.T) {

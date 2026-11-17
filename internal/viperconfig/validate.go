@@ -97,11 +97,9 @@ func validateNetworkDNSServers(v *viper.Viper) error {
 }
 
 // validateNetworkInterceptTLS rejects an unknown network.intercept-tls mode at
-// config-load time. An unset or empty value is auto, so it validates.
+// config-load time. An unset key reads as the empty string and an empty value is
+// auto, so both validate without an IsSet guard.
 func validateNetworkInterceptTLS(v *viper.Viper) error {
-	if !v.IsSet(keyNetworkInterceptTLS) {
-		return nil
-	}
 	if _, err := network.ParseInterceptMode(v.GetString(keyNetworkInterceptTLS)); err != nil {
 		return fmt.Errorf("launcher config %s: %w", keyNetworkInterceptTLS, err)
 	}
