@@ -300,8 +300,9 @@ func (p Policy) Validate() error {
 // not an airgap, and cannot be combined with another profile. A policy with no
 // profile, including one with only DNSServers set, defaults to public.
 //
-// The egress lists are deduplicated and the DNS servers normalized here, so the
-// spec is the single validated input the adapter composes rules from.
+// The egress lists are deduplicated, the DNS servers normalized, and the TLS
+// interception mode and bypass hosts validated here, so the spec is the single
+// validated input the adapter composes rules from.
 func (p Policy) Spec() (msb.NetworkSpec, error) {
 	profiles := dedupeProfiles(p.Effective().Profiles)
 	if err := checkProfileCombination(profiles); err != nil {
@@ -326,11 +327,22 @@ func (p Policy) Spec() (msb.NetworkSpec, error) {
 	if err != nil {
 		return msb.NetworkSpec{}, err
 	}
+	interceptMode, err := ParseInterceptMode(string(p.InterceptTLS))
+	if err != nil {
+		return msb.NetworkSpec{}, err
+	}
+	tlsBypass, err := ValidateTLSBypass(p.TLSBypass)
+	if err != nil {
+		return msb.NetworkSpec{}, err
+	}
 	return msb.NetworkSpec{
-		Profiles:    msbProfiles,
-		EgressAllow: dedupe(p.EgressAllow),
-		EgressDeny:  dedupe(p.EgressDeny),
-		DNSServers:  nameservers,
+		Profiles:      msbProfiles,
+		EgressAllow:   dedupe(p.EgressAllow),
+		EgressDeny:    dedupe(p.EgressDeny),
+		DNSServers:    nameservers,
+		InterceptTLS:  msb.InterceptMode(interceptMode),
+		TLSBypass:     tlsBypass,
+		DisableStrict: p.DisableStrict,
 	}, nil
 }
 

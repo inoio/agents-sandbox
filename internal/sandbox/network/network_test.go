@@ -158,6 +158,49 @@ func TestSpecDNSInvalidErrors(t *testing.T) {
 	}
 }
 
+func TestSpecCarriesTLSInterceptionPolicy(t *testing.T) {
+	spec, err := (Policy{
+		Profiles:      []Profile{ProfilePublic},
+		InterceptTLS:  InterceptOn,
+		TLSBypass:     []string{" *.internal "},
+		DisableStrict: true,
+	}).Spec()
+	if err != nil {
+		t.Fatalf("Spec: %v", err)
+	}
+	if spec.InterceptTLS != msb.InterceptOn {
+		t.Errorf("InterceptTLS = %q, want %q", spec.InterceptTLS, msb.InterceptOn)
+	}
+	if !slices.Equal(spec.TLSBypass, []string{"*.internal"}) {
+		t.Errorf("TLSBypass = %v, want the trimmed [*.internal]", spec.TLSBypass)
+	}
+	if !spec.DisableStrict {
+		t.Error("DisableStrict must be carried through")
+	}
+}
+
+func TestSpecNormalizesUnsetInterceptTLS(t *testing.T) {
+	spec, err := (Policy{}).Spec()
+	if err != nil {
+		t.Fatalf("Spec: %v", err)
+	}
+	if spec.InterceptTLS != msb.InterceptAuto {
+		t.Errorf("InterceptTLS = %q, want auto for an unset key", spec.InterceptTLS)
+	}
+}
+
+func TestSpecRejectsUnknownInterceptTLS(t *testing.T) {
+	if _, err := (Policy{InterceptTLS: InterceptMode("bogus")}).Spec(); err == nil {
+		t.Fatal("Spec with an unknown interception mode should error")
+	}
+}
+
+func TestSpecRejectsEmptyTLSBypass(t *testing.T) {
+	if _, err := (Policy{TLSBypass: []string{" "}}).Spec(); err == nil {
+		t.Fatal("Spec with an empty tls-bypass host should error")
+	}
+}
+
 // TestPolicyValidate pins the well-formedness entry point the runoptions flag
 // path and the VM creation path run: a well-formed policy passes, and an
 // unknown or non-combinable profile or an unnormalizable DNS server is

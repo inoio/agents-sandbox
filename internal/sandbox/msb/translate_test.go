@@ -959,6 +959,62 @@ func TestNetworkConfigNoneOmitsGatewayDNS(t *testing.T) {
 	}
 }
 
+func TestNetworkConfigSetsTLSForInterceptOn(t *testing.T) {
+	cfg, err := networkConfig(NetworkSpec{InterceptTLS: InterceptOn, TLSBypass: []string{"*.internal"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TLS == nil || len(cfg.TLS.Bypass) != 1 {
+		t.Fatalf("want TLS with bypass, got %+v", cfg.TLS)
+	}
+}
+
+func TestNetworkConfigLeavesTLSNilForAutoWithoutBypass(t *testing.T) {
+	cfg, err := networkConfig(NetworkSpec{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TLS != nil {
+		t.Fatal("auto with no bypass must not set TLS")
+	}
+}
+
+func TestNetworkConfigSetsTLSForBypassUnderAuto(t *testing.T) {
+	cfg, err := networkConfig(NetworkSpec{TLSBypass: []string{"*.internal"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TLS == nil || len(cfg.TLS.Bypass) != 1 {
+		t.Fatalf("want TLS with bypass, got %+v", cfg.TLS)
+	}
+}
+
+func TestNetworkConfigSetsDisableStrict(t *testing.T) {
+	cfg, err := networkConfig(NetworkSpec{DisableStrict: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.DisableStrict {
+		t.Fatal("disable-strict must reach the SDK config")
+	}
+}
+
+func TestSandboxOptionsRejectsOffWithSecrets(t *testing.T) {
+	_, err := sandboxOptions(SandboxSpec{
+		Image:   "img",
+		Network: NetworkSpec{InterceptTLS: InterceptOff},
+		Secrets: []SecretEntry{{EnvVar: "TOKEN", Value: "v"}},
+	})
+	if err == nil {
+		t.Fatal("off with a configured secret must fail with an actionable error")
+	}
+	if _, err := sandboxOptions(
+		SandboxSpec{Image: "img", Network: NetworkSpec{InterceptTLS: InterceptOff}},
+	); err != nil {
+		t.Fatalf("off without secrets must be accepted, got %v", err)
+	}
+}
+
 func TestMountConfigTranslatesEachKind(t *testing.T) {
 	owner := &MountOwner{UID: 1000, GID: 1000}
 	tests := []struct {
