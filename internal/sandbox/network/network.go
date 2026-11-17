@@ -72,10 +72,10 @@ func checkProfileCombination(profiles []Profile) error {
 
 // Policy is the resolved launcher network policy. The mapstructure tags let
 // viper decode the nested `network:` YAML block (profile, egress-allow,
-// egress-deny, dns-servers, intercept-tls, tls-bypass, disable-strict) directly
-// into this struct. The `profile` key accepts a single name, a comma-separated
-// string, or a YAML list; viperconfig's string-to-slice decode hook normalizes
-// the scalar forms into Profiles.
+// egress-deny, dns-servers, intercept-tls, tls-bypass, disable-strict, proxy)
+// directly into this struct. The `profile` key accepts a single name, a
+// comma-separated string, or a YAML list; viperconfig's string-to-slice decode
+// hook normalizes the scalar forms into Profiles.
 type Policy struct {
 	Profiles []Profile `mapstructure:"profile"`
 	// EgressAllow and EgressDeny have no env var and no CLI flag: they are set
@@ -92,12 +92,17 @@ type Policy struct {
 	InterceptTLS  InterceptMode `mapstructure:"intercept-tls"`
 	TLSBypass     []string      `mapstructure:"tls-bypass"     env:"-"`
 	DisableStrict bool          `mapstructure:"disable-strict"`
+	// Proxy is the outbound egress proxy. Value-typed so the derived config-key
+	// registry recurses into the network.proxy.* keys; the zero value means no
+	// proxy. It is creation-only, like the TLS-interception fields.
+	Proxy Proxy `mapstructure:"proxy"`
 }
 
 // Empty reports whether the policy is unset (zero value).
 func (p Policy) Empty() bool {
 	return len(p.Profiles) == 0 && len(p.EgressAllow) == 0 && len(p.EgressDeny) == 0 &&
-		len(p.DNSServers) == 0 && p.InterceptTLS == "" && len(p.TLSBypass) == 0 && !p.DisableStrict
+		len(p.DNSServers) == 0 && p.InterceptTLS == "" && len(p.TLSBypass) == 0 && !p.DisableStrict &&
+		p.Proxy.Empty()
 }
 
 // Effective applies the default profile when no profile was selected.
@@ -110,8 +115,8 @@ func (p Policy) Effective() Policy {
 
 // Fingerprint returns a stable SHA-256 hex digest of the policy, for detecting
 // changes across runs. It hashes the profile and the sorted allow/deny/dns
-// lists plus the TLS-interception settings, independent of the microsandbox
-// SDK's canonical NetworkConfig shape.
+// lists plus the TLS-interception settings and the outbound proxy, independent
+// of the microsandbox SDK's canonical NetworkConfig shape.
 //
 // A deny-bearing policy that composes a profile also contributes a rule-order
 // marker. The marker is not policy content: it records that the policy is
@@ -167,6 +172,15 @@ func (p Policy) Fingerprint() string {
 	if p.DisableStrict {
 		lines = append(lines, "disable-strict=true")
 	}
+	if !p.Proxy.Empty() {
+		lines = append(lines, "proxy="+string(p.Proxy.Protocol)+"://"+p.Proxy.Address)
+		if p.Proxy.Username != "" {
+			lines = append(lines, "proxy-username="+p.Proxy.Username)
+		}
+		if p.Proxy.PasswordEnv != "" {
+			lines = append(lines, "proxy-password-env="+p.Proxy.PasswordEnv)
+		}
+	}
 	if p.denyPrecedesProfileAllow() {
 		lines = append(lines, "rule-order=deny-before-profile")
 	}
@@ -180,8 +194,9 @@ func (p Policy) Fingerprint() string {
 
 // Describe returns the effective policy as display lines named after the config
 // keys: the deduplicated profiles, then the egress-allow, egress-deny, and DNS
-// server entries, then the TLS-interception settings, each group sorted. Unlike
-// Fingerprint it carries no emission markers, only what the user configured. An
+// server entries, then the TLS-interception settings and the outbound proxy,
+// each group sorted. Unlike Fingerprint it carries no emission markers, only
+// what the user configured. An
 // auto interception mode is the microsandbox default and unset means auto, so
 // neither is displayed; only an explicit on or off is. Unlike Fingerprint, a
 // bypass host is displayed even under `off`, since Describe reports the
@@ -199,6 +214,15 @@ func (p Policy) Describe() []string {
 	lines = append(lines, prefixedSorted("tls-bypass: ", p.tlsBypass())...)
 	if p.DisableStrict {
 		lines = append(lines, "disable-strict: true")
+	}
+	if !p.Proxy.Empty() {
+		lines = append(lines, "proxy: "+string(p.Proxy.Protocol)+"://"+p.Proxy.Address)
+		if p.Proxy.Username != "" {
+			lines = append(lines, "proxy-username: "+p.Proxy.Username)
+		}
+		if p.Proxy.PasswordEnv != "" {
+			lines = append(lines, "proxy-password-env: "+p.Proxy.PasswordEnv)
+		}
 	}
 	return lines
 }
@@ -312,13 +336,22 @@ func NormalizeDNSServers(in []string) ([]string, error) {
 }
 
 // Validate reports whether the policy is well-formed: known, combinable
-// profiles and DNS servers that normalize. It is the entry point the runoptions
-// flag path (resolveNetwork) and vm.EnsureProjectVM run, so an invalid policy
-// is rejected before any VM work. The env/config decode validates the same
-// fields through viperconfig at load instead.
+// profiles, DNS servers that normalize, and a well-formed outbound proxy
+// (known protocol, host:port address, no credentials a protocol cannot carry).
+// It is the entry point the runoptions flag path (resolveNetwork) and
+// vm.EnsureProjectVM run, so an invalid policy is rejected before any VM work.
+// The env/config decode validates the same fields through viperconfig at load
+// instead.
+//
+// Validate enforces only the configuration's own rules. It does not compose the
+// proxy with the egress policy: the runtime dials the proxy host-side, so the
+// dial bypasses the egress policy and needs no egress-allow entry for the proxy
+// address (see the network-and-secrets interception-and-proxy spec).
 func (p Policy) Validate() error {
-	_, err := p.Spec()
-	return err
+	if _, err := p.Spec(); err != nil {
+		return err
+	}
+	return p.Proxy.validate()
 }
 
 // Spec converts the policy into a launcher network spec.

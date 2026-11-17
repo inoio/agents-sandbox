@@ -431,6 +431,7 @@ func TestPolicyEmpty(t *testing.T) {
 		{"intercept-tls", Policy{InterceptTLS: InterceptOn}},
 		{"tls-bypass", Policy{TLSBypass: []string{"*.internal.example"}}},
 		{"disable-strict", Policy{DisableStrict: true}},
+		{"proxy", Policy{Proxy: Proxy{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080"}}},
 	}
 	for _, tc := range nonEmpty {
 		t.Run(tc.name, func(t *testing.T) {
