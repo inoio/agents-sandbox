@@ -187,3 +187,21 @@
 - `plans/2026-11-16-notify-done-states.md`
   - Description: TDD plan for the subtree-aware done notification on opencode2 - the pending reasons (`subagents`, `commands`), the new `on-done-*` config keys, the agent decode fields (`title`, shell state, `SessionRef`), the reconnect reset, and the `agents-sandbox:` message format.
   - Read If: A task in `internal/notify`/`internal/agent`/`internal/viperconfig` for the notify change; the symbols `DoneReasons`, `SubtreeDoneStates`, `ResetTransient`, `SessionRef`, or the `on-done-*` keys; or a session where a done fires while a subagent runs, a blocked subagent never alarms, or a done stays silent after a reconnect.
+- `plans/2026-11-17-learn-mode-program.md`
+  - Description: Program index for learn mode (#697): the two-track DAG (channel and learn), the frozen cross-subplan contracts (`InterceptMode`, `Proxy`, and the S5/S6 placeholders), shared constraints and enablers (E1 sqlite, E2 #119, E3 #252, E4 microsandbox#2080), and the per-subplan rollout. Not executable.
+  - Read If: Orchestrating learn mode; picking the next subplan; or checking a cross-subplan interface before writing a dependent subplan.
+- `plans/2026-11-17-learn-mode-settled-design.md`
+  - Description: Docs subplan (S0): land the settled learn-mode contract from `origin/spike/learn-mode` and split `learn-mode.md` into a hub plus `learn-mode/{observation-channel,home-read-back,findings-and-apply}.md` and a new `network-and-secrets/interception-and-proxy.md`, with the section-to-destination mapping.
+  - Read If: Executing S0; or deciding where a learn-mode contract sentence belongs (hub vs subspec).
+- `plans/2026-11-17-learn-mode-sdk-semantics.md`
+  - Description: Host-gated spike subplan (S1) settling the three channel questions - topology T1/T2, `intercept-tls: off` semantics, and the proxy-reachability composition rule - with the throwaway probe and the decision-record steps.
+  - Read If: Running or revising the SDK channel-semantics spike; or implementing S2's `off` branch or S3's composition guard.
+- `plans/2026-11-17-learn-mode-tls-interception.md`
+  - Description: SDD subplan for #151: `network.InterceptMode`/`TLSBypass`, the `msb` projection to `NetworkConfig.TLS`, the `network.intercept-tls`/`network.tls-bypass` keys, recreate and docker-build verification, and docs.
+  - Read If: You are executing S2; or an in-VM `docker build` breaks behind the interception CA, or the interception fingerprint/recreate is suspect.
+- `plans/2026-11-17-learn-mode-outbound-proxy.md`
+  - Description: SDD subplan for #149: `network.ProxyProtocol`/`Proxy` and the composition guard, the `msb` `WithProxy` projection with the `Proxy` classification move, the `proxy.*`/`--proxy` surface with credential fail-fast, reachability verification, and docs.
+  - Read If: You are executing S3; or a corporate egress proxy is being set up, or egress under `none` is denied unexpectedly.
+- `plans/2026-11-17-learn-mode-readback.md`
+  - Description: SDD subplan (S5) for the passive read-back: `HomeVolumePath`, the `Manifest`/`ManifestEntry` baseline, per-agent `ReadBackDescriber` paths with static-vs-login classification, the opencode2 SQLite `credential` probe (E1 `modernc.org/sqlite`), and the host verification.
+  - Read If: You are executing S5; or you need to know how a finished sandbox session's credentials and config are discovered (the analyser's fact source), or where a new harness's read-back paths belong.
