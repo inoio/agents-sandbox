@@ -17,6 +17,8 @@ type ReadBackDescriber interface {
 
 // AsReadBackDescriber returns the agent's ReadBackDescriber, if it implements
 // one.
+//
+//deadcode:ignore reason="read-back API; the pending learn-mode analyser (S6) is the production caller that type-asserts it"
 func AsReadBackDescriber(a Agent) (ReadBackDescriber, bool) {
 	p, ok := a.(ReadBackDescriber)
 	return p, ok

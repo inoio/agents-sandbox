@@ -46,6 +46,8 @@ type Manifest struct {
 // sentinel hash when that read failed. An agent with no declared paths yields
 // an empty manifest, never an error; a declared path that does not exist yet is
 // simply absent, so a first run has nothing to compare against.
+//
+//deadcode:ignore reason="read-back API; the pending learn-mode analyser (S6) takes the baseline manifest through it"
 func TakeManifest(home, agentName string) (Manifest, error) {
 	collection, err := collectReadBack(home, agentName)
 	if err != nil {
@@ -75,6 +77,8 @@ type probeOutcome struct {
 
 // collectReadBack walks the named agent's declared paths and runs its credential
 // probes once, producing the manifest together with the probe outcomes.
+//
+//deadcode:ignore reason="reached through TakeManifest and Read, whose pending production caller is the S6 analyser"
 func collectReadBack(home, agentName string) (readBackCollection, error) {
 	var manifest Manifest
 	seen := map[string]bool{}
@@ -93,6 +97,8 @@ func collectReadBack(home, agentName string) (readBackCollection, error) {
 // rows the probe read — or the sentinel hash when that read failed, so an
 // unreadable database never looks like a removed probe. It returns each probe's
 // outcome for Read to report.
+//
+//deadcode:ignore reason="reached through collectReadBack when the pending S6 analyser reads a home back"
 func appendCredentialProbes(
 	manifest *Manifest,
 	seen map[string]bool,
@@ -125,6 +131,8 @@ func appendCredentialProbes(
 // read-back declares, or nothing for an agent without a ReadBackDescriber
 // (unknown, or not yet verified). An unverified agent yields an empty manifest,
 // never an error.
+//
+//deadcode:ignore reason="reached through collectReadBack from the pending S6 analyser"
 func declaredReadBackPaths(agentName string) []string {
 	a, ok := agent.Lookup(agentName)
 	if !ok {
@@ -140,6 +148,8 @@ func declaredReadBackPaths(agentName string) []string {
 // declaredCredentialProbes returns the credential probes the named agent's
 // read-back declares, or nothing for an agent without a ReadBackDescriber. An
 // unverified agent yields no probe, never an error.
+//
+//deadcode:ignore reason="reached through collectReadBack from the pending S6 analyser"
 func declaredCredentialProbes(agentName string) []string {
 	a, ok := agent.Lookup(agentName)
 	if !ok {
@@ -154,6 +164,8 @@ func declaredCredentialProbes(agentName string) []string {
 
 // probeSource names a credential probe in a Credential source or a manifest
 // key: "<agent>:<probe>".
+//
+//deadcode:ignore reason="keys a probe's manifest entry and its credential source; reached through the read-back entry points S6 will call"
 func probeSource(agentName, probe string) string {
 	return agentName + ":" + probe
 }
@@ -161,6 +173,8 @@ func probeSource(agentName, probe string) string {
 // appendDeclaredPath walks one declared path (a file or a glob) under home and
 // appends a manifest entry for every file it selects. A file selected twice by
 // overlapping declared paths is recorded once.
+//
+//deadcode:ignore reason="reached through collectReadBack's walk, driven by the pending S6 analyser"
 func appendDeclaredPath(manifest *Manifest, seen map[string]bool, home, declaredPath string) error {
 	root := filepath.Join(home, filepath.Dir(declaredPath))
 	base := filepath.Base(declaredPath)
@@ -187,6 +201,8 @@ func appendDeclaredPath(manifest *Manifest, seen map[string]bool, home, declared
 // walk leaves an over-cap file's data nil, so that entry stays opaque. A path
 // that cannot be made home-relative falls back to its walk-relative name rather
 // than dropping the entry: the walk is best-effort.
+//
+//deadcode:ignore reason="turns a walked file into a manifest entry; reached through appendDeclaredPath from the pending S6 analyser"
 func describeFile(home string, entry filewalk.Entry) ManifestEntry {
 	key, err := filepath.Rel(home, entry.Path)
 	if err != nil {
@@ -204,6 +220,8 @@ func describeFile(home string, entry filewalk.Entry) ManifestEntry {
 // Changed returns the keys whose size, mtime, or hash differs from prev, plus
 // keys present in one manifest and not the other, sorted. A probe entry carries
 // neither a size nor an mtime, so it is compared on its hash alone.
+//
+//deadcode:ignore reason="read-back API; the pending S6 analyser compares the current manifest against its baseline"
 func (m Manifest) Changed(prev Manifest) []string {
 	previous := indexEntries(prev.Entries)
 	current := indexEntries(m.Entries)
@@ -225,6 +243,8 @@ func (m Manifest) Changed(prev Manifest) []string {
 }
 
 // indexEntries indexes entries by key.
+//
+//deadcode:ignore reason="used by Manifest.Changed alone, reached once the pending S6 analyser compares manifests"
 func indexEntries(entries []ManifestEntry) map[string]ManifestEntry {
 	indexed := make(map[string]ManifestEntry, len(entries))
 	for _, entry := range entries {
@@ -235,6 +255,8 @@ func indexEntries(entries []ManifestEntry) map[string]ManifestEntry {
 
 // differs reports whether the current entry's size, mtime, or hash differs from
 // the previous one. A probe entry is compared on its hash alone.
+//
+//deadcode:ignore reason="used by Manifest.Changed alone, reached through the pending S6 analyser"
 func differs(current, previous ManifestEntry) bool {
 	if current.Hash != previous.Hash {
 		return true
@@ -246,6 +268,8 @@ func differs(current, previous ManifestEntry) bool {
 }
 
 // sortEntries orders entries by key, so a manifest is deterministic.
+//
+//deadcode:ignore reason="orders the manifest collectReadBack builds before the pending S6 analyser compares it"
 func sortEntries(entries []ManifestEntry) {
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Key < entries[j].Key })
 }
@@ -253,6 +277,8 @@ func sortEntries(entries []ManifestEntry) {
 // isProbe reports whether entry names a credential probe rather than a file. A
 // probe carries neither a size nor an mtime, while every file entry carries at
 // least one of them (a file's mtime is never zero).
+//
+//deadcode:ignore reason="classifies a manifest entry; reached through Changed and Read, driven by the pending S6 analyser"
 func isProbe(entry ManifestEntry) bool {
 	return entry.Size == 0 && entry.ModTime.IsZero()
 }

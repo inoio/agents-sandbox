@@ -56,6 +56,8 @@ type ReadBack struct {
 // reports what it found, comparing the current manifest against baseline. An
 // agent without a ReadBackDescriber (unknown, or not yet verified) yields an
 // empty ReadBack, never an error.
+//
+//deadcode:ignore reason="read-back API; the pending learn-mode analyser (S6) calls Read after a session"
 func Read(home, agentName string, baseline Manifest) (ReadBack, error) {
 	a, ok := agent.Lookup(agentName)
 	if !ok {
@@ -111,6 +113,8 @@ func Read(home, agentName string, baseline Manifest) (ReadBack, error) {
 // appendProbeCredentials reports the credentials each credential probe found and
 // names the probe sources whose store was unreadable. The outcomes come from the
 // same pass that produced the manifest digest, so the two cannot disagree.
+//
+//deadcode:ignore reason="folds one collection pass's probe outcomes into the ReadBack; reached through Read from the pending S6 analyser"
 func (r *ReadBack) appendProbeCredentials(probes []probeOutcome) {
 	for _, probe := range probes {
 		if probe.unreadable {
@@ -142,6 +146,8 @@ type loginCredentialStore struct {
 }
 
 // appliesTo reports whether the store classifies as a login for agentName.
+//
+//deadcode:ignore reason="scopes a login store to its agents; reached through Read from the pending S6 analyser"
 func (s loginCredentialStore) appliesTo(agentName string) bool {
 	return s.agents == nil || slices.Contains(s.agents, agentName)
 }
@@ -163,6 +169,8 @@ var secretKeyMarkers = []string{"KEY", "TOKEN", "SECRET", "PASSWORD"}
 
 // looksLikeSecretKey reports whether a dotenv key names a secret, so obvious
 // non-secrets (DEBUG=true, LOG_LEVEL=info) stay out of the static credentials.
+//
+//deadcode:ignore reason="filters a dotenv key before it becomes a credential; reached through Read from the pending S6 analyser"
 func looksLikeSecretKey(key string) bool {
 	upper := strings.ToUpper(key)
 	return slices.ContainsFunc(secretKeyMarkers, func(marker string) bool {
@@ -187,6 +195,8 @@ var credentialProviders = []struct {
 // credentials. Blank lines, # comments, and keys that do not look like secrets
 // are skipped; the value comes from the right-hand side, and Provider/Field are
 // derived from a recognisable provider name in the key.
+//
+//deadcode:ignore reason="parses a dotenv's secret lines; reached through Read from the pending S6 analyser"
 func staticCredentials(source string, content []byte) []Credential {
 	var credentials []Credential
 	for line := range strings.SplitSeq(string(content), "\n") {
@@ -217,6 +227,8 @@ func staticCredentials(source string, content []byte) []Credential {
 // staticCredentialProviderField derives a provider and header-field hint from a
 // dotenv key when the key names a known provider (OPENAI_API_KEY → provider
 // "openai", field "authorization"). Both are empty for an unrecognised key.
+//
+//deadcode:ignore reason="derives a provider and header-field hint for a dotenv secret; reached through staticCredentials"
 func staticCredentialProviderField(key string) (string, string) {
 	upper := strings.ToUpper(key)
 	for _, known := range credentialProviders {
@@ -230,6 +242,8 @@ func staticCredentialProviderField(key string) (string, string) {
 // readCappedFile reads path's contents, bounded by maxBytes. ok is false when
 // the file cannot be read or exceeds the cap: a secret file larger than the cap
 // is not parsed whole into host memory.
+//
+//deadcode:ignore reason="bounds a secret-file read; reached through Read from the pending S6 analyser"
 func readCappedFile(path string, maxBytes int64) ([]byte, bool) {
 	file, err := os.Open(path)
 	if err != nil {

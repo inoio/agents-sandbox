@@ -30,6 +30,8 @@ const opencode2DatabasePath = ".local/share/opencode/opencode.db"
 //
 // A missing database means a home that never stored a credential: the probe
 // reports nothing and hashes the empty row set, never an error.
+//
+//deadcode:ignore reason="opencode2's credential reader; invoked through runCredentialProbe once the pending S6 analyser reads the home back"
 func opencode2Probe(agentName, home string) (probeResult, error) {
 	databasePath := filepath.Join(home, opencode2DatabasePath)
 	if _, err := os.Stat(databasePath); errors.Is(err, os.ErrNotExist) {
@@ -80,6 +82,8 @@ func opencode2Probe(agentName, home string) (probeResult, error) {
 // credential it describes. A "key" value carries the secret inline, so
 // it is a static credential; any other type (opencode2's "oauth") is a login,
 // whose value is not read out.
+//
+//deadcode:ignore reason="maps an opencode2 credential row to a Credential; reached through opencode2Probe from the pending S6 analyser"
 func opencode2Credential(agentName, integrationID, value string) []Credential {
 	var stored struct {
 		Type string `json:"type"`
@@ -116,6 +120,8 @@ const (
 
 // hashCredentialRows digests the projected credential rows. The projection is
 // sorted first, so the digest depends on the rows' content, not their order.
+//
+//deadcode:ignore reason="digests the credential rows for the probe's manifest entry; reached through opencode2Probe"
 func hashCredentialRows(projected []string) string {
 	sorted := slices.Clone(projected)
 	slices.Sort(sorted)
@@ -149,6 +155,8 @@ type probeResult struct {
 // failure yields the sentinel hash, no credentials, and Unreadable true rather
 // than no result: the caller must still record exactly one entry per declared
 // probe, so a transient failure is not mistaken for the probe's removal.
+//
+//deadcode:ignore reason="dispatches an agent's declared credential probes; reached through Read and TakeManifest from the pending S6 analyser"
 func runCredentialProbe(agentName, home, probe string) probeResult {
 	if probe != opencode2ProbeID {
 		return probeResult{Credentials: nil, RowHash: unreadableProbeHash, Unreadable: true}
