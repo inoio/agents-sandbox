@@ -526,6 +526,113 @@ func TestInterruptedSettlesChild(t *testing.T) {
 	}
 }
 
+// TestInterruptedTopLevelIsSilent pins the other direction of the interrupt
+// invariant: a top-level interrupt is not an alert, but it settles the session
+// instead of latching an error, so the next busy->succeeded turn still notifies.
+func TestInterruptedTopLevelIsSilent(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	const root = "ses_root"
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+
+	if n := tr.Handle(agent.StreamEvent{Type: execInterrupted, SessionID: root}); n != nil {
+		t.Fatalf("interrupted top-level session notified: %+v", n)
+	}
+
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+	n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+	if n == nil || n.Trigger != TriggerDone {
+		t.Fatalf("succeeded after an interrupt = %+v, want a done (the interrupt settled, not latched)", n)
+	}
+}
+
+// TestDoneReasonsGrandchild pins that the done classification walks the whole
+// parent chain: a live grandchild (root -> child -> grandchild) classifies the
+// root's succeeded, not only a direct child.
+func TestDoneReasonsGrandchild(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	const root = "ses_root"
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_child", ParentID: root})
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_grandchild", ParentID: "ses_child"})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: "ses_grandchild"})
+
+	n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+	if n == nil || n.Trigger != TriggerDone {
+		t.Fatalf("root succeeded with a live grandchild = %+v, want a done", n)
+	}
+	if !slices.Equal(n.DoneReasons, []DoneReason{DoneSubagentsRunning}) {
+		t.Fatalf("DoneReasons = %v, want [subagents] from the grandchild", n.DoneReasons)
+	}
+}
+
+// TestSeedSkipsEmptyID pins that a malformed seed entry with an empty id marks
+// nothing: the empty session id never becomes a child, so a session-less
+// done/error still notifies, while the entry's parent does not leak onto the
+// empty id either.
+func TestSeedSkipsEmptyID(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	tr.Seed([]agent.SessionRef{
+		{ID: "", ParentID: "ses_root"},
+		{ID: "ses_child", ParentID: "ses_root"},
+	})
+
+	if tr.isChild("") {
+		t.Fatalf("the empty session id was marked a child")
+	}
+
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: ""})
+	if n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: ""}); n == nil || n.Trigger != TriggerDone {
+		t.Fatalf("session-less done = %+v, want it to notify (empty id is not a child)", n)
+	}
+	n := tr.Handle(agent.StreamEvent{Type: "session.error", SessionID: ""})
+	if n == nil || n.Trigger != TriggerError {
+		t.Fatalf("session-less error = %+v, want it to notify (empty id is not a child)", n)
+	}
+
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: "ses_child"})
+	if n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: "ses_child"}); n != nil {
+		t.Fatalf("seeded child notified: %+v", n)
+	}
+}
+
+// TestDoneReasonsChildShellDoesNotClassifyRoot pins that the command reason is
+// the top-level session's own running shells: a background shell attributed to a
+// child session must not classify the root's done.
+func TestDoneReasonsChildShellDoesNotClassifyRoot(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	const root = "ses_root"
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_child", ParentID: root})
+	tr.Handle(agent.StreamEvent{
+		Type: "shell.created", SessionID: "ses_child", ShellID: "sh_child", ShellBackground: true,
+	})
+
+	n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+	if n == nil || n.Trigger != TriggerDone {
+		t.Fatalf("root succeeded = %+v, want a done", n)
+	}
+	if len(n.DoneReasons) != 0 || n.Title != "agents-sandbox: agent done" {
+		t.Fatalf("done = %+v, want a plain done: a child's shell is not the root's", n)
+	}
+}
+
+// TestErrorBodyNamesKnownTitle pins the error trigger's body: with the session
+// titled, it names the session like the done and input triggers do, instead of
+// the fallback sentence.
+func TestErrorBodyNamesKnownTitle(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	const root = "ses_root"
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: root, Title: "my task"})
+
+	n := tr.Handle(agent.StreamEvent{Type: "session.error", SessionID: root})
+	if n == nil || n.Trigger != TriggerError {
+		t.Fatalf("error = %+v, want an error notification", n)
+	}
+	if n.Body != "in session 'my task'" {
+		t.Fatalf("Body = %q, want the known title, not the fallback", n.Body)
+	}
+}
+
 // TestChildInputSurfacesAsTopLevel pins the one child notification: a child's
 // input request is attributed to the top-level ancestor, carrying the child's
 // request id and the ancestor's title.
