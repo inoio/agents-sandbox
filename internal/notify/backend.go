@@ -22,6 +22,20 @@ const (
 	TriggerError
 )
 
+// DoneReason is a reason a subtree-aware done is not the end of all work: some
+// part of the session tree is still running at the moment the top-level turn
+// succeeded. Zero or more accompany a TriggerDone notification.
+type DoneReason int
+
+const (
+	// DoneSubagentsRunning means a descendant session is live (busy or
+	// awaiting input).
+	DoneSubagentsRunning DoneReason = iota
+	// DoneCommandsRunning means a background shell is still running for the
+	// top-level session.
+	DoneCommandsRunning
+)
+
 // Notification is a single user-facing alert.
 type Notification struct {
 	SessionID string
@@ -31,6 +45,9 @@ type Notification struct {
 	// EventID is the source event's envelope id, set for input notifications so
 	// dedup keys each distinct request separately. Empty for other triggers.
 	EventID string
+	// DoneReasons lists the pending work a subtree-aware done carries; empty
+	// for a genuinely-quiet done and for every non-done trigger.
+	DoneReasons []DoneReason
 }
 
 // Backend delivers notifications.

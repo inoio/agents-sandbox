@@ -99,15 +99,21 @@ func parseTestEvent(payload []byte) (agent.StreamEvent, bool) {
 
 // opencode2Spec mirrors the v2 profile's transition lists: a turn is one
 // execution pair, each step start re-arms busy, and input requests arrive as
-// permission.asked / form.created.
+// permission.asked / form.created. It opts into the subtree-aware done model
+// and carries the shell/interrupt/session-event lists that model needs.
 func opencode2Spec() agent.EventStreamSpec {
 	return agent.EventStreamSpec{
-		BusyEvents:    []string{"session.execution.started", "session.step.started"},
-		AwaitingInput: []string{"permission.asked", "form.created"},
-		IdleEvents:    []string{"session.execution.succeeded"},
-		ErrorEvents:   []string{"session.error", "session.execution.failed"},
-		Name:          "opencode2",
-		Parse:         parseTestEvent,
+		BusyEvents:         []string{"session.execution.started", "session.step.started"},
+		AwaitingInput:      []string{"permission.asked", "form.created"},
+		IdleEvents:         []string{"session.execution.succeeded"},
+		ErrorEvents:        []string{"session.error", "session.execution.failed"},
+		SessionEvents:      []string{"session.created", "session.renamed"},
+		SubtreeDoneStates:  true,
+		ShellStartedEvents: []string{"session.shell.started"},
+		ShellEndedEvents:   []string{"session.shell.ended"},
+		InterruptedEvents:  []string{"session.execution.interrupted"},
+		Name:               "opencode2",
+		Parse:              parseTestEvent,
 	}
 }
 

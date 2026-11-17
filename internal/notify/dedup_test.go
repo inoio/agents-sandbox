@@ -18,7 +18,7 @@ func TestDedupCrossClientSingleNotification(t *testing.T) {
 	c1 := NewDedup(slug, StateClaimer{}, sink)
 	c2 := NewDedup(slug, StateClaimer{}, sink)
 
-	n := Notification{SessionID: "ses_A", Trigger: TriggerDone, Title: "opencode: done", Body: "x"}
+	n := Notification{SessionID: "ses_A", Trigger: TriggerDone, Title: "agents-sandbox: agent done", Body: "x"}
 	c1.Notify(n) // first claim -> delivered
 	c2.Notify(n) // already claimed -> dropped
 	if sink.count() != 1 {

@@ -1,9 +1,22 @@
 package notify
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+)
+
+// reason-events are the opencode2 event kinds the subtree-aware done tests
+// drive directly, named so a test reads as the flow it models.
+const (
+	execStarted     = "session.execution.started"
+	execSucceeded   = "session.execution.succeeded"
+	execInterrupted = "session.execution.interrupted"
+	sessionCreated  = "session.created"
+	permissionAsked = "permission.asked"
+	shellStarted    = "session.shell.started"
+	shellEnded      = "session.shell.ended"
 )
 
 func TestTrackerAwaitingInputFromIdle(t *testing.T) {
@@ -114,22 +127,40 @@ func TestTrackerDedupesRepeatedIdle(t *testing.T) {
 	}
 }
 
-func TestTrackerTitlesUseSpecName(t *testing.T) {
+// TestTrackerMessageWording pins the fixed message text: a product-name title
+// prefix (the agent name is dropped), and a body naming the session when its
+// title is known, falling back to the original sentence otherwise.
+func TestTrackerMessageWording(t *testing.T) {
 	tr := NewTracker(opencodeSpec())
 	tr.Handle(agent.StreamEvent{Type: "message.part.updated"}) // busy
 	n := tr.Handle(agent.StreamEvent{Type: "session.idle"})
-	if n == nil || n.Title != "opencode: done" {
-		t.Fatalf("expected title 'opencode: done', got %+v", n)
+	if n == nil || n.Title != "agents-sandbox: agent done" || n.Body != "The agent finished." {
+		t.Fatalf("done = %+v, want the fixed title and fallback body", n)
 	}
 	tr.Handle(agent.StreamEvent{Type: "message.part.updated"}) // busy
 	n = tr.Handle(agent.StreamEvent{Type: "question.asked"})
-	if n == nil || n.Title != "opencode: input needed" {
-		t.Fatalf("expected title 'opencode: input needed', got %+v", n)
+	if n == nil || n.Title != "agents-sandbox: input requested" ||
+		n.Body != "The agent is waiting for your input." {
+		t.Fatalf("input = %+v, want the fixed title and fallback body", n)
 	}
 	tr.Handle(agent.StreamEvent{Type: "message.part.updated"}) // busy
 	n = tr.Handle(agent.StreamEvent{Type: "session.error"})
-	if n == nil || n.Title != "opencode: error" {
-		t.Fatalf("expected title 'opencode: error', got %+v", n)
+	if n == nil || n.Title != "agents-sandbox: session error" ||
+		n.Body != "The session reported an error." {
+		t.Fatalf("error = %+v, want the fixed title and fallback body", n)
+	}
+}
+
+// TestTrackerMessageNamesKnownSession pins the body naming a known title: the
+// tracker learns it from a lifecycle event's Title (or the seed) and puts it in
+// the body.
+func TestTrackerMessageNamesKnownSession(t *testing.T) {
+	tr := NewTracker(opencodeSpec())
+	tr.Handle(agent.StreamEvent{Type: "session.created", SessionID: "ses_1", Title: "my run"})
+	tr.Handle(agent.StreamEvent{Type: "message.part.updated", SessionID: "ses_1"})
+	n := tr.Handle(agent.StreamEvent{Type: "session.idle", SessionID: "ses_1"})
+	if n == nil || n.Body != "in session 'my run'" {
+		t.Fatalf("done = %+v, want the session title in the body", n)
 	}
 }
 
@@ -189,7 +220,7 @@ func TestTrackerSeededChildIsSuppressed(t *testing.T) {
 	spec := opencodeSpec()
 	spec.SessionEvents = []string{"session.created", "session.updated"}
 	tr := NewTracker(spec)
-	tr.SeedChildren([]string{"ses_seeded", ""})
+	tr.Seed([]agent.SessionRef{{ID: "ses_seeded", ParentID: "ses_root"}, {ID: ""}})
 
 	tr.Handle(agent.StreamEvent{Type: "message.part.updated", SessionID: "ses_seeded"})
 	if n := tr.Handle(agent.StreamEvent{Type: "session.idle", SessionID: "ses_seeded"}); n != nil {
@@ -222,8 +253,8 @@ func TestTrackerHonorsCustomSpec(t *testing.T) {
 	tr := NewTracker(spec)
 	tr.Handle(agent.StreamEvent{Type: "busy.evt"})
 	n := tr.Handle(agent.StreamEvent{Type: "idle.evt"})
-	if n == nil || n.Trigger != TriggerDone || n.Title != "pi: done" {
-		t.Fatalf("expected 'pi: done' done notification, got %+v", n)
+	if n == nil || n.Trigger != TriggerDone || n.Title != "agents-sandbox: agent done" {
+		t.Fatalf("expected 'agents-sandbox: agent done' done notification, got %+v", n)
 	}
 }
 
@@ -353,5 +384,180 @@ func TestTrackerIgnoresParentOnSessionlessEvents(t *testing.T) {
 	tr.Handle(agent.StreamEvent{Type: "session.created", ParentID: "ses_root"})
 	if n := tr.Handle(agent.StreamEvent{Type: "session.error"}); n == nil || n.Trigger != TriggerError {
 		t.Fatalf("session-less error = %+v, want an error notification", n)
+	}
+}
+
+// TestDoneReasonsSubagents pins the no-hold model: a top-level succeeded while
+// a subagent is still live emits a done (it is never held or synthesized)
+// carrying the DoneSubagentsRunning reason; once the child settles, the next
+// top-level succeeded is a plain done.
+func TestDoneReasonsSubagents(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	const root = "ses_root"
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_child", ParentID: root})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: "ses_child"})
+
+	n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+	if n == nil || n.Trigger != TriggerDone {
+		t.Fatalf("root succeeded with a live child = %+v, want a done", n)
+	}
+	if !slices.Equal(n.DoneReasons, []DoneReason{DoneSubagentsRunning}) {
+		t.Fatalf("DoneReasons = %v, want [subagents]", n.DoneReasons)
+	}
+	if n.Title != "agents-sandbox: agent done (1 subagent)" {
+		t.Fatalf("Title = %q, want the subagent reason appended", n.Title)
+	}
+
+	tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: "ses_child"})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+	n = tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+	if n == nil || n.Trigger != TriggerDone || len(n.DoneReasons) != 0 ||
+		n.Title != "agents-sandbox: agent done" {
+		t.Fatalf("root succeeded after the child settled = %+v, want a plain done", n)
+	}
+}
+
+// TestDoneReasonsCommands pins that a background shell running for the
+// top-level session classifies its done as done-with-a-command-running; once
+// the shell ends the reason is gone.
+func TestDoneReasonsCommands(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	const root = "ses_root"
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+	tr.Handle(agent.StreamEvent{Type: shellStarted, SessionID: root, ShellID: "sh_1", ShellBackground: true})
+
+	n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+	if !slices.Equal(n.DoneReasons, []DoneReason{DoneCommandsRunning}) {
+		t.Fatalf("DoneReasons = %v, want [commands]", n.DoneReasons)
+	}
+	if n.Title != "agents-sandbox: agent done (1 command running)" {
+		t.Fatalf("Title = %q, want the command reason appended", n.Title)
+	}
+
+	tr.Handle(agent.StreamEvent{Type: shellEnded, SessionID: root, ShellID: "sh_1"})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+	n = tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+	if len(n.DoneReasons) != 0 || n.Title != "agents-sandbox: agent done" {
+		t.Fatalf("done after the shell ended = %+v, want a plain done", n)
+	}
+}
+
+// TestDoneReasonsBoth pins the combined message: a live subagent and a running
+// command are one done naming both, subagents first.
+func TestDoneReasonsBoth(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	const root = "ses_root"
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_child_a", ParentID: root})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: "ses_child_a"})
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_child_b", ParentID: root})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: "ses_child_b"})
+	tr.Handle(agent.StreamEvent{Type: shellStarted, SessionID: root, ShellID: "sh_1", ShellBackground: true})
+
+	n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+	if !slices.Equal(n.DoneReasons, []DoneReason{DoneSubagentsRunning, DoneCommandsRunning}) {
+		t.Fatalf("DoneReasons = %v, want [subagents commands]", n.DoneReasons)
+	}
+	if n.Title != "agents-sandbox: agent done (2 subagents, 1 command running)" {
+		t.Fatalf("Title = %q, want both reasons, subagents first", n.Title)
+	}
+}
+
+// TestInterruptedSettlesChild pins that an interrupted child settles with no
+// alert, so the parent's next succeeded is a plain done rather than one still
+// naming a live subagent.
+func TestInterruptedSettlesChild(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	const root = "ses_root"
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_child", ParentID: root})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: "ses_child"})
+
+	if n := tr.Handle(agent.StreamEvent{Type: execInterrupted, SessionID: "ses_child"}); n != nil {
+		t.Fatalf("interrupted child notified: %+v", n)
+	}
+	n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+	if n == nil || n.Trigger != TriggerDone || len(n.DoneReasons) != 0 {
+		t.Fatalf("root succeeded after the child was interrupted = %+v, want a plain done", n)
+	}
+}
+
+// TestChildInputSurfacesAsTopLevel pins the one child notification: a child's
+// input request is attributed to the top-level ancestor, carrying the child's
+// request id and the ancestor's title.
+func TestChildInputSurfacesAsTopLevel(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	const root = "ses_root"
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: root, Title: "my task"})
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_child", ParentID: root})
+
+	n := tr.Handle(agent.StreamEvent{Type: permissionAsked, SessionID: "ses_child", EventID: "evt_child"})
+	if n == nil || n.Trigger != TriggerInput {
+		t.Fatalf("child input = %+v, want an input notification", n)
+	}
+	if n.SessionID != root || n.EventID != "evt_child" {
+		t.Fatalf("attribution = session %q event %q, want the root and the child's request id",
+			n.SessionID, n.EventID)
+	}
+	if n.Title != "agents-sandbox: input requested" || n.Body != "in session 'my task'" {
+		t.Fatalf("message = %q / %q, want the fixed title and the root's title", n.Title, n.Body)
+	}
+}
+
+// TestNestedChildInputUsesRoot pins that input from a grandchild walks the
+// parent chain to the top-level session.
+func TestNestedChildInputUsesRoot(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	const root = "ses_root"
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: root, Title: "root task"})
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_child", ParentID: root})
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_grandchild", ParentID: "ses_child"})
+
+	n := tr.Handle(agent.StreamEvent{Type: permissionAsked, SessionID: "ses_grandchild", EventID: "evt_grand"})
+	if n == nil || n.SessionID != root || n.Body != "in session 'root task'" {
+		t.Fatalf("grandchild input = %+v, want attribution to the root", n)
+	}
+}
+
+// TestDoneWithoutSubtreeStates pins v1's frozen trigger semantics: with
+// SubtreeDoneStates off, a top-level idle transition notifies done regardless
+// of live descendants, with no reasons.
+func TestDoneWithoutSubtreeStates(t *testing.T) {
+	spec := opencodeSpec()
+	spec.SessionEvents = []string{"session.created"}
+	tr := NewTracker(spec)
+	const root = "ses_root"
+	tr.Handle(agent.StreamEvent{Type: "message.part.updated", SessionID: root})
+	tr.Handle(agent.StreamEvent{Type: "session.created", SessionID: "ses_child", ParentID: root})
+	tr.Handle(agent.StreamEvent{Type: "message.part.updated", SessionID: "ses_child"})
+
+	n := tr.Handle(agent.StreamEvent{Type: "session.idle", SessionID: root})
+	if n == nil || n.Trigger != TriggerDone || len(n.DoneReasons) != 0 ||
+		n.Title != "agents-sandbox: agent done" {
+		t.Fatalf("v1 done with a live child = %+v, want today's plain done", n)
+	}
+}
+
+// TestSeedRecordsTitlesAndParents pins that the seed teaches both the parent
+// link (so a later-live seeded child classifies the done) and the title (so the
+// body names the session).
+func TestSeedRecordsTitlesAndParents(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	tr.Seed([]agent.SessionRef{
+		{ID: "ses_root", Title: "seeded task"},
+		{ID: "ses_child", ParentID: "ses_root", Title: "kid"},
+		{ID: "", ParentID: "ses_root"},
+	})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: "ses_root"})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: "ses_child"})
+
+	n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: "ses_root"})
+	if !slices.Equal(n.DoneReasons, []DoneReason{DoneSubagentsRunning}) ||
+		n.Title != "agents-sandbox: agent done (1 subagent)" {
+		t.Fatalf("seeded child not classified = %+v, want the subagent reason", n)
+	}
+	if n.Body != "in session 'seeded task'" {
+		t.Fatalf("Body = %q, want the seeded title", n.Body)
 	}
 }

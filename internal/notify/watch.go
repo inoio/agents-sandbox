@@ -220,7 +220,7 @@ func watchOnce(
 	// stream proceeds, since session.created still teaches new children.
 	if spec.SessionList != nil {
 		if res, err := streams.Shell(ctx, spec.SessionList.Command()); err == nil && res.Success() {
-			tracker.SeedChildren(spec.SessionList.Parse([]byte(res.Stdout())))
+			tracker.Seed(spec.SessionList.Parse([]byte(res.Stdout())))
 		}
 	}
 
