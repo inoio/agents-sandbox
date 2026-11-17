@@ -328,6 +328,16 @@ func TestDecodeNotifyReadsEveryKeyIndependently(t *testing.T) {
 			set:  func(v *viper.Viper) { v.Set(keyNotifyOnError, false) },
 			want: NotifyConfig{Audio: off, OnInput: true, OnDone: true, OnError: false},
 		},
+		{
+			// A reason toggle alone is enough to activate the section: the
+			// trigger toggles then take their defaults and the reason applies.
+			name: "on-done-subagents-running only",
+			set:  func(v *viper.Viper) { v.Set(keyNotifyOnDoneSubagentsRunning, true) },
+			want: NotifyConfig{
+				Audio: off, OnInput: true, OnDone: true, OnError: true,
+				OnDoneSubagentsRunning: true,
+			},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
