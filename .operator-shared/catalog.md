@@ -113,8 +113,8 @@
 #### `specs/network-and-secrets/` - Network profiles and secret scoping
 
 - `specs/network-and-secrets/`
-  - Description: `network-profiles.md` (composable public/private/host profiles and fingerprinting), `secret-header-scoping.md` (scoping placeholder substitution to named request-header fields via `header_fields`), and `interception-and-proxy.md` (TLS-interception control, `tls-bypass`, and the outbound proxy with its egress-policy composition rule).
-  - Read If: Changing `network.Policy`, profile parsing/validation, the `network.profile`/`--network`/`AGENTS_SANDBOX_NETWORK_PROFILE` surface, or network fingerprinting; per-secret header substitution, `envsecret.SecretSpec`/`BuildSecretsFromSpecs`, the `header_fields` docs, or `state.SecretsContentHash`; or the `network.intercept-tls`/`network.tls-bypass`/`network.proxy.*` surfaces.
+  - Description: `network-profiles.md` (composable public/private/host profiles and fingerprinting), `secret-header-scoping.md` (scoping placeholder substitution to named request-header fields via `header_fields`), and `interception-and-proxy.md` (TLS-interception control via `network.intercept-tls`/`network.tls-bypass`/`network.disable-strict`, and the outbound proxy with its egress-policy composition rule).
+  - Read If: Changing `network.Policy`, profile parsing/validation, the `network.profile`/`--network`/`AGENTS_SANDBOX_NETWORK_PROFILE` surface, or network fingerprinting; per-secret header substitution, `envsecret.SecretSpec`/`BuildSecretsFromSpecs`, the `header_fields` docs, or `state.SecretsContentHash`; or the `network.intercept-tls`/`network.tls-bypass`/`network.disable-strict`/`network.proxy.*` surfaces.
 
 #### `specs/onboarding/` - First-run guidance and config migration
 
@@ -197,7 +197,7 @@
   - Description: Host-gated spike subplan (S1) settling the four channel questions - topology T1/T2, `intercept-tls: off` semantics, the proxy-reachability composition rule, and the #151 strict-hostname bypass - with the throwaway probe and the decision-record steps.
   - Read If: Running or revising the SDK channel-semantics spike; or implementing S2's `off`/`tls-bypass` contract or S3's composition guard.
 - `plans/2026-11-17-learn-mode-tls-interception.md`
-  - Description: SDD subplan for #151: `network.InterceptMode`/`TLSBypass`, the `msb` projection to `NetworkConfig.TLS`, the `network.intercept-tls`/`network.tls-bypass` keys, recreate and docker-build verification, and docs.
+  - Description: SDD subplan for #151: `network.InterceptMode`/`TLSBypass`/`DisableStrict`, the `msb` projection to `NetworkConfig.TLS`, the `network.intercept-tls`/`network.tls-bypass`/`network.disable-strict` keys, the recreate pin, the docker CA recipe, a human accept step, and docs.
   - Read If: You are executing S2; or an in-VM `docker build` breaks behind the interception CA, or the interception fingerprint/recreate is suspect.
 - `plans/2026-11-17-learn-mode-outbound-proxy.md`
   - Description: SDD subplan for #149: `network.ProxyProtocol`/`Proxy` and the composition guard, the `msb` `WithProxy` projection with the `Proxy` classification move, the `network.proxy.*`/`--proxy` surface with SOCKS4 credential fail-fast, reachability verification, and docs.

@@ -8,7 +8,9 @@
 
 **Tech Stack:** Go 1.27, `internal/sandbox/network`, `internal/sandbox/msb`, `internal/sandbox/state`, `internal/viperconfig`, microsandbox SDK `v0.7.15` (`NetworkConfig.TLS`, `TLSConfig{Bypass}`, `NetworkConfig.DisableStrict`).
 
-**Spec:** the design doc `docs/superpowers/specs/2026-11-17-tls-interception-design.md` (this worktree) and `.operator-shared/specs/network-and-secrets/interception-and-proxy.md`; issue #151.
+**Spec:** `.operator-shared/specs/network-and-secrets/interception-and-proxy.md`; issue #151. The settled design facts
+this plan depends on — the config surface, the projection, the fingerprint emission rule, and the empirically verified
+docker recipe — are inlined per task below.
 
 ## Global Constraints
 
@@ -110,7 +112,7 @@ func TestValidateTLSBypassRejectsEmpty(t *testing.T) {
 
 - [ ] **Step 2: Run to verify it fails** — `go test ./internal/sandbox/network/ -run 'TestPolicyFingerprintIncludesTLSInterception|TestPolicyFingerprintTreatsEmptyInterceptModeAsAuto|TestParseInterceptModeRejectsUnknown|TestValidateTLSBypassRejectsEmpty'`. Expected: FAIL (undefined names).
 
-- [ ] **Step 3: Implement** in `tls.go`: `InterceptMode`, the three constants, `ParseInterceptMode` (trim; `""`/`"auto"` → `InterceptAuto`), `ValidateTLSBypass` (trim each entry, reject empty, return the trimmed list). Extend `Policy` in `network.go` with the three fields; add a helper that normalizes `InterceptTLS` (`""` → `InterceptAuto`) for `Fingerprint`/`Describe`; extend `Fingerprint` with sorted `tls-bypass=<host>` lines (only when the mode is not `off`, since the bypass is dropped from the emitted policy there), a `disable-strict=true` line (only when true), and an `intercept-tls=<mode>` line **only when the mode is not `auto`** (so unset and `auto` — the same policy — fingerprint identically and an upgrade does not recreate every VM for no behavioral change, matching `Fingerprint`'s stated rule that a component is added only when it reflects a real change to the emitted policy); extend `Describe` with the same prefixes unconditional on mode (its contract is "what the user configured"); extend `Empty` to report false when any of the three is set.
+- [ ] **Step 3: Implement** in `tls.go`: `InterceptMode`, the three constants, `ParseInterceptMode` (trim; `""`/`"auto"` → `InterceptAuto`), `ValidateTLSBypass` (trim each entry, reject empty, return the trimmed list). Extend `Policy` in `network.go` with the three fields; add a helper that normalizes `InterceptTLS` (`""` → `InterceptAuto`) for `Fingerprint`/`Describe`; extend `Fingerprint` with sorted `tls-bypass=<host>` lines (only when the mode is not `off`, since the bypass is dropped from the emitted policy there), a `disable-strict=true` line (only when true), and an `intercept-tls=on` line **only when the mode is `on` and no bypass is set** — the only case that emits a TLS config with an empty bypass, so `auto`+bypass and `on`+bypass fingerprint alike (both emit `TLS{Bypass}`) and `off` and `auto` without bypass fingerprint alike (both emit no TLS), and flipping between equivalent modes never forces a recreate; this records the emitted TLS state, not the requested mode, matching `Fingerprint`'s stated rule that a component is added only when it reflects a real change to the emitted policy; extend `Describe` with the same prefixes unconditional on mode (its contract is "what the user configured"); extend `Empty` to report false when any of the three is set.
 
 - [ ] **Step 4: Run the tests** — `go test ./internal/sandbox/network/`. Expected: PASS.
 

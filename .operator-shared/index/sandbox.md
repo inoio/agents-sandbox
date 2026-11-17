@@ -68,7 +68,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 ### `network/` — Network policy/config
 
-- `network.go`
+- `network.go`, `tls.go`
 
 ### `options/` — Sandbox options, sizes, timeouts, worktree spec, run mode
 
