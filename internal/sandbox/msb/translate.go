@@ -1055,8 +1055,7 @@ func sandboxOptions(spec SandboxSpec) ([]msbSdk.SandboxOption, error) {
 	// for an empty spec.
 	opts = append(opts, msbSdk.WithNetwork(network))
 	// A zero ProxySpec means no proxy, so only a configured one is emitted.
-	//nolint:exhaustruct_v5 // the zero value is the probe, not a partial init
-	if proxy := spec.Network.Proxy; proxy != (ProxySpec{}) {
+	if proxy := spec.Network.Proxy; !proxy.Empty() {
 		option, err := sandboxProxyOption(proxy)
 		if err != nil {
 			return nil, err
@@ -1069,7 +1068,8 @@ func sandboxOptions(spec SandboxSpec) ([]msbSdk.SandboxOption, error) {
 // sandboxProxyOption builds the SDK proxy option for a launcher proxy spec,
 // selecting the protocol-specific constructor and attaching credentials when
 // both a username and a password environment variable are set. An unknown
-// protocol fails the whole translation rather than dropping the proxy.
+// protocol, or a lone username/password-env, fails the whole translation rather
+// than dropping the proxy or its credentials.
 func sandboxProxyOption(proxy ProxySpec) (msbSdk.SandboxOption, error) {
 	var outboundProxy *msbSdk.OutboundProxy
 	switch proxy.Protocol {
@@ -1080,9 +1080,14 @@ func sandboxProxyOption(proxy ProxySpec) (msbSdk.SandboxOption, error) {
 	case ProxySOCKS4:
 		outboundProxy = msbSdk.SOCKS4Proxy(proxy.Address)
 	default:
-		return nil, fmt.Errorf("unknown proxy protocol %q", proxy.Protocol)
+		return nil, fmt.Errorf("unknown proxy protocol %q (want %s)", proxy.Protocol, ProxyProtocolsHint)
 	}
-	if proxy.Username != "" && proxy.PasswordEnv != "" {
+	// The SDK's Credentials needs both halves; a lone credential is rejected as
+	// the launcher's Proxy.validate does, rather than reaching the VM anonymous.
+	if (proxy.Username == "") != (proxy.PasswordEnv == "") {
+		return nil, errors.New("username and password-env must be set together")
+	}
+	if proxy.Username != "" {
 		outboundProxy = outboundProxy.Credentials(
 			proxy.Username, msbSdk.SecretSourceEnv(proxy.PasswordEnv),
 		)

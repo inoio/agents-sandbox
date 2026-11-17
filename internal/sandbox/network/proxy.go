@@ -27,7 +27,7 @@ func ParseProxyProtocol(s string) (ProxyProtocol, error) {
 	case ProxyHTTPConnect, ProxySOCKS5, ProxySOCKS4:
 		return protocol, nil
 	default:
-		return "", fmt.Errorf("unknown proxy protocol %q (want http-connect, socks5, or socks4)", s)
+		return "", fmt.Errorf("unknown proxy protocol %q (want %s)", s, msb.ProxyProtocolsHint)
 	}
 }
 
@@ -109,7 +109,7 @@ func (p Proxy) validate() error {
 	}
 	if protocol == ProxySOCKS4 && (p.Username != "" || p.PasswordEnv != "") {
 		return errors.New(
-			"network.proxy: protocol socks4 carries no credentials; " +
+			"protocol socks4 carries no credentials; " +
 				"remove username/password-env or use socks5 or http-connect",
 		)
 	}
@@ -117,7 +117,7 @@ func (p Proxy) validate() error {
 	// the VM as an anonymous proxy while still changing the fingerprint. Reject
 	// it rather than dropping either half.
 	if (p.Username == "") != (p.PasswordEnv == "") {
-		return errors.New("network.proxy: username and password-env must be set together")
+		return errors.New("username and password-env must be set together")
 	}
 	return nil
 }

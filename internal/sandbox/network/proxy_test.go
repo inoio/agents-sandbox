@@ -269,3 +269,79 @@ func TestProxySOCKS4CredentialErrorNamesProtocol(t *testing.T) {
 		t.Fatalf("error %q must name the socks4 protocol", err)
 	}
 }
+
+// TestProxyValidateErrorMessages pins the launcher-layer messages verbatim. The
+// inner errors are bare: the config-load and --proxy wrappers add the
+// `launcher config network.proxy:`/`--proxy:` namespace, so an inner
+// `network.proxy:` prefix would double it.
+func TestProxyValidateErrorMessages(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		proxy Proxy
+		want  string
+	}{
+		{
+			name:  "socks4 with credentials",
+			proxy: Proxy{Protocol: ProxySOCKS4, Address: "10.0.0.1:1080", Username: "u"},
+			want:  "protocol socks4 carries no credentials; remove username/password-env or use socks5 or http-connect",
+		},
+		{
+			name:  "lone username",
+			proxy: Proxy{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080", Username: "u"},
+			want:  "username and password-env must be set together",
+		},
+		{
+			name:  "lone password-env",
+			proxy: Proxy{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080", PasswordEnv: "P"},
+			want:  "username and password-env must be set together",
+		},
+		{
+			name:  "unknown protocol",
+			proxy: Proxy{Protocol: ProxyProtocol("ftp"), Address: "10.0.0.1:1080"},
+			want:  `unknown proxy protocol "ftp" (want http-connect, socks5, or socks4)`,
+		},
+		{
+			name:  "bad address",
+			proxy: Proxy{Protocol: ProxySOCKS5, Address: "10.0.0.1"},
+			want:  `invalid proxy address "10.0.0.1": want host:port`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := (Policy{Profiles: []Profile{ProfileNone}, Proxy: tc.proxy}).Validate()
+			if err == nil {
+				t.Fatalf("Validate() = nil, want %q", tc.want)
+			}
+			if err.Error() != tc.want {
+				t.Fatalf("Validate() error = %q, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// TestParseProxyErrorMessages pins the --proxy parser messages verbatim, so the
+// flag path reads like the config path (a bare inner error the caller wraps).
+func TestParseProxyErrorMessages(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want string
+	}{
+		{
+			in:   "ftp://10.0.0.1:1080",
+			want: `unknown proxy protocol "ftp" (want http-connect, socks5, or socks4)`,
+		},
+		{
+			in:   "socks5://10.0.0.1",
+			want: `invalid proxy address "10.0.0.1": want host:port`,
+		},
+	} {
+		t.Run(tc.in, func(t *testing.T) {
+			_, err := ParseProxy(tc.in)
+			if err == nil {
+				t.Fatalf("ParseProxy(%q) = nil error, want %q", tc.in, tc.want)
+			}
+			if err.Error() != tc.want {
+				t.Fatalf("ParseProxy(%q) error = %q, want %q", tc.in, err, tc.want)
+			}
+		})
+	}
+}

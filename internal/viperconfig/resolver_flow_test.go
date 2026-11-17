@@ -1058,9 +1058,10 @@ func TestNetworkProxyFromConfigFile(t *testing.T) {
 }
 
 // TestProxySOCKS4WithPasswordEnvFailsFast pins that a SOCKS4 configuration
-// supplying credentials fails at config-load, so the error names the protocol
-// rather than surfacing as a runtime failure. The SDK carries no credential
-// support for SOCKS4.
+// supplying credentials fails at config-load with the exact namespaced message:
+// the wrapper contributes `launcher config network.proxy:`, the inner error is
+// bare, so the prefix never doubles. The SDK carries no credential support for
+// SOCKS4.
 func TestProxySOCKS4WithPasswordEnvFailsFast(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_NETWORK_PROXY_PROTOCOL", "socks4")
@@ -1072,8 +1073,51 @@ func TestProxySOCKS4WithPasswordEnvFailsFast(t *testing.T) {
 	if err == nil {
 		t.Fatal("NewResolver must fail fast on a socks4 proxy with credentials")
 	}
-	if !strings.Contains(err.Error(), "socks4") {
-		t.Fatalf("error %q must name the socks4 protocol", err)
+	want := "launcher config network.proxy: protocol socks4 carries no credentials; " +
+		"remove username/password-env or use socks5 or http-connect"
+	if err.Error() != want {
+		t.Fatalf("NewResolver error = %q, want %q", err, want)
+	}
+}
+
+// TestProxyConfigLoadErrorMessages pins the full config-load messages for a
+// malformed network.proxy block: the wrapper namespaces once and the inner
+// error is bare, so neither doubles the `network.proxy:` prefix.
+func TestProxyConfigLoadErrorMessages(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		protocol string
+		username string
+		password string
+		want     string
+	}{
+		{
+			name:     "lone username",
+			protocol: "socks5",
+			username: "u",
+			want:     "launcher config network.proxy: username and password-env must be set together",
+		},
+		{
+			name:     "unknown protocol",
+			protocol: "ftp",
+			want:     `launcher config network.proxy: unknown proxy protocol "ftp" (want http-connect, socks5, or socks4)`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			configpathstest.WithMockConfigPaths(t)
+			t.Setenv("AGENTS_SANDBOX_NETWORK_PROXY_PROTOCOL", tc.protocol)
+			t.Setenv("AGENTS_SANDBOX_NETWORK_PROXY_ADDRESS", "10.0.0.1:1080")
+			t.Setenv("AGENTS_SANDBOX_NETWORK_PROXY_USERNAME", tc.username)
+			t.Setenv("AGENTS_SANDBOX_NETWORK_PROXY_PASSWORD_ENV", tc.password)
+
+			_, err := NewResolver(nil, configpaths.Get(), "")
+			if err == nil {
+				t.Fatalf("NewResolver = nil error, want %q", tc.want)
+			}
+			if err.Error() != tc.want {
+				t.Fatalf("NewResolver error = %q, want %q", err, tc.want)
+			}
+		})
 	}
 }
 

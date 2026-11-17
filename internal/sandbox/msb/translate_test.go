@@ -961,7 +961,8 @@ func TestSandboxOptionsProjectProxyProtocols(t *testing.T) {
 }
 
 // TestSandboxOptionsRejectUnknownProxyProtocol pins that an unknown protocol
-// fails the translation rather than silently dropping the proxy.
+// fails the translation rather than silently dropping the proxy, and that the
+// message carries the protocol hint shared with the launcher's parser.
 func TestSandboxOptionsRejectUnknownProxyProtocol(t *testing.T) {
 	_, err := sandboxOptions(SandboxSpec{
 		Image:   "alpine:3.19",
@@ -969,6 +970,33 @@ func TestSandboxOptionsRejectUnknownProxyProtocol(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("an unknown proxy protocol must fail the translation")
+	}
+	want := `unknown proxy protocol "ftp" (want ` + ProxyProtocolsHint + `)`
+	if err.Error() != want {
+		t.Fatalf("error = %q, want %q", err, want)
+	}
+}
+
+// TestSandboxOptionsRejectLoneProxyCredential pins that sandboxProxyOption is
+// symmetric with the launcher's Proxy.validate: exactly one of username and
+// password-env fails the translation instead of reaching the VM anonymous.
+func TestSandboxOptionsRejectLoneProxyCredential(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		proxy ProxySpec
+	}{
+		{"username only", ProxySpec{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080", Username: "u"}},
+		{"password-env only", ProxySpec{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080", PasswordEnv: "P"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := sandboxOptions(SandboxSpec{Image: "alpine:3.19", Network: NetworkSpec{Proxy: tc.proxy}})
+			if err == nil {
+				t.Fatal("a lone proxy credential must fail the translation")
+			}
+			if err.Error() != "username and password-env must be set together" {
+				t.Fatalf("error = %q, want the lone-credential rejection", err)
+			}
+		})
 	}
 }
 

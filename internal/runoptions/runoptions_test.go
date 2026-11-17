@@ -895,6 +895,40 @@ func TestBuildRejectsInvalidProxyFlag(t *testing.T) {
 	}
 }
 
+// TestProxyFlagErrorMessages pins the exact --proxy messages: the flag wrapper
+// namespaces once and the inner parser error is bare, matching the config-load
+// path so neither doubles a prefix.
+func TestProxyFlagErrorMessages(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  string
+	}{
+		{
+			value: "ftp://10.0.0.1:1080",
+			want:  `--proxy: unknown proxy protocol "ftp" (want http-connect, socks5, or socks4)`,
+		},
+		{
+			value: "socks5://10.0.0.1",
+			want:  `--proxy: invalid proxy address "10.0.0.1": want host:port`,
+		},
+	} {
+		t.Run(tc.value, func(t *testing.T) {
+			cmd := newRunCommand()
+			if err := cmd.Flags().Set(FlagProxy, tc.value); err != nil {
+				t.Fatalf("set proxy: %v", err)
+			}
+			var r *viperconfig.Resolver
+			_, err := Build(r.Config(), cmd, &termiotest.Mock{})
+			if err == nil {
+				t.Fatalf("Build(--proxy %s) = nil error, want %q", tc.value, tc.want)
+			}
+			if err.Error() != tc.want {
+				t.Fatalf("Build(--proxy %s) error = %q, want %q", tc.value, err, tc.want)
+			}
+		})
+	}
+}
+
 func TestBuildRejectsInvalidDNSServers(t *testing.T) {
 	for _, value := range []string{"garbage", "1.1.1.1:notaport", ":53", ":99999"} {
 		t.Run(value, func(t *testing.T) {
