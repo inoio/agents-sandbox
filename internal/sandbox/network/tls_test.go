@@ -2,6 +2,7 @@ package network
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -78,6 +79,23 @@ func TestDescribeOmitsDisableStrictWhenUnset(t *testing.T) {
 	for _, line := range (Policy{Profiles: []Profile{ProfileNone}}).Describe() {
 		if line == "disable-strict: true" {
 			t.Fatal("disable-strict must not be described when unset")
+		}
+	}
+}
+
+// TestDescribeOmitsAutoInterceptMode pins that an auto interception mode is not
+// displayed: it is microsandbox's own default and unset means auto, so showing
+// it would change every existing policy's persisted Entries for no verdict
+// change.
+func TestDescribeOmitsAutoInterceptMode(t *testing.T) {
+	for in, policy := range map[string]Policy{
+		"unset": {Profiles: []Profile{ProfileNone}},
+		"auto":  {Profiles: []Profile{ProfileNone}, InterceptTLS: InterceptAuto},
+	} {
+		for _, line := range policy.Describe() {
+			if strings.HasPrefix(line, "intercept-tls:") {
+				t.Fatalf("Describe(%s) = %q, want no intercept-tls line", in, line)
+			}
 		}
 	}
 }

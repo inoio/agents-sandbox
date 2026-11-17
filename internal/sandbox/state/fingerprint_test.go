@@ -300,9 +300,8 @@ func TestBuildNetworkState(t *testing.T) {
 // matches the policy the VM is created with.
 func TestBuildNetworkStateAppliesEffectiveDefault(t *testing.T) {
 	st := BuildNetworkState(network.Policy{})
-	want := []string{"profile: " + network.DefaultProfile.String(), "intercept-tls: auto"}
-	if !slices.Equal(st.Entries, want) {
-		t.Fatalf("BuildNetworkState(zero).Entries = %v, want %v", st.Entries, want)
+	if !slices.Equal(st.Entries, []string{"profile: " + network.DefaultProfile.String()}) {
+		t.Fatalf("BuildNetworkState(zero).Entries = %v, want the %s profile", st.Entries, network.DefaultProfile)
 	}
 	if st.Hash != (network.Policy{}).Fingerprint() {
 		t.Errorf(

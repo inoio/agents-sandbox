@@ -125,6 +125,11 @@ func (p Policy) Effective() Policy {
 //
 // A `none` policy likewise contributes a marker for omitting the gateway-DNS
 // rule, so a VM created with the rule is recreated once without it.
+//
+// The TLS-interception settings contribute lines only when they change the
+// emitted policy: an auto interception mode is microsandbox's own default and
+// unset means auto, so neither contributes a line and existing digests stay
+// stable; a bypass host always does, and `disable-strict=true` does when set.
 func (p Policy) Fingerprint() string {
 	p = p.Effective()
 	var lines []string
@@ -140,7 +145,9 @@ func (p Policy) Fingerprint() string {
 	for _, d := range p.EgressDeny {
 		lines = append(lines, "deny="+d)
 	}
-	lines = append(lines, "intercept-tls="+string(p.interceptMode()))
+	if mode := p.interceptMode(); mode != InterceptAuto {
+		lines = append(lines, "intercept-tls="+string(mode))
+	}
 	for _, host := range p.TLSBypass {
 		lines = append(lines, "tls-bypass="+host)
 	}
@@ -161,7 +168,9 @@ func (p Policy) Fingerprint() string {
 // Describe returns the effective policy as display lines named after the config
 // keys: the deduplicated profiles, then the egress-allow, egress-deny, and DNS
 // server entries, then the TLS-interception settings, each group sorted. Unlike
-// Fingerprint it carries no emission markers, only what the user configured.
+// Fingerprint it carries no emission markers, only what the user configured. An
+// auto interception mode is the microsandbox default and unset means auto, so
+// neither is displayed; only an explicit on or off is.
 func (p Policy) Describe() []string {
 	p = p.Effective()
 	var lines []string
@@ -169,7 +178,9 @@ func (p Policy) Describe() []string {
 	lines = append(lines, prefixedSorted("egress-allow: ", p.EgressAllow)...)
 	lines = append(lines, prefixedSorted("egress-deny: ", p.EgressDeny)...)
 	lines = append(lines, prefixedSorted("dns-server: ", p.DNSServers)...)
-	lines = append(lines, "intercept-tls: "+string(p.interceptMode()))
+	if mode := p.interceptMode(); mode != InterceptAuto {
+		lines = append(lines, "intercept-tls: "+string(mode))
+	}
 	lines = append(lines, prefixedSorted("tls-bypass: ", p.TLSBypass)...)
 	if p.DisableStrict {
 		lines = append(lines, "disable-strict: true")

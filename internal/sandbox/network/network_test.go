@@ -415,12 +415,11 @@ func TestFingerprintProfileSetDeduplicates(t *testing.T) {
 }
 
 // TestFingerprintSingleProfileMatchesLegacyFormat pins the exact digest a
-// single-profile policy produced before both profiles became composable and the
-// TLS-interception fields were added: the fingerprint emits one "profile=" line
-// per profile and one "intercept-tls=" line, so widening the model must not
-// change existing state and force every project VM to be recreated.
+// single-profile policy produced before profiles became composable: the
+// fingerprint emits one "profile=" line per profile, so widening the model must
+// not change existing state and force every project VM to be recreated.
 func TestFingerprintSingleProfileMatchesLegacyFormat(t *testing.T) {
-	const legacyPublic = "ff3444dc543297de76c12b475b054f0a9a684013d6b712fc22081aa970df5050"
+	const legacyPublic = "a22d48312e2ea6d5e08a1b5bca6f04e1a42da13d2daaa1337b4d5be145a31116"
 	if got := (Policy{Profiles: []Profile{ProfilePublic}}).Fingerprint(); got != legacyPublic {
 		t.Fatalf("single-profile fingerprint = %q, want legacy %q", got, legacyPublic)
 	}
@@ -510,7 +509,6 @@ func TestDescribeListsTheEffectivePolicyEntries(t *testing.T) {
 		"egress-allow: b.example.com",
 		"egress-deny: 10.0.0.0/8",
 		"dns-server: 1.1.1.1:53",
-		"intercept-tls: auto",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("Describe = %q, want %q", got, want)
@@ -519,7 +517,7 @@ func TestDescribeListsTheEffectivePolicyEntries(t *testing.T) {
 
 func TestDescribeUnsetPolicyNamesTheDefaultProfile(t *testing.T) {
 	got := (Policy{}).Describe()
-	if !slices.Equal(got, []string{"profile: " + DefaultProfile.String(), "intercept-tls: auto"}) {
+	if !slices.Equal(got, []string{"profile: " + DefaultProfile.String()}) {
 		t.Errorf("Describe(zero) = %q, want the default profile", got)
 	}
 }
