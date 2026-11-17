@@ -90,11 +90,54 @@ func TestWalkSkipsUnselectedFile(t *testing.T) {
 }
 
 func TestReadFileRejectsUnreadablePath(t *testing.T) {
-	if _, _, ok := readFile(t.TempDir()); ok {
+	if _, _, _, _, ok := readFile(t.TempDir(), 0); ok {
 		t.Error("readFile(directory) ok = true, want false")
 	}
-	if _, _, ok := readFile(filepath.Join(t.TempDir(), "missing")); ok {
+	if _, _, _, _, ok := readFile(filepath.Join(t.TempDir(), "missing"), 0); ok {
 		t.Error("readFile(missing) ok = true, want false")
+	}
+}
+
+// TestWalkCappedRecordsOverCapFileWithoutReading pins the content cap: a file
+// larger than the cap is visited with its metadata but no data, so a caller can
+// record it opaque without the walk loading it into memory.
+func TestWalkCappedRecordsOverCapFileWithoutReading(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "small.txt"), "small")
+	writeFile(t, filepath.Join(root, "large.txt"), strings.Repeat("x", 64))
+
+	const contentCap = 16
+	entries := map[string]Entry{}
+	if err := WalkCapped(root, contentCap, func(string, bool) bool { return true }, func(entry Entry) error {
+		entries[entry.Rel] = entry
+		return nil
+	}); err != nil {
+		t.Fatalf("WalkCapped() error = %v", err)
+	}
+
+	small, ok := entries["small.txt"]
+	if !ok {
+		t.Fatal("small.txt not visited")
+	}
+	if string(small.Data) != "small" || small.Size != 5 {
+		t.Errorf("small.txt = %q size %d, want %q size 5", small.Data, small.Size, "small")
+	}
+
+	large, ok := entries["large.txt"]
+	if !ok {
+		t.Fatal("large.txt not visited: an over-cap file must still be recorded")
+	}
+	if large.Data != nil {
+		t.Errorf("large.txt data = %q, want nil (over the cap)", large.Data)
+	}
+	if large.Size != 64 {
+		t.Errorf("large.txt size = %d, want 64", large.Size)
+	}
+	if !large.Mode.IsRegular() {
+		t.Errorf("large.txt mode = %v, want a regular file", large.Mode)
+	}
+	if large.ModTime.IsZero() {
+		t.Error("large.txt mtime is zero, want the stat mtime")
 	}
 }
 
@@ -107,7 +150,7 @@ func TestReadFileReportsContentsAndPermissionBits(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	data, mode, ok := readFile(path)
+	data, mode, _, _, ok := readFile(path, 0)
 	if !ok {
 		t.Fatal("readFile(readable) ok = false, want true")
 	}
@@ -182,7 +225,7 @@ func TestReadFileRejectsUnreadableFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	data, mode, ok := readFile(path)
+	data, mode, _, _, ok := readFile(path, 0)
 	if ok {
 		t.Errorf("readFile(unreadable) ok = true, want false")
 	}
@@ -197,7 +240,7 @@ func TestReadFileRejectsUnreadableFile(t *testing.T) {
 func TestReadFileReportsAnUnstatablePathAsZero(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "missing")
 
-	data, mode, ok := readFile(path)
+	data, mode, _, _, ok := readFile(path, 0)
 	if ok {
 		t.Errorf("readFile(missing) ok = true, want false")
 	}
