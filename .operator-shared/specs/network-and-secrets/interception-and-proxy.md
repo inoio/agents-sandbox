@@ -1,6 +1,6 @@
 ---
-description: The launcher's network surfaces for TLS interception and an outbound egress proxy - `network.intercept-tls` (auto/on/off, and that `off`-with-secrets is not expressible) and how it interacts with secret-implied interception, `network.tls-bypass`, `network.proxy.*`/`--proxy` for SOCKS4/5 and HTTP CONNECT, the protocol/credential matrix, the proxy-reachability composition rule (the dial is host-side and needs no allow entry), the runtime's strict-hostname limit on non-intercepted allowlisted egress, and why every field is part of the network fingerprint and therefore creation-only.
-read_if: Working on the launcher's TLS-interception or outbound-proxy config surface - `intercept-tls`/`tls-bypass`, secret-implied interception, a host that must skip interception (a package or image registry), `proxy.*`/`--proxy` or its credentials, the composition of a proxy with an egress policy, or why a bypassed or `none`-allowlisted host is denied without interception (strict hostname mode); or why a network change recreates the VM.
+description: The launcher's network surfaces for TLS interception and an outbound egress proxy - `network.intercept-tls` (auto/on/off, and that `off`-with-secrets is not expressible) and how it interacts with secret-implied interception, `network.tls-bypass`, `network.disable-strict`, `network.proxy.*`/`--proxy` for SOCKS4/5 and HTTP CONNECT, the protocol/credential matrix, the proxy-reachability composition rule (the dial is host-side and needs no allow entry), the runtime's strict-hostname limit on non-intercepted allowlisted egress, and why every field is part of the network fingerprint and therefore creation-only.
+read_if: Working on the launcher's TLS-interception or outbound-proxy config surface - `intercept-tls`/`tls-bypass`/`disable-strict`, secret-implied interception, a host that must skip interception (a package or image registry), `proxy.*`/`--proxy` or its credentials, the composition of a proxy with an egress policy, or why a bypassed or `none`-allowlisted host is denied without interception (strict hostname mode); or why a network change recreates the VM.
 ---
 
 # TLS interception and the outbound proxy
@@ -32,8 +32,10 @@ leaving interception on.
 A list of hosts whose traffic is **not** intercepted: an exact host, or a `*.suffix` covering its subdomains.
 
 The primary use case is a package or image registry whose client does not trust the interception CA — an in-VM
-`docker build` pulling a base image. A bypass entry supersedes the earlier workaround of planting the interception CA
-inside the VM for that client.
+`docker build` pulling a base image, for instance. A bypass entry does **not** supersede the docker workaround: a
+bypassed host is denied under strict mode unless strict mode is off (see
+[strict hostname mode](#strict-hostname-mode)), so the container still needs the CA added to its bundle. The workaround
+is documented as the docker CA recipe (`docs/recipes/docker-ca-trust.md`).
 
 A host that is both `tls-bypass`ed and egress-allowlisted does **not** pass under the runtime's strict-hostname
 fail-closed behaviour: strict mode denies it (`TLS bypass denied by strict hostname policy`) even though the host is
@@ -72,8 +74,10 @@ consulted; see [strict hostname mode](#strict-hostname-mode).
 
 ## Strict hostname mode
 
-The runtime runs **strict hostname mode** by default (`DisableStrict` off), and the launcher never disables it. Under
-strict mode (observed with microsandbox runtime `0.7.15`) a plain-domain egress-allow rule authorizes only an
+The runtime runs **strict hostname mode** by default (`DisableStrict` off). The launcher exposes the switch as
+`network.disable-strict`: setting it true turns strict mode off.
+
+Under strict mode (observed with microsandbox runtime `0.7.15`) a plain-domain egress-allow rule authorizes only an
 **intercepted** connection:
 
 - With a secret configured, the runtime's interception supplies the verified TLS identity and the allow matches, so
@@ -89,12 +93,17 @@ Consequences:
   bypassed host must also be reachable another way, or strict mode must be off for that session.
 - A `none`-profile allowlist (explicit egress-allow rules, no secret) is subject to the same limit.
 
-The launcher does not currently control the runtime's strict switch: `network.Policy` neither sets `DisableStrict` nor
-exposes it. Opening it is a prerequisite for a session that needs non-intercepted egress.
+`network.disable-strict: true` is therefore the way to reach a non-intercepted, allowlisted host (a bypassed registry,
+or a `none`-profile allowlist with no secret).
 
 ## Fingerprint and creation-only
 
-Both surfaces are part of `network.Policy.Fingerprint()`: every field that reaches the VM is in the fingerprint, so a
-change to `intercept-tls`, `tls-bypass`, or any `proxy.*` value changes the fingerprint, `state.NetworkChanged`
-fires, and the VM is recreated through the normal reconfiguration path. The settings are creation-only — a change
-takes effect at the next VM creation, never on a running VM.
+All three surfaces are part of `network.Policy.Fingerprint()`: every field that reaches the VM is in the fingerprint, so a
+change to `intercept-tls`, `tls-bypass`, `disable-strict`, or any `proxy.*` value changes the fingerprint,
+`state.NetworkChanged` fires, and the VM is recreated through the normal reconfiguration path. The settings are
+creation-only — a change takes effect at the next VM creation, never on a running VM.
+
+The TLS-interception fields contribute fingerprint lines only when they change the emitted policy: `intercept-tls=<mode>`
+is emitted only when the mode is not `auto` (unset means auto, so existing digests stay stable), a `tls-bypass=<host>`
+line is emitted unless interception is off (where bypass is dropped from the emitted policy and never reaches the VM),
+and `disable-strict=true` is emitted when set.
