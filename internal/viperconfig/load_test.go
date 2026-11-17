@@ -221,6 +221,7 @@ func TestResolverConfigReturnsACopy(t *testing.T) {
 			EgressAllow: []string{"example.com"},
 			EgressDeny:  []string{"bad.example"},
 			DNSServers:  []string{"1.1.1.1"},
+			TLSBypass:   []string{"registry.example.com"},
 		},
 		Mounts: mounts.Mounts{"/guest": {Source: "/host"}},
 		Home:   homeconfig.Layers{{Dir: "/cfg", Manifest: homeconfig.Manifest{"~/.x": {Source: "/host/.x"}}}},
@@ -244,6 +245,7 @@ func TestResolverConfigReturnsACopy(t *testing.T) {
 	got.Network.EgressAllow[0] = "evil.example"
 	got.Network.EgressDeny[0] = "evil.example"
 	got.Network.DNSServers[0] = "8.8.8.8"
+	got.Network.TLSBypass[0] = "evil.example"
 	got.Secrets.Common.AllowPlaceholderFor[0] = "evil.example"
 	got.Mounts["/guest"] = mounts.BindMount{Source: "/evil"}
 	got.Home[0].Manifest["~/.x"] = homeconfig.Entry{Source: "/evil"}
@@ -255,7 +257,8 @@ func TestResolverConfigReturnsACopy(t *testing.T) {
 	if again.Network.Profiles[0] != network.ProfilePublic ||
 		again.Network.EgressAllow[0] != "example.com" ||
 		again.Network.EgressDeny[0] != "bad.example" ||
-		again.Network.DNSServers[0] != "1.1.1.1" {
+		again.Network.DNSServers[0] != "1.1.1.1" ||
+		again.Network.TLSBypass[0] != "registry.example.com" {
 		t.Errorf("mutating Config() network changed the resolver: %+v", again.Network)
 	}
 	if again.Mounts["/guest"].Source != "/host" {
