@@ -110,7 +110,11 @@ func TestProxyAddressMustBeReachableUnderNone(t *testing.T) {
 	if err := policy.Validate(); err != nil {
 		t.Fatalf("Validate under none = %v, want nil (host-side dial bypasses egress)", err)
 	}
-	if allowed := slices.Contains(policy.Effective().EgressAllow, "10.0.0.1:1080"); allowed {
+	spec, err := policy.Spec()
+	if err != nil {
+		t.Fatalf("Spec under none = %v, want nil (host-side dial bypasses egress)", err)
+	}
+	if slices.Contains(spec.EgressAllow, "10.0.0.1:1080") {
 		t.Fatal("the proxy address must not be auto-added to egress-allow")
 	}
 }

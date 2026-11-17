@@ -804,9 +804,6 @@ func TestBuildNetworkInvalid(t *testing.T) {
 	}
 }
 
-// TestBuildRejectsInvalidDNSServers pins that the --dns flag path is validated
-// at options resolution, like the env/config path: each malformed value is
-// rejected by Build before any VM work, not only at VM creation.
 // TestProxyFlagWinsOverBlock pins the --proxy precedence: the flag replaces the
 // whole network.proxy block for one run, so the block's protocol and address do
 // not survive alongside the flag's endpoint.
@@ -929,6 +926,9 @@ func TestProxyFlagErrorMessages(t *testing.T) {
 	}
 }
 
+// TestBuildRejectsInvalidDNSServers pins that the --dns flag path is validated
+// at options resolution, like the env/config path: each malformed value is
+// rejected by Build before any VM work, not only at VM creation.
 func TestBuildRejectsInvalidDNSServers(t *testing.T) {
 	for _, value := range []string{"garbage", "1.1.1.1:notaport", ":53", ":99999"} {
 		t.Run(value, func(t *testing.T) {

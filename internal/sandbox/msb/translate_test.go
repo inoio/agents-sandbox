@@ -916,8 +916,9 @@ func TestSandboxOptionsProjectProxy(t *testing.T) {
 	for _, opt := range opts {
 		opt(&cfg)
 	}
-	if cfg.Proxy == nil {
-		t.Fatal("proxy not projected")
+	want := msbSdk.SOCKS5Proxy("10.0.0.1:1080").Credentials("u", msbSdk.SecretSourceEnv("PW"))
+	if !reflect.DeepEqual(cfg.Proxy, want) {
+		t.Fatalf("Proxy = %+v, want the SDK-built %+v", cfg.Proxy, want)
 	}
 }
 
@@ -940,11 +941,18 @@ func TestSandboxOptionsOmitProxyWhenUnset(t *testing.T) {
 // TestSandboxOptionsProjectProxyProtocols pins that every supported protocol
 // reaches the SDK through its protocol-specific constructor.
 func TestSandboxOptionsProjectProxyProtocols(t *testing.T) {
-	for _, protocol := range []ProxyProtocol{ProxyHTTPConnect, ProxySOCKS5, ProxySOCKS4} {
-		t.Run(string(protocol), func(t *testing.T) {
+	for _, tc := range []struct {
+		protocol ProxyProtocol
+		want     *msbSdk.OutboundProxy
+	}{
+		{ProxyHTTPConnect, msbSdk.HTTPConnectProxy("10.0.0.1:1080")},
+		{ProxySOCKS5, msbSdk.SOCKS5Proxy("10.0.0.1:1080")},
+		{ProxySOCKS4, msbSdk.SOCKS4Proxy("10.0.0.1:1080")},
+	} {
+		t.Run(string(tc.protocol), func(t *testing.T) {
 			opts, err := sandboxOptions(SandboxSpec{
 				Image:   "alpine:3.19",
-				Network: NetworkSpec{Proxy: ProxySpec{Protocol: protocol, Address: "10.0.0.1:1080"}},
+				Network: NetworkSpec{Proxy: ProxySpec{Protocol: tc.protocol, Address: "10.0.0.1:1080"}},
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -953,8 +961,8 @@ func TestSandboxOptionsProjectProxyProtocols(t *testing.T) {
 			for _, opt := range opts {
 				opt(&cfg)
 			}
-			if cfg.Proxy == nil {
-				t.Fatalf("protocol %q not projected", protocol)
+			if !reflect.DeepEqual(cfg.Proxy, tc.want) {
+				t.Fatalf("protocol %q projected %+v, want the SDK-built %+v", tc.protocol, cfg.Proxy, tc.want)
 			}
 		})
 	}
