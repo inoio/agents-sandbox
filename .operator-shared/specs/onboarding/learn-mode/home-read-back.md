@@ -32,6 +32,10 @@ DB, with prompt history and small state files under `~/.local/state/opencode/` a
 Login credentials found here are recorded (presence, source, provider) but **never copied out of the sandbox**
 (invariant 2).
 
+Reading the database is not literally read-only: even an SQLite connection opened `mode=ro` may create an
+`opencode.db-shm` shared-memory file beside `opencode.db`, so the volume directory must stay host-writable for the
+read-back.
+
 ## Baseline manifest
 
 Change detection rests on a manifest of the agent config dirs and the known credential paths — **path, size, mtime,

@@ -23,6 +23,13 @@ What exists right now:
 
 **First action: S0** (`2026-11-17-learn-mode-settled-design.md`). It is docs-only, needs no SDD, and unblocks every other subplan (they cite the specs it creates).
 
+**S6 must remove S5's dead-code markers.** S5 (`readback`) lands a library before its only consumer, so its
+declarations are unreachable from any `main` package and carry temporary declaration-scope `//deadcode:ignore
+reason="…"` markers (on the `internal/sandbox/readback` package and `agent.AsReadBackDescriber`). As S6 imports the
+package and wires its caller, S6 **deletes each marker**: a marker left on a declaration that is now reachable is a
+stale marker, which also fails the `deadcode` gate (the gate's self-defence against markers-as-decoration; see
+`../specs/ci/quality-gates.md` §Dead-code gate).
+
 **How to run a subplan:** create a worktree off `origin/main` (`superpowers:using-git-worktrees`), load `superpowers:subagent-driven-development`, and execute its tasks one at a time (a fresh implementer per task, a fresh reviewer gating each). Steps marked **human accept** run on a KVM host and cannot be done in the dev VM; the subplan is not done until they are checked. Finish with one `code-review`/`reviewer-large` pass over the whole subplan, then a PR into the merge queue.
 
 **Do not parallelize S2 and S3** (same files). **Do parallelize S5** against the channel track (no shared files).
@@ -100,9 +107,13 @@ func (m Manifest) Changed(prev Manifest) []string
 type CredentialKind int
 const (CredentialStatic CredentialKind = iota; CredentialLogin)
 type Credential struct { Kind CredentialKind; Source, Provider, Field string; Hosts []string; Value string }
-type ReadBack struct { ConfigPaths []string; Static, Login []Credential; Changed []string }
+type ReadBack struct { ConfigPaths []string; Static, Login []Credential; Changed, Unreadable []string }
 func Read(home, agentName string, baseline Manifest) (ReadBack, error)
 func HomeVolumePath(ctx context.Context, k state.Key) (string, error)
+
+// ReadBack.Unreadable names the credential-probe sources whose read failed this
+// run (e.g. "opencode2:opencode2-sqlite"), so a consumer can tell "no
+// credentials" from "the store could not be read".
 
 // internal/agent — owned by S5
 type ReadBackDescriber interface { ReadBackPaths() []string; CredentialProbes() []string }
