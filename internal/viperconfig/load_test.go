@@ -216,6 +216,7 @@ func TestResolverNotifyDefaults(t *testing.T) {
 func TestResolverConfigReturnsACopy(t *testing.T) {
 	r := NewResolverWithConfig(Config{
 		CPUs: 4, Agent: "pi", OpenLinks: true,
+		Ports: []string{"3000"},
 		Network: network.Policy{
 			Profiles:    []network.Profile{network.ProfilePublic},
 			EgressAllow: []string{"example.com"},
@@ -249,7 +250,7 @@ func TestResolverConfigReturnsACopy(t *testing.T) {
 	got.Secrets.Common.AllowPlaceholderFor[0] = "evil.example"
 	got.Mounts["/guest"] = mounts.BindMount{Source: "/evil"}
 	got.Home[0].Manifest["~/.x"] = homeconfig.Entry{Source: "/evil"}
-
+	got.Ports[0] = "9999"
 	again := r.Config()
 	if again.Agent != "pi" {
 		t.Errorf("mutating Config().Agent changed the resolver: Agent = %q, want pi", again.Agent)
@@ -269,6 +270,9 @@ func TestResolverConfigReturnsACopy(t *testing.T) {
 	}
 	if again.Home[0].Manifest["~/.x"].Source != "/host/.x" {
 		t.Errorf("mutating Config() home changed the resolver: %+v", again.Home)
+	}
+	if again.Ports[0] != "3000" {
+		t.Errorf("mutating Config() ports changed the resolver: %+v", again.Ports)
 	}
 
 	var nilResolver *Resolver
