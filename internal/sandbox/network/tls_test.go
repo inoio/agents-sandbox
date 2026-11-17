@@ -34,6 +34,19 @@ func TestPolicyFingerprintTreatsEmptyInterceptModeAsAuto(t *testing.T) {
 	}
 }
 
+// TestPolicyFingerprintIgnoresTLSBypassUnderInterceptOff pins that a bypass host
+// has no fingerprint effect when interception is off: networkConfig drops the
+// bypass then, so it never reaches the VM and must not force a recreate.
+func TestPolicyFingerprintIgnoresTLSBypassUnderInterceptOff(t *testing.T) {
+	off := Policy{Profiles: []Profile{ProfileNone}, InterceptTLS: InterceptOff}
+	withBypass := off
+	withBypass.TLSBypass = []string{"*.internal.example"}
+	if off.Fingerprint() != withBypass.Fingerprint() {
+		t.Fatalf("tls-bypass must not change the fingerprint under intercept-tls off: %q vs %q",
+			off.Fingerprint(), withBypass.Fingerprint())
+	}
+}
+
 func TestParseInterceptModeRejectsUnknown(t *testing.T) {
 	if _, err := ParseInterceptMode("sometimes"); err == nil {
 		t.Fatal("want error for an unknown mode")

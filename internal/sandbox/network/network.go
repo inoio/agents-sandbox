@@ -129,7 +129,8 @@ func (p Policy) Effective() Policy {
 // The TLS-interception settings contribute lines only when they change the
 // emitted policy: an auto interception mode is microsandbox's own default and
 // unset means auto, so neither contributes a line and existing digests stay
-// stable; a bypass host always does, and `disable-strict=true` does when set.
+// stable; a bypass host does unless interception is off, where it is dropped
+// and never reaches the VM; and `disable-strict=true` does when set.
 func (p Policy) Fingerprint() string {
 	p = p.Effective()
 	var lines []string
@@ -145,11 +146,14 @@ func (p Policy) Fingerprint() string {
 	for _, d := range p.EgressDeny {
 		lines = append(lines, "deny="+d)
 	}
-	if mode := p.interceptMode(); mode != InterceptAuto {
+	mode := p.interceptMode()
+	if mode != InterceptAuto {
 		lines = append(lines, "intercept-tls="+string(mode))
 	}
-	for _, host := range p.TLSBypass {
-		lines = append(lines, "tls-bypass="+host)
+	if mode != InterceptOff {
+		for _, host := range p.TLSBypass {
+			lines = append(lines, "tls-bypass="+host)
+		}
 	}
 	if p.DisableStrict {
 		lines = append(lines, "disable-strict=true")
@@ -170,7 +174,9 @@ func (p Policy) Fingerprint() string {
 // server entries, then the TLS-interception settings, each group sorted. Unlike
 // Fingerprint it carries no emission markers, only what the user configured. An
 // auto interception mode is the microsandbox default and unset means auto, so
-// neither is displayed; only an explicit on or off is.
+// neither is displayed; only an explicit on or off is. Unlike Fingerprint, a
+// bypass host is displayed even under `off`, since Describe reports the
+// configured policy and does not model what reaches the VM.
 func (p Policy) Describe() []string {
 	p = p.Effective()
 	var lines []string

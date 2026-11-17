@@ -10,6 +10,7 @@ package msb
 import (
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -969,6 +970,16 @@ func TestNetworkConfigSetsTLSForInterceptOn(t *testing.T) {
 	}
 }
 
+func TestNetworkConfigSetsTLSForInterceptOnWithoutBypass(t *testing.T) {
+	cfg, err := networkConfig(NetworkSpec{InterceptTLS: InterceptOn})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TLS == nil || len(cfg.TLS.Bypass) != 0 {
+		t.Fatalf("on must emit interception even with no bypass, got %+v", cfg.TLS)
+	}
+}
+
 func TestNetworkConfigLeavesTLSNilForAutoWithoutBypass(t *testing.T) {
 	cfg, err := networkConfig(NetworkSpec{})
 	if err != nil {
@@ -1007,6 +1018,10 @@ func TestSandboxOptionsRejectsOffWithSecrets(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("off with a configured secret must fail with an actionable error")
+	}
+	if msg := err.Error(); !strings.Contains(msg, "intercept-tls") ||
+		!strings.Contains(msg, "auto/on") {
+		t.Fatalf("error must name the intercept-tls limitation and the auto/on remedy, got %q", msg)
 	}
 	if _, err := sandboxOptions(
 		SandboxSpec{Image: "img", Network: NetworkSpec{InterceptTLS: InterceptOff}},
