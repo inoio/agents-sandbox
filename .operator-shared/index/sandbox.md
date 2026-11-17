@@ -97,6 +97,10 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 - `cleanup.go`, `compact.go`, `images.go`, `liveness.go`, `prune.go`, `report.go`, `sandboxes.go`, `storage.go`, `volumes.go` — `liveness.go` holds `PruneState`, its builder and the liveness rules (`prunable`, `retires`, `keepImage`, `allowsNativeImagePrune`) of `specs/vm/lifecycle.md`; `compact.go` backs `sandbox compact`; `storage.go` is the age-gated runtime-RAM phase (`PruneStorage`) that enriches the top-level `prune`
 - `candidates.go`, `options.go`, `purge.go`, `state_sweep.go` — the `prune --purge` tier: retired-project candidate enumeration, `PruneOptions`, and volume/image/stale-state reclamation
 
+### `readback/` — Host-side home-volume read-back for learn mode
+
+- `readback.go` (`HomeVolumePath`: state → home volume → host path, with `ErrNoHomeVolume` distinct from `state.ErrStateNotFound`), `manifest.go` (`TakeManifest`/`Manifest.Changed`, the baseline change-detection manifest), `read.go` (`Read`: config paths, static secrets, recorded logins), `probe_opencode2.go` (bounded read of opencode2's SQLite `credential` table) — the fact source for the after-run analyser of `specs/onboarding/learn-mode/home-read-back.md`; landed ahead of its consumer (S6), so unreachable declarations carry temporary `//deadcode:ignore` markers S6 deletes as it wires them.
+
 ### `reconfig/` — Reconfiguration planning
 
 - `plan.go`, `prompts.go` — plans and resolves a project VM's reconfiguration (fingerprint diff → recreate vs restart) and its prompt
