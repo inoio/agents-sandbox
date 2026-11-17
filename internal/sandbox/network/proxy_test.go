@@ -100,12 +100,12 @@ func TestProxyRejectsLoneCredential(t *testing.T) {
 	}
 }
 
-// TestProxyAddressMustBeReachableUnderNone pins S1's recorded composition
+// TestProxyAddressBypassesEgressPolicy pins S1's recorded composition
 // decision: the runtime dials the proxy host-side, so the dial bypasses the
 // egress policy and the launcher neither auto-adds the proxy address to the
 // allow set nor fails on a policy that omits it. Under `none` a well-formed
 // proxy is therefore accepted and its address stays out of egress-allow.
-func TestProxyAddressMustBeReachableUnderNone(t *testing.T) {
+func TestProxyAddressBypassesEgressPolicy(t *testing.T) {
 	policy := Policy{Profiles: []Profile{ProfileNone}, Proxy: Proxy{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080"}}
 	if err := policy.Validate(); err != nil {
 		t.Fatalf("Validate under none = %v, want nil (host-side dial bypasses egress)", err)

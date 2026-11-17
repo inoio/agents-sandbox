@@ -176,16 +176,7 @@ func (p Policy) Fingerprint() string {
 	if p.DisableStrict {
 		lines = append(lines, "disable-strict=true")
 	}
-	if !p.Proxy.Empty() {
-		proxy := p.proxyEmission()
-		lines = append(lines, "proxy="+string(proxy.Protocol)+"://"+proxy.Address)
-		if proxy.Username != "" {
-			lines = append(lines, "proxy-username="+proxy.Username)
-		}
-		if proxy.PasswordEnv != "" {
-			lines = append(lines, "proxy-password-env="+proxy.PasswordEnv)
-		}
-	}
+	lines = append(lines, p.proxyLines("=")...)
 	if p.denyPrecedesProfileAllow() {
 		lines = append(lines, "rule-order=deny-before-profile")
 	}
@@ -222,15 +213,26 @@ func (p Policy) Describe() []string {
 	if p.DisableStrict {
 		lines = append(lines, "disable-strict: true")
 	}
-	if !p.Proxy.Empty() {
-		proxy := p.proxyEmission()
-		lines = append(lines, "proxy: "+string(proxy.Protocol)+"://"+proxy.Address)
-		if proxy.Username != "" {
-			lines = append(lines, "proxy-username: "+proxy.Username)
-		}
-		if proxy.PasswordEnv != "" {
-			lines = append(lines, "proxy-password-env: "+proxy.PasswordEnv)
-		}
+	lines = append(lines, p.proxyLines(": ")...)
+	return lines
+}
+
+// proxyLines returns the proxy display lines, each key followed by separator:
+// the normalized `protocol://address` and the optional username and
+// password-env. An unset proxy yields no lines. The proxy is normalized
+// exactly as Spec emits it (protocol parsed, address trimmed), so a
+// whitespace-padded configuration displays in its canonical form.
+func (p Policy) proxyLines(separator string) []string {
+	if p.Proxy.Empty() {
+		return nil
+	}
+	proxy := p.proxyEmission()
+	lines := []string{"proxy" + separator + string(proxy.Protocol) + "://" + proxy.Address}
+	if proxy.Username != "" {
+		lines = append(lines, "proxy-username"+separator+proxy.Username)
+	}
+	if proxy.PasswordEnv != "" {
+		lines = append(lines, "proxy-password-env"+separator+proxy.PasswordEnv)
 	}
 	return lines
 }
