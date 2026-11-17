@@ -13,8 +13,9 @@ CA. A container does not: it carries its own root store, so an HTTPS download fr
 `docker run` fails certificate verification. This recipe makes that container trust the CA.
 
 > **Note:** The `Dockerfile` snippets in this recipe add the microsandbox CA to the container's bundle. Everything here
-> applies when interception is active — when a [secret]({% link configuration/secrets.md %}) is configured, or
-> `network.intercept-tls` is `on`.
+> applies when interception is active — when a [secret]({% link configuration/secrets.md %}) is configured,
+> `network.intercept-tls` is `on`, or a `network.tls-bypass` is configured (which activates interception under `auto`
+> for every host except the bypass).
 
 ## No step is needed for the daemon
 

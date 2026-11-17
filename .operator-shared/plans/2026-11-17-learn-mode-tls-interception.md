@@ -28,7 +28,8 @@ docker recipe — are inlined per task below.
 Inputs/failure modes the design implies but no single task's happy path exercises; each is pinned to its owning task.
 
 1. **`off` with a secret configured** — must fail with an actionable error, never silently leave interception on. (Task 2.)
-2. **A stale VM** — changing `intercept-tls`, `tls-bypass`, or `disable-strict` must recreate the VM. (Task 4.)
+2. **A stale VM** — changing `intercept-tls`, `tls-bypass`, or `disable-strict` in a way that changes the emitted policy
+   must recreate the VM (an emission-equivalent flip does not). (Task 4.)
 3. **An unknown mode or an empty bypass entry** — must fail at config-load time, not at VM creation. (Tasks 1, 3.)
 4. **`auto` vs unset** — must fingerprint identically (no spurious recreate) and must leave `TLS` nil when no bypass is set. (Tasks 1, 2.)
 5. **A bypassed-and-allowlisted host under strict mode** — must be documented as still denied unless `disable-strict` is set; never described as reachable by the bypass alone. (Task 5.)

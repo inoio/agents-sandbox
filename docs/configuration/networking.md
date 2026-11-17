@@ -23,7 +23,7 @@ deny-by-default, allowlist-only policy.
 | `egress-allow`      | []string | Egress destinations to allow: `host`, a CIDR (e.g. `123.123.0.0/16`), or a `.suffix` (e.g. `.internal`).              |
 | `egress-deny`       | []string | Egress carve-outs, same destination forms as `egress-allow`. Emitted **before** the profile rules and the explicit allow rules, so a carve-out wins over a profile's broad allow. |
 | `dns-servers`       | []string | DNS upstream resolvers: a bare IP (auto-appends `:53`) or `host:port`. Overrides microsandbox's default resolver.     |
-| `intercept-tls`     | string   | `auto`, `on`, or `off`. Defaults to `auto`: interception follows the secret configuration. `off` with a secret configured is rejected. |
+| `intercept-tls`     | string   | `auto`, `on`, or `off`. Defaults to `auto`: interception follows the secret configuration, or a configured `tls-bypass`. `off` with a secret configured is rejected. |
 | `tls-bypass`        | []string | Hosts microsandbox must not intercept: an exact host, or a `*.suffix` covering its subdomains. |
 | `disable-strict`    | bool     | Drops microsandbox's strict-hostname enforcement. Defaults to `false`.                                                |
 
@@ -131,7 +131,8 @@ allowed hosts so it can replace the placeholder. The launcher exposes that behav
 `intercept-tls` controls interception:
 
 - `auto` (the default, and the empty value): interception follows the secret configuration — on when a secret is
-  configured, off otherwise.
+  configured, off otherwise — and a configured `tls-bypass` turns it on as well, so `auto` with a bypass intercepts
+  every host except the bypass.
 - `on`: interception is requested regardless of secrets.
 - `off`: interception is requested off. Setting `off` while any secret is configured is **rejected** with an error naming
   the limitation: the runtime re-enables its own interception to substitute secret placeholders, so interception cannot
@@ -159,10 +160,13 @@ network:
 
 For the in-VM `docker build` case, see [Trust the CA in Docker]({% link recipes/docker-ca-trust.md %}).
 
-All three keys are creation-only: they are part of the network fingerprint, so changing one recreates the VM on the next
-run (see [Resource Config Application]({% link configuration/launcher.md %}#resource-config-application)). None of the
-three has a CLI flag; `tls-bypass` is config-file-only, while `intercept-tls` and `disable-strict` also accept the
-`AGENTS_SANDBOX_NETWORK_INTERCEPT_TLS` and `AGENTS_SANDBOX_NETWORK_DISABLE_STRICT` environment variables.
+All three keys are creation-only: they are part of the network fingerprint, so a change that changes the emitted policy
+recreates the VM on the next run (see
+[Resource Config Application]({% link configuration/launcher.md %}#resource-config-application)). An emission-equivalent
+flip does not: `auto` and `off` without a bypass both emit no interception, and `auto` and `on` with the same bypass
+emit the same one. None of the three has a CLI flag; `tls-bypass` is config-file-only, while `intercept-tls` and
+`disable-strict` also accept the `AGENTS_SANDBOX_NETWORK_INTERCEPT_TLS` and `AGENTS_SANDBOX_NETWORK_DISABLE_STRICT`
+environment variables.
 
 ## Published ports
 

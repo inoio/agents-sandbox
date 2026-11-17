@@ -1,5 +1,5 @@
 ---
-description: The launcher's network surfaces for TLS interception and an outbound egress proxy - `network.intercept-tls` (auto/on/off, and that `off` is rejected when secrets are configured) and how it interacts with secret-implied interception, `network.tls-bypass`, `network.disable-strict`, `network.proxy.*`/`--proxy` for SOCKS4/5 and HTTP CONNECT, the protocol/credential matrix, the proxy-reachability composition rule (the dial is host-side and needs no allow entry), the runtime's strict-hostname limit on non-intercepted allowlisted egress, and why every field is part of the network fingerprint and therefore creation-only.
+description: The launcher's network surfaces for TLS interception and an outbound egress proxy - `network.intercept-tls` (auto/on/off, and that `off` is rejected when secrets are configured, while a configured `tls-bypass` activates interception under `auto`) and how it interacts with secret-implied interception, `network.tls-bypass`, `network.disable-strict`, `network.proxy.*`/`--proxy` for SOCKS4/5 and HTTP CONNECT, the protocol/credential matrix, the proxy-reachability composition rule (the dial is host-side and needs no allow entry), the runtime's strict-hostname limit on non-intercepted allowlisted egress, and why every field is part of the network fingerprint and therefore creation-only.
 read_if: Working on the launcher's TLS-interception or outbound-proxy config surface - `intercept-tls`/`tls-bypass`/`disable-strict`, secret-implied interception, a host that must skip interception (a package or image registry), `proxy.*`/`--proxy` or its credentials, the composition of a proxy with an egress policy, or why a bypassed or `none`-allowlisted host is denied without interception (strict hostname mode); or why a network change recreates the VM.
 ---
 
@@ -18,7 +18,8 @@ makes that explicit and controllable.
 ### `network.intercept-tls`
 
 - `auto` (the default, and the empty value): interception follows the secret configuration — on when a secret is
-  configured, off otherwise.
+  configured, off otherwise — **and a configured `tls-bypass` activates it too**: a non-empty bypass emits the SDK's TLS
+  config, which *is* the interception switch, so `auto` with a bypass intercepts every host except the bypass.
 - `on`: interception is requested regardless of secrets.
 - `off`: interception is requested off.
 
@@ -99,11 +100,14 @@ or a `none`-profile allowlist with no secret).
 ## Fingerprint and creation-only
 
 All three surfaces are part of `network.Policy.Fingerprint()`: every field that reaches the VM is in the fingerprint, so a
-change to `intercept-tls`, `tls-bypass`, `disable-strict`, or any `proxy.*` value changes the fingerprint,
-`state.NetworkChanged` fires, and the VM is recreated through the normal reconfiguration path. The settings are
-creation-only — a change takes effect at the next VM creation, never on a running VM.
+change that changes the emitted policy — `intercept-tls`, `tls-bypass`, `disable-strict`, or any `proxy.*` value —
+changes the fingerprint, `state.NetworkChanged` fires, and the VM is recreated through the normal reconfiguration path
+(an emission-equivalent flip, below, does not). The settings are creation-only — a change takes effect at the next VM
+creation, never on a running VM.
 
-The TLS-interception fields contribute fingerprint lines only when they change the emitted policy: `intercept-tls=<mode>`
-is emitted only when the mode is not `auto` (unset means auto, so existing digests stay stable), a `tls-bypass=<host>`
-line is emitted unless interception is off (where bypass is dropped from the emitted policy and never reaches the VM),
-and `disable-strict=true` is emitted when set.
+The TLS-interception fields contribute fingerprint lines only when they change the emitted policy. `intercept-tls=on` is
+emitted only for `on` **with no bypass** — the one case that emits a TLS config carrying an empty bypass. A non-empty
+bypass contributes a `tls-bypass=<host>` line whenever the mode is not `off`, so `on`+bypass and `auto`+bypass
+fingerprint alike (both emit `TLS{Bypass}`), while `auto` and `off` without a bypass contribute no TLS line and stay
+digest-stable. `disable-strict=true` is emitted when set. A bypass under `off` is dropped from the emitted policy and
+contributes nothing.
