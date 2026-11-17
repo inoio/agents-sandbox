@@ -81,22 +81,24 @@ func TestNetworkPolicyDNSResolution(t *testing.T) {
 	}
 }
 
+// createSandboxWithPolicy creates a detached Alpine sandbox through the
+// launcher's own translation (sandboxOptions), so every NetworkSpec field —
+// the egress rules, the TLS-interception policy, and the outbound proxy —
+// reaches the VM exactly as the launcher emits it.
 func createSandboxWithPolicy(t *testing.T, sandboxName string, spec NetworkSpec) *msbSdk.Sandbox {
 	t.Helper()
-	networkConfig, err := networkConfig(spec)
+	options, err := sandboxOptions(SandboxSpec{
+		Image:    "alpine:3.20",
+		Detached: true,
+		Network:  spec,
+	})
 	if err != nil {
-		t.Fatalf("networkConfig: %v", err)
+		t.Fatalf("sandboxOptions: %v", err)
 	}
+	options = append(options, msbSdk.WithReplace())
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	sandbox, err := msbSdk.CreateSandbox(
-		ctx,
-		sandboxName,
-		msbSdk.WithImage("alpine:3.20"),
-		msbSdk.WithReplace(),
-		msbSdk.WithDetached(),
-		msbSdk.WithNetwork(networkConfig),
-	)
+	sandbox, err := msbSdk.CreateSandbox(ctx, sandboxName, options...)
 	if err != nil {
 		t.Fatalf("CreateSandbox: %v", err)
 	}
