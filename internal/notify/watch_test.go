@@ -324,7 +324,7 @@ func TestWatchDrivesBackend(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Watch did not return after cancel")
 	}
-	if backend.count() != 1 || backend.notification(0).Trigger != TriggerDone {
+	if backend.count() != 1 || backend.notification().Trigger != TriggerDone {
 		t.Fatalf("expected one done notification, got %+v", backend.got)
 	}
 }
@@ -417,7 +417,7 @@ func TestWatchReconnectsOnStreamExit(t *testing.T) {
 	if attempts.Load() < 2 {
 		t.Errorf("expected reconnect (>=2 ShellStream calls), got %d", attempts.Load())
 	}
-	if backend.count() != 1 || backend.notification(0).Trigger != TriggerDone {
+	if backend.count() != 1 || backend.notification().Trigger != TriggerDone {
 		t.Fatalf("expected one done notification, got %+v", backend.got)
 	}
 }
@@ -496,6 +496,63 @@ func TestWatchOnceSeedUnparsableDoesNotBlockNotifications(t *testing.T) {
 		StreamHandle_: seedFailureStream(),
 	}
 	assertOneDoneNotification(t, sb, spec)
+}
+
+// TestReconnectResetsChildLiveness pins the reconnect invariant: a child left
+// live before a stream drop must not suppress the main session's done after the
+// watcher reconnects, because a fresh stream has no replay of the child's
+// settlement. The tracker is reused across the reconnect, exactly as Watch does.
+func TestReconnectResetsChildLiveness(t *testing.T) {
+	spec := opencode2Spec()
+	tr := NewTracker(spec)
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_root", Title: "root"})
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_child", ParentID: "ses_root"})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: "ses_child"}) // child live
+
+	stream := &queuedHandle{events: []msb.StreamEvent{
+		{Kind: msb.StreamEventStdout, Data: sseBlockFor(execStarted, "ses_root")},
+		{Kind: msb.StreamEventStdout, Data: sseBlockFor(execSucceeded, "ses_root")},
+		{Kind: msb.StreamEventExited, ExitCode: 0},
+	}}
+	backend := &recordBackend{}
+	_ = watchOnce(context.Background(), stubStreams{handle: stream}, tr, backend, spec)
+
+	if backend.count() != 1 {
+		t.Fatalf("notifications after reconnect = %+v, want exactly one", backend.got)
+	}
+	got := backend.notification()
+	if got.Trigger != TriggerDone || len(got.DoneReasons) != 0 {
+		t.Fatalf("done after reconnect = %+v, want a plain done (the stale child was reset)", got)
+	}
+	if got.Title != "agents-sandbox: agent done" || got.Body != "in session 'root'" {
+		t.Fatalf("message = %q / %q, want the plain done for the root", got.Title, got.Body)
+	}
+}
+
+// TestReconnectClearsRunningShells pins the other half of the reset: a
+// background shell left running across a drop no longer claims
+// DoneCommandsRunning on the reconnected stream's done.
+func TestReconnectClearsRunningShells(t *testing.T) {
+	spec := opencode2Spec()
+	tr := NewTracker(spec)
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_root", Title: "root"})
+	tr.Handle(agent.StreamEvent{Type: shellStarted, SessionID: "ses_root", ShellID: "sh_1", ShellBackground: true})
+
+	stream := &queuedHandle{events: []msb.StreamEvent{
+		{Kind: msb.StreamEventStdout, Data: sseBlockFor(execStarted, "ses_root")},
+		{Kind: msb.StreamEventStdout, Data: sseBlockFor(execSucceeded, "ses_root")},
+		{Kind: msb.StreamEventExited, ExitCode: 0},
+	}}
+	backend := &recordBackend{}
+	_ = watchOnce(context.Background(), stubStreams{handle: stream}, tr, backend, spec)
+
+	if backend.count() != 1 {
+		t.Fatalf("notifications after reconnect = %+v, want exactly one", backend.got)
+	}
+	if got := backend.notification(); len(got.DoneReasons) != 0 ||
+		got.Title != "agents-sandbox: agent done" {
+		t.Fatalf("done after reconnect = %+v, want a plain done (the stale shell was cleared)", got)
+	}
 }
 
 // TestWatchOnceReportsCleanStreamEnd verifies a stream that ends cleanly is
@@ -740,7 +797,7 @@ func assertOneDoneNotification(t *testing.T, sb *msbtest.MockSandbox, spec agent
 	if len(*sb.ShellCalls) != 1 || (*sb.ShellCalls)[0] != "seed-cmd" {
 		t.Fatalf("expected the seed command to run, got %v", *sb.ShellCalls)
 	}
-	if backend.count() != 1 || backend.notification(0).Trigger != TriggerDone {
+	if backend.count() != 1 || backend.notification().Trigger != TriggerDone {
 		t.Fatalf("expected one done notification despite seed failure, got %+v", backend.got)
 	}
 }

@@ -539,6 +539,42 @@ func TestDoneWithoutSubtreeStates(t *testing.T) {
 	}
 }
 
+// TestResetTransientClearsChildStateAndShells pins what a fresh stream cannot
+// replay: a child's live state and every running background shell are dropped,
+// while the top-level session's state, the parent links, and the titles survive
+// (they come from the seed or the stream, not from liveness).
+func TestResetTransientClearsChildStateAndShells(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	const root = "ses_root"
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: root, Title: "root task"})
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_child", ParentID: root})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: "ses_child"})
+	tr.Handle(agent.StreamEvent{Type: shellStarted, SessionID: root, ShellID: "sh_1", ShellBackground: true})
+
+	tr.ResetTransient()
+
+	if tr.states["ses_child"] != stateIdle {
+		t.Errorf("child state after reset = %v, want idle", tr.states["ses_child"])
+	}
+	if len(tr.shells[root]) != 0 {
+		t.Errorf("shells after reset = %v, want none", tr.shells[root])
+	}
+	if tr.states[root] != stateBusy {
+		t.Errorf("top-level state after reset = %v, want it to persist as busy", tr.states[root])
+	}
+	if tr.parentOf["ses_child"] != root || tr.titles[root] != "root task" {
+		t.Errorf("parent links/titles lost: parentOf=%q titles=%q", tr.parentOf["ses_child"], tr.titles[root])
+	}
+
+	// The reset must also remove the child's liveness from the done
+	// classification: the next top-level succeeded is a plain done.
+	n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+	if n == nil || n.Trigger != TriggerDone || len(n.DoneReasons) != 0 {
+		t.Fatalf("done after reset = %+v, want a plain done", n)
+	}
+}
+
 // TestSeedRecordsTitlesAndParents pins that the seed teaches both the parent
 // link (so a later-live seeded child classifies the done) and the title (so the
 // body names the session).
