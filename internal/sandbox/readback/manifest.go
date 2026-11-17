@@ -1,0 +1,178 @@
+package readback
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/inoio/agents-sandbox/internal/filewalk"
+)
+
+// maxHashedBytes caps the size of a file whose content is hashed. A larger
+// declared file (opencode2's ~13 MB churny database) is recorded opaque:
+// size and mtime only.
+const maxHashedBytes = 256 * 1024
+
+// ManifestEntry is one declared path or credential probe in a baseline
+// manifest. It holds metadata and a digest, never a file or secret value.
+type ManifestEntry struct {
+	// Key is the sandbox-home-relative file path, or "<agent>:<probe>" for a
+	// database probe.
+	Key string
+	// Size is the entry's byte size, 0 for a probe.
+	Size int64
+	// ModTime is the entry's modification time, zero for a probe.
+	ModTime time.Time
+	// Hash is the sha256 hex digest of the entry's content. It is empty only
+	// for an opaque (over-cap) file entry; for a probe it is the digest of the
+	// probed rows.
+	Hash string
+}
+
+// Manifest is the baseline of an agent's declared config and credential paths,
+// taken when a session starts and refreshed when it ends. Change detection
+// compares two manifests; the manifest itself never carries a value.
+type Manifest struct {
+	Entries []ManifestEntry
+}
+
+// TakeManifest records a ManifestEntry for every declared path of the named
+// agent plus one probe digest per agent credential probe. Files over
+// maxHashedBytes are recorded opaque (size+mtime, no hash). An agent with no
+// declared paths yields an empty manifest, never an error; a declared path that
+// does not exist yet is simply absent, so a first run has nothing to compare
+// against.
+func TakeManifest(home, agentName string) (Manifest, error) {
+	var manifest Manifest
+	seen := map[string]bool{}
+	for _, declaredPath := range readBackPaths(agentName) {
+		if err := appendDeclaredPath(&manifest, seen, home, declaredPath); err != nil {
+			return Manifest{}, err
+		}
+	}
+	sortEntries(manifest.Entries)
+	return manifest, nil
+}
+
+// readBackPaths returns the sandbox-home-relative paths whose change the
+// baseline tracks for agentName, or nothing for an agent we have not verified.
+//
+// TODO(learn-mode S5 task 3): replace this placeholder list with the agent
+// profile's agent.ReadBackDescriber declaration once it exists.
+func readBackPaths(agentName string) []string {
+	switch agentName {
+	case "opencode", "opencode2":
+		return []string{".config/opencode/*"}
+	default:
+		return nil
+	}
+}
+
+// appendDeclaredPath walks one declared path (a file or a glob) under home and
+// appends a manifest entry for every file it selects. A file selected twice by
+// overlapping declared paths is recorded once.
+func appendDeclaredPath(manifest *Manifest, seen map[string]bool, home, declaredPath string) error {
+	root := filepath.Join(home, filepath.Dir(declaredPath))
+	base := filepath.Base(declaredPath)
+	take := func(rel string, isDir bool) bool {
+		if isDir {
+			return true
+		}
+		matches, err := filepath.Match(base, rel)
+		return err == nil && matches
+	}
+	return filewalk.Walk(root, take, func(entry filewalk.Entry) error {
+		manifestEntry, err := describeFile(home, entry)
+		if err != nil {
+			return err
+		}
+		if seen[manifestEntry.Key] {
+			return nil
+		}
+		seen[manifestEntry.Key] = true
+		manifest.Entries = append(manifest.Entries, manifestEntry)
+		return nil
+	})
+}
+
+// describeFile records the size and mtime of the file behind entry, keyed by its
+// sandbox-home-relative path, and hashes its content when it is within the cap.
+// An over-cap file is recorded opaque.
+func describeFile(home string, entry filewalk.Entry) (ManifestEntry, error) {
+	key, err := filepath.Rel(home, entry.Path)
+	if err != nil {
+		return ManifestEntry{}, fmt.Errorf("relativize declared path %s: %w", entry.Path, err)
+	}
+	info, err := os.Stat(entry.Path)
+	if err != nil {
+		return ManifestEntry{}, fmt.Errorf("stat declared path %s: %w", key, err)
+	}
+	manifestEntry := ManifestEntry{Key: key, Size: info.Size(), ModTime: info.ModTime(), Hash: ""}
+	if info.Size() > maxHashedBytes {
+		return manifestEntry, nil
+	}
+	digest := sha256.Sum256(entry.Data)
+	manifestEntry.Hash = hex.EncodeToString(digest[:])
+	return manifestEntry, nil
+}
+
+// Changed returns the keys whose size, mtime, or hash differs from prev (a
+// probe entry is compared on its hash alone), plus keys present in one manifest
+// and not the other, sorted.
+func (m Manifest) Changed(prev Manifest) []string {
+	previous := indexEntries(prev.Entries)
+	current := indexEntries(m.Entries)
+
+	var changed []string
+	for key, entry := range current {
+		other, seen := previous[key]
+		if !seen || differs(entry, other) {
+			changed = append(changed, key)
+		}
+	}
+	for key := range previous {
+		if _, seen := current[key]; !seen {
+			changed = append(changed, key)
+		}
+	}
+	sort.Strings(changed)
+	return changed
+}
+
+// indexEntries indexes entries by key.
+func indexEntries(entries []ManifestEntry) map[string]ManifestEntry {
+	indexed := make(map[string]ManifestEntry, len(entries))
+	for _, entry := range entries {
+		indexed[entry.Key] = entry
+	}
+	return indexed
+}
+
+// differs reports whether the current entry's size, mtime, or hash differs from
+// the previous one. A probe entry carries neither size nor mtime, so it is
+// compared on its hash alone.
+func differs(current, previous ManifestEntry) bool {
+	if current.Hash != previous.Hash {
+		return true
+	}
+	if isProbe(current.Key) {
+		return false
+	}
+	return current.Size != previous.Size || !current.ModTime.Equal(previous.ModTime)
+}
+
+// sortEntries orders entries by key, so a manifest is deterministic.
+func sortEntries(entries []ManifestEntry) {
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Key < entries[j].Key })
+}
+
+// isProbe reports whether key names a credential probe rather than a file. A
+// filename never contains a colon on the platforms we read (the home volume).
+func isProbe(key string) bool {
+	return strings.Contains(key, ":")
+}
