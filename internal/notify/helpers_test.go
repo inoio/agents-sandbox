@@ -220,10 +220,12 @@ func (r *recordBackend) count() int {
 	return len(r.got)
 }
 
-func (r *recordBackend) notification(i int) Notification {
+// notification returns the first recorded notification; the
+// exactly-one-notification assertion is the only shape the tests need.
+func (r *recordBackend) notification() Notification {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.got[i]
+	return r.got[0]
 }
 
 // eofStreamHandle ends the stream cleanly: Recv reports io.EOF immediately,

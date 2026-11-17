@@ -215,6 +215,12 @@ func watchOnce(
 	}
 	defer handle.Close()
 
+	// A fresh stream has no replay, so in-flight subtree state from before a gap
+	// is unreliable: clear every child's liveness and every running shell before
+	// re-seeding, unconditionally, so a missed child settlement cannot suppress
+	// or mislabel this connection's done. Top-level states persist.
+	tracker.ResetTransient()
+
 	// Seed the tracker with child sessions created before this stream opened.
 	// Best-effort: an error, non-success, or unparsable body is ignored and the
 	// stream proceeds, since session.created still teaches new children.
