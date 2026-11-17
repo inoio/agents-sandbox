@@ -16,7 +16,7 @@ import (
 // AGENTS_SANDBOX_NETWORK_EGRESS_* variable is ignored even when a config file
 // sets the same key.
 func TestConfigEgressListsAreConfigFileOnly(t *testing.T) {
-	for _, key := range []string{"network.egress-allow", "network.egress-deny"} {
+	for _, key := range []string{keyNetworkTLSBypass, "network.egress-allow", "network.egress-deny"} {
 		if slices.Contains(envKeys, key) {
 			t.Errorf("envKeys must not contain the config-file-only key %q", key)
 		}
@@ -29,6 +29,7 @@ func TestConfigEgressListsAreConfigFileOnly(t *testing.T) {
 			"egress-deny":  []string{"deny.example"},
 		},
 	})
+	t.Setenv(envVarName(EnvPrefix, keyNetworkTLSBypass), "env.example")
 	t.Setenv(envVarName(EnvPrefix, "network.egress-allow"), "env.example")
 	t.Setenv(envVarName(EnvPrefix, "network.egress-deny"), "env-deny.example")
 
@@ -146,7 +147,7 @@ func TestConfigEnvKeysGoldenSet(t *testing.T) {
 		keyProvisionHostConfig, KeyOpenLinks,
 		keyAutoStopOnActiveSessions, keyAutoStopTimeout, keyAutoStopMaxSessionRetries,
 		keyNetworkProfile, keyNetworkDNSServers, keyPorts,
-		"network.intercept-tls", "network.disable-strict",
+		keyNetworkInterceptTLS, keyNetworkDisableStrict,
 		keyUpgradeMode, keyUpgradeInterval, keyUpgradeChannel,
 		"image-cache-from", "image-cache-to",
 		KeyDind,

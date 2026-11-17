@@ -31,6 +31,12 @@ func validate(v *viper.Viper) error {
 	if err := validateNetworkDNSServers(v); err != nil {
 		return err
 	}
+	if err := validateNetworkInterceptTLS(v); err != nil {
+		return err
+	}
+	if err := validateNetworkTLSBypass(v); err != nil {
+		return err
+	}
 	if err := validatePorts(v); err != nil {
 		return err
 	}
@@ -86,6 +92,35 @@ func validateNetworkDNSServers(v *viper.Viper) error {
 	}
 	if _, err := network.NormalizeDNSServers(entries); err != nil {
 		return fmt.Errorf("launcher config %s: %w", keyNetworkDNSServers, err)
+	}
+	return nil
+}
+
+// validateNetworkInterceptTLS rejects an unknown network.intercept-tls mode at
+// config-load time. An unset or empty value is auto, so it validates.
+func validateNetworkInterceptTLS(v *viper.Viper) error {
+	if !v.IsSet(keyNetworkInterceptTLS) {
+		return nil
+	}
+	if _, err := network.ParseInterceptMode(v.GetString(keyNetworkInterceptTLS)); err != nil {
+		return fmt.Errorf("launcher config %s: %w", keyNetworkInterceptTLS, err)
+	}
+	return nil
+}
+
+// validateNetworkTLSBypass rejects empty network.tls-bypass entries at
+// config-load time. The raw value may be a comma-separated string (config file
+// scalar) or a YAML/JSON list.
+func validateNetworkTLSBypass(v *viper.Viper) error {
+	if !v.IsSet(keyNetworkTLSBypass) {
+		return nil
+	}
+	entries, err := stringListEntries(v.Get(keyNetworkTLSBypass), "a list of hosts")
+	if err != nil {
+		return fmt.Errorf("launcher config %s: %w", keyNetworkTLSBypass, err)
+	}
+	if _, err := network.ValidateTLSBypass(entries); err != nil {
+		return fmt.Errorf("launcher config %s: %w", keyNetworkTLSBypass, err)
 	}
 	return nil
 }

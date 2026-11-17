@@ -156,8 +156,12 @@ const (
 	keyAutoStopMaxSessionRetries = "auto-stop-max-session-retries"
 	keyNetworkProfile            = "network.profile"
 	keyNetworkDNSServers         = "network.dns-servers"
-	keyPorts                     = "ports"
-	keyAgent                     = "agent"
+	keyNetworkInterceptTLS       = "network.intercept-tls"
+	keyNetworkDisableStrict      = "network.disable-strict"
+	//nolint:gosec // G101: a config key name, not a credential
+	keyNetworkTLSBypass = "network.tls-bypass"
+	keyPorts            = "ports"
+	keyAgent            = "agent"
 	// KeyDocker is the config key and CLI flag name for the docker capability.
 	KeyDocker = "docker"
 	// KeyDind is the deprecated alias for the docker capability.

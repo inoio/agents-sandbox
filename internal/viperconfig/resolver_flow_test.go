@@ -974,6 +974,38 @@ func TestNetworkInvalidProfileRejected(t *testing.T) {
 	}
 }
 
+func TestNetworkInterceptTLSKeyAndEnv(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_NETWORK_INTERCEPT_TLS", "on")
+	r, err := NewResolver(nil, configpaths.Get(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.cfg.Network.InterceptTLS != network.InterceptOn {
+		t.Fatalf("intercept-tls not decoded, got %q", r.cfg.Network.InterceptTLS)
+	}
+}
+
+func TestNetworkInterceptTLSRejectsBogus(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_NETWORK_INTERCEPT_TLS", "sometimes")
+	if _, err := NewResolver(nil, configpaths.Get(), ""); err == nil {
+		t.Fatal("want error for an unknown intercept-tls value")
+	}
+}
+
+func TestNetworkDisableStrictEnv(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_NETWORK_DISABLE_STRICT", "true")
+	r, err := NewResolver(nil, configpaths.Get(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.cfg.Network.DisableStrict {
+		t.Fatal("disable-strict not decoded")
+	}
+}
+
 func TestNetworkDNSServersEnvVar(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_NETWORK_DNS_SERVERS", "1.1.1.1,8.8.8.8")
