@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -86,7 +87,7 @@ type compositeBackend struct {
 }
 
 func (c *compositeBackend) Notify(n Notification) {
-	if !c.triggerEnabled(n.Trigger) {
+	if !c.triggerEnabled(n) {
 		return
 	}
 	for _, p := range c.parts {
@@ -94,14 +95,36 @@ func (c *compositeBackend) Notify(n Notification) {
 	}
 }
 
-func (c *compositeBackend) triggerEnabled(t Trigger) bool {
-	switch t {
+// triggerEnabled reports whether a notification should be delivered. Input and
+// error follow their own toggle; a done follows OnDone when nothing is pending,
+// and otherwise follows the toggle of each reason it names — one match is
+// enough. An unknown trigger is never enabled.
+func (c *compositeBackend) triggerEnabled(n Notification) bool {
+	switch n.Trigger {
 	case TriggerInput:
 		return c.cfg.OnInput
 	case TriggerDone:
-		return c.cfg.OnDone
+		return c.doneEnabled(n.DoneReasons)
 	case TriggerError:
 		return c.cfg.OnError
+	default:
+		return false
+	}
+}
+
+func (c *compositeBackend) doneEnabled(reasons []DoneReason) bool {
+	if len(reasons) == 0 {
+		return c.cfg.OnDone
+	}
+	return slices.ContainsFunc(reasons, c.reasonEnabled)
+}
+
+func (c *compositeBackend) reasonEnabled(reason DoneReason) bool {
+	switch reason {
+	case DoneSubagentsRunning:
+		return c.cfg.OnDoneSubagentsRunning
+	case DoneCommandsRunning:
+		return c.cfg.OnDoneCommandsRunning
 	default:
 		return false
 	}
