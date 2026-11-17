@@ -163,19 +163,32 @@ var loginCredentialStores = map[string]loginCredentialStore{
 	".pi/agent/settings.json":         {provider: "pi"},
 }
 
-// secretKeyMarkers are the case-insensitive substrings that mark a dotenv key as
-// a secret. A key without one is ordinary configuration, not a credential.
+// secretKeyMarkers are the whole key segments that mark a dotenv key as a
+// secret. A key without one is ordinary configuration, not a credential.
 var secretKeyMarkers = []string{"KEY", "TOKEN", "SECRET", "PASSWORD"}
 
-// looksLikeSecretKey reports whether a dotenv key names a secret, so obvious
-// non-secrets (DEBUG=true, LOG_LEVEL=info) stay out of the static credentials.
+// looksLikeSecretKey reports whether a dotenv key names a secret, matching the
+// markers against the key's segments rather than its substrings: MAX_TOKENS is
+// a token count, while OPENAI_API_KEY carries a KEY segment. Obvious
+// non-secrets (DEBUG, LOG_LEVEL) stay out of the static credentials.
 //
 //deadcode:ignore reason="filters a dotenv key before it becomes a credential; reached through Read from the pending S6 analyser"
 func looksLikeSecretKey(key string) bool {
-	upper := strings.ToUpper(key)
-	return slices.ContainsFunc(secretKeyMarkers, func(marker string) bool {
-		return strings.Contains(upper, marker)
-	})
+	for segment := range strings.FieldsFuncSeq(strings.ToUpper(key), isSecretKeySeparator) {
+		if slices.Contains(secretKeyMarkers, segment) {
+			return true
+		}
+	}
+	return false
+}
+
+// isSecretKeySeparator reports whether r separates two segments of a dotenv key,
+// so a marker is matched as a whole segment (MAX_TOKENS) rather than a substring
+// (TOKENS).
+//
+//deadcode:ignore reason="splits a dotenv key into segments for looksLikeSecretKey; reached through Read from the pending S6 analyser"
+func isSecretKeySeparator(r rune) bool {
+	return r == '_' || r == '-'
 }
 
 // credentialProviders maps a provider token in a secret's key name to the

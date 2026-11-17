@@ -1,6 +1,7 @@
 package readback
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -103,6 +104,37 @@ func TestReadStaticCredentialsIgnoreNonSecrets(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Empty(t, rb.Static)
+}
+
+// TestReadStaticCredentialsIgnoreTokenSubstringKeys: the markers match key
+// *segments*, not substrings, so a token-count configuration (MAX_TOKENS) is
+// not mistaken for a token credential.
+func TestReadStaticCredentialsIgnoreTokenSubstringKeys(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/.env",
+		"MAX_TOKENS=4096\nMAX_OUTPUT_TOKENS=8192\nNUM_TOKENS=100\n")
+
+	rb, err := Read(home, "hermes", Manifest{})
+
+	require.NoError(t, err)
+	require.Empty(t, rb.Static, "TOKENS is a distinct segment from the TOKEN marker")
+}
+
+// TestReadStaticCredentialsMatchKeySegments: a marker that is a whole segment of
+// the key still classifies the entry as a static secret.
+func TestReadStaticCredentialsMatchKeySegments(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/.env", strings.Join([]string{
+		"OPENAI_API_KEY=sk-a",
+		"MY_TOKEN=t",
+		"AWS_SECRET_ACCESS_KEY=aws",
+		"DB_PASSWORD=p",
+	}, "\n")+"\n")
+
+	rb, err := Read(home, "hermes", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Static, 4, "KEY, TOKEN, SECRET, and PASSWORD are all whole segments")
 }
 
 // TestReadListsConfigPaths: a declared config file is a fact-1 config path, not

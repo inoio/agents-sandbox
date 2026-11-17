@@ -13,7 +13,9 @@ only channel that works when the launcher-owned proxy
 ## What read-back establishes
 
 1. Which agent config files the session created or changed, and which of their entries are credentials.
-2. Which **static** secrets exist in the sandbox home.
+2. Which **static** secrets exist in the sandbox home. A dotenv key names a secret when one of its `_`/`-`-separated
+   segments is `KEY`, `TOKEN`, `SECRET`, or `PASSWORD`; the markers are matched as whole segments, so a token-count
+   setting such as `MAX_TOKENS` is configuration, not a secret.
 3. Which **login** credentials exist in the sandbox home (recorded, never copied).
 
 Facts 1–3 come from reading the home volume. It also gives configured providers, login presence, and
