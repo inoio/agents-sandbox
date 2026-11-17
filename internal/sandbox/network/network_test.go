@@ -644,3 +644,23 @@ func TestDescribeNormalizesProxy(t *testing.T) {
 		t.Errorf("Describe = %q, want %q", got, want)
 	}
 }
+
+// TestProxyEmissionFallsBackForInvalidProxy pins the defensive branch: a proxy
+// Spec rejects still contributes its trimmed raw value, so an invalid
+// configuration fingerprints and displays distinctly rather than reading as
+// absent (which would skip the recreate once the config is corrected).
+func TestProxyEmissionFallsBackForInvalidProxy(t *testing.T) {
+	padded := Policy{Profiles: []Profile{ProfileNone}, Proxy: Proxy{
+		Protocol: ProxyProtocol(" ftp "),
+		Address:  " 10.0.0.1:1080 ",
+	}}
+	got := padded.proxyEmission()
+	want := msb.ProxySpec{Protocol: msb.ProxyProtocol("ftp"), Address: "10.0.0.1:1080"}
+	if got != want {
+		t.Fatalf("proxyEmission() = %+v, want the trimmed raw %+v", got, want)
+	}
+	none := Policy{Profiles: []Profile{ProfileNone}}
+	if padded.Fingerprint() == none.Fingerprint() {
+		t.Fatal("an invalid proxy must still change the fingerprint")
+	}
+}

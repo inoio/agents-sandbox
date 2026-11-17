@@ -1117,6 +1117,11 @@ func TestProxyConfigLoadErrorMessages(t *testing.T) {
 			if err.Error() != tc.want {
 				t.Fatalf("NewResolver error = %q, want %q", err, tc.want)
 			}
+			// The config-load wrapper must preserve the network validator's
+			// cause (a `%w` wrap, not `%v`).
+			if errors.Unwrap(err) == nil {
+				t.Fatalf("NewResolver error = %v, want the network validator cause wrapped", err)
+			}
 		})
 	}
 }

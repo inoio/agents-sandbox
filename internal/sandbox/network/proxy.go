@@ -77,10 +77,7 @@ func (p Proxy) spec() (msb.ProxySpec, error) {
 	if p.Empty() {
 		return msb.ProxySpec{}, nil
 	}
-	if err := p.validate(); err != nil {
-		return msb.ProxySpec{}, err
-	}
-	protocol, err := ParseProxyProtocol(string(p.Protocol))
+	protocol, err := p.validate()
 	if err != nil {
 		return msb.ProxySpec{}, err
 	}
@@ -92,23 +89,22 @@ func (p Proxy) spec() (msb.ProxySpec, error) {
 	}, nil
 }
 
-// validate checks a configured proxy: known protocol, a well-formed host:port
-// address, and no credentials when the protocol cannot carry them. It reports
-// only the real configuration rules; the composition with the egress policy is
-// not a validity concern (the runtime dials the proxy host-side).
-func (p Proxy) validate() error {
-	if p.Empty() {
-		return nil
-	}
+// validate checks a configured proxy and returns its parsed protocol: known
+// protocol, a well-formed host:port address, and no credentials when the
+// protocol cannot carry them. It reports only the real configuration rules; the
+// composition with the egress policy is not a validity concern (the runtime
+// dials the proxy host-side). It is only called for a non-empty proxy, so the
+// caller's zero check already covers the unset case.
+func (p Proxy) validate() (ProxyProtocol, error) {
 	protocol, err := ParseProxyProtocol(string(p.Protocol))
 	if err != nil {
-		return err
+		return "", err
 	}
 	if err := validateProxyAddress(p.Address); err != nil {
-		return err
+		return "", err
 	}
 	if protocol == ProxySOCKS4 && (p.Username != "" || p.PasswordEnv != "") {
-		return errors.New(
+		return "", errors.New(
 			"protocol socks4 carries no credentials; " +
 				"remove username/password-env or use socks5 or http-connect",
 		)
@@ -117,9 +113,9 @@ func (p Proxy) validate() error {
 	// the VM as an anonymous proxy while still changing the fingerprint. Reject
 	// it rather than dropping either half.
 	if (p.Username == "") != (p.PasswordEnv == "") {
-		return errors.New("username and password-env must be set together")
+		return "", errors.New("username and password-env must be set together")
 	}
-	return nil
+	return protocol, nil
 }
 
 // validateProxyAddress requires a host:port with a host and a port in 1-65535,

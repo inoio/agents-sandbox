@@ -922,6 +922,11 @@ func TestProxyFlagErrorMessages(t *testing.T) {
 			if err.Error() != tc.want {
 				t.Fatalf("Build(--proxy %s) error = %q, want %q", tc.value, err, tc.want)
 			}
+			// The flag wrapper must preserve the parser cause (a `%w` wrap, not
+			// `%v`), so a caller can errors.Is/Unwrap to it.
+			if errors.Unwrap(err) == nil {
+				t.Fatalf("Build(--proxy %s) error = %v, want the parser cause wrapped", tc.value, err)
+			}
 		})
 	}
 }

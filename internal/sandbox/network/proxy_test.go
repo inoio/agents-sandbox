@@ -8,6 +8,35 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
+// TestProxyEmpty pins that every proxy field can make the proxy non-empty on
+// its own: a proxy that reads as unset while carrying a field would either skip
+// validation or fingerprint as absent, so each field must defeat Empty().
+func TestProxyEmpty(t *testing.T) {
+	if !(Proxy{}).Empty() {
+		t.Error("zero Proxy should be empty")
+	}
+	nonEmpty := []struct {
+		name  string
+		proxy Proxy
+	}{
+		{"protocol", Proxy{Protocol: ProxySOCKS5}},
+		{"address", Proxy{Address: "10.0.0.1:1080"}},
+		{"username", Proxy{Username: "u"}},
+		{"password-env", Proxy{PasswordEnv: "P"}},
+		{
+			"all fields",
+			Proxy{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080", Username: "u", PasswordEnv: "P"},
+		},
+	}
+	for _, tc := range nonEmpty {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.proxy.Empty() {
+				t.Errorf("Proxy with only %s set should not be empty", tc.name)
+			}
+		})
+	}
+}
+
 func TestParseProxy(t *testing.T) {
 	for _, tc := range []struct {
 		in       string
@@ -18,6 +47,14 @@ func TestParseProxy(t *testing.T) {
 		{in: "http-connect://proxy.example.com:3128", protocol: ProxyHTTPConnect, address: "proxy.example.com:3128"},
 		{in: "socks4://10.0.0.1:1080", protocol: ProxySOCKS4, address: "10.0.0.1:1080"},
 		{in: "  socks5://10.0.0.1:1080  ", protocol: ProxySOCKS5, address: "10.0.0.1:1080"},
+		// The address is trimmed separately from the whole input, so whitespace
+		// right after the scheme is normalized too.
+		{in: "socks5://  10.0.0.1:1080", protocol: ProxySOCKS5, address: "10.0.0.1:1080"},
+		// The documented port contract is 1-65535; these pin the accepted range
+		// at its boundaries so an off-by-one in the address check cannot reject
+		// a valid proxy.
+		{in: "socks5://10.0.0.1:1", protocol: ProxySOCKS5, address: "10.0.0.1:1"},
+		{in: "socks5://10.0.0.1:65535", protocol: ProxySOCKS5, address: "10.0.0.1:65535"},
 	} {
 		t.Run(tc.in, func(t *testing.T) {
 			got, err := ParseProxy(tc.in)
@@ -241,6 +278,7 @@ func TestPolicyValidateProxy(t *testing.T) {
 	valid := []Policy{
 		{Profiles: []Profile{ProfileNone}},
 		{Profiles: []Profile{ProfileNone}, Proxy: Proxy{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080"}},
+		{Profiles: []Profile{ProfileNone}, Proxy: Proxy{Protocol: ProxySOCKS4, Address: "10.0.0.1:1080"}},
 		{
 			Profiles: []Profile{ProfileNone},
 			Proxy:    Proxy{Protocol: ProxyHTTPConnect, Address: "10.0.0.1:3128", Username: "u", PasswordEnv: "P"},
@@ -256,6 +294,11 @@ func TestPolicyValidateProxy(t *testing.T) {
 		{Profiles: []Profile{ProfileNone}, Proxy: Proxy{Protocol: ProxyProtocol("ftp"), Address: "10.0.0.1:1080"}},
 		{Profiles: []Profile{ProfileNone}, Proxy: Proxy{Protocol: ProxySOCKS5}},
 		{Profiles: []Profile{ProfileNone}, Proxy: Proxy{Protocol: ProxySOCKS5, Address: "10.0.0.1"}},
+		// A proxy carrying a single field is still a configured proxy, so it
+		// must be validated (and rejected) rather than read as unset.
+		{Profiles: []Profile{ProfileNone}, Proxy: Proxy{Address: "10.0.0.1:1080"}},
+		{Profiles: []Profile{ProfileNone}, Proxy: Proxy{Username: "u"}},
+		{Profiles: []Profile{ProfileNone}, Proxy: Proxy{PasswordEnv: "P"}},
 		{
 			Profiles: []Profile{ProfileNone},
 			Proxy:    Proxy{Protocol: ProxySOCKS4, Address: "10.0.0.1:1080", PasswordEnv: "P"},
@@ -294,8 +337,16 @@ func TestProxyValidateErrorMessages(t *testing.T) {
 		want  string
 	}{
 		{
-			name:  "socks4 with credentials",
+			name:  "socks4 with username",
 			proxy: Proxy{Protocol: ProxySOCKS4, Address: "10.0.0.1:1080", Username: "u"},
+			want:  "protocol socks4 carries no credentials; remove username/password-env or use socks5 or http-connect",
+		},
+		{
+			// A password-env alone must hit the socks4 rule too, not fall
+			// through to the lone-credential rule: the protocol cannot carry
+			// either half.
+			name:  "socks4 with password-env only",
+			proxy: Proxy{Protocol: ProxySOCKS4, Address: "10.0.0.1:1080", PasswordEnv: "P"},
 			want:  "protocol socks4 carries no credentials; remove username/password-env or use socks5 or http-connect",
 		},
 		{
@@ -345,6 +396,28 @@ func TestParseProxyErrorMessages(t *testing.T) {
 		{
 			in:   "socks5://10.0.0.1",
 			want: `invalid proxy address "10.0.0.1": want host:port`,
+		},
+		{
+			in:   "",
+			want: "empty proxy: want protocol://host:port",
+		},
+		{
+			// Whitespace-only input is trimmed before the emptiness check, so it
+			// reports the friendly "empty proxy" message rather than "invalid
+			// proxy" for the scheme-less text.
+			in:   "   ",
+			want: "empty proxy: want protocol://host:port",
+		},
+		{
+			in:   "10.0.0.1:1080",
+			want: `invalid proxy "10.0.0.1:1080": want protocol://host:port`,
+		},
+		{
+			// SplitHostPort returns an empty port (with no error) for a
+			// trailing colon, so the missing-port message must win over the
+			// later invalid-port check.
+			in:   "socks5://10.0.0.1:",
+			want: `invalid proxy address "10.0.0.1:": missing port`,
 		},
 	} {
 		t.Run(tc.in, func(t *testing.T) {
