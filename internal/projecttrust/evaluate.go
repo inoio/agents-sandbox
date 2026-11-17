@@ -33,8 +33,12 @@ type Change struct {
 // Decision is the gate's verdict on the current projection.
 type Decision struct {
 	Approved bool
-	Changes  []Change
-	Current  Projection
+	// FirstApproval reports that nothing was approved before, so the change
+	// list is all new configuration rather than a change since a previous
+	// approval that never happened.
+	FirstApproval bool
+	Changes       []Change
+	Current       Projection
 }
 
 // Evaluate compares the current projection with the recorded approval (the zero
@@ -44,10 +48,12 @@ type Decision struct {
 // sorted by path and kind.
 func Evaluate(current Projection, approved state.ApprovedProjectLayer) Decision {
 	if current.Empty() || approved.Digest == current.Digest() {
-		return Decision{Approved: true, Changes: nil, Current: current}
+		return Decision{Approved: true, FirstApproval: false, Changes: nil, Current: current}
 	}
+	previousInputs := fromApproval(approved).Inputs
+	firstApproval := len(previousInputs) == 0
 	previous := map[string]Input{}
-	for _, input := range fromApproval(approved).Inputs {
+	for _, input := range previousInputs {
 		previous[input.key()] = input
 	}
 	var changes []Change
@@ -77,12 +83,12 @@ func Evaluate(current Projection, approved state.ApprovedProjectLayer) Decision 
 		// The recorded digest can differ while the inputs, normalized, match: an
 		// approval saved before empty inputs were dropped carries an input the
 		// current projection does not. Nothing distinguishes the two, so approve.
-		return Decision{Approved: true, Changes: nil, Current: current}
+		return Decision{Approved: true, FirstApproval: false, Changes: nil, Current: current}
 	}
 	slices.SortFunc(changes, func(a, b Change) int {
 		return strings.Compare(a.Path+"\x00"+string(a.Kind), b.Path+"\x00"+string(b.Kind))
 	})
-	return Decision{Approved: false, Changes: changes, Current: current}
+	return Decision{Approved: false, FirstApproval: firstApproval, Changes: changes, Current: current}
 }
 
 // bytesChangedNote is shown for a file whose bytes changed in a way its lines

@@ -11,13 +11,13 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// ErrDeclined reports that the user declined a project config change; it is a
+// ErrDeclined reports that the user declined a project config approval; it is a
 // termio.ErrCancelled.
-var ErrDeclined = fmt.Errorf("%w: project config change not approved", termio.ErrCancelled)
+var ErrDeclined = fmt.Errorf("%w: project config not approved", termio.ErrCancelled)
 
-// ErrApprovalRequired reports that a project config change needs approval but
-// the run cannot ask for it.
-var ErrApprovalRequired = errors.New("project config change requires approval")
+// ErrApprovalRequired reports that a project config needs approval but the run
+// cannot ask for it.
+var ErrApprovalRequired = errors.New("project config requires approval")
 
 const (
 	approveKey = "a"
@@ -27,17 +27,16 @@ const (
 // Approve asks the user to approve a changed project config layer and records
 // the approval. Only an interactive answer approves: without a terminal it
 // returns ErrApprovalRequired, and it asks through Select, which assume-yes
-// does not answer. A declined change returns ErrDeclined.
+// does not answer. A declined prompt returns ErrDeclined.
 func Approve(ui termio.Prompter, checkoutSlug string, decision Decision) error {
 	if decision.Approved {
 		return nil
 	}
+	wording := wordingFor(decision.FirstApproval)
 	if !ui.IsInteractive() {
-		return fmt.Errorf("%w: %s\nRun agents-sandbox interactively in this checkout to review and approve it",
-			ErrApprovalRequired, changedPaths(decision.Changes))
+		return fmt.Errorf("%w: %s\n%s", ErrApprovalRequired, changedPaths(decision.Changes), wording.remedy)
 	}
-	prompt := RenderChanges(decision.Changes) +
-		"\nThe agent can edit these files. Approve them only if you expect these changes."
+	prompt := RenderChanges(decision) + "\nThe agent can edit these files. " + wording.trailer
 	key, err := ui.Select(prompt, []termio.Choice{
 		{Key: approveKey, Label: "Approve", Description: "use this project config for this checkout"},
 		{Key: declineKey, Label: "Quit", Description: "do not use it; nothing is changed"},
@@ -51,11 +50,13 @@ func Approve(ui termio.Prompter, checkoutSlug string, decision Decision) error {
 	return RecordApproval(checkoutSlug, decision.Current)
 }
 
-// RenderChanges lists the changed inputs with their differing entries, every
-// value escaped for the terminal.
-func RenderChanges(changes []Change) string {
-	lines := []string{"The project config (.agents-sandbox) changed since you last approved it:"}
-	for _, change := range changes {
+// RenderChanges renders the decision's changed inputs with their differing
+// entries, every value escaped for the terminal. The headline reads as new
+// configuration for a first approval, and as a change since the last approved
+// projection otherwise.
+func RenderChanges(decision Decision) string {
+	lines := []string{wordingFor(decision.FirstApproval).headline}
+	for _, change := range decision.Changes {
 		lines = append(lines, fmt.Sprintf("  %s %s (%s):",
 			change.Status, termio.EscapeControl(change.Path), change.Kind))
 		for _, line := range change.Lines {
@@ -68,8 +69,37 @@ func RenderChanges(changes []Change) string {
 // IgnoredWarning is the notice for a command that runs without an unapproved
 // project config layer.
 func IgnoredWarning(decision Decision) string {
-	return fmt.Sprintf("the project config changed and is not approved, so it is ignored for this command: %s\n"+
-		"Run agents-sandbox interactively in this checkout to review and approve it", changedPaths(decision.Changes))
+	wording := wordingFor(decision.FirstApproval)
+	return fmt.Sprintf("%s, so it is ignored for this command: %s\n%s",
+		wording.reason, changedPaths(decision.Changes), wording.remedy)
+}
+
+// approvalWording is the phrasing of every approval surface, chosen once by
+// whether this is a first approval or a change since the last one. A new
+// phrasing state is one edit here, not one per surface.
+type approvalWording struct {
+	headline string // introduces the change list
+	trailer  string // advises how to answer the prompt
+	reason   string // why the layer is ignored or the run refuses
+	remedy   string // how to resolve it
+}
+
+// wordingFor returns the phrasing for a first approval or a change.
+func wordingFor(firstApproval bool) approvalWording {
+	if firstApproval {
+		return approvalWording{
+			headline: "The project config (.agents-sandbox) is not approved for this checkout yet. Approve this new configuration:",
+			trailer:  "Approve this new configuration only if you expect it.",
+			reason:   "the project config is not approved yet",
+			remedy:   "This checkout has no approved project config yet. Run agents-sandbox interactively in this checkout to review and approve it",
+		}
+	}
+	return approvalWording{
+		headline: "The project config (.agents-sandbox) changed since you last approved it:",
+		trailer:  "Approve them only if you expect these changes.",
+		reason:   "the project config changed and is not approved",
+		remedy:   "Run agents-sandbox interactively in this checkout to review and approve it",
+	}
 }
 
 func changedPaths(changes []Change) string {
