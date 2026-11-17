@@ -1,6 +1,6 @@
 ---
-description: Contract for learn mode - a session in which the user sets an agent up inside the sandbox and exercises it, after which the launcher reads the sandbox home back, derives what the session actually used, and proposes agents-sandbox managed configuration (agent config, static secrets, network posture) for the per-slug user scope; the three first-run choices, the four journeys, the chosen observation channel (passive read-back plus a launcher-owned terminating proxy), and the invariants that bind the proposal.
-read_if: Working on learn mode, the after-run analyser, a `run --learn` / `config learn` surface, the first-run choice between learning and self-configuration, proposing a learned network policy or secrets from a session, folding `config harden` into run analysis, or the observation channel (host DNS resolver, outbound proxy, TLS termination); or the evidence that settled the observation approach (the 2026-11-15 host-side spike).
+description: Contract for learn mode - a session in which the user sets an agent up inside the sandbox and exercises it, after which the launcher reads the sandbox home back, derives what the session actually used, and proposes agents-sandbox managed configuration (agent config, static secrets, network posture) for the per-slug user scope; the three first-run choices, the four journeys, the invariants that bind the proposal, and the phasing. This is the hub; the observation channel, the home read-back, and the findings and apply contracts are subspecs.
+read_if: Working on learn mode - the after-run analyser, a `run --learn` / `config learn` surface, the first-run choice between learning and self-configuration, proposing a learned network policy or secrets from a session, or folding `config harden` into run analysis.
 ---
 
 # Learn mode
@@ -10,6 +10,15 @@ always, plus a launcher-owned terminating proxy (C) for the destination and attr
 that termination works, that the credential header name and destination are visible, and that proxying adds no
 measurable cost; two parts are still open — its per-harness read-back check (S1) ran only for opencode2, and the
 end-to-end agent turn through the proxy awaits the launcher's proxy surface (`#149`).
+
+This page is the hub. The contracts it points at:
+
+- [The observation channel](learn-mode/observation-channel.md) — the destinations and credential attribution facts,
+  the approaches, the topology, the capture artefact, CA trust, and the creation-only policy.
+- [Home read-back](learn-mode/home-read-back.md) — the config and secret facts, the per-harness layout truth, and
+  the baseline manifest.
+- [Findings and apply](learn-mode/findings-and-apply.md) — the finding shape, scopes, the credential-store rule,
+  attribution, the network diff, applying, and the after-run ownership.
 
 ## Intent
 
@@ -64,169 +73,13 @@ denied destination observed by the observation channel. It must not infer a prob
 slow turn, an agent-side error string). A proposal is a one-time prompt tied to the observed signal, declined with a
 remembered answer, re-armed when the signal changes.
 
-## What the analyser must establish
+## What the analyser establishes
 
-1. Which agent config files the session created or changed, and which of their entries are credentials.
-2. Which **static** secrets exist in the sandbox home.
-3. Which **login** credentials exist in the sandbox home (recorded, never copied).
-4. Which destinations the session attempted.
-5. Which destinations the session used successfully.
-6. Which destinations were denied.
-7. **Which credential was sent to which destination**, evidenced rather than inferred from the config.
-
-1–3 come from reading the home volume. 4–7 need an observation channel. 7 is the reason the channel must terminate TLS:
-a CONNECT tunnel is opaque, so it can say a destination was reached but not which credential the request carried.
-Without the channel the analyser still establishes 1–3 and proposes no network or secret-substitution change.
-
-## Observation approaches
-
-Two channels ship. A (passive read-back) is always needed for the config and secret facts; C (a launcher-owned
-terminating proxy) adds the destination and attribution facts. B is the same proxy without TLS termination and is not
-a separate approach — the attribution requirement (fact 7) makes the terminating setting the one that runs.
-
-### A — passive read-back
-
-After the session, read the home volume: agent config, credential stores, session transcripts, agent logs, shell
-history, and the agent's own databases. Establishes 1–3 and 4–7 only where the harness happens to record them (usually
-failure paths, and never as reliable attribution).
-
-- Needs: nothing new. The home volume is host-readable by path.
-- Gives: configured providers, static secrets, login presence, harness-specific host and error mentions.
-- Does not give: the destinations actually used, or which credential went where. Alone, it cannot propose a network or
-  secret-substitution change.
-- Reading a credential is not always reading a file. opencode2 writes no config file and keeps its API key inline in
-  `~/.local/share/opencode/opencode.db` (a SQLite `credential` row), with its sessions and logs in the same DB or
-  beside it, so A must parse the agent's database, not only config files. The spike verified this for opencode2 alone;
-  the other harnesses' layouts are unverified.
-
-### B — opaque egress observation
-
-A CONNECT/SOCKS proxy the launcher owns, with the sandbox pointed at it. Gives facts 4–6 for every TCP destination,
-independent of the harness's proxy handling, with counts and timestamps.
-
-- Needs: the `proxy:` config surface (first-class outbound proxy, `#149`), which is unlanded. The spike confirmed the
-  dial itself is not a policy problem — under bare `none`, an HTTP CONNECT and a SOCKS5 proxy on the host loopback are
-  both reachable and the dial bypasses the egress policy, so the proxy needs no widening of the user's posture.
-- Does not give: fact 7. An opaque tunnel cannot see the request, so a credential can be attributed only from the
-  config, which is the declaration model this mode exists to replace.
-- Worth noting what it does not need: certificates. A blind tunnel has no trust problem, so it works with any client.
-
-DNS pointed at a launcher-owned resolver (`network.dns-servers`) is a cheaper variant that yields domains but not
-ports, counts, or success, and misses IP-literal and UDP paths. The spike confirmed the runtime forwards the guest's
-queries to a host-owned resolver (up to the runtime's own NXDOMAIN answer for a non-allowlisted name under `none`), so
-it is usable corroboration — but once the proxy exists it is corroboration, not a source.
-
-### C — TLS termination
-
-The same host-owned proxy terminates TLS for the intercepted ports with its own CA, so it sees the request target and
-the credential-bearing header. This is the chosen channel.
-
-- Gives: everything B gives, plus fact 7, plus per-destination request paths. The spike saw destinations by IP and by
-  `Host`, and the credential-bearing header names (`authorization`, `x-api-key`), for a static key.
-- Needs: a CA the guest trusts, on top of B's proxy. agentd installs microsandbox's own interception CA at
-  `/.msb/tls/ca.pem` and points `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, and `NODE_EXTRA_CA_CERTS` at
-  it, so our CA has to join that file (startup hook) for the system-store consumers, and `msb-trust` has to import it
-  for Java and Chrome. The spike confirmed `curl`, `git` over HTTPS and `npm` work through termination once the CA is
-  planted; it did not exercise `msb-trust java`/`chrome` (absent from the base image) or a certificate-pinning client
-  (none installed), so pinning still falls back to config-derived attribution with a warning, unverified.
-- Coexists with microsandbox's own interception, which turns on implicitly whenever a secret is configured (UC4 seeds
-  placeholders, so this is the normal case). The two layers **chain** rather than collide: the runtime terminates the
-  guest's connection and re-originates upstream, so once the runtime trusts our proxy's CA the runtime's intercepted —
-  and secret-substituted — request reaches our proxy, which attributes the real credential. Explicit control (`#151`) is
-  therefore needed only to turn the runtime's layer off, not to coexist with it. This is what lets fact 7 hold even
-  when the runtime substitutes in flight, as UC4's placeholders make it; the spike observed exactly that.
-- **A terminating proxy handles real credential values in flight.** That is inherent, not avoidable: the value must
-  cross the channel to be attributed. It is the ground behind invariant 3 — the recorded artefact keeps header names,
-  never values, and the channel and its raw capture are treated as secret material.
-
-### Chosen approach
-
-A launcher-owned host proxy that logs every destination and terminates TLS for attribution, plus the passive read-back
-that is always needed. B's blind tunnel and C's termination are the same proxy at two settings; the attribution
-requirement makes the terminating setting the one that ships. A remains the only source of the config and secret
-facts, and the only path that works when the channel is unavailable.
-
-The alternatives not carried forward: the runtime's own interception (the spike read its debug logs — it records
-destinations but never a successful substitution or a header field name, so it cannot supply fact 7 and C runs
-regardless); harvesting denial messages from the agent's own output (brittle per harness, and only sees failures,
-which the spike also confirmed — a denial leaves no launcher-readable record); keeping the curated provider table as
-the source (the declaration model this replaces); and leaving attribution to the config alone (it answers "which key is
-configured for this provider", never "which key this provider received", which is what the proposal promises).
-
-## Prerequisites and phasing
-
-Approach A, the analyser, and `config harden` need nothing that is not in `main`. The pinned SDK (v0.7.15) already
-exposes the outbound proxy (SOCKS4/5, HTTP CONNECT) and TLS interception with a launcher-supplied CA; `#149` and
-`#151` are the launcher's own config surfaces for those, not SDK prerequisites. `#149` is what lets the proxy ship as
-a config surface. `#151` is needed only to turn the runtime's own interception off; with it left on, the two layers
-chain and attribution still holds.
-
-Phasing: the spike (run 2026-11-15; S1 still partial, covering opencode2 only); then A plus the analyser plus harden;
-then the proxy, which adds facts 4–7 and therefore UC2's detection signal; then the `header_fields` scope derived from
-attribution.
-
-## Session boundary
-
-The **invocation that started the learning session owns the after-run**: `run --learn` performs it at teardown, in that
-process, with that terminal. It is not hooked to VM detach, the reaper, or the idle timeout, because a VM is
-one-per-checkout with several attachable clients and the last-detach path runs with an often-cancelled context.
-
-If the owning process is gone (killed harness, closed terminal), the session record stays in state and `config learn`
-performs the same analysis later. A recorded session whose home volume has since been recreated is reported and
-discarded, not analysed.
-
-**Baseline for change detection** is a manifest of the agent config dirs and the known credential paths — path, size,
-mtime, and content hash for files under a small size cap — taken when the learning session starts. It is not a scan of
-the home volume. UC2's file-attributed detection needs a baseline from an ordinary run too, so the same manifest is
-refreshed at the end of every run once the mode exists.
-
-**Observation requires the policy at creation.** A learning session needs the launcher's proxy in the sandbox's network
-config, which is creation-only. On an existing project VM the session therefore recreates it through the normal
-reconfiguration path and its guards — the per-project creation lock, and the same keep/quit/restart prompt when other
-clients are attached — with the prompt naming the temporary observation settings. The user's config is never written
-for the overlay. A user who declines the recreate gets a passive-read-back session, which establishes facts 1–3 and
-proposes no network or secret-substitution change.
-
-## The proposal
-
-The analyser emits **findings**, each carrying the evidence, the proposed write, and the scope it would write to. One
-finding shape serves both learn mode and config-only analysis.
-
-- **Evidence is part of the finding.** A proposed `egress-allow` entry names the destination, how often it was used,
-  whether it succeeded, and which channel saw it. A proposed secret names the provider and the field, never the value.
-- **Scope is the per-slug user scope** (`~/.config/agents-sandbox/<repo>-<hash>/`), because it is a trusted user layer
-  and needs no approval gate. It is keyed by the **repo slug**, so it is shared by every clone of the remote — the
-  proposal must state that.
-- The project scope is offered as an explicit second choice only (team sharing, committed config), and the project
-  trust gate then applies.
-- **The managed layer never owns the credential store.** `reprovision.Provision` writes merged and mirror files
-  unconditionally on every start, so a managed file that carries a login entry the agent refreshed in the sandbox
-  would destroy it. The copy-back therefore never targets a file the agent refreshes, and never adds a `home:` or
-  provision rule for the credential store. Static secrets go to `env.secret.yaml` and appear as placeholders in the
-  managed agent config; login entries stay only in the persistent sandbox home.
-- **A learned static secret is attributed before it is scoped.** Its host set comes from the destinations the session
-  was observed sending that credential to; with no attribution (client pins certificates, non-HTTP protocol) it falls
-  back to the endpoint in the same config entry, then to a question at apply time. When none is derivable the secret is
-  not migrated: it stays in the sandbox home. A learned value never produces `allow_any_host_dangerous`.
-- **Network changes are proposed as a diff**, normally `profile: none` plus the observed allow set, and never widen a
-  policy the user already set. Denied destinations are reported separately and never auto-allowed.
-- Applying is interactive and per finding. A decline is remembered, keyed on a hash of the evidence, and re-armed when
-  the evidence changes. The record lives in the user state dir, keyed by repo slug, so it survives a config-dir reset
-  and is shared by clones.
-- A non-interactive run writes no proposal and prints one line naming the command that produces it. A dry run records
-  nothing and proposes nothing.
-- The applied network policy is creation-only, so it takes effect at the next VM creation through the existing
-  recreate path; the proposal states that.
-
-## `config harden`
-
-Harden is the analyser with no session: the same findings engine, the same applier, the config-only subset of
-findings. It is re-runnable and audits the effective configuration (file modes, `provision-host-config: true`, an
-over-broad posture, an over-broad secret scope), and it is the home of "reduce egress later". A finding declares
-whether it needs configuration or observation; harden runs the former, the after-run analyser runs both.
-
-Harden does not need a provider knowledge table. Its network findings are either structural (a broad profile, a
-wildcard entry) or, when a session has been analysed, evidenced by that session.
+The analyser establishes seven facts about a finished session. Facts 1–3 — which agent config files changed and
+which entries are credentials, which static secrets exist, and which login credentials exist — come from reading the
+home volume: [home read-back](learn-mode/home-read-back.md). Facts 4–7 — which destinations were attempted, used,
+and denied, and **which credential was sent to which destination** — need an observation channel:
+[the observation channel](learn-mode/observation-channel.md). Fact 7 is why that channel terminates TLS.
 
 ## Invariants
 
@@ -243,20 +96,15 @@ wildcard entry) or, when a session has been analysed, evidenced by that session.
    different feature and must not be mixed in.
 6. **Non-interactive never hangs.** Warn and continue, as everywhere else in onboarding.
 
-## Open validation
+## Prerequisites and phasing
 
-The 2026-11-15 spike settled the channel but left four checks unrun; none blocks the design, and each is a known
-limitation of what the proposal may claim until it is closed:
+Approach A, the analyser, and `config harden` need nothing that is not in `main`; the launcher's own proxy and
+interception config surfaces (`#149`, `#151`) and their constraints are in
+[the observation channel](learn-mode/observation-channel.md).
 
-- **Per-harness read-back (S1)** — verified for opencode2 only (whose credential is a SQLite row). The other harnesses'
-  layouts, and whether any keep config outside the home volume, are unverified.
-- **QUIC/HTTP3 bypass** — with the proxy active, only TCP consumers were tested; a QUIC client may reach the network
-  directly, so the learned destination set is authoritative for TCP, not exhaustive.
-- **Certificate pinning** — no pinning client was available to test, so the fallback to config-derived attribution is
-  unverified.
-- **`msb-trust java` / `chrome`** — the base image has neither, so the Java/Chrome trust imports are unverified.
-- **The end-to-end agent turn through the proxy** — measured only with synthetic operations; the real streaming turn
-  awaits the launcher's proxy surface (`#149`).
+Phasing: the spike (run 2026-11-15; S1 still partial, covering opencode2 only); then A plus the analyser plus
+harden; then the proxy, which adds facts 4–7 and therefore UC2's detection signal; then the `header_fields` scope
+derived from attribution.
 
 ## Deferred
 
