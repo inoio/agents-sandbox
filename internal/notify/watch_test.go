@@ -24,11 +24,11 @@ import (
 func TestStubStreamsDrivesChildSeeding(t *testing.T) {
 	const sessionListBody = `{"children":["ses_child"]}`
 	spec := opencodeSpec()
-	spec.SessionList = agent.NewSessionList("seed-cmd", func(payload []byte) []string {
+	spec.SessionList = agent.NewSessionList("seed-cmd", func(payload []byte) []agent.SessionRef {
 		if string(payload) != sessionListBody {
 			t.Errorf("seed payload = %q, want %q", payload, sessionListBody)
 		}
-		return []string{"ses_child"}
+		return []agent.SessionRef{{ID: "ses_child", ParentID: "ses_top"}}
 	})
 	stream := &streamStub{events: []msb.StreamEvent{
 		{Kind: msb.StreamEventStdout, Data: sseBlockFor("message.part.updated", "ses_child")},
@@ -424,11 +424,11 @@ func TestWatchReconnectsOnStreamExit(t *testing.T) {
 
 func TestWatchOnceSeedsChildrenFromListCommand(t *testing.T) {
 	spec := opencodeSpec()
-	spec.SessionList = agent.NewSessionList("seed-cmd", func(payload []byte) []string {
+	spec.SessionList = agent.NewSessionList("seed-cmd", func(payload []byte) []agent.SessionRef {
 		if string(payload) != `{"data":[{"id":"ses_child","parentID":"ses_top"}]}` {
 			t.Errorf("SessionListParse got %q", payload)
 		}
-		return []string{"ses_child"}
+		return []agent.SessionRef{{ID: "ses_child", ParentID: "ses_top"}}
 	})
 	stream := &streamStub{events: []msb.StreamEvent{
 		{Kind: msb.StreamEventStdout, Data: sseBlockFor("message.part.updated", "ses_child")},
@@ -452,7 +452,7 @@ func TestWatchOnceSeedsChildrenFromListCommand(t *testing.T) {
 
 func TestWatchOnceSeedShellErrorDoesNotBlockNotifications(t *testing.T) {
 	spec := opencodeSpec()
-	spec.SessionList = agent.NewSessionList("seed-cmd", func([]byte) []string {
+	spec.SessionList = agent.NewSessionList("seed-cmd", func([]byte) []agent.SessionRef {
 		t.Fatal("SessionListParse ran despite the shell error")
 		return nil
 	})
@@ -469,7 +469,7 @@ func TestWatchOnceSeedShellErrorDoesNotBlockNotifications(t *testing.T) {
 // stream either.
 func TestWatchOnceSeedNonSuccessDoesNotBlockNotifications(t *testing.T) {
 	spec := opencodeSpec()
-	spec.SessionList = agent.NewSessionList("seed-cmd", func([]byte) []string {
+	spec.SessionList = agent.NewSessionList("seed-cmd", func([]byte) []agent.SessionRef {
 		t.Fatal("SessionListParse ran despite the failing command")
 		return nil
 	})
@@ -487,7 +487,7 @@ func TestWatchOnceSeedNonSuccessDoesNotBlockNotifications(t *testing.T) {
 // stream, and the empty seed must not suppress the top-level session.
 func TestWatchOnceSeedUnparsableDoesNotBlockNotifications(t *testing.T) {
 	spec := opencodeSpec()
-	spec.SessionList = agent.NewSessionList("seed-cmd", func([]byte) []string { return nil })
+	spec.SessionList = agent.NewSessionList("seed-cmd", func([]byte) []agent.SessionRef { return nil })
 	sb := &msbtest.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
 			"seed-cmd": msbtest.NewTestResult(true, 0, "not json", "", nil),
