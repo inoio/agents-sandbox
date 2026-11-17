@@ -144,6 +144,26 @@ func TestReadFileVerifiesASymlinkedSpellingOfAnApprovedPath(t *testing.T) {
 	}
 }
 
+// TestAbsoluteWithoutAWorkingDirectoryIsEmpty pins the fail-closed guard: a
+// relative path cannot be made absolute when the working directory is gone, so
+// it maps to the empty path, which matches no approved path and lies under no
+// root. Without the guard it would become the current directory instead, and a
+// read through it would be matched against whatever an approval holds for it.
+func TestAbsoluteWithoutAWorkingDirectoryIsEmpty(t *testing.T) {
+	gone := filepath.Join(t.TempDir(), "gone")
+	if err := os.Mkdir(gone, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(gone)
+	if err := os.Remove(gone); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := absolute("relative/path"); got != "" {
+		t.Errorf("absolute(relative, no working directory) = %q, want the empty path", got)
+	}
+}
+
 func TestReadFileOutsideTheRootsReadsThrough(t *testing.T) {
 	fixture(t, nil)
 	path := filepath.Join(t.TempDir(), "host.conf")
