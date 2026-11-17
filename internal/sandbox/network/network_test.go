@@ -158,6 +158,49 @@ func TestSpecDNSInvalidErrors(t *testing.T) {
 	}
 }
 
+func TestSpecCarriesTLSInterceptionPolicy(t *testing.T) {
+	spec, err := (Policy{
+		Profiles:      []Profile{ProfilePublic},
+		InterceptTLS:  InterceptOn,
+		TLSBypass:     []string{" *.internal "},
+		DisableStrict: true,
+	}).Spec()
+	if err != nil {
+		t.Fatalf("Spec: %v", err)
+	}
+	if spec.InterceptTLS != msb.InterceptOn {
+		t.Errorf("InterceptTLS = %q, want %q", spec.InterceptTLS, msb.InterceptOn)
+	}
+	if !slices.Equal(spec.TLSBypass, []string{"*.internal"}) {
+		t.Errorf("TLSBypass = %v, want the trimmed [*.internal]", spec.TLSBypass)
+	}
+	if !spec.DisableStrict {
+		t.Error("DisableStrict must be carried through")
+	}
+}
+
+func TestSpecNormalizesUnsetInterceptTLS(t *testing.T) {
+	spec, err := (Policy{}).Spec()
+	if err != nil {
+		t.Fatalf("Spec: %v", err)
+	}
+	if spec.InterceptTLS != msb.InterceptAuto {
+		t.Errorf("InterceptTLS = %q, want auto for an unset key", spec.InterceptTLS)
+	}
+}
+
+func TestSpecRejectsUnknownInterceptTLS(t *testing.T) {
+	if _, err := (Policy{InterceptTLS: InterceptMode("bogus")}).Spec(); err == nil {
+		t.Fatal("Spec with an unknown interception mode should error")
+	}
+}
+
+func TestSpecRejectsEmptyTLSBypass(t *testing.T) {
+	if _, err := (Policy{TLSBypass: []string{" "}}).Spec(); err == nil {
+		t.Fatal("Spec with an empty tls-bypass host should error")
+	}
+}
+
 // TestPolicyValidate pins the well-formedness entry point the runoptions flag
 // path and the VM creation path run: a well-formed policy passes, and an
 // unknown or non-combinable profile or an unnormalizable DNS server is
@@ -385,6 +428,9 @@ func TestPolicyEmpty(t *testing.T) {
 		{"egress-allow", Policy{EgressAllow: []string{"api.example.com"}}},
 		{"egress-deny", Policy{EgressDeny: []string{"tracker.example.com"}}},
 		{"dns-servers", Policy{DNSServers: []string{"1.1.1.1"}}},
+		{"intercept-tls", Policy{InterceptTLS: InterceptOn}},
+		{"tls-bypass", Policy{TLSBypass: []string{"*.internal.example"}}},
+		{"disable-strict", Policy{DisableStrict: true}},
 	}
 	for _, tc := range nonEmpty {
 		t.Run(tc.name, func(t *testing.T) {
@@ -489,6 +535,71 @@ func TestFingerprintDistinguishesDNSServers(t *testing.T) {
 	different := Policy{Profiles: []Profile{ProfilePublic}, DNSServers: []string{"8.8.8.8"}}
 	if different.Fingerprint() == withDNS.Fingerprint() {
 		t.Fatal("different dns-servers must change the fingerprint")
+	}
+}
+
+// TestFingerprintNormalizesInterceptMode pins that a whitespace-padded mode
+// fingerprints as the parsed mode: the fingerprint must record the policy Spec
+// emits (`on ` parses to `on`), not the raw config text.
+func TestFingerprintNormalizesInterceptMode(t *testing.T) {
+	padded := Policy{Profiles: []Profile{ProfileNone}, InterceptTLS: InterceptMode("on ")}
+	parsed := Policy{Profiles: []Profile{ProfileNone}, InterceptTLS: InterceptOn}
+	if padded.Fingerprint() != parsed.Fingerprint() {
+		t.Fatalf("padded mode fingerprint = %q, want the parsed mode %q",
+			padded.Fingerprint(), parsed.Fingerprint())
+	}
+}
+
+// TestFingerprintNormalizesTLSBypass pins that a whitespace-padded bypass list
+// fingerprints like the trimmed list.
+func TestFingerprintNormalizesTLSBypass(t *testing.T) {
+	padded := Policy{
+		Profiles:  []Profile{ProfileNone},
+		TLSBypass: []string{" a.example.com ", " b.example.com"},
+	}
+	trimmed := Policy{
+		Profiles:  []Profile{ProfileNone},
+		TLSBypass: []string{"a.example.com", "b.example.com"},
+	}
+	if padded.Fingerprint() != trimmed.Fingerprint() {
+		t.Fatalf("padded bypass fingerprint = %q, want the trimmed %q",
+			padded.Fingerprint(), trimmed.Fingerprint())
+	}
+}
+
+// TestDescribeNormalizesTLSInterception pins the display side of the same rule:
+// a padded mode and bypass render as their trimmed values.
+func TestDescribeNormalizesTLSInterception(t *testing.T) {
+	got := (Policy{
+		Profiles:     []Profile{ProfileNone},
+		InterceptTLS: InterceptMode(" off "),
+		TLSBypass:    []string{" a.example.com "},
+	}).Describe()
+	want := []string{"profile: none", "intercept-tls: off", "tls-bypass: a.example.com"}
+	if !slices.Equal(got, want) {
+		t.Errorf("Describe = %q, want %q", got, want)
+	}
+}
+
+// TestInterceptModeReportsTrimmedRawValueWhenUnparseable pins the defensive
+// branch: a mode that ParseInterceptMode rejects (rejected at config load and by
+// Validate) is reported trimmed rather than collapsing to the auto default, so a
+// fingerprint or Describe never misrepresents an unknown mode as auto.
+func TestInterceptModeReportsTrimmedRawValueWhenUnparseable(t *testing.T) {
+	p := Policy{InterceptTLS: InterceptMode(" bogus ")}
+	if got := p.interceptMode(); got != InterceptMode("bogus") {
+		t.Errorf("interceptMode() = %q, want %q", got, "bogus")
+	}
+}
+
+// TestTLSBypassReturnsConfiguredHostsWhenUnparseable pins the defensive branch:
+// a bypass list ValidateTLSBypass rejects (an empty entry, rejected at config
+// load and by Validate) is returned as configured rather than dropped, so a
+// fingerprint or Describe never silently omits hosts the user set.
+func TestTLSBypassReturnsConfiguredHostsWhenUnparseable(t *testing.T) {
+	p := Policy{TLSBypass: []string{" "}}
+	if got := p.tlsBypass(); !slices.Equal(got, []string{" "}) {
+		t.Errorf("tlsBypass() = %q, want the configured hosts", got)
 	}
 }
 

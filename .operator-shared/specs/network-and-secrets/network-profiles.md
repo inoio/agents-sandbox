@@ -34,9 +34,11 @@ scalar string forms into `[]network.Profile`. Whitespace around a profile name i
 repeated names collapse instead of erroring (`network.ParseProfiles` trims and dedupes). `profileEntries` plus
 `network.ParseProfiles` validate the raw config value before decode, and `normalizeNetworkProfile` stores the parsed list
 back on the viper key so decode cannot disagree with validation. Precedence is unchanged: flag > env > config > default.
+`--network` overrides only the profile list, so the config-file-only `egress-allow`/`egress-deny`/`tls-bypass` lists
+survive it rather than being cleared.
 
-`egress-allow` and `egress-deny` are config-file-only: their `network.Policy` fields carry `env:"-"`, which keeps
-viperconfig's derived env-key list from binding `AGENTS_SANDBOX_NETWORK_EGRESS_ALLOW`/`_DENY` (see
+`egress-allow`, `egress-deny`, and `tls-bypass` are config-file-only: their `network.Policy` fields carry `env:"-"`, which keeps
+viperconfig's derived env-key list from binding `AGENTS_SANDBOX_NETWORK_EGRESS_ALLOW`/`_DENY`/`_TLS_BYPASS` (see
 [config-key registry](../configuration/config-keys.md)).
 
 ## Validation runs before any VM work

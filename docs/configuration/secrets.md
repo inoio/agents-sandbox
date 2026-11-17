@@ -184,9 +184,9 @@ save the script next to your code, so translate the name to `msb-trust` when you
 [Java recipe]({% link recipes/java-ca-trust.md %}) has the full setup and the import every VM boot needs.
 
 Two things the helper does not cover. Containers built inside the VM have their own root store, so a `docker build` that
-downloads over HTTPS fails certificate verification: copy the CA out of the VM
-(`/usr/local/share/ca-certificates/microsandbox-ca.crt`) into the build context and install it in that Dockerfile, then
-run `update-ca-certificates`. Applications with a bundled trust store also have to be configured individually.
+downloads over HTTPS fails certificate verification; see the
+[docker CA recipe]({% link recipes/docker-ca-trust.md %}). Applications with a bundled trust store also have to be
+configured individually.
 
 ## OpenCode authentication
 

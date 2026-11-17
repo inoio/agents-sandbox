@@ -1,0 +1,160 @@
+package network
+
+import (
+	"errors"
+	"slices"
+	"strings"
+	"testing"
+)
+
+func TestPolicyFingerprintIncludesTLSInterception(t *testing.T) {
+	base := Policy{Profiles: []Profile{ProfileNone}}
+	withBypass := base
+	withBypass.TLSBypass = []string{"*.internal.example"}
+	if base.Fingerprint() == withBypass.Fingerprint() {
+		t.Fatal("tls-bypass must change the fingerprint")
+	}
+	on := base
+	on.InterceptTLS = InterceptOn
+	if base.Fingerprint() == on.Fingerprint() {
+		t.Fatal("intercept-tls must change the fingerprint")
+	}
+	strict := base
+	strict.DisableStrict = true
+	if base.Fingerprint() == strict.Fingerprint() {
+		t.Fatal("disable-strict must change the fingerprint")
+	}
+}
+
+func TestPolicyFingerprintTreatsEmptyInterceptModeAsAuto(t *testing.T) {
+	unset := Policy{Profiles: []Profile{ProfileNone}}
+	auto := unset
+	auto.InterceptTLS = InterceptAuto
+	if unset.Fingerprint() != auto.Fingerprint() {
+		t.Fatal("unset and explicit auto must fingerprint the same")
+	}
+}
+
+// TestPolicyFingerprintIgnoresTLSBypassUnderInterceptOff pins that a bypass host
+// has no fingerprint effect when interception is off: networkConfig drops the
+// bypass then, so it never reaches the VM and must not force a recreate.
+func TestPolicyFingerprintIgnoresTLSBypassUnderInterceptOff(t *testing.T) {
+	off := Policy{Profiles: []Profile{ProfileNone}, InterceptTLS: InterceptOff}
+	withBypass := off
+	withBypass.TLSBypass = []string{"*.internal.example"}
+	if off.Fingerprint() != withBypass.Fingerprint() {
+		t.Fatalf("tls-bypass must not change the fingerprint under intercept-tls off: %q vs %q",
+			off.Fingerprint(), withBypass.Fingerprint())
+	}
+}
+
+// TestPolicyFingerprintTreatsBypassUnderAutoAsOn pins that `auto` with a bypass
+// and `on` with the same bypass fingerprint alike: networkConfig emits the same
+// `TLS{Bypass}` for both, so flipping between them must not force a recreate.
+func TestPolicyFingerprintTreatsBypassUnderAutoAsOn(t *testing.T) {
+	withBypass := func(mode InterceptMode) Policy {
+		return Policy{Profiles: []Profile{ProfileNone}, InterceptTLS: mode, TLSBypass: []string{"*.internal.example"}}
+	}
+	if withBypass(InterceptAuto).Fingerprint() != withBypass(InterceptOn).Fingerprint() {
+		t.Fatalf("auto+bypass must fingerprint like on+bypass: %q vs %q",
+			withBypass(InterceptAuto).Fingerprint(), withBypass(InterceptOn).Fingerprint())
+	}
+}
+
+// TestPolicyFingerprintTreatsOffAsAutoWithoutBypass pins that `off` and `auto`
+// with no bypass fingerprint alike: both emit no TLS config, so flipping
+// between them must not force a recreate.
+func TestPolicyFingerprintTreatsOffAsAutoWithoutBypass(t *testing.T) {
+	off := Policy{Profiles: []Profile{ProfileNone}, InterceptTLS: InterceptOff}
+	auto := Policy{Profiles: []Profile{ProfileNone}, InterceptTLS: InterceptAuto}
+	if off.Fingerprint() != auto.Fingerprint() {
+		t.Fatalf("off must fingerprint like auto with no bypass: %q vs %q", off.Fingerprint(), auto.Fingerprint())
+	}
+}
+
+func TestParseInterceptModeRejectsUnknown(t *testing.T) {
+	if _, err := ParseInterceptMode("sometimes"); err == nil {
+		t.Fatal("want error for an unknown mode")
+	}
+	for in, want := range map[string]InterceptMode{"": InterceptAuto, "auto": InterceptAuto, "on": InterceptOn, "off": InterceptOff} {
+		got, err := ParseInterceptMode(in)
+		if err != nil || got != want {
+			t.Fatalf("ParseInterceptMode(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+}
+
+func TestValidateTLSBypassRejectsEmpty(t *testing.T) {
+	if _, err := ValidateTLSBypass([]string{""}); err == nil {
+		t.Fatal("want error for an empty bypass entry")
+	}
+	got, err := ValidateTLSBypass([]string{" example.com ", "*.internal"})
+	if err != nil || len(got) != 2 || got[0] != "example.com" {
+		t.Fatalf("ValidateTLSBypass = %v, %v", got, err)
+	}
+}
+
+// TestValidateWithSecretsRejectsOffWithSecrets pins the authoritative cross-field
+// rule the VM path runs before it touches a VM: `intercept-tls: off` alongside a
+// configured secret is rejected, off without secrets and auto with secrets are
+// accepted, and a malformed policy still fails.
+func TestValidateWithSecretsRejectsOffWithSecrets(t *testing.T) {
+	off := Policy{Profiles: []Profile{ProfileNone}, InterceptTLS: InterceptOff}
+	if err := off.ValidateWithSecrets(true); !errors.Is(err, ErrInterceptOffWithSecrets) {
+		t.Fatalf("off with secrets = %v, want ErrInterceptOffWithSecrets", err)
+	}
+	if err := off.ValidateWithSecrets(false); err != nil {
+		t.Fatalf("off without secrets = %v, want nil", err)
+	}
+	auto := Policy{Profiles: []Profile{ProfileNone}, InterceptTLS: InterceptAuto}
+	if err := auto.ValidateWithSecrets(true); err != nil {
+		t.Fatalf("auto with secrets = %v, want nil", err)
+	}
+	if err := (Policy{DNSServers: []string{"garbage"}}).ValidateWithSecrets(false); err == nil {
+		t.Fatal("a malformed policy must still fail")
+	}
+}
+
+func TestDescribeListsTLSInterceptionSettings(t *testing.T) {
+	got := (Policy{
+		Profiles:      []Profile{ProfileNone},
+		InterceptTLS:  InterceptOff,
+		TLSBypass:     []string{"b.example.com", "a.example.com"},
+		DisableStrict: true,
+	}).Describe()
+	want := []string{
+		"profile: none",
+		"intercept-tls: off",
+		"tls-bypass: a.example.com",
+		"tls-bypass: b.example.com",
+		"disable-strict: true",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("Describe = %q, want %q", got, want)
+	}
+}
+
+func TestDescribeOmitsDisableStrictWhenUnset(t *testing.T) {
+	for _, line := range (Policy{Profiles: []Profile{ProfileNone}}).Describe() {
+		if line == "disable-strict: true" {
+			t.Fatal("disable-strict must not be described when unset")
+		}
+	}
+}
+
+// TestDescribeOmitsAutoInterceptMode pins that an auto interception mode is not
+// displayed: it is microsandbox's own default and unset means auto, so showing
+// it would change every existing policy's persisted Entries for no verdict
+// change.
+func TestDescribeOmitsAutoInterceptMode(t *testing.T) {
+	for in, policy := range map[string]Policy{
+		"unset": {Profiles: []Profile{ProfileNone}},
+		"auto":  {Profiles: []Profile{ProfileNone}, InterceptTLS: InterceptAuto},
+	} {
+		for _, line := range policy.Describe() {
+			if strings.HasPrefix(line, "intercept-tls:") {
+				t.Fatalf("Describe(%s) = %q, want no intercept-tls line", in, line)
+			}
+		}
+	}
+}

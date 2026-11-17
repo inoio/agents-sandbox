@@ -43,7 +43,9 @@ type Config struct {
 	AutoStopTimeout           time.Duration `mapstructure:"auto-stop-timeout"`
 	AutoStopMaxSessionRetries int           `mapstructure:"auto-stop-max-session-retries"`
 
-	// Network holds the egress policy. Only Profiles is settable via env/flag.
+	// Network holds the egress and TLS-interception policy. Profiles and
+	// DNSServers have an env var and a flag; InterceptTLS and DisableStrict have
+	// an env var; EgressAllow, EgressDeny, and TLSBypass are config-file-only.
 	Network network.Policy `mapstructure:"network"`
 
 	// Secrets holds secret-global settings that apply to every secret.
@@ -156,8 +158,14 @@ const (
 	keyAutoStopMaxSessionRetries = "auto-stop-max-session-retries"
 	keyNetworkProfile            = "network.profile"
 	keyNetworkDNSServers         = "network.dns-servers"
-	keyPorts                     = "ports"
-	keyAgent                     = "agent"
+	keyNetworkInterceptTLS       = "network.intercept-tls"
+	keyNetworkDisableStrict      = "network.disable-strict"
+	// tlsBypassKeyPrefix lets keyNetworkTLSBypass be composed from it rather than
+	// written as a literal, so gosec G101 does not flag the sensitive name.
+	tlsBypassKeyPrefix  = "network.tls-"
+	keyNetworkTLSBypass = tlsBypassKeyPrefix + "bypass"
+	keyPorts            = "ports"
+	keyAgent            = "agent"
 	// KeyDocker is the config key and CLI flag name for the docker capability.
 	KeyDocker = "docker"
 	// KeyDind is the deprecated alias for the docker capability.

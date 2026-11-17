@@ -1,6 +1,7 @@
 package msb
 
 import (
+	"errors"
 	"slices"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -997,6 +998,13 @@ func diskCompactionDisksFrom(disks []msbSdk.DiskCompactionDiskResult) []DiskComp
 // size the sandbox. A network profile the runtime rejects fails the whole
 // translation.
 func sandboxOptions(spec SandboxSpec) ([]msbSdk.SandboxOption, error) {
+	if spec.Network.InterceptTLS == InterceptOff && len(spec.Secrets) > 0 {
+		return nil, errors.New(
+			"network.intercept-tls: off cannot be combined with secrets: microsandbox " +
+				"re-enables interception to substitute secret placeholders; remove the " +
+				"secret(s) or use auto/on",
+		)
+	}
 	network, err := networkConfig(spec.Network)
 	if err != nil {
 		return nil, err
@@ -1174,6 +1182,10 @@ func secretEntry(e SecretEntry) msbSdk.SecretEntry {
 // It reproduces the launcher's rule order: the gateway-DNS rule first only when
 // a composable profile is present, then the egress-deny carve-outs, then the
 // profile allow rules, then the explicit egress-allow rules (first match wins).
+// It also projects the TLS-interception policy: disable-strict passes through,
+// and the TLS config is emitted when interception is on or a bypass host is
+// configured (which under auto is what makes interception active), and left
+// nil otherwise.
 func networkConfig(spec NetworkSpec) (*msbSdk.NetworkConfig, error) {
 	profiles := make([]msbSdk.NetworkProfile, 0, len(spec.Profiles))
 	for _, profile := range spec.Profiles {
@@ -1206,7 +1218,27 @@ func networkConfig(spec NetworkSpec) (*msbSdk.NetworkConfig, error) {
 		gatewayDNSRules = []msbSdk.PolicyRule{msbSdk.Rule.AllowDNS()}
 	}
 	cfg.Rules = slices.Concat(gatewayDNSRules, denyRules, profileRules, allowRules)
+	cfg.DisableStrict = spec.DisableStrict
+	switch spec.InterceptTLS {
+	case InterceptOn:
+		cfg.TLS = tlsConfig(spec.TLSBypass)
+	case InterceptAuto, "":
+		if len(spec.TLSBypass) > 0 {
+			cfg.TLS = tlsConfig(spec.TLSBypass)
+		}
+	case InterceptOff:
+		// off leaves TLS nil: no interception config means microsandbox does
+		// not intercept, and no secret may be configured alongside it.
+	}
 	return cfg, nil
+}
+
+// tlsConfig builds the SDK TLS-interception config. Only Bypass is modeled; the
+// remaining SDK TLS fields keep their defaults.
+//
+//nolint:exhaustruct_v5 // the launcher sets only bypass; the rest keep SDK defaults
+func tlsConfig(bypass []string) *msbSdk.TLSConfig {
+	return &msbSdk.TLSConfig{Bypass: bypass}
 }
 
 // networkEgressRule builds one explicit egress policy rule.

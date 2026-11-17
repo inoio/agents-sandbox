@@ -42,6 +42,33 @@ func TestValidateDNSServersWrapsCause(t *testing.T) {
 	}
 }
 
+func TestValidateNetworkInterceptTLSWrapsCause(t *testing.T) {
+	v := viper.New()
+	v.Set(keyNetworkInterceptTLS, "sometimes")
+	err := validateNetworkInterceptTLS(v)
+	if err == nil || errors.Unwrap(err) == nil {
+		t.Errorf("intercept-tls error = %v, want it to wrap its cause", err)
+	}
+}
+
+func TestValidateNetworkTLSBypassWrapsCause(t *testing.T) {
+	// A value that stringListEntries cannot read (a scalar where a list is
+	// expected) exercises the entries branch.
+	entryType := viper.New()
+	entryType.Set(keyNetworkTLSBypass, 42)
+	if err := validateNetworkTLSBypass(entryType); err == nil || errors.Unwrap(err) == nil {
+		t.Errorf("entries error = %v, want it to wrap its cause", err)
+	}
+
+	// A well-formed list with an empty entry exercises the ValidateTLSBypass
+	// branch.
+	emptyEntry := viper.New()
+	emptyEntry.Set(keyNetworkTLSBypass, []string{"bypass.example", ""})
+	if err := validateNetworkTLSBypass(emptyEntry); err == nil || errors.Unwrap(err) == nil {
+		t.Errorf("empty-entry error = %v, want it to wrap its cause", err)
+	}
+}
+
 func TestDNSServerEntries(t *testing.T) {
 	valid := []string{"1.1.1.1", "8.8.8.8:5353"}
 

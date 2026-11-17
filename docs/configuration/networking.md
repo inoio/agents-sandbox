@@ -1,6 +1,6 @@
 ---
 title: Networking
-description: "Control the sandbox VM's network egress: composable public, private, and host profiles, the allowlist-only none profile, and explicit allow lists."
+description: "Control the sandbox VM's network egress and TLS interception: composable public, private, and host profiles, the allowlist-only none profile, explicit allow lists, and the intercept-tls, tls-bypass, and disable-strict keys."
 layout: default
 parent: Configuration
 nav_order: 30
@@ -23,6 +23,9 @@ deny-by-default, allowlist-only policy.
 | `egress-allow`      | []string | Egress destinations to allow: `host`, a CIDR (e.g. `123.123.0.0/16`), or a `.suffix` (e.g. `.internal`).              |
 | `egress-deny`       | []string | Egress carve-outs, same destination forms as `egress-allow`. Emitted **before** the profile rules and the explicit allow rules, so a carve-out wins over a profile's broad allow. |
 | `dns-servers`       | []string | DNS upstream resolvers: a bare IP (auto-appends `:53`) or `host:port`. Overrides microsandbox's default resolver.     |
+| `intercept-tls`     | string   | `auto`, `on`, or `off`. Defaults to `auto`: interception follows the secret configuration, or a configured `tls-bypass`. `off` with a secret configured is rejected. |
+| `tls-bypass`        | []string | Hosts microsandbox must not intercept: an exact host, or a `*.suffix` covering its subdomains. |
+| `disable-strict`    | bool     | Drops microsandbox's strict-hostname enforcement. Defaults to `false`.                                                |
 
 - `public` (the default) allows egress to the public internet only; `private` allows the private/LAN ranges (RFC 1918,
   ULA, CGN) — your whole local network, including other machines, not just the host, and any private resources you reach
@@ -113,6 +116,57 @@ encoding it in a query name such as `<encoded-secret>.attacker.example`. Directl
 `profile: none` is still not an air gap. Every allowed destination is a channel the agent can send data through,
 including over DNS-over-HTTPS when an allowed host serves it, and through any name under an allowed `.suffix` whose
 domain someone else controls. Allow-list only hosts you trust with the data in the VM.
+
+## TLS interception and the strict-hostname mode
+
+Once you configure a [secret]({% link configuration/secrets.md %}), microsandbox terminates TLS towards that secret's
+allowed hosts so it can replace the placeholder. The launcher exposes that behaviour as three creation-only keys.
+
+| Key | Values | Default | Effect |
+|-----|--------|---------|--------|
+| `intercept-tls` | `auto`, `on`, `off` | `auto` | Whether microsandbox intercepts TLS. |
+| `tls-bypass` | list of `host` or `*.suffix` | empty | Hosts that are **not** intercepted. |
+| `disable-strict` | `true`, `false` | `false` | Drops the runtime's strict-hostname check. |
+
+`intercept-tls` controls interception:
+
+- `auto` (the default, and the empty value): interception follows the secret configuration — on when a secret is
+  configured, off otherwise — and a configured `tls-bypass` turns it on as well, so `auto` with a bypass intercepts
+  every host except the bypass.
+- `on`: interception is requested regardless of secrets.
+- `off`: interception is requested off. Setting `off` while any secret is configured is **rejected** with an error naming
+  the limitation: the runtime re-enables its own interception to substitute secret placeholders, so interception cannot
+  actually be turned off. Remove the secret, or use `auto`/`on`.
+
+`tls-bypass` lists hosts whose traffic is not intercepted: an exact host such as `registry.example.com`, or a
+`*.suffix` covering its subdomains. The usual reason is a client that does not trust the interception CA, such as an
+in-VM `docker build` pulling a base image.
+
+`disable-strict` turns off the runtime's strict-hostname mode, which is on by default. Under strict mode a plain egress
+allow rule authorizes only an **intercepted** connection, so a host that is both `tls-bypass`ed and allowlisted is
+**denied** (`TLS bypass denied by strict hostname policy`): a bypass entry skips interception, it does not make the host
+reachable on its own. Set `disable-strict: true` to let a bypassed-and-allowlisted host through. Turning it off lets an
+allowlisted host be reached without the runtime's interception and identity verification, so set it only for hosts you
+already intend to allow.
+
+```yaml
+network:
+  egress-allow:
+    - registry.example.com
+  tls-bypass:
+    - registry.example.com
+  disable-strict: true
+```
+
+For the in-VM `docker build` case, see [Trust the CA in Docker]({% link recipes/docker-ca-trust.md %}).
+
+All three keys are creation-only: they are part of the network fingerprint, so a change that changes the emitted policy
+recreates the VM on the next run (see
+[Resource Config Application]({% link configuration/launcher.md %}#resource-config-application)). An emission-equivalent
+flip does not: `auto` and `off` without a bypass both emit no interception, and `auto` and `on` with the same bypass
+emit the same one. None of the three has a CLI flag; `tls-bypass` is config-file-only, while `intercept-tls` and
+`disable-strict` also accept the `AGENTS_SANDBOX_NETWORK_INTERCEPT_TLS` and `AGENTS_SANDBOX_NETWORK_DISABLE_STRICT`
+environment variables.
 
 ## Published ports
 

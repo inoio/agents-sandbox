@@ -72,9 +72,10 @@ func checkProfileCombination(profiles []Profile) error {
 
 // Policy is the resolved launcher network policy. The mapstructure tags let
 // viper decode the nested `network:` YAML block (profile, egress-allow,
-// egress-deny, dns-servers) directly into this struct. The `profile` key
-// accepts a single name, a comma-separated string, or a YAML list; viperconfig's
-// string-to-slice decode hook normalizes the scalar forms into Profiles.
+// egress-deny, dns-servers, intercept-tls, tls-bypass, disable-strict) directly
+// into this struct. The `profile` key accepts a single name, a comma-separated
+// string, or a YAML list; viperconfig's string-to-slice decode hook normalizes
+// the scalar forms into Profiles.
 type Policy struct {
 	Profiles []Profile `mapstructure:"profile"`
 	// EgressAllow and EgressDeny have no env var and no CLI flag: they are set
@@ -83,11 +84,20 @@ type Policy struct {
 	EgressAllow []string `mapstructure:"egress-allow" env:"-"`
 	EgressDeny  []string `mapstructure:"egress-deny"  env:"-"`
 	DNSServers  []string `mapstructure:"dns-servers"`
+	// InterceptTLS selects the sandbox's TLS interception mode; the empty value
+	// means auto. TLSBypass lists hosts microsandbox must not intercept, and,
+	// like the egress lists, is config-file-only. DisableStrict drops
+	// microsandbox's strict-hostname enforcement, which otherwise denies a
+	// request whose host the rule set does not match exactly.
+	InterceptTLS  InterceptMode `mapstructure:"intercept-tls"`
+	TLSBypass     []string      `mapstructure:"tls-bypass"     env:"-"`
+	DisableStrict bool          `mapstructure:"disable-strict"`
 }
 
 // Empty reports whether the policy is unset (zero value).
 func (p Policy) Empty() bool {
-	return len(p.Profiles) == 0 && len(p.EgressAllow) == 0 && len(p.EgressDeny) == 0 && len(p.DNSServers) == 0
+	return len(p.Profiles) == 0 && len(p.EgressAllow) == 0 && len(p.EgressDeny) == 0 &&
+		len(p.DNSServers) == 0 && p.InterceptTLS == "" && len(p.TLSBypass) == 0 && !p.DisableStrict
 }
 
 // Effective applies the default profile when no profile was selected.
@@ -100,7 +110,8 @@ func (p Policy) Effective() Policy {
 
 // Fingerprint returns a stable SHA-256 hex digest of the policy, for detecting
 // changes across runs. It hashes the profile and the sorted allow/deny/dns
-// lists, independent of the microsandbox SDK's canonical NetworkConfig shape.
+// lists plus the TLS-interception settings, independent of the microsandbox
+// SDK's canonical NetworkConfig shape.
 //
 // A deny-bearing policy that composes a profile also contributes a rule-order
 // marker. The marker is not policy content: it records that the policy is
@@ -114,6 +125,16 @@ func (p Policy) Effective() Policy {
 //
 // A `none` policy likewise contributes a marker for omitting the gateway-DNS
 // rule, so a VM created with the rule is recreated once without it.
+//
+// The TLS-interception lines record the emitted TLS state, not the requested
+// mode. Only `on` with no bypass emits a TLS config carrying an empty bypass,
+// so it is the only case that contributes `intercept-tls=on`; a bypass host
+// contributes a `tls-bypass=<host>` line whenever the mode is not `off` (under
+// `off` the bypass is dropped and never reaches the VM, and `auto` with no
+// bypass emits no TLS at all). `disable-strict=true` contributes when set. The
+// result is that `auto`+bypass and `on`+bypass fingerprint alike — both emit
+// `TLS{Bypass}` — and `off` and `auto` without bypass alike — both emit no TLS —
+// so flipping between equivalent modes never forces a recreate.
 func (p Policy) Fingerprint() string {
 	p = p.Effective()
 	var lines []string
@@ -129,6 +150,23 @@ func (p Policy) Fingerprint() string {
 	for _, d := range p.EgressDeny {
 		lines = append(lines, "deny="+d)
 	}
+	mode := p.interceptMode()
+	bypass := p.tlsBypass()
+	switch {
+	case mode == InterceptOn && len(bypass) == 0:
+		// `on` with no bypass is the only case that emits a TLS config with an
+		// empty bypass (the runtime intercepts, no host is skipped).
+		lines = append(lines, "intercept-tls=on")
+	case mode != InterceptOff:
+		// `on` or `auto` with a bypass emits a TLS config carrying the bypass;
+		// `auto` with none emits nothing.
+		for _, host := range bypass {
+			lines = append(lines, "tls-bypass="+host)
+		}
+	}
+	if p.DisableStrict {
+		lines = append(lines, "disable-strict=true")
+	}
 	if p.denyPrecedesProfileAllow() {
 		lines = append(lines, "rule-order=deny-before-profile")
 	}
@@ -142,8 +180,12 @@ func (p Policy) Fingerprint() string {
 
 // Describe returns the effective policy as display lines named after the config
 // keys: the deduplicated profiles, then the egress-allow, egress-deny, and DNS
-// server entries, each group sorted. Unlike Fingerprint it carries no emission
-// markers, only what the user configured.
+// server entries, then the TLS-interception settings, each group sorted. Unlike
+// Fingerprint it carries no emission markers, only what the user configured. An
+// auto interception mode is the microsandbox default and unset means auto, so
+// neither is displayed; only an explicit on or off is. Unlike Fingerprint, a
+// bypass host is displayed even under `off`, since Describe reports the
+// configured policy and does not model what reaches the VM.
 func (p Policy) Describe() []string {
 	p = p.Effective()
 	var lines []string
@@ -151,7 +193,39 @@ func (p Policy) Describe() []string {
 	lines = append(lines, prefixedSorted("egress-allow: ", p.EgressAllow)...)
 	lines = append(lines, prefixedSorted("egress-deny: ", p.EgressDeny)...)
 	lines = append(lines, prefixedSorted("dns-server: ", p.DNSServers)...)
+	if mode := p.interceptMode(); mode != InterceptAuto {
+		lines = append(lines, "intercept-tls: "+string(mode))
+	}
+	lines = append(lines, prefixedSorted("tls-bypass: ", p.tlsBypass())...)
+	if p.DisableStrict {
+		lines = append(lines, "disable-strict: true")
+	}
 	return lines
+}
+
+// interceptMode returns the interception mode parsed exactly as Spec emits it,
+// so a whitespace-padded value like "on " fingerprints and displays as "on"
+// rather than as a distinct mode. An unknown value (rejected at config load and
+// by Validate) is returned trimmed, so it still reads distinctly if it ever
+// reaches the fingerprint.
+func (p Policy) interceptMode() InterceptMode {
+	mode, err := ParseInterceptMode(string(p.InterceptTLS))
+	if err != nil {
+		return InterceptMode(strings.TrimSpace(string(p.InterceptTLS)))
+	}
+	return mode
+}
+
+// tlsBypass returns the bypass hosts validated exactly as Spec emits them, so a
+// whitespace-padded entry fingerprints and displays trimmed. ValidateTLSBypass
+// only fails on an empty entry (rejected at config load and by Validate); on
+// that error the hosts are returned as configured.
+func (p Policy) tlsBypass() []string {
+	hosts, err := ValidateTLSBypass(p.TLSBypass)
+	if err != nil {
+		return p.TLSBypass
+	}
+	return hosts
 }
 
 func profileNames(profiles []Profile) []string {
@@ -257,8 +331,9 @@ func (p Policy) Validate() error {
 // not an airgap, and cannot be combined with another profile. A policy with no
 // profile, including one with only DNSServers set, defaults to public.
 //
-// The egress lists are deduplicated and the DNS servers normalized here, so the
-// spec is the single validated input the adapter composes rules from.
+// The egress lists are deduplicated, the DNS servers normalized, and the TLS
+// interception mode and bypass hosts validated here, so the spec is the single
+// validated input the adapter composes rules from.
 func (p Policy) Spec() (msb.NetworkSpec, error) {
 	profiles := dedupeProfiles(p.Effective().Profiles)
 	if err := checkProfileCombination(profiles); err != nil {
@@ -283,11 +358,22 @@ func (p Policy) Spec() (msb.NetworkSpec, error) {
 	if err != nil {
 		return msb.NetworkSpec{}, err
 	}
+	interceptMode, err := ParseInterceptMode(string(p.InterceptTLS))
+	if err != nil {
+		return msb.NetworkSpec{}, err
+	}
+	tlsBypass, err := ValidateTLSBypass(p.TLSBypass)
+	if err != nil {
+		return msb.NetworkSpec{}, err
+	}
 	return msb.NetworkSpec{
-		Profiles:    msbProfiles,
-		EgressAllow: dedupe(p.EgressAllow),
-		EgressDeny:  dedupe(p.EgressDeny),
-		DNSServers:  nameservers,
+		Profiles:      msbProfiles,
+		EgressAllow:   dedupe(p.EgressAllow),
+		EgressDeny:    dedupe(p.EgressDeny),
+		DNSServers:    nameservers,
+		InterceptTLS:  msb.InterceptMode(interceptMode),
+		TLSBypass:     tlsBypass,
+		DisableStrict: p.DisableStrict,
 	}, nil
 }
 

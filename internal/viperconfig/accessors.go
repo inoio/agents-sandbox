@@ -74,10 +74,12 @@ func (r *Resolver) Config() *Config {
 // shares no mutable state with the original.
 func (c Config) clone() *Config {
 	out := c
+	out.Ports = slices.Clone(c.Ports)
 	out.Network.Profiles = slices.Clone(c.Network.Profiles)
 	out.Network.EgressAllow = slices.Clone(c.Network.EgressAllow)
 	out.Network.EgressDeny = slices.Clone(c.Network.EgressDeny)
 	out.Network.DNSServers = slices.Clone(c.Network.DNSServers)
+	out.Network.TLSBypass = slices.Clone(c.Network.TLSBypass)
 	out.Secrets.Common.AllowPlaceholderFor = slices.Clone(c.Secrets.Common.AllowPlaceholderFor)
 	out.Mounts = maps.Clone(c.Mounts)
 	out.Home = slices.Clone(c.Home)

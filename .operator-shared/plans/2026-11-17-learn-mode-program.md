@@ -70,15 +70,21 @@ type Proxy struct {
 
 // Policy (internal/sandbox/network) gains these value fields — value-typed so the
 // derived key registry recurses and `network.<key>.*` derives:
-//   InterceptTLS InterceptMode `mapstructure:"intercept-tls"`          // S2
-//   TLSBypass    []string      `mapstructure:"tls-bypass" env:"-"`     // S2
-//   Proxy        Proxy         `mapstructure:"proxy"`                  // S3
-// Fingerprint/Describe/Empty include all three.
+//   InterceptTLS  InterceptMode `mapstructure:"intercept-tls"`          // S2
+//   TLSBypass     []string      `mapstructure:"tls-bypass" env:"-"`     // S2
+//   DisableStrict bool          `mapstructure:"disable-strict"`         // S2
+//   Proxy         Proxy         `mapstructure:"proxy"`                  // S3
+// Fingerprint/Describe/Empty account for all four.
+//
+// As re-scoped (see the S2 re-scope note below): S2 exposes the controls only. It
+// does no registry handling, and the in-VM `docker build` CA case is documented as
+// a recipe (docs/recipes/docker-ca-trust.md) rather than handled by a bypass.
 
 // internal/sandbox/msb — the projection handed to the SDK. Owned by the subplan
 // named; no SDK type crosses the seam.
 //   S2: type InterceptMode string (mirror of network.InterceptMode)
 //       NetworkSpec gains: InterceptTLS InterceptMode; TLSBypass []string
+//                          DisableStrict bool
 //   S3: type ProxyProtocol string (mirror); type ProxySpec struct{ Protocol ProxyProtocol; Address, Username, PasswordEnv string }
 //       NetworkSpec gains: Proxy ProxySpec
 ```
@@ -137,6 +143,11 @@ CHANNEL TRACK                                          LEARN TRACK
 | S9 firstrun | `2026-11-17-learn-mode-firstrun.md` (stub) | first-run `Guide` choices + UC4 seed | yes | S4, S5, E2, E3 | — |
 
 **Serialize S2 → S3** (both edit `network.Policy`, `msb.NetworkSpec`, `msb/translate.go`, `viperconfig/config.go`). **Parallelize S5 against the whole channel track** (read-back touches `volume`, the agent DBs, and state, and shares no file with the network work). Stubs and their interfaces are written when their predecessor lands, never in advance.
+
+**S2 re-scope.** S2 ships the TLS-interception **controls only** (`intercept-tls`/`tls-bypass`/`disable-strict`). It does
+no registry handling — no auto-bypass, no allowlist derivation — and the in-VM `docker build` CA case stays a documented
+recipe (`docs/recipes/docker-ca-trust.md`): the container gets the CA added to its bundle rather than the registry being
+bypassed. The `off`-with-secrets state is kept named and rejected, not silently accepted.
 
 ## Enablers (owned outside this DAG)
 

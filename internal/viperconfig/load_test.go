@@ -216,11 +216,13 @@ func TestResolverNotifyDefaults(t *testing.T) {
 func TestResolverConfigReturnsACopy(t *testing.T) {
 	r := NewResolverWithConfig(Config{
 		CPUs: 4, Agent: "pi", OpenLinks: true,
+		Ports: []string{"3000"},
 		Network: network.Policy{
 			Profiles:    []network.Profile{network.ProfilePublic},
 			EgressAllow: []string{"example.com"},
 			EgressDeny:  []string{"bad.example"},
 			DNSServers:  []string{"1.1.1.1"},
+			TLSBypass:   []string{"registry.example.com"},
 		},
 		Mounts: mounts.Mounts{"/guest": {Source: "/host"}},
 		Home:   homeconfig.Layers{{Dir: "/cfg", Manifest: homeconfig.Manifest{"~/.x": {Source: "/host/.x"}}}},
@@ -244,10 +246,11 @@ func TestResolverConfigReturnsACopy(t *testing.T) {
 	got.Network.EgressAllow[0] = "evil.example"
 	got.Network.EgressDeny[0] = "evil.example"
 	got.Network.DNSServers[0] = "8.8.8.8"
+	got.Network.TLSBypass[0] = "evil.example"
 	got.Secrets.Common.AllowPlaceholderFor[0] = "evil.example"
 	got.Mounts["/guest"] = mounts.BindMount{Source: "/evil"}
 	got.Home[0].Manifest["~/.x"] = homeconfig.Entry{Source: "/evil"}
-
+	got.Ports[0] = "9999"
 	again := r.Config()
 	if again.Agent != "pi" {
 		t.Errorf("mutating Config().Agent changed the resolver: Agent = %q, want pi", again.Agent)
@@ -255,7 +258,8 @@ func TestResolverConfigReturnsACopy(t *testing.T) {
 	if again.Network.Profiles[0] != network.ProfilePublic ||
 		again.Network.EgressAllow[0] != "example.com" ||
 		again.Network.EgressDeny[0] != "bad.example" ||
-		again.Network.DNSServers[0] != "1.1.1.1" {
+		again.Network.DNSServers[0] != "1.1.1.1" ||
+		again.Network.TLSBypass[0] != "registry.example.com" {
 		t.Errorf("mutating Config() network changed the resolver: %+v", again.Network)
 	}
 	if again.Mounts["/guest"].Source != "/host" {
@@ -266,6 +270,9 @@ func TestResolverConfigReturnsACopy(t *testing.T) {
 	}
 	if again.Home[0].Manifest["~/.x"].Source != "/host/.x" {
 		t.Errorf("mutating Config() home changed the resolver: %+v", again.Home)
+	}
+	if again.Ports[0] != "3000" {
+		t.Errorf("mutating Config() ports changed the resolver: %+v", again.Ports)
 	}
 
 	var nilResolver *Resolver
