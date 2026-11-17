@@ -113,6 +113,37 @@ func TestReadFileKeepsAnApprovedAbsenceAbsent(t *testing.T) {
 	}
 }
 
+// TestReadFileVerifiesASymlinkedSpellingOfAnApprovedPath pins that the same
+// physical file reached through a symlinked path is verified against its
+// approval. The checkout slug resolves symlinks, so the guard must too, or a run
+// through the other spelling reads the project layer unguarded.
+func TestReadFileVerifiesASymlinkedSpellingOfAnApprovedPath(t *testing.T) {
+	physical, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(physical, "cfg")
+	file := filepath.Join(dir, "config.yaml")
+	write(t, file, "memory: 8G\n")
+	link := filepath.Join(physical, "cfg-link")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(Install(nil, map[string]Approval{file: ApprovalOf([]byte("memory: 8G\n"))}))
+
+	if data, err := ReadFile(
+		filepath.Join(link, "config.yaml"),
+		os.ReadFile,
+	); err != nil ||
+		string(data) != "memory: 8G\n" {
+		t.Fatalf("ReadFile(symlinked spelling) = %q, %v", data, err)
+	}
+	write(t, file, "memory: 64G\n")
+	if _, err := ReadFile(filepath.Join(link, "config.yaml"), os.ReadFile); !errors.Is(err, ErrNotApproved) {
+		t.Errorf("ReadFile(changed through a symlinked spelling) = %v, want ErrNotApproved", err)
+	}
+}
+
 func TestReadFileOutsideTheRootsReadsThrough(t *testing.T) {
 	fixture(t, nil)
 	path := filepath.Join(t.TempDir(), "host.conf")

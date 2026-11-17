@@ -223,6 +223,8 @@ Recorded on #229 (2026-11-08):
   startup hook scripts included, are gated by content, decided on the resolved path (What is gated).
 - Consistency between approval and use is verify-on-read of the bytes each reader got, not a recompute at a
   checkpoint, which a guest flipping a file back and forth could pass (Consistency between approval and use).
+- The projection and its verification resolve symlinks, matching the checkout-slug derivation, so one
+  physical checkout keeps one approval however its path is spelled (2026-11-17).
 
 ## Defense in depth (related, not this contract)
 
@@ -267,6 +269,11 @@ still reaches the host run:
 - An input is identified by its path **and** kind: a file read two ways (an `env` file that `home:` also
   copies) is two inputs, so a change to its raw content is gated even when its parsed form is unchanged. A
   project secret file copied by `home:` is gated by digest only, so no secret value reaches the projection.
+- An input's path is **canonical** (symlink-resolved), and the guard verifies every read under the same
+  resolution, so one physical layer reached through a different spelling — a symlinked checkout, or a `$PWD`
+  that keeps the symlink — projects and is verified alike. The approval is keyed by the checkout slug
+  (`../identity/checkout-identity.md`), which resolves symlinks the same way; without this, a run through the
+  other spelling reports every input as removed and new and never reaches a stable approval.
 - The `home:` entries are projected as home provisioning parses them, case-sensitive (`homeconfig`), in
   addition to the lowercased launcher config keys: a case-only edit (`Root:` → `root:`) that changes what
   runs changes the projection.

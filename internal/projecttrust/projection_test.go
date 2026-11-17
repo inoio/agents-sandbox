@@ -408,6 +408,50 @@ func TestComputeHomeSourceThroughASymlinkIntoTheCheckoutIsGated(t *testing.T) {
 	}
 }
 
+// TestComputeResolvesASymlinkedProjectDir pins that the same physical checkout
+// reached through a symlinked path projects the same inputs. The approval is
+// keyed by the symlink-resolved checkout slug, so the content it gates must be
+// spelled the same way, or every run through the other spelling re-asks about
+// the whole layer as removed+new.
+func TestComputeResolvesASymlinkedProjectDir(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	physical, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkout := filepath.Join(physical, "checkout")
+	projectDir := filepath.Join(checkout, ".agents-sandbox")
+	writeFile(t, filepath.Join(projectDir, "Dockerfile"), "FROM base\n")
+	writeFile(t, filepath.Join(checkout, "mvn-settings.xml"), "<settings/>\n")
+	writeFile(t, filepath.Join(projectDir, "config.yaml"), "home:\n  .m2/settings.xml: ../mvn-settings.xml\n")
+	link := filepath.Join(physical, "link")
+	if err := os.Symlink(checkout, link); err != nil {
+		t.Fatal(err)
+	}
+	sources := func(base string) Sources {
+		return Sources{
+			ProjectConfigDir:    filepath.Join(base, ".agents-sandbox"),
+			CheckoutRoot:        base,
+			AgentConfigDirNames: []string{"opencode", "opencode2"},
+		}
+	}
+	direct, err := Compute(sources(checkout))
+	if err != nil {
+		t.Fatalf("Compute(direct): %v", err)
+	}
+	throughLink, err := Compute(sources(link))
+	if err != nil {
+		t.Fatalf("Compute(through a symlink): %v", err)
+	}
+	if direct.Digest() != throughLink.Digest() {
+		t.Errorf(
+			"a symlinked project dir projected differently:\n direct=%+v\n link=%+v",
+			direct.Inputs,
+			throughLink.Inputs,
+		)
+	}
+}
+
 func TestComputeDigestTracksPathsAndIgnoresOrder(t *testing.T) {
 	f := newProjectFixture(t)
 	f.write(t, "opencode/a.json", "{}")
