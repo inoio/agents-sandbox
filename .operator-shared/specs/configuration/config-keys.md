@@ -33,7 +33,7 @@ default silently ignored the env/config value, so `internal/viperconfig/configke
 ## env:"-" means config-file-only
 
 An exported field tagged `env:"-"` is omitted from every derived list: it has no env var and no CLI flag and is
-set in the config file only. Today that is `network.Policy.EgressAllow`/`EgressDeny`
+set in the config file only. Today that is `network.Policy.EgressAllow`/`EgressDeny`/`TLSBypass`
 (see [network profiles](../network-and-secrets/network-profiles.md) and `docs/configuration/networking.md`) and
 `SecretCommon.AllowPlaceholderFor`. A field tagged `mapstructure:"-"` is decoded outside viper (mounts, home,
 notify) and is likewise skipped.
