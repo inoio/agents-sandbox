@@ -34,6 +34,11 @@ func TestParseOverride(t *testing.T) {
 func TestApplyOverride(t *testing.T) {
 	enabled := Config{Desktop: true, Audio: AudioSystem, OnInput: true, OnDone: false, OnError: true}
 	disabled := Config{Desktop: false, Audio: AudioOff, OnInput: true, OnDone: false, OnError: true}
+	reasonToggles := Config{
+		Audio:                  AudioSystem,
+		OnDoneSubagentsRunning: true,
+		OnDoneCommandsRunning:  true,
+	}
 	cases := []struct {
 		mode        OverrideMode
 		from        Config
@@ -55,6 +60,12 @@ func TestApplyOverride(t *testing.T) {
 			wantAudio:   AudioSystem,
 		},
 		{mode: OverrideNone, from: enabled, wantDesktop: true, wantAudio: AudioSystem},
+		{
+			mode:        OverrideOff,
+			from:        reasonToggles,
+			wantDesktop: false,
+			wantAudio:   AudioOff,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(string(tc.mode), func(t *testing.T) {
@@ -70,6 +81,10 @@ func TestApplyOverride(t *testing.T) {
 			}
 			if got.OnInput != tc.from.OnInput || got.OnDone != tc.from.OnDone || got.OnError != tc.from.OnError {
 				t.Errorf("triggers changed: %+v from %+v", got, tc.from)
+			}
+			if got.OnDoneSubagentsRunning != tc.from.OnDoneSubagentsRunning ||
+				got.OnDoneCommandsRunning != tc.from.OnDoneCommandsRunning {
+				t.Errorf("done-reason toggles changed: %+v from %+v", got, tc.from)
 			}
 		})
 	}

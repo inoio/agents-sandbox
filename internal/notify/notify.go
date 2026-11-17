@@ -20,6 +20,10 @@ type Config struct {
 	OnDone  bool
 	OnError bool
 	Audio   AudioMode
+	// OnDoneSubagentsRunning alerts on a done that leaves a subagent running;
+	// OnDoneCommandsRunning on one that leaves a background shell running.
+	OnDoneSubagentsRunning bool
+	OnDoneCommandsRunning  bool
 }
 
 // Active reports whether any notification channel is enabled. Only the two

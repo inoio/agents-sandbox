@@ -201,17 +201,62 @@ func TestCompositeBackendTriggerEnabled(t *testing.T) {
 		{TriggerError, Config{OnError: true}},
 	} {
 		on := &compositeBackend{cfg: tc.only}
-		if !on.triggerEnabled(tc.trigger) {
+		if !on.triggerEnabled(Notification{Trigger: tc.trigger}) {
 			t.Errorf("trigger %d with only its toggle on = disabled, want enabled", tc.trigger)
 		}
 		others := Config{OnInput: !tc.only.OnInput, OnDone: !tc.only.OnDone, OnError: !tc.only.OnError}
-		if off := (&compositeBackend{cfg: others}); off.triggerEnabled(tc.trigger) {
+		if off := (&compositeBackend{cfg: others}); off.triggerEnabled(Notification{Trigger: tc.trigger}) {
 			t.Errorf("trigger %d with only its toggle off = enabled, want disabled", tc.trigger)
 		}
 	}
 	all := &compositeBackend{cfg: Config{OnInput: true, OnDone: true, OnError: true}}
-	if all.triggerEnabled(Trigger(99)) {
+	if all.triggerEnabled(Notification{Trigger: Trigger(99)}) {
 		t.Error("unknown trigger should be disabled")
+	}
+}
+
+// TestDoneGatingByReason pins the reasons-aware done gate: a quiet done
+// follows OnDone, and a done carrying pending work follows only the toggle of
+// each reason it names — any one of them is enough to let it through.
+func TestDoneGatingByReason(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		cfg     Config
+		reasons []DoneReason
+		want    bool
+	}{
+		{"quiet done follows OnDone", Config{OnDone: true}, nil, true},
+		{"quiet done and OnDone off", Config{}, nil, false},
+		{"subagents reason follows its toggle", Config{OnDoneSubagentsRunning: true}, []DoneReason{DoneSubagentsRunning}, true},
+		{"subagents reason and its toggle off", Config{}, []DoneReason{DoneSubagentsRunning}, false},
+		{"commands reason follows its toggle", Config{OnDoneCommandsRunning: true}, []DoneReason{DoneCommandsRunning}, true},
+		{"commands reason and its toggle off", Config{}, []DoneReason{DoneCommandsRunning}, false},
+		{
+			"either toggle admits both reasons",
+			Config{OnDoneSubagentsRunning: true},
+			[]DoneReason{DoneSubagentsRunning, DoneCommandsRunning},
+			true,
+		},
+		{
+			"either toggle admits both reasons (commands side)",
+			Config{OnDoneCommandsRunning: true},
+			[]DoneReason{DoneSubagentsRunning, DoneCommandsRunning},
+			true,
+		},
+		{
+			"both reasons with both toggles off",
+			Config{OnDone: true},
+			[]DoneReason{DoneSubagentsRunning, DoneCommandsRunning},
+			false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cb := &compositeBackend{cfg: tc.cfg}
+			got := cb.triggerEnabled(Notification{Trigger: TriggerDone, DoneReasons: tc.reasons})
+			if got != tc.want {
+				t.Errorf("triggerEnabled(done %v) with cfg %+v = %v, want %v", tc.reasons, tc.cfg, got, tc.want)
+			}
+		})
 	}
 }
 
@@ -235,7 +280,7 @@ func TestCompositeBackendHonorsTriggerToggles(t *testing.T) {
 
 	cb.Notify(Notification{Trigger: TriggerDone})
 	if len(sink.got) != 0 {
-		t.Errorf("OnDone=false: Done notification should be filtered, got %+v", sink.got)
+		t.Errorf("OnDone=false: quiet Done notification should be filtered, got %+v", sink.got)
 	}
 	cb.Notify(Notification{Trigger: TriggerInput})
 	cb.Notify(Notification{Trigger: TriggerError})
