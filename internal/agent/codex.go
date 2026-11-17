@@ -59,6 +59,12 @@ func (codexProfile) ProvisionRules() []ProvisionRule {
 	}
 }
 
+// ReadBackPaths declares codex's login file only: config.toml is covered by the
+// config merger and carries no credential.
+func (codexProfile) ReadBackPaths() []string { return []string{".codex/auth.json"} }
+
+func (codexProfile) CredentialProbes() []string { return nil }
+
 // AttachCommand disables the startup update check (the sandbox pins the baked
 // version and offers upgrades itself) and turns off codex's own command
 // sandbox: the VM is the isolation boundary. A forwarded --sandbox flag still

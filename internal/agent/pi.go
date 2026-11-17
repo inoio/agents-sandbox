@@ -49,6 +49,14 @@ func (piProfile) ProvisionRules() []ProvisionRule {
 	}
 }
 
+// ReadBackPaths declares pi's settings file, which holds its login (recorded,
+// never copied).
+func (piProfile) ReadBackPaths() []string {
+	return []string{".pi/agent/" + settingsFileName}
+}
+
+func (piProfile) CredentialProbes() []string { return nil }
+
 func (piProfile) AttachCommand(_ string, args []string) string {
 	parts := []string{"pi"}
 	parts = append(parts, shellQuoteArgs(args)...)

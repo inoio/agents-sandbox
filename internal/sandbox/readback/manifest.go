@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/filewalk"
 )
 
@@ -50,7 +51,7 @@ type Manifest struct {
 func TakeManifest(home, agentName string) (Manifest, error) {
 	var manifest Manifest
 	seen := map[string]bool{}
-	for _, declaredPath := range readBackPaths(agentName) {
+	for _, declaredPath := range declaredReadBackPaths(agentName) {
 		if err := appendDeclaredPath(&manifest, seen, home, declaredPath); err != nil {
 			return Manifest{}, err
 		}
@@ -59,18 +60,20 @@ func TakeManifest(home, agentName string) (Manifest, error) {
 	return manifest, nil
 }
 
-// readBackPaths returns the sandbox-home-relative paths whose change the
-// baseline tracks for agentName, or nothing for an agent we have not verified.
-//
-// TODO(learn-mode S5 task 3): replace this placeholder list with the agent
-// profile's agent.ReadBackDescriber declaration once it exists.
-func readBackPaths(agentName string) []string {
-	switch agentName {
-	case "opencode", "opencode2":
-		return []string{".config/opencode/*"}
-	default:
+// declaredReadBackPaths returns the home-relative paths the named agent's
+// read-back declares, or nothing for an agent without a ReadBackDescriber
+// (unknown, or not yet verified). An unverified agent yields an empty manifest,
+// never an error.
+func declaredReadBackPaths(agentName string) []string {
+	a, ok := agent.Lookup(agentName)
+	if !ok {
 		return nil
 	}
+	describer, ok := agent.AsReadBackDescriber(a)
+	if !ok {
+		return nil
+	}
+	return describer.ReadBackPaths()
 }
 
 // appendDeclaredPath walks one declared path (a file or a glob) under home and

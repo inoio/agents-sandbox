@@ -103,6 +103,29 @@ func TestTakeManifestLeavesUndeclaredFilesOut(t *testing.T) {
 	require.False(t, ok, "an undeclared file must not be walked")
 }
 
+func TestTakeManifestExactFileSelectsNoSibling(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".claude/settings.json", "a")
+	writeFile(t, home, ".claude/settings.local.json", "b")
+
+	m := mustManifest(t, home, "claude-code")
+
+	require.Equal(t, []string{".claude/settings.json"}, manifestKeys(m),
+		"an exact declared file selects itself, not a similarly named sibling")
+}
+
+func TestTakeManifestGlobSelectsDirectChildrenOnly(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".config/opencode/opencode.jsonc", "a")
+	writeFile(t, home, ".config/opencode/other.jsonc", "b")
+	writeFile(t, home, ".config/opencode/nested/deep.jsonc", "c")
+
+	m := mustOpencodeManifest(t, home)
+
+	require.Equal(t, []string{".config/opencode/opencode.jsonc", ".config/opencode/other.jsonc"}, manifestKeys(m),
+		"a dir/* glob selects the files directly under it, not nested ones")
+}
+
 func TestTakeManifestUnknownAgentIsEmpty(t *testing.T) {
 	home := t.TempDir()
 	writeFile(t, home, ".config/opencode/opencode.jsonc", "a")
@@ -174,6 +197,14 @@ func manifestKeys(m Manifest) []string {
 func mustOpencodeManifest(t *testing.T, home string) Manifest {
 	t.Helper()
 	m, err := TakeManifest(home, "opencode")
+	require.NoError(t, err)
+	return m
+}
+
+// mustManifest is mustOpencodeManifest for any agent name.
+func mustManifest(t *testing.T, home, agentName string) Manifest {
+	t.Helper()
+	m, err := TakeManifest(home, agentName)
 	require.NoError(t, err)
 	return m
 }

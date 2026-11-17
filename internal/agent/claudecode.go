@@ -46,6 +46,14 @@ func (claudeCodeProfile) ProvisionRules() []ProvisionRule {
 	}
 }
 
+// ReadBackPaths declares claude-code's settings file, which holds its login
+// (recorded, never copied).
+func (claudeCodeProfile) ReadBackPaths() []string {
+	return []string{".claude/" + settingsFileName}
+}
+
+func (claudeCodeProfile) CredentialProbes() []string { return nil }
+
 func (claudeCodeProfile) AttachCommand(_ string, args []string) string {
 	parts := []string{"claude"}
 	parts = append(parts, shellQuoteArgs(args)...)

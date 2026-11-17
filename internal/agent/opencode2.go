@@ -60,6 +60,11 @@ func (opencode2Profile) ConfigDirName() string { return opencode2Name }
 // gained its own namespace.
 func (opencode2Profile) ConfigDirAliases() []string { return []string{opencodeConfigDirName} }
 
+// CredentialProbes names opencode2's SQLite credential reader: its API key sits
+// inline in opencode.db, not in a file, so the read-back probes the credential
+// rows rather than hashing the whole database.
+func (opencode2Profile) CredentialProbes() []string { return []string{"opencode2-sqlite"} }
+
 // WorktreeCreatesDetachedHead reports that v2's daemon creates worktrees on a
 // detached HEAD (v1 keeps its own branch), so the launcher can tell the user how
 // to keep their commits.

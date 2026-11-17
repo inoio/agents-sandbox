@@ -58,6 +58,16 @@ func (opencodeConfig) ProvisionRules() []ProvisionRule {
 	}
 }
 
+// opencodeReadBackPaths are the home-relative config and credential paths both
+// opencode profiles read back: the shared global config dir and the auth file.
+var opencodeReadBackPaths = []string{".config/opencode/*", ".local/share/opencode/auth.json"}
+
+func (opencodeConfig) ReadBackPaths() []string { return opencodeReadBackPaths }
+
+// CredentialProbes is empty for v1: its credential is file-based. opencode2
+// overrides it with its SQLite probe.
+func (opencodeConfig) CredentialProbes() []string { return nil }
+
 // parseDaemonHealth decodes opencode (v1)'s {"healthy": bool} health response.
 // opencode2 (v2) uses its own ServerInfo parser.
 func parseDaemonHealth(stdout string) (bool, error) {
