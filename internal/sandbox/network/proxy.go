@@ -113,6 +113,12 @@ func (p Proxy) validate() error {
 				"remove username/password-env or use socks5 or http-connect",
 		)
 	}
+	// The SDK's Credentials needs both halves, so a lone credential would reach
+	// the VM as an anonymous proxy while still changing the fingerprint. Reject
+	// it rather than dropping either half.
+	if (p.Username == "") != (p.PasswordEnv == "") {
+		return errors.New("network.proxy: username and password-env must be set together")
+	}
 	return nil
 }
 

@@ -68,6 +68,38 @@ func TestProxyCredentialsRejectedForSOCKS4(t *testing.T) {
 	}
 }
 
+// TestProxyRejectsLoneCredential pins that a username and a password-env must
+// be set together: the SDK's Credentials needs both, so a lone credential would
+// otherwise reach the VM as an anonymous proxy while still changing the
+// fingerprint — two policies reaching the VM identically that fingerprint
+// differently. The rejection keeps the emission-faithful invariant by failing
+// the misconfiguration before it can reach the VM.
+func TestProxyRejectsLoneCredential(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		proxy Proxy
+	}{
+		{"username only", Proxy{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080", Username: "u"}},
+		{"password-env only", Proxy{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080", PasswordEnv: "P"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			policy := Policy{Profiles: []Profile{ProfileNone}, Proxy: tc.proxy}
+			err := policy.Validate()
+			if err == nil {
+				t.Fatal("a lone proxy credential must be rejected")
+			}
+			for _, want := range []string{"username", "password-env"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("error %q must name %q", err, want)
+				}
+			}
+			if _, err := policy.Spec(); err == nil {
+				t.Fatal("Spec must reject a lone proxy credential before any VM work")
+			}
+		})
+	}
+}
+
 // TestProxyAddressMustBeReachableUnderNone pins S1's recorded composition
 // decision: the runtime dials the proxy host-side, so the dial bypasses the
 // egress policy and the launcher neither auto-adds the proxy address to the
