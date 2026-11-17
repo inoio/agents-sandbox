@@ -133,22 +133,19 @@ func (g *guard) guarded(path string) bool {
 	return false
 }
 
-// absolute returns path made absolute and, when its parent directory resolves,
-// symlink-free, so the same file reached through different path spellings is
-// verified alike (the checkout slug that keys the approval resolves symlinks).
-// The final element is left as spelled, so a symlinked file still names its
-// link and a file missing under an existing directory still maps to that
-// directory's physical path. Without a readable working directory it is empty,
-// which matches no approved path and lies under no root.
+// absolute returns path made absolute and its parent directory symlink-free,
+// when that directory resolves, so the same file reached through different path
+// spellings is verified alike (the checkout slug that keys the approval resolves
+// symlinks). The final element is left as spelled, so a symlinked file still
+// names its link and a file missing under an existing directory still maps to
+// that directory's physical path. Without a readable working directory it is
+// empty, which matches no approved path and lies under no root.
 func absolute(path string) string {
 	absolutePath, _ := filepath.Abs(path)
 	if absolutePath == "" {
 		return ""
 	}
 	dir, name := filepath.Split(absolutePath)
-	if dir == "" {
-		return absolutePath
-	}
 	resolvedDir, err := filepath.EvalSymlinks(filepath.Clean(dir))
 	if err != nil {
 		return absolutePath
