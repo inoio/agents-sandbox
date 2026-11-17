@@ -1,6 +1,6 @@
 ---
-description: The launcher's network surfaces for TLS interception and an outbound egress proxy - `network.intercept-tls` (auto/on/off) and how it interacts with secret-implied interception, `network.tls-bypass`, `network.proxy.*`/`--proxy` for SOCKS4/5 and HTTP CONNECT, the protocol/credential matrix, the proxy-reachability composition rule, and why every field is part of the network fingerprint and therefore creation-only.
-read_if: Working on the launcher's TLS-interception or outbound-proxy config surface - `intercept-tls`/`tls-bypass`, secret-implied interception, a host that must skip interception (a package or image registry), `proxy.*`/`--proxy` or its credentials, the composition of a proxy with an egress policy, or why a network change recreates the VM.
+description: The launcher's network surfaces for TLS interception and an outbound egress proxy - `network.intercept-tls` (auto/on/off, and that `off`-with-secrets is not expressible) and how it interacts with secret-implied interception, `network.tls-bypass`, `network.proxy.*`/`--proxy` for SOCKS4/5 and HTTP CONNECT, the protocol/credential matrix, the proxy-reachability composition rule (the dial is host-side and needs no allow entry), the runtime's strict-hostname limit on non-intercepted allowlisted egress, and why every field is part of the network fingerprint and therefore creation-only.
+read_if: Working on the launcher's TLS-interception or outbound-proxy config surface - `intercept-tls`/`tls-bypass`, secret-implied interception, a host that must skip interception (a package or image registry), `proxy.*`/`--proxy` or its credentials, the composition of a proxy with an egress policy, or why a bypassed or `none`-allowlisted host is denied without interception (strict hostname mode); or why a network change recreates the VM.
 ---
 
 # TLS interception and the outbound proxy
@@ -22,10 +22,10 @@ makes that explicit and controllable.
 - `on`: interception is requested regardless of secrets.
 - `off`: interception is requested off.
 
-`off` while secrets are configured cannot always be expressed: the runtime may re-enable its own interception for
-substitution. If `off` cannot be expressed, the launcher rejects `off`-with-secrets with an actionable error naming
-the limitation rather than claiming to disable it and silently leaving interception on. (Whether the runtime
-re-enables is settled by the SDK channel spike; the contract is "true off, or an actionable error".)
+`off` while secrets are configured **cannot be expressed**: the runtime re-enables its own interception for
+substitution whenever a secret is configured, so a nil TLS field does not disable it. The launcher therefore rejects
+`off`-with-secrets with an actionable error naming the limitation rather than claiming to disable it and silently
+leaving interception on.
 
 ### `network.tls-bypass`
 
@@ -35,8 +35,9 @@ The primary use case is a package or image registry whose client does not trust 
 `docker build` pulling a base image. A bypass entry supersedes the earlier workaround of planting the interception CA
 inside the VM for that client.
 
-A host that is both `tls-bypass`ed and egress-allowlisted must still pass under the runtime's strict-hostname
-fail-closed behaviour; whether it does is settled by the SDK channel spike and recorded here.
+A host that is both `tls-bypass`ed and egress-allowlisted does **not** pass under the runtime's strict-hostname
+fail-closed behaviour: strict mode denies it (`TLS bypass denied by strict hostname policy`) even though the host is
+allowlisted, and the request only succeeds with strict mode off. See [strict hostname mode](#strict-hostname-mode).
 
 ## The outbound proxy
 
@@ -61,11 +62,35 @@ failure.
 
 ### Composition with the egress policy
 
-A proxy the egress policy denies silently denies **all** egress, because the sandbox cannot reach the proxy. The
-launcher resolves this deterministically rather than leaving a silent failure: either the proxy address is
-auto-added to the effective allow set, or the configuration fails with an actionable error. The exact rule is
-settled by the SDK channel spike and recorded here. The proxy's address is host-side, so the guest never sees it as
-a destination; the rule exists for the case where it is guest-visible.
+A proxy the egress policy denies does not silently deny all egress: the runtime dials the proxy **host-side**, so the
+dial bypasses the egress policy and needs no allow entry for the proxy address. The launcher therefore neither
+auto-adds the proxy address to the allow set nor fails on a policy that omits it. The guest never sees the proxy
+address as a destination.
+
+Under the runtime's strict-hostname mode the destination's own egress can still be denied before the proxy is
+consulted; see [strict hostname mode](#strict-hostname-mode).
+
+## Strict hostname mode
+
+The runtime runs **strict hostname mode** by default (`DisableStrict` off), and the launcher never disables it. Under
+strict mode (observed with microsandbox runtime `0.7.15`) a plain-domain egress-allow rule authorizes only an
+**intercepted** connection:
+
+- With a secret configured, the runtime's interception supplies the verified TLS identity and the allow matches, so
+  the allowlisted host is reachable.
+- Without interception for that host — no secret, or a `tls-bypass`ed host — the connection is denied even though the
+  host is allowlisted (`TCP egress denied by strict hostname policy`), and the guest's TLS fails. The same egress
+  succeeds with strict mode off.
+
+Consequences:
+
+- A learning session configures a secret, so its observed egress is in the allowed, intercepted case.
+- A `tls-bypass` entry does not make a host reachable on its own; it only skips interception. Under strict mode a
+  bypassed host must also be reachable another way, or strict mode must be off for that session.
+- A `none`-profile allowlist (explicit egress-allow rules, no secret) is subject to the same limit.
+
+The launcher does not currently control the runtime's strict switch: `network.Policy` neither sets `DisableStrict` nor
+exposes it. Opening it is a prerequisite for a session that needs non-intercepted egress.
 
 ## Fingerprint and creation-only
 

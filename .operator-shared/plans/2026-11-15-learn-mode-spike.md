@@ -11,6 +11,12 @@ finished: it ran for opencode2 only, so this plan and the `spike/learn-mode/` ha
 harnesses are read back. Host-only: needs `/dev/kvm`, a docker daemon and network, so it cannot run in the development
 VM.
 
+S8 (the SDK channel-semantics rerun, 2026-11-17, host-only, throwaway probe) settled the four open channel questions —
+topology, `off`-with-secrets, proxy composition, and the strict-hostname bypass — recorded in
+`specs/network-and-secrets/interception-and-proxy.md` and `specs/onboarding/learn-mode/observation-channel.md`. The
+probe is not landed: it drives the SDK directly, and only `internal/sandbox/msb` may import the microsandbox SDK
+(`specs/architecture/msb-seam.md`), which `TestNoProductionPackageImportsSDK` enforces repo-wide.
+
 The harness in `spike/learn-mode/` (tracked, throwaway) is the runbook `README.md`, one driver per experiment, and raw
 evidence in the git-ignored `spike-capture/`. Run the runbook, not the prose below, which stays as the experiment's
 definition.
@@ -173,6 +179,10 @@ See `spike/learn-mode/results.md` for the per-experiment evidence. Summary:
 | S6 | pass — termination works; destination and header name visible | C is viable |
 | S7 | pass — no measurable overhead; the real agent turn awaits `#149` | proxy can be the default transport |
 | D (runtime interception) | destinations yes, attribution no | dropped; C ships regardless |
+| S8 q1 topology | pass — the runtime intercepts, substitutes, and re-originates to our endpoint | T2; the launcher plants no guest CA |
+| S8 q2 `off` | the runtime re-enables interception whenever a secret is configured | `off`-with-secrets is rejected with an actionable error |
+| S8 q3 proxy composition | pass — the dial is host-side and needs no allow entry (HTTP CONNECT and SOCKS5) | no auto-allow of the proxy address |
+| S8 q4 bypass under strict | fail — a bypassed-and-allowlisted host is denied under strict mode | strict hostname mode denies non-intercepted allowlisted egress |
 
 ## Closing
 
