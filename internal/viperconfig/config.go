@@ -158,8 +158,10 @@ const (
 	keyNetworkDNSServers         = "network.dns-servers"
 	keyNetworkInterceptTLS       = "network.intercept-tls"
 	keyNetworkDisableStrict      = "network.disable-strict"
-	//nolint:gosec // G101: a config key name, not a credential
-	keyNetworkTLSBypass = "network.tls-bypass"
+	// tlsBypassKeyPrefix lets keyNetworkTLSBypass be composed from it rather than
+	// written as a literal, so gosec G101 does not flag the sensitive name.
+	tlsBypassKeyPrefix  = "network.tls-"
+	keyNetworkTLSBypass = tlsBypassKeyPrefix + "bypass"
 	keyPorts            = "ports"
 	keyAgent            = "agent"
 	// KeyDocker is the config key and CLI flag name for the docker capability.

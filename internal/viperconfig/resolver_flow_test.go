@@ -1006,6 +1006,41 @@ func TestNetworkDisableStrictEnv(t *testing.T) {
 	}
 }
 
+func TestNetworkTLSBypassFromConfigFile(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
+		"network": map[string]any{
+			"tls-bypass": []string{"bypass.example", "*.internal.example"},
+		},
+	})
+
+	r, err := NewResolver(nil, configpaths.Get(), "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	want := []string{"bypass.example", "*.internal.example"}
+	if got := r.cfg.Network.TLSBypass; !slices.Equal(got, want) {
+		t.Fatalf("Network.TLSBypass = %v, want %v", got, want)
+	}
+}
+
+func TestNetworkTLSBypassRejectsEmptyEntry(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
+		"network": map[string]any{
+			"tls-bypass": []string{"bypass.example", ""},
+		},
+	})
+
+	_, err := NewResolver(nil, configpaths.Get(), "")
+	if err == nil || !strings.Contains(err.Error(), keyNetworkTLSBypass) {
+		t.Fatalf("error = %v, want an empty tls-bypass entry refused at load", err)
+	}
+	if errors.Unwrap(err) == nil {
+		t.Errorf("error %q does not wrap its cause", err)
+	}
+}
+
 func TestNetworkDNSServersEnvVar(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_NETWORK_DNS_SERVERS", "1.1.1.1,8.8.8.8")

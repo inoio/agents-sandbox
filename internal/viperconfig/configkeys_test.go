@@ -10,11 +10,12 @@ import (
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
-// network.egress-allow/egress-deny are documented as config-file-only
-// (docs/configuration/networking.md). env:"-" keeps them out of envKeys, and
-// NewResolver binds no env var for them (no AutomaticEnv), so an
-// AGENTS_SANDBOX_NETWORK_EGRESS_* variable is ignored even when a config file
-// sets the same key.
+// The network list keys network.egress-allow/egress-deny (documented as
+// config-file-only in docs/configuration/networking.md) and network.tls-bypass
+// are config-file-only: env:"-" keeps them out of envKeys, and NewResolver binds
+// no env var for them (no AutomaticEnv), so an AGENTS_SANDBOX_NETWORK_EGRESS_*
+// or AGENTS_SANDBOX_NETWORK_TLS_BYPASS variable is ignored even when a config
+// file sets the same key.
 func TestConfigEgressListsAreConfigFileOnly(t *testing.T) {
 	for _, key := range []string{keyNetworkTLSBypass, "network.egress-allow", "network.egress-deny"} {
 		if slices.Contains(envKeys, key) {
@@ -49,6 +50,12 @@ func TestConfigEgressListsAreConfigFileOnly(t *testing.T) {
 			"Network.EgressDeny = %v, want %v (the config file wins; the env var is not honored)",
 			r.cfg.Network.EgressDeny,
 			want,
+		)
+	}
+	if got := r.cfg.Network.TLSBypass; len(got) != 0 {
+		t.Errorf(
+			"Network.TLSBypass = %v, want none (its env var is not honored)",
+			got,
 		)
 	}
 }
