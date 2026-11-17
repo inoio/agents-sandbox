@@ -144,7 +144,9 @@ in-VM `docker build` pulling a base image.
 `disable-strict` turns off the runtime's strict-hostname mode, which is on by default. Under strict mode a plain egress
 allow rule authorizes only an **intercepted** connection, so a host that is both `tls-bypass`ed and allowlisted is
 **denied** (`TLS bypass denied by strict hostname policy`): a bypass entry skips interception, it does not make the host
-reachable on its own. Set `disable-strict: true` to let a bypassed-and-allowlisted host through.
+reachable on its own. Set `disable-strict: true` to let a bypassed-and-allowlisted host through. Turning it off lets an
+allowlisted host be reached without the runtime's interception and identity verification, so set it only for hosts you
+already intend to allow.
 
 ```yaml
 network:
