@@ -80,7 +80,7 @@ Every top-level `execution.succeeded` is classified by the **pending set** — t
 - **`subagents`** — a descendant session (a session whose `parentOf` chain reaches this one) is live: busy or awaiting input.
 - **`commands`** — at least one background shell (`ShellBackground`) is running **for the top-level session itself**.
 
-The tracker sets `Notification.DoneReasons` to the present reasons and always emits `TriggerDone` (never holds or synthesizes). The alert fires when **any enabled reason is present**; `on-done` gates the empty set, and either of the two reason toggles gates its reason. A done with both reasons is one alert naming both, gated by either toggle. The genuinely-quiet done arrives as a later, real `execution.succeeded`, because the daemon wakes the parent after each subagent round.
+The tracker sets `Notification.DoneReasons` to the present reasons and always emits `TriggerDone` (never holds or synthesizes). The alert fires when **any enabled reason is present**; `on-done` gates the empty set, and either of the two reason toggles gates its reason. A done with both reasons is one alert naming both, gated by either toggle. Both toggles default off, so under the default config a classified done (any pending reason) is silent and only the genuinely-quiet done alerts — it arrives as a later, real `execution.succeeded`, because the daemon wakes the parent after each subagent round.
 
 With `SubtreeDoneStates` off (v1), the idle arm behaves exactly as before: any top-level `busy`/`awaitingInput` → `idle` transition notifies done, regardless of descendants.
 
@@ -120,7 +120,7 @@ Parse: parseOpencodeV2Event
 
 Title: a fixed `agents-sandbox: ` prefix (the product name; the agent name is dropped), then `agent done` / `input requested` / `session error`. A done with pending work appends the reasons, e.g. `agents-sandbox: agent done (2 subagents, 1 command running)`. Body: `in session '<title>'`, falling back to the original sentence (`The agent finished.` / `The agent is waiting for your input.` / `The session reported an error.`) when the title is unknown. Wording applies to v1 and v2; only v1's trigger semantics are frozen.
 
-Config keys (defaults in parentheses): `notify.on-input` (true), `notify.on-done` (true), `notify.on-error` (true), `notify.on-done-subagents-running` (**false**), `notify.on-done-commands-running` (**true**). The subagents default is deliberate: a running subagent must be silent. The commands default is true: a running background command may alert, distinguished. Env vars follow the mechanical convention (`AGENTS_SANDBOX_NOTIFY_ON_DONE_SUBAGENTS_RUNNING`, …). `--notify`/`AGENTS_SANDBOX_NOTIFY` still set channels only.
+Config keys (defaults in parentheses): `notify.on-input` (true), `notify.on-done` (true), `notify.on-error` (true), `notify.on-done-subagents-running` (**false**), `notify.on-done-commands-running` (**false**). Both reason defaults are deliberate: only a main session fully at rest notifies, so a done with a live subagent or a running background command stays silent until the tree is quiet, and the genuinely-quiet done arrives as the later real `execution.succeeded`. Enabling a reason toggle lets that done alert, distinguished by the appended reason. Env vars follow the mechanical convention (`AGENTS_SANDBOX_NOTIFY_ON_DONE_SUBAGENTS_RUNNING`, …). `--notify`/`AGENTS_SANDBOX_NOTIFY` still set channels only.
 
 ## Verified event facts
 
