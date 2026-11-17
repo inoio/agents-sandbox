@@ -6,7 +6,7 @@ read_if: Picking up the unrun part of the learn-mode spike (S1's per-harness hom
 # Learn-mode validation spike
 
 Status: partially run (2026-11-15, host: Linux x86_64, `/dev/kvm`, docker 29.1.3, `msb`/SDK 0.7.15). Results are in
-`spike/learn-mode/results.md`, and the durable outcome is folded into `specs/onboarding/learn-mode.md`. S1 is not
+`spike/learn-mode/results.md`, and the durable outcome is folded into the `specs/onboarding/learn-mode/` subspecs. S1 is not
 finished: it ran for opencode2 only, so this plan and the `spike/learn-mode/` harness stay until the other six
 harnesses are read back. Host-only: needs `/dev/kvm`, a docker daemon and network, so it cannot run in the development
 VM.
@@ -20,7 +20,7 @@ definition.
 Whether the launcher can establish, for one finished session, **which destinations were attempted, used, and
 denied, and which credential went to which destination** — and at what cost. Attribution is required, so the pivotal
 experiment is S6; the others size the rest of the channel. The outcome: C (a launcher-owned terminating proxy) is the
-channel, with A always; the spec's "Observation approaches" section carries the evidence. Whether UC2 can be detected
+channel, with A always; `specs/onboarding/learn-mode/observation-channel.md` carries the evidence. Whether UC2 can be detected
 without a permanent channel is settled by S5 (it cannot).
 
 Run S6 first if there is any doubt about TLS termination being workable; the rest can follow in any order.
@@ -36,7 +36,7 @@ launcher (`make build`), start it in a scratch project so it creates a home volu
 (the driver takes a volume name, not a harness; `--list` names the volumes). The launcher's private home keeps the
 runner image warm between harnesses, so run all seven before reading anything back.
 
-The harness smoke suite (`make test-msb`; there is no `make test-msb-reuse`) only drives each harness to its TUI and
+The harness smoke suite (`make test-msb`; `test-msb-reuse` is a stale phony target with no recipe) only drives each harness to its TUI and
 quits, so it never completes a provider setup and cannot answer S1.
 
 **Record.** For each harness: config file paths, credential file paths and whether values are inline or referenced,
@@ -176,8 +176,8 @@ See `spike/learn-mode/results.md` for the per-experiment evidence. Summary:
 
 ## Closing
 
-The durable outcome is folded into `specs/onboarding/learn-mode.md`: C plus A, with the runtime's own interception
+The durable outcome is folded into `specs/onboarding/learn-mode/observation-channel.md`: C plus A, with the runtime's own interception
 dropped, `#151` demoted to optional, and invariant 3 reworded for the secrets a terminating channel handles. This plan
 and the `spike/learn-mode/` harness stay until S1 is finished for the remaining six harnesses, so A's claim rests on
-more than opencode2; then complete S1, update the spec's A section, and delete the plan, the harness, and its captured
+more than opencode2; then complete S1, update the A section of `specs/onboarding/learn-mode/observation-channel.md`, and delete the plan, the harness, and its captured
 evidence. Record an ADR only if a rejected alternative needs its grounds preserved.

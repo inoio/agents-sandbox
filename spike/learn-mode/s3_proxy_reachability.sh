@@ -58,7 +58,11 @@ run_case() {
   spike_rm "$name"
 }
 
-for addr in "$proxy_ip" "$gw_ip"; do
+# The gateway-address rows need the proxy bound beyond loopback; opt in with
+#   SPIKE_PROXY_LISTEN_HOST=0.0.0.0 ./spike/learn-mode/s3_proxy_reachability.sh
+addrs=("$proxy_ip")
+[ "$SPIKE_PROXY_LISTEN_HOST" = "127.0.0.1" ] || addrs+=("$gw_ip")
+for addr in "${addrs[@]}"; do
   for proto in http socks5; do
     run_case "none-$proto-$addr" "$addr" "$proto" \
       --net-default-egress deny --net-strict=false --net-rule 'allow@example.com'

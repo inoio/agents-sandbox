@@ -26,6 +26,11 @@ SPIKE_ROOT="$(cd "$SPIKE_DIR/../.." && pwd)"
 MSB="${MSB:-msb}"
 PROXY_PORT="${PROXY_PORT:-8088}"
 DNS_PORT="${DNS_PORT:-5354}"
+# The proxy binds loopback by default. A non-loopback bind exposes an open
+# (and, in terminate mode, MITM) proxy to the local network, so opt in only
+# when a driver needs the host-gateway address (S3's gateway rows):
+#   SPIKE_PROXY_LISTEN_HOST=0.0.0.0 ./spike/learn-mode/s3_proxy_reachability.sh
+SPIKE_PROXY_LISTEN_HOST="${SPIKE_PROXY_LISTEN_HOST:-127.0.0.1}"
 SPIKE_CAPTURE_DIR="${SPIKE_CAPTURE_DIR:-$SPIKE_DIR/spike-capture}"
 
 spike_require() {
@@ -86,7 +91,8 @@ spike_host_ip() {
 }
 
 # spike_proxy_up [blind|terminate]
-# Starts mitmdump as a regular HTTP proxy on 0.0.0.0:$PROXY_PORT, logging flows.
+# Starts mitmdump as a regular HTTP proxy on $SPIKE_PROXY_LISTEN_HOST:$PROXY_PORT,
+# logging flows. Binds loopback by default (see SPIKE_PROXY_LISTEN_HOST above).
 # blind: pass CONNECT through without intercepting (no trust needed), still logs
 #        the destination.
 # terminate: intercept TLS with mitmproxy's CA (plant it in the guest), so the
@@ -97,7 +103,7 @@ spike_proxy_up() {
   log="$dir/proxy-$mode.log"
   pidfile="$dir/proxy-$mode.pid"
   spike_proxy_down "$mode" >/dev/null 2>&1 || true
-  local args=(--mode regular --listen-host 0.0.0.0 --listen-port "$PROXY_PORT"
+  local args=(--mode regular --listen-host "$SPIKE_PROXY_LISTEN_HOST" --listen-port "$PROXY_PORT"
     -w "$dir/proxy-$mode.flows" --set "confdir=$dir/mitmproxy" --set flow_detail=0)
   if [ "$mode" = blind ]; then
     args+=(--ignore-hosts '.*')
@@ -118,7 +124,7 @@ spike_proxy_up() {
     done
     [ -f "$ca" ] || echo "spike: mitmproxy CA still absent at $ca after 10s" >&2
   fi
-  echo "proxy up ($mode) on 0.0.0.0:$PROXY_PORT, flows -> $dir/proxy-$mode.flows"
+  echo "proxy up ($mode) on $SPIKE_PROXY_LISTEN_HOST:$PROXY_PORT, flows -> $dir/proxy-$mode.flows"
 }
 
 spike_proxy_down() {

@@ -43,7 +43,7 @@ spike/learn-mode/
 ├── guest/plant-ca.sh          installs a CA PEM in the guest three ways (S6)
 ├── s1..s7_*.sh                one driver per experiment
 ├── d_runtime_interception.sh  sub-step D (runtime interception as a channel)
-└── results.md                 fill this in; it becomes the spec update
+└── results.md                 the recorded results; they become the spec update
 ```
 
 Network policy is set with `msb` flags (`--net`, `--net-rule`, `--net-default-egress`,
@@ -284,7 +284,7 @@ transport.
 
 ## Closing
 
-Fill in `results.md`, then fold the durable outcome into the spec's "Observation approaches" section (replacing the
-proposal with the resolved choice and its evidence). Record an ADR only if the choice rejects a real alternative on
+Fold the durable outcome into `specs/onboarding/learn-mode/observation-channel.md` (replacing the proposal with the
+resolved choice and its evidence). Record an ADR only if the choice rejects a real alternative on
 grounds a future reader would question. Delete this directory and the plan once the spec is updated. A partial run is
 still useful: record which experiments were not run and why.

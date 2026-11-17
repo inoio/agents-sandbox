@@ -1,8 +1,8 @@
 # Learn-mode observation spike — results
 
-Fill in as experiments run. This file, not the scripts, is what feeds the spec
-update (`.operator-shared/specs/onboarding/learn-mode.md`, "Observation
-approaches"). Run date, host, and the resolving `msb`/SDK versions at the top.
+Status: run 2026-11-15 (partial — S1 for opencode2 only). This file, not the scripts, is what feeds the spec
+update (`.operator-shared/specs/onboarding/learn-mode/observation-channel.md` and `home-read-back.md`). Run date,
+host, and the resolving `msb`/SDK versions at the top.
 
 - Run date: 2026-11-15
 - Host: Linux x86_64, `/dev/kvm` writable (host session, not the dev VM), docker 29.1.3
@@ -144,8 +144,8 @@ deliberately wrong OpenAI API key, one prompt sent, then the volume dumped.
   reports `platform.openai.com` — and echoes a **masked** key (`fdsa_fds*****************fdsa`); its
   session lines carry the server URL (`http://127.0.0.1:4096`).
 - **Volume shape:** ~29 MB over ~40 files; `opencode.db` is 12.9 MB, almost all of it the `kv` row
-  `models-dev:v2:catalog` (~12.5 MB), a churny model catalog. A whole-file-hash baseline (the spec's Session
-  boundary manifest) must expect a large, frequently-changing DB.
+  `models-dev:v2:catalog` (~12.5 MB), a churny model catalog. A whole-file-hash baseline (the spec's baseline
+  manifest in `learn-mode/home-read-back.md`) must expect a large, frequently-changing DB.
 - Read-back is host-stable (`agents-sandbox volume inspect --format json` → `.path`), but the DB/WAL are live
   while the VM runs; take the stopped-vs-running dump to confirm the WAL checkpoints into the main file.
 

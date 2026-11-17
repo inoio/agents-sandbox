@@ -25,8 +25,9 @@ Reading a credential is not always reading a file. A harness may write no config
 its own database; the reader must therefore parse the agent's database, not only config files. The spike verified
 this for opencode2 alone: `~/.config/opencode/` is empty, and the API key sits inline in
 `~/.local/share/opencode/opencode.db` (SQLite), table `credential` (`integration_id`, `label`, `active`), column
-`value` = JSON `{"type":"key","key":"…"}` — a static key, not a login. Its sessions, transcripts, and logs are in
-the same DB or beside it (`~/.local/state/opencode/`). The other harnesses' layouts are unverified.
+`value` = JSON `{"type":"key","key":"…"}` — a static key, not a login. Its sessions and transcripts are in the same
+DB, with prompt history and small state files under `~/.local/state/opencode/` and its log under
+`~/.local/share/opencode/log/`. The other harnesses' layouts are unverified.
 
 Login credentials found here are recorded (presence, source, provider) but **never copied out of the sandbox**
 (invariant 2).
