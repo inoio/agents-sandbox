@@ -510,8 +510,8 @@ func TestOpencode2EventStream(t *testing.T) {
 		ErrorEvents:        []string{"session.error", "session.execution.failed"},
 		SessionEvents:      []string{"session.created", "session.renamed"},
 		SubtreeDoneStates:  true,
-		ShellStartedEvents: []string{"session.shell.started"},
-		ShellEndedEvents:   []string{"session.shell.ended"},
+		ShellStartedEvents: []string{"session.shell.started", "shell.created"},
+		ShellEndedEvents:   []string{"session.shell.ended", "shell.exited"},
 		InterruptedEvents:  []string{"session.execution.interrupted"},
 		Name:               "opencode2",
 	}

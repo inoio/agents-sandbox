@@ -222,17 +222,21 @@ type StreamEvent struct {
 	// tracker names the session in the notification body with it; a watcher
 	// that connected after creation learns it from the seed or a later rename.
 	Title string
-	// ShellID identifies a shell from a session.shell.* event. A started shell
-	// adds it to the session's running set, an ended shell removes it.
+	// ShellID identifies a shell from a shell event (a session.shell.* or the
+	// shell tool's shell.created/shell.exited). A started shell adds it to the
+	// session's running set, an ended shell removes it.
 	ShellID string
-	// ShellBackground is true when a started shell is a background command, so
-	// the tracker can classify a done with a command still running.
+	// ShellBackground is true when a started shell counts as a command still
+	// running for the session: a background command, or a tool shell resource
+	// (a foreground tool shell has exited by the time the top-level execution
+	// succeeds, so a still-running one is a leave-running command).
 	ShellBackground bool
 }
 
 // EventStreamSpec describes the SSE event stream notify watches for an agent:
 // the shell command that streams events in the VM, the event-type names that
-// drive tracker transitions, and the agent name used in notification titles.
+// drive tracker transitions, and the agent's identity (Name), used in tests and
+// logging rather than in the message text.
 type EventStreamSpec struct {
 	StreamCommand string
 	BusyEvents    []string
@@ -247,7 +251,9 @@ type EventStreamSpec struct {
 	StickyErrorEvents []string
 	// SessionEvents are lifecycle event types whose payload may identify a
 	// session's parent or title. A non-empty parent ID marks the session as a
-	// subagent (child) session; no notification ever fires for a child session.
+	// subagent (child) session. A child never notifies for its own done/error;
+	// under the subtree model (SubtreeDoneStates) its input surfaces as its
+	// top-level ancestor's input, while off (v1) it stays fully suppressed.
 	SessionEvents []string
 	// SubtreeDoneStates opts into the subtree-aware done model: a top-level
 	// idle event is classified by what is still pending in the session tree

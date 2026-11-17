@@ -3,6 +3,7 @@ package notify
 import (
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 )
@@ -443,6 +444,48 @@ func TestDoneReasonsCommands(t *testing.T) {
 	}
 }
 
+// TestDoneReasonsIndependentTopLevelSessions pins that one top-level session's
+// live children do not classify another top-level session's done: done reasons
+// are computed per top-level session.
+func TestDoneReasonsIndependentTopLevelSessions(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	const rootA, rootB = "ses_a", "ses_b"
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: rootA})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: rootB})
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_a_child", ParentID: rootA})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: "ses_a_child"})
+
+	n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: rootB})
+	if n == nil || n.Trigger != TriggerDone || len(n.DoneReasons) != 0 {
+		t.Fatalf("B's done with A's live child = %+v, want a plain done", n)
+	}
+}
+
+// TestDoneReasonsToolShell pins the agent's shell tool path: the tool emits
+// shell.created/shell.exited (never session.shell.*), and shell.exited carries
+// no session id, so the end must clear the shell by id across every session.
+// A tool shell running when the top-level turn succeeds is done-with-a-command;
+// once it exits, the next succeeded is a plain done.
+func TestDoneReasonsToolShell(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	const root = "ses_root"
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+	tr.Handle(agent.StreamEvent{Type: "shell.created", SessionID: root, ShellID: "sh_tool", ShellBackground: true})
+
+	n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+	if n == nil || !slices.Equal(n.DoneReasons, []DoneReason{DoneCommandsRunning}) {
+		t.Fatalf("root succeeded with a running tool shell = %+v, want [commands]", n)
+	}
+
+	// The exit has no session id: it must still clear the root's running shell.
+	tr.Handle(agent.StreamEvent{Type: "shell.exited", ShellID: "sh_tool"})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+	n = tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+	if n == nil || len(n.DoneReasons) != 0 || n.Title != "agents-sandbox: agent done" {
+		t.Fatalf("done after the tool shell exited = %+v, want a plain done", n)
+	}
+}
+
 // TestDoneReasonsBoth pins the combined message: a live subagent and a running
 // command are one done naming both, subagents first.
 func TestDoneReasonsBoth(t *testing.T) {
@@ -502,6 +545,63 @@ func TestChildInputSurfacesAsTopLevel(t *testing.T) {
 	}
 	if n.Title != "agents-sandbox: input requested" || n.Body != "in session 'my task'" {
 		t.Fatalf("message = %q / %q, want the fixed title and the root's title", n.Title, n.Body)
+	}
+}
+
+// TestChildInputSuppressedWithoutSubtreeStates pins v1's frozen semantics: with
+// SubtreeDoneStates off, a child session is fully suppressed, including its
+// input — the child-input exception belongs to the subtree model only. The
+// child's state still updates.
+func TestChildInputSuppressedWithoutSubtreeStates(t *testing.T) {
+	spec := opencodeSpec()
+	spec.SessionEvents = []string{"session.created"}
+	tr := NewTracker(spec)
+	tr.Handle(agent.StreamEvent{Type: "session.created", SessionID: "ses_child", ParentID: "ses_root"})
+
+	if n := tr.Handle(
+		agent.StreamEvent{Type: permissionAsked, SessionID: "ses_child", EventID: "evt_child"},
+	); n != nil {
+		t.Fatalf("v1 child input notified: %+v, want suppression", n)
+	}
+	if tr.states["ses_child"] != stateAwaitingInput {
+		t.Fatalf("child state = %v, want awaitingInput (the state still updates)", tr.states["ses_child"])
+	}
+}
+
+// TestCyclicParentLinksTerminate pins that a malformed parentOf (a self-parent
+// or an A→B→A cycle, from a bad seed or a duplicated session.created) cannot
+// spin the parent walk forever: topLevelAncestor and descendsFrom are bounded,
+// so the notify goroutine Watch joins on stop still returns.
+func TestCyclicParentLinksTerminate(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	tr.Seed([]agent.SessionRef{
+		{ID: "A", ParentID: "B"},
+		{ID: "B", ParentID: "A"},
+		{ID: "S", ParentID: "S"},
+	})
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		// Input on a cycle walks topLevelAncestor; a succeeded classifies via
+		// liveDescendants/descendsFrom.
+		tr.Handle(agent.StreamEvent{Type: permissionAsked, SessionID: "A", EventID: "e1"})
+		tr.Handle(agent.StreamEvent{Type: permissionAsked, SessionID: "S", EventID: "e2"})
+		tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: "A"})
+		tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: "A"})
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("parent walk did not terminate on a cyclic parentOf")
+	}
+
+	if got := tr.topLevelAncestor("S"); got != "S" {
+		t.Errorf("topLevelAncestor(self-parent) = %q, want S", got)
+	}
+	if got := tr.topLevelAncestor("A"); got != "A" && got != "B" {
+		t.Errorf("topLevelAncestor(A→B→A) = %q, want an ancestor in the cycle", got)
 	}
 }
 
