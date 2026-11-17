@@ -160,6 +160,13 @@ const (
 	keyNetworkDNSServers         = "network.dns-servers"
 	keyNetworkInterceptTLS       = "network.intercept-tls"
 	keyNetworkDisableStrict      = "network.disable-strict"
+	// keyNetworkProxyPrefix names the network.proxy block; the four sub-keys are
+	// composed from it so the block's name is written once.
+	keyNetworkProxyPrefix      = "network.proxy"
+	keyNetworkProxyProtocol    = keyNetworkProxyPrefix + ".protocol"
+	keyNetworkProxyAddress     = keyNetworkProxyPrefix + ".address"
+	keyNetworkProxyUsername    = keyNetworkProxyPrefix + ".username"
+	keyNetworkProxyPasswordEnv = keyNetworkProxyPrefix + ".password-env"
 	// tlsBypassKeyPrefix lets keyNetworkTLSBypass be composed from it rather than
 	// written as a literal, so gosec G101 does not flag the sensitive name.
 	tlsBypassKeyPrefix  = "network.tls-"

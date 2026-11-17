@@ -58,6 +58,19 @@ func TestRunAndShellHaveDockerFlags(t *testing.T) {
 	}
 }
 
+func TestRunAndShellHaveProxyFlag(t *testing.T) {
+	for _, name := range []string{cmdRun, cmdShell} {
+		cmd, _ := setupCommandFixtures(t, name, "--help")
+		foundCmd, _, err := cmd.Find([]string{name})
+		if err != nil {
+			t.Fatalf("Find %q: %v", name, err)
+		}
+		if flag := foundCmd.Flags().Lookup(flagProxy); flag == nil {
+			t.Errorf("%s command must have --proxy flag", name)
+		}
+	}
+}
+
 func TestRunAndShellHaveDNSFlag(t *testing.T) {
 	for _, name := range []string{cmdRun, cmdShell} {
 		cmd, _ := setupCommandFixtures(t, name, "--help")

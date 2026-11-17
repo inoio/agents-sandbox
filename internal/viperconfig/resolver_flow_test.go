@@ -1006,6 +1006,77 @@ func TestNetworkDisableStrictEnv(t *testing.T) {
 	}
 }
 
+// TestNetworkProxyFromEnv pins that the network.proxy.* derived keys decode
+// through their AGENTS_SANDBOX_NETWORK_PROXY_* env vars into Policy.Proxy.
+func TestNetworkProxyFromEnv(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_NETWORK_PROXY_PROTOCOL", "socks5")
+	t.Setenv("AGENTS_SANDBOX_NETWORK_PROXY_ADDRESS", "10.0.0.1:1080")
+	t.Setenv("AGENTS_SANDBOX_NETWORK_PROXY_USERNAME", "u")
+	t.Setenv("AGENTS_SANDBOX_NETWORK_PROXY_PASSWORD_ENV", "PROXY_PW")
+
+	r, err := NewResolver(nil, configpaths.Get(), "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	want := network.Proxy{
+		Protocol:    network.ProxySOCKS5,
+		Address:     "10.0.0.1:1080",
+		Username:    "u",
+		PasswordEnv: "PROXY_PW",
+	}
+	if r.cfg.Network.Proxy != want {
+		t.Fatalf("Network.Proxy = %+v, want %+v", r.cfg.Network.Proxy, want)
+	}
+}
+
+// TestNetworkProxyFromConfigFile pins that the nested network.proxy config-file
+// block decodes into Policy.Proxy.
+func TestNetworkProxyFromConfigFile(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
+		"network": map[string]any{
+			"proxy": map[string]any{
+				"protocol":     "http-connect",
+				"address":      "proxy.example.com:3128",
+				"username":     "u",
+				"password-env": "PROXY_PW",
+			},
+		},
+	})
+
+	r, err := NewResolver(nil, configpaths.Get(), "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	want := network.Proxy{
+		Protocol: network.ProxyHTTPConnect, Address: "proxy.example.com:3128", Username: "u", PasswordEnv: "PROXY_PW",
+	}
+	if r.cfg.Network.Proxy != want {
+		t.Fatalf("Network.Proxy = %+v, want %+v", r.cfg.Network.Proxy, want)
+	}
+}
+
+// TestProxySOCKS4WithPasswordEnvFailsFast pins that a SOCKS4 configuration
+// supplying credentials fails at config-load, so the error names the protocol
+// rather than surfacing as a runtime failure. The SDK carries no credential
+// support for SOCKS4.
+func TestProxySOCKS4WithPasswordEnvFailsFast(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_NETWORK_PROXY_PROTOCOL", "socks4")
+	t.Setenv("AGENTS_SANDBOX_NETWORK_PROXY_ADDRESS", "10.0.0.1:1080")
+	t.Setenv("AGENTS_SANDBOX_NETWORK_PROXY_USERNAME", "u")
+	t.Setenv("AGENTS_SANDBOX_NETWORK_PROXY_PASSWORD_ENV", "PROXY_PW")
+
+	_, err := NewResolver(nil, configpaths.Get(), "")
+	if err == nil {
+		t.Fatal("NewResolver must fail fast on a socks4 proxy with credentials")
+	}
+	if !strings.Contains(err.Error(), "socks4") {
+		t.Fatalf("error %q must name the socks4 protocol", err)
+	}
+}
+
 func TestNetworkTLSBypassFromConfigFile(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{

@@ -43,6 +43,7 @@ func registerRunFlags(cmd *cobra.Command) {
 	cmd.Flags().String(FlagAgent, defaultAgentName, "agent")
 	cmd.Flags().StringSlice(FlagNetwork, nil, "network")
 	cmd.Flags().StringSlice(FlagDNSServers, nil, "dns")
+	cmd.Flags().String(FlagProxy, "", "proxy")
 	cmd.Flags().StringSlice(FlagPort, nil, "port")
 	cmd.Flags().String(FlagNotify, "", "notify")
 	cmd.Flags().Lookup(FlagNotify).NoOptDefVal = "on"
@@ -806,6 +807,94 @@ func TestBuildNetworkInvalid(t *testing.T) {
 // TestBuildRejectsInvalidDNSServers pins that the --dns flag path is validated
 // at options resolution, like the env/config path: each malformed value is
 // rejected by Build before any VM work, not only at VM creation.
+// TestProxyFlagWinsOverBlock pins the --proxy precedence: the flag replaces the
+// whole network.proxy block for one run, so the block's protocol and address do
+// not survive alongside the flag's endpoint.
+func TestProxyFlagWinsOverBlock(t *testing.T) {
+	r := viperconfig.NewResolverWithConfig(viperconfig.Config{Network: network.Policy{
+		Proxy: network.Proxy{Protocol: network.ProxySOCKS5, Address: "10.0.0.1:1080"},
+	}})
+	cmd := newRunCommand()
+	if err := cmd.Flags().Set(FlagProxy, "http-connect://10.0.0.2:3128"); err != nil {
+		t.Fatalf("set proxy: %v", err)
+	}
+
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if got := opts.Network.Proxy.Protocol; got != network.ProxyHTTPConnect {
+		t.Fatalf("Proxy.Protocol = %q, want http-connect (the flag overrides the block)", got)
+	}
+	if got := opts.Network.Proxy.Address; got != "10.0.0.2:3128" {
+		t.Fatalf("Proxy.Address = %q, want 10.0.0.2:3128", got)
+	}
+}
+
+// TestProxyFlagClearsBlockCredentials pins the override's credential ruling: a
+// one-off endpoint cannot legitimately inherit another endpoint's credentials,
+// so --proxy replaces the block and clears username/password-env.
+func TestProxyFlagClearsBlockCredentials(t *testing.T) {
+	r := viperconfig.NewResolverWithConfig(viperconfig.Config{Network: network.Policy{
+		Proxy: network.Proxy{
+			Protocol:    network.ProxySOCKS5,
+			Address:     "10.0.0.1:1080",
+			Username:    "u",
+			PasswordEnv: "PROXY_PW",
+		},
+	}})
+	cmd := newRunCommand()
+	if err := cmd.Flags().Set(FlagProxy, "http-connect://10.0.0.2:3128"); err != nil {
+		t.Fatalf("set proxy: %v", err)
+	}
+
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if opts.Network.Proxy.Username != "" || opts.Network.Proxy.PasswordEnv != "" {
+		t.Fatalf("--proxy must clear the block's credentials, got %+v", opts.Network.Proxy)
+	}
+}
+
+// TestBuildProxyFromConfig pins that a network.proxy block reaches the resolved
+// policy unchanged when no --proxy flag overrides it.
+func TestBuildProxyFromConfig(t *testing.T) {
+	want := network.Proxy{
+		Protocol:    network.ProxySOCKS5,
+		Address:     "10.0.0.1:1080",
+		Username:    "u",
+		PasswordEnv: "PROXY_PW",
+	}
+	r := viperconfig.NewResolverWithConfig(viperconfig.Config{Network: network.Policy{Proxy: want}})
+
+	opts, err := Build(r.Config(), newRunCommand(), &termiotest.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if opts.Network.Proxy != want {
+		t.Fatalf("Proxy = %+v, want %+v", opts.Network.Proxy, want)
+	}
+}
+
+// TestBuildRejectsInvalidProxyFlag pins that the --proxy flag path is validated
+// at options resolution, like the --dns flag: each malformed value is rejected
+// before any VM work.
+func TestBuildRejectsInvalidProxyFlag(t *testing.T) {
+	for _, value := range []string{"10.0.0.1:1080", "ftp://10.0.0.1:1080", "socks5://10.0.0.1"} {
+		t.Run(value, func(t *testing.T) {
+			cmd := newRunCommand()
+			if err := cmd.Flags().Set(FlagProxy, value); err != nil {
+				t.Fatalf("set proxy: %v", err)
+			}
+			var r *viperconfig.Resolver
+			if _, err := Build(r.Config(), cmd, &termiotest.Mock{}); err == nil {
+				t.Fatalf("Build(--proxy %s) = nil error, want a rejection", value)
+			}
+		})
+	}
+}
+
 func TestBuildRejectsInvalidDNSServers(t *testing.T) {
 	for _, value := range []string{"garbage", "1.1.1.1:notaport", ":53", ":99999"} {
 		t.Run(value, func(t *testing.T) {
