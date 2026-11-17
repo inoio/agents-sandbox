@@ -782,6 +782,159 @@ func TestResetTransientClearsChildStateAndShells(t *testing.T) {
 	}
 }
 
+// TestShellTrackingRequiresStartBackgroundAndID pins the three operands of the
+// shell-start guard: only an event from a ShellStartedEvents list, flagged
+// background, with a non-empty shell id registers a running shell. A done while
+// any operand fails is plain; the positive control still reports the command
+// reason.
+func TestShellTrackingRequiresStartBackgroundAndID(t *testing.T) {
+	const root = "ses_root"
+	notAShellStart := []struct {
+		name  string
+		event agent.StreamEvent
+	}{
+		{
+			name:  "foreground shell",
+			event: agent.StreamEvent{Type: shellStarted, SessionID: root, ShellID: "sh_fg"},
+		},
+		{
+			name:  "non-start event carrying shell fields",
+			event: agent.StreamEvent{Type: execStarted, SessionID: root, ShellID: "sh_x", ShellBackground: true},
+		},
+		{
+			name:  "background shell with no id",
+			event: agent.StreamEvent{Type: shellStarted, SessionID: root, ShellBackground: true},
+		},
+	}
+	for _, tc := range notAShellStart {
+		t.Run(tc.name, func(t *testing.T) {
+			tr := NewTracker(opencode2Spec())
+			tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+			tr.Handle(tc.event)
+			n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+			if n == nil || n.Trigger != TriggerDone {
+				t.Fatalf("done = %+v, want a done", n)
+			}
+			if len(n.DoneReasons) != 0 || n.Title != "agents-sandbox: agent done" {
+				t.Fatalf("done = %+v, want a plain done (shell not registered)", n)
+			}
+		})
+	}
+
+	t.Run("background shell start registers", func(t *testing.T) {
+		tr := NewTracker(opencode2Spec())
+		tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+		tr.Handle(agent.StreamEvent{Type: shellStarted, SessionID: root, ShellID: "sh_ok", ShellBackground: true})
+		n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+		if n == nil || !slices.Equal(n.DoneReasons, []DoneReason{DoneCommandsRunning}) {
+			t.Fatalf("done = %+v, want [commands]", n)
+		}
+	})
+}
+
+// TestLiveDescendantsCountsAwaitingInputChild pins that an awaiting-input child
+// is live: a subagent blocked on a request still classifies the root's done.
+func TestLiveDescendantsCountsAwaitingInputChild(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	const root = "ses_root"
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_child", ParentID: root})
+	tr.Handle(agent.StreamEvent{Type: permissionAsked, SessionID: "ses_child", EventID: "e1"})
+
+	n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+	if n == nil || !slices.Equal(n.DoneReasons, []DoneReason{DoneSubagentsRunning}) {
+		t.Fatalf("done with a child awaiting input = %+v, want [subagents]", n)
+	}
+}
+
+// TestLiveDescendantsSkipsNonDescendantsBeforeLaterOnes pins the per-candidate
+// skip: a parentOf entry that is not a descendant of the done session must not
+// stop the walk before a later, real descendant is counted. The determinism —
+// and so the continue-vs-break kill — depends on liveDescendants iterating in
+// sorted order: the skipped id must sort first.
+func TestLiveDescendantsSkipsNonDescendantsBeforeLaterOnes(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	const root = "ses_root"
+	tr.Seed([]agent.SessionRef{
+		{ID: "ses_a", ParentID: "ses_other"}, // not a descendant, sorts first
+		{ID: "ses_child", ParentID: root},
+	})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: root})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: "ses_child"})
+
+	n := tr.Handle(agent.StreamEvent{Type: execSucceeded, SessionID: root})
+	if n == nil || !slices.Equal(n.DoneReasons, []DoneReason{DoneSubagentsRunning}) {
+		t.Fatalf("done = %+v, want [subagents] from the descendant after the skipped entry", n)
+	}
+}
+
+// TestLiveDescendantsExcludesSessionItself pins that a session is never counted
+// as its own descendant, even on a malformed self-parent chain.
+func TestLiveDescendantsExcludesSessionItself(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	tr.Seed([]agent.SessionRef{{ID: "S", ParentID: "S"}})
+	tr.states["S"] = stateBusy
+
+	if got := tr.liveDescendants("S"); got != 0 {
+		t.Fatalf("liveDescendants(self-parent) = %d, want 0", got)
+	}
+}
+
+// TestDescendsFromRejectsACycleOffTheAncestor pins the cycle answer directly,
+// without a timeout: a chain that enters a cycle the ancestor is not on is not a
+// descendant chain, so descendsFrom(S, X) is false for an unrelated X. The
+// positive controls cover the two true paths — an ancestor on the chain before
+// the cycle (B) and one inside the cycle (C) — so a guard that answered true for
+// every repeat can no longer over-count live descendants.
+func TestDescendsFromRejectsACycleOffTheAncestor(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	tr.Seed([]agent.SessionRef{
+		{ID: "S", ParentID: "B"},
+		{ID: "B", ParentID: "C"},
+		{ID: "C", ParentID: "B"},
+	})
+
+	if tr.descendsFrom("S", "X") {
+		t.Errorf("descendsFrom(S→B↔C, X) = true, want false: the chain never reaches X")
+	}
+	if !tr.descendsFrom("S", "B") {
+		t.Errorf("descendsFrom(S→B↔C, B) = false, want true: B is on the chain")
+	}
+	if !tr.descendsFrom("S", "C") {
+		t.Errorf("descendsFrom(S→B↔C, C) = false, want true: C is in the cycle")
+	}
+}
+
+// TestParentWalkIntoCycleTerminates pins that both walks terminate when a
+// parent chain leads *into* a cycle that does not contain the starting session:
+// topLevelAncestor must return, and liveDescendants must not spin. The walks are
+// called directly in a goroutine, not through Watch; termination is their only
+// observable effect, so the cycle guard is asserted via the timeout. The
+// unrelated root R walks X, whose chain X→A enters the A↔B cycle.
+func TestParentWalkIntoCycleTerminates(t *testing.T) {
+	tr := NewTracker(opencode2Spec())
+	tr.Seed([]agent.SessionRef{
+		{ID: "X", ParentID: "A"},
+		{ID: "A", ParentID: "B"},
+		{ID: "B", ParentID: "A"},
+	})
+
+	result := make(chan string, 1)
+	go func() {
+		tr.liveDescendants("R")
+		result <- tr.topLevelAncestor("X")
+	}()
+
+	select {
+	case got := <-result:
+		if got != "A" && got != "B" {
+			t.Errorf("topLevelAncestor(X→A→B→A) = %q, want an ancestor in the cycle", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("parent walk into a cycle did not terminate")
+	}
+}
+
 // TestSeedRecordsTitlesAndParents pins that the seed teaches both the parent
 // link (so a later-live seeded child classifies the done) and the title (so the
 // body names the session).

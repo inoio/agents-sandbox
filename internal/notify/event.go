@@ -2,6 +2,7 @@ package notify
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -188,11 +189,8 @@ func (t *Tracker) observe(e agent.StreamEvent) {
 // removeShell deletes shellID from every session's running set. A tool shell's
 // end carries no session id, so the owning session cannot be named; a shell id
 // is unique, so scanning every set is unambiguous and a no-op when the start
-// never added it.
+// never added it (an empty id is never recorded, see observe).
 func (t *Tracker) removeShell(shellID string) {
-	if shellID == "" {
-		return
-	}
 	for _, running := range t.shells {
 		delete(running, shellID)
 	}
@@ -220,7 +218,7 @@ func (t *Tracker) inputNotification(e agent.StreamEvent) *Notification {
 // holds or synthesizes; the backend gates the alert. Off SubtreeDoneStates
 // (v1), it is always the plain done.
 func (t *Tracker) doneNotification(sessionID string) *Notification {
-	subagents, commands := 0, 0
+	var subagents, commands int
 	if t.spec.SubtreeDoneStates {
 		subagents = t.liveDescendants(sessionID)
 		commands = len(t.shells[sessionID])
@@ -286,7 +284,9 @@ func (t *Tracker) topLevelAncestor(sessionID string) string {
 // awaiting input), so a done with one pending subagent can name it.
 func (t *Tracker) liveDescendants(sessionID string) int {
 	count := 0
-	for candidate := range t.parentOf {
+	// Sorted iteration makes the walk order deterministic, so a loop-control
+	// change (a break instead of a continue) cannot hide behind map order.
+	for _, candidate := range slices.Sorted(maps.Keys(t.parentOf)) {
 		if candidate == sessionID || !t.descendsFrom(candidate, sessionID) {
 			continue
 		}

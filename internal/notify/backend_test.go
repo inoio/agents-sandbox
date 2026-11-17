@@ -249,6 +249,12 @@ func TestDoneGatingByReason(t *testing.T) {
 			[]DoneReason{DoneSubagentsRunning, DoneCommandsRunning},
 			false,
 		},
+		{
+			"unknown reason is dropped even with every toggle on",
+			Config{OnDone: true, OnDoneSubagentsRunning: true, OnDoneCommandsRunning: true},
+			[]DoneReason{DoneReason(99)},
+			false,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cb := &compositeBackend{cfg: tc.cfg}
