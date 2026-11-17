@@ -165,9 +165,11 @@ Configuration is resolved in this order (later entries override earlier ones):
 | `upgrade.channel`                | —                        | `AGENTS_SANDBOX_UPGRADE_CHANNEL`                                | Opt into a release channel: `stable` (default) or `canary` (see [Self-upgrade]({% link configuration/self-upgrade.md %}))                                                                                                                                |
 | `notify.desktop`                 | —                        | `AGENTS_SANDBOX_NOTIFY_DESKTOP`                                 | Show desktop notifications via `notify-send` (Linux) / `osascript` (macOS) (default false, see [Notifications]({% link configuration/notifications.md %}))                                                                                                |
 | `notify.audio`                   | —                        | `AGENTS_SANDBOX_NOTIFY_AUDIO`                                   | Audio notification channel: `system`, `bell`, or `off` (default `off`, see [Notifications]({% link configuration/notifications.md %}))                                                                                                                  |
-| `notify.on-input`                | —                        | `AGENTS_SANDBOX_NOTIFY_ON_INPUT`                                | Notify when the agent is waiting on user input (default false)                                                                                                                                                               |
-| `notify.on-done`                 | —                        | `AGENTS_SANDBOX_NOTIFY_ON_DONE`                                 | Notify when a `busy` session returns to `idle` (default false)                                                                                                                                                               |
-| `notify.on-error`                | —                        | `AGENTS_SANDBOX_NOTIFY_ON_ERROR`                                | Notify on a `session.error` event (default false)                                                                                                                                                                            |
+| `notify.on-input`                | —                        | `AGENTS_SANDBOX_NOTIFY_ON_INPUT`                                | Notify when the agent is waiting on user input (default true; only a set `notify:` section is active, see [Notifications]({% link configuration/notifications.md %}))                                                    |
+| `notify.on-done`                 | —                        | `AGENTS_SANDBOX_NOTIFY_ON_DONE`                                 | Notify when a top-level session is fully at rest (default true, see [Notifications]({% link configuration/notifications.md %}))                                                                                          |
+| `notify.on-error`                | —                        | `AGENTS_SANDBOX_NOTIFY_ON_ERROR`                                | Notify on a session error (default true, see [Notifications]({% link configuration/notifications.md %}))                                                                                                                 |
+| `notify.on-done-subagents-running` | —                      | `AGENTS_SANDBOX_NOTIFY_ON_DONE_SUBAGENTS_RUNNING`               | Let a done alert fire while a subagent (child) session is still live (default false, see [Notifications]({% link configuration/notifications.md %}))                                                                     |
+| `notify.on-done-commands-running` | —                       | `AGENTS_SANDBOX_NOTIFY_ON_DONE_COMMANDS_RUNNING`                | Let a done alert fire while a background command is still running (default false, see [Notifications]({% link configuration/notifications.md %}))                                                                        |
 | `notify` (override)              | `--notify`               | `AGENTS_SANDBOX_NOTIFY`                                         | Override the notify mode for one invocation: `on`, `off`, `desktop`, or `audio` (see [Notifications]({% link configuration/notifications.md %}))                                                                                                        |
 
 Every field in this table can also be set with its environment variable, except the list and map fields shown with
@@ -207,8 +209,10 @@ notify:
   desktop: true      # notify-send (Linux) / osascript (macOS)
   audio: system      # system | bell | off
   on-input: true     # agent waiting on input
-  on-done: true      # busy -> idle
-  on-error: true     # session.error
+  on-done: true      # a top-level session is fully at rest
+  on-error: true     # session error
+  on-done-subagents-running: false   # alert a done while a subagent is live
+  on-done-commands-running: false    # alert a done while a background command runs
 upgrade:
   mode: notify
   interval: "7d"
