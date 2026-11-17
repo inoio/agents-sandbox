@@ -1,14 +1,15 @@
 ---
-description: Contract for learn mode - a session in which the user sets an agent up inside the sandbox and exercises it, after which the launcher reads the sandbox home back, derives what the session actually used, and proposes agents-sandbox managed configuration (agent config, static secrets, network posture) for the per-slug user scope; the three first-run choices, the four journeys, the three observation approaches, and the invariants that bind the proposal.
-read_if: Working on learn mode, the after-run analyser, a `run --learn` / `config learn` surface, the first-run choice between learning and self-configuration, proposing a learned network policy or secrets from a session, folding `config harden` into run analysis, or the observation channel (host DNS resolver, outbound proxy, TLS interception); or choosing between the passive-read-back, launcher-owned-network, and interception approaches.
+description: Contract for learn mode - a session in which the user sets an agent up inside the sandbox and exercises it, after which the launcher reads the sandbox home back, derives what the session actually used, and proposes agents-sandbox managed configuration (agent config, static secrets, network posture) for the per-slug user scope; the three first-run choices, the four journeys, the chosen observation channel (passive read-back plus a launcher-owned terminating proxy), and the invariants that bind the proposal.
+read_if: Working on learn mode, the after-run analyser, a `run --learn` / `config learn` surface, the first-run choice between learning and self-configuration, proposing a learned network policy or secrets from a session, folding `config harden` into run analysis, or the observation channel (host DNS resolver, outbound proxy, TLS termination); or the evidence that settled the observation approach (the 2026-11-15 host-side spike).
 ---
 
 # Learn mode
 
-Status: designed. The observation approach is unresolved: it depends on a validation spike whose experiments decide
-whether a finished session's destinations can be observed at all (home-volume read-back per harness, host DNS resolver
-under each profile, outbound-proxy reachability and completeness, denial observability, TLS-interception prerequisites,
-streaming cost). Everything except "Observation approaches" is independent of that outcome.
+Status: designed. The observation approach is settled by a host-side spike (run 2026-11-15): passive read-back (A)
+always, plus a launcher-owned terminating proxy (C) for the destination and attribution facts. The spike confirmed
+that termination works, that the credential header name and destination are visible, and that proxying adds no
+measurable cost; two parts are still open — its per-harness read-back check (S1) ran only for opencode2, and the
+end-to-end agent turn through the proxy awaits the launcher's proxy surface (`#149`).
 
 ## Intent
 
@@ -79,72 +80,90 @@ Without the channel the analyser still establishes 1–3 and proposes no network
 
 ## Observation approaches
 
-Three approaches, ordered by cost. All three are viable; they differ in fidelity and in what they require of the
-runtime.
+Two channels ship. A (passive read-back) is always needed for the config and secret facts; C (a launcher-owned
+terminating proxy) adds the destination and attribution facts. B is the same proxy without TLS termination and is not
+a separate approach — the attribution requirement (fact 7) makes the terminating setting the one that runs.
 
 ### A — passive read-back
 
 After the session, read the home volume: agent config, credential stores, session transcripts, agent logs, shell
-history. Establishes 1–3 completely and 4–7 only where the harness happens to record them (usually failure paths, and
-never as reliable attribution).
+history, and the agent's own databases. Establishes 1–3 and 4–7 only where the harness happens to record them (usually
+failure paths, and never as reliable attribution).
 
 - Needs: nothing new. The home volume is host-readable by path.
 - Gives: configured providers, static secrets, login presence, harness-specific host and error mentions.
 - Does not give: the destinations actually used, or which credential went where. Alone, it cannot propose a network or
   secret-substitution change.
+- Reading a credential is not always reading a file. opencode2 writes no config file and keeps its API key inline in
+  `~/.local/share/opencode/opencode.db` (a SQLite `credential` row), with its sessions and logs in the same DB or
+  beside it, so A must parse the agent's database, not only config files. The spike verified this for opencode2 alone;
+  the other harnesses' layouts are unverified.
 
 ### B — opaque egress observation
 
 A CONNECT/SOCKS proxy the launcher owns, with the sandbox pointed at it. Gives facts 4–6 for every TCP destination,
 independent of the harness's proxy handling, with counts and timestamps.
 
-- Needs: the `proxy:` config surface (first-class outbound proxy, `#149`), which is unlanded; the proxy dial must also
-  be reachable under the policy — the composition question in `#149`.
+- Needs: the `proxy:` config surface (first-class outbound proxy, `#149`), which is unlanded. The spike confirmed the
+  dial itself is not a policy problem — under bare `none`, an HTTP CONNECT and a SOCKS5 proxy on the host loopback are
+  both reachable and the dial bypasses the egress policy, so the proxy needs no widening of the user's posture.
 - Does not give: fact 7. An opaque tunnel cannot see the request, so a credential can be attributed only from the
   config, which is the declaration model this mode exists to replace.
 - Worth noting what it does not need: certificates. A blind tunnel has no trust problem, so it works with any client.
 
 DNS pointed at a launcher-owned resolver (`network.dns-servers`) is a cheaper variant that yields domains but not
-ports, counts, or success, and misses IP-literal and UDP paths. Once the proxy exists it is corroboration, not a
-source.
+ports, counts, or success, and misses IP-literal and UDP paths. The spike confirmed the runtime forwards the guest's
+queries to a host-owned resolver (up to the runtime's own NXDOMAIN answer for a non-allowlisted name under `none`), so
+it is usable corroboration — but once the proxy exists it is corroboration, not a source.
 
 ### C — TLS termination
 
 The same host-owned proxy terminates TLS for the intercepted ports with its own CA, so it sees the request target and
-the credential-bearing header.
+the credential-bearing header. This is the chosen channel.
 
-- Gives: everything B gives, plus fact 7, plus per-destination request paths.
-- Needs: a CA the guest trusts, on top of B's proxy. That is the real cost: agentd installs microsandbox's own
-  interception CA at `/.msb/tls/ca.pem` and points `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, and
-  `NODE_EXTRA_CA_CERTS` at it, so our CA has to join that file (startup hook) for the system-store consumers, and
-  `msb-trust` has to import it for Java and Chrome. Clients that pin certificates cannot be intercepted at all, and a
-  pinned provider would have to fall back to config-derived attribution with a warning.
-- Interacts with microsandbox's own interception, which turns on implicitly whenever a secret is configured (UC4
-  seeds placeholders, so this is the normal case, not the edge). Two interception layers with different CAs cannot
-  both terminate the same connection, so explicit control (`#151`) is a prerequisite — not to observe, but to keep the
-  runtime's interception off while ours runs.
+- Gives: everything B gives, plus fact 7, plus per-destination request paths. The spike saw destinations by IP and by
+  `Host`, and the credential-bearing header names (`authorization`, `x-api-key`), for a static key.
+- Needs: a CA the guest trusts, on top of B's proxy. agentd installs microsandbox's own interception CA at
+  `/.msb/tls/ca.pem` and points `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, and `NODE_EXTRA_CA_CERTS` at
+  it, so our CA has to join that file (startup hook) for the system-store consumers, and `msb-trust` has to import it
+  for Java and Chrome. The spike confirmed `curl`, `git` over HTTPS and `npm` work through termination once the CA is
+  planted; it did not exercise `msb-trust java`/`chrome` (absent from the base image) or a certificate-pinning client
+  (none installed), so pinning still falls back to config-derived attribution with a warning, unverified.
+- Coexists with microsandbox's own interception, which turns on implicitly whenever a secret is configured (UC4 seeds
+  placeholders, so this is the normal case). The two layers **chain** rather than collide: the runtime terminates the
+  guest's connection and re-originates upstream, so once the runtime trusts our proxy's CA the runtime's intercepted —
+  and secret-substituted — request reaches our proxy, which attributes the real credential. Explicit control (`#151`) is
+  therefore needed only to turn the runtime's layer off, not to coexist with it. This is what lets fact 7 hold even
+  when the runtime substitutes in flight, as UC4's placeholders make it; the spike observed exactly that.
+- **A terminating proxy handles real credential values in flight.** That is inherent, not avoidable: the value must
+  cross the channel to be attributed. It is the ground behind invariant 3 — the recorded artefact keeps header names,
+  never values, and the channel and its raw capture are treated as secret material.
 
-### Recommended approach
+### Chosen approach
 
-One component, not two: a launcher-owned host proxy that logs every destination and terminates TLS for attribution.
-B's blind tunnel and C's termination are the same proxy at two settings, and the attribution requirement makes the
-terminating setting the one that ships. A remains the only source of the config and secret facts either way, and is
-the only path that works when the channel is unavailable.
+A launcher-owned host proxy that logs every destination and terminates TLS for attribution, plus the passive read-back
+that is always needed. B's blind tunnel and C's termination are the same proxy at two settings; the attribution
+requirement makes the terminating setting the one that ships. A remains the only source of the config and secret
+facts, and the only path that works when the channel is unavailable.
 
-The alternatives not carried forward: harvesting denial messages from the agent's own output (brittle per harness, and
-only sees failures); keeping the curated provider table as the source (the declaration model this replaces); and
-leaving attribution to the config alone (it answers "which key is configured for this provider", never "which key this
-provider received", which is what the proposal promises).
+The alternatives not carried forward: the runtime's own interception (the spike read its debug logs — it records
+destinations but never a successful substitution or a header field name, so it cannot supply fact 7 and C runs
+regardless); harvesting denial messages from the agent's own output (brittle per harness, and only sees failures,
+which the spike also confirmed — a denial leaves no launcher-readable record); keeping the curated provider table as
+the source (the declaration model this replaces); and leaving attribution to the config alone (it answers "which key is
+configured for this provider", never "which key this provider received", which is what the proposal promises).
 
 ## Prerequisites and phasing
 
-Approach A, the analyser, and `config harden` need nothing that is not in `main`. The proxy needs the `proxy:` config
-surface (`#149`) to ship and explicit interception control (`#151`) to coexist with microsandbox's own interception;
-neither is a prerequisite for the spike, which drives the SDK and a standalone proxy directly.
+Approach A, the analyser, and `config harden` need nothing that is not in `main`. The pinned SDK (v0.7.15) already
+exposes the outbound proxy (SOCKS4/5, HTTP CONNECT) and TLS interception with a launcher-supplied CA; `#149` and
+`#151` are the launcher's own config surfaces for those, not SDK prerequisites. `#149` is what lets the proxy ship as
+a config surface. `#151` is needed only to turn the runtime's own interception off; with it left on, the two layers
+chain and attribution still holds.
 
-Phasing: the spike first (it decides whether TLS termination is workable at all); then A plus the analyser plus
-harden; then the proxy, which adds facts 4–7 and therefore UC2's detection signal; then the `header_fields` scope
-derived from attribution.
+Phasing: the spike (run 2026-11-15; S1 still partial, covering opencode2 only); then A plus the analyser plus harden;
+then the proxy, which adds facts 4–7 and therefore UC2's detection signal; then the `header_fields` scope derived from
+attribution.
 
 ## Session boundary
 
@@ -214,13 +233,30 @@ wildcard entry) or, when a session has been analysed, evidenced by that session.
 1. **Propose, never apply silently.** No destination, secret, or posture change lands without an explicit acceptance.
 2. **The credential store is never copied out of the sandbox.** Static secrets are extracted into the host-side secret
    file; login credentials stay where they are.
-3. **Observation is local, minimal, and ephemeral.** The proxy records destinations, request paths, and the names of
-   credential-bearing headers — never request bodies, never header values. The artefacts stay on the host, are deleted
-   after analysis by default, and are never uploaded.
+3. **Observation is local, minimal, and ephemeral.** A terminating channel handles real credential values in flight —
+   necessarily, since attribution needs them — so the channel and any raw capture are secret material. The *recorded
+   artefact* holds destinations, request paths, and credential-bearing header **names**, never request bodies and
+   never header values; a raw flow capture is scrubbed of values before it is kept. Artefacts stay on the host, are
+   deleted after analysis by default, and are never uploaded.
 4. **No widening.** Learn mode learns what was used; it never removes a user-set entry or broadens a policy.
 5. **No curated knowledge in the learned path.** A proposal derived from a table rather than from the session is a
    different feature and must not be mixed in.
 6. **Non-interactive never hangs.** Warn and continue, as everywhere else in onboarding.
+
+## Open validation
+
+The 2026-11-15 spike settled the channel but left four checks unrun; none blocks the design, and each is a known
+limitation of what the proposal may claim until it is closed:
+
+- **Per-harness read-back (S1)** — verified for opencode2 only (whose credential is a SQLite row). The other harnesses'
+  layouts, and whether any keep config outside the home volume, are unverified.
+- **QUIC/HTTP3 bypass** — with the proxy active, only TCP consumers were tested; a QUIC client may reach the network
+  directly, so the learned destination set is authoritative for TCP, not exhaustive.
+- **Certificate pinning** — no pinning client was available to test, so the fallback to config-derived attribution is
+  unverified.
+- **`msb-trust java` / `chrome`** — the base image has neither, so the Java/Chrome trust imports are unverified.
+- **The end-to-end agent turn through the proxy** — measured only with synthetic operations; the real streaming turn
+  awaits the launcher's proxy surface (`#149`).
 
 ## Deferred
 
