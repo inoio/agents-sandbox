@@ -26,6 +26,7 @@ deny-by-default, allowlist-only policy.
 | `intercept-tls`     | string   | `auto`, `on`, or `off`. Defaults to `auto`: interception follows the secret configuration, or a configured `tls-bypass`. `off` with a secret configured is rejected. |
 | `tls-bypass`        | []string | Hosts microsandbox must not intercept: an exact host, or a `*.suffix` covering its subdomains. |
 | `disable-strict`    | bool     | Drops microsandbox's strict-hostname enforcement. Defaults to `false`.                                                |
+| `proxy`             | map      | Outbound proxy for the VM's egress (see [Outbound proxy](#outbound-proxy)).                                           |
 
 - `public` (the default) allows egress to the public internet only; `private` allows the private/LAN ranges (RFC 1918,
   ULA, CGN) — your whole local network, including other machines, not just the host, and any private resources you reach
@@ -167,6 +168,49 @@ flip does not: `auto` and `off` without a bypass both emit no interception, and 
 emit the same one. None of the three has a CLI flag; `tls-bypass` is config-file-only, while `intercept-tls` and
 `disable-strict` also accept the `AGENTS_SANDBOX_NETWORK_INTERCEPT_TLS` and `AGENTS_SANDBOX_NETWORK_DISABLE_STRICT`
 environment variables.
+
+## Outbound proxy
+
+Use an outbound proxy when the VM must reach the internet through a corporate egress proxy instead of dialing
+destinations directly. The VM sends its traffic to the proxy, and the proxy makes the outbound connection.
+
+Configure the proxy with a `proxy:` block under `network:`:
+
+```yaml
+network:
+  proxy:
+    protocol: socks5
+    address: proxy.example.com:1080
+    username: egress              # optional; SOCKS5 and HTTP CONNECT only
+    password-env: PROXY_PASSWORD  # optional; the host env var holding the password
+```
+
+| Key | Values | Effect |
+|-----|--------|--------|
+| `protocol` | `http-connect`, `socks5`, `socks4` | The proxy protocol. Required. |
+| `address` | `host:port` | The proxy's address. Required. |
+| `username` | string | The proxy username, for `http-connect` and `socks5`. |
+| `password-env` | name of a host environment variable | The env var whose value is the proxy password, for `http-connect` and `socks5`. |
+
+Credentials are carried for `http-connect` and `socks5` only. SOCKS4 has no credential support in the runtime, so a
+`socks4` proxy that sets `username` or `password-env` is rejected at config-load time with an error naming the
+protocol. Set `username` and `password-env` together: a value for one without the other is also rejected.
+
+Override the block for one run with `--proxy protocol://host:port` on `run`/`shell`. The address carries no
+credentials — the flag replaces the whole block, so `--proxy` cannot supply a username or password. Use the config
+keys when the proxy needs credentials.
+
+The proxy address needs **no** `egress-allow` entry. The runtime dials the proxy on the host, outside the VM's egress
+policy, so the destination's allow rules govern what the VM may reach and the proxy address does not. The launcher
+adds nothing to `egress-allow` for the proxy and does not reject a policy that omits it, and the VM never sees the
+proxy address as a destination.
+
+> **Note:** Under the runtime's strict-hostname mode, the destination's own egress can still be denied before the
+> proxy is consulted. See [TLS interception and the strict-hostname mode](#tls-interception-and-the-strict-hostname-mode).
+
+Like the rest of the `network:` block, the proxy is part of the network fingerprint and is creation-only: changing any
+`proxy` value recreates the VM on the next run (see
+[Resource Config Application]({% link configuration/launcher.md %}#resource-config-application)).
 
 ## Published ports
 
