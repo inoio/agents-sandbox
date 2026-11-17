@@ -119,8 +119,6 @@ func decodeNotify(v *viper.Viper) NotifyConfig {
 	cfg.OnInput = true
 	cfg.OnDone = true
 	cfg.OnError = true
-	cfg.OnDoneSubagentsRunning = false
-	cfg.OnDoneCommandsRunning = false
 	if v.IsSet(keyNotifyOnInput) {
 		cfg.OnInput = v.GetBool(keyNotifyOnInput)
 	}

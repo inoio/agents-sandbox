@@ -338,6 +338,14 @@ func TestDecodeNotifyReadsEveryKeyIndependently(t *testing.T) {
 				OnDoneSubagentsRunning: true,
 			},
 		},
+		{
+			name: "on-done-commands-running only",
+			set:  func(v *viper.Viper) { v.Set(keyNotifyOnDoneCommandsRunning, true) },
+			want: NotifyConfig{
+				Audio: off, OnInput: true, OnDone: true, OnError: true,
+				OnDoneCommandsRunning: true,
+			},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
