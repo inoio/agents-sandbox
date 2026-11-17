@@ -1,5 +1,5 @@
 ---
-description: The launcher's network surfaces for TLS interception and an outbound egress proxy - `network.intercept-tls` (auto/on/off, and that `off`-with-secrets is not expressible) and how it interacts with secret-implied interception, `network.tls-bypass`, `network.disable-strict`, `network.proxy.*`/`--proxy` for SOCKS4/5 and HTTP CONNECT, the protocol/credential matrix, the proxy-reachability composition rule (the dial is host-side and needs no allow entry), the runtime's strict-hostname limit on non-intercepted allowlisted egress, and why every field is part of the network fingerprint and therefore creation-only.
+description: The launcher's network surfaces for TLS interception and an outbound egress proxy - `network.intercept-tls` (auto/on/off, and that `off` is rejected when secrets are configured) and how it interacts with secret-implied interception, `network.tls-bypass`, `network.disable-strict`, `network.proxy.*`/`--proxy` for SOCKS4/5 and HTTP CONNECT, the protocol/credential matrix, the proxy-reachability composition rule (the dial is host-side and needs no allow entry), the runtime's strict-hostname limit on non-intercepted allowlisted egress, and why every field is part of the network fingerprint and therefore creation-only.
 read_if: Working on the launcher's TLS-interception or outbound-proxy config surface - `intercept-tls`/`tls-bypass`/`disable-strict`, secret-implied interception, a host that must skip interception (a package or image registry), `proxy.*`/`--proxy` or its credentials, the composition of a proxy with an egress policy, or why a bypassed or `none`-allowlisted host is denied without interception (strict hostname mode); or why a network change recreates the VM.
 ---
 
@@ -22,10 +22,10 @@ makes that explicit and controllable.
 - `on`: interception is requested regardless of secrets.
 - `off`: interception is requested off.
 
-`off` while secrets are configured **cannot be expressed**: the runtime re-enables its own interception for
-substitution whenever a secret is configured, so a nil TLS field does not disable it. The launcher therefore rejects
+`off` while secrets are configured **is rejected**: the runtime re-enables its own interception for substitution
+whenever a secret is configured, so a nil TLS field does not disable it. The launcher therefore rejects
 `off`-with-secrets with an actionable error naming the limitation rather than claiming to disable it and silently
-leaving interception on.
+leaving interception on. `off` without secrets is accepted.
 
 ### `network.tls-bypass`
 

@@ -74,7 +74,7 @@ type Proxy struct {
 //   TLSBypass     []string      `mapstructure:"tls-bypass" env:"-"`     // S2
 //   DisableStrict bool          `mapstructure:"disable-strict"`         // S2
 //   Proxy         Proxy         `mapstructure:"proxy"`                  // S3
-// Fingerprint/Describe/Empty include all four.
+// Fingerprint/Describe/Empty account for all four.
 //
 // As re-scoped (see the S2 re-scope note below): S2 exposes the controls only. It
 // does no registry handling, and the in-VM `docker build` CA case is documented as

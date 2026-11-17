@@ -1,6 +1,6 @@
 ---
 title: Networking
-description: "Control the sandbox VM's network egress: composable public, private, and host profiles, the allowlist-only none profile, and explicit allow lists."
+description: "Control the sandbox VM's network egress and TLS interception: composable public, private, and host profiles, the allowlist-only none profile, explicit allow lists, and the intercept-tls, tls-bypass, and disable-strict keys."
 layout: default
 parent: Configuration
 nav_order: 30
@@ -158,9 +158,9 @@ network:
 For the in-VM `docker build` case, see [Trust the CA in Docker]({% link recipes/docker-ca-trust.md %}).
 
 All three keys are creation-only: they are part of the network fingerprint, so changing one recreates the VM on the next
-run (see [Resource Config Application]({% link configuration/launcher.md %}#resource-config-application)). They are
-config-file-only; `intercept-tls` and `disable-strict` also accept the `AGENTS_SANDBOX_NETWORK_INTERCEPT_TLS` and
-`AGENTS_SANDBOX_NETWORK_DISABLE_STRICT` environment variables.
+run (see [Resource Config Application]({% link configuration/launcher.md %}#resource-config-application)). None of the
+three has a CLI flag; `tls-bypass` is config-file-only, while `intercept-tls` and `disable-strict` also accept the
+`AGENTS_SANDBOX_NETWORK_INTERCEPT_TLS` and `AGENTS_SANDBOX_NETWORK_DISABLE_STRICT` environment variables.
 
 ## Published ports
 
