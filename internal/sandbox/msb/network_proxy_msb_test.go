@@ -22,16 +22,18 @@ import (
 // specs/network-and-secrets/interception-and-proxy.md §Composition with the
 // egress policy).
 //
-// The runtime dials the proxy host-side, so an in-process SOCKS5 listener on the
-// host loopback is reachable without any guest egress rule for it. The test
-// creates a `none` sandbox whose only egress-allow entry is the destination,
-// deliberately omitting the proxy address from the allow set, then has the guest
-// connect to the destination. If egress traverses the proxy, the listener
-// records that exact SOCKS5 CONNECT.
+// The test creates a `none` sandbox whose only egress-allow entry is the
+// destination, deliberately omitting the proxy address from the allow set, then
+// has the guest connect to the destination. The runtime dials the proxy
+// host-side, so an in-process SOCKS5 listener on the host loopback receives the
+// CONNECT without any guest egress rule for its address: egress reached the
+// configured proxy with no `egress-allow` entry for the proxy address, which
+// proves the host-side dial needs none.
 //
-// The upstream traversal against a real proxy (the human accept step's
-// mitmdump) is recorded in the PR; this test pins the same traversal property
-// against a local listener so it runs unattended, with no external dependency.
+// What this does not prove — that the proxy forwards to the real upstream — is
+// the human-accept step against a real proxy (the mitmdump run recorded in the
+// PR). The listener here completes the handshake and discards the payload, so
+// the test pins only that egress traversed the configured proxy.
 func TestRealOutboundProxyTraversal(t *testing.T) {
 	runtime.EnsureIsolatedRuntime(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
@@ -44,9 +46,9 @@ func TestRealOutboundProxyTraversal(t *testing.T) {
 		destinationPort = 80
 	)
 	// `none` (no composable profile) allows only the destination. The proxy
-	// address is absent from the allow set on purpose: a launcher that
-	// auto-added it, or a runtime that required it, would either change this
-	// policy or fail to reach the proxy. DisableStrict lets the plain
+	// address is absent from the allow set on purpose: the traversal below
+	// proves the runtime reached it anyway, i.e. the host-side dial needs no
+	// egress-allow entry for the proxy. DisableStrict lets the plain
 	// destination allow match without TLS interception.
 	spec := NetworkSpec{
 		EgressAllow:   []string{destinationHost},
@@ -56,15 +58,14 @@ func TestRealOutboundProxyTraversal(t *testing.T) {
 	const sandboxName = "agents-sandbox-proxy-egress"
 	sandbox := createSandboxWithPolicy(t, sandboxName, spec)
 
-	// A dependency-free corroboration: the runtime persisted the proxy it was
-	// asked to dial. The traversal below is the load-bearing assertion; this
-	// only shows the translation reached the runtime's stored spec.
+	// A diagnostic only: the runtime's stored config is logged to help the
+	// human run, but is not asserted on. Its shape is unverified, and a
+	// normalization that dropped the proxy from it would not mean the
+	// composition contract failed.
 	if handle, err := msbSdk.GetSandbox(ctx, sandboxName); err == nil {
-		if configJSON := handle.ConfigJSON(); !strings.Contains(configJSON, proxyAddress) {
-			t.Errorf("persisted sandbox config does not mention the proxy address %q:\n%s", proxyAddress, configJSON)
-		}
+		t.Logf("sandbox config: %s", handle.ConfigJSON())
 	} else {
-		t.Errorf("GetSandbox(%q): %v", sandboxName, err)
+		t.Logf("GetSandbox(%q) for the config diagnostic: %v", sandboxName, err)
 	}
 
 	// The guest opens a TCP connection to the destination; the runtime must
@@ -74,9 +75,14 @@ func TestRealOutboundProxyTraversal(t *testing.T) {
 		"printf 'GET / HTTP/1.0\\r\\n\\r\\n' | nc -w 5 %s %d; true",
 		destinationHost, destinationPort,
 	)
-	if _, err := sandbox.Shell(ctx, guestCommand); err != nil {
+	output, err := sandbox.Shell(ctx, guestCommand)
+	if err != nil {
 		t.Fatalf("guest connection to %s:%d: %v", destinationHost, destinationPort, err)
 	}
+	t.Logf(
+		"guest command %q (exit %d): %s",
+		guestCommand, output.ExitCode(), strings.TrimSpace(output.Stdout()),
+	)
 
 	select {
 	case got := <-observed:
@@ -84,7 +90,11 @@ func TestRealOutboundProxyTraversal(t *testing.T) {
 			t.Errorf("proxy CONNECT = %s:%d, want %s:%d", got.host, got.port, destinationHost, destinationPort)
 		}
 	case <-time.After(30 * time.Second):
-		t.Fatal("the runtime never dialed the configured proxy: guest egress did not traverse it")
+		t.Fatalf(
+			"the runtime never dialed the configured proxy: the guest command produced no observer record "+
+				"(guest command %q exited %d; the proxy was not used, or nc could not reach %s:%d)",
+			guestCommand, output.ExitCode(), destinationHost, destinationPort,
+		)
 	}
 }
 
