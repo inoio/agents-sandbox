@@ -95,10 +95,10 @@ The channel can sit in one of two places:
 - **T2** — the runtime terminates the guest's connection and re-originates upstream to a host endpoint the launcher
   owns, which the runtime must trust as an upstream CA.
 
-The spike observed the **chaining** that makes T2 viable: with a configured secret the runtime intercepted the
-request, substituted the placeholder in flight, and re-originated to our proxy, where the real credential was
-attributed exactly once while the placeholder never appeared. S1 records T1 or T2 as the settled answer; facts 4–7
-hold under either.
+The settled topology is **T2**: with a configured secret and `TLS.UpstreamCACerts` trusting our proxy's CA, the runtime
+intercepted the guest's connection, substituted the placeholder in flight, and re-originated to our proxy, where the
+real credential was attributed exactly once (`authorization`) while the placeholder never appeared. The launcher does
+not plant its CA in the guest; facts 4–7 hold under T2.
 
 ## CA generation and trust placement
 
