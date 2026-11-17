@@ -69,7 +69,13 @@ func TestParseOpencodeV1SessionList(t *testing.T) {
 		{"id":"ses_blank","parentID":""}
 	]`
 	got := parseOpencodeV1SessionList([]byte(payload))
-	if want := []string{"ses_child"}; !slices.Equal(got, want) {
+	want := []SessionRef{
+		{ID: "ses_top"},
+		{ID: "ses_child", ParentID: "ses_top"},
+		{ID: "ses_bare"},
+		{ID: "ses_blank"},
+	}
+	if !slices.Equal(got, want) {
 		t.Errorf("parseOpencodeV1SessionList() = %v, want %v", got, want)
 	}
 	if got := parseOpencodeV1SessionList([]byte("not json")); got != nil {

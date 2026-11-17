@@ -165,16 +165,20 @@ const sessionErrorEvent = "session.error"
 
 func (opencodeProfile) EventStream() EventStreamSpec {
 	return EventStreamSpec{
-		StreamCommand:     "curl -N -s http://127.0.0.1:4096/global/event",
-		BusyEvents:        []string{"message.part.updated", "session.updated"},
-		AwaitingInput:     []string{"permission.asked", "question.asked"},
-		IdleEvents:        []string{"session.idle"},
-		ErrorEvents:       []string{sessionErrorEvent},
-		StickyErrorEvents: []string{sessionErrorEvent},
-		SessionEvents:     []string{"session.created", "session.updated"},
-		SessionList:       NewSessionList("curl -sf -m 30 http://127.0.0.1:4096/session", parseOpencodeV1SessionList),
-		Name:              opencode1Name,
-		Parse:             parseOpencodeV1Event,
+		StreamCommand:      "curl -N -s http://127.0.0.1:4096/global/event",
+		BusyEvents:         []string{"message.part.updated", "session.updated"},
+		AwaitingInput:      []string{"permission.asked", "question.asked"},
+		IdleEvents:         []string{"session.idle"},
+		ErrorEvents:        []string{sessionErrorEvent},
+		StickyErrorEvents:  []string{sessionErrorEvent},
+		SessionEvents:      []string{"session.created", "session.updated"},
+		SubtreeDoneStates:  false,
+		ShellStartedEvents: nil,
+		ShellEndedEvents:   nil,
+		InterruptedEvents:  nil,
+		SessionList:        NewSessionList("curl -sf -m 30 http://127.0.0.1:4096/session", parseOpencodeV1SessionList),
+		Name:               opencode1Name,
+		Parse:              parseOpencodeV1Event,
 	}
 }
 
@@ -202,37 +206,41 @@ func parseOpencodeV1Event(payload []byte) (StreamEvent, bool) {
 		return StreamEvent{}, false
 	}
 	return StreamEvent{
-		Type:      raw.Payload.Type,
-		SessionID: raw.Payload.Properties.SessionID,
-		ParentID:  raw.Payload.Properties.Info.ParentID,
-		EventID:   raw.Payload.ID,
+		Type:            raw.Payload.Type,
+		SessionID:       raw.Payload.Properties.SessionID,
+		ParentID:        raw.Payload.Properties.Info.ParentID,
+		EventID:         raw.Payload.ID,
+		Title:           "",
+		ShellID:         "",
+		ShellBackground: false,
 	}, true
 }
 
-// sessionParent is the (id, parentID) pair both agents' session lists carry.
+// sessionParent is the session record both agents' session lists carry; Title
+// names a session in a notification, ParentID links a subagent to its parent.
 type sessionParent struct {
 	ID       string `json:"id"`
 	ParentID string `json:"parentID"`
+	Title    string `json:"title"`
 }
 
-// childSessionIDs returns the ids of sessions carrying a non-empty parentID,
-// the one rule both agents' session lists share.
-func childSessionIDs(sessions []sessionParent) []string {
-	ids := make([]string, 0, len(sessions))
+// sessionRefs projects the shared session record onto SessionRef, keeping every
+// session (child links come from ParentID), which is the one rule both agents'
+// session lists share.
+func sessionRefs(sessions []sessionParent) []SessionRef {
+	refs := make([]SessionRef, 0, len(sessions))
 	for _, session := range sessions {
-		if session.ParentID != "" {
-			ids = append(ids, session.ID)
-		}
+		refs = append(refs, SessionRef(session))
 	}
-	return ids
+	return refs
 }
 
-// parseOpencodeV1SessionList extracts child session ids from v1's /session
-// response, a JSON array of sessions each carrying an optional parentID.
-func parseOpencodeV1SessionList(payload []byte) []string {
+// parseOpencodeV1SessionList extracts sessions from v1's /session response, a
+// JSON array of sessions each carrying an optional parentID and title.
+func parseOpencodeV1SessionList(payload []byte) []SessionRef {
 	var sessions []sessionParent
 	if err := json.Unmarshal(payload, &sessions); err != nil {
 		return nil
 	}
-	return childSessionIDs(sessions)
+	return sessionRefs(sessions)
 }
