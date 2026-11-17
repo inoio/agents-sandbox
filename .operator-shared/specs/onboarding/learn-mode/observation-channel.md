@@ -111,6 +111,8 @@ The terminating proxy generates its own CA. The guest must trust it for every co
 - On Alpine the base image ships `ca-certificates-bundle` (the bundle file) but not `update-ca-certificates`, so
   the PEM is appended straight to `/etc/ssl/certs/ca-certificates.crt` when `update-ca-certificates` is absent.
 
+Once the CA is planted, the spike confirmed `curl`, `git` over HTTPS, and `npm` work through termination.
+
 The CA is image state and does not survive a VM recreate on its own; a learning session that recreates the VM
 re-plants it.
 
@@ -132,7 +134,7 @@ launcher-supplied CA. What is missing is the launcher's own config surfaces:
   without it the channel has no way to point the sandbox at the proxy.
 - `#151` — explicit interception control. Needed only to turn the runtime's own interception off; with it left on,
   the two layers chain and attribution still holds.
-- microsandbox/superradcompany#2080 — asks the runtime to log successful substitutions with destination and header
+- superradcompany/microsandbox#2080 — asks the runtime to log successful substitutions with destination and header
   field. If it lands, the channel work shrinks and the T1/T2 question is moot.
 
 **Observation requires the policy at creation.** A learning session needs the launcher's proxy in the sandbox's
@@ -144,10 +146,13 @@ facts 1–3 and proposes no network or secret-substitution change.
 
 ## Open validation
 
+The spike settled the channel but left four checks unrun; none blocks the design, and each is a known limitation of
+what the proposal may claim until it is closed:
+
 - **QUIC/HTTP3 bypass** — with the proxy active, only TCP consumers were tested; a QUIC client may reach the network
   directly, so the learned destination set is authoritative for TCP, not exhaustive.
 - **Certificate pinning** — no pinning client was available to test, so the fallback to config-derived attribution
-  is unverified.
+  is used with a warning, unverified.
 - **`msb-trust java` / `chrome`** — the base image has neither, so the Java/Chrome trust imports are unverified.
 - **The end-to-end agent turn through the proxy** — measured only with synthetic operations; the real streaming
   turn awaits the launcher's proxy surface (`#149`).

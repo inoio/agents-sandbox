@@ -48,5 +48,5 @@ often and only a changed entry is evidence, not every refreshed line.
   config outside the home volume (a socket, a keychain, a read-only image path), are unverified. If a harness keeps
   its config outside the home volume, the copy-back source for that harness becomes the observation channel or a
   startup-hook export, not the home volume.
-- The home volume's database and WAL are live while the VM runs; a dump taken stopped confirms the WAL checkpoints
-  into the main file.
+- The home volume's database and WAL are live while the VM runs; a stopped-versus-running dump must confirm the WAL
+  checkpoints into the main file before read-back relies on reading it.
