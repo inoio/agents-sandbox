@@ -63,15 +63,27 @@ The agent can edit every file in your checkout, `.agents-sandbox/` included. A p
 directories, copy host files into the sandbox, widen network access, or change the runner image, so agents-sandbox
 does not act on it until you have approved its content. Approval is per checkout and shared by all agents.
 
-The first run in a checkout, and every run after the project config changed, shows what changed and asks:
+The first run in a checkout asks you to approve the project config as **new configuration**; every later run
+whose project config changed shows what changed and asks again:
+
+```text
+The project config (.agents-sandbox) is not approved for this checkout yet. Approve this new configuration:
+  new /home/you/repo/.agents-sandbox/config.yaml (launcher config):
+      + network.profile: "public"
+  new /home/you/repo/.agents-sandbox/hook.sh (file):
+      + git config --global credential.helper store
+The agent can edit these files. Approve this new configuration only if you expect what it does.
+  a) Approve - use this project config for this checkout
+  q) Quit (default) - do not use it; nothing is changed
+```
+
+Once you have approved a checkout, a later change shows the old and new values:
 
 ```text
 The project config (.agents-sandbox) changed since you last approved it:
   changed /home/you/repo/.agents-sandbox/config.yaml (launcher config):
       - network.profile: "none"
       + network.profile: "public"
-  new /home/you/repo/.agents-sandbox/hook.sh (file):
-      + git config --global credential.helper store
 The agent can edit these files. Approve them only if you expect these changes.
   a) Approve - use this project config for this checkout
   q) Quit (default) - do not use it; nothing is changed

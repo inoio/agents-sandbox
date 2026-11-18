@@ -152,6 +152,30 @@ func TestGateApprovesAChangedLayerInteractively(t *testing.T) {
 	}
 }
 
+// TestGateFirstApprovalNamesNewConfiguration pins the first-run wording end to
+// end: a checkout with nothing approved is asked to accept new configuration,
+// not told the project config changed since a previous approval.
+func TestGateFirstApprovalNamesNewConfiguration(t *testing.T) {
+	f := newGateFixture(t)
+	writeProjectConfig(t, "memory: 8G\n")
+	f.ui.IsInteractiveResult = true
+	var prompt string
+	f.ui.SelectFn = func(message string, _ []termio.Choice, _ string) (string, error) {
+		prompt = message
+		return "a", nil
+	}
+
+	if err := f.gate(t, cmdRun); err != nil {
+		t.Fatalf("gate: %v", err)
+	}
+	if !strings.Contains(prompt, "new configuration") {
+		t.Errorf("first-run prompt %q does not name the new configuration", prompt)
+	}
+	if strings.Contains(prompt, "changed since you last approved") {
+		t.Errorf("first-run prompt %q reads as a change", prompt)
+	}
+}
+
 func TestGateDeclinedChangeAborts(t *testing.T) {
 	f := newGateFixture(t)
 	writeProjectConfig(t, "memory: 8G\n")

@@ -47,7 +47,7 @@ func gateProjectConfig(
 	case !commandAppliesProjectConfig(cmd):
 		ui.Warn(projecttrust.IgnoredWarning(decision))
 	case runoptions.ResolveMode(cmd).Previews():
-		ui.Warn(projecttrust.RenderChanges(decision.Changes) +
+		ui.Warn(projecttrust.RenderChanges(decision) +
 			"\nIt needs your approval before a run uses it; this preview leaves it out.")
 	default:
 		if err := projecttrust.Approve(ui, identity.CheckoutSlug, decision); err != nil {
