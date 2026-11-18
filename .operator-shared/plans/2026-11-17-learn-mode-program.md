@@ -6,7 +6,9 @@
 
 **Architecture:** Two tracks. The **channel track** opens the launcher's network surfaces and builds the observation channel that makes attribution possible; the **learn track** reads the sandbox home back and turns its own facts plus the channel's into findings the user accepts. The two run in parallel until they join at `run --learn`.
 
-**Tech Stack:** Go 1.27, Cobra/Viper, microsandbox SDK `v0.7.15`, `internal/sandbox/{network,msb,volume,state}`, `internal/agent`, `internal/viperconfig`, `modernc.org/sqlite` (read-back only).
+**Tech Stack:** Go 1.27, Cobra/Viper, microsandbox SDK `v0.7.16`, `internal/sandbox/{network,msb,volume,state}`,
+`internal/agent`, `internal/viperconfig`, `modernc.org/sqlite` (read-back only), `github.com/elazarl/goproxy`
+(the S4 terminating proxy).
 
 **Specs:** the hub `.operator-shared/specs/onboarding/learn-mode.md` plus its subspecs under `.operator-shared/specs/onboarding/learn-mode/` (`observation-channel.md`, `home-read-back.md`, `findings-and-apply.md`), and `.operator-shared/specs/network-and-secrets/interception-and-proxy.md`. These do not exist on `main` yet — subplan `settled-design` (S0) creates them from the settled contract on branch `origin/spike/learn-mode`.
 
@@ -14,14 +16,21 @@
 
 **Read this first if you are picking the work up cold.**
 
-What exists right now:
+What is on `main` now:
 
-- `main` carries this plan set (this file plus the subplans listed below) and the **pre-spike** `learn-mode.md` (its observation approach says "unresolved" — do not build from it).
-- Branch `origin/spike/learn-mode` (tip `a5081241`, **no PR**) carries the **settled** contract, the spike scripts under `spike/learn-mode/`, and `results.md`. It is docs-only; S0 lands it.
-- The subspecs every subplan cites (`learn-mode/{observation-channel,home-read-back,findings-and-apply}.md`, `network-and-secrets/interception-and-proxy.md`) **do not exist on `main` yet** — S0 creates them. Until S0 lands, read their content on `origin/spike/learn-mode` (the settled `learn-mode.md`) and the spike `results.md`.
-- Subplan files that exist: this index, S0 (`settled-design`), S1 (`sdk-semantics`), S2 (`tls-interception`), S3 (`outbound-proxy`), S5 (`readback`). S4, S6, S7, S8, S9 are named in the DAG but **not yet written** — write each when its predecessor lands.
+- The **settled contract** is on `main`: the hub `specs/onboarding/learn-mode.md` (status: designed) and its subspecs
+  `learn-mode/{observation-channel,home-read-back,findings-and-apply}.md`, plus
+  `network-and-secrets/interception-and-proxy.md`. **S0 landed** (#716).
+- **S1 landed** (#718 docs, #719 probe): it settled topology **T2**, the `off` semantics, the proxy-composition rule,
+  and the strict-hostname bypass. Its per-harness read-back check covered **opencode2 only** (still partial).
+- **S2 landed** (#720): `network.intercept-tls`/`tls-bypass`/`disable-strict`.
+- **S3 landed** (#721): `network.proxy.*`/`--proxy` (SOCKS4/5, HTTP CONNECT).
+- **S5 landed** (#722): `internal/sandbox/readback` + `agent.ReadBackDescriber`, still carrying its temporary
+  `//deadcode:ignore` markers (see below).
 
-**First action: S0** (`2026-11-17-learn-mode-settled-design.md`). It is docs-only, needs no SDD, and unblocks every other subplan (they cite the specs it creates).
+**The frontier is S4 (`observation-channel`) and S6 (`analyser`)** — every predecessor of each has landed. Both plan
+files are now written. S7/S8/S9 are named in the DAG but **not yet written** — write each when its predecessor lands,
+never in advance.
 
 **S6 must remove S5's dead-code markers.** S5 (`readback`) lands a library before its only consumer, so its
 declarations are unreachable from any `main` package and carry temporary declaration-scope `//deadcode:ignore
@@ -30,9 +39,15 @@ package and wires its caller, S6 **deletes each marker**: a marker left on a dec
 stale marker, which also fails the `deadcode` gate (the gate's self-defence against markers-as-decoration; see
 `../specs/ci/quality-gates.md` §Dead-code gate).
 
+**S6 also closes two read-back gaps it consumes.** `readback.Credential.Hosts` is declared but nothing populates it,
+so the config-entry attribution fallback in `findings-and-apply.md` has no source until S6 fills it; and no
+`env.secret.yaml` writer exists, so S6 builds one. Both are tasks in the S6 plan.
+
 **How to run a subplan:** create a worktree off `origin/main` (`superpowers:using-git-worktrees`), load `superpowers:subagent-driven-development`, and execute its tasks one at a time (a fresh implementer per task, a fresh reviewer gating each). Steps marked **human accept** run on a KVM host and cannot be done in the dev VM; the subplan is not done until they are checked. Finish with one `code-review`/`reviewer-large` pass over the whole subplan, then a PR into the merge queue.
 
-**Do not parallelize S2 and S3** (same files). **Do parallelize S5** against the channel track (no shared files).
+**S2 and S3 both landed** (they shared files). **S4 and S6 share no files** — S4 is the channel track
+(`network`/`msb`/`session`/`state`), S6 the learn track (`analyser`/`config`/`envsecret`) — so they may run in
+parallel. Within each, serialize where the plan says so.
 
 ## Global Constraints
 
@@ -119,12 +134,99 @@ func HomeVolumePath(ctx context.Context, k state.Key) (string, error)
 type ReadBackDescriber interface { ReadBackPaths() []string; CredentialProbes() []string }
 ```
 
-**(placeholder — S6 defines these when written; add here before S7/S8 start)**
+**(the channel artefact S4 owns is frozen below, then S6's `Finding`/`ApplyResult`; the S5 read-back block above is unchanged.)**
 
 ```go
-// internal/sandbox/analyser — owned by S6 (analyser)
-type Finding /* {Evidence, Write, Scope} */ ...
-type ApplyResult /* ... */ ...
+// internal/sandbox/channel — owned by S4 (observation-channel), consumed by S6.
+// The scrubbed capture: destinations, request paths, counts, and credential-bearing
+// header NAMES — never request bodies and never header values (hub invariant 3).
+// A raw flow capture (values in flight) is deleted after analysis; this value-free
+// type is what persists. No field can carry a value, by construction.
+type Destination struct {
+    Host      string // Host header / SNI
+    IP        string // resolved IP the CONNECT target used
+    Port      uint16
+    Protocol  string // "https" | "http" | "connect" | "socks5" | "tcp"
+    Path      string
+    Success   bool
+    Denied    bool
+    Count     int
+    FirstSeen time.Time
+    LastSeen  time.Time
+    Channel   string // which observer saw it, e.g. "proxy-terminate"
+}
+type Attribution struct {
+    Host           string   // destination this credential went to
+    Path           string
+    Credential     string   // configured secret's env-var name, when substituted in flight
+    HeaderNames    []string // credential-bearing header names only; never values
+    SawReal        bool     // a real value crossed (never stored)
+    SawPlaceholder bool     // a placeholder crossed unsubstituted
+}
+type Observation struct { Destinations []Destination; Attribution []Attribution }
+```
+
+```go
+// internal/sandbox/analyser — owned by S6 (analyser). The learn-mode proposal
+// (S6) emits per-slug, non-removing writes only; the applier supports both scopes
+// and removal because S8's `config harden` reuses it (e.g. move a secret out of
+// the committed project config). The config-only finder is S8's; S6 owns the model,
+// the observation finder, and the applier.
+type Scope string
+const (ScopePerSlugUser Scope = "per-slug-user"; ScopeProject Scope = "project")
+type Kind string
+const (KindConfig Kind = "config"; KindObservation Kind = "observation")
+
+// Evidence is the observed basis for a finding; it holds destinations, counts, and
+// credential-bearing header NAMES — never a value (hub invariant 3).
+type Evidence struct {
+    Summary      string
+    Destinations []string
+    Denied       []string
+    Count        int
+    Succeeded    bool
+    Channel      string   // "readback" | "proxy"
+    HeaderFields []string // credential-bearing header names, never values
+}
+// Write is one proposed edit, in its own scope. Remove true deletes ConfigKey from
+// that scope's launcher config; Secret targets env.secret.yaml instead.
+type Write struct {
+    Scope       Scope
+    ConfigKey   string
+    ConfigValue any          // ignored when Remove
+    Remove      bool
+    Secret      *SecretWrite // nil unless a static secret is proposed
+    Text        string
+}
+// SecretWrite carries no Value field — the value is threaded in memory from
+// readback.Credential.Value to the writer and never persisted in a finding.
+type SecretWrite struct { EnvVar, Provider string; Hosts, HeaderFields []string; Remove bool }
+type Finding struct {
+    Evidence     Evidence
+    Writes       []Write // applied together; a move is two writes (remove project, add per-slug)
+    Kind         Kind
+    EvidenceHash string // keys the decline memory (append-only; re-armed when it changes)
+}
+type Outcome string
+const (OutcomeApplied Outcome = "applied"; OutcomeDeclined Outcome = "declined"; OutcomeSkipped Outcome = "skipped"; OutcomeFailed Outcome = "failed"; OutcomeNotApplicable Outcome = "not-applicable")
+type ApplyResult struct { Finding Finding; Outcome Outcome; WroteDirs []string; Note, Err string }
+
+// Shadowing: precedence is generic user < per-slug user < project, so a per-slug
+// write for a key the project layer sets is a no-op. The applier consults
+// viperconfig.LayerSettingOwner and skips such a write (the proposal never overrides
+// a user-set project entry: invariant 4).
+//
+// Primitives the applier uses (consumed by S7/S8 too):
+//   envsecret.WriteSecretSpec(dir, envVar, spec) error   // S6
+//   envsecret.RemoveSecretSpec(dir, envVar) error        // S6 (the harden move)
+//   viperconfig.RemoveSetting(dir, key) error            // S6 (the harden path)
+```
+
+```go
+// internal/sandbox/state — owned by S6 (the decline memory, a RootState section keyed
+// by repo slug; bumps RootStateSchema).
+type LearnDecline struct { EvidenceHash string; At time.Time }
+// RootState gains: LearnDeclines map[string][]LearnDecline `yaml:"learn_declines,omitempty"` // key: repo slug
 ```
 
 ## Subplan DAG
@@ -146,14 +248,16 @@ CHANNEL TRACK                                          LEARN TRACK
 | S1 sdk-semantics | `2026-11-17-learn-mode-sdk-semantics.md` | T1/T2, `off` semantics, proxy-dial exemption, strict-hostname bypass recorded | **no** — host spike | S0 | — |
 | S2 tls-interception | `2026-11-17-learn-mode-tls-interception.md` | #151 shipped | yes | S1 (only the `off` branch) | S5 |
 | S3 outbound-proxy | `2026-11-17-learn-mode-outbound-proxy.md` | #149 shipped | yes | S2 (shared files) | S5 |
-| S4 observation-channel | `2026-11-17-learn-mode-observation-channel.md` (stub) | channel component | yes | S1, S2, S3 | — |
+| S4 observation-channel | `2026-11-17-learn-mode-observation-channel.md` | channel (proxy + capture) + overlay + teardown | yes | S1, S2, S3 | S6 |
 | S5 readback | `2026-11-17-learn-mode-readback.md` | home-volume reader + manifest | yes | E1 (SQLite) | S2, S3 |
-| S6 analyser | `2026-11-17-learn-mode-analyser.md` (stub) | findings engine + applier | yes | S5 | — |
+| S6 analyser | `2026-11-17-learn-mode-analyser.md` | findings engine + applier | yes | S5 | S4 |
 | S7 run-learn | `2026-11-17-learn-mode-run.md` (stub) | `run --learn` + after-run + session boundary | yes | S4, S6 | S8 |
 | S8 config-harden | `2026-11-17-config-harden.md` (stub) | `config harden` | yes | S6 | S7 |
 | S9 firstrun | `2026-11-17-learn-mode-firstrun.md` (stub) | first-run `Guide` choices + UC4 seed | yes | S4, S5, E2, E3 | — |
 
-**Serialize S2 → S3** (both edit `network.Policy`, `msb.NetworkSpec`, `msb/translate.go`, `viperconfig/config.go`). **Parallelize S5 against the whole channel track** (read-back touches `volume`, the agent DBs, and state, and shares no file with the network work). Stubs and their interfaces are written when their predecessor lands, never in advance.
+S2 and S3 both landed (they shared `network.Policy`, `msb.NetworkSpec`, `msb/translate.go`,
+`viperconfig/config.go`). **S4 and S6 share no file** and may run in parallel; within each, follow its own
+serialization. Stubs and their interfaces are written when their predecessor lands, never in advance.
 
 **S2 re-scope.** S2 ships the TLS-interception **controls only** (`intercept-tls`/`tls-bypass`/`disable-strict`). It does
 no registry handling — no auto-bypass, no allowlist derivation — and the in-VM `docker build` CA case stays a documented

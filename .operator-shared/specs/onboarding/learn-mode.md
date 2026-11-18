@@ -9,7 +9,8 @@ Status: designed. The observation approach is settled by a host-side spike (run 
 always, plus a launcher-owned terminating proxy (C) for the destination and attribution facts. The spike confirmed
 that termination works, that the credential header name and destination are visible, and that proxying adds no
 measurable cost; two parts are still open — its per-harness read-back check (S1) ran only for opencode2, and the
-end-to-end agent turn through the proxy awaits the launcher's proxy surface (`#149`).
+end-to-end agent turn through the proxy is unmeasured (the proxy surface `#149` has since landed, so it is now a
+host-accept step rather than a blocked one).
 
 This page is the hub. The contracts it points at:
 
@@ -98,13 +99,14 @@ and denied, and **which credential was sent to which destination** — need an o
 
 ## Prerequisites and phasing
 
-Approach A, the analyser, and `config harden` need nothing that is not in `main`; the launcher's own proxy and
-interception config surfaces (`#149`, `#151`) and their constraints are in
+Approach A, the analyser, and `config harden` need nothing that is not in `main`. The launcher's proxy and
+interception config surfaces (`#149`, `#151`) have landed; the channel's own upstream-CA projection is the one
+launcher surface still to come (S4). Their constraints are in
 [the observation channel](learn-mode/observation-channel.md).
 
-Phasing: the spike (run 2026-11-15; S1 still partial, covering opencode2 only); then A plus the analyser plus
-harden; then the proxy, which adds facts 4–7 and therefore UC2's detection signal; then the `header_fields` scope
-derived from attribution.
+Phasing: the spike landed (run 2026-11-15; S1 for opencode2 only); the read-back landed (S5); then the analyser and
+harden (S6); then the channel's own code (S4), which adds facts 4–7 and therefore UC2's detection signal; then the
+`header_fields` scope derived from attribution.
 
 ## Deferred
 

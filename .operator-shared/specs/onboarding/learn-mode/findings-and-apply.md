@@ -19,11 +19,17 @@ One finding shape serves both a learning session and config-only analysis (`conf
 
 ## Scopes
 
-- **The per-slug user scope** (`~/.config/agents-sandbox/<repo>-<hash>/`) is the default, because it is a trusted
-  user layer and needs no approval gate. It is keyed by the **repo slug**, so it is shared by every clone of the
-  remote — the proposal must state that.
-- **The project scope** is offered as an explicit second choice only (team sharing, committed config), and the
-  project trust gate then applies.
+- **The per-slug user scope** (`~/.config/agents-sandbox/<repo-slug>/`) is the default for the learn-mode proposal,
+  because it is a trusted user layer and needs no approval gate. It is keyed by the **repo slug**, so it is shared
+  by every clone of the remote — the proposal must state that.
+- **The project scope** is written only by `config harden`, through the project trust gate. Learn mode's proposal
+  never targets it: config precedence is `generic user < per-slug user < project`, so a per-slug write is an
+  ineffective no-op where the project layer owns the key, and invariant 4 forbids the proposal overriding a
+  user-set project entry. When the project layer owns a proposed key, the applier reports the finding and skips
+  the write.
+- **A harden move writes two scopes.** A static secret wrongly committed in the project scope is removed from the
+  project config and added at the per-slug user scope; the removal is harden's "reduce" contract, which the
+  proposal never invokes. Both writes are trust-gated and applied together (or neither).
 
 ## The credential store
 
@@ -47,7 +53,8 @@ managed agent config; login entries stay only in the persistent sandbox home.
 
 ## Applying
 
-- Applying is interactive and per finding. A decline is remembered, keyed on a hash of the evidence, and re-armed
+- Applying is interactive and per finding, and a finding's writes each name their own scope and are applied together
+  (a move applies both writes or neither). A decline is remembered, keyed on a hash of the evidence, and re-armed
   when the evidence changes. The record lives in the user state dir, keyed by repo slug, so it survives a config-dir
   reset and is shared by clones.
 - A non-interactive run writes no proposal and prints one line naming the command that produces it. A dry run
@@ -68,7 +75,10 @@ reported and discarded, not analysed.
 Harden is the analyser with no session: the same findings engine, the same applier, the config-only subset of
 findings. It is re-runnable and audits the effective configuration (file modes, `provision-host-config: true`, an
 over-broad posture, an over-broad secret scope), and it is the home of "reduce egress later". It runs the findings
-that need configuration; the after-run analyser runs both configuration and observation findings.
+that need configuration; the after-run analyser runs both configuration and observation findings. It is the only
+writer of the project scope, and the only home of a removal: moving a static secret committed there to the per-slug
+user secret is a harden finding (a project removal plus a per-slug addition). Removing a secret from a file does not
+remove it from git history — harden says so and points at rotating the credential.
 
 Harden does not need a provider knowledge table. Its network findings are either structural (a broad profile, a
 wildcard entry) or, when a session has been analysed, evidenced by that session.
