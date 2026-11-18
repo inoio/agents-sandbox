@@ -1,14 +1,13 @@
 // Package harness holds end-to-end smoke tests that start every registered
 // coding-agent harness in a real microsandbox VM and assert it reaches its
 // full-screen TUI. The VM-driven test lives behind the `msb` build tag; the
-// untagged files here are inert and shared by it: the harness table, the child
-// environment allowlist, and the output helpers.
-//
-//deadcode:ignore reason="test support: referenced only by _test.go files"
+// untagged helpers here are compiled only into test binaries — the harness
+// table, the child environment allowlist, and the output helpers.
 package harness
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -251,12 +250,16 @@ var harnessSpecs = map[string]harnessSpec{
 	// claude-code checks in with its API before it draws anything, so it needs
 	// egress, and its renderer keeps the terminal's normal buffer, so the
 	// alternate screen never announces that its UI is up. Its startup splash
-	// prints the product name, which readies the subtest.
+	// prints the product name, which readies the subtest. Its first run stops at
+	// onboarding (a theme picker and a workspace-trust dialog) whose only quit
+	// key aborts with exit 1, so the subtest seeds its first-run state through
+	// the launcher's home: manifest (SeedHomeManifest) and lands on the prompt.
 	"claude-code": {
 		QuitKey:           []byte{ctrlC},
 		Network:           publicNetwork,
 		KeepsNormalBuffer: true,
 		ReadyMarker:       claudeCodeReadyMarker,
+		SeedHomeManifest:  map[string]string{claudeCodeConfigPath: claudeCodeSmokeConfig},
 	},
 	// codex quits on Ctrl-C and may reach its API at startup, so it gets
 	// egress like claude-code; its TUI uses the alternate screen.
@@ -327,6 +330,13 @@ type harnessSpec struct {
 	// into the VM. It is how a harness that needs host-side configuration (a
 	// provider block, a settled opt-in) starts headful without credentials.
 	SeedHomeFiles map[string]string
+	// SeedHomeManifest maps a VM-home-relative target path to its content,
+	// provisioned through the launcher config's `home:` key rather than the
+	// agent's ProvisionRules. Use it for a harness whose first-run state lives
+	// outside the paths its ProvisionRules copy (claude-code's ~/.claude.json,
+	// beside the ~/.claude/settings.json the rules carry); a file the rules
+	// already copy belongs in SeedHomeFiles.
+	SeedHomeManifest map[string]string
 }
 
 // settledReadyTimeout bounds the readiness wait for a harness whose TUI keeps
@@ -353,6 +363,21 @@ const hermesReadyMarker = "Hermes Agent v"
 // alternate-screen sequence, so without a marker its subtest would wait out the
 // whole settle.
 const claudeCodeReadyMarker = "Claude Code"
+
+// claudeCodeConfigPath is the file claude-code keeps its first-run state in,
+// home-relative. It sits beside .claude/settings.json, which the launcher's
+// claude-code ProvisionRules copy, so the smoke test seeds it through the
+// launcher config's home: manifest (SeedHomeManifest) instead.
+const claudeCodeConfigPath = ".claude.json"
+
+// claudeCodeSmokeConfig skips claude-code's first-run flow so the subtest lands
+// on the prompt, where its repeated Ctrl-C quits 0. hasCompletedOnboarding drops
+// the theme picker; the /workspace project entry accepts the workspace-trust
+// dialog for the guest working directory the subtest runs in (the throwaway
+// project dir is not a repository, so it binds at /workspace). Without it the
+// onboarding's only quit key aborts the launch with exit 1, which the subtest's
+// exit-0 assertion rejects. Both keys are the guest's, not the host's.
+const claudeCodeSmokeConfig = `{"hasCompletedOnboarding": true, "projects": {"/workspace": {"hasTrustDialogAccepted": true}}}`
 
 // ohMyPiReadyMarker is the warning oh-my-pi prints when it starts its editor
 // with no model configured, which is exactly the smoke run: the seeded config
@@ -470,6 +495,52 @@ func seedHomeFiles(homeBase string, files map[string]string) error {
 		if err := writeFile(path, []byte(content), 0o600); err != nil {
 			return fmt.Errorf("write %s: %w", rel, err)
 		}
+	}
+	return nil
+}
+
+// The seed tree and isolated launcher config dir seedHomeManifest writes: the
+// seed sources live under <homeBase>/seed, and the home manifest under
+// <homeBase>/config/<launcherConfigDirName>, the agents-sandbox dir inside
+// XDG_CONFIG_HOME (configpaths.UserConfigDir).
+const (
+	seedDirName            = "seed"
+	launcherConfigDirName  = "agents-sandbox"
+	launcherConfigFileName = "config.json"
+)
+
+// seedHomeManifest provisions each VM-home-relative target through the launcher
+// config's `home:` key rather than the agent's ProvisionRules: it writes the
+// content to a private seed file under the run's seed dir and writes a launcher
+// config whose home: manifest maps the target to that seed file's absolute path,
+// so the launcher copies it into the VM home. A nil or empty map writes nothing.
+//
+// It uses the same mkdirAll/writeFile seams as seedHomeFiles.
+func seedHomeManifest(homeBase string, files map[string]string) error {
+	if len(files) == 0 {
+		return nil
+	}
+	manifest := make(map[string]string, len(files))
+	for target, content := range files {
+		source := filepath.Join(homeBase, seedDirName, target)
+		if err := mkdirAll(filepath.Dir(source), 0o750); err != nil {
+			return fmt.Errorf("create seed parent for %s: %w", target, err)
+		}
+		if err := writeFile(source, []byte(content), 0o600); err != nil {
+			return fmt.Errorf("write seed %s: %w", target, err)
+		}
+		manifest[target] = source
+	}
+	data, err := json.Marshal(map[string]any{"home": manifest})
+	if err != nil {
+		return fmt.Errorf("marshal home manifest: %w", err)
+	}
+	dir := filepath.Join(homeBase, configDirName, launcherConfigDirName)
+	if err := mkdirAll(dir, 0o750); err != nil {
+		return fmt.Errorf("create launcher config dir: %w", err)
+	}
+	if err := writeFile(filepath.Join(dir, launcherConfigFileName), data, 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", launcherConfigFileName, err)
 	}
 	return nil
 }

@@ -1,4 +1,3 @@
-//deadcode:ignore reason="test support: referenced only by _test.go files"
 package harness
 
 import (
