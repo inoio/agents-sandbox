@@ -40,9 +40,9 @@ record them (usually failure paths, and never as reliable attribution). Its cont
 A CONNECT/SOCKS proxy the launcher owns, with the sandbox pointed at it. Gives facts 4–6 for every TCP
 destination, independent of the harness's proxy handling, with counts and timestamps.
 
-- Needs the `proxy:` config surface (first-class outbound proxy, `#149`), which is unlanded. The dial itself is not
-  a policy problem — under bare `none`, an HTTP CONNECT and a SOCKS5 proxy on the host loopback are both reachable
-  and the dial bypasses the egress policy, so the proxy needs no widening of the user's posture.
+- Uses the `proxy:` config surface (the first-class outbound proxy, `#149`, landed). The dial itself is not a policy
+  problem — under bare `none`, an HTTP CONNECT and a SOCKS5 proxy on the host loopback are both reachable and the
+  dial bypasses the egress policy, so the proxy needs no widening of the user's posture.
 - Does not give fact 7. An opaque tunnel cannot see the request, so a credential can be attributed only from the
   config, which is the declaration model this mode exists to replace.
 - Needs no certificates. A blind tunnel has no trust problem, so it works with any client.
@@ -102,19 +102,21 @@ not plant its CA in the guest; facts 4–7 hold under T2.
 
 ## CA generation and trust placement
 
-The terminating proxy generates its own CA. The guest must trust it for every consumer that the proxy terminates.
+The terminating proxy generates its own CA. Under the settled T2 topology the **guest never sees it**: the runtime
+terminates the guest's connection and re-originates to our proxy, so **the runtime must trust our CA as an upstream
+CA**. That is the SDK's `TLSConfig.UpstreamCACerts`. The launcher does not expose it today, so the channel adds a
+projection for it (`msb.NetworkSpec` → `cfg.TLS.UpstreamCACerts`), in the network fingerprint and therefore
+creation-only like every other field that reaches the VM.
 
-- agentd installs microsandbox's own interception CA at `/.msb/tls/ca.pem` and points `SSL_CERT_FILE`,
-  `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, and `NODE_EXTRA_CA_CERTS` at it, so our CA has to join that file (a
-  startup hook) for the system-store consumers.
-- `msb-trust` imports it for Java and Chrome.
-- On Alpine the base image ships `ca-certificates-bundle` (the bundle file) but not `update-ca-certificates`, so
-  the PEM is appended straight to `/etc/ssl/certs/ca-certificates.crt` when `update-ca-certificates` is absent.
+The T1 placement — planting our CA in the guest (joining `/.msb/tls/ca.pem`, whose path agentd exports through
+`SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, and `NODE_EXTRA_CA_CERTS`, plus the Alpine bundle append,
+and `msb-trust` for Java/Chrome) — is **not** used under T2: the guest trusts the runtime's own interception CA, and
+the runtime trusts ours. It remains the fallback only if a future runtime cannot re-originate to a launcher endpoint.
 
-Once the CA is planted, the spike confirmed `curl`, `git` over HTTPS, and `npm` work through termination.
+Once our CA is trusted upstream, the spike confirmed `curl`, `git` over HTTPS, and `npm` work through termination.
 
-The CA is image state and does not survive a VM recreate on its own; a learning session that recreates the VM
-re-plants it.
+The trust is VM-creation state and does not survive a recreate on its own; a learning session that recreates the VM
+re-establishes it with that session's fresh CA.
 
 ## The capture artefact
 
@@ -127,13 +129,15 @@ The artefact stays on the host, is deleted after analysis by default, and is nev
 
 ## Prerequisites and constraints
 
-The pinned SDK (v0.7.15) already exposes the outbound proxy (SOCKS4/5, HTTP CONNECT) and TLS interception with a
-launcher-supplied CA. What is missing is the launcher's own config surfaces:
+The pinned SDK (v0.7.16) exposes the outbound proxy (SOCKS4/5, HTTP CONNECT) and TLS interception, and its
+`TLSConfig` carries the upstream-CA list T2 needs. The launcher config surfaces are in place:
 
-- `#149` — the launcher's first-class outbound proxy surface. This is what lets the proxy ship as a config surface;
-  without it the channel has no way to point the sandbox at the proxy.
-- `#151` — explicit interception control. Needed only to turn the runtime's own interception off; with it left on,
-  the two layers chain and attribution still holds.
+- `#149` (landed) — the first-class outbound proxy surface; the channel points the sandbox at its proxy through it.
+- `#151` (landed) — explicit interception control. Needed only to turn the runtime's own interception off; with it
+  left on, the two layers chain and attribution still holds.
+- The one launcher surface still missing is the projection of our CA into the runtime's upstream-CA list
+  (`TLSConfig.UpstreamCACerts`); the channel adds it. See
+  [CA generation and trust placement](#ca-generation-and-trust-placement).
 - superradcompany/microsandbox#2080 — asks the runtime to log successful substitutions with destination and header
   field. If it lands, the channel work shrinks and the T1/T2 question is moot.
 
@@ -154,7 +158,7 @@ what the proposal may claim until it is closed:
 - **Certificate pinning** — no pinning client was available to test, so the fallback to config-derived attribution
   is used with a warning, unverified.
 - **`msb-trust java` / `chrome`** — the base image has neither, so the Java/Chrome trust imports are unverified.
-- **The end-to-end agent turn through the proxy** — measured only with synthetic operations; the real streaming
-  turn awaits the launcher's proxy surface (`#149`).
+- **The end-to-end agent turn through the proxy** — measured only with synthetic operations; the real streaming turn
+  is a host-accept step for the channel (the proxy surface `#149` has landed, so it is measurable, not blocked).
 
 The per-harness read-back check (S1) is an open item on the [home read-back](home-read-back.md) page.
