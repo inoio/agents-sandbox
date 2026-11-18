@@ -32,7 +32,6 @@ Test-support code that lives in **non-`_test.go`** files can never be reached fr
 
 - `internal/**/testmock.go`, `internal/**/mock.go`
 - `internal/testutil/**`
-- `test/harness/**` (non-test files behind the `msb` build tag)
 
 What is left over is production files whose functions only tests reach. Triage (recorded in `specs/ci/quality-gates.md`) sorts this class three ways:
 
