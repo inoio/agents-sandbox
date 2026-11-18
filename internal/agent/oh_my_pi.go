@@ -103,6 +103,20 @@ func (ohMyPiProfile) ProvisionRules() []ProvisionRule {
 	}
 }
 
+// ReadBackPaths declares omp's settings (either extension it falls back to), its
+// models file, and its dotenv: the first two are config facts, the .env holds
+// the static provider keys.
+func (ohMyPiProfile) ReadBackPaths() []string {
+	return []string{
+		ohMyPiConfigDir + "/" + ohMyPiConfigFileName,
+		ohMyPiConfigDir + "/" + ohMyPiConfigFileNameAlt,
+		ohMyPiConfigDir + "/models.yml",
+		ohMyPiConfigDir + "/.env",
+	}
+}
+
+func (ohMyPiProfile) CredentialProbes() []string { return nil }
+
 // AttachCommand loads the launcher overlay, which turns off omp's startup
 // update check: the sandbox pins the baked version and offers upgrades itself.
 // Every forwarded argument is shell-quoted, because the command runs through

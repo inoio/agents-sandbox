@@ -66,7 +66,7 @@ git commit -m "feat(readback): resolve the home volume host path"
 - Create: `internal/sandbox/readback/manifest.go`, `internal/sandbox/readback/manifest_test.go`
 
 **Interfaces:**
-- Consumes: `filewalk.Walk`, `agent.ReadBackDescriber` (Task 3 — until it exists, iterate an explicit path list).
+- Consumes: `filewalk.WalkCapped` (the size-bounded walk; `Walk` is its cap-0 delegate), `agent.ReadBackDescriber` (Task 3 — until it exists, iterate an explicit path list).
 - Produces:
   ```go
   type ManifestEntry struct {

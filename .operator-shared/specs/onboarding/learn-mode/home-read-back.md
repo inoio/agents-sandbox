@@ -13,7 +13,9 @@ only channel that works when the launcher-owned proxy
 ## What read-back establishes
 
 1. Which agent config files the session created or changed, and which of their entries are credentials.
-2. Which **static** secrets exist in the sandbox home.
+2. Which **static** secrets exist in the sandbox home. A dotenv key names a secret when one of its `_`/`-`-separated
+   segments is `KEY`, `TOKEN`, `SECRET`, or `PASSWORD`; the markers are matched as whole segments, so a token-count
+   setting such as `MAX_TOKENS` is configuration, not a secret.
 3. Which **login** credentials exist in the sandbox home (recorded, never copied).
 
 Facts 1–3 come from reading the home volume. It also gives configured providers, login presence, and
@@ -31,6 +33,15 @@ DB, with prompt history and small state files under `~/.local/state/opencode/` a
 
 Login credentials found here are recorded (presence, source, provider) but **never copied out of the sandbox**
 (invariant 2).
+
+Reading the database is not literally read-only: even an SQLite connection opened `mode=ro` may create an
+`opencode.db-shm` shared-memory file beside `opencode.db`, so the volume directory must stay host-writable for the
+read-back.
+
+The read is bounded because the sandboxed agent controls the database. A credential row's value is materialized
+only through a length-capped SQL projection, and a store whose rows exceed the probe's bound is recorded unreadable
+rather than loaded into host memory; the probe still contributes exactly one manifest entry, carrying the unreadable
+sentinel digest.
 
 ## Baseline manifest
 

@@ -136,6 +136,14 @@ func (hermesProfile) ProvisionRules() []ProvisionRule {
 	}
 }
 
+// ReadBackPaths declares Hermes' settings file and its dotenv: the settings
+// file is a config fact, the .env holds the static provider keys.
+func (hermesProfile) ReadBackPaths() []string {
+	return []string{".hermes/config.yaml", ".hermes/.env"}
+}
+
+func (hermesProfile) CredentialProbes() []string { return nil }
+
 func (hermesProfile) AttachCommand(_ string, args []string) string {
 	parts := []string{"hermes"}
 	parts = append(parts, shellQuoteArgs(args)...)
