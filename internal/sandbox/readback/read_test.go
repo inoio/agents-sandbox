@@ -297,6 +297,99 @@ func TestAppendProbeCredentialsKeepsLoginAndStatic(t *testing.T) {
 	require.Len(t, rb.Static, 1)
 }
 
+// TestReadFillsCredentialHosts: a static credential's Hosts come from the
+// endpoint the config entry naming its provider declares, normalized to a host
+// (scheme, port, and path dropped). The dotenv credential and the config
+// endpoint live in different files; the provider name is what ties them.
+func TestReadFillsCredentialHosts(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/.env", "OPENAI_API_KEY=sk-secret\n")
+	writeFile(t, home, ".hermes/config.yaml",
+		"model:\n  provider: openai\n  base_url: https://api.example:8443/v1\n")
+
+	rb, err := Read(home, "hermes", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Static, 1)
+	require.Equal(t, "openai", rb.Static[0].Provider)
+	require.Equal(t, []string{"api.example"}, rb.Static[0].Hosts,
+		"the endpoint host, with scheme, port, and path dropped")
+}
+
+// TestReadCredentialHostsEmptyWithoutAnEndpoint: an entry that names the
+// provider but declares no endpoint yields no hosts, never a guess.
+func TestReadCredentialHostsEmptyWithoutAnEndpoint(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/.env", "OPENAI_API_KEY=sk-secret\n")
+	writeFile(t, home, ".hermes/config.yaml", "model:\n  provider: openai\n")
+
+	rb, err := Read(home, "hermes", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Static, 1)
+	require.Empty(t, rb.Static[0].Hosts)
+}
+
+// TestReadCredentialHostsEmptyWhenTheEndpointNamesAnotherProvider: an endpoint
+// hosted by a different provider's entry is not the credential's endpoint, so
+// it yields no hosts rather than a mismatched attribution.
+func TestReadCredentialHostsEmptyWhenTheEndpointNamesAnotherProvider(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/.env", "OPENAI_API_KEY=sk-secret\n")
+	writeFile(t, home, ".hermes/config.yaml",
+		"model:\n  provider: anthropic\n  base_url: https://api.anthropic.example/v1\n")
+
+	rb, err := Read(home, "hermes", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Static, 1)
+	require.Empty(t, rb.Static[0].Hosts)
+}
+
+// TestReadFillsCredentialHostsFromAProvidersEntry: opencode's nested shape
+// (`provider.<id>.options.baseURL`) ties the endpoint to the provider by the
+// map key, so the credential found in its SQLite probe gains that host.
+func TestReadFillsCredentialHostsFromAProvidersEntry(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".config/opencode/opencode.jsonc",
+		`{"provider":{"openai":{"options":{"baseURL":"https://api.example/v1"}}}}`)
+	writeOpenCode2DB(t, home, [2]string{"openai", `{"type":"key","key":"sk"}`})
+
+	rb, err := Read(home, "opencode2", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Static, 1)
+	require.Equal(t, []string{"api.example"}, rb.Static[0].Hosts)
+}
+
+// TestReadCredentialHostsIgnoreUnparsableAndEndpointlessConfigs: a config the
+// read cannot parse, or whose endpoint value is not an absolute URL, never
+// aborts the read and never invents a host.
+func TestReadCredentialHostsIgnoreUnparsableAndEndpointlessConfigs(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/.env", "OPENAI_API_KEY=sk-secret\n")
+	writeFile(t, home, ".hermes/config.yaml", "model: {provider: openai, base_url: not a url\n")
+
+	rb, err := Read(home, "hermes", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Static, 1)
+	require.Empty(t, rb.Static[0].Hosts)
+}
+
+// TestReadLoginCredentialsHaveNoHosts: a login credential is recorded, never
+// read or attributed, so its Hosts stay empty.
+func TestReadLoginCredentialsHaveNoHosts(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".codex/auth.json", `{"tokens":{"access_token":"super-secret"}}`)
+
+	rb, err := Read(home, "codex", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Login, 1)
+	require.Empty(t, rb.Login[0].Hosts)
+}
+
 // TestReadCappedFileRejectsUnreadableAndMissing: a path that cannot be opened,
 // or whose contents cannot be read (a directory), is refused.
 func TestReadCappedFileRejectsUnreadableAndMissing(t *testing.T) {

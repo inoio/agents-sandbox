@@ -2,6 +2,7 @@ package readback
 
 import (
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configdecode"
 )
 
 // CredentialKind classifies a credential the read-back found: a static secret
@@ -104,6 +106,7 @@ func Read(home, agentName string, baseline Manifest) (ReadBack, error) {
 		readBack.ConfigPaths = append(readBack.ConfigPaths, entry.Key)
 	}
 	readBack.appendProbeCredentials(collection.probes)
+	readBack.fillStaticCredentialHosts(home, collection.manifest)
 	// The manifest entries are already sorted by key, so appending the
 	// config paths in this loop is order-preserving.
 	//
@@ -137,6 +140,173 @@ func (r *ReadBack) appendProbeCredentials(probes []probeOutcome) {
 // dotenvFileName is the static-secret file name: a declared path with this base
 // is parsed as KEY=VALUE lines whose values are static credentials.
 const dotenvFileName = ".env"
+
+// fillStaticCredentialHosts sets each static credential's Hosts from the
+// endpoint the agent's config entry for its provider declares: the spec's
+// "endpoint in the same config entry" attribution fallback for a session the
+// observation channel did not see. A credential whose provider no entry names
+// keeps empty Hosts.
+//
+//deadcode:ignore reason="fills Credential.Hosts from the provider's config entry; reached through Read from the pending S6 analyser"
+func (r *ReadBack) fillStaticCredentialHosts(home string, manifest Manifest) {
+	if len(r.Static) == 0 {
+		return
+	}
+	hostsByProvider := configEndpointHosts(home, manifest)
+	for i := range r.Static {
+		r.Static[i].Hosts = hostsByProvider[normalizeToken(r.Static[i].Provider)]
+	}
+}
+
+// configEndpointHosts reads the agent's declared config files and maps each
+// provider they name to the endpoint host its entry declares. A probe entry and
+// the dotenv carry no endpoint; an opaque (over-cap) or unparsable file is
+// skipped, never guessed at.
+//
+//deadcode:ignore reason="extracts provider endpoints from the agent config files; reached through Read from the pending S6 analyser"
+func configEndpointHosts(home string, manifest Manifest) map[string][]string {
+	hostsByProvider := map[string][]string{}
+	for _, entry := range manifest.Entries {
+		if isProbe(entry) || entry.Hash == "" || filepath.Base(entry.Key) == dotenvFileName {
+			continue
+		}
+		format, ok := configdecode.FormatFor(entry.Key)
+		if !ok {
+			continue
+		}
+		content, ok := readCappedFile(filepath.Join(home, entry.Key), maxHashedBytes)
+		if !ok {
+			continue
+		}
+		document, err := configdecode.Decode(format, content)
+		if err != nil {
+			continue
+		}
+		collectEndpointHosts(document, "", hostsByProvider)
+	}
+	for provider, hosts := range hostsByProvider {
+		hostsByProvider[provider] = slices.Compact(slices.Sorted(slices.Values(hosts)))
+	}
+	return hostsByProvider
+}
+
+// collectEndpointHosts walks a decoded config document and records, per
+// provider it finds named, the endpoint host that provider's entry declares.
+// A node names a provider through its own provider/name/id field or through the
+// map key it sits under, and only when it actually declares an endpoint
+// (opencode's "provider.<id>.options.baseURL" shape names the provider by key);
+// an entry's endpoint is a direct field or a nested "options" field.
+//
+//deadcode:ignore reason="walks the agent config for provider endpoints; reached through configEndpointHosts and Read"
+func collectEndpointHosts(node any, key string, hostsByProvider map[string][]string) {
+	switch typed := node.(type) {
+	case map[string]any:
+		hosts := entryEndpointHosts(typed)
+		if len(hosts) > 0 {
+			if provider, ok := providerNamedByEntry(typed, key); ok {
+				hostsByProvider[provider] = append(hostsByProvider[provider], hosts...)
+			}
+		}
+		for childKey, child := range typed {
+			collectEndpointHosts(child, childKey, hostsByProvider)
+		}
+	case []any:
+		for _, child := range typed {
+			collectEndpointHosts(child, "", hostsByProvider)
+		}
+	}
+}
+
+// providerNamedByEntry returns the provider an entry names: its provider, name,
+// or id field, or the map key it sits under. It reports false for a node that
+// names no provider or names one only as a non-string.
+//
+//deadcode:ignore reason="identifies the provider a config entry describes; reached through collectEndpointHosts and Read"
+func providerNamedByEntry(entry map[string]any, key string) (string, bool) {
+	for _, field := range providerNameFields {
+		if provider, ok := entry[field].(string); ok && provider != "" {
+			return normalizeToken(provider), true
+		}
+	}
+	if key != "" {
+		return normalizeToken(key), true
+	}
+	return "", false
+}
+
+// providerNameFields are the config keys an entry uses to name the provider it
+// configures (hermes' "model.provider", an OpenAI-compatible "name").
+var providerNameFields = []string{"provider", "name", "id"}
+
+// entryEndpointHosts returns the hosts an entry's endpoint fields name, looking
+// directly at the entry and at its nested "options" object, which is where
+// opencode keeps a provider's baseURL.
+//
+//deadcode:ignore reason="collects an entry's endpoint hosts; reached through collectEndpointHosts and Read"
+func entryEndpointHosts(entry map[string]any) []string {
+	hosts := endpointHosts(entry)
+	if options, ok := entry["options"].(map[string]any); ok {
+		hosts = append(hosts, endpointHosts(options)...)
+	}
+	return hosts
+}
+
+// endpointHosts returns the host each endpoint field of node names. A value that
+// is not a string, or is not an absolute URL with a host, contributes nothing:
+// an unknown shape yields no host rather than a guess.
+//
+//deadcode:ignore reason="extracts a host from an entry's endpoint fields; reached through entryEndpointHosts and Read"
+func endpointHosts(node map[string]any) []string {
+	var hosts []string
+	for key, value := range node {
+		if !isEndpointKey(key) {
+			continue
+		}
+		raw, ok := value.(string)
+		if !ok {
+			continue
+		}
+		if host := endpointHost(raw); host != "" {
+			hosts = append(hosts, host)
+		}
+	}
+	return hosts
+}
+
+// isEndpointKey reports whether a config key names an endpoint URL. It matches
+// case-insensitively and treats '_' and '-' as separators, so baseURL,
+// base_url, and BASE-URL all name the endpoint.
+//
+//deadcode:ignore reason="recognizes an endpoint field in a config entry; reached through endpointHosts and Read"
+func isEndpointKey(key string) bool {
+	normalized := normalizeToken(key)
+	return slices.Contains(endpointKeys, normalized)
+}
+
+// endpointKeys are the normalized config keys that name a provider endpoint
+// (specs/onboarding/onboarding.md §curl: baseURL / endpoint / url).
+var endpointKeys = []string{"baseurl", "endpoint", "url"}
+
+// endpointHost normalizes an endpoint value to its host, dropping the scheme,
+// port, and path. A value that is not an absolute URL with a host yields "".
+//
+//deadcode:ignore reason="normalizes an endpoint URL to its host; reached through endpointHosts and Read"
+func endpointHost(raw string) string {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Hostname() == "" {
+		return ""
+	}
+	return parsed.Hostname()
+}
+
+// normalizeToken folds a provider name or a config key to its comparison form:
+// lowercase, with '_' and '-' dropped, so OPENAI_API_KEY matches openai and
+// baseURL matches base_url.
+//
+//deadcode:ignore reason="folds provider and endpoint-key tokens for comparison; reached through Read"
+func normalizeToken(token string) string {
+	return strings.NewReplacer("_", "", "-", "").Replace(strings.ToLower(strings.TrimSpace(token)))
+}
 
 // loginCredentialStore classifies a declared login store: the provider its
 // credential authenticates, and the agents the store applies to (nil = every
