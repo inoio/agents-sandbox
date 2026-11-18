@@ -439,6 +439,27 @@ would re-derive is not redundant code either: dropping it would ignore an error,
   the daemon and dockerd readiness budgets to 2 s while the package ran in 0.3 s, so a mutant that broke the health
   probe made a dozen tests each poll out 2 s and the sweep reported 17 `TIMED OUT`. Passing cases are healthy on their
   first probe, so 200 ms costs nothing and turns them into kills.
+- **`strconv.ParseUint` returns a *clamped maximum* alongside its range error, so a guard that discards the value is
+  load-bearing, not redundant.** `splitHostPort`'s `if err != nil { return hostname, 0 }` reads as equivalent to the
+  fall-through (a malformed port "obviously yields zero"), but the on-error value is the clamped max for the bitSize —
+  65535 for `bitSize=16` — so dropping the guard turns `:65536` into port 65535. Kill it with an out-of-range port row
+  (`{"api.example:65536", 0}`), and kill the bitSize mutant from the same table: `:65535` flips a `16→15` decrement
+  (it no longer parses) and `:70000` flips `16→17` (`uint16(70000)` wraps to 4464). Check a `Parse*` function's
+  documented on-error value before calling its guard redundant.
+- **An explicit assignment that only restores a library default is equivalent to its `STATEMENT_REMOVE`; verify the
+  default and delete the line.** `goproxy.NewProxyHttpServer` already sets `Verbose: false` (and the following
+  `proxy.Logger = discardLogger{}` would swallow every level anyway), so `proxy.Verbose = false` was unobservable and
+  its removal minted a survivor family that no test can kill. The neighbouring `proxy.Tr.Proxy = nil` and
+  `proxy.ConnectDial = nil` do overwrite non-nil defaults, so they stay and are asserted instead.
+- **A `RETURN_ZERO` on a per-entry counter at a failure return is unreachable without a race — but prove the failure
+  is directory-wide before recording.** `pruneSlugDir` returns `(removed, err)` at its stat and remove failures, and
+  both failure modes a test can build (a non-executable directory fails every `entry.Info`, a non-writable one fails
+  every `os.Remove`) abort on the *first* entry, so `removed` is always zero there; only a concurrent deletion between
+  `ReadDir` and `Info`/`Remove` could make it nonzero. Record both with `disable-next-line RETURN_ZERO`; the
+  `ERRORF_WRAP` on the same lines stays killable by asserting the cause is preserved.
+- **An accumulator's `+=`→`=` (`REMOVE_SELF_ASSIGNMENTS`) survivor needs two accumulations in one call.** `Prune`'s
+  `removed += count` looked covered by the single-slug tests, but only a two-slug fixture — one old artefact per slug
+  directory — makes `removed = count` change the result from 2 to 1. The single-slug cases pass under both.
 
 ### Operational
 

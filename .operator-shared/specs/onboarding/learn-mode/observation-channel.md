@@ -126,6 +126,10 @@ request succeeded or was denied, the request path, and the credential-bearing he
 request bodies or header **values**. A raw flow capture is scrubbed of values before it is kept. `IP` is empty for a
 hostname target (the analyser treats it as unknown, not as a resolved address).
 
+A destination is identified by host, IP, port, path, and protocol, so the same host reached on two ports — two
+CONNECT tunnels, say — is two entries, each with its own port and count, rather than one entry whose port is
+whichever request arrived last.
+
 A CONNECT tunnel is recorded as its own `connect` destination, accepted-successful, alongside any terminated `https`
 entry for the same host. The tunnel is the floor: a client that pins certificates or speaks a non-HTTP protocol never
 produces an inner request, so its destination would otherwise be invisible; the `connect` entry keeps it visible, and
