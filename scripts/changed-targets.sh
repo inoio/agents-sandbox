@@ -5,8 +5,9 @@
 # Prints, one per line and sorted, the subset of `make check` targets a change
 # can affect. Whole targets are selected or skipped; nothing is scoped inside a
 # target. An unrecognized path selects the full set (fail safe), as does an
-# unresolvable base ref; the full set is read from the Makefile's CHECK_TARGETS
-# so the fail-safe cannot drift from what `make check` actually runs.
+# unresolvable base ref; the full set is printed by make's `print-check-targets`
+# (the accumulated `CHECK_TARGETS`) so the fail-safe cannot drift from what
+# `make check` actually runs.
 #
 # This backs `make check-local-changes` and `make check-branch-changes`, the
 # fast inner loop while iterating. It is not a gate: run `make check` before
@@ -60,16 +61,16 @@ fi
 
 files_script="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/changed-files.sh"
 
-# The full `make check` target set, read from the Makefile's CHECK_TARGETS so the
-# fail-safe below can never drift from what `make check` actually runs. Also the
-# fail-safe selection for an unknown path or an undecidable base.
-makefile="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/Makefile"
-check_targets_line="$(grep -E '^CHECK_TARGETS[[:space:]]*=' "$makefile" | head -1 || true)"
-if [[ -z "$check_targets_line" ]]; then
-  printf 'changed-targets: cannot read CHECK_TARGETS from %s\n' "$makefile" >&2
+# The full `make check` target set, printed by make so the fail-safe below can
+# never drift from what `make check` actually runs. Also the fail-safe selection
+# for an unknown path or an undecidable base.
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+all_targets_line="$(MAKEFLAGS='' "${MAKE:-make}" -s --no-print-directory -C "$repo_root" print-check-targets 2>/dev/null)" || all_targets_line=""
+if [[ -z "$all_targets_line" ]]; then
+  printf 'changed-targets: cannot read CHECK_TARGETS from %s\n' "$repo_root/Makefile" >&2
   exit 2
 fi
-read -r -a all_targets <<<"${check_targets_line#*=}"
+read -r -a all_targets <<<"$all_targets_line"
 
 selected=""
 add_targets() { local t; for t in "$@"; do selected="$selected$t"$'\n'; done; }
@@ -126,6 +127,7 @@ if [[ -z "$selected" ]]; then
       ci/check-deadcode.sh|ci/test-check-deadcode.sh|ci/deadcodecheck/*) add_targets deadcode-test; known=1 ;;
       .github/workflows/*) add_targets actionlint ci-guards-check; known=1 ;;
       scripts/changed-files.sh|scripts/test-changed-files.sh) add_targets changed-files-test; known=1 ;;
+      scripts/check.sh|scripts/test-check.sh) add_targets check-test; known=1 ;;
       scripts/cleanup-merged-branches.sh|scripts/test-cleanup-merged-branches.sh) add_targets cleanup-branches-test; known=1 ;;
       scripts/surface-sweep.sh|scripts/test-surface-sweep.sh) add_targets surface-sweep-test; known=1 ;;
       scripts/test-envelope.sh|scripts/test-envelope_test.sh) add_targets envelope-test; known=1 ;;

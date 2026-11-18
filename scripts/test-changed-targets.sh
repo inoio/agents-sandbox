@@ -27,11 +27,10 @@ assert_set() {
   if [[ "$got" == "$expected" ]]; then ok "$name"; else bad "$name (got: '$got' want: '$expected')"; fi
 }
 
-# The full `make check` set, read from the Makefile's CHECK_TARGETS so this
-# expectation tracks it (the map reads the same line).
-MAKEFILE="$(cd "$SCRIPT_DIR/.." && pwd)/Makefile"
-ALL="$(grep -E '^CHECK_TARGETS[[:space:]]*=' "$MAKEFILE" | head -1 \
-  | sed -E 's/^CHECK_TARGETS[[:space:]]*=[[:space:]]*//' \
+# The full `make check` set, printed by make so this expectation tracks the
+# accumulated CHECK_TARGETS definition (the map reads it the same way).
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ALL="$(MAKEFLAGS='' "${MAKE:-make}" -s --no-print-directory -C "$REPO_ROOT" print-check-targets \
   | tr ' ' '\n' | LC_ALL=C sort -u | tr '\n' ' ' | sed 's/ *$//')"
 GO_DOCS="compile-all docs-linkcheck lint test validate-fmt"
 
@@ -76,6 +75,8 @@ run_local "modified changelog checker" ci/check-changelog.sh "# x" "changelog-ch
 run_local "modified deadcode checker" ci/check-deadcode.sh "# x" "deadcode-test shellcheck"
 run_local "modified changed-files script" scripts/changed-files.sh "# x" "changed-files-test shellcheck"
 run_local "modified changed-files test" scripts/test-changed-files.sh "# x" "changed-files-test shellcheck"
+run_local "modified check runner" scripts/check.sh "# x" "check-test shellcheck"
+run_local "modified check runner test" scripts/test-check.sh "# x" "check-test shellcheck"
 run_local "modified upstream-drift script" scripts/upstream-drift.sh "# x" "shellcheck upstream-drift-test"
 run_local "modified rebase-status script" scripts/rebase-status.sh "# x" "rebase-status-test shellcheck"
 run_local "modified enqueue-pr script" scripts/enqueue-pr.sh "# x" "enqueue-pr-test shellcheck"
