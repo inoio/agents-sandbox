@@ -324,7 +324,7 @@ func TestOpencodeEventStream(t *testing.T) {
 	}
 	if children := got.SessionList.Parse([]byte(
 		`[{"id":"ses_child","parentID":"ses_top"}]`,
-	)); len(children) != 1 || children[0] != "ses_child" {
+	)); len(children) != 1 || children[0].ID != "ses_child" {
 		t.Errorf("SessionList.Parse() = %v, want [ses_child]", children)
 	}
 	got.SessionList = nil

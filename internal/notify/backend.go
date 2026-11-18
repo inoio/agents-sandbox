@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -22,6 +23,20 @@ const (
 	TriggerError
 )
 
+// DoneReason is a reason a subtree-aware done is not the end of all work: some
+// part of the session tree is still running at the moment the top-level turn
+// succeeded. Zero or more accompany a TriggerDone notification.
+type DoneReason int
+
+const (
+	// DoneSubagentsRunning means a descendant session is live (busy or
+	// awaiting input).
+	DoneSubagentsRunning DoneReason = iota
+	// DoneCommandsRunning means a background shell is still running for the
+	// top-level session.
+	DoneCommandsRunning
+)
+
 // Notification is a single user-facing alert.
 type Notification struct {
 	SessionID string
@@ -31,6 +46,9 @@ type Notification struct {
 	// EventID is the source event's envelope id, set for input notifications so
 	// dedup keys each distinct request separately. Empty for other triggers.
 	EventID string
+	// DoneReasons lists the pending work a subtree-aware done carries; empty
+	// for a genuinely-quiet done and for every non-done trigger.
+	DoneReasons []DoneReason
 }
 
 // Backend delivers notifications.
@@ -69,7 +87,7 @@ type compositeBackend struct {
 }
 
 func (c *compositeBackend) Notify(n Notification) {
-	if !c.triggerEnabled(n.Trigger) {
+	if !c.triggerEnabled(n) {
 		return
 	}
 	for _, p := range c.parts {
@@ -77,14 +95,45 @@ func (c *compositeBackend) Notify(n Notification) {
 	}
 }
 
-func (c *compositeBackend) triggerEnabled(t Trigger) bool {
-	switch t {
+func (c *compositeBackend) triggerEnabled(n Notification) bool {
+	return triggersEnabled(c.cfg, n)
+}
+
+// triggersEnabled reports whether cfg delivers n. Input and error follow their
+// own toggle; a done follows OnDone when nothing is pending, and otherwise
+// follows the toggle of each reason it names — one match is enough. An unknown
+// trigger is never enabled. The composite backend and the dedup wrapper share
+// it, so a notification the config disables is dropped before it can spend a
+// cross-client claim.
+func triggersEnabled(cfg Config, n Notification) bool {
+	switch n.Trigger {
 	case TriggerInput:
-		return c.cfg.OnInput
+		return cfg.OnInput
 	case TriggerDone:
-		return c.cfg.OnDone
+		return doneEnabled(cfg, n.DoneReasons)
 	case TriggerError:
-		return c.cfg.OnError
+		return cfg.OnError
+	default:
+		return false
+	}
+}
+
+// doneEnabled reports whether a done is delivered: a quiet done (no reasons)
+// follows OnDone; a done naming pending work follows the toggle of any reason
+// it names.
+func doneEnabled(cfg Config, reasons []DoneReason) bool {
+	if len(reasons) == 0 {
+		return cfg.OnDone
+	}
+	return slices.ContainsFunc(reasons, func(reason DoneReason) bool { return reasonEnabled(cfg, reason) })
+}
+
+func reasonEnabled(cfg Config, reason DoneReason) bool {
+	switch reason {
+	case DoneSubagentsRunning:
+		return cfg.OnDoneSubagentsRunning
+	case DoneCommandsRunning:
+		return cfg.OnDoneCommandsRunning
 	default:
 		return false
 	}

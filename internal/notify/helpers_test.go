@@ -99,15 +99,21 @@ func parseTestEvent(payload []byte) (agent.StreamEvent, bool) {
 
 // opencode2Spec mirrors the v2 profile's transition lists: a turn is one
 // execution pair, each step start re-arms busy, and input requests arrive as
-// permission.asked / form.created.
+// permission.asked / form.created. It opts into the subtree-aware done model
+// and carries the shell/interrupt/session-event lists that model needs.
 func opencode2Spec() agent.EventStreamSpec {
 	return agent.EventStreamSpec{
-		BusyEvents:    []string{"session.execution.started", "session.step.started"},
-		AwaitingInput: []string{"permission.asked", "form.created"},
-		IdleEvents:    []string{"session.execution.succeeded"},
-		ErrorEvents:   []string{"session.error", "session.execution.failed"},
-		Name:          "opencode2",
-		Parse:         parseTestEvent,
+		BusyEvents:         []string{"session.execution.started", "session.step.started"},
+		AwaitingInput:      []string{"permission.asked", "form.created"},
+		IdleEvents:         []string{"session.execution.succeeded"},
+		ErrorEvents:        []string{"session.error", "session.execution.failed"},
+		SessionEvents:      []string{"session.created", "session.renamed"},
+		SubtreeDoneStates:  true,
+		ShellStartedEvents: []string{"session.shell.started", "shell.created"},
+		ShellEndedEvents:   []string{"session.shell.ended", "shell.exited"},
+		InterruptedEvents:  []string{"session.execution.interrupted"},
+		Name:               "opencode2",
+		Parse:              parseTestEvent,
 	}
 }
 
@@ -214,10 +220,12 @@ func (r *recordBackend) count() int {
 	return len(r.got)
 }
 
-func (r *recordBackend) notification(i int) Notification {
+// notification returns the first recorded notification; the
+// exactly-one-notification assertion is the only shape the tests need.
+func (r *recordBackend) notification() Notification {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.got[i]
+	return r.got[0]
 }
 
 // eofStreamHandle ends the stream cleanly: Recv reports io.EOF immediately,

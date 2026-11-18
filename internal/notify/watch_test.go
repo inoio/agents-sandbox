@@ -24,11 +24,11 @@ import (
 func TestStubStreamsDrivesChildSeeding(t *testing.T) {
 	const sessionListBody = `{"children":["ses_child"]}`
 	spec := opencodeSpec()
-	spec.SessionList = agent.NewSessionList("seed-cmd", func(payload []byte) []string {
+	spec.SessionList = agent.NewSessionList("seed-cmd", func(payload []byte) []agent.SessionRef {
 		if string(payload) != sessionListBody {
 			t.Errorf("seed payload = %q, want %q", payload, sessionListBody)
 		}
-		return []string{"ses_child"}
+		return []agent.SessionRef{{ID: "ses_child", ParentID: "ses_top"}}
 	})
 	stream := &streamStub{events: []msb.StreamEvent{
 		{Kind: msb.StreamEventStdout, Data: sseBlockFor("message.part.updated", "ses_child")},
@@ -324,7 +324,7 @@ func TestWatchDrivesBackend(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Watch did not return after cancel")
 	}
-	if backend.count() != 1 || backend.notification(0).Trigger != TriggerDone {
+	if backend.count() != 1 || backend.notification().Trigger != TriggerDone {
 		t.Fatalf("expected one done notification, got %+v", backend.got)
 	}
 }
@@ -341,7 +341,7 @@ func TestWatchDedupClearsOnBusy(t *testing.T) {
 	}
 	sb := msbtest.NewMockSandbox(msbtest.SandboxOpts{StreamHandle_: stream})
 	inner := &recordBackend{}
-	dedup := NewDedup("watchslug-a", StateClaimer{}, inner)
+	dedup := NewDedup("watchslug-a", StateClaimer{}, allTriggersOn(), inner)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -417,18 +417,18 @@ func TestWatchReconnectsOnStreamExit(t *testing.T) {
 	if attempts.Load() < 2 {
 		t.Errorf("expected reconnect (>=2 ShellStream calls), got %d", attempts.Load())
 	}
-	if backend.count() != 1 || backend.notification(0).Trigger != TriggerDone {
+	if backend.count() != 1 || backend.notification().Trigger != TriggerDone {
 		t.Fatalf("expected one done notification, got %+v", backend.got)
 	}
 }
 
 func TestWatchOnceSeedsChildrenFromListCommand(t *testing.T) {
 	spec := opencodeSpec()
-	spec.SessionList = agent.NewSessionList("seed-cmd", func(payload []byte) []string {
+	spec.SessionList = agent.NewSessionList("seed-cmd", func(payload []byte) []agent.SessionRef {
 		if string(payload) != `{"data":[{"id":"ses_child","parentID":"ses_top"}]}` {
 			t.Errorf("SessionListParse got %q", payload)
 		}
-		return []string{"ses_child"}
+		return []agent.SessionRef{{ID: "ses_child", ParentID: "ses_top"}}
 	})
 	stream := &streamStub{events: []msb.StreamEvent{
 		{Kind: msb.StreamEventStdout, Data: sseBlockFor("message.part.updated", "ses_child")},
@@ -452,7 +452,7 @@ func TestWatchOnceSeedsChildrenFromListCommand(t *testing.T) {
 
 func TestWatchOnceSeedShellErrorDoesNotBlockNotifications(t *testing.T) {
 	spec := opencodeSpec()
-	spec.SessionList = agent.NewSessionList("seed-cmd", func([]byte) []string {
+	spec.SessionList = agent.NewSessionList("seed-cmd", func([]byte) []agent.SessionRef {
 		t.Fatal("SessionListParse ran despite the shell error")
 		return nil
 	})
@@ -469,7 +469,7 @@ func TestWatchOnceSeedShellErrorDoesNotBlockNotifications(t *testing.T) {
 // stream either.
 func TestWatchOnceSeedNonSuccessDoesNotBlockNotifications(t *testing.T) {
 	spec := opencodeSpec()
-	spec.SessionList = agent.NewSessionList("seed-cmd", func([]byte) []string {
+	spec.SessionList = agent.NewSessionList("seed-cmd", func([]byte) []agent.SessionRef {
 		t.Fatal("SessionListParse ran despite the failing command")
 		return nil
 	})
@@ -487,7 +487,7 @@ func TestWatchOnceSeedNonSuccessDoesNotBlockNotifications(t *testing.T) {
 // stream, and the empty seed must not suppress the top-level session.
 func TestWatchOnceSeedUnparsableDoesNotBlockNotifications(t *testing.T) {
 	spec := opencodeSpec()
-	spec.SessionList = agent.NewSessionList("seed-cmd", func([]byte) []string { return nil })
+	spec.SessionList = agent.NewSessionList("seed-cmd", func([]byte) []agent.SessionRef { return nil })
 	sb := &msbtest.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
 			"seed-cmd": msbtest.NewTestResult(true, 0, "not json", "", nil),
@@ -496,6 +496,63 @@ func TestWatchOnceSeedUnparsableDoesNotBlockNotifications(t *testing.T) {
 		StreamHandle_: seedFailureStream(),
 	}
 	assertOneDoneNotification(t, sb, spec)
+}
+
+// TestReconnectResetsChildLiveness pins the reconnect invariant: a child left
+// live before a stream drop must not suppress the main session's done after the
+// watcher reconnects, because a fresh stream has no replay of the child's
+// settlement. The tracker is reused across the reconnect, exactly as Watch does.
+func TestReconnectResetsChildLiveness(t *testing.T) {
+	spec := opencode2Spec()
+	tr := NewTracker(spec)
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_root", Title: "root"})
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_child", ParentID: "ses_root"})
+	tr.Handle(agent.StreamEvent{Type: execStarted, SessionID: "ses_child"}) // child live
+
+	stream := &queuedHandle{events: []msb.StreamEvent{
+		{Kind: msb.StreamEventStdout, Data: sseBlockFor(execStarted, "ses_root")},
+		{Kind: msb.StreamEventStdout, Data: sseBlockFor(execSucceeded, "ses_root")},
+		{Kind: msb.StreamEventExited, ExitCode: 0},
+	}}
+	backend := &recordBackend{}
+	_ = watchOnce(context.Background(), stubStreams{handle: stream}, tr, backend, spec)
+
+	if backend.count() != 1 {
+		t.Fatalf("notifications after reconnect = %+v, want exactly one", backend.got)
+	}
+	got := backend.notification()
+	if got.Trigger != TriggerDone || len(got.DoneReasons) != 0 {
+		t.Fatalf("done after reconnect = %+v, want a plain done (the stale child was reset)", got)
+	}
+	if got.Title != "agents-sandbox: agent done" || got.Body != "in session 'root'" {
+		t.Fatalf("message = %q / %q, want the plain done for the root", got.Title, got.Body)
+	}
+}
+
+// TestReconnectClearsRunningShells pins the other half of the reset: a
+// background shell left running across a drop no longer claims
+// DoneCommandsRunning on the reconnected stream's done.
+func TestReconnectClearsRunningShells(t *testing.T) {
+	spec := opencode2Spec()
+	tr := NewTracker(spec)
+	tr.Handle(agent.StreamEvent{Type: sessionCreated, SessionID: "ses_root", Title: "root"})
+	tr.Handle(agent.StreamEvent{Type: shellStarted, SessionID: "ses_root", ShellID: "sh_1", ShellBackground: true})
+
+	stream := &queuedHandle{events: []msb.StreamEvent{
+		{Kind: msb.StreamEventStdout, Data: sseBlockFor(execStarted, "ses_root")},
+		{Kind: msb.StreamEventStdout, Data: sseBlockFor(execSucceeded, "ses_root")},
+		{Kind: msb.StreamEventExited, ExitCode: 0},
+	}}
+	backend := &recordBackend{}
+	_ = watchOnce(context.Background(), stubStreams{handle: stream}, tr, backend, spec)
+
+	if backend.count() != 1 {
+		t.Fatalf("notifications after reconnect = %+v, want exactly one", backend.got)
+	}
+	if got := backend.notification(); len(got.DoneReasons) != 0 ||
+		got.Title != "agents-sandbox: agent done" {
+		t.Fatalf("done after reconnect = %+v, want a plain done (the stale shell was cleared)", got)
+	}
 }
 
 // TestWatchOnceReportsCleanStreamEnd verifies a stream that ends cleanly is
@@ -518,7 +575,7 @@ func TestWatchOnceReportsCleanStreamEnd(t *testing.T) {
 func TestHandleEventSameStepInputRequestsBothNotify(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	sink := &sharedSink{}
-	dedup := NewDedup("dedupinturn-b", StateClaimer{}, sink)
+	dedup := NewDedup("dedupinturn-b", StateClaimer{}, allTriggersOn(), sink)
 	tr := NewTracker(opencode2Spec())
 	sid := "ses_top"
 
@@ -536,7 +593,7 @@ func TestHandleEventSameStepInputRequestsBothNotify(t *testing.T) {
 func TestHandleEventRepeatedInputEventNotifiesOnce(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	sink := &sharedSink{}
-	dedup := NewDedup("dedupinturn-c", StateClaimer{}, sink)
+	dedup := NewDedup("dedupinturn-c", StateClaimer{}, allTriggersOn(), sink)
 	tr := NewTracker(opencode2Spec())
 	sid := "ses_top"
 
@@ -546,6 +603,40 @@ func TestHandleEventRepeatedInputEventNotifiesOnce(t *testing.T) {
 
 	if sink.count() != 1 {
 		t.Fatalf("expected a repeat of the same input event to notify once, got %d", sink.count())
+	}
+}
+
+// TestDedupGatedDoneDoesNotSpendClaim pins that a done the trigger config
+// disables is dropped before claiming, so the later genuinely-quiet done still
+// alerts. The sequence has no root busy event between the two dones (models a
+// missed busy after a stream gap): with the old claim-before-gate order the
+// classified done spent the (root, done) token and the quiet done was swallowed.
+func TestDedupGatedDoneDoesNotSpendClaim(t *testing.T) {
+	sink := &sharedSink{}
+	cfg := Config{OnDone: true, OnInput: true}
+	gated := &compositeBackend{cfg: cfg, parts: []Backend{sink}}
+	dedup := NewDedup("quietdone-a", alwaysClaimer{}, cfg, gated)
+	tr := NewTracker(opencode2Spec())
+	const root = "ses_root"
+
+	events := []agent.StreamEvent{
+		{Type: execStarted, SessionID: root},                           // root busy
+		{Type: sessionCreated, SessionID: "ses_child", ParentID: root}, // child linked
+		{Type: execStarted, SessionID: "ses_child"},                    // child live
+		{Type: execSucceeded, SessionID: root},                         // classified done: gated, must not claim
+		{Type: execSucceeded, SessionID: "ses_child"},                  // child settles
+		{Type: "permission.asked", SessionID: root, EventID: "evt_1"},  // input -> delivered
+		{Type: execSucceeded, SessionID: root},                         // quiet done -> delivered
+	}
+	for _, e := range events {
+		handleEvent(tr, dedup, e)
+	}
+
+	if sink.count() != 2 {
+		t.Fatalf("delivered %d notifications, want the input and the quiet done: %+v", sink.count(), sink.got)
+	}
+	if got := sink.got[1]; got.Trigger != TriggerDone || len(got.DoneReasons) != 0 {
+		t.Fatalf("second delivery = %+v, want a plain done", got)
 	}
 }
 
@@ -740,7 +831,7 @@ func assertOneDoneNotification(t *testing.T, sb *msbtest.MockSandbox, spec agent
 	if len(*sb.ShellCalls) != 1 || (*sb.ShellCalls)[0] != "seed-cmd" {
 		t.Fatalf("expected the seed command to run, got %v", *sb.ShellCalls)
 	}
-	if backend.count() != 1 || backend.notification(0).Trigger != TriggerDone {
+	if backend.count() != 1 || backend.notification().Trigger != TriggerDone {
 		t.Fatalf("expected one done notification despite seed failure, got %+v", backend.got)
 	}
 }

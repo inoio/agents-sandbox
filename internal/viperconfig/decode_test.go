@@ -328,6 +328,101 @@ func TestDecodeNotifyReadsEveryKeyIndependently(t *testing.T) {
 			set:  func(v *viper.Viper) { v.Set(keyNotifyOnError, false) },
 			want: NotifyConfig{Audio: off, OnInput: true, OnDone: true, OnError: false},
 		},
+		{
+			// A reason toggle alone is enough to activate the section: the
+			// trigger toggles then take their defaults and the reason applies.
+			name: "on-done-subagents-running only",
+			set:  func(v *viper.Viper) { v.Set(keyNotifyOnDoneSubagentsRunning, true) },
+			want: NotifyConfig{
+				Audio: off, OnInput: true, OnDone: true, OnError: true,
+				OnDoneSubagentsRunning: true,
+			},
+		},
+		{
+			name: "on-done-commands-running only",
+			set:  func(v *viper.Viper) { v.Set(keyNotifyOnDoneCommandsRunning, true) },
+			want: NotifyConfig{
+				Audio: off, OnInput: true, OnDone: true, OnError: true,
+				OnDoneCommandsRunning: true,
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			v := viper.New()
+			tc.set(v)
+			if got := decodeNotify(v); got != tc.want {
+				t.Errorf("decodeNotify() = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestDecodeNotifyDoneReasons pins the done-subtree toggles: an active notify
+// section leaves both at false (only a fully-at-rest session alerts), and each
+// key overrides only its own field.
+func TestDecodeNotifyDoneReasons(t *testing.T) {
+	off := notify.AudioOff
+	cases := []struct {
+		name string
+		set  func(v *viper.Viper)
+		want NotifyConfig
+	}{
+		{
+			name: "section present, toggles unset",
+			set:  func(v *viper.Viper) { v.Set(keyNotifyDesktop, true) },
+			want: NotifyConfig{Desktop: true, Audio: off, OnInput: true, OnDone: true, OnError: true},
+		},
+		{
+			name: "subagents toggle enabled",
+			set: func(v *viper.Viper) {
+				v.Set(keyNotifyDesktop, true)
+				v.Set(keyNotifyOnDoneSubagentsRunning, true)
+			},
+			want: NotifyConfig{
+				Desktop: true, Audio: off, OnInput: true, OnDone: true, OnError: true,
+				OnDoneSubagentsRunning: true,
+			},
+		},
+		{
+			name: "subagents toggle disabled explicitly",
+			set: func(v *viper.Viper) {
+				v.Set(keyNotifyDesktop, true)
+				v.Set(keyNotifyOnDoneSubagentsRunning, false)
+			},
+			want: NotifyConfig{Desktop: true, Audio: off, OnInput: true, OnDone: true, OnError: true},
+		},
+		{
+			name: "commands toggle enabled",
+			set: func(v *viper.Viper) {
+				v.Set(keyNotifyDesktop, true)
+				v.Set(keyNotifyOnDoneCommandsRunning, true)
+			},
+			want: NotifyConfig{
+				Desktop: true, Audio: off, OnInput: true, OnDone: true, OnError: true,
+				OnDoneCommandsRunning: true,
+			},
+		},
+		{
+			name: "commands toggle disabled explicitly",
+			set: func(v *viper.Viper) {
+				v.Set(keyNotifyDesktop, true)
+				v.Set(keyNotifyOnDoneCommandsRunning, false)
+			},
+			want: NotifyConfig{Desktop: true, Audio: off, OnInput: true, OnDone: true, OnError: true},
+		},
+		{
+			name: "toggles are independent",
+			set: func(v *viper.Viper) {
+				v.Set(keyNotifyDesktop, true)
+				v.Set(keyNotifyOnDoneSubagentsRunning, true)
+				v.Set(keyNotifyOnDoneCommandsRunning, false)
+			},
+			want: NotifyConfig{
+				Desktop: true, Audio: off, OnInput: true, OnDone: true, OnError: true,
+				OnDoneSubagentsRunning: true,
+			},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
