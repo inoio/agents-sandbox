@@ -14,7 +14,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
-func TestProjectSlugsExcludesLocksAndFiles(t *testing.T) {
+func TestProjectSlugsExcludesLocksLearnAndFiles(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
 	root := stateRoot()
@@ -24,6 +24,11 @@ func TestProjectSlugsExcludesLocksAndFiles(t *testing.T) {
 		}
 	}
 	if err := os.MkdirAll(locksDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// The learn-mode artefact tree lives directly under the root but is not a
+	// project slug, so prune must not enumerate it as one.
+	if err := os.MkdirAll(filepath.Join(root, learnDirName, "my-checkout"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	// The launcher-global root state file is a non-directory entry under the

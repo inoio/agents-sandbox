@@ -20,10 +20,16 @@ var (
 	openSweepClaimFile = os.OpenFile
 )
 
+// learnDirName is the learn-mode artefact tree directly under the state root,
+// written by channel.Save. It is not a project slug, so ProjectSlugs skips it
+// like the locks tree. It mirrors channel.learnStateDirName.
+const learnDirName = "learn"
+
 // ProjectSlugs returns the sorted directory names directly under the state
-// root, one per project slug, excluding the never-deleted locks directory and
-// any non-directory entry (the launcher-global root state file and its
-// write-side temp files). A missing state root yields an empty list.
+// root, one per project slug, excluding the never-deleted locks directory, the
+// learn-mode artefact tree, and any non-directory entry (the launcher-global
+// root state file and its write-side temp files). A missing state root yields an
+// empty list.
 func ProjectSlugs() ([]string, error) {
 	entries, err := os.ReadDir(stateRoot())
 	if err != nil {
@@ -34,7 +40,7 @@ func ProjectSlugs() ([]string, error) {
 	}
 	slugs := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		if entry.Name() == filepath.Base(locksDir()) || !entry.IsDir() {
+		if entry.Name() == filepath.Base(locksDir()) || entry.Name() == learnDirName || !entry.IsDir() {
 			continue
 		}
 		slugs = append(slugs, entry.Name())
