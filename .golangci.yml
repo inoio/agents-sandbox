@@ -282,6 +282,10 @@ linters:
         - ^net/url.URL$
         - ^os/exec.Cmd$
         - ^reflect.StructField$
+        - ^crypto/tls.Certificate$
+        - ^crypto/x509.Certificate$
+        - ^crypto/x509/pkix.Name$
+        - ^encoding/pem.Block$
         # public libs
         - ^github.com/Shopify/sarama.Config$
         - ^github.com/Shopify/sarama.ProducerMessage$
