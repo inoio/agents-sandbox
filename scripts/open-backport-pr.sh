@@ -166,7 +166,9 @@ while IFS= read -r sha; do
     printf 'open-backport-pr: skipping %s (empty commit; nothing to port)\n' "$sha"
     continue
   fi
-  if printf '%s\n' "$branch_ids" | grep -qxF -- "$patch_id"; then
+  # No `-q`: it exits at the first match and `pipefail` then reads the producer's
+  # SIGPIPE as a non-match.
+  if printf '%s\n' "$branch_ids" | grep -xF -- "$patch_id" >/dev/null; then
     continue
   fi
   portable_commits+=("$sha")
@@ -187,7 +189,7 @@ for sha in "${portable_commits[@]}"; do
     git -C "$repo" cherry-pick --abort || true
     # A pick that applied to nothing is not a conflict: the commit's change is
     # already present in another form, so skip it and keep porting the rest.
-    if printf '%s\n' "$cherry_pick_output" | grep -qi 'is now empty'; then
+    if printf '%s\n' "$cherry_pick_output" | grep -i 'is now empty' >/dev/null; then
       printf 'open-backport-pr: skipping %s (cherry pick is now empty; nothing to port)\n' "$sha"
       continue
     fi

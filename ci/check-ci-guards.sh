@@ -44,6 +44,34 @@ report() {
   printf 'v\n' >>"$violations_file"
 }
 
+# contains_line LIST LINE: succeed when LIST has LINE as a whole line. Bash
+# matching, not `grep -q`: `grep -q` exits at the first match, the producer can
+# lose the write race and die of SIGPIPE, and `pipefail` then reports a real
+# match as absent — the hazard this checker forbids elsewhere.
+contains_line() {
+  local line
+  while IFS= read -r line; do
+    [[ "$line" == "$2" ]] && return 0
+  done <<<"$1"
+  return 1
+}
+
+# has_token BLOCK TOKEN MESSAGE: report MESSAGE when BLOCK lacks TOKEN.
+has_token() {
+  [[ "$1" == *"$2"* ]] || report "$3"
+}
+
+# block_matches BLOCK ERE: succeed when BLOCK has a line matching ERE. `grep`
+# reads its whole here-string (no `-q`), so the feed cannot die of SIGPIPE.
+block_matches() {
+  grep -E "$2" >/dev/null <<<"$1"
+}
+
+# block_matches_fixed BLOCK STRING: succeed when BLOCK contains STRING.
+block_matches_fixed() {
+  grep -F "$2" >/dev/null <<<"$1"
+}
+
 # The canonical non-code path set, in the `paths-ignore` glob form. Every site
 # below must classify exactly these paths; the changelog rule adds one more (a
 # *_test.go change needs no fragment), asserted separately.
@@ -257,7 +285,7 @@ used_events="$(
 
 while IFS= read -r event; do
   [[ -n "$event" ]] || continue
-  printf '%s\n' "$declared_events" | grep -qx "$event" \
+  contains_line "$declared_events" "$event" \
     || report "ci.yml: github.event_name is compared to '$event', which is not declared in on:"
 done <<<"$used_events"
 
@@ -289,18 +317,18 @@ types_block="$(
 )"
 if [[ -n "$types_block" ]]; then
   for default_type in opened synchronize reopened; do
-    printf '%s\n' "$types_block" | grep -qE "(^|[^a-z_])$default_type([^a-z_]|$)" \
+    block_matches "$types_block" "(^|[^a-z_])$default_type([^a-z_]|$)" \
       || report "ci.yml: on.pull_request.types omits the default type '$default_type' (declaring types: replaces the default set)"
   done
   # `labeled` is not a pull_request default, but it is what opts a PR into the
   # podman integration job, so declaring types: must keep it too.
-  printf '%s\n' "$types_block" | grep -qE '(^|[^a-z_])labeled([^a-z_]|$)' \
+  block_matches "$types_block" '(^|[^a-z_])labeled([^a-z_]|$)' \
     || report "ci.yml: on.pull_request.types omits 'labeled', which opts a PR into the podman integration job"
 else
   # No `types:` block is not "nothing to check": the pull_request defaults
   # return, `labeled` is gone, and the podman opt-in can never fire. Deleting
   # the block would otherwise slip past every check above.
-  if printf '%s\n' "$declared_events" | grep -qx pull_request; then
+  if contains_line "$declared_events" pull_request; then
     report "ci.yml: on.pull_request declares no types: list (the default types return and 'labeled' is absent, so the podman opt-in can never fire)"
   fi
 fi
@@ -352,11 +380,6 @@ job_names() {
   ' "$CI_YML"
 }
 
-# has_token BLOCK TOKEN MESSAGE: report MESSAGE when BLOCK lacks TOKEN.
-has_token() {
-  printf '%s\n' "$1" | grep -qF -- "$2" || report "$3"
-}
-
 changes_block="$(job_block changes)"
 has_token "$changes_block" 'ci/event-base.sh' \
   "ci.yml: 'changes' does not call ci/event-base.sh (the merge-base must not be re-inlined)"
@@ -372,7 +395,7 @@ has_token "$changes_block" 'ci/classify-changes.sh' \
 
 # A `git diff ... || true` in `changes` hides a failed diff, so the fail-closed
 # branch never runs and the gate can run nothing.
-if printf '%s\n' "$changes_block" | grep -qE 'git diff.*\|\|[[:space:]]*true'; then
+if block_matches "$changes_block" 'git diff.*\|\|[[:space:]]*true'; then
   report "ci.yml: 'changes' keeps a 'git diff ... || true' that hides a failed diff"
 fi
 
@@ -399,8 +422,20 @@ fi
 # The same hazard in the `changes` step's own inline shell: a future
 # `git diff … | grep -q` classification would fail open exactly as the old
 # inline form did.
-if printf '%s\n' "$changes_block" | grep -qE "$quiet_grep_pipe"; then
+if block_matches "$changes_block" "$quiet_grep_pipe"; then
   report "ci.yml: 'changes' pipes a producer into grep -q (a list past the pipe buffer fails open)"
+fi
+
+# The checker is not exempt from the hazard it enforces elsewhere: scan its own
+# code, comments stripped, for a producer piped straight into grep's quiet mode.
+# The pattern requires `grep` immediately after the pipe so a `grep -q…` literal
+# inside a quoted sed expression (the classifier's own extraction) is not read as
+# a pipeline. `grep` here reads the whole here-string (no `-q`), so it cannot
+# itself trip the pattern it detects.
+self_code="$(grep -vE '^[[:space:]]*#' "${BASH_SOURCE[0]}")"
+self_quiet_grep_pipe='([^|]|^)\|[[:space:]]*grep[[:space:]]+-[[:alpha:]]*q'
+if grep -E "$self_quiet_grep_pipe" >/dev/null <<<"$self_code"; then
+  report "ci/check-ci-guards.sh itself pipes a producer into grep -q (a real match can fail open under load)"
 fi
 
 # Rename detection is on by default, and `--name-only` then prints only the
@@ -410,10 +445,10 @@ fi
 # reports green. `--no-renames` keeps the source path in the diff. The
 # `changelog` job builds the same list for its presence rule, so it needs the
 # flag too.
-if ! printf '%s\n' "$changes_block" | grep -qE 'git diff[^|]*--no-renames'; then
+if ! block_matches "$changes_block" 'git diff[^|]*--no-renames'; then
   report "ci.yml: 'changes' git diff is missing --no-renames (a detected rename collapses to its destination and classifies as non-code)"
 fi
-if ! printf '%s\n' "$(job_block changelog)" | grep -qE 'git diff[^|]*--no-renames'; then
+if ! block_matches "$(job_block changelog)" 'git diff[^|]*--no-renames'; then
   report "ci.yml: 'changelog' git diff is missing --no-renames (a detected rename hides the source path from the presence rule)"
 fi
 
@@ -471,7 +506,7 @@ done
 # Every job bounds itself with a timeout; a hung job otherwise burns a runner.
 while IFS= read -r job; do
   [[ -n "$job" ]] || continue
-  printf '%s\n' "$(job_block "$job")" | grep -qE '^    timeout-minutes:[[:space:]]*[0-9]+' \
+  block_matches "$(job_block "$job")" '^    timeout-minutes:[[:space:]]*[0-9]+' \
     || report "ci.yml: '$job' is missing a job-level timeout-minutes"
 done <<<"$(job_names)"
 
@@ -500,14 +535,14 @@ push_branches() {
   ' "$CI_YML"
 }
 
-if ! printf '%s\n' "$(push_branches)" | grep -qF 'release/*'; then
+if ! block_matches_fixed "$(push_branches)" 'release/*'; then
   report "ci.yml: on.push.branches does not include 'release/*' (a release-branch push must run the required checks)"
 fi
 
 # The guard job's own gate is what stops a tag on nothing/another branch. Scope
 # the token to the `if:` line: a whole-block grep would pass on a job that
 # un-gated itself while leaving the phrase in a comment or `name:`.
-if printf '%s\n' "$(job_names)" | grep -qx 'tag-guard'; then
+if contains_line "$(job_names)" 'tag-guard'; then
   tag_guard_if="$(printf '%s\n' "$(job_block tag-guard)" | grep -E '^    if:' || true)"
   if [[ "$tag_guard_if" != *"startsWith(github.ref, 'refs/tags/')"* ]]; then
     report "ci.yml: 'tag-guard' if: is missing startsWith(github.ref, 'refs/tags/') (the guard must run on a release tag)"
@@ -527,7 +562,7 @@ else
   for required in tag-guard lint test integration integration-podman; do
     # Match the token as a whole list element, so `integration` cannot be
     # satisfied by the `integration-podman` substring.
-    if ! printf '%s\n' "$release_needs" | grep -qE "(^|[^A-Za-z0-9_-])${required}([^A-Za-z0-9_-]|\$)"; then
+    if ! block_matches "$release_needs" "(^|[^A-Za-z0-9_-])${required}([^A-Za-z0-9_-]|\$)"; then
       report "ci.yml: 'release' needs: does not include '$required' (the release must wait on $required)"
     fi
   done

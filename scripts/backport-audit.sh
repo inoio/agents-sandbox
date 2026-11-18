@@ -305,7 +305,9 @@ debt="$(
         # An empty patch-id is a commit that changes nothing (an empty commit),
         # so there is nothing to port and it can never be debt.
         [[ -n "$patch_id" ]] || continue
-        if ! printf '%s\n' "$branch_ids" | grep -qxF -- "$patch_id"; then
+        # No `-q`: it exits at the first match and `pipefail` then reads the
+        # producer's SIGPIPE as a non-match.
+        if ! printf '%s\n' "$branch_ids" | grep -xF -- "$patch_id" >/dev/null; then
           missing=$((missing + 1))
         fi
       done <<<"$commits"

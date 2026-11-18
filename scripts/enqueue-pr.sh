@@ -140,7 +140,9 @@ carry_backport_marker() {
   local issue
   while read -r issue; do
     [[ -n "$issue" ]] || continue
-    if gh issue view "$issue" --json labels -q '.labels[].name' 2>/dev/null | grep -qx 'needs-backport'; then
+    # No `-q`: it exits at the first match and `pipefail` then reads the
+    # producer's SIGPIPE as a non-match.
+    if gh issue view "$issue" --json labels -q '.labels[].name' 2>/dev/null | grep -x 'needs-backport' >/dev/null; then
       if gh pr edit "$pr" --add-label needs-backport >/dev/null; then
         printf 'enqueue-pr: PR #%s: marked needs-backport (a backport PR will be opened by the backport audit)\n' "$pr"
       else
