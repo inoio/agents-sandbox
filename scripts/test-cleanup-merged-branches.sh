@@ -37,7 +37,7 @@ fail=0
 # parent trap could see; the root is created here instead.
 fixture_root="$(mktemp -d "${TMPDIR:-/tmp}/cleanup-fixtures.XXXXXX")"
 trap 'rm -rf "$fixture_root"' EXIT
-ok()  { pass=$((pass + 1)); printf 'ok   - %s\n' "$1"; }
+ok()  { pass=$((pass + 1)); if [[ "${VERBOSE:-0}" == 1 ]]; then printf 'ok   - %s\n' "$1"; fi; }
 bad() { fail=$((fail + 1)); printf 'FAIL - %s\n' "$1"; }
 
 assert_contains()     { if grep -qF -- "$3" <<<"$2"; then ok "$1"; else bad "$1 (missing: $3)"; fi; }

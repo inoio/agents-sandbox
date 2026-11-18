@@ -16,8 +16,9 @@ CLASSIFY="$SCRIPT_DIR/classify-changes.sh"
 
 pass=0
 fail=0
-ok()  { pass=$((pass + 1)); printf 'ok   - %s\n' "$1"; }
+ok()  { pass=$((pass + 1)); if [[ "${VERBOSE:-0}" == 1 ]]; then printf 'ok   - %s\n' "$1"; fi; }
 bad() { fail=$((fail + 1)); printf 'FAIL - %s\n' "$1"; }
+section() { if [[ "${VERBOSE:-0}" == 1 ]]; then printf '# %s\n' "$1"; fi; }
 
 fixture_root="$(mktemp -d "${TMPDIR:-/tmp}/classify-changes.XXXXXX")"
 trap 'rm -rf "$fixture_root"' EXIT

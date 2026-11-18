@@ -14,8 +14,9 @@ pass=0
 fail=0
 fixture_root="$(mktemp -d "${TMPDIR:-/tmp}/backport-audit-fixtures.XXXXXX")"
 trap 'rm -rf "$fixture_root"' EXIT
-ok()  { pass=$((pass + 1)); printf 'ok   - %s\n' "$1"; }
+ok()  { pass=$((pass + 1)); if [[ "${VERBOSE:-0}" == 1 ]]; then printf 'ok   - %s\n' "$1"; fi; }
 bad() { fail=$((fail + 1)); printf 'FAIL - %s\n' "$1"; }
+section() { if [[ "${VERBOSE:-0}" == 1 ]]; then printf '# %s\n' "$1"; fi; }
 assert_contains()     { if grep -qF -- "$3" <<<"$2"; then ok "$1"; else bad "$1 (missing: $3)"; fi; }
 assert_not_contains() { if grep -qF -- "$3" <<<"$2"; then bad "$1 (unexpected: $3)"; else ok "$1"; fi; }
 assert_eq_count() { local n; n="$(grep -cF -- "$3" <<<"$2" || true)"; if [[ "$n" == "$4" ]]; then ok "$1"; else bad "$1 (got $n want $4)"; fi; }
@@ -178,7 +179,7 @@ iso_from_epoch() {
 
 unset_audit_env
 
-echo "# backport-audit.sh (no release branch)"
+section "backport-audit.sh (no release branch)"
 seed_fixture no-release
 git -C "$REPO" branch -D release/0.1 >/dev/null
 write_merged 2020-01-01T00:00:00Z
@@ -187,7 +188,7 @@ if [[ "$status" -eq 0 ]]; then ok "no release branch exits clean"; else bad "no 
 assert_contains "names the missing release branch" "$out" "no release branch; nothing to audit"
 if [[ -z "$(argv)" ]]; then ok "does not ask gh without a release branch"; else bad "does not ask gh without a release branch"; fi
 
-echo "# backport-audit.sh (unported PR)"
+section "backport-audit.sh (unported PR)"
 seed_fixture unported
 write_merged 2020-01-01T00:00:00Z
 run_audit
@@ -198,7 +199,7 @@ assert_contains "labels the filter" "$(argv)" "--label needs-backport"
 assert_contains "asks for the merge commit" "$(argv)" "--json number,title,url,mergedAt,mergeCommit"
 assert_contains "requests the default page limit" "$(argv)" "--limit 5000"
 
-echo "# backport-audit.sh (truncated expected set)"
+section "backport-audit.sh (truncated expected set)"
 seed_fixture truncated
 export BACKPORT_AUDIT_PAGE_LIMIT=5
 export GH_MERGED_ROWS=5
@@ -214,7 +215,7 @@ if [[ -z "$out" ]]; then ok "prints no clean result"; else bad "prints no clean 
 # The below-cap page's rows carry no merge commit, so none is debt; the case
 # asserts the page was audited (the open-backport query follows) rather than
 # aborted as truncated.
-echo "# backport-audit.sh (one row below the cap)"
+section "backport-audit.sh (one row below the cap)"
 seed_fixture below-cap
 export BACKPORT_AUDIT_PAGE_LIMIT=5
 export GH_MERGED_ROWS=4
@@ -227,10 +228,10 @@ assert_not_contains "does not report truncation" "$(err)" "truncated"
 unset GH_MERGED_ROWS
 unset_audit_env
 
-echo "# backport-audit.sh (commits read from the merged range)"
+section "backport-audit.sh (commits read from the merged range)"
 assert_not_contains "never asks the API for the original commits" "$truncation_argv" "--json commits"
 
-echo "# backport-audit.sh (merge commit not in the local clone)"
+section "backport-audit.sh (merge commit not in the local clone)"
 seed_fixture missing-merge
 absent_merge="0123456789abcdef0123456789abcdef01234567"
 write_merged 2020-01-01T00:00:00Z "$absent_merge"
@@ -248,7 +249,7 @@ run_audit
 if [[ "$status" -eq 1 ]]; then ok "a resolvable merge commit is still audited"; else bad "a resolvable merge commit is still audited (got $status)"; fi
 assert_contains "reports the resolvable PR's debt" "$out" "#7"
 
-echo "# backport-audit.sh (empty commit)"
+section "backport-audit.sh (empty commit)"
 seed_fixture empty-commit
 git -C "$REPO" commit -q --allow-empty -m "empty"
 empty_merge="$(git -C "$REPO" rev-parse HEAD)"
@@ -257,7 +258,7 @@ run_audit
 if [[ "$status" -eq 0 ]]; then ok "an empty commit is not debt"; else bad "an empty commit is not debt (got $status)"; fi
 assert_not_contains "reports no debt for the empty commit" "$out" "#7"
 
-echo "# backport-audit.sh (ported PR)"
+section "backport-audit.sh (ported PR)"
 seed_fixture ported
 git -C "$REPO" checkout -q release/0.1
 git -C "$REPO" cherry-pick -x "$MERGE" >/dev/null
@@ -266,7 +267,7 @@ run_audit
 if [[ "$status" -eq 0 ]]; then ok "a ported PR exits clean"; else bad "a ported PR exits clean (got $status)"; fi
 assert_not_contains "reports no debt" "$out" "#7"
 
-echo "# backport-audit.sh (merged within grace)"
+section "backport-audit.sh (merged within grace)"
 seed_fixture grace
 now=1700000000
 write_merged "$(iso_from_epoch $((now - 60)))"
@@ -276,7 +277,7 @@ run_audit
 if [[ "$status" -eq 0 ]]; then ok "a PR merged within the grace window is skipped"; else bad "a PR merged within the grace window is skipped (got $status)"; fi
 unset_audit_env
 
-echo "# backport-audit.sh (open backport PR is not a clearance)"
+section "backport-audit.sh (open backport PR is not a clearance)"
 seed_fixture open-pr
 printf '[{"number":8,"url":"https://github.com/o/r/pull/8","body":"Backport of #7"}]\n' >"$GH_OPEN_JSON"
 write_merged 2020-01-01T00:00:00Z
@@ -285,7 +286,7 @@ if [[ "$status" -eq 1 ]]; then ok "an open backport PR does not clear the debt";
 assert_contains "annotates the finding with the open PR" "$out" "open:https://github.com/o/r/pull/8"
 printf '[]\n' >"$GH_OPEN_JSON"
 
-echo "# backport-audit.sh (merged backport PR clears an adapted port)"
+section "backport-audit.sh (merged backport PR clears an adapted port)"
 seed_fixture merged-pr
 git -C "$REPO" checkout -q release/0.1
 printf 'c\n' >"$REPO/g"; git -C "$REPO" add g; git -C "$REPO" commit -qm "adapted g"
@@ -299,7 +300,7 @@ if [[ "$status" -eq 0 ]]; then ok "a merged backport PR clears an adapted port";
 assert_contains "scopes the merged query to the release line" "$(argv)" "pr list --state merged --base release/0.1"
 printf '[]\n' >"$GH_MERGED_BACKPORTS_JSON"
 
-echo "# backport-audit.sh (two open backport PRs)"
+section "backport-audit.sh (two open backport PRs)"
 seed_fixture two-open
 printf '[{"number":8,"url":"https://github.com/o/r/pull/8","body":"Backport of #7"},{"number":9,"url":"https://github.com/o/r/pull/9","body":"Backport of #7"}]\n' >"$GH_OPEN_JSON"
 write_merged 2020-01-01T00:00:00Z
@@ -308,7 +309,7 @@ if [[ "$status" -eq 1 ]]; then ok "two open PRs still leave the finding as debt"
 assert_contains "annotates with the first open PR" "$out" "open:https://github.com/o/r/pull/8"
 printf '[]\n' >"$GH_OPEN_JSON"
 
-echo "# backport-audit.sh (a reference alone on a line clears)"
+section "backport-audit.sh (a reference alone on a line clears)"
 # The body reaches the matcher through the gh query's @tsv, which escapes a
 # newline to a literal backslash-n; a body whose reference starts a line (the
 # permalink shape) must still be recognized.
@@ -319,7 +320,7 @@ run_audit
 if [[ "$status" -eq 0 ]]; then ok "a merged reference alone on a line clears"; else bad "a merged reference alone on a line clears (got $status)"; fi
 printf '[]\n' >"$GH_MERGED_BACKPORTS_JSON"
 
-echo "# backport-audit.sh (an open reference alone on a line is annotated)"
+section "backport-audit.sh (an open reference alone on a line is annotated)"
 seed_fixture line-start-open
 printf '[{"number":8,"url":"https://github.com/o/r/pull/8","body":"Hand port:\\n#7\\ncontext differed."}]\n' >"$GH_OPEN_JSON"
 write_merged 2020-01-01T00:00:00Z
@@ -328,7 +329,7 @@ if [[ "$status" -eq 1 ]]; then ok "an open reference alone on a line is still de
 assert_contains "annotates a line-start reference" "$out" "open:https://github.com/o/r/pull/8"
 printf '[]\n' >"$GH_OPEN_JSON"
 
-echo "# backport-audit.sh (truncated merged backports)"
+section "backport-audit.sh (truncated merged backports)"
 seed_fixture truncated-merged
 export BACKPORT_AUDIT_PAGE_LIMIT=5
 export GH_MERGED_BACKPORTS_ROWS=5
@@ -339,13 +340,13 @@ assert_contains "names the truncated source" "$(err)" "gh pr list (merged backpo
 unset GH_MERGED_BACKPORTS_ROWS
 unset_audit_env
 
-echo "# backport-audit.sh (unlabeled merged PR)"
+section "backport-audit.sh (unlabeled merged PR)"
 seed_fixture unlabeled
 printf '[]\n' >"$GH_MERGED_JSON"
 run_audit
 if [[ "$status" -eq 0 ]]; then ok "no labeled PR exits clean"; else bad "no labeled PR exits clean (got $status)"; fi
 
-echo "# backport-audit.sh (duplicate patch-id)"
+section "backport-audit.sh (duplicate patch-id)"
 seed_fixture duplicate
 git -C "$REPO" checkout -q release/0.1
 git -C "$REPO" cherry-pick -x "$MERGE" >/dev/null
@@ -355,7 +356,7 @@ write_merged 2020-01-01T00:00:00Z
 run_audit
 if [[ "$status" -eq 0 ]]; then ok "a duplicated patch-id on the branch is present"; else bad "a duplicated patch-id on the branch is present (got $status)"; fi
 
-echo "# backport-audit.sh (adapted port)"
+section "backport-audit.sh (adapted port)"
 seed_fixture adapted
 git -C "$REPO" checkout -q release/0.1
 printf 'c\n' >"$REPO/g"; git -C "$REPO" add g; git -C "$REPO" commit -qm "adapted g"
@@ -364,7 +365,7 @@ run_audit
 if [[ "$status" -eq 1 ]]; then ok "an adapted port is reported as debt"; else bad "an adapted port is reported as debt (got $status)"; fi
 assert_contains "names the adapted PR" "$out" "#7"
 
-echo "# backport-audit.sh (issue label, unlabeled PR)"
+section "backport-audit.sh (issue label, unlabeled PR)"
 seed_fixture issue-label
 printf '[]\n' >"$GH_MERGED_JSON"
 write_issue_links 7
@@ -375,7 +376,7 @@ assert_contains "reports the issue-linked PR" "$out" "#7"
 assert_contains "reads the labeled issues" "$(argv)" "issue list"
 assert_contains "resolves the referenced PR" "$(argv)" "pr view 7"
 
-echo "# backport-audit.sh (issue label, ported PR)"
+section "backport-audit.sh (issue label, ported PR)"
 seed_fixture issue-label-ported
 printf '[]\n' >"$GH_MERGED_JSON"
 write_issue_links 7
@@ -387,7 +388,7 @@ run_audit
 if [[ "$status" -eq 0 ]]; then ok "an issue-labeled PR whose commits are on the line is not debt"; else bad "an issue-labeled PR whose commits are on the line is not debt (got $status)"; fi
 assert_not_contains "reports no debt for the ported issue-linked PR" "$out" "#7"
 
-echo "# backport-audit.sh (issue and PR label, one record)"
+section "backport-audit.sh (issue and PR label, one record)"
 seed_fixture both-labels
 write_merged 2020-01-01T00:00:00Z
 write_issue_links 7
@@ -395,7 +396,7 @@ write_pr_view 7 MERGED
 run_audit
 assert_eq_count "a PR labeled on both the issue and the PR is reported once" "$out" "#7" "1"
 
-echo "# backport-audit.sh (issue references an unmerged PR)"
+section "backport-audit.sh (issue references an unmerged PR)"
 seed_fixture issue-unmerged
 printf '[]\n' >"$GH_MERGED_JSON"
 write_issue_links 7
@@ -403,7 +404,7 @@ write_pr_view 7 OPEN
 run_audit
 if [[ "$status" -eq 0 ]]; then ok "an issue referencing an unmerged PR is skipped"; else bad "an issue referencing an unmerged PR is skipped (got $status)"; fi
 
-echo "# backport-audit.sh (usage)"
+section "backport-audit.sh (usage)"
 if "$AUDIT" --help >/dev/null 2>&1; then ok "--help exits 0"; else bad "--help exits 0"; fi
 if "$AUDIT" bogus >/dev/null 2>&1; then bad "an unknown argument is a usage error"; else ok "an unknown argument is a usage error"; fi
 

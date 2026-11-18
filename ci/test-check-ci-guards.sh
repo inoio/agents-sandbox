@@ -11,8 +11,9 @@ CHECK="$SCRIPT_DIR/check-ci-guards.sh"
 
 pass=0
 fail=0
-ok()  { pass=$((pass + 1)); printf 'ok   - %s\n' "$1"; }
+ok()  { pass=$((pass + 1)); if [[ "${VERBOSE:-0}" == 1 ]]; then printf 'ok   - %s\n' "$1"; fi; }
 bad() { fail=$((fail + 1)); printf 'FAIL - %s\n' "$1"; }
+section() { if [[ "${VERBOSE:-0}" == 1 ]]; then printf '# %s\n' "$1"; fi; }
 
 fixture_root="$(mktemp -d "${TMPDIR:-/tmp}/ci-guards.XXXXXX")"
 trap 'rm -rf "$fixture_root"' EXIT
@@ -305,11 +306,11 @@ expect() {
   ok "$name"
 }
 
-echo "# check-ci-guards.sh: agreeing sites pass"
+section "check-ci-guards.sh: agreeing sites pass"
 good="$(new_fixture)"
 expect "canonical fixture passes" "$good" 0 ""
 
-echo "# check-ci-guards.sh: exempt-path drift is caught"
+section "check-ci-guards.sh: exempt-path drift is caught"
 mut="$(new_fixture)"
 perl -ni -e 'print unless m{Formula/\*\*}' "$mut/.github/workflows/mutation.yml"
 expect "mutation.yml dropping an entry" "$mut" 1 "mutation.yml"
@@ -381,7 +382,7 @@ revtest="$(new_fixture)"
 perl -pi -e 's/\[\[ ! ("\$line" =~ _test\\\.go\$) \]\]/[[ $1 ]]/' "$revtest/ci/check-changelog.sh"
 expect "check-changelog.sh reversing the *_test.go exemption" "$revtest" 1 "un-negated exempt test"
 
-echo "# check-ci-guards.sh: workflow-condition invariants"
+section "check-ci-guards.sh: workflow-condition invariants"
 undeclared="$(new_fixture)"
 perl -pi -e "s/github\.event_name != 'merge_group'/github.event_name != 'scheduled'/" "$undeclared/.github/workflows/ci.yml"
 expect "undeclared github.event_name literal" "$undeclared" 1 "not declared in on"
@@ -418,7 +419,7 @@ notypes="$(new_fixture)"
 perl -ni -e 'print unless m/^    types: \[opened/' "$notypes/.github/workflows/ci.yml"
 expect "pull_request with no types declared" "$notypes" 1 "declares no types"
 
-echo "# check-ci-guards.sh: fast-path and fail-closed invariants"
+section "check-ci-guards.sh: fast-path and fail-closed invariants"
 
 # The exec rule's docs/ anchor removed: a bare `docs/` would exempt any path
 # containing it, letting an execution-relevant change skip the Go suite.
@@ -551,7 +552,7 @@ nobase="$(new_fixture)"
 perl -pi -e 'if (m{ci/event-base\.sh} && $seen++) { s{ci/event-base\.sh}{git merge-base origin/main "\$GITHUB_SHA"} }' "$nobase/.github/workflows/ci.yml"
 expect "changelog not calling ci/event-base.sh" "$nobase" 1 "'changelog' does not call ci/event-base.sh"
 
-echo "# check-ci-guards.sh: release-branch and tag-guard invariants"
+section "check-ci-guards.sh: release-branch and tag-guard invariants"
 
 # Dropping the release/* push trigger means a patch release branch never runs
 # the required checks that gate the tag.
@@ -617,7 +618,7 @@ noreleasegate="$(new_fixture)"
 perl -pi -e "if (m{refs/heads/release/}) { s/ && needs\.changes\.outputs\.code != 'false'// }" "$noreleasegate/.github/workflows/ci.yml"
 expect "release-push clause dropping the code gate" "$noreleasegate" 1 "release-push clause is missing"
 
-echo "# check-ci-guards.sh: the real repository passes"
+section "check-ci-guards.sh: the real repository passes"
 expect "this repository" "$(cd "$SCRIPT_DIR/.." && pwd)" 0 ""
 
 printf '\n%s passed, %s failed\n' "$pass" "$fail"

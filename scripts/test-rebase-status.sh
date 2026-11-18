@@ -24,8 +24,9 @@ pass=0
 fail=0
 fixture_root="$(mktemp -d "${TMPDIR:-/tmp}/rebase-fixtures.XXXXXX")"
 trap 'rm -rf "$fixture_root"' EXIT
-ok()  { pass=$((pass + 1)); printf 'ok   - %s\n' "$1"; }
+ok()  { pass=$((pass + 1)); if [[ "${VERBOSE:-0}" == 1 ]]; then printf 'ok   - %s\n' "$1"; fi; }
 bad() { fail=$((fail + 1)); printf 'FAIL - %s\n' "$1"; }
+section() { if [[ "${VERBOSE:-0}" == 1 ]]; then printf '# %s\n' "$1"; fi; }
 assert_contains()     { if grep -qF -- "$3" <<<"$2"; then ok "$1"; else bad "$1 (missing: $3)"; fi; }
 assert_not_contains() { if grep -qF -- "$3" <<<"$2"; then bad "$1 (unexpected: $3)"; else ok "$1"; fi; }
 
@@ -47,13 +48,13 @@ printf 'feature-only\n' >"$proj/clean.txt"
 git -C "$proj" add -A; git -C "$proj" commit -q -m feature-clean
 printf 'feature-line\ntwo\n' >"$proj/conflict.txt"; git -C "$proj" commit -q -am feature
 
-echo "# rebase-status.sh (clean)"
+section "rebase-status.sh (clean)"
 out="$("$STATUS" --repo "$proj")"
 assert_contains "reports no rebase when clean" "$out" "no rebase in progress"
 assert_contains "reports zero unmerged" "$out" "unmerged paths: 0"
 assert_contains "reports zero markers" "$out" "files with conflict markers: 0"
 
-echo "# rebase-status.sh (conflicted rebase)"
+section "rebase-status.sh (conflicted rebase)"
 git -C "$proj" rebase main >/dev/null 2>&1 || true
 main_tip="$(git -C "$proj" rev-parse --short main)"
 out="$("$STATUS" --repo "$proj")"
