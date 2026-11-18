@@ -18,7 +18,7 @@ require (
 	github.com/spf13/pflag v1.1.0
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.12.1
-	github.com/superradcompany/microsandbox/sdk/go v0.7.15
+	github.com/superradcompany/microsandbox/sdk/go v0.7.16
 	github.com/titanous/json5 v1.0.0
 	github.com/tonistiigi/fsutil v0.0.0-20261103125000-e075fd9305eb
 	go.yaml.in/yaml/v4 v4.0.0
