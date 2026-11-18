@@ -195,7 +195,7 @@ fi
 if unshare --net --map-root-user true >/dev/null 2>&1 && command -v ip >/dev/null 2>&1; then
   loopback="$(new_fixture loopback)"
   cat >"$loopback/check.sh" <<'EOF'
-ip -o link show lo | grep -q 'UP' && echo "LOOPBACK_UP"
+ip -o link show lo | grep 'UP' >/dev/null && echo "LOOPBACK_UP"
 EOF
   loopback_out="$("$ENVELOPE" --source "$loopback" --work-dir "$fixture_root/loopback-work" --netns -- make test 2>&1)" && rc=0 || rc=$?
   if [[ "$rc" -eq 0 ]]; then ok "netns child run succeeds"; else bad "netns child run succeeds (rc=$rc: $loopback_out)"; fi
