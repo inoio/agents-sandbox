@@ -13,8 +13,9 @@ MAP="$SCRIPT_DIR/changed-targets.sh"
 pass=0; fail=0
 fixture_root="$(mktemp -d "${TMPDIR:-/tmp}/changed-targets.XXXXXX")"
 trap 'rm -rf "$fixture_root"' EXIT
-ok()     { pass=$((pass + 1)); printf 'ok   - %s\n' "$1"; }
+ok()     { pass=$((pass + 1)); if [[ "${VERBOSE:-0}" == 1 ]]; then printf 'ok   - %s\n' "$1"; fi; }
 bad()    { fail=$((fail + 1)); printf 'FAIL - %s\n' "$1"; }
+section() { if [[ "${VERBOSE:-0}" == 1 ]]; then printf '# %s\n' "$1"; fi; }
 
 # assert_set <name> <repo> <mode> <expected whitespace-separated targets> [base]
 assert_set() {
@@ -27,11 +28,10 @@ assert_set() {
   if [[ "$got" == "$expected" ]]; then ok "$name"; else bad "$name (got: '$got' want: '$expected')"; fi
 }
 
-# The full `make check` set, read from the Makefile's CHECK_TARGETS so this
-# expectation tracks it (the map reads the same line).
-MAKEFILE="$(cd "$SCRIPT_DIR/.." && pwd)/Makefile"
-ALL="$(grep -E '^CHECK_TARGETS[[:space:]]*=' "$MAKEFILE" | head -1 \
-  | sed -E 's/^CHECK_TARGETS[[:space:]]*=[[:space:]]*//' \
+# The full `make check` set, printed by make so this expectation tracks the
+# accumulated CHECK_TARGETS definition (the map reads it the same way).
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ALL="$(MAKEFLAGS='' "${MAKE:-make}" -s --no-print-directory -C "$REPO_ROOT" print-check-targets \
   | tr ' ' '\n' | LC_ALL=C sort -u | tr '\n' ' ' | sed 's/ *$//')"
 GO_DOCS="compile-all docs-linkcheck lint test validate-fmt"
 
@@ -52,7 +52,7 @@ new_repo() {
   printf '%s' "$proj"
 }
 
-echo "# changed-targets.sh: local"
+section "changed-targets.sh: local"
 proj="$(new_repo)"
 assert_set "no changes selects nothing" "$proj" local ""
 
@@ -76,6 +76,8 @@ run_local "modified changelog checker" ci/check-changelog.sh "# x" "changelog-ch
 run_local "modified deadcode checker" ci/check-deadcode.sh "# x" "deadcode-test shellcheck"
 run_local "modified changed-files script" scripts/changed-files.sh "# x" "changed-files-test shellcheck"
 run_local "modified changed-files test" scripts/test-changed-files.sh "# x" "changed-files-test shellcheck"
+run_local "modified check runner" scripts/check.sh "# x" "check-test shellcheck"
+run_local "modified check runner test" scripts/test-check.sh "# x" "check-test shellcheck"
 run_local "modified upstream-drift script" scripts/upstream-drift.sh "# x" "shellcheck upstream-drift-test"
 run_local "modified rebase-status script" scripts/rebase-status.sh "# x" "rebase-status-test shellcheck"
 run_local "modified enqueue-pr script" scripts/enqueue-pr.sh "# x" "enqueue-pr-test shellcheck"
@@ -138,7 +140,7 @@ assert_set "rename selects the source class" "$proj" local "docs-linkcheck"
 git -C "$proj" reset -q --hard HEAD
 git -C "$proj" clean -fdq
 
-echo "# changed-targets.sh: branch"
+section "changed-targets.sh: branch"
 bproj="$(new_repo)"
 # feature diverges from main; main advances after the divergence.
 git -C "$bproj" checkout -q -b feature
@@ -151,7 +153,7 @@ git -C "$bproj" checkout -q feature
 assert_set "branch uses the merge base" "$bproj" branch "docs-linkcheck" main
 assert_set "branch with missing base selects all" "$bproj" branch "$ALL" no-such-ref
 
-echo "# changed-targets.sh: usage"
+section "changed-targets.sh: usage"
 if "$MAP" --repo "$proj" >/dev/null 2>&1; then bad "no mode is an error"; else ok "no mode is an error"; fi
 if "$MAP" --repo "$proj" bogus >/dev/null 2>&1; then bad "unknown mode is an error"; else ok "unknown mode is an error"; fi
 if "$MAP" --repo "$fixture_root/does-not-exist" local >/dev/null 2>&1; then bad "non-repository is an error"; else ok "non-repository is an error"; fi

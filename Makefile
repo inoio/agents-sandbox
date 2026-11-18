@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-cold test-msb-reuse compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic envelope-test check verify check-local-changes check-branch-changes changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test backport-audit-test open-backport-pr-test event-base-test classify-changes-test brain-check brain-check-test shellcheck docs-serve
+.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-cold test-msb-reuse compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic envelope-test check check-test verify print-check-targets check-local-changes check-branch-changes check-selected changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test backport-audit-test open-backport-pr-test event-base-test classify-changes-test brain-check brain-check-test shellcheck docs-serve
 
 VERSION ?= dev
 
@@ -374,32 +374,43 @@ backport-audit-test:
 open-backport-pr-test:
 	bash scripts/test-open-backport-pr.sh
 
-# The gates' targets are independent and read-only, so `check` and `verify` run
-# them as parallel jobs by re-entering make with -j. -O groups each parallel
-# job's output; it needs GNU Make 4.0+ (macOS ships 3.81, so build with
-# Homebrew's gmake — see CONTRIBUTING.md).
+# Test the check runner itself (fixtures only: never runs the real targets).
+check-test:
+	bash scripts/test-check.sh
+
+# The gates' targets are independent and read-only. `check`/`verify` delegate to
+# scripts/check.sh, which captures each target, prints one line per target, and
+# dumps the failing targets' logs last. The CPU-heavy targets
+# (CHECK_HEAVY_TARGETS) run one at a time; the rest run in a pool of JOBS.
 #
-# Each selected target also parallelizes internally (~GOMAXPROCS workers), so
-# running all of them at once with -j=nproc oversubscribes the box: on 16 cores
-# a one-leaf edit took 33s at -j16, 26s at -j8, and 20s at -j4. A single run is
-# flat over -j4..-j8, and -j4 also fits four concurrent agent runs in 16 cores,
-# so default to a quarter of the cores (floored at 2). nproc on Linux, hw.ncpu
-# on macOS, with a fixed fallback; a user's own -j still bounds the jobserver.
+# Each heavy target parallelizes internally (~GOMAXPROCS workers), so overlapping
+# them oversubscribes the box: on 16 cores a one-leaf edit took 33s at -j16, 26s
+# at -j8, and 20s at -j4. Default the light pool to a quarter of the cores
+# (floored at 2). nproc on Linux, hw.ncpu on macOS, with a fixed fallback;
+# JOBS=<n> overrides the pool width.
 JOBS ?= $(shell n=$$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2); q=$$((n / 4)); [ "$$q" -lt 2 ] && q=2; echo "$$q")
 
-CHECK_TARGETS = validate-fmt lint actionlint shellcheck test compile-all docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test event-base-test classify-changes-test changelog-check changelog-check-test deadcode-test changed-files-test changed-targets-test cleanup-branches-test surface-sweep-test envelope-test upstream-drift-test rebase-status-test enqueue-pr-test backport-audit-test open-backport-pr-test
+CHECK_HEAVY_TARGETS = validate-fmt lint test compile-all
+CHECK_LIGHT_TARGETS = actionlint shellcheck docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test event-base-test classify-changes-test changelog-check changelog-check-test deadcode-test changed-files-test changed-targets-test cleanup-branches-test surface-sweep-test envelope-test upstream-drift-test rebase-status-test enqueue-pr-test backport-audit-test open-backport-pr-test check-test
+CHECK_TARGETS = $(CHECK_HEAVY_TARGETS) $(CHECK_LIGHT_TARGETS)
+VERIFY_HEAVY_TARGETS = $(CHECK_HEAVY_TARGETS) test-race vulncheck deadcode
 VERIFY_TARGETS = $(CHECK_TARGETS) test-race vulncheck deadcode
+
+# The accumulated `make check` target set, expanded by make for
+# scripts/changed-targets.sh's fail-safe. Not itself a check target.
+print-check-targets:
+	@printf '%s\n' "$(CHECK_TARGETS)"
 
 # Read-only local gate (does not modify files): formatter check + lint + test +
 # compile-all + the docs/changelog/deadcode/envelope harness tests. Run this when
 # finalizing; `make fmt` fixes formatting. CI runs the same formatter check via
 # `make validate-fmt`.
 check:
-	@$(MAKE) --no-print-directory -j$(JOBS) -O $(CHECK_TARGETS)
+	@CHECK_HEAVY_TARGETS="$(CHECK_HEAVY_TARGETS)" JOBS=$(JOBS) ./scripts/check.sh $(CHECK_TARGETS)
 
 # Read-only check for CI parity: fmt-check + lint + test + race + vulncheck (does not modify files).
 verify:
-	@$(MAKE) --no-print-directory -j$(JOBS) -O $(VERIFY_TARGETS)
+	@CHECK_HEAVY_TARGETS="$(VERIFY_HEAVY_TARGETS)" JOBS=$(JOBS) ./scripts/check.sh $(VERIFY_TARGETS)
 
 # Fast per-change inner loop. The map lives in scripts/changed-targets.sh, the
 # diff itself in scripts/changed-files.sh. Like check/verify these are read-only,
@@ -415,8 +426,9 @@ check-local-changes:
 		$(MAKE) --no-print-directory changelog-presence MODE=local; \
 		echo "check-local-changes: no changed files"; exit 0; \
 	fi; \
-	echo "check-local-changes: $$(printf '%s ' $$targets)"; \
-	$(MAKE) --no-print-directory -j$(JOBS) -O $$targets changelog-presence MODE=local
+	selected="$$(printf '%s ' $$targets)"; \
+	echo "check-local-changes: $$selected"; \
+	$(MAKE) --no-print-directory check-selected TARGETS="$$selected" MODE=local
 
 check-branch-changes:
 	@targets="$$(./scripts/changed-targets.sh branch $${BASE:+--base $$BASE})" || { echo "check-branch-changes: scripts/changed-targets.sh failed" >&2; exit 1; }; \
@@ -424,8 +436,16 @@ check-branch-changes:
 		$(MAKE) --no-print-directory changelog-presence MODE=branch $${BASE:+BASE=$$BASE}; \
 		echo "check-branch-changes: no changed files"; exit 0; \
 	fi; \
-	echo "check-branch-changes: $$(printf '%s ' $$targets)"; \
-	$(MAKE) --no-print-directory -j$(JOBS) -O $$targets changelog-presence MODE=branch $${BASE:+BASE=$$BASE}
+	selected="$$(printf '%s ' $$targets)"; \
+	echo "check-branch-changes: $$selected"; \
+	$(MAKE) --no-print-directory check-selected TARGETS="$$selected" MODE=branch $${BASE:+BASE=$$BASE}
+
+# Internal: run a diff-gated selection through the check runner. The heavy set is
+# filtered to the selection, since the runner rejects a heavy target it was not
+# handed. MODE/BASE feed changelog-presence; CHECK_RUNNER is a test seam.
+CHECK_RUNNER ?= ./scripts/check.sh
+check-selected:
+	@MODE="$(MODE)" BASE="$(BASE)" CHECK_HEAVY_TARGETS="$(filter $(TARGETS),$(CHECK_HEAVY_TARGETS))" JOBS=$(JOBS) $(CHECK_RUNNER) $(TARGETS) changelog-presence
 
 # Changelog presence in the fast loop: a code change with no changelog.d/
 # fragment should fail locally, not only in CI. The changed paths come from

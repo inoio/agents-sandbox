@@ -74,7 +74,7 @@ expect() {
     fail=$((fail + 1))
     return
   fi
-  printf 'ok   %s\n' "$name"
+  if [[ "${VERBOSE:-0}" == 1 ]]; then printf 'ok   %s\n' "$name"; fi
   pass=$((pass + 1))
 }
 

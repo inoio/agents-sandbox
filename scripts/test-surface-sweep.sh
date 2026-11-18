@@ -12,7 +12,8 @@ root="/tmp/asb-sweep-test-$$"
 trap 'rm -rf "$tmp" "$root" "$root.lock" "${rel_abs:-}"' EXIT
 
 failures=0
-ok() { echo "ok - $1"; }
+ok() { if [[ "${VERBOSE:-0}" == 1 ]]; then echo "ok - $1"; fi; }
+section() { if [[ "${VERBOSE:-0}" == 1 ]]; then printf '# %s\n' "$1"; fi; }
 fail() {
   echo "FAIL - $1"
   failures=$((failures + 1))

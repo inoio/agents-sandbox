@@ -14,8 +14,9 @@ pass=0
 fail=0
 fixture_root="$(mktemp -d "${TMPDIR:-/tmp}/enqueue-fixtures.XXXXXX")"
 trap 'rm -rf "$fixture_root"' EXIT
-ok()  { pass=$((pass + 1)); printf 'ok   - %s\n' "$1"; }
+ok()  { pass=$((pass + 1)); if [[ "${VERBOSE:-0}" == 1 ]]; then printf 'ok   - %s\n' "$1"; fi; }
 bad() { fail=$((fail + 1)); printf 'FAIL - %s\n' "$1"; }
+section() { if [[ "${VERBOSE:-0}" == 1 ]]; then printf '# %s\n' "$1"; fi; }
 assert_contains()     { if grep -qF -- "$3" <<<"$2"; then ok "$1"; else bad "$1 (missing: $3)"; fi; }
 assert_not_contains() { if grep -qF -- "$3" <<<"$2"; then bad "$1 (unexpected: $3)"; else ok "$1"; fi; }
 
@@ -143,13 +144,13 @@ assert_call_order() {
   fi
 }
 
-echo "# enqueue-pr.sh (already merged)"
+section "enqueue-pr.sh (already merged)"
 run_script '{"state":"MERGED","id":"PR_1"}' 42
 if [[ "$status" -eq 0 ]]; then ok "already merged exits 0"; else bad "already merged exits 0 (got $status)"; fi
 assert_contains "says the PR is already merged" "$out" "already merged"
 assert_not_contains "does not enqueue a merged PR" "$(argv)" "api graphql"
 
-echo "# enqueue-pr.sh (checks pass)"
+section "enqueue-pr.sh (checks pass)"
 run_script '{"state":"OPEN","id":"PR_2"}' 42
 if [[ "$status" -eq 0 ]]; then ok "success exits 0"; else bad "success exits 0 (got $status)"; fi
 assert_contains "resolves the node id" "$(argv)" "pr view 42 --json state,id -q [.state, .id] | @tsv"
@@ -159,7 +160,7 @@ assert_contains "passes the node id" "$(argv)" "id=PR_2"
 assert_contains "prints the queue position" "$out" "enqueued at position 3"
 assert_not_contains "does not dump the live check table" "$out" "fake-tests"
 
-echo "# enqueue-pr.sh (linked issue needs a backport)"
+section "enqueue-pr.sh (linked issue needs a backport)"
 export issue_labels='{"7":["needs-backport"]}'
 run_script '{"state":"OPEN","id":"PR_10","closingIssuesReferences":[{"number":7}]}' 42
 if [[ "$status" -eq 0 ]]; then ok "a marked issue still enqueues"; else bad "a marked issue still enqueues (got $status)"; fi
@@ -171,7 +172,7 @@ assert_contains "still enqueues" "$(argv)" "api graphql"
 assert_call_order "copies the marker only after the enqueue" "api graphql" "pr edit 42 --add-label needs-backport"
 unset issue_labels
 
-echo "# enqueue-pr.sh (marker copy is refused)"
+section "enqueue-pr.sh (marker copy is refused)"
 export issue_labels='{"7":["needs-backport"]}'
 export GH_PR_EDIT_EXIT=1
 run_script '{"state":"OPEN","id":"PR_13","closingIssuesReferences":[{"number":7}]}' 42
@@ -182,7 +183,7 @@ assert_call_order "a refused copy is still attempted after the enqueue" "api gra
 assert_not_contains "claims the marker was copied" "$out" "marked needs-backport"
 unset issue_labels GH_PR_EDIT_EXIT
 
-echo "# enqueue-pr.sh (linked issue does not need a backport)"
+section "enqueue-pr.sh (linked issue does not need a backport)"
 export issue_labels='{"7":[]}'
 run_script '{"state":"OPEN","id":"PR_11","closingIssuesReferences":[{"number":7}]}' 42
 if [[ "$status" -eq 0 ]]; then ok "an unmarked issue still enqueues"; else bad "an unmarked issue still enqueues (got $status)"; fi
@@ -190,13 +191,13 @@ assert_not_contains "does not label the PR" "$(argv)" "pr edit"
 assert_not_contains "prints no backport hint" "$out" "needs-backport"
 unset issue_labels
 
-echo "# enqueue-pr.sh (no closing issues)"
+section "enqueue-pr.sh (no closing issues)"
 run_script '{"state":"OPEN","id":"PR_12","closingIssuesReferences":[]}' 42
 if [[ "$status" -eq 0 ]]; then ok "a PR with no closing issues enqueues"; else bad "a PR with no closing issues enqueues (got $status)"; fi
 assert_not_contains "labels nothing to backport" "$(argv)" "pr edit"
 assert_not_contains "reads no issue" "$(argv)" "issue view"
 
-echo "# enqueue-pr.sh (checks not yet registered)"
+section "enqueue-pr.sh (checks not yet registered)"
 export GH_CHECKS_NOREPORT=2
 export GH_CHECKS_NOREPORT_FILE="$fixture_root/noreport"
 rm -f "$GH_CHECKS_NOREPORT_FILE"
@@ -205,7 +206,7 @@ if [[ "$status" -eq 0 ]]; then ok "waits for checks to register"; else bad "wait
 assert_contains "enqueues once the checks appear" "$out" "enqueued at position 3"
 unset GH_CHECKS_NOREPORT GH_CHECKS_NOREPORT_FILE
 
-echo "# enqueue-pr.sh (checks fail)"
+section "enqueue-pr.sh (checks fail)"
 export GH_CHECKS_EXIT=1
 run_script '{"state":"OPEN","id":"PR_3"}' 42
 if [[ "$status" -ne 0 ]]; then ok "failing checks exit non-zero"; else bad "failing checks exit non-zero"; fi
@@ -213,7 +214,7 @@ assert_contains "names the check failure" "$err" "checks did not pass"
 assert_not_contains "does not enqueue on failure" "$(argv)" "api graphql"
 unset GH_CHECKS_EXIT
 
-echo "# enqueue-pr.sh (checks pending)"
+section "enqueue-pr.sh (checks pending)"
 export GH_CHECKS_EXIT=8
 run_script '{"state":"OPEN","id":"PR_4"}' 42
 if [[ "$status" -ne 0 ]]; then ok "pending checks exit non-zero"; else bad "pending checks exit non-zero"; fi
@@ -224,7 +225,7 @@ unset GH_CHECKS_EXIT
 # The watch reaches pr_state on the fourth probe (resolve, conflict, conflict,
 # then the failure diagnostic); the marker copy no longer consumes one, because
 # it runs after the enqueue.
-echo "# enqueue-pr.sh (closed while waiting)"
+section "enqueue-pr.sh (closed while waiting)"
 export GH_CHECKS_EXIT=1
 run_script '[{"state":"OPEN","id":"PR_5"},{"state":"OPEN","id":"PR_5"},{"state":"OPEN","id":"PR_5"},{"state":"CLOSED","id":"PR_5"}]' 42
 if [[ "$status" -ne 0 ]]; then ok "closed during the watch exits non-zero"; else bad "closed during the watch exits non-zero"; fi
@@ -232,20 +233,20 @@ assert_contains "reports the PR is closed" "$err" "closed while waiting"
 assert_not_contains "does not enqueue a closed PR" "$(argv)" "api graphql"
 unset GH_CHECKS_EXIT
 
-echo "# enqueue-pr.sh (closed)"
+section "enqueue-pr.sh (closed)"
 run_script '{"state":"CLOSED","id":"PR_6"}' 42
 if [[ "$status" -ne 0 ]]; then ok "a closed PR exits non-zero"; else bad "a closed PR exits non-zero"; fi
 assert_contains "says the PR is closed" "$err" "PR #42 is closed"
 assert_not_contains "does not watch a closed PR" "$(argv)" "pr checks"
 
-echo "# enqueue-pr.sh (merge conflict)"
+section "enqueue-pr.sh (merge conflict)"
 run_script '{"state":"OPEN","id":"PR_9","mergeable":"CONFLICTING","mergeStateStatus":"DIRTY"}' 42
 if [[ "$status" -ne 0 ]]; then ok "a conflicted PR exits non-zero"; else bad "a conflicted PR exits non-zero"; fi
 assert_contains "names the conflict" "$err" "merge conflicts"
 assert_not_contains "does not enqueue a conflicted PR" "$(argv)" "api graphql"
 assert_not_contains "does not watch a conflicted PR" "$(argv)" "pr checks"
 
-echo "# enqueue-pr.sh (enqueue fails)"
+section "enqueue-pr.sh (enqueue fails)"
 export GH_ENQUEUE_EXIT=1
 run_script '{"state":"OPEN","id":"PR_7"}' 42
 if [[ "$status" -ne 0 ]]; then ok "enqueue failure exits non-zero"; else bad "enqueue failure exits non-zero"; fi
@@ -253,7 +254,7 @@ assert_contains "reports the enqueue failure" "$err" "enqueue request failed"
 assert_contains "attempts the mutation" "$(argv)" "api graphql"
 unset GH_ENQUEUE_EXIT
 
-echo "# enqueue-pr.sh (usage)"
+section "enqueue-pr.sh (usage)"
 if "$ENQUEUE" --help >/dev/null 2>&1; then ok "--help exits 0"; else bad "--help exits 0"; fi
 if "$ENQUEUE" >/dev/null 2>&1; then bad "no argument is a usage error"; else ok "no argument is a usage error"; fi
 if "$ENQUEUE" not-a-number >/dev/null 2>&1; then bad "a non-numeric argument is a usage error"; else ok "a non-numeric argument is a usage error"; fi

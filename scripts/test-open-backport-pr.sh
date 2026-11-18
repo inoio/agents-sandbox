@@ -14,8 +14,9 @@ pass=0
 fail=0
 fixture_root="$(mktemp -d "${TMPDIR:-/tmp}/open-backport-pr-fixtures.XXXXXX")"
 trap 'rm -rf "$fixture_root"' EXIT
-ok()  { pass=$((pass + 1)); printf 'ok   - %s\n' "$1"; }
+ok()  { pass=$((pass + 1)); if [[ "${VERBOSE:-0}" == 1 ]]; then printf 'ok   - %s\n' "$1"; fi; }
 bad() { fail=$((fail + 1)); printf 'FAIL - %s\n' "$1"; }
+section() { if [[ "${VERBOSE:-0}" == 1 ]]; then printf '# %s\n' "$1"; fi; }
 assert_contains()     { if grep -qF -- "$3" <<<"$2"; then ok "$1"; else bad "$1 (missing: $3)"; fi; }
 assert_not_contains() { if grep -qF -- "$3" <<<"$2"; then bad "$1 (unexpected: $3)"; else ok "$1"; fi; }
 assert_eq()           { if [[ "$2" == "$3" ]]; then ok "$1"; else bad "$1 (got '$2' want '$3')"; fi; }
@@ -169,7 +170,7 @@ stderr() { cat "$fixture_root/stderr" 2>/dev/null || true; }
 
 unset_backport_env
 
-echo "# open-backport-pr.sh (clean port)"
+section "open-backport-pr.sh (clean port)"
 seed_fixture clean
 run_open 7
 assert_eq "a clean port exits 0" "$status" "0"
@@ -189,7 +190,7 @@ refs="$(git -C "$REPO" ls-remote origin)"
 assert_contains "pushes the backport branch" "$refs" "refs/heads/backport/7-0.1"
 assert_contains "leaves the release branch on origin" "$refs" "refs/heads/release/0.1"
 
-echo "# open-backport-pr.sh (fragment named for the backport PR)"
+section "open-backport-pr.sh (fragment named for the backport PR)"
 seed_fragment_fixture fragment
 run_open 7
 assert_eq "a port carrying a fragment exits 0" "$status" "0"
@@ -210,7 +211,7 @@ assert_contains "notes the backport in the fragment" "$fragment_content" "Backpo
 assert_eq "pushes the fix and the rename" \
   "$(git -C "$REPO" rev-list --count origin/release/0.1..origin/backport/7-0.1)" "2"
 
-echo "# open-backport-pr.sh (references the tracker)"
+section "open-backport-pr.sh (references the tracker)"
 seed_fragment_fixture tracker
 export BACKPORT_TRACKER_ISSUE=42
 run_open 7
@@ -218,12 +219,12 @@ unset BACKPORT_TRACKER_ISSUE
 assert_eq "a tracker reference still exits 0" "$status" "0"
 assert_contains "references the tracker" "$(argv)" "Part of #42"
 
-echo "# open-backport-pr.sh (no tracker reference without the knob)"
+section "open-backport-pr.sh (no tracker reference without the knob)"
 seed_fragment_fixture no-tracker
 run_open 7
 assert_not_contains "omits the tracker reference" "$(argv)" "Part of #"
 
-echo "# open-backport-pr.sh (rename push failure)"
+section "open-backport-pr.sh (rename push failure)"
 seed_fragment_fixture rename-failure
 export GH_BREAK_ORIGIN_AFTER_CREATE=1
 export GH_BROKEN_ORIGIN="$fixture_root/missing.git"
@@ -233,7 +234,7 @@ assert_eq "a failed rename push exits 4" "$status" "4"
 assert_contains "explains the failed rename" "$(stderr)" "could not push the renamed fragment"
 assert_contains "still reports the opened PR" "$out" "$GH_PR_URL"
 
-echo "# open-backport-pr.sh (conflict aborts without pushing)"
+section "open-backport-pr.sh (conflict aborts without pushing)"
 seed_fixture conflict
 git -C "$REPO" checkout -q release/0.1
 printf 'c\n' >"$REPO/f"; git -C "$REPO" add f; git -C "$REPO" commit -qm "release-side change"
@@ -246,7 +247,7 @@ assert_contains "explains the conflict" "$(stderr)" "conflict"
 assert_eq "leaves origin unchanged" "$(git -C "$REPO" ls-remote origin)" "$before"
 assert_not_contains "opens no PR" "$(argv)" "pr create"
 
-echo "# open-backport-pr.sh (partially ported)"
+section "open-backport-pr.sh (partially ported)"
 seed_two_commit_fixture partial
 git -C "$REPO" checkout -q release/0.1
 git -C "$REPO" cherry-pick -x "$FIRST_SHA" >/dev/null
@@ -265,7 +266,7 @@ assert_not_contains "does not replay the already-present commit" \
   "$pushed_log" "(cherry picked from commit $FIRST_SHA)"
 assert_contains "opens the PR" "$(argv)" "pr create"
 
-echo "# open-backport-pr.sh (empty commit)"
+section "open-backport-pr.sh (empty commit)"
 seed_empty_commit_fixture empty
 run_open 7
 assert_eq "a PR containing an empty commit exits 0" "$status" "0"
@@ -278,7 +279,7 @@ assert_contains "ports the first real commit" "$pushed_log" "(cherry picked from
 assert_contains "ports the second real commit" "$pushed_log" "(cherry picked from commit $SECOND_SHA)"
 assert_not_contains "never replays the empty commit" "$pushed_log" "empty"
 
-echo "# open-backport-pr.sh (change already present in another form)"
+section "open-backport-pr.sh (change already present in another form)"
 seed_fixture applied-elsewhere
 git -C "$REPO" checkout -q release/0.1
 printf 'b\n' >"$REPO/f"; printf 'h\n' >"$REPO/h"
@@ -297,7 +298,7 @@ else
   ok "deletes the otherwise-empty backport branch"
 fi
 
-echo "# open-backport-pr.sh (fully ported)"
+section "open-backport-pr.sh (fully ported)"
 seed_two_commit_fixture fully-ported
 git -C "$REPO" checkout -q release/0.1
 git -C "$REPO" cherry-pick -x "$FIRST_SHA" >/dev/null
@@ -316,7 +317,7 @@ else
   ok "creates no backport branch for a fully ported PR"
 fi
 
-echo "# open-backport-pr.sh (no release branch)"
+section "open-backport-pr.sh (no release branch)"
 seed_fixture no-release
 git -C "$REPO" branch -D release/0.1 >/dev/null
 git -C "$REPO" push -q origin --delete release/0.1
@@ -325,13 +326,13 @@ run_open 7
 assert_eq "no release branch exits 1" "$status" "1"
 assert_not_contains "opens no PR without a release branch" "$(argv)" "pr create"
 
-echo "# open-backport-pr.sh (unknown PR)"
+section "open-backport-pr.sh (unknown PR)"
 seed_fixture unknown
 run_open 999 ""
 assert_eq "an unknown PR exits 1" "$status" "1"
 assert_not_contains "opens no PR for an unknown PR" "$(argv)" "pr create"
 
-echo "# open-backport-pr.sh (usage)"
+section "open-backport-pr.sh (usage)"
 if "$OPEN" --help >/dev/null 2>&1; then ok "--help exits 0"; else bad "--help exits 0"; fi
 set +e
 "$OPEN" >/dev/null 2>&1; assert_eq "no argument is a usage error" "$?" "2"

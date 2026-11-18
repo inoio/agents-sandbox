@@ -13,8 +13,9 @@ FILES="$SCRIPT_DIR/changed-files.sh"
 pass=0; fail=0
 fixture_root="$(mktemp -d "${TMPDIR:-/tmp}/changed-files.XXXXXX")"
 trap 'rm -rf "$fixture_root"' EXIT
-ok()  { pass=$((pass + 1)); printf 'ok   - %s\n' "$1"; }
+ok()  { pass=$((pass + 1)); if [[ "${VERBOSE:-0}" == 1 ]]; then printf 'ok   - %s\n' "$1"; fi; }
 bad() { fail=$((fail + 1)); printf 'FAIL - %s\n' "$1"; }
+section() { if [[ "${VERBOSE:-0}" == 1 ]]; then printf '# %s\n' "$1"; fi; }
 
 # assert_list <name> <repo> <mode> <expected newline-separated paths> [base]
 # Expected and got are compared sorted, so the order git prints them in does not
@@ -44,7 +45,7 @@ new_repo() {
   printf '%s' "$proj"
 }
 
-echo "# changed-files.sh: local"
+section "changed-files.sh: local"
 proj="$(new_repo)"
 assert_list "clean tree lists nothing" "$proj" local ""
 
@@ -68,7 +69,7 @@ assert_list "rename lists both endpoints" "$proj" local "docs/guide.md
 internal/guide.md"
 git -C "$proj" reset -q --hard HEAD
 
-echo "# changed-files.sh: branch"
+section "changed-files.sh: branch"
 bproj="$(new_repo)"
 # feature diverges from main; main advances after the divergence, so a plain
 # `git diff main` would also report main's files and the merge base is required.
@@ -97,7 +98,7 @@ else
   if [[ "$status" -eq 3 ]]; then ok "missing base exits 3"; else bad "missing base exits 3 (got $status)"; fi
 fi
 
-echo "# changed-files.sh: usage"
+section "changed-files.sh: usage"
 if "$FILES" --repo "$proj" >/dev/null 2>&1; then bad "no mode is an error"; else ok "no mode is an error"; fi
 if "$FILES" --repo "$proj" bogus >/dev/null 2>&1; then bad "unknown mode is an error"; else ok "unknown mode is an error"; fi
 if "$FILES" --repo "$fixture_root/does-not-exist" local >/dev/null 2>&1; then bad "non-repository is an error"; else ok "non-repository is an error"; fi
