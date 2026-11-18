@@ -69,12 +69,10 @@ const channelGuestCommand = `wget -q -O /dev/null -T 20 --header "Authorization:
 var realMsbGet = sandboxmsb.Get
 
 func TestChannelRealSessionThroughProxy(t *testing.T) {
-	// The package's TestMain only installs the fail-fast mocks; a real VM needs
-	// an isolated microsandbox home so the developer's real msb state is
-	// untouched. Install it here, and register the home's removal before the
-	// sandbox's teardown so the VM is destroyed first (t.Cleanup runs LIFO).
-	removeIsolatedRuntimeHome := runtime.InstallIsolatedRuntimeHome()
-	t.Cleanup(removeIsolatedRuntimeHome)
+	// TestMain installs the isolated microsandbox home for the whole package, so
+	// the developer's real msb state is untouched; it also sweeps any sandbox a
+	// failed test left behind. EnsureIsolatedRuntime resolves the runtime into
+	// that home.
 	runtime.EnsureIsolatedRuntime(t)
 
 	client := installRealMsbClient(t)

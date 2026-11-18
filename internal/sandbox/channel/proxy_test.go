@@ -346,6 +346,24 @@ func TestProxyHandleExposesCAAndStopsIdempotently(t *testing.T) {
 	}
 }
 
+// An empty bindHost must mean loopback: the proxy is never bound to every
+// interface, so a blank value cannot expose it on the network.
+func TestStartEmptyBindHostIsLoopback(t *testing.T) {
+	handle, err := Start("")
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer handle.Stop()
+
+	host, _, err := net.SplitHostPort(handle.Addr)
+	if err != nil {
+		t.Fatalf("split bound address %q: %v", handle.Addr, err)
+	}
+	if parsed := net.ParseIP(host); parsed == nil || !parsed.IsLoopback() {
+		t.Errorf("empty bindHost bound %q, want a loopback address", handle.Addr)
+	}
+}
+
 // destinationFor returns the recorded destination with the given protocol.
 func destinationFor(t *testing.T, destinations []Destination, protocol string) Destination {
 	t.Helper()

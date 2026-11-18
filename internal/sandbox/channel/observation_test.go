@@ -104,7 +104,7 @@ func TestRecorderDenyMarksDestinationWithoutAllow(t *testing.T) {
 	destination := r.observe("blocked.example", "198.51.100.4", "/v1/chat", "https", []string{"authorization"})
 	destination.Success = true
 
-	r.deny("blocked.example", "198.51.100.4", "/v1/chat")
+	r.deny("blocked.example", "198.51.100.4", "/v1/chat", "https")
 
 	destinations := r.result(Observation{}).Destinations
 	if len(destinations) != 1 {
@@ -124,7 +124,7 @@ func TestRecorderDenyMarksDestinationWithoutAllow(t *testing.T) {
 
 func TestRecorderDenyRecordsUnobservedDestination(t *testing.T) {
 	var r recorder
-	r.deny("blocked.example", "198.51.100.4", "/v1/chat")
+	r.deny("blocked.example", "198.51.100.4", "/v1/chat", "")
 
 	destinations := r.result(Observation{}).Destinations
 	if len(destinations) != 1 {
@@ -136,6 +136,31 @@ func TestRecorderDenyRecordsUnobservedDestination(t *testing.T) {
 	if destinations[0].Protocol != "" {
 		t.Fatalf("protocol = %q, want empty: a protocol-less deny cannot name one", destinations[0].Protocol)
 	}
+}
+
+// A protocol-less deny must not match a "connect" entry: the tunnel was
+// accepted, and a bare deny (which cannot name a protocol) clearing its
+// Success would report a live tunnel as refused.
+func TestRecorderDenyDoesNotClearConnectEntry(t *testing.T) {
+	var r recorder
+	connectEntry := r.observe("api.example", "", "", "connect", nil)
+	connectEntry.Success = true
+
+	r.deny("api.example", "", "", "")
+
+	for _, destination := range r.result(Observation{}).Destinations {
+		if destination.Protocol != "connect" {
+			continue
+		}
+		if !destination.Success {
+			t.Fatalf("the connect entry lost its Success: %+v", destination)
+		}
+		if destination.Denied {
+			t.Fatalf("the connect entry was marked denied: %+v", destination)
+		}
+		return
+	}
+	t.Fatal("the connect entry is missing from the artefact")
 }
 
 func TestRecorderResultIsDeterministic(t *testing.T) {

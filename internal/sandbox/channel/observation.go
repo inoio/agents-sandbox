@@ -20,8 +20,8 @@ type Destination struct {
 	Port      uint16    `json:"port"`       // port the request used
 	Protocol  string    `json:"protocol"`   // "https" | "http" | "connect" | "socks5" | "tcp"; empty for a deny seen before any request
 	Path      string    `json:"path"`       // request path, never a query
-	Success   bool      `json:"success"`    // a response arrived
-	Denied    bool      `json:"denied"`     // egress policy or transport refused it
+	Success   bool      `json:"success"`    // a response arrived, or — for a "connect" entry — the tunnel was accepted
+	Denied    bool      `json:"denied"`     // our proxy's dial to it failed; not a sandbox-policy denial (the runtime enforces egress before our proxy under T2)
 	Count     int       `json:"count"`      // requests observed to this destination
 	FirstSeen time.Time `json:"first_seen"` // first request observed
 	LastSeen  time.Time `json:"last_seen"`  // most recent request observed
@@ -80,16 +80,19 @@ func (r *recorder) observe(host, ip, path, protocol string, headerNames []string
 	return destination
 }
 
-// deny records that a request to a destination was refused. It marks every
-// entry with that host, IP and path denied and not successful, and records the
-// destination when the denial arrived before any request was seen (a refused
-// connection). A denial never changes the request count.
+// deny records that a request to a destination was refused by this proxy's own
+// dial. It marks every entry with that host, IP, path and protocol denied and
+// not successful, and records the destination when the denial arrived before
+// any request was seen (a refused connection). Including the protocol keeps a
+// protocol-less deny from matching — and clearing the `Success` of — a
+// `connect` (or `https`) entry. A denial never changes the request count.
 //
 //deadcode:ignore reason="records a denial; the terminating proxy's RoundTrip error hook (next step in S4) calls deny"
-func (r *recorder) deny(host, ip, path string) {
+func (r *recorder) deny(host, ip, path, protocol string) {
 	matched := false
 	for _, destination := range r.destinations {
-		if destination.Host == host && destination.IP == ip && destination.Path == path {
+		if destination.Host == host && destination.IP == ip && destination.Path == path &&
+			destination.Protocol == protocol {
 			destination.Denied = true
 			destination.Success = false
 			matched = true
@@ -100,7 +103,7 @@ func (r *recorder) deny(host, ip, path string) {
 			Host:      host,
 			IP:        ip,
 			Port:      0,
-			Protocol:  "",
+			Protocol:  protocol,
 			Path:      path,
 			Success:   false,
 			Denied:    true,
@@ -115,7 +118,7 @@ func (r *recorder) deny(host, ip, path string) {
 // result returns obs combined with what this recorder observed, every list
 // sorted so the same observations always produce the same artefact. The
 // recorder's own entries win for a destination or attribution both sides record,
-// which makes result(r.obs) the recorder's own sorted artefact.
+// which makes result(Observation{}) the recorder's own sorted artefact.
 //
 //deadcode:ignore reason="finalises the artefact; the terminating proxy's Stop (next step in S4) returns result"
 func (r *recorder) result(obs Observation) Observation {

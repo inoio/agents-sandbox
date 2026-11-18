@@ -326,3 +326,27 @@ func equalAttribution(a, b Attribution) bool {
 	}
 	return true
 }
+
+// relativeStateConfigPaths is a ConfigPaths whose state dir is relative. It
+// embeds the interface so only UserStateDir is implemented; the store reads no
+// other method.
+type relativeStateConfigPaths struct {
+	configpaths.ConfigPaths
+}
+
+func (relativeStateConfigPaths) UserStateDir() string { return "relative-user-state" }
+
+// A relative user state dir is refused rather than silently writing the capture
+// into the process's working directory.
+func TestArtefactStoreRefusesRelativeStateDir(t *testing.T) {
+	orig := configpaths.Get
+	configpaths.Get = func() configpaths.ConfigPaths { return relativeStateConfigPaths{} }
+	t.Cleanup(func() { configpaths.Get = orig })
+
+	if _, err := Save("my-checkout", 1763458200, sampleObservation()); err == nil {
+		t.Error("Save with a relative state dir returned no error")
+	}
+	if _, err := Prune(time.Now()); err == nil {
+		t.Error("Prune with a relative state dir returned no error")
+	}
+}

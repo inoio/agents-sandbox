@@ -59,8 +59,15 @@ type proxyState struct {
 // and records each request's destination and credential-bearing header names.
 // Stop tears the proxy down and returns the scrubbed artefact.
 //
+// An empty bindHost means loopback (127.0.0.1): the channel is never bound to
+// every interface, so an unset or blank value cannot expose the proxy on the
+// network.
+//
 //deadcode:ignore reason="the channel's start entry point; S7 starts the observer before prepareSandbox"
 func Start(bindHost string) (Handle, error) {
+	if bindHost == "" {
+		bindHost = "127.0.0.1"
+	}
 	ca, caPEM, err := generateCA()
 	if err != nil {
 		return Handle{}, err
@@ -97,13 +104,19 @@ func Start(bindHost string) (Handle, error) {
 
 // terminateProxy builds the goproxy server: it terminates TLS with our CA,
 // records every request's destination and credential-bearing header names,
-// records success on a response, and records a denial when the upstream cannot
-// be reached.
+// records success on a response, and records a denial when this proxy's own
+// dial to the upstream fails. Under T2 the runtime enforces the guest's egress
+// before our proxy is consulted, so a policy-denied destination never reaches
+// the request hook at all; the denial this records is our proxy's dial error,
+// not a sandbox-policy denial.
 //
 //deadcode:ignore reason="reached only from Start, whose invocation S7 wires"
 func terminateProxy(ca tls.Certificate, state *proxyState) *goproxy.ProxyHttpServer {
 	proxy := goproxy.NewProxyHttpServer()
 	proxy.Verbose = false
+	// goproxy's own logger warns unconditionally; route it to a discard so it
+	// cannot interleave with the agent's TUI during a learning session.
+	proxy.Logger = discardLogger{}
 	// The observation proxy is the sandbox's egress, so it dials upstream
 	// directly instead of honouring a host proxy environment variable.
 	proxy.Tr.Proxy = nil
@@ -124,6 +137,14 @@ func terminateProxy(ca tls.Certificate, state *proxyState) *goproxy.ProxyHttpSer
 	proxy.OnResponse().DoFunc(state.onResponse)
 	return proxy
 }
+
+// discardLogger swallows goproxy's unconditional log output, so a warning from
+// the proxy library cannot interleave with the agent's TUI during a learning
+// session.
+type discardLogger struct{}
+
+//deadcode:ignore reason="satisfies goproxy.Logger through the interface value in terminateProxy"
+func (discardLogger) Printf(string, ...any) {}
 
 // observeConnect records a CONNECT target as a value-free "connect" destination
 // and marks it successful, because the proxy accepts the tunnel. A client that
@@ -165,8 +186,8 @@ func splitHostPort(host string) (string, uint16) {
 }
 
 // onRequest records one request's destination and credential-bearing header
-// names, and installs a round-trip hook that records a denial when the upstream
-// is unreachable. The request is returned unchanged.
+// names, and installs a round-trip hook that records a denial when this proxy's
+// own dial to the upstream fails. The request is returned unchanged.
 //
 //deadcode:ignore reason="the proxy's request hook; reached only from Start, whose invocation S7 wires"
 func (s *proxyState) onRequest(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
@@ -192,7 +213,7 @@ func (s *proxyState) onRequest(req *http.Request, ctx *goproxy.ProxyCtx) (*http.
 			response, err := roundTripCtx.Proxy.Tr.RoundTrip(roundTripReq)
 			if err != nil {
 				s.mu.Lock()
-				s.recorder.deny(host, ip, path)
+				s.recorder.deny(host, ip, path, protocol)
 				s.mu.Unlock()
 			}
 			return response, err

@@ -11,10 +11,23 @@ import (
 // the fingerprint (the VM is recreated when it changes) and the emitted spec.
 func TestObservationOverlayChangesFingerprint(t *testing.T) {
 	base := Policy{Profiles: []Profile{ProfileNone}}
-	ov := base.WithUpstreamCACerts("PEM")
+	ov := base.WithUpstreamCACerts("/ca.pem")
 	ov.Proxy = Proxy{Protocol: ProxyHTTPConnect, Address: "127.0.0.1:1234"}
 	if base.Fingerprint() == ov.Fingerprint() {
 		t.Fatal("the overlay must change the fingerprint")
+	}
+}
+
+// The upstream-CA fingerprint line is order-independent like every other list
+// field: the same set of CA paths fingerprints alike whatever order the overlay
+// carried them in.
+func TestUpstreamCACertsFingerprintIgnoresOrder(t *testing.T) {
+	base := Policy{Profiles: []Profile{ProfileNone}}
+	first := base.WithUpstreamCACerts("/a.pem", "/b.pem")
+	second := base.WithUpstreamCACerts("/b.pem", "/a.pem")
+	if first.Fingerprint() != second.Fingerprint() {
+		t.Errorf("fingerprints differ for one CA set in a different order: %q vs %q",
+			first.Fingerprint(), second.Fingerprint())
 	}
 }
 

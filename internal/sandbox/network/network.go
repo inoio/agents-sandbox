@@ -185,8 +185,11 @@ func (p Policy) Fingerprint() string {
 	if len(p.upstreamCACerts) > 0 {
 		// The overlay's paths are not policy content read from disk: the line
 		// hashes the joined path strings so changing the CA bundle path (or the
-		// set of them) recreates the VM, without reading any file.
-		sum := sha256.Sum256([]byte(strings.Join(p.upstreamCACerts, "\n")))
+		// set of them) recreates the VM, without reading any file. Sort a clone
+		// first, so the digest is order-independent like every other list field.
+		sortedCerts := slices.Clone(p.upstreamCACerts)
+		slices.Sort(sortedCerts)
+		sum := sha256.Sum256([]byte(strings.Join(sortedCerts, "\n")))
 		lines = append(lines, "upstream-ca="+hex.EncodeToString(sum[:]))
 	}
 	lines = append(lines, p.proxyLines("=")...)

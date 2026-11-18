@@ -1,6 +1,11 @@
 package channel
 
 import (
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -14,7 +19,8 @@ import (
 func TestStartObservation(t *testing.T) {
 	base := network.Policy{Profiles: []network.Profile{network.ProfileNone}}
 
-	observer, err := StartObservation("127.0.0.1", base)
+	const bindHost = "127.0.0.1"
+	observer, err := StartObservation(bindHost, base)
 	if err != nil {
 		t.Fatalf("StartObservation: %v", err)
 	}
@@ -28,11 +34,7 @@ func TestStartObservation(t *testing.T) {
 	if overlay.Proxy.Protocol != network.ProxyHTTPConnect {
 		t.Errorf("overlay proxy protocol = %q, want %q", overlay.Proxy.Protocol, network.ProxyHTTPConnect)
 	}
-	if overlay.Proxy.Address == "" {
-		t.Error("overlay proxy address is empty, want the bound proxy address")
-	} else if _, port, ok := strings.Cut(overlay.Proxy.Address, ":"); !ok || port == "" || port == "0" {
-		t.Errorf("overlay proxy address = %q, want a bound host:port", overlay.Proxy.Address)
-	}
+	assertProxyAddress(t, overlay.Proxy.Address, bindHost)
 
 	certs := overlay.UpstreamCACerts()
 	if len(certs) == 0 {
@@ -50,20 +52,58 @@ func TestStartObservation(t *testing.T) {
 }
 
 // Stop tears the proxy down and returns the artefact, and a second call is a
-// no-op that returns the same artefact.
+// no-op that returns the same artefact. A recorded request drives a non-empty
+// artefact, so the identical-return assertion is not vacuous.
 func TestObserverStopIsIdempotent(t *testing.T) {
 	observer, err := StartObservation("127.0.0.1", network.Policy{Profiles: []network.Profile{network.ProfileNone}})
 	if err != nil {
 		t.Fatalf("StartObservation: %v", err)
 	}
 
-	first := observer.Stop()
-	second := observer.Stop()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
 
-	if len(first.Destinations) != 0 {
-		t.Errorf("Stop returned %d destinations, want none", len(first.Destinations))
+	proxyURL, err := url.Parse("http://" + observer.Overlay().Proxy.Address)
+	if err != nil {
+		t.Fatalf("parse proxy address: %v", err)
 	}
-	if len(second.Destinations) != 0 || len(second.Attribution) != 0 {
-		t.Errorf("second Stop returned %+v, want an empty artefact", second)
+	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}}
+	resp, err := client.Get(upstream.URL + "/v1/chat")
+	if err != nil {
+		t.Fatalf("request through proxy: %v", err)
+	}
+	resp.Body.Close()
+
+	first := observer.Stop()
+	if len(first.Destinations) == 0 {
+		t.Fatalf("Stop returned no destinations, want the recorded request: %+v", first)
+	}
+	second := observer.Stop()
+	if !reflect.DeepEqual(first, second) {
+		t.Errorf("second Stop returned a different artefact:\n first %+v\nsecond %+v", first, second)
+	}
+}
+
+// assertProxyAddress asserts the overlay's proxy address is a bound host:port on
+// the expected bind host.
+func assertProxyAddress(t *testing.T, address, bindHost string) {
+	t.Helper()
+
+	if address == "" {
+		t.Error("overlay proxy address is empty, want the bound proxy address")
+		return
+	}
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		t.Errorf("split overlay proxy address %q: %v", address, err)
+		return
+	}
+	if host != bindHost {
+		t.Errorf("overlay proxy host = %q, want the bind host %q", host, bindHost)
+	}
+	if port == "" || port == "0" {
+		t.Errorf("overlay proxy address = %q, want a bound port", address)
 	}
 }

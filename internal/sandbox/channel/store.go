@@ -28,11 +28,16 @@ const artefactDirMode = 0o700
 // disk through this call (hub invariant 3).
 //
 // The write is atomic and replaces any artefact a previous save of the same
-// session left at that path.
+// session left at that path. A user state dir that is not absolute is refused,
+// so a capture is never written relative to the process's working directory.
 //
 //deadcode:ignore reason="the artefact store's write path; S7 persists the observer's artefact after teardown"
 func Save(checkoutSlug string, startedUnix int64, obs Observation) (string, error) {
-	dir := filepath.Join(configpaths.Get().UserStateDir(), learnStateDirName, checkoutSlug)
+	stateDir := configpaths.Get().UserStateDir()
+	if !filepath.IsAbs(stateDir) {
+		return "", fmt.Errorf("learn artefact state dir %q is not absolute", stateDir)
+	}
+	dir := filepath.Join(stateDir, learnStateDirName, checkoutSlug)
 	if err := os.MkdirAll(dir, artefactDirMode); err != nil {
 		return "", fmt.Errorf("create learn artefact directory: %w", err)
 	}
@@ -75,7 +80,11 @@ func Load(path string) (Observation, error) {
 //
 //deadcode:ignore reason="the artefact store's sweep; the learn-mode cleanup path (S6/S7) prunes expired artefacts"
 func Prune(cutoff time.Time) (int, error) {
-	learnDir := filepath.Join(configpaths.Get().UserStateDir(), learnStateDirName)
+	stateDir := configpaths.Get().UserStateDir()
+	if !filepath.IsAbs(stateDir) {
+		return 0, fmt.Errorf("learn artefact state dir %q is not absolute", stateDir)
+	}
+	learnDir := filepath.Join(stateDir, learnStateDirName)
 
 	slugDirs, err := os.ReadDir(learnDir)
 	if err != nil {
