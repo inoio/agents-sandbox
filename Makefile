@@ -40,7 +40,7 @@ INTEGRATION_PARALLEL ?= 4
 INTEGRATION_TIMEOUT ?= 60m
 MSB_PARALLEL ?=
 # Stable root for `test-msb-reuse`: it must stay short enough for microsandbox's
-# derived sandbox control socket (see test/harness/harness.go). Remove it to
+# derived sandbox control socket (see test/harness/harness_helpers_test.go). Remove it to
 # start fresh.
 MSB_REUSE_ROOT ?= /tmp/asb-reuse
 # The SDK's microsandbox_ffi_path tag swaps its //go:embed for reading the FFI
