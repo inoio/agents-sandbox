@@ -196,7 +196,7 @@ Two structural costs dominate, neither visible from the call sites:
 - A harness image prebuild runs `agents-sandbox build`, which ends in `EnsureLoaded` — a
   `docker save | msb ImageLoad` of the multi-GB runner image
   (`internal/sandbox/image/load.go`). The suite's microsandbox home is a fresh `os.MkdirTemp`
-  per run (`test/harness/harness.go`'s `resolveSuiteRoot`, and `msbtest/runtime`'s
+  per run (`test/harness/harness_helpers_test.go`'s `resolveSuiteRoot`, and `msbtest/runtime`'s
   `InstallIsolatedRuntimeHome` for the msb package), so the microsandbox image
   cache never survives between runs and the transfer is repaid in full each time (hermes alone
   ~190s of the ~420s prebuild; its docker build is ~7s). The `AGENTS_SANDBOX_SMOKE_ROOT` /
