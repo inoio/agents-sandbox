@@ -55,7 +55,13 @@ func (f projectFixture) sources() Sources {
 
 func (f projectFixture) compute(t *testing.T) Projection {
 	t.Helper()
-	projection, err := Compute(f.sources())
+	return compute(t, f.sources())
+}
+
+// compute computes the projection of sources, failing the test on an error.
+func compute(t *testing.T, sources Sources) Projection {
+	t.Helper()
+	projection, err := Compute(sources)
 	if err != nil {
 		t.Fatalf("Compute: %v", err)
 	}
@@ -405,6 +411,130 @@ func TestComputeHomeSourceThroughASymlinkIntoTheCheckoutIsGated(t *testing.T) {
 	f.write(t, "config.yaml", "home:\n  hook.sh: "+link+"\n")
 	if got := inputAt(t, f.compute(t), link, KindFile); !slices.Equal(got.Entries, []string{"echo hook"}) {
 		t.Errorf("symlinked home source = %q, want the target's content", got.Entries)
+	}
+}
+
+// TestComputeResolvesASymlinkedProjectDir pins that the same physical checkout
+// reached through a symlinked path projects the same inputs. The approval is
+// keyed by the symlink-resolved checkout slug, so the content it gates must be
+// spelled the same way, or every run through the other spelling re-asks about
+// the whole layer as removed+new.
+func TestComputeResolvesASymlinkedProjectDir(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	physical, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkout := filepath.Join(physical, "checkout")
+	projectDir := filepath.Join(checkout, ".agents-sandbox")
+	writeFile(t, filepath.Join(projectDir, "Dockerfile"), "FROM base\n")
+	writeFile(t, filepath.Join(checkout, "mvn-settings.xml"), "<settings/>\n")
+	writeFile(t, filepath.Join(projectDir, "config.yaml"), "home:\n  .m2/settings.xml: ../mvn-settings.xml\n")
+	link := filepath.Join(physical, "link")
+	if err := os.Symlink(checkout, link); err != nil {
+		t.Fatal(err)
+	}
+	sources := func(base string) Sources {
+		return Sources{
+			ProjectConfigDir:    filepath.Join(base, ".agents-sandbox"),
+			CheckoutRoot:        base,
+			AgentConfigDirNames: []string{"opencode", "opencode2"},
+		}
+	}
+	direct, err := Compute(sources(checkout))
+	if err != nil {
+		t.Fatalf("Compute(direct): %v", err)
+	}
+	throughLink, err := Compute(sources(link))
+	if err != nil {
+		t.Fatalf("Compute(through a symlink): %v", err)
+	}
+	if direct.Digest() != throughLink.Digest() {
+		t.Errorf(
+			"a symlinked project dir projected differently:\n direct=%+v\n link=%+v",
+			direct.Inputs,
+			throughLink.Inputs,
+		)
+	}
+}
+
+// TestResolvedPathKeepsAPathThatDoesNotResolve pins that a path that cannot be
+// resolved (a missing project dir, a transient failure) is returned as
+// spelled, so a missing layer still reads as missing instead of vanishing.
+func TestResolvedPathKeepsAPathThatDoesNotResolve(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "absent")
+	if got := resolvedPath(missing); got != missing {
+		t.Errorf("resolvedPath(missing) = %q, want the path as spelled %q", got, missing)
+	}
+	physical, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(physical, "cfg")
+	writeFile(t, filepath.Join(dir, "config.yaml"), "memory: 8G\n")
+	link := filepath.Join(physical, "cfg-link")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Fatal(err)
+	}
+	if got := resolvedPath(link); got != dir {
+		t.Errorf("resolvedPath(symlink) = %q, want the resolved dir %q", got, dir)
+	}
+}
+
+// TestComputeResolvesAHomesourceReachedThroughASymlinkedProjectDir pins that
+// resolving the project dir does not drop a home: source whose spelling leaves
+// it: the resolved base must still recognise the source as guest-writable, or
+// the content the guest can write goes ungated.
+func TestComputeResolvesAHomesourceReachedThroughASymlinkedProjectDir(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	physical, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkout := filepath.Join(physical, "checkout")
+	projectDir := filepath.Join(checkout, ".agents-sandbox")
+	section := filepath.Join(checkout, "section")
+	writeFile(t, filepath.Join(section, "hook.sh"), "echo hook\n")
+	writeFile(t, filepath.Join(projectDir, "config.yaml"), "home:\n  hook.sh: ../section/hook.sh\n")
+	link := filepath.Join(physical, "link")
+	if err := os.Symlink(checkout, link); err != nil {
+		t.Fatal(err)
+	}
+	sources := Sources{
+		ProjectConfigDir:    filepath.Join(link, ".agents-sandbox"),
+		CheckoutRoot:        link,
+		AgentConfigDirNames: []string{"opencode"},
+	}
+
+	// The source resolves into the checkout, so it is gated by content.
+	if got := inputAt(
+		t,
+		compute(t, sources),
+		filepath.Join(section, "hook.sh"),
+		KindFile,
+	); !slices.Equal(
+		got.Entries,
+		[]string{"echo hook"},
+	) {
+		t.Errorf("gated source = %q, want the content", got.Entries)
+	}
+}
+
+// TestComputeTreatsASymlinkToNothingAsGone pins that a project config dir that
+// is a dangling link still reads as the missing layer, not as an error.
+func TestComputeTreatsASymlinkToNothingAsGone(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	checkout := t.TempDir()
+	link := filepath.Join(checkout, ".agents-sandbox")
+	if err := os.Symlink(filepath.Join(checkout, "nowhere"), link); err != nil {
+		t.Fatal(err)
+	}
+	projection, err := Compute(Sources{ProjectConfigDir: link, CheckoutRoot: checkout})
+	if err != nil {
+		t.Fatalf("Compute(dangling project dir): %v", err)
+	}
+	if !projection.Empty() {
+		t.Errorf("Compute(dangling project dir) = %+v, want the missing layer", projection.Inputs)
 	}
 }
 

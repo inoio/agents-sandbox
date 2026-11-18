@@ -113,6 +113,57 @@ func TestReadFileKeepsAnApprovedAbsenceAbsent(t *testing.T) {
 	}
 }
 
+// TestReadFileVerifiesASymlinkedSpellingOfAnApprovedPath pins that the same
+// physical file reached through a symlinked path is verified against its
+// approval. The checkout slug resolves symlinks, so the guard must too, or a run
+// through the other spelling reads the project layer unguarded.
+func TestReadFileVerifiesASymlinkedSpellingOfAnApprovedPath(t *testing.T) {
+	physical, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(physical, "cfg")
+	file := filepath.Join(dir, "config.yaml")
+	write(t, file, "memory: 8G\n")
+	link := filepath.Join(physical, "cfg-link")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(Install(nil, map[string]Approval{file: ApprovalOf([]byte("memory: 8G\n"))}))
+
+	if data, err := ReadFile(
+		filepath.Join(link, "config.yaml"),
+		os.ReadFile,
+	); err != nil ||
+		string(data) != "memory: 8G\n" {
+		t.Fatalf("ReadFile(symlinked spelling) = %q, %v", data, err)
+	}
+	write(t, file, "memory: 64G\n")
+	if _, err := ReadFile(filepath.Join(link, "config.yaml"), os.ReadFile); !errors.Is(err, ErrNotApproved) {
+		t.Errorf("ReadFile(changed through a symlinked spelling) = %v, want ErrNotApproved", err)
+	}
+}
+
+// TestAbsoluteWithoutAWorkingDirectoryIsEmpty pins the fail-closed guard: a
+// relative path cannot be made absolute when the working directory is gone, so
+// it maps to the empty path, which matches no approved path and lies under no
+// root. Without the guard it would become the current directory instead, and a
+// read through it would be matched against whatever an approval holds for it.
+func TestAbsoluteWithoutAWorkingDirectoryIsEmpty(t *testing.T) {
+	gone := filepath.Join(t.TempDir(), "gone")
+	if err := os.Mkdir(gone, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(gone)
+	if err := os.Remove(gone); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := absolute("relative/path"); got != "" {
+		t.Errorf("absolute(relative, no working directory) = %q, want the empty path", got)
+	}
+}
+
 func TestReadFileOutsideTheRootsReadsThrough(t *testing.T) {
 	fixture(t, nil)
 	path := filepath.Join(t.TempDir(), "host.conf")
