@@ -25,6 +25,9 @@ type RootState struct {
 	// ProjectTrust records, per checkout slug, the project config layer the
 	// user approved. See ApprovedProjectLayer.
 	ProjectTrust map[string]ApprovedProjectLayer `yaml:"project_trust,omitempty"`
+	// LearnDeclines records, per repo slug, the learn-mode findings the user
+	// declined. See LearnDecline.
+	LearnDeclines map[string][]LearnDecline `yaml:"learn_declines,omitempty"`
 }
 
 // Updates groups the launcher-global update-check state: Launcher for
