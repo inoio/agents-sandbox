@@ -129,7 +129,9 @@ hostname target (the analyser treats it as unknown, not as a resolved address).
 A CONNECT tunnel is recorded as its own `connect` destination, accepted-successful, alongside any terminated `https`
 entry for the same host. The tunnel is the floor: a client that pins certificates or speaks a non-HTTP protocol never
 produces an inner request, so its destination would otherwise be invisible; the `connect` entry keeps it visible, and
-its absence of attribution is what tells the analyser the request inside was never seen.
+its absence of attribution is what tells the analyser the request inside was never seen. A `connect` entry's `Success`
+means the proxy accepted the tunnel, not that the upstream answered. A `deny` entry recorded before any request was
+seen carries `Port: 0`, since no port was observed.
 
 The recorded `Attribution` carries the credential-bearing header **names** only. In S4 it carries no credential
 identity — the placeholder-versus-real distinction the topology establishes is not threaded into the artefact yet —
@@ -160,9 +162,14 @@ facts 1–3 and proposes no network or secret-substitution change.
 
 ## Open validation
 
-The spike settled the channel but left four checks unrun; none blocks the design, and each is a known limitation of
+The spike settled the channel but left five checks unrun; none blocks the design, and each is a known limitation of
 what the proposal may claim until it is closed:
 
+- **Policy-denied destinations are invisible under T2** — the runtime enforces the guest's egress before the proxy is
+  consulted, so a destination the sandbox policy denies never reaches the proxy and the channel records no `deny` for
+  it; a recorded `deny` is the proxy's own dial failure, not a policy denial. The proxy's own dial originates host-side
+  and bypasses the sandbox egress policy — a temporary widening, so S7 must either compose the base policy onto the
+  proxy's dial or explicitly announce and accept it.
 - **QUIC/HTTP3 bypass** — with the proxy active, only TCP consumers were tested; a QUIC client may reach the network
   directly, so the learned destination set is authoritative for TCP, not exhaustive.
 - **Certificate pinning** — no pinning client was available to test, so the fallback to config-derived attribution

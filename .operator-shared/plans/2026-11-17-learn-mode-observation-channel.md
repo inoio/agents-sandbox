@@ -291,3 +291,5 @@ git commit -m "test(channel): verify a real session through the observation prox
 ## Known open items (carried, not solved here)
 
 The spec's §Open validation stays open until Task 7's host run: **QUIC/HTTP3** (only TCP consumers observed), **certificate pinning** (config-derived attribution fallback, unverified), **`msb-trust` java/chrome** (not in the base image), and the **end-to-end streaming turn**. Blocking QUIC (`TLSConfig.BlockQUIC`) and an explicit intercepted-port list are deliberately out of scope; record them as the way the destination set could be made exhaustive later.
+
+**Policy-denied destinations are invisible under T2.** The runtime enforces the guest's egress before our proxy is consulted, so a policy-denied destination never reaches the request hook; a recorded `deny` is our proxy's own dial failure. Our proxy's own dial also originates host-side and bypasses the sandbox egress policy — a temporary widening S7 must either close (compose the base policy onto the proxy's dial) or explicitly announce and accept.
