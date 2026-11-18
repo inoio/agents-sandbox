@@ -2,6 +2,8 @@ package channel
 
 import (
 	"bufio"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -13,13 +15,30 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/elazarl/goproxy"
 )
+
+// errChannelSeam is the failure a substituted seam returns, so an error branch
+// is exercised without a real IO or crypto failure.
+var errChannelSeam = errors.New("channel seam failure")
+
+// withSwap replaces a package-level seam for one test and restores it with
+// t.Cleanup, matching the seam-restoration contract (no t.Parallel).
+func withSwap[T any](t *testing.T, seam *T, replacement T) {
+	t.Helper()
+
+	original := *seam
+	*seam = replacement
+	t.Cleanup(func() { *seam = original })
+}
 
 // proxyClient returns a client that routes HTTPS through the observation proxy
 // and trusts its freshly generated CA, so the proxy terminates the connection.
@@ -375,6 +394,174 @@ func destinationFor(t *testing.T, destinations []Destination, protocol string) D
 	}
 	t.Fatalf("no %q destination in %+v", protocol, destinations)
 	return Destination{}
+}
+
+// A CONNECT target without a port, or with a non-numeric one, leaves the port
+// zero rather than failing the observation: the tunnel is still visible.
+func TestSplitHostPortHandlesPortlessAndBadPortTargets(t *testing.T) {
+	cases := []struct {
+		target string
+		host   string
+		port   uint16
+	}{
+		{"api.example:443", "api.example", 443},
+		{"api.example", "api.example", 0},
+		{"api.example:notaport", "api.example", 0},
+		{"api.example:0", "api.example", 0},
+	}
+	for _, tc := range cases {
+		host, port := splitHostPort(tc.target)
+		if host != tc.host || port != tc.port {
+			t.Errorf("splitHostPort(%q) = (%q, %d), want (%q, %d)", tc.target, host, port, tc.host, tc.port)
+		}
+	}
+}
+
+// requestPort uses the URL's port, falls back to the scheme's default, and
+// treats an out-of-range port as absent so it falls back too.
+func TestRequestPortDefaultsByScheme(t *testing.T) {
+	cases := []struct {
+		name string
+		url  *url.URL
+		want uint16
+	}{
+		{"explicit port", &url.URL{Scheme: "https", Host: "api.example:8443"}, 8443},
+		{"https default", &url.URL{Scheme: "https", Host: "api.example"}, 443},
+		{"http default", &url.URL{Scheme: "http", Host: "api.example"}, 80},
+		{"out-of-range port", &url.URL{Scheme: "https", Host: "api.example:99999"}, 443},
+	}
+	for _, tc := range cases {
+		if got := requestPort(tc.url); got != tc.want {
+			t.Errorf("%s: requestPort = %d, want %d", tc.name, got, tc.want)
+		}
+	}
+}
+
+// A request URL with no scheme is recorded as "http" rather than an empty
+// protocol, so a plain-HTTP request keeps a protocol the analyser can read.
+func TestOnRequestDefaultsEmptySchemeToHTTP(t *testing.T) {
+	state := &proxyState{recorder: new(recorder)}
+	req := &http.Request{URL: &url.URL{Host: "api.example", Path: "/v1/chat"}, Header: http.Header{}}
+
+	returned, response := state.onRequest(req, &goproxy.ProxyCtx{})
+	if returned != req || response != nil {
+		t.Fatalf("onRequest = (%v, %v), want the request unchanged and no response", returned, response)
+	}
+	destinations := state.recorder.result(Observation{}).Destinations
+	if len(destinations) != 1 || destinations[0].Protocol != "http" {
+		t.Fatalf("destinations = %+v, want one http entry", destinations)
+	}
+}
+
+// A nil response is returned unchanged: a round-trip failure is already recorded
+// as a denial by the request hook, so there is nothing to mark successful.
+func TestOnResponsePassesNilThrough(t *testing.T) {
+	state := &proxyState{recorder: new(recorder)}
+
+	if got := state.onResponse(nil, &goproxy.ProxyCtx{}); got != nil {
+		t.Errorf("onResponse(nil) = %v, want nil", got)
+	}
+}
+
+// A zero Handle has no proxy state, so Stop returns an empty artefact instead of
+// dereferencing nil.
+func TestHandleZeroValueStopIsEmpty(t *testing.T) {
+	observation := Handle{}.Stop()
+	if len(observation.Destinations) != 0 || len(observation.Attribution) != 0 {
+		t.Errorf("zero Handle Stop = %+v, want an empty artefact", observation)
+	}
+}
+
+// discardLogger swallows goproxy's output; calling it must not panic or write.
+func TestDiscardLoggerSwallowsOutput(t *testing.T) {
+	discardLogger{}.Printf("goproxy warning %d", 1)
+}
+
+// Start propagates a CA-generation failure (the key generator cannot produce a
+// key), so a broken entropy source surfaces to the caller rather than yielding a
+// proxy with no CA.
+func TestStartFailsWhenCAKeyGenerationFails(t *testing.T) {
+	withSwap(t, &generateECKey, func(elliptic.Curve, io.Reader) (*ecdsa.PrivateKey, error) {
+		return nil, errChannelSeam
+	})
+
+	if _, err := Start("127.0.0.1"); err == nil {
+		t.Error("Start with a failing key generator returned no error")
+	}
+}
+
+// Start propagates a CA-file write failure: with TMPDIR pointing at a regular
+// file, os.CreateTemp cannot create the CA file.
+func TestStartFailsWhenCAFileCannotBeWritten(t *testing.T) {
+	notADirectory := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(notADirectory, []byte("x"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	t.Setenv("TMPDIR", notADirectory)
+
+	if _, err := Start("127.0.0.1"); err == nil {
+		t.Error("Start with an unwritable CA temp dir returned no error")
+	}
+}
+
+// Start propagates a bind failure: an unparseable bind host fails before any
+// request can be observed, and the CA file it already wrote is removed.
+func TestStartFailsWhenListenFails(t *testing.T) {
+	if _, err := Start("[::1]"); err == nil {
+		t.Error("Start with an unparseable bind host returned no error")
+	}
+}
+
+// generateCA propagates a certificate-creation failure and an unexpected parse
+// failure, so a caller never receives a half-built CA.
+func TestGenerateCAPropagatesCryptoErrors(t *testing.T) {
+	t.Run("create certificate", func(t *testing.T) {
+		withSwap(
+			t,
+			&createCertificate,
+			func(io.Reader, *x509.Certificate, *x509.Certificate, any, any) ([]byte, error) {
+				return nil, errChannelSeam
+			},
+		)
+
+		if _, _, err := generateCA(); err == nil {
+			t.Error("generateCA with a failing certificate creator returned no error")
+		}
+	})
+
+	t.Run("parse certificate", func(t *testing.T) {
+		withSwap(t, &parseCertificate, func([]byte) (*x509.Certificate, error) {
+			return nil, errChannelSeam
+		})
+
+		if _, _, err := generateCA(); err == nil {
+			t.Error("generateCA with a failing certificate parser returned no error")
+		}
+	})
+}
+
+// writeCAFile propagates a write and a close failure, removing the temp file it
+// created before returning.
+func TestWriteCAFilePropagatesWriteAndCloseErrors(t *testing.T) {
+	t.Run("write", func(t *testing.T) {
+		withSwap(t, &writeCATempFile, func(*os.File, string) (int, error) {
+			return 0, errChannelSeam
+		})
+
+		if _, err := writeCAFile("pem"); err == nil {
+			t.Error("writeCAFile with a failing write returned no error")
+		}
+	})
+
+	t.Run("close", func(t *testing.T) {
+		withSwap(t, &closeCATempFile, func(*os.File) error {
+			return errChannelSeam
+		})
+
+		if _, err := writeCAFile("pem"); err == nil {
+			t.Error("writeCAFile with a failing close returned no error")
+		}
+	})
 }
 
 // unusedLoopbackPort binds a loopback port and releases it, giving a port that

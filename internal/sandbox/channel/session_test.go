@@ -86,6 +86,16 @@ func TestObserverStopIsIdempotent(t *testing.T) {
 	}
 }
 
+// StartObservation propagates a Start failure to the caller instead of returning
+// an Observer around a proxy that never bound.
+func TestStartObservationPropagatesStartFailure(t *testing.T) {
+	observer, err := StartObservation("[::1]", network.Policy{Profiles: []network.Profile{network.ProfileNone}})
+	if err == nil {
+		observer.Stop()
+		t.Fatal("StartObservation with an unparseable bind host returned no error")
+	}
+}
+
 // assertProxyAddress asserts the overlay's proxy address is a bound host:port on
 // the expected bind host.
 func assertProxyAddress(t *testing.T, address, bindHost string) {

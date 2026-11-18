@@ -350,3 +350,196 @@ func TestArtefactStoreRefusesRelativeStateDir(t *testing.T) {
 		t.Error("Prune with a relative state dir returned no error")
 	}
 }
+
+// fixedStateConfigPaths is a ConfigPaths whose state dir is a fixed absolute
+// path. It embeds the interface so only UserStateDir is implemented; the store
+// reads no other method.
+type fixedStateConfigPaths struct {
+	configpaths.ConfigPaths
+
+	stateDir string
+}
+
+func (f fixedStateConfigPaths) UserStateDir() string { return f.stateDir }
+
+// withStateDir points the store at an arbitrary absolute state dir, so a test
+// can build the failure shape (a file where a directory must be, a mode that
+// forbids a write) that a real user state dir would not have.
+func withStateDir(t *testing.T, stateDir string) {
+	t.Helper()
+
+	orig := configpaths.Get
+	configpaths.Get = func() configpaths.ConfigPaths { return fixedStateConfigPaths{stateDir: stateDir} }
+	t.Cleanup(func() { configpaths.Get = orig })
+}
+
+// chmodAt changes path's mode for the test and restores a traversable, writable
+// mode on cleanup, so the temp tree can still be removed.
+func chmodAt(t *testing.T, path string, mode os.FileMode) {
+	t.Helper()
+
+	if err := os.Chmod(path, mode); err != nil {
+		t.Fatalf("chmod %s: %v", path, err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(path, 0o700) })
+}
+
+// Save reports the directory it cannot create: a state dir under a regular file
+// cannot hold the learn tree.
+func TestArtefactStoreSaveMkdirFailure(t *testing.T) {
+	stateFile := filepath.Join(t.TempDir(), "state-is-a-file")
+	if err := os.WriteFile(stateFile, []byte("x"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	withStateDir(t, stateFile)
+
+	if _, err := Save("my-checkout", 1763458200, sampleObservation()); err == nil {
+		t.Error("Save with a state dir under a regular file returned no error")
+	}
+}
+
+// Save reports an artefact it cannot encode: a timestamp outside the JSON range
+// fails the marshal before any file is written.
+func TestArtefactStoreSaveMarshalFailure(t *testing.T) {
+	withStateDir(t, t.TempDir())
+
+	obs := Observation{Destinations: []Destination{{
+		Host:      "api.example.com",
+		FirstSeen: time.Date(10000, time.January, 1, 0, 0, 0, 0, time.UTC),
+	}}}
+	if _, err := Save("my-checkout", 1763458200, obs); err == nil {
+		t.Error("Save with an out-of-range timestamp returned no error")
+	}
+}
+
+// Save reports a write it cannot complete: the atomic write renames onto the
+// artefact path, which fails when a directory already occupies it.
+func TestArtefactStoreSaveWriteFailure(t *testing.T) {
+	stateDir := t.TempDir()
+	withStateDir(t, stateDir)
+
+	dir := filepath.Join(stateDir, learnStateDirName, "my-checkout")
+	if err := os.MkdirAll(dir, artefactDirMode); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "1763458200.json"), artefactDirMode); err != nil {
+		t.Fatalf("Mkdir target: %v", err)
+	}
+
+	if _, err := Save("my-checkout", 1763458200, sampleObservation()); err == nil {
+		t.Error("Save with a directory in place of the artefact file returned no error")
+	}
+}
+
+// Prune tolerates a learn tree that does not exist: nothing to prune is the same
+// outcome as having pruned everything.
+func TestArtefactPruneWithoutLearnTree(t *testing.T) {
+	withStateDir(t, t.TempDir())
+
+	removed, err := Prune(time.Now())
+	if err != nil {
+		t.Fatalf("Prune: %v", err)
+	}
+	if removed != 0 {
+		t.Errorf("Prune removed %d artefacts, want 0", removed)
+	}
+}
+
+// Prune reports a learn path it cannot read that is not simply missing.
+func TestArtefactPruneReadDirFailure(t *testing.T) {
+	stateDir := t.TempDir()
+	withStateDir(t, stateDir)
+	if err := os.WriteFile(filepath.Join(stateDir, learnStateDirName), []byte("x"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if _, err := Prune(time.Now()); err == nil {
+		t.Error("Prune with a regular file at the learn dir returned no error")
+	}
+}
+
+// Prune skips an entry under the learn tree that is not a slug directory.
+func TestArtefactPruneSkipsNonDirectoryEntries(t *testing.T) {
+	stateDir := t.TempDir()
+	withStateDir(t, stateDir)
+	learnDir := filepath.Join(stateDir, learnStateDirName)
+	if err := os.MkdirAll(learnDir, artefactDirMode); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(learnDir, "stray-file"), []byte("x"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	removed, err := Prune(time.Now())
+	if err != nil {
+		t.Fatalf("Prune: %v", err)
+	}
+	if removed != 0 {
+		t.Errorf("Prune removed %d artefacts, want 0", removed)
+	}
+}
+
+// Prune propagates a slug directory it cannot read, rather than silently
+// treating the unreadable tree as pruned.
+func TestArtefactPrunePropagatesSlugDirFailure(t *testing.T) {
+	stateDir := t.TempDir()
+	withStateDir(t, stateDir)
+	slugDir := filepath.Join(stateDir, learnStateDirName, "my-checkout")
+	if err := os.MkdirAll(slugDir, artefactDirMode); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	chmodAt(t, slugDir, 0o000)
+
+	if _, err := Prune(time.Now()); err == nil {
+		t.Error("Prune with an unreadable slug directory returned no error")
+	}
+}
+
+// pruneSlugDir skips a nested directory: only artefact files are removed.
+func TestPruneSlugDirSkipsSubdirectories(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "nested"), artefactDirMode); err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+
+	removed, err := pruneSlugDir(dir, time.Now())
+	if err != nil {
+		t.Fatalf("pruneSlugDir: %v", err)
+	}
+	if removed != 0 {
+		t.Errorf("pruneSlugDir removed %d entries, want 0", removed)
+	}
+}
+
+// pruneSlugDir reports an artefact it cannot stat, so an unreadable entry fails
+// the sweep rather than being reported as pruned.
+func TestPruneSlugDirStatFailure(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "artefact.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	chmodAt(t, dir, 0o400)
+
+	if _, err := pruneSlugDir(dir, time.Now()); err == nil {
+		t.Error("pruneSlugDir with an unstattable artefact returned no error")
+	}
+}
+
+// pruneSlugDir reports an artefact it cannot remove, so a read-only tree fails
+// the sweep rather than leaving the caller believing the artefact is gone.
+func TestPruneSlugDirRemoveFailure(t *testing.T) {
+	dir := t.TempDir()
+	artefact := filepath.Join(dir, "artefact.json")
+	if err := os.WriteFile(artefact, []byte("{}"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(artefact, old, old); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+	chmodAt(t, dir, 0o500)
+
+	if _, err := pruneSlugDir(dir, time.Now()); err == nil {
+		t.Error("pruneSlugDir with a non-removable artefact returned no error")
+	}
+}

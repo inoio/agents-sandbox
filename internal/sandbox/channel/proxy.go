@@ -22,6 +22,18 @@ import (
 	"github.com/elazarl/goproxy"
 )
 
+// Crypto and CA-file IO seams. Generating an EC key fails when the entropy
+// source does not, and the certificate and file operations fail on situations
+// (an unsupported template, a full disk) a test's filesystem cannot produce, so
+// tests substitute them to exercise the error handling.
+var (
+	generateECKey     = ecdsa.GenerateKey
+	createCertificate = x509.CreateCertificate
+	parseCertificate  = x509.ParseCertificate
+	writeCATempFile   = (*os.File).WriteString
+	closeCATempFile   = (*os.File).Close
+)
+
 // credentialHeaderNames are the request headers that can carry a credential, by
 // lower-case name. Only their names are ever recorded; their values never leave
 // the transport (hub invariant 3).
@@ -286,7 +298,7 @@ func (s *proxyState) stop() Observation {
 //nolint:exhaustruct_v5 // a throwaway session CA sets only the fields it needs; the rest stay zero
 //deadcode:ignore reason="reached only from Start, whose invocation S7 wires"
 func generateCA() (tls.Certificate, string, error) {
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	key, err := generateECKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return tls.Certificate{}, "", err
 	}
@@ -300,11 +312,11 @@ func generateCA() (tls.Certificate, string, error) {
 		BasicConstraintsValid: true,
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 	}
-	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	der, err := createCertificate(rand.Reader, template, template, &key.PublicKey, key)
 	if err != nil {
 		return tls.Certificate{}, "", err
 	}
-	leaf, err := x509.ParseCertificate(der)
+	leaf, err := parseCertificate(der)
 	if err != nil {
 		return tls.Certificate{}, "", err
 	}
@@ -321,12 +333,12 @@ func writeCAFile(caPEM string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if _, err := file.WriteString(caPEM); err != nil {
-		_ = file.Close()
+	if _, err := writeCATempFile(file, caPEM); err != nil {
+		_ = closeCATempFile(file)
 		_ = os.Remove(file.Name())
 		return "", err
 	}
-	if err := file.Close(); err != nil {
+	if err := closeCATempFile(file); err != nil {
 		_ = os.Remove(file.Name())
 		return "", err
 	}

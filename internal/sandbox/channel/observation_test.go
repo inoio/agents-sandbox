@@ -263,6 +263,71 @@ func TestObservationCarriesNoValueBearingField(t *testing.T) {
 	}
 }
 
+// Destinations that share a host are ordered by the IP, path, then protocol
+// tie-breakers, so the artefact does not depend on insertion order. Each pair
+// differs in exactly one field after its predecessor, forcing that tie-breaker.
+func TestRecorderOrdersDestinationsByTieBreakers(t *testing.T) {
+	cases := []struct {
+		name          string
+		greaterLesser [2]Destination
+	}{
+		{
+			"IP breaks a host tie",
+			[2]Destination{
+				{Host: "api.example", IP: "203.0.113.2", Path: "/a", Protocol: "https"},
+				{Host: "api.example", IP: "203.0.113.1", Path: "/a", Protocol: "https"},
+			},
+		},
+		{
+			"path breaks an IP tie",
+			[2]Destination{
+				{Host: "api.example", IP: "203.0.113.1", Path: "/b", Protocol: "https"},
+				{Host: "api.example", IP: "203.0.113.1", Path: "/a", Protocol: "https"},
+			},
+		},
+		{
+			"protocol breaks a path tie",
+			[2]Destination{
+				{Host: "api.example", IP: "203.0.113.1", Path: "/a", Protocol: "https"},
+				{Host: "api.example", IP: "203.0.113.1", Path: "/a", Protocol: "http"},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var r recorder
+			for _, destination := range tc.greaterLesser {
+				r.observe(destination.Host, destination.IP, destination.Path, destination.Protocol, nil)
+			}
+
+			got := r.result(Observation{}).Destinations
+			if len(got) != 2 {
+				t.Fatalf("destinations = %+v, want two", got)
+			}
+			lesser := tc.greaterLesser[1]
+			if got[0].IP != lesser.IP || got[0].Path != lesser.Path || got[0].Protocol != lesser.Protocol {
+				t.Fatalf("first destination = %+v, want the lesser of the pair %+v", got[0], lesser)
+			}
+		})
+	}
+}
+
+// Attributions that share a host are ordered by path, so two credentials sent to
+// different paths on one host sort deterministically.
+func TestRecorderOrdersAttributionsByPath(t *testing.T) {
+	var r recorder
+	r.observe("api.example", "", "/b", "https", []string{"authorization"})
+	r.observe("api.example", "", "/a", "https", []string{"x-api-key"})
+
+	got := r.result(Observation{}).Attribution
+	if len(got) != 2 {
+		t.Fatalf("attributions = %+v, want two", got)
+	}
+	if got[0].Path != "/a" || got[1].Path != "/b" {
+		t.Fatalf("attribution order = %q, %q, want /a, /b", got[0].Path, got[1].Path)
+	}
+}
+
 // destinationHosts lists the destination hosts in the artefact's order, so a
 // test can compare ordering without comparing timestamps.
 func destinationHosts(obs Observation) []string {
