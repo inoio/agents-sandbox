@@ -116,12 +116,52 @@ func terminateProxy(ca tls.Certificate, state *proxyState) *goproxy.ProxyHttpSer
 	}
 	proxy.OnRequest().HandleConnect(goproxy.FuncHttpsHandler(
 		func(host string, _ *goproxy.ProxyCtx) (*goproxy.ConnectAction, string) {
+			state.observeConnect(host)
 			return mitm, host
 		},
 	))
 	proxy.OnRequest().DoFunc(state.onRequest)
 	proxy.OnResponse().DoFunc(state.onResponse)
 	return proxy
+}
+
+// observeConnect records a CONNECT target as a value-free "connect" destination
+// and marks it successful, because the proxy accepts the tunnel. A client that
+// pins certificates or speaks a non-HTTP protocol never produces an inner
+// request, but the tunnel it opened is still visible. It carries no attribution:
+// the request inside the tunnel is never seen (nil header names). A host that
+// also terminates appears twice — once here as "connect" and once as its own
+// "https" destination with attribution.
+//
+//deadcode:ignore reason="the proxy's CONNECT hook body; reached only from terminateProxy, whose invocation S7 wires"
+func (s *proxyState) observeConnect(host string) {
+	hostname, port := splitHostPort(host)
+	ip := ""
+	if parsed := net.ParseIP(hostname); parsed != nil {
+		ip = parsed.String()
+	}
+
+	s.mu.Lock()
+	destination := s.recorder.observe(hostname, ip, "", "connect", nil)
+	destination.Port = port
+	destination.Success = true
+	s.mu.Unlock()
+}
+
+// splitHostPort returns a CONNECT target's host and port, leaving the port zero
+// when the target carries none.
+//
+//deadcode:ignore reason="reached only from observeConnect, reached only from terminateProxy, whose invocation S7 wires"
+func splitHostPort(host string) (string, uint16) {
+	hostname, rawPort, err := net.SplitHostPort(host)
+	if err != nil {
+		return host, 0
+	}
+	port, err := strconv.ParseUint(rawPort, 10, 16)
+	if err != nil {
+		return hostname, 0
+	}
+	return hostname, uint16(port)
 }
 
 // onRequest records one request's destination and credential-bearing header
@@ -222,6 +262,7 @@ func (s *proxyState) stop() Observation {
 // generateCA creates a fresh self-signed CA for one proxy, returned parsed (for
 // goproxy's per-host leaf signing) and PEM-encoded (for the runtime to trust).
 //
+//nolint:exhaustruct_v5 // a throwaway session CA sets only the fields it needs; the rest stay zero
 //deadcode:ignore reason="reached only from Start, whose invocation S7 wires"
 func generateCA() (tls.Certificate, string, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)

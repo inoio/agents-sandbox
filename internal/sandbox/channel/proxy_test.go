@@ -71,10 +71,17 @@ func TestProxyRecordsDestinationAndCredentialHeaderName(t *testing.T) {
 	}
 
 	observation := handle.Stop()
-	if len(observation.Destinations) != 1 {
-		t.Fatalf("destinations = %+v, want exactly one", observation.Destinations)
+	if len(observation.Destinations) != 2 {
+		t.Fatalf("destinations = %+v, want a connect and an https entry", observation.Destinations)
 	}
-	destination := observation.Destinations[0]
+	connectDestination := destinationFor(t, observation.Destinations, "connect")
+	if !connectDestination.Success || connectDestination.Denied {
+		t.Errorf("connect destination = %+v, want success and not denied", connectDestination)
+	}
+	if connectDestination.Path != "" {
+		t.Errorf("connect path = %q, want empty", connectDestination.Path)
+	}
+	destination := destinationFor(t, observation.Destinations, "https")
 	if destination.Host != upstreamURL.Hostname() {
 		t.Errorf("host = %q, want %q", destination.Host, upstreamURL.Hostname())
 	}
@@ -205,10 +212,10 @@ func TestProxyRecordsDeniedDestination(t *testing.T) {
 	}
 
 	observation := handle.Stop()
-	if len(observation.Destinations) != 1 {
-		t.Fatalf("destinations = %+v, want exactly one", observation.Destinations)
+	if len(observation.Destinations) != 2 {
+		t.Fatalf("destinations = %+v, want a connect and an https entry", observation.Destinations)
 	}
-	destination := observation.Destinations[0]
+	destination := destinationFor(t, observation.Destinations, "https")
 	if !destination.Denied {
 		t.Errorf("denied = false, want true for an unreachable upstream")
 	}
@@ -223,6 +230,83 @@ func TestProxyRecordsDeniedDestination(t *testing.T) {
 	}
 	if destination.Protocol != "https" {
 		t.Errorf("protocol = %q, want https", destination.Protocol)
+	}
+}
+
+func TestProxyRecordsConnectTunnelWhenMitmHandshakeFails(t *testing.T) {
+	handle, err := Start("127.0.0.1")
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer handle.Stop()
+
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer upstream.Close()
+	upstreamURL, err := url.Parse(upstream.URL)
+	if err != nil {
+		t.Fatalf("parse upstream URL: %v", err)
+	}
+
+	// A client that does not trust the proxy CA: the CONNECT is accepted, but
+	// the MITM handshake fails, so no inner request is ever observed.
+	client := &http.Client{
+		Transport: &http.Transport{
+			Proxy: http.ProxyURL(&url.URL{Scheme: "http", Host: handle.Addr}),
+		},
+	}
+	if _, err := client.Get(upstream.URL); err == nil {
+		t.Fatal("the untrusted proxy CA should have failed the handshake")
+	}
+
+	observation := handle.Stop()
+	if len(observation.Destinations) != 1 {
+		t.Fatalf("destinations = %+v, want one connect entry and no https entry", observation.Destinations)
+	}
+	destination := observation.Destinations[0]
+	if destination.Protocol != "connect" {
+		t.Errorf("protocol = %q, want connect", destination.Protocol)
+	}
+	if !destination.Success {
+		t.Errorf("success = false, want true: the tunnel was accepted")
+	}
+	if destination.Denied {
+		t.Errorf("denied = true, want false")
+	}
+	if destination.Host != upstreamURL.Hostname() {
+		t.Errorf("host = %q, want %q", destination.Host, upstreamURL.Hostname())
+	}
+	if destination.Path != "" {
+		t.Errorf("path = %q, want empty", destination.Path)
+	}
+	if len(observation.Attribution) != 0 {
+		t.Errorf("attribution = %+v, want none for an un-terminated tunnel", observation.Attribution)
+	}
+}
+
+func TestProxyConnectHostnameRecordsEmptyIP(t *testing.T) {
+	state := &proxyState{recorder: new(recorder)}
+
+	state.observeConnect("api.example:443")
+
+	observation := state.recorder.result(Observation{})
+	if len(observation.Destinations) != 1 {
+		t.Fatalf("destinations = %+v, want one", observation.Destinations)
+	}
+	destination := observation.Destinations[0]
+	if destination.Host != "api.example" {
+		t.Errorf("host = %q, want api.example", destination.Host)
+	}
+	if destination.Port != 443 {
+		t.Errorf("port = %d, want 443", destination.Port)
+	}
+	if destination.IP != "" {
+		t.Errorf("ip = %q, want empty for a hostname target", destination.IP)
+	}
+	if destination.Protocol != "connect" {
+		t.Errorf("protocol = %q, want connect", destination.Protocol)
+	}
+	if !destination.Success {
+		t.Errorf("success = false, want true")
 	}
 }
 
@@ -260,6 +344,19 @@ func TestProxyHandleExposesCAAndStopsIdempotently(t *testing.T) {
 	if _, err := os.Stat(caFile); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("CA file %s still present after Stop: %v", caFile, err)
 	}
+}
+
+// destinationFor returns the recorded destination with the given protocol.
+func destinationFor(t *testing.T, destinations []Destination, protocol string) Destination {
+	t.Helper()
+
+	for _, destination := range destinations {
+		if destination.Protocol == protocol {
+			return destination
+		}
+	}
+	t.Fatalf("no %q destination in %+v", protocol, destinations)
+	return Destination{}
 }
 
 // unusedLoopbackPort binds a loopback port and releases it, giving a port that

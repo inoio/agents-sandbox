@@ -16,7 +16,7 @@ const observedViaProxy = "proxy-terminate"
 // the after-run analysis reads.
 type Destination struct {
 	Host      string    `json:"host"`       // Host header / SNI
-	IP        string    `json:"ip"`         // resolved IP the CONNECT target used
+	IP        string    `json:"ip"`         // literal IP when the CONNECT target is an IP; empty for a hostname target (unknown to the analyser)
 	Port      uint16    `json:"port"`       // port the request used
 	Protocol  string    `json:"protocol"`   // "https" | "http" | "connect" | "socks5" | "tcp"; empty for a deny seen before any request
 	Path      string    `json:"path"`       // request path, never a query
