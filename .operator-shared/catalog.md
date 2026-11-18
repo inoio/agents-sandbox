@@ -205,3 +205,6 @@
 - `plans/2026-11-17-learn-mode-readback.md`
   - Description: SDD subplan (S5) for the passive read-back: `HomeVolumePath`, the `Manifest`/`ManifestEntry` baseline, per-agent `ReadBackDescriber` paths with static-vs-login classification, the opencode2 SQLite `credential` probe (E1 `modernc.org/sqlite`), and the host verification.
   - Read If: You are executing S5; or you need to know how a finished sandbox session's credentials and config are discovered (the analyser's fact source), or where a new harness's read-back paths belong.
+- `plans/2026-11-18-concise-check-output.md`
+  - Description: TDD plan for a concise `make check` - `scripts/check.sh` captures each target, prints one PASS/FAIL line per target, and dumps failing logs last; heavy targets serial / light parallel; `VERBOSE`/`SERIAL`; plus quieting the fixture harnesses' per-case lines.
+  - Read If: Executing the concise-check-output change; or working on `scripts/check.sh`, the `CHECK_HEAVY_TARGETS` split, the `check`/`verify` targets, the `VERBOSE`/`SERIAL` flags, or a fixture harness's `ok()`/section output.

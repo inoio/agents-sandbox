@@ -63,9 +63,11 @@ Don't install additional tools yourself without permission.
 Common development commands (run from the Go module root):
 
 - `make check` — run `validate-fmt`, lint, and test targets, read-only (the same formatting gate CI
-  runs). It and `make verify` run their independent targets as parallel jobs by default (`JOBS=<n>`
-  overrides the count). Execute `make check` when finalizing work; if it reports unformatted files, run
-  `make fmt` to fix them. `make verify` adds `test-race` and `vulncheck`.
+  runs). It delegates to `scripts/check.sh`, which captures each target and prints a one-line
+  `PASS`/`FAIL` summary, dumping every failing target's log last; the CPU-heavy targets run one at a
+  time and the rest in a `JOBS=<n>` pool (`VERBOSE=1` streams raw output, `SERIAL=1` runs one target at
+  a time). Execute `make check` when finalizing work; if it reports unformatted files, run `make fmt` to
+  fix them. `make verify` adds `test-race`, `vulncheck`, and `deadcode` to the heavy set.
 - `make check-local-changes` / `make check-branch-changes` — a fast inner loop while iterating:
   run only the `check` targets a change can affect (the map lives in `scripts/changed-targets.sh`).
   Use `make check` before finalizing.

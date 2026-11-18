@@ -12,9 +12,10 @@ The layout is a standard Go module:
 
 ## Development environment
 
-- **GNU Make 4.0+** — `make check`/`make verify` pass `-O` (output-sync), absent from macOS's system
-  `make` (3.81). Install GNU Make with `brew install make` and call it as `gmake`, or add
-  `$(brew --prefix make)/libexec/gnubin` to `PATH`.
+- **GNU Make** — `make check`/`make verify` delegate to `scripts/check.sh`, so they no longer need GNU
+  Make's `-O` (output-sync). Install GNU Make with `brew install make` and call it as `gmake`, or add
+  `$(brew --prefix make)/libexec/gnubin` to `PATH`, if a target requires it over macOS's system `make`
+  (3.81).
 - **Go** — version pinned in `.go-version`, managed via goenv
 - **golangci-lint** — used by `make lint` and `make fmt`
 - **Docker** — for building the runner image (`agents-sandbox build`)
@@ -68,10 +69,10 @@ Run these from the module root:
 | `make compile-all`   | Compile all code incl. `integration`-tagged test files      |
 | `make lint`          | Run the linter                                             |
 | `make fmt`           | Format all source files                                    |
-| `make check`         | Format, lint, and test — run before finalizing any change  |
+| `make check`         | Format, lint, and test — prints one PASS/FAIL line per target and failing logs; run before finalizing any change |
 | `make check-local-changes` | Fast inner loop: run only the checks the uncommitted working tree affects |
 | `make check-branch-changes` | Fast inner loop: run only the checks the branch (since `origin/main`) affects |
-| `make verify`        | Read-only CI-parity check: format-check, lint, test, race, vulncheck |
+| `make verify`        | Read-only CI-parity check: format-check, lint, test, race, vulncheck, deadcode |
 | `make build`         | Build the `agents-sandbox` binary                        |
 | `make coverage`      | Run tests and print the coverage total                     |
 | `make coverage-junit`| Run tests, write coverage + JUnit XML (`junit.xml`)        |
