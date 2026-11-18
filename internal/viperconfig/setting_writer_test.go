@@ -974,6 +974,412 @@ func TestWriteSettingRejectsNonYAML(t *testing.T) {
 	}
 }
 
+// TestRemoveSettingRemovesTheKeyOnly pins the remover's format-preserving
+// contract: the addressed key goes with the comments attached to it, and every
+// other key, comment and the file mode survive, so a narrowing edit never
+// rewrites the rest of the user's file.
+func TestRemoveSettingRemovesTheKeyOnly(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	dir := configpaths.Get().UserConfigDir()
+	testutil.WriteFile(
+		t,
+		dir,
+		"config.yaml",
+		"memory: 8G # sized for builds\n# keep the cpus note\ncpus: 2 # keep me\n",
+	)
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatalf("Chmod: %v", err)
+	}
+
+	if err := RemoveSetting(dir, "memory"); err != nil {
+		t.Fatalf("RemoveSetting: %v", err)
+	}
+
+	got := readTestFile(t, path)
+	if strings.Contains(got, "sized for builds") {
+		t.Errorf("comment attached to the removed key survived:\n%s", got)
+	}
+	if !strings.Contains(got, "# keep the cpus note") || !strings.Contains(got, "# keep me") {
+		t.Errorf("comments of the kept keys lost:\n%s", got)
+	}
+	if parsed := parseYAMLMap(t, got); parsed["memory"] != nil || parsed["cpus"] != 2 {
+		t.Errorf("config = %v, want memory removed and cpus 2 kept", parsed)
+	}
+	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o644 {
+		t.Errorf("removed-from file mode = %v (err %v), want 0644", info.Mode().Perm(), err)
+	}
+}
+
+// TestRemoveSettingKeepsUnrelatedKeysAndResolvedValue pins that the removal
+// reaches only the addressed key, including a nested one: the resolver then no
+// longer sees it while its siblings keep their values.
+func TestRemoveSettingKeepsUnrelatedKeysAndResolvedValue(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	dir := configpaths.Get().UserConfigDir()
+	testutil.WriteFile(t, dir, "config.yaml", "memory: 8G\nnetwork:\n  profile: private\n  dns: 1.1.1.1\n")
+
+	if err := RemoveSetting(dir, "network.profile"); err != nil {
+		t.Fatalf("RemoveSetting: %v", err)
+	}
+
+	parsed := parseYAMLMap(t, readTestFile(t, filepath.Join(dir, "config.yaml")))
+	if parsed["memory"] != "8G" {
+		t.Errorf("memory = %v, want 8G", parsed["memory"])
+	}
+	network, ok := parsed["network"].(map[string]any)
+	if !ok {
+		t.Fatalf("network is %T, want a mapping", parsed["network"])
+	}
+	if _, present := network["profile"]; present {
+		t.Errorf("network.profile = %v, want it removed", network["profile"])
+	}
+	if network["dns"] != "1.1.1.1" {
+		t.Errorf("network.dns = %v, want 1.1.1.1", network["dns"])
+	}
+}
+
+// TestRemoveSettingMatchesKeyCaseInsensitively pins that the removal addresses a
+// key however it is spelled, mirroring viper's case-insensitive resolution: the
+// differently-cased `Memory:` is removed, not silently kept.
+func TestRemoveSettingMatchesKeyCaseInsensitively(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	dir := configpaths.Get().UserConfigDir()
+	testutil.WriteFile(t, dir, "config.yaml", "Memory: 8G\ncpus: 2\n")
+
+	if err := RemoveSetting(dir, "memory"); err != nil {
+		t.Fatalf("RemoveSetting: %v", err)
+	}
+
+	parsed := parseYAMLMap(t, readTestFile(t, filepath.Join(dir, "config.yaml")))
+	if _, present := parsed["Memory"]; present {
+		t.Errorf("config = %v, want the differently-cased key removed", parsed)
+	}
+	if parsed["cpus"] != 2 {
+		t.Errorf("cpus = %v, want 2", parsed["cpus"])
+	}
+}
+
+// TestRemoveSettingAbsentKeyIsANoOp pins the no-op contract: a key the file does
+// not set leaves the file byte-identical, so a decline or a repeated removal
+// never rewrites the user's config.
+func TestRemoveSettingAbsentKeyIsANoOp(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	dir := configpaths.Get().UserConfigDir()
+	const original = "# comment\ncpus: 2\n"
+	testutil.WriteFile(t, dir, "config.yaml", original)
+
+	if err := RemoveSetting(dir, "memory"); err != nil {
+		t.Fatalf("RemoveSetting: %v", err)
+	}
+
+	if got := readTestFile(t, filepath.Join(dir, "config.yaml")); got != original {
+		t.Errorf("config changed despite the absent key:\n got %q\nwant %q", got, original)
+	}
+}
+
+// TestRemoveSettingAbsentFileIsANoOp pins that a directory with no config file
+// is left without one: removing a key never creates config.yaml.
+func TestRemoveSettingAbsentFileIsANoOp(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	dir := configpaths.Get().UserConfigDir()
+
+	if err := RemoveSetting(dir, "memory"); err != nil {
+		t.Fatalf("RemoveSetting: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, "config.yaml")); !os.IsNotExist(err) {
+		t.Errorf("RemoveSetting created config.yaml, stat err = %v", err)
+	}
+}
+
+// TestRemoveSettingNestedAbsentKeyIsANoOp pins the no-op at depth: a key whose
+// prefix resolves but which the mapping does not set leaves the file untouched.
+func TestRemoveSettingNestedAbsentKeyIsANoOp(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	dir := configpaths.Get().UserConfigDir()
+	const original = "network:\n  profile: private\n"
+	testutil.WriteFile(t, dir, "config.yaml", original)
+
+	if err := RemoveSetting(dir, "network.dns-servers"); err != nil {
+		t.Fatalf("RemoveSetting: %v", err)
+	}
+
+	if got := readTestFile(t, filepath.Join(dir, "config.yaml")); got != original {
+		t.Errorf("config changed despite the absent nested key:\n got %q\nwant %q", got, original)
+	}
+}
+
+// TestRemoveSettingRejectsNonYAML pins that a JSON5/JSON/JSONC config file is
+// never rewritten and is left byte-identical, mirroring WriteSetting.
+func TestRemoveSettingRejectsNonYAML(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		ext     string
+		content string
+	}{
+		{name: "json5", ext: ".json5", content: "{\n  // comment\n  \"memory\": \"2G\",\n}\n"},
+		{name: "jsonc", ext: ".jsonc", content: "{\n  /* comment */\n  \"memory\": \"2G\"\n}\n"},
+		{name: "json", ext: ".json", content: "{\"memory\": \"2G\"}\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			configpathstest.WithMockConfigPaths(t)
+			dir := configpaths.Get().UserConfigDir()
+			path := filepath.Join(dir, "config"+tc.ext)
+			testutil.WriteFile(t, dir, "config"+tc.ext, tc.content)
+
+			err := RemoveSetting(dir, "memory")
+			if !errors.Is(err, ErrUnsupportedConfigFormat) {
+				t.Fatalf("err = %v, want ErrUnsupportedConfigFormat", err)
+			}
+			if got := readTestFile(t, path); got != tc.content {
+				t.Errorf("file changed:\n got %q\nwant %q", got, tc.content)
+			}
+		})
+	}
+}
+
+// TestRemoveSettingKeepsYAMLExtension pins that a .yml file stays YAML and keeps
+// its extension.
+func TestRemoveSettingKeepsYAMLExtension(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	dir := configpaths.Get().UserConfigDir()
+	testutil.WriteFile(t, dir, "config.yml", "memory: 2G\ncpus: 2\n")
+
+	if err := RemoveSetting(dir, "memory"); err != nil {
+		t.Fatalf("RemoveSetting: %v", err)
+	}
+
+	parsed := parseYAMLMap(t, readTestFile(t, filepath.Join(dir, "config.yml")))
+	if _, present := parsed["memory"]; present {
+		t.Errorf("memory = %v, want it removed", parsed["memory"])
+	}
+	if parsed["cpus"] != 2 {
+		t.Errorf("cpus = %v, want 2", parsed["cpus"])
+	}
+}
+
+// TestRemoveSettingEditsSymlinkTarget pins that a symlinked config file keeps its
+// link: the atomic write edits the target, not the link itself.
+func TestRemoveSettingEditsSymlinkTarget(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	dir := configpaths.Get().UserConfigDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	target := filepath.Join(t.TempDir(), "dotfiles-config.yaml")
+	testutil.WriteFile(t, filepath.Dir(target), filepath.Base(target), "memory: 2G\n")
+	link := filepath.Join(dir, "config.yaml")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+
+	if err := RemoveSetting(dir, "memory"); err != nil {
+		t.Fatalf("RemoveSetting: %v", err)
+	}
+
+	info, err := os.Lstat(link)
+	if err != nil {
+		t.Fatalf("Lstat: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("config.yaml is no longer a symlink")
+	}
+	if parsed := parseYAMLMap(t, readTestFile(t, target)); parsed["memory"] != nil {
+		t.Errorf("target memory = %v, want it removed", parsed["memory"])
+	}
+}
+
+// TestRemoveSettingSymlinkResolutionError pins that a link-resolution failure is
+// surfaced instead of editing the link path.
+func TestRemoveSettingSymlinkResolutionError(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	dir := configpaths.Get().UserConfigDir()
+	testutil.WriteFile(t, dir, "config.yaml", "memory: 2G\n")
+	orig := evalSymlinks
+	evalSymlinks = func(string) (string, error) { return "", errors.New("link loop") }
+	t.Cleanup(func() { evalSymlinks = orig })
+
+	err := RemoveSetting(dir, "memory")
+	if err == nil || !strings.Contains(err.Error(), "resolve config file link") {
+		t.Fatalf("RemoveSetting error = %v, want the link-resolution failure", err)
+	}
+	requireWrapped(t, err)
+}
+
+// TestRemoveSettingRefusesAnchorInUse pins that removing an anchored value an
+// alias elsewhere references is refused: the alias would be left dangling. The
+// file is left byte-identical.
+func TestRemoveSettingRefusesAnchorInUse(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	dir := configpaths.Get().UserConfigDir()
+	const original = "memory: &size 4G\ntmp-size: *size\n"
+	testutil.WriteFile(t, dir, "config.yaml", original)
+
+	err := RemoveSetting(dir, "memory")
+	if err == nil {
+		t.Fatal("expected RemoveSetting to refuse an anchored value still in use")
+	}
+	requireWrapped(t, err)
+	if got := readTestFile(t, filepath.Join(dir, "config.yaml")); got != original {
+		t.Errorf("config changed despite the refusal:\n%s", got)
+	}
+}
+
+// TestRemoveSettingInvalidYAML pins that an unparseable YAML file is surfaced as
+// an error and left untouched.
+func TestRemoveSettingInvalidYAML(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	dir := configpaths.Get().UserConfigDir()
+	path := filepath.Join(dir, "config.yaml")
+	testutil.WriteFile(t, dir, "config.yaml", "memory: [unclosed\n")
+
+	err := RemoveSetting(dir, "memory")
+	if err == nil {
+		t.Fatal("expected a parse error")
+	}
+	if !strings.Contains(err.Error(), "invalid YAML") {
+		t.Errorf("err = %v, want it to mention invalid YAML", err)
+	}
+	if got := readTestFile(t, path); got != "memory: [unclosed\n" {
+		t.Errorf("file changed: %q", got)
+	}
+}
+
+// TestRemoveSettingUnreadableFile pins that an existing config path that cannot
+// be read (a directory) is surfaced as an error.
+func TestRemoveSettingUnreadableFile(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	dir := configpaths.Get().UserConfigDir()
+	if err := os.Mkdir(filepath.Join(dir, "config.yaml"), 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	if err := RemoveSetting(dir, "memory"); err == nil {
+		t.Fatal("expected a read error")
+	} else {
+		requireWrapped(t, err)
+		if !strings.Contains(err.Error(), "read config file") {
+			t.Errorf("error = %v, want the read failure reported", err)
+		}
+	}
+}
+
+// TestRemoveSettingRefusesNonMappingRoot pins that a config file whose root is
+// not a mapping is refused rather than rewritten.
+func TestRemoveSettingRefusesNonMappingRoot(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	dir := configpaths.Get().UserConfigDir()
+	path := filepath.Join(dir, "config.yaml")
+	const original = "- one\n- two\n"
+	testutil.WriteFile(t, dir, "config.yaml", original)
+
+	err := RemoveSetting(dir, "memory")
+	if err == nil {
+		t.Fatal("expected an error for a non-mapping root")
+	}
+	requireWrapped(t, err)
+	if got := readTestFile(t, path); got != original {
+		t.Errorf("file changed: %q", got)
+	}
+}
+
+// TestRemoveSettingDeeplyNestedIntermediateIsANoOp pins that a dotted key whose
+// prefix descends through a scalar is treated as absent rather than an error: the
+// key cannot be present, so the file is untouched.
+func TestRemoveSettingDeeplyNestedIntermediateIsANoOp(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	dir := configpaths.Get().UserConfigDir()
+	const original = "network: private\n"
+	testutil.WriteFile(t, dir, "config.yaml", original)
+
+	if err := RemoveSetting(dir, "network.profile"); err != nil {
+		t.Fatalf("RemoveSetting: %v", err)
+	}
+
+	if got := readTestFile(t, filepath.Join(dir, "config.yaml")); got != original {
+		t.Errorf("config changed despite the scalar prefix:\n got %q\nwant %q", got, original)
+	}
+}
+
+// TestRemoveSettingRefusesDuplicateKeys pins that a key occurring twice has no
+// unambiguous target, so the removal is refused and the file is left untouched
+// rather than dropping an arbitrary one of the entries.
+func TestRemoveSettingRefusesDuplicateKeys(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	dir := configpaths.Get().UserConfigDir()
+	path := filepath.Join(dir, "config.yaml")
+	const original = "memory: 2G\nmemory: 4G\n"
+	testutil.WriteFile(t, dir, "config.yaml", original)
+
+	err := RemoveSetting(dir, "memory")
+	if err == nil {
+		t.Fatal("expected RemoveSetting to refuse a duplicate key")
+	}
+	requireWrapped(t, err)
+	if got := readTestFile(t, path); got != original {
+		t.Errorf("config changed despite the refusal:\n%s", got)
+	}
+}
+
+// TestRemoveSettingRejectsEmptyDir pins that an unresolved (empty) config dir is
+// refused rather than editing config.yaml in the process working directory.
+func TestRemoveSettingRejectsEmptyDir(t *testing.T) {
+	// Pin the CWD so an edit made with the guard removed lands in a temp tree,
+	// not the package directory.
+	t.Chdir(t.TempDir())
+	if err := RemoveSetting("", "memory"); err == nil {
+		t.Error("RemoveSetting with an empty dir = nil error, want a rejection")
+	}
+}
+
+// TestRemoveSettingKeepsTheApprovalInStep pins the remover's two duties toward an
+// approved project config: it never edits a file changed since the approval, and
+// what it writes itself becomes the approved bytes.
+func TestRemoveSettingKeepsTheApprovalInStep(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	approved := "memory: 4G\ncpus: 2\n"
+	t.Cleanup(projectguard.Install([]string{dir}, map[string]projectguard.Approval{
+		path: projectguard.ApprovalOf([]byte(approved)),
+	}))
+	testutil.WritePath(t, path, approved)
+
+	if err := RemoveSetting(dir, "memory"); err != nil {
+		t.Fatalf("RemoveSetting: %v", err)
+	}
+	if _, err := projectguard.ReadFile(path, os.ReadFile); err != nil {
+		t.Fatalf("the launcher's own write is not approved: %v", err)
+	}
+
+	changed := "cpus: 2\nmounts:\n  /host: /\n"
+	testutil.WritePath(t, path, changed)
+	if err := RemoveSetting(dir, "cpus"); !errors.Is(err, projectguard.ErrNotApproved) {
+		t.Fatalf("RemoveSetting over a changed file = %v, want ErrNotApproved", err)
+	}
+	if data, _ := os.ReadFile(path); string(data) != changed {
+		t.Errorf("config.yaml = %q, want the changed file left untouched", data)
+	}
+}
+
+// TestRemoveSettingRefusesWhenTheApprovedConfigIsGone pins that a removal never
+// treats a deleted approved config as an absent key: the miss must surface, not
+// silently report success.
+func TestRemoveSettingRefusesWhenTheApprovedConfigIsGone(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	t.Cleanup(projectguard.Install([]string{dir}, map[string]projectguard.Approval{
+		path: projectguard.ApprovalOf([]byte("memory: 4G\n")),
+	}))
+
+	if err := RemoveSetting(dir, "memory"); !errors.Is(err, projectguard.ErrNotApproved) {
+		t.Errorf("RemoveSetting = %v, want ErrNotApproved", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("RemoveSetting created %s in place of the deleted approved config", path)
+	}
+}
+
 // TestWriteSettingInvalidYAML pins that an unparseable YAML file is surfaced as
 // an error and left untouched.
 func TestWriteSettingInvalidYAML(t *testing.T) {
