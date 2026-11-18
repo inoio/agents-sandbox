@@ -427,7 +427,7 @@ check-local-changes:
 		echo "check-local-changes: no changed files"; exit 0; \
 	fi; \
 	echo "check-local-changes: $$(printf '%s ' $$targets)"; \
-	$(MAKE) --no-print-directory -j$(JOBS) -O $$targets changelog-presence MODE=local
+	MODE=local CHECK_HEAVY_TARGETS="$(CHECK_HEAVY_TARGETS)" JOBS=$(JOBS) ./scripts/check.sh $$targets changelog-presence
 
 check-branch-changes:
 	@targets="$$(./scripts/changed-targets.sh branch $${BASE:+--base $$BASE})" || { echo "check-branch-changes: scripts/changed-targets.sh failed" >&2; exit 1; }; \
@@ -436,7 +436,7 @@ check-branch-changes:
 		echo "check-branch-changes: no changed files"; exit 0; \
 	fi; \
 	echo "check-branch-changes: $$(printf '%s ' $$targets)"; \
-	$(MAKE) --no-print-directory -j$(JOBS) -O $$targets changelog-presence MODE=branch $${BASE:+BASE=$$BASE}
+	MODE=branch $${BASE:+BASE=$$BASE }CHECK_HEAVY_TARGETS="$(CHECK_HEAVY_TARGETS)" JOBS=$(JOBS) ./scripts/check.sh $$targets changelog-presence
 
 # Changelog presence in the fast loop: a code change with no changelog.d/
 # fragment should fail locally, not only in CI. The changed paths come from
