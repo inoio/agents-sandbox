@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"cmp"
 	"slices"
 	"strings"
 	"time"
@@ -59,17 +60,20 @@ type recorder struct {
 }
 
 // observe folds one request into the artefact and returns the destination entry
-// it belongs to, so the caller can complete what only the transport knows (the
-// port, and success once a response arrives). A repeated destination aggregates:
-// its count rises and its last-seen time advances, and the returned pointer
-// keeps naming the same entry. The header names are added to the destination's
-// attribution; a request carrying none stays unattributed. The pointer stays
-// valid for the recorder's lifetime — until result or teardown tears it down —
-// so a caller may hold it across later observe calls.
+// it belongs to, so the caller can complete what only the transport knows
+// (success once a response arrives). A repeated destination aggregates: its
+// count rises and its last-seen time advances, and the returned pointer keeps
+// naming the same entry. A destination is identified by host, IP, port, path and
+// protocol, so the same host on two ports — two CONNECT tunnels, say — stays two
+// entries rather than collapsing into one whose port is whichever arrived last.
+// The header names are added to the destination's attribution; a request
+// carrying none stays unattributed. The pointer stays valid for the recorder's
+// lifetime — until result or teardown tears it down — so a caller may hold it
+// across later observe calls.
 //
 //deadcode:ignore reason="the channel's capture entry point; the terminating proxy (next step in S4) calls observe from its request hook"
-func (r *recorder) observe(host, ip, path, protocol string, headerNames []string) *Destination {
-	destination := r.destination(host, ip, path, protocol)
+func (r *recorder) observe(host, ip, path, protocol string, port uint16, headerNames []string) *Destination {
+	destination := r.destination(host, ip, path, protocol, port)
 	destination.Count++
 	now := time.Now()
 	if destination.FirstSeen.IsZero() {
@@ -81,18 +85,19 @@ func (r *recorder) observe(host, ip, path, protocol string, headerNames []string
 }
 
 // deny records that a request to a destination was refused by this proxy's own
-// dial. It marks every entry with that host, IP, path and protocol denied and
-// not successful, and records the destination when the denial arrived before
-// any request was seen (a refused connection). Including the protocol keeps a
-// protocol-less deny from matching — and clearing the `Success` of — a
-// `connect` (or `https`) entry. A denial never changes the request count.
+// dial. It marks every entry with that host, IP, port, path and protocol denied
+// and not successful, and records the destination when the denial arrived before
+// any request was seen (a refused connection). Including the port and protocol
+// keeps a denial from matching — and clearing the `Success` of — an entry on a
+// different port or a `connect` (or `https`) entry. A denial never changes the
+// request count.
 //
 //deadcode:ignore reason="records a denial; the terminating proxy's RoundTrip error hook (next step in S4) calls deny"
-func (r *recorder) deny(host, ip, path, protocol string) {
+func (r *recorder) deny(host, ip, path, protocol string, port uint16) {
 	matched := false
 	for _, destination := range r.destinations {
 		if destination.Host == host && destination.IP == ip && destination.Path == path &&
-			destination.Protocol == protocol {
+			destination.Protocol == protocol && destination.Port == port {
 			destination.Denied = true
 			destination.Success = false
 			matched = true
@@ -102,7 +107,7 @@ func (r *recorder) deny(host, ip, path, protocol string) {
 		r.destinations = append(r.destinations, &Destination{
 			Host:      host,
 			IP:        ip,
-			Port:      0,
+			Port:      port,
 			Protocol:  protocol,
 			Path:      path,
 			Success:   false,
@@ -143,16 +148,17 @@ func (r *recorder) result(obs Observation) Observation {
 // entry is heap-allocated, so the returned pointer outlives later appends.
 //
 //deadcode:ignore reason="reached through observe, whose pending production caller is the terminating proxy (next step in S4)"
-func (r *recorder) destination(host, ip, path, protocol string) *Destination {
+func (r *recorder) destination(host, ip, path, protocol string, port uint16) *Destination {
 	for _, candidate := range r.destinations {
-		if candidate.Host == host && candidate.IP == ip && candidate.Path == path && candidate.Protocol == protocol {
+		if candidate.Host == host && candidate.IP == ip && candidate.Path == path &&
+			candidate.Protocol == protocol && candidate.Port == port {
 			return candidate
 		}
 	}
 	destination := &Destination{
 		Host:      host,
 		IP:        ip,
-		Port:      0,
+		Port:      port,
 		Protocol:  protocol,
 		Path:      path,
 		Success:   false,
@@ -200,9 +206,9 @@ func (r *recorder) attribute(host, path string, headerNames []string) {
 //
 //deadcode:ignore reason="reached through observe and attribute, whose pending production caller is the terminating proxy (next step in S4)"
 func mergeHeaderNames(recorded, incoming []string) []string {
-	seen := make(map[string]bool, len(recorded)+len(incoming))
-	merged := make([]string, 0, len(recorded)+len(incoming))
-	for _, name := range append(append(make([]string, 0, len(recorded)+len(incoming)), recorded...), incoming...) {
+	seen := make(map[string]bool)
+	var merged []string
+	for _, name := range slices.Concat(recorded, incoming) {
 		if name == "" || seen[name] {
 			continue
 		}
@@ -250,13 +256,12 @@ func dedupeAttributions(attributions []Attribution) []Attribution {
 	return kept
 }
 
-// sameDestinationIdentity reports whether two entries name the same destination;
-// the port is not part of the identity the recorder can key on, so the fields it
-// observes are.
+// sameDestinationIdentity reports whether two entries name the same destination:
+// every field the recorder keys on — host, IP, port, path, and protocol.
 //
 //deadcode:ignore reason="keys destination identity for dedupeDestinations, reached through the terminating proxy's Stop (next step in S4)"
 func sameDestinationIdentity(a, b Destination) bool {
-	return a.Host == b.Host && a.IP == b.IP && a.Path == b.Path && a.Protocol == b.Protocol
+	return a.Host == b.Host && a.IP == b.IP && a.Port == b.Port && a.Path == b.Path && a.Protocol == b.Protocol
 }
 
 // compareDestination orders destinations by their identity, so the artefact is
@@ -273,7 +278,10 @@ func compareDestination(a, b Destination) int {
 	if order := strings.Compare(a.Path, b.Path); order != 0 {
 		return order
 	}
-	return strings.Compare(a.Protocol, b.Protocol)
+	if order := strings.Compare(a.Protocol, b.Protocol); order != 0 {
+		return order
+	}
+	return cmp.Compare(a.Port, b.Port)
 }
 
 // compareAttribution orders attributions by their destination.

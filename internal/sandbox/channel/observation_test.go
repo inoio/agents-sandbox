@@ -11,8 +11,8 @@ import (
 
 func TestRecorderAggregatesRepeatedDestination(t *testing.T) {
 	var r recorder
-	first := r.observe("api.example", "203.0.113.7", "/v1/chat", "https", []string{"authorization"})
-	second := r.observe("api.example", "203.0.113.7", "/v1/chat", "https", []string{"authorization"})
+	first := r.observe("api.example", "203.0.113.7", "/v1/chat", "https", 443, []string{"authorization"})
+	second := r.observe("api.example", "203.0.113.7", "/v1/chat", "https", 443, []string{"authorization"})
 
 	if first != second {
 		t.Fatal("the same destination must aggregate onto one entry")
@@ -40,11 +40,11 @@ func TestRecorderAggregatesRepeatedDestination(t *testing.T) {
 // holder wrote through it must reach the artefact.
 func TestRecorderObservedPointerStaysValid(t *testing.T) {
 	var r recorder
-	held := r.observe("api.example", "203.0.113.7", "/v1/chat", "https", []string{"authorization"})
+	held := r.observe("api.example", "203.0.113.7", "/v1/chat", "https", 443, []string{"authorization"})
 
 	// More destinations reallocate whatever backs the recorder's collection.
-	r.observe("other.example", "198.51.100.2", "/v1/models", "https", nil)
-	r.observe("third.example", "198.51.100.3", "/", "connect", nil)
+	r.observe("other.example", "198.51.100.2", "/v1/models", "https", 443, nil)
+	r.observe("third.example", "198.51.100.3", "/", "connect", 443, nil)
 
 	held.Port = 443
 	held.Success = true
@@ -63,9 +63,9 @@ func TestRecorderObservedPointerStaysValid(t *testing.T) {
 
 func TestRecorderKeepsDestinationsDistinct(t *testing.T) {
 	var r recorder
-	r.observe("api.example", "203.0.113.7", "/v1/chat", "https", nil)
-	r.observe("api.example", "203.0.113.7", "/v1/models", "https", nil)
-	r.observe("api.example", "203.0.113.7", "/v1/chat", "http", nil)
+	r.observe("api.example", "203.0.113.7", "/v1/chat", "https", 443, nil)
+	r.observe("api.example", "203.0.113.7", "/v1/models", "https", 443, nil)
+	r.observe("api.example", "203.0.113.7", "/v1/chat", "http", 443, nil)
 
 	if got := len(r.result(Observation{}).Destinations); got != 3 {
 		t.Fatalf("destinations = %d, want 3 (path and protocol both identify)", got)
@@ -74,8 +74,8 @@ func TestRecorderKeepsDestinationsDistinct(t *testing.T) {
 
 func TestRecorderRecordsCredentialBearingHeaderNames(t *testing.T) {
 	var r recorder
-	r.observe("api.example", "203.0.113.7", "/v1/chat", "https", []string{"x-api-key", "authorization"})
-	r.observe("api.example", "203.0.113.7", "/v1/chat", "https", []string{"authorization"})
+	r.observe("api.example", "203.0.113.7", "/v1/chat", "https", 443, []string{"x-api-key", "authorization"})
+	r.observe("api.example", "203.0.113.7", "/v1/chat", "https", 443, []string{"authorization"})
 
 	attributions := r.result(Observation{}).Attribution
 	if got := len(attributions); got != 1 {
@@ -92,7 +92,7 @@ func TestRecorderRecordsCredentialBearingHeaderNames(t *testing.T) {
 
 func TestRecorderRecordsNoAttributionWithoutCredentialHeader(t *testing.T) {
 	var r recorder
-	r.observe("api.example", "203.0.113.7", "/v1/chat", "https", nil)
+	r.observe("api.example", "203.0.113.7", "/v1/chat", "https", 443, nil)
 
 	if got := len(r.result(Observation{}).Attribution); got != 0 {
 		t.Fatalf("attributions = %d, want 0: a request with no credential header is unattributed", got)
@@ -101,10 +101,10 @@ func TestRecorderRecordsNoAttributionWithoutCredentialHeader(t *testing.T) {
 
 func TestRecorderDenyMarksDestinationWithoutAllow(t *testing.T) {
 	var r recorder
-	destination := r.observe("blocked.example", "198.51.100.4", "/v1/chat", "https", []string{"authorization"})
+	destination := r.observe("blocked.example", "198.51.100.4", "/v1/chat", "https", 443, []string{"authorization"})
 	destination.Success = true
 
-	r.deny("blocked.example", "198.51.100.4", "/v1/chat", "https")
+	r.deny("blocked.example", "198.51.100.4", "/v1/chat", "https", 443)
 
 	destinations := r.result(Observation{}).Destinations
 	if len(destinations) != 1 {
@@ -124,7 +124,7 @@ func TestRecorderDenyMarksDestinationWithoutAllow(t *testing.T) {
 
 func TestRecorderDenyRecordsUnobservedDestination(t *testing.T) {
 	var r recorder
-	r.deny("blocked.example", "198.51.100.4", "/v1/chat", "")
+	r.deny("blocked.example", "198.51.100.4", "/v1/chat", "", 0)
 
 	destinations := r.result(Observation{}).Destinations
 	if len(destinations) != 1 {
@@ -136,6 +136,15 @@ func TestRecorderDenyRecordsUnobservedDestination(t *testing.T) {
 	if destinations[0].Protocol != "" {
 		t.Fatalf("protocol = %q, want empty: a protocol-less deny cannot name one", destinations[0].Protocol)
 	}
+	if destinations[0].Port != 0 {
+		t.Errorf("port = %d, want 0: a denial arrives before any request names a port", destinations[0].Port)
+	}
+	if destinations[0].Count != 0 {
+		t.Errorf("count = %d, want 0: a denial is not a request", destinations[0].Count)
+	}
+	if destinations[0].Channel != observedViaProxy {
+		t.Errorf("channel = %q, want %q", destinations[0].Channel, observedViaProxy)
+	}
 }
 
 // A protocol-less deny must not match a "connect" entry: the tunnel was
@@ -143,10 +152,10 @@ func TestRecorderDenyRecordsUnobservedDestination(t *testing.T) {
 // Success would report a live tunnel as refused.
 func TestRecorderDenyDoesNotClearConnectEntry(t *testing.T) {
 	var r recorder
-	connectEntry := r.observe("api.example", "", "", "connect", nil)
+	connectEntry := r.observe("api.example", "", "", "connect", 443, nil)
 	connectEntry.Success = true
 
-	r.deny("api.example", "", "", "")
+	r.deny("api.example", "", "", "", 0)
 
 	for _, destination := range r.result(Observation{}).Destinations {
 		if destination.Protocol != "connect" {
@@ -180,6 +189,7 @@ func TestRecorderResultIsDeterministic(t *testing.T) {
 			observation.ip,
 			observation.path,
 			observation.protocol,
+			443,
 			observation.headerNames,
 		)
 	}
@@ -190,6 +200,7 @@ func TestRecorderResultIsDeterministic(t *testing.T) {
 			observation.ip,
 			observation.path,
 			observation.protocol,
+			443,
 			observation.headerNames,
 		)
 	}
@@ -218,7 +229,7 @@ func TestRecorderResultIsDeterministic(t *testing.T) {
 
 func TestRecorderResultUnionsObservedAndGivenArtefacts(t *testing.T) {
 	var r recorder
-	r.observe("api.example", "203.0.113.7", "/v1/chat", "https", []string{"authorization"})
+	r.observe("api.example", "203.0.113.7", "/v1/chat", "https", 443, []string{"authorization"})
 
 	given := Observation{Destinations: []Destination{{Host: "config.example", Path: "/", Channel: "readback"}}}
 	got := r.result(given)
@@ -292,12 +303,26 @@ func TestRecorderOrdersDestinationsByTieBreakers(t *testing.T) {
 				{Host: "api.example", IP: "203.0.113.1", Path: "/a", Protocol: "http"},
 			},
 		},
+		{
+			"port breaks a protocol tie",
+			[2]Destination{
+				{Host: "api.example", IP: "203.0.113.1", Path: "/a", Protocol: "https", Port: 8443},
+				{Host: "api.example", IP: "203.0.113.1", Path: "/a", Protocol: "https", Port: 443},
+			},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			var r recorder
 			for _, destination := range tc.greaterLesser {
-				r.observe(destination.Host, destination.IP, destination.Path, destination.Protocol, nil)
+				r.observe(
+					destination.Host,
+					destination.IP,
+					destination.Path,
+					destination.Protocol,
+					destination.Port,
+					nil,
+				)
 			}
 
 			got := r.result(Observation{}).Destinations
@@ -305,7 +330,8 @@ func TestRecorderOrdersDestinationsByTieBreakers(t *testing.T) {
 				t.Fatalf("destinations = %+v, want two", got)
 			}
 			lesser := tc.greaterLesser[1]
-			if got[0].IP != lesser.IP || got[0].Path != lesser.Path || got[0].Protocol != lesser.Protocol {
+			if got[0].IP != lesser.IP || got[0].Path != lesser.Path ||
+				got[0].Protocol != lesser.Protocol || got[0].Port != lesser.Port {
 				t.Fatalf("first destination = %+v, want the lesser of the pair %+v", got[0], lesser)
 			}
 		})
@@ -316,8 +342,8 @@ func TestRecorderOrdersDestinationsByTieBreakers(t *testing.T) {
 // different paths on one host sort deterministically.
 func TestRecorderOrdersAttributionsByPath(t *testing.T) {
 	var r recorder
-	r.observe("api.example", "", "/b", "https", []string{"authorization"})
-	r.observe("api.example", "", "/a", "https", []string{"x-api-key"})
+	r.observe("api.example", "", "/b", "https", 443, []string{"authorization"})
+	r.observe("api.example", "", "/a", "https", 443, []string{"x-api-key"})
 
 	got := r.result(Observation{}).Attribution
 	if len(got) != 2 {
@@ -376,4 +402,193 @@ func jsonKeys(value any) []string {
 	}
 	slices.Sort(keys)
 	return keys
+}
+
+// deny must match a destination on its whole identity: each case varies exactly
+// one identity field from the denied identity, so removing that operand from the
+// match lets the deny clear the success of an entry it does not name.
+func TestRecorderDenyMatchesOnlyExactIdentity(t *testing.T) {
+	observed := Destination{Host: "api.example", IP: "203.0.113.7", Path: "/v1/chat", Protocol: "https", Port: 443}
+	cases := []struct {
+		name                     string
+		host, ip, path, protocol string
+		port                     uint16
+	}{
+		{"host differs", "other.example", observed.IP, observed.Path, observed.Protocol, observed.Port},
+		{"ip differs", observed.Host, "198.51.100.2", observed.Path, observed.Protocol, observed.Port},
+		{"path differs", observed.Host, observed.IP, "/v1/models", observed.Protocol, observed.Port},
+		{"protocol differs", observed.Host, observed.IP, observed.Path, "http", observed.Port},
+		{"port differs", observed.Host, observed.IP, observed.Path, observed.Protocol, 8443},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var r recorder
+			entry := r.observe(observed.Host, observed.IP, observed.Path, observed.Protocol, observed.Port, nil)
+			entry.Success = true
+
+			r.deny(tc.host, tc.ip, tc.path, tc.protocol, tc.port)
+
+			for _, destination := range r.result(Observation{}).Destinations {
+				if destination.Host != observed.Host || destination.IP != observed.IP ||
+					destination.Path != observed.Path || destination.Protocol != observed.Protocol ||
+					destination.Port != observed.Port {
+					continue
+				}
+				if destination.Denied || !destination.Success {
+					t.Fatalf("a deny with a differing identity cleared the observed entry: %+v", destination)
+				}
+				return
+			}
+			t.Fatal("the observed destination is missing from the artefact")
+		})
+	}
+}
+
+// A destination is keyed on host, IP, port, path and protocol, so entries
+// differing in any one of those stay distinct, and observe records the port it
+// is handed.
+func TestRecorderKeepsPortAndIdentityDistinct(t *testing.T) {
+	var r recorder
+	fresh := r.observe("a.example", "203.0.113.7", "/v1/chat", "https", 8443, nil)
+	if fresh.Port != 8443 {
+		t.Fatalf("destination port = %d, want the observed 8443", fresh.Port)
+	}
+	r.observe("b.example", "203.0.113.7", "/v1/chat", "https", 8443, nil)  // host differs
+	r.observe("a.example", "198.51.100.2", "/v1/chat", "https", 8443, nil) // ip differs
+	r.observe("a.example", "203.0.113.7", "/v1/chat", "https", 443, nil)   // port differs
+
+	if got := len(r.result(Observation{}).Destinations); got != 4 {
+		t.Fatalf("destinations = %d, want 4: host, ip, and port all identify", got)
+	}
+}
+
+// Attribution is keyed on the destination's host and path: two credentials to
+// one host at different paths, or to different hosts at the same path, stay
+// separate entries.
+func TestRecorderAttributesSeparatelyPerHostAndPath(t *testing.T) {
+	var r recorder
+	r.observe("a.example", "", "/v1/chat", "https", 443, []string{"authorization"})
+	r.observe("b.example", "", "/v1/chat", "https", 443, []string{"cookie"})
+	r.observe("a.example", "", "/v1/models", "https", 443, []string{"x-api-key"})
+
+	if got := len(r.result(Observation{}).Attribution); got != 3 {
+		t.Fatalf("attributions = %d, want 3: host and path both identify", got)
+	}
+}
+
+// A later request to an already-attributed destination merges its credential
+// header names into that destination's entry — even when another destination's
+// entry sorts first — rather than appending a second entry for the same host and
+// path.
+func TestRecorderAttributeMergesIntoExistingDestination(t *testing.T) {
+	var r recorder
+	r.observe("a.example", "", "/v1/chat", "https", 443, []string{"authorization"})
+	r.observe("b.example", "", "/v1/chat", "https", 443, []string{"cookie"})
+	r.observe("b.example", "", "/v1/chat", "https", 443, []string{"x-api-key"})
+
+	attributions := r.result(Observation{}).Attribution
+	if len(attributions) != 2 {
+		t.Fatalf("attributions = %+v, want two", attributions)
+	}
+	for _, attribution := range attributions {
+		if attribution.Host != "b.example" {
+			continue
+		}
+		if want := []string{"cookie", "x-api-key"}; !slices.Equal(attribution.HeaderNames, want) {
+			t.Errorf("merged header names = %v, want %v", attribution.HeaderNames, want)
+		}
+		return
+	}
+	t.Fatal("the b.example attribution is missing")
+}
+
+// mergeHeaderNames unions the recorded and incoming names, drops an empty name a
+// caller can pass, deduplicates, and sorts. The empty and duplicate cases both
+// sit before a keepable name, so a premature exit drops that name.
+func TestMergeHeaderNamesDeduplicatesAndDropsEmpty(t *testing.T) {
+	got := mergeHeaderNames([]string{"authorization", "", "cookie"}, []string{"cookie", "x-api-key"})
+	if want := []string{"authorization", "cookie", "x-api-key"}; !slices.Equal(got, want) {
+		t.Fatalf("mergeHeaderNames = %v, want %v", got, want)
+	}
+}
+
+// dedupeDestinations keeps the last entry of each destination identity and
+// restores the original relative order, and never merges entries that differ in
+// host, IP, port, path, or protocol.
+func TestDedupeDestinationsKeepsLastAndFullIdentity(t *testing.T) {
+	first := Destination{Host: "a.example", IP: "1.1.1.1", Path: "/a", Protocol: "https", Port: 443, Count: 1}
+	last := first
+	last.Count = 2
+	otherHost := first
+	otherHost.Host = "b.example"
+	otherIP := first
+	otherIP.IP = "2.2.2.2"
+	otherPath := first
+	otherPath.Path = "/b"
+	otherProtocol := first
+	otherProtocol.Protocol = "http"
+	otherPort := first
+	otherPort.Port = 8443
+
+	distinct := []Destination{otherHost, otherIP, otherPath, otherProtocol, otherPort}
+	got := dedupeDestinations(append(append([]Destination{}, distinct...), first, last))
+	if len(got) != len(distinct)+1 {
+		t.Fatalf("dedupeDestinations = %+v, want the duplicate collapsed and every distinct identity kept", got)
+	}
+	for i, want := range append(append([]Destination{}, distinct...), last) {
+		if got[i] != want {
+			t.Fatalf("dedupeDestinations[%d] = %+v, want %+v (last wins, original order)", i, got[i], want)
+		}
+	}
+}
+
+// dedupeAttributions keeps the last entry per host and path and restores the
+// original order, and never merges entries that differ in host or path.
+func TestDedupeAttributionsKeepsLastAndFullIdentity(t *testing.T) {
+	first := Attribution{Host: "a.example", Path: "/a", HeaderNames: []string{"authorization"}}
+	last := first
+	last.HeaderNames = []string{"cookie"}
+	otherHost := first
+	otherHost.Host = "b.example"
+	otherPath := first
+	otherPath.Path = "/b"
+
+	got := dedupeAttributions([]Attribution{otherHost, first, last, otherPath})
+	if len(got) != 3 {
+		t.Fatalf("dedupeAttributions = %+v, want three", got)
+	}
+	if !equalAttribution(got[0], otherHost) || !equalAttribution(got[1], last) || !equalAttribution(got[2], otherPath) {
+		t.Fatalf("dedupeAttributions = %+v, want [%+v %+v %+v]", got, otherHost, last, otherPath)
+	}
+}
+
+// Attributions with different hosts order by host, not by path.
+func TestRecorderOrdersAttributionsByHost(t *testing.T) {
+	var r recorder
+	r.observe("z.example", "", "/a", "https", 443, []string{"authorization"})
+	r.observe("a.example", "", "/z", "https", 443, []string{"x-api-key"})
+
+	got := r.result(Observation{}).Attribution
+	if len(got) != 2 || got[0].Host != "a.example" || got[1].Host != "z.example" {
+		t.Fatalf("attribution order = %+v, want a.example then z.example", got)
+	}
+}
+
+// result deduplicates the attribution list it returns: an artefact given with
+// two entries for one host and path collapses to the last one, so a read-back
+// artefact and the proxy's own capture do not double-record a destination.
+func TestRecorderResultDedupesGivenAttributions(t *testing.T) {
+	var r recorder
+	given := Observation{Attribution: []Attribution{
+		{Host: "a.example", Path: "/a", HeaderNames: []string{"authorization"}},
+		{Host: "a.example", Path: "/a", HeaderNames: []string{"cookie"}},
+	}}
+
+	got := r.result(given).Attribution
+	if len(got) != 1 {
+		t.Fatalf("attribution = %+v, want one after dedupe", got)
+	}
+	if want := []string{"cookie"}; !slices.Equal(got[0].HeaderNames, want) {
+		t.Errorf("header names = %v, want the last entry %v", got[0].HeaderNames, want)
+	}
 }

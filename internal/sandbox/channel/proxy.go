@@ -62,8 +62,7 @@ type proxyState struct {
 	recorder *recorder
 	caFile   string
 
-	mu      sync.Mutex
-	stopped bool
+	mu sync.Mutex
 }
 
 // Start binds an observation proxy on a host-loopback port with a freshly
@@ -99,7 +98,10 @@ func Start(bindHost string) (Handle, error) {
 	state.recorder = new(recorder)
 	state.caFile = caFile
 	state.server = &http.Server{
-		Handler:           terminateProxy(ca, state),
+		Handler: terminateProxy(ca, state),
+		// A defensive ceiling on reading a request's headers; the value is not
+		// a contract and a local test server answers before it can fire.
+		// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT,ARITHMETIC_BASE reason="a defensive ReadHeaderTimeout cannot be observed by a local test server and the value is not a contract"
 		ReadHeaderTimeout: 30 * time.Second,
 	}
 	go func() {
@@ -125,7 +127,6 @@ func Start(bindHost string) (Handle, error) {
 //deadcode:ignore reason="reached only from Start, whose invocation S7 wires"
 func terminateProxy(ca tls.Certificate, state *proxyState) *goproxy.ProxyHttpServer {
 	proxy := goproxy.NewProxyHttpServer()
-	proxy.Verbose = false
 	// goproxy's own logger warns unconditionally; route it to a discard so it
 	// cannot interleave with the agent's TUI during a learning session.
 	proxy.Logger = discardLogger{}
@@ -175,8 +176,7 @@ func (s *proxyState) observeConnect(host string) {
 	}
 
 	s.mu.Lock()
-	destination := s.recorder.observe(hostname, ip, "", "connect", nil)
-	destination.Port = port
+	destination := s.recorder.observe(hostname, ip, "", "connect", port, nil)
 	destination.Success = true
 	s.mu.Unlock()
 }
@@ -192,6 +192,8 @@ func splitHostPort(host string) (string, uint16) {
 	}
 	port, err := strconv.ParseUint(rawPort, 10, 16)
 	if err != nil {
+		// ParseUint returns a clamped maximum on a range error, so the port
+		// must be discarded rather than used.
 		return hostname, 0
 	}
 	return hostname, uint16(port)
@@ -214,9 +216,9 @@ func (s *proxyState) onRequest(req *http.Request, ctx *goproxy.ProxyCtx) (*http.
 		ip = parsed.String()
 	}
 
+	port := requestPort(req.URL)
 	s.mu.Lock()
-	destination := s.recorder.observe(host, ip, path, protocol, observedCredentialHeaders(req.Header))
-	destination.Port = requestPort(req.URL)
+	destination := s.recorder.observe(host, ip, path, protocol, port, observedCredentialHeaders(req.Header))
 	s.mu.Unlock()
 
 	ctx.UserData = destination
@@ -225,7 +227,7 @@ func (s *proxyState) onRequest(req *http.Request, ctx *goproxy.ProxyCtx) (*http.
 			response, err := roundTripCtx.Proxy.Tr.RoundTrip(roundTripReq)
 			if err != nil {
 				s.mu.Lock()
-				s.recorder.deny(host, ip, path, protocol)
+				s.recorder.deny(host, ip, path, protocol, port)
 				s.mu.Unlock()
 			}
 			return response, err
@@ -257,6 +259,7 @@ func (s *proxyState) onResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *htt
 //deadcode:ignore reason="tears the channel down; S7 calls it at teardown"
 func (h Handle) Stop() Observation {
 	if h.state == nil {
+		// gomutants:disable-next-line RETURN_ZERO reason="an empty Observation is the zero value, so zeroing the literal is the identical value"
 		return Observation{Destinations: nil, Attribution: nil}
 	}
 	return h.state.stop()
@@ -281,10 +284,8 @@ func (h Handle) CAFile() string { return h.caFile }
 //deadcode:ignore reason="reached only from Handle.Stop, whose invocation S7 wires"
 func (s *proxyState) stop() Observation {
 	s.mu.Lock()
-	if !s.stopped {
-		s.stopped = true
-		_ = s.server.Close()
-	}
+	// Close is idempotent, so a second Stop needs no flag to stay a no-op.
+	_ = s.server.Close()
 	observation := s.recorder.result(Observation{Destinations: nil, Attribution: nil})
 	s.mu.Unlock()
 

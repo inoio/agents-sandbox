@@ -2,6 +2,7 @@ package channel
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -94,6 +95,25 @@ func TestArtefactFileMode(t *testing.T) {
 	}
 }
 
+// The learn tree is written 0700: the captures are the user's private state, so
+// no group or other access may be set on the directory either.
+func TestArtefactDirMode(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+
+	path, err := Save("my-checkout", 1763458200, sampleObservation())
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	info, err := os.Stat(filepath.Dir(path))
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o700 {
+		t.Errorf("learn dir mode = %o, want 700", perm)
+	}
+}
+
 // The artefact is value-free: a credential value and a request body that
 // crossed the session never appear in the persisted bytes (hub invariant 3).
 //
@@ -108,7 +128,7 @@ func TestArtefactCarriesNoValues(t *testing.T) {
 	var r recorder
 	// The recorder receives the header name only; the value and the body stay on
 	// the transport side and are never arguments here.
-	r.observe("api.example.com", "", "/v1/tokens", "https", []string{"Authorization"})
+	r.observe("api.example.com", "", "/v1/tokens", "https", 443, []string{"Authorization"})
 	obs := r.result(Observation{})
 
 	path, err := Save("my-checkout", 1763458200, obs)
@@ -193,8 +213,8 @@ func collectKeys(node any) []string {
 func TestArtefactLoadMissingFile(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
-	if _, err := Load(filepath.Join(t.TempDir(), "absent.json")); err == nil {
-		t.Error("Load of a missing file returned no error")
+	if _, err := Load(filepath.Join(t.TempDir(), "absent.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Load of a missing file: err = %v, want a wrapped os.ErrNotExist", err)
 	}
 }
 
@@ -208,9 +228,11 @@ func TestArtefactLoadMalformedFile(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	if _, err := Load(path); err == nil {
-		t.Error("Load of a malformed file returned no error")
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("Load of a malformed file returned no error")
 	}
+	assertWrapsCause(t, err)
 }
 
 // Prune removes artefacts modified before the cutoff, keeps recent ones, and
@@ -346,8 +368,8 @@ func TestArtefactStoreRefusesRelativeStateDir(t *testing.T) {
 	if _, err := Save("my-checkout", 1763458200, sampleObservation()); err == nil {
 		t.Error("Save with a relative state dir returned no error")
 	}
-	if _, err := Prune(time.Now()); err == nil {
-		t.Error("Prune with a relative state dir returned no error")
+	if removed, err := Prune(time.Now()); err == nil || removed != 0 {
+		t.Errorf("Prune with a relative state dir = (%d, %v), want (0, error)", removed, err)
 	}
 }
 
@@ -393,9 +415,14 @@ func TestArtefactStoreSaveMkdirFailure(t *testing.T) {
 	}
 	withStateDir(t, stateFile)
 
-	if _, err := Save("my-checkout", 1763458200, sampleObservation()); err == nil {
-		t.Error("Save with a state dir under a regular file returned no error")
+	_, err := Save("my-checkout", 1763458200, sampleObservation())
+	if err == nil {
+		t.Fatal("Save with a state dir under a regular file returned no error")
 	}
+	if !strings.Contains(err.Error(), "create learn artefact directory") {
+		t.Errorf("Save mkdir error = %q, want it to name the directory it could not create", err)
+	}
+	assertWrapsCause(t, err)
 }
 
 // Save reports an artefact it cannot encode: a timestamp outside the JSON range
@@ -407,9 +434,11 @@ func TestArtefactStoreSaveMarshalFailure(t *testing.T) {
 		Host:      "api.example.com",
 		FirstSeen: time.Date(10000, time.January, 1, 0, 0, 0, 0, time.UTC),
 	}}}
-	if _, err := Save("my-checkout", 1763458200, obs); err == nil {
-		t.Error("Save with an out-of-range timestamp returned no error")
+	_, err := Save("my-checkout", 1763458200, obs)
+	if err == nil {
+		t.Fatal("Save with an out-of-range timestamp returned no error")
 	}
+	assertWrapsCause(t, err)
 }
 
 // Save reports a write it cannot complete: the atomic write renames onto the
@@ -426,9 +455,11 @@ func TestArtefactStoreSaveWriteFailure(t *testing.T) {
 		t.Fatalf("Mkdir target: %v", err)
 	}
 
-	if _, err := Save("my-checkout", 1763458200, sampleObservation()); err == nil {
-		t.Error("Save with a directory in place of the artefact file returned no error")
+	_, err := Save("my-checkout", 1763458200, sampleObservation())
+	if err == nil {
+		t.Fatal("Save with a directory in place of the artefact file returned no error")
 	}
+	assertWrapsCause(t, err)
 }
 
 // Prune tolerates a learn tree that does not exist: nothing to prune is the same
@@ -453,9 +484,14 @@ func TestArtefactPruneReadDirFailure(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	if _, err := Prune(time.Now()); err == nil {
-		t.Error("Prune with a regular file at the learn dir returned no error")
+	removed, err := Prune(time.Now())
+	if err == nil {
+		t.Fatal("Prune with a regular file at the learn dir returned no error")
 	}
+	if removed != 0 {
+		t.Errorf("Prune returned %d removed, want 0 when it cannot read the learn tree", removed)
+	}
+	assertWrapsCause(t, err)
 }
 
 // Prune skips an entry under the learn tree that is not a slug directory.
@@ -495,6 +531,8 @@ func TestArtefactPrunePropagatesSlugDirFailure(t *testing.T) {
 
 	if _, err := Prune(time.Now()); err == nil {
 		t.Error("Prune with an unreadable slug directory returned no error")
+	} else {
+		assertWrapsCause(t, err)
 	}
 }
 
@@ -514,6 +552,25 @@ func TestPruneSlugDirSkipsSubdirectories(t *testing.T) {
 	}
 }
 
+// pruneSlugDir reports a directory it cannot read and removes nothing, so the
+// caller's count does not advance on a failure.
+func TestPruneSlugDirReadFailureReturnsZero(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: chmod 0 does not block a directory read")
+	}
+	dir := t.TempDir()
+	chmodAt(t, dir, 0o000)
+
+	removed, err := pruneSlugDir(dir, time.Now())
+	if err == nil {
+		t.Fatal("pruneSlugDir with an unreadable directory returned no error")
+	}
+	if removed != 0 {
+		t.Errorf("pruneSlugDir removed %d, want 0 when it cannot read the directory", removed)
+	}
+	assertWrapsCause(t, err)
+}
+
 // pruneSlugDir reports an artefact it cannot stat, so an unreadable entry fails
 // the sweep rather than being reported as pruned.
 func TestPruneSlugDirStatFailure(t *testing.T) {
@@ -528,6 +585,8 @@ func TestPruneSlugDirStatFailure(t *testing.T) {
 
 	if _, err := pruneSlugDir(dir, time.Now()); err == nil {
 		t.Error("pruneSlugDir with an unstattable artefact returned no error")
+	} else {
+		assertWrapsCause(t, err)
 	}
 }
 
@@ -550,5 +609,166 @@ func TestPruneSlugDirRemoveFailure(t *testing.T) {
 
 	if _, err := pruneSlugDir(dir, time.Now()); err == nil {
 		t.Error("pruneSlugDir with a non-removable artefact returned no error")
+	} else {
+		assertWrapsCause(t, err)
+	}
+}
+
+// Prune skips a stray non-directory entry and keeps walking: a stray file that
+// sorts before a slug directory must not stop the sweep from pruning that
+// directory.
+func TestArtefactPruneSkipsStrayFileBeforeSlugDir(t *testing.T) {
+	stateDir := t.TempDir()
+	withStateDir(t, stateDir)
+	learnDir := filepath.Join(stateDir, learnStateDirName)
+	if err := os.MkdirAll(learnDir, artefactDirMode); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(learnDir, "0-stray"), []byte("x"), 0o600); err != nil {
+		t.Fatalf("WriteFile stray: %v", err)
+	}
+	artefact := filepath.Join(learnDir, "z-slug", "1.json")
+	if err := os.MkdirAll(filepath.Dir(artefact), artefactDirMode); err != nil {
+		t.Fatalf("MkdirAll slug: %v", err)
+	}
+	if err := os.WriteFile(artefact, []byte("{}"), 0o600); err != nil {
+		t.Fatalf("WriteFile artefact: %v", err)
+	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(artefact, old, old); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+
+	removed, err := Prune(time.Now().Add(-time.Minute))
+	if err != nil {
+		t.Fatalf("Prune: %v", err)
+	}
+	if removed != 1 {
+		t.Errorf("Prune removed %d, want 1: a stray file must not stop the sweep", removed)
+	}
+}
+
+// Prune's count accumulates across slug directories, so the caller learns how
+// many artefacts a sweep removed in total.
+func TestArtefactPruneAccumulatesAcrossSlugDirs(t *testing.T) {
+	stateDir := t.TempDir()
+	withStateDir(t, stateDir)
+	for _, slug := range []string{"a-slug", "b-slug"} {
+		path := filepath.Join(stateDir, learnStateDirName, slug, "1.json")
+		if err := os.MkdirAll(filepath.Dir(path), artefactDirMode); err != nil {
+			t.Fatalf("MkdirAll: %v", err)
+		}
+		if err := os.WriteFile(path, []byte("{}"), 0o600); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		old := time.Now().Add(-time.Hour)
+		if err := os.Chtimes(path, old, old); err != nil {
+			t.Fatalf("Chtimes: %v", err)
+		}
+	}
+
+	removed, err := Prune(time.Now().Add(-time.Minute))
+	if err != nil {
+		t.Fatalf("Prune: %v", err)
+	}
+	if removed != 2 {
+		t.Errorf("Prune removed %d, want 2 (one per slug directory)", removed)
+	}
+}
+
+// Prune reports the artefacts it removed before a later slug directory failed,
+// so the caller does not lose the count it already accounted for.
+func TestArtefactPruneReportsAccumulatedCountOnSlugFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: chmod 0 does not block a directory read")
+	}
+	stateDir := t.TempDir()
+	withStateDir(t, stateDir)
+	readable := filepath.Join(stateDir, learnStateDirName, "a-slug", "1.json")
+	if err := os.MkdirAll(filepath.Dir(readable), artefactDirMode); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(readable, []byte("{}"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(readable, old, old); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+	unreadable := filepath.Join(stateDir, learnStateDirName, "b-slug")
+	if err := os.MkdirAll(unreadable, artefactDirMode); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	chmodAt(t, unreadable, 0o000)
+
+	removed, err := Prune(time.Now().Add(-time.Minute))
+	if err == nil {
+		t.Fatal("Prune with an unreadable slug directory returned no error")
+	}
+	if removed != 1 {
+		t.Errorf("Prune removed %d before the failure, want 1", removed)
+	}
+}
+
+// pruneSlugDir skips a nested directory and keeps walking: a nested directory
+// that sorts before an old artefact must not stop the artefact's removal.
+func TestPruneSlugDirSkipsNestedDirBeforeArtefact(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "a-nested"), artefactDirMode); err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+	artefact := filepath.Join(dir, "z.json")
+	if err := os.WriteFile(artefact, []byte("{}"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(artefact, old, old); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+
+	removed, err := pruneSlugDir(dir, time.Now().Add(-time.Minute))
+	if err != nil {
+		t.Fatalf("pruneSlugDir: %v", err)
+	}
+	if removed != 1 {
+		t.Errorf("pruneSlugDir removed %d, want 1: a nested directory must not stop the sweep", removed)
+	}
+}
+
+// pruneSlugDir skips a recent artefact and keeps walking: a recent entry that
+// sorts before an old one must not stop the old one's removal.
+func TestPruneSlugDirKeepsRecentBeforeOlder(t *testing.T) {
+	dir := t.TempDir()
+	recent := filepath.Join(dir, "a-recent.json")
+	old := filepath.Join(dir, "z-old.json")
+	for _, path := range []string{recent, old} {
+		if err := os.WriteFile(path, []byte("{}"), 0o600); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+	}
+	past := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(old, past, past); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+
+	removed, err := pruneSlugDir(dir, time.Now().Add(-time.Minute))
+	if err != nil {
+		t.Fatalf("pruneSlugDir: %v", err)
+	}
+	if removed != 1 {
+		t.Errorf("pruneSlugDir removed %d, want 1: a recent entry must not stop the sweep", removed)
+	}
+	if _, err := os.Stat(recent); err != nil {
+		t.Errorf("the recent artefact was removed: %v", err)
+	}
+}
+
+// assertWrapsCause pins that an error preserves its cause: formatting a wrapped
+// error with %v drops the chain, so errors.Unwrap would yield nil for it.
+func assertWrapsCause(t *testing.T, err error) {
+	t.Helper()
+
+	if errors.Unwrap(err) == nil {
+		t.Errorf("error %v does not wrap its cause (formatted with %%v, not %%w)", err)
 	}
 }

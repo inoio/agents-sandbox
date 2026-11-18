@@ -350,8 +350,22 @@ func TestProxyHandleExposesCAAndStopsIdempotently(t *testing.T) {
 	if block == nil {
 		t.Fatal("CAPEM is not PEM")
 	}
-	if _, err := x509.ParseCertificate(block.Bytes); err != nil {
+	certificate, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
 		t.Fatalf("parse CA certificate: %v", err)
+	}
+	if !certificate.IsCA || !certificate.BasicConstraintsValid {
+		t.Errorf("CA certificate is not a valid CA: isCA=%v basicConstraintsValid=%v",
+			certificate.IsCA, certificate.BasicConstraintsValid)
+	}
+	if license := certificate.KeyUsage&x509.KeyUsageCertSign != 0; !license {
+		t.Error("CA certificate lacks KeyUsageCertSign")
+	}
+	if revoke := certificate.KeyUsage&x509.KeyUsageCRLSign != 0; !revoke {
+		t.Error("CA certificate lacks KeyUsageCRLSign")
+	}
+	if window := certificate.NotAfter.Sub(certificate.NotBefore); window != 25*time.Hour {
+		t.Errorf("CA validity window = %v, want 25h (one hour before to 24 hours after now)", window)
 	}
 
 	caFile := handle.CAFile()
@@ -408,6 +422,9 @@ func TestSplitHostPortHandlesPortlessAndBadPortTargets(t *testing.T) {
 		{"api.example", "api.example", 0},
 		{"api.example:notaport", "api.example", 0},
 		{"api.example:0", "api.example", 0},
+		{"api.example:65535", "api.example", 65535},
+		{"api.example:65536", "api.example", 0},
+		{"api.example:70000", "api.example", 0},
 	}
 	for _, tc := range cases {
 		host, port := splitHostPort(tc.target)
@@ -528,8 +545,9 @@ func TestGenerateCAPropagatesCryptoErrors(t *testing.T) {
 			},
 		)
 
-		if _, _, err := generateCA(); err == nil {
-			t.Error("generateCA with a failing certificate creator returned no error")
+		_, _, err := generateCA()
+		if !errors.Is(err, errChannelSeam) {
+			t.Errorf("generateCA with a failing certificate creator: err = %v, want %v", err, errChannelSeam)
 		}
 	})
 
@@ -605,4 +623,113 @@ func unusedLoopbackPort(t *testing.T) string {
 		t.Fatalf("close listener: %v", err)
 	}
 	return strconv.Itoa(port)
+}
+
+// terminateProxy configures a quiet proxy that dials upstream directly: the
+// discard logger keeps goproxy's output off the agent's TUI, and a nil
+// transport proxy and ConnectDial stop it reaching upstream through a host
+// proxy environment variable.
+func TestTerminateProxyIsQuietAndDialsDirectly(t *testing.T) {
+	ca, _, err := generateCA()
+	if err != nil {
+		t.Fatalf("generateCA: %v", err)
+	}
+	state := &proxyState{recorder: new(recorder)}
+
+	proxy := terminateProxy(ca, state)
+	if _, ok := proxy.Logger.(discardLogger); !ok {
+		t.Errorf("proxy.Logger = %T, want the discard logger", proxy.Logger)
+	}
+	if proxy.Tr == nil || proxy.Tr.Proxy != nil {
+		t.Error("the observation proxy must dial upstream directly, not via a host proxy env var")
+	}
+	if proxy.ConnectDial != nil {
+		t.Error("ConnectDial must be nil so the proxy dials upstream directly")
+	}
+}
+
+// A CONNECT target that is a literal IP records that IP, so an analyser can name
+// the destination a pinned or non-HTTP client reached.
+func TestProxyConnectIPHostRecordsIP(t *testing.T) {
+	state := &proxyState{recorder: new(recorder)}
+
+	state.observeConnect("203.0.113.7:443")
+
+	destinations := state.recorder.result(Observation{}).Destinations
+	if len(destinations) != 1 {
+		t.Fatalf("destinations = %+v, want one", destinations)
+	}
+	if destinations[0].Host != "203.0.113.7" {
+		t.Errorf("host = %q, want 203.0.113.7", destinations[0].Host)
+	}
+	if destinations[0].IP != "203.0.113.7" {
+		t.Errorf("ip = %q, want the literal target 203.0.113.7", destinations[0].IP)
+	}
+}
+
+// Two CONNECT tunnels to one host on different ports are two destinations: the
+// port is part of the identity, so neither entry's port is overwritten and each
+// keeps its own count.
+func TestProxyConnectTunnelsOnDifferentPortsStayDistinct(t *testing.T) {
+	state := &proxyState{recorder: new(recorder)}
+
+	state.observeConnect("api.example:443")
+	state.observeConnect("api.example:8443")
+
+	destinations := state.recorder.result(Observation{}).Destinations
+	if len(destinations) != 2 {
+		t.Fatalf("destinations = %+v, want two (one per port)", destinations)
+	}
+	if destinations[0].Port != 443 || destinations[1].Port != 8443 {
+		t.Errorf("ports = %d, %d, want 443 then 8443", destinations[0].Port, destinations[1].Port)
+	}
+	for _, destination := range destinations {
+		if destination.Count != 1 {
+			t.Errorf("count = %d for %+v, want 1", destination.Count, destination)
+		}
+	}
+}
+
+// A nil response is a round-trip failure already recorded as a denial, so the
+// response hook must not also mark its destination successful.
+func TestOnResponseNilDoesNotMarkDestination(t *testing.T) {
+	state := &proxyState{recorder: new(recorder)}
+	destination := &Destination{}
+	ctx := &goproxy.ProxyCtx{UserData: destination}
+
+	if got := state.onResponse(nil, ctx); got != nil {
+		t.Fatalf("onResponse(nil) = %v, want nil", got)
+	}
+	if destination.Success {
+		t.Error("a nil response marked the destination successful")
+	}
+}
+
+// Stop closes the proxy's listener, so a learning session's proxy does not keep
+// accepting connections after teardown. Serve closes a listener it has not yet
+// registered when it observes the shutdown, so allow a brief window for that
+// goroutine to run before declaring the listener still open.
+func TestStopClosesProxyListener(t *testing.T) {
+	handle, err := Start("127.0.0.1")
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	handle.Stop()
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		conn, err := net.DialTimeout(
+			"tcp",
+			handle.Addr,
+			time.Second,
+		) //testenv:allow the Stop test dials the just-closed loopback listener to prove it refuses
+		if err != nil {
+			return
+		}
+		conn.Close()
+		if time.Now().After(deadline) {
+			t.Fatalf("the proxy still accepts connections at %s after Stop", handle.Addr)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
