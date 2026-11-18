@@ -86,3 +86,27 @@ func TestPolicyWithUpstreamCACertsIsNotEmpty(t *testing.T) {
 		t.Error("a policy carrying upstream CA paths should not be empty")
 	}
 }
+
+// A policy carrying only upstream CA paths is not empty even though
+// WithUpstreamCACerts also forces interception on: the paths themselves are a
+// non-zero field, so an overlay-only policy is distinguishable from the zero
+// value.
+func TestUpstreamCACertsAloneIsNotEmpty(t *testing.T) {
+	if (Policy{upstreamCACerts: []string{"/ca.pem"}}).Empty() {
+		t.Error("a policy carrying only upstream CA paths should not be empty")
+	}
+}
+
+// A single upstream CA path changes the fingerprint, and a different path
+// changes it again: the upstream-ca line is load-bearing, so a VM is recreated
+// when the overlay appears or its CA set changes — with no proxy set to mask it.
+func TestUpstreamCACertsSinglePathChangesFingerprint(t *testing.T) {
+	base := Policy{Profiles: []Profile{ProfileNone}}
+	with := base.WithUpstreamCACerts("/ca.pem")
+	if base.Fingerprint() == with.Fingerprint() {
+		t.Fatal("one upstream CA path must change the fingerprint")
+	}
+	if other := base.WithUpstreamCACerts("/other.pem"); with.Fingerprint() == other.Fingerprint() {
+		t.Error("a different CA path must change the fingerprint")
+	}
+}
