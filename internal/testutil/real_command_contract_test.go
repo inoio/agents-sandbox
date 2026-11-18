@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -26,17 +27,20 @@ type realCommandUse struct {
 
 // TestUntaggedTestsExecuteNoAmbientTool enforces the real-command half of the
 // test-isolation contract: every *_test.go the default build compiles must not
-// call testutil.RunGit/ConfigureRepo nor exec an ambient tool. The check reads
-// the source, so it needs no hand-maintained exception list; the fixture tests
-// below pin the scanner itself.
+// call testutil.RunGit/ConfigureRepo nor exec an ambient tool unless the
+// statement carries, or has immediately above it, a reason-bearing
+// //testenv:allow marker — the same in-place sanction the ambient gate reads, so
+// the check needs no hand-maintained allowlist. The fixture tests below pin the
+// scanner itself.
 func TestUntaggedTestsExecuteNoAmbientTool(t *testing.T) {
 	root := moduleRoot(t)
 	modulePath := moduleImportPath(t, root)
 	for _, use := range realCommandUses(t, root, modulePath, modulePackages(t, root)) {
 		t.Errorf(
-			"%s: default-suite test reaches a real ambient command (%s); move it to <unit>_integration_test.go with //go:build integration",
+			"%s: default-suite test reaches a real ambient command (%s); add `%s <reason>` if intentional, or move it to <unit>_integration_test.go with //go:build integration",
 			use.pos,
 			use.what,
+			testEnvAllowMarker,
 		)
 	}
 }
@@ -49,7 +53,9 @@ func realCommandUses(t *testing.T, root, modulePath string, packages []modulePac
 	var uses []realCommandUse
 	for _, source := range defaultBuildTestSources(t, root, packages) {
 		parsed := cachedParseGoFile(t, source.path, source.src)
-		uses = append(uses, realCommandUsesIn(parsed.fset, parsed.file, modulePath)...)
+		uses = append(
+			uses,
+			realCommandUsesIn(parsed.fset, parsed.file, modulePath, strings.Split(string(source.src), "\n"))...)
 	}
 	sort.Slice(uses, func(i, j int) bool { return uses[i].pos.String() < uses[j].pos.String() })
 	return uses
@@ -57,8 +63,10 @@ func realCommandUses(t *testing.T, root, modulePath string, packages []modulePac
 
 // realCommandUsesIn reports the ambient-command uses in one parsed test file: a
 // call to the shared real-git helper, or an exec of an ambient tool named by a
-// string literal (Command's first argument, CommandContext's second).
-func realCommandUsesIn(fset *token.FileSet, file *ast.File, modulePath string) []realCommandUse {
+// string literal (Command's first argument, CommandContext's second). A use the
+// file's source sanctions with a reason-bearing //testenv:allow marker is not
+// reported, the same in-place escape the ambient gate honors.
+func realCommandUsesIn(fset *token.FileSet, file *ast.File, modulePath string, lines []string) []realCommandUse {
 	imports := importedPackagesByLocalName(file)
 	execName := ""
 	for local, importPath := range imports {
@@ -66,7 +74,15 @@ func realCommandUsesIn(fset *token.FileSet, file *ast.File, modulePath string) [
 			execName = local
 		}
 	}
+	markers := newTestEnvMarkers(fset, file, lines)
+	statements := fileStatements(file)
 	var uses []realCommandUse
+	record := func(call *ast.CallExpr, what string) {
+		if callIsSanctioned(fset, markers, statements, call) {
+			return
+		}
+		uses = append(uses, realCommandUse{pos: fset.Position(call.Pos()), what: what})
+	}
 	ast.Inspect(file, func(node ast.Node) bool {
 		call, ok := node.(*ast.CallExpr)
 		if !ok {
@@ -76,10 +92,7 @@ func realCommandUsesIn(fset *token.FileSet, file *ast.File, modulePath string) [
 		// only a testutil test file can reach the helpers this way.
 		if ident, ok := call.Fun.(*ast.Ident); ok {
 			if file.Name.Name == "testutil" && (ident.Name == "RunGit" || ident.Name == "ConfigureRepo") {
-				uses = append(uses, realCommandUse{
-					pos:  fset.Position(call.Pos()),
-					what: "testutil." + ident.Name,
-				})
+				record(call, "testutil."+ident.Name)
 			}
 			return true
 		}
@@ -95,17 +108,11 @@ func realCommandUsesIn(fset *token.FileSet, file *ast.File, modulePath string) [
 					toolIndex = 1
 				}
 				if tool := stringLiteralArg(call, toolIndex); slices.Contains(ambientTools, tool) {
-					uses = append(uses, realCommandUse{
-						pos:  fset.Position(call.Pos()),
-						what: "exec." + selector.Sel.Name + "(" + tool + ")",
-					})
+					record(call, "exec."+selector.Sel.Name+"("+tool+")")
 				}
 			case imports[base.Name] == modulePath+"/internal/testutil" &&
 				(selector.Sel.Name == "RunGit" || selector.Sel.Name == "ConfigureRepo"):
-				uses = append(uses, realCommandUse{
-					pos:  fset.Position(call.Pos()),
-					what: "testutil." + selector.Sel.Name,
-				})
+				record(call, "testutil."+selector.Sel.Name)
 			}
 		}
 		return true
@@ -277,6 +284,64 @@ func TestX(t *testing.T) {
 `,
 			want: nil,
 		},
+		{
+			name: "a marker with a reason sanctions an ambient exec",
+			file: `package example
+
+import (
+	"os/exec"
+	"testing"
+)
+
+func TestX(t *testing.T) {
+	exec.Command("docker", "rmi", "tag") //testenv:allow the smoke suite removes real runner images
+}
+`,
+			want: nil,
+		},
+		{
+			name: "a marker without a reason does not sanction an ambient exec",
+			file: `package example
+
+import (
+	"os/exec"
+	"testing"
+)
+
+func TestX(t *testing.T) {
+	exec.Command("git", "commit") //testenv:allow
+}
+`,
+			want: []string{"exec.Command(git)"},
+		},
+		{
+			name: "a standalone marker above the statement sanctions an ambient exec",
+			file: `package example
+
+import (
+	"os/exec"
+	"testing"
+)
+
+func TestX(t *testing.T) {
+	//testenv:allow the smoke suite drives the real docker daemon
+	exec.Command("docker", "rmi", "tag")
+}
+`,
+			want: nil,
+		},
+		{
+			name: "a marker sanctions the shared real-git helper",
+			file: `package testutil
+
+import "testing"
+
+func TestX(t *testing.T) {
+	RunGit(t, t.TempDir(), "status") //testenv:allow the fixture pins the git it drives
+}
+`,
+			want: nil,
+		},
 	}
 
 	for _, tt := range tests {
@@ -292,43 +357,5 @@ func TestX(t *testing.T) {
 				t.Errorf("realCommandUses() = %v, want %v", got, tt.want)
 			}
 		})
-	}
-}
-
-// TestRealCommandUsesSkipsTheTestTree pins the structural carve-out: the
-// end-to-end smoke tree under test/ drives real VMs and host tools by design,
-// so the default-suite isolation scanners skip it, while a sibling under
-// internal/ is still scanned.
-func TestRealCommandUsesSkipsTheTestTree(t *testing.T) {
-	const modulePath = "example.com/mod"
-	root := t.TempDir()
-	writeFixtureFile(t, root, "test/example/example_test.go", `package example
-
-import (
-	"os/exec"
-	"testing"
-)
-
-func TestX(t *testing.T) {
-	exec.Command("git", "commit")
-}
-`)
-	writeFixtureFile(t, root, "internal/example/example_test.go", `package example
-
-import (
-	"os/exec"
-	"testing"
-)
-
-func TestX(t *testing.T) {
-	exec.Command("gh", "pr", "list")
-}
-`)
-	var got []string
-	for _, use := range realCommandUses(t, root, modulePath, modulePackages(t, root)) {
-		got = append(got, use.what)
-	}
-	if want := []string{"exec.Command(gh)"}; !slices.Equal(got, want) {
-		t.Errorf("realCommandUses() = %v, want %v (test/ skipped, internal/ scanned)", got, want)
 	}
 }

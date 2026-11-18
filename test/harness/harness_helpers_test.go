@@ -188,6 +188,7 @@ func acquireReuseLock(dir string) (func(), error) {
 // serializes runs that share a root, so a finishing run's sandbox sweep cannot
 // destroy VMs another run is still using.
 func resolveSuiteRoot() (string, bool, func(), error) {
+	//testenv:allow the smoke suite reads its own reuse-root override
 	if dir := os.Getenv(smokeRootReuseEnv); dir != "" {
 		reuseRoot, err := absPath(dir)
 		if err != nil {
