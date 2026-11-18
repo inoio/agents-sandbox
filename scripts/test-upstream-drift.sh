@@ -23,8 +23,9 @@ pass=0
 fail=0
 fixture_root="$(mktemp -d "${TMPDIR:-/tmp}/drift-fixtures.XXXXXX")"
 trap 'rm -rf "$fixture_root"' EXIT
-ok()  { pass=$((pass + 1)); printf 'ok   - %s\n' "$1"; }
+ok()  { pass=$((pass + 1)); if [[ "${VERBOSE:-0}" == 1 ]]; then printf 'ok   - %s\n' "$1"; fi; }
 bad() { fail=$((fail + 1)); printf 'FAIL - %s\n' "$1"; }
+section() { if [[ "${VERBOSE:-0}" == 1 ]]; then printf '# %s\n' "$1"; fi; }
 assert_contains()     { if grep -qF -- "$3" <<<"$2"; then ok "$1"; else bad "$1 (missing: $3)"; fi; }
 assert_not_contains() { if grep -qF -- "$3" <<<"$2"; then bad "$1 (unexpected: $3)"; else ok "$1"; fi; }
 
@@ -48,7 +49,7 @@ new_repo() {
   printf '%s' "$proj"
 }
 
-echo "# upstream-drift.sh"
+section "upstream-drift.sh"
 proj="$(new_repo)"
 out="$("$DRIFT" --repo "$proj" --base main --no-fetch)"
 assert_contains "counts upstream commits" "$out" "upstream commits since merge-base: 2"

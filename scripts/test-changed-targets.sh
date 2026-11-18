@@ -13,8 +13,9 @@ MAP="$SCRIPT_DIR/changed-targets.sh"
 pass=0; fail=0
 fixture_root="$(mktemp -d "${TMPDIR:-/tmp}/changed-targets.XXXXXX")"
 trap 'rm -rf "$fixture_root"' EXIT
-ok()     { pass=$((pass + 1)); printf 'ok   - %s\n' "$1"; }
+ok()     { pass=$((pass + 1)); if [[ "${VERBOSE:-0}" == 1 ]]; then printf 'ok   - %s\n' "$1"; fi; }
 bad()    { fail=$((fail + 1)); printf 'FAIL - %s\n' "$1"; }
+section() { if [[ "${VERBOSE:-0}" == 1 ]]; then printf '# %s\n' "$1"; fi; }
 
 # assert_set <name> <repo> <mode> <expected whitespace-separated targets> [base]
 assert_set() {
@@ -51,7 +52,7 @@ new_repo() {
   printf '%s' "$proj"
 }
 
-echo "# changed-targets.sh: local"
+section "changed-targets.sh: local"
 proj="$(new_repo)"
 assert_set "no changes selects nothing" "$proj" local ""
 
@@ -139,7 +140,7 @@ assert_set "rename selects the source class" "$proj" local "docs-linkcheck"
 git -C "$proj" reset -q --hard HEAD
 git -C "$proj" clean -fdq
 
-echo "# changed-targets.sh: branch"
+section "changed-targets.sh: branch"
 bproj="$(new_repo)"
 # feature diverges from main; main advances after the divergence.
 git -C "$bproj" checkout -q -b feature
@@ -152,7 +153,7 @@ git -C "$bproj" checkout -q feature
 assert_set "branch uses the merge base" "$bproj" branch "docs-linkcheck" main
 assert_set "branch with missing base selects all" "$bproj" branch "$ALL" no-such-ref
 
-echo "# changed-targets.sh: usage"
+section "changed-targets.sh: usage"
 if "$MAP" --repo "$proj" >/dev/null 2>&1; then bad "no mode is an error"; else ok "no mode is an error"; fi
 if "$MAP" --repo "$proj" bogus >/dev/null 2>&1; then bad "unknown mode is an error"; else ok "unknown mode is an error"; fi
 if "$MAP" --repo "$fixture_root/does-not-exist" local >/dev/null 2>&1; then bad "non-repository is an error"; else ok "non-repository is an error"; fi
