@@ -10,7 +10,7 @@
 `internal/agent`, `internal/viperconfig`, `modernc.org/sqlite` (read-back only), `github.com/elazarl/goproxy`
 (the S4 terminating proxy).
 
-**Specs:** the hub `.operator-shared/specs/onboarding/learn-mode.md` plus its subspecs under `.operator-shared/specs/onboarding/learn-mode/` (`observation-channel.md`, `home-read-back.md`, `findings-and-apply.md`), and `.operator-shared/specs/network-and-secrets/interception-and-proxy.md`. These do not exist on `main` yet — subplan `settled-design` (S0) creates them from the settled contract on branch `origin/spike/learn-mode`.
+**Specs:** the hub `.operator-shared/specs/onboarding/learn-mode.md` plus its subspecs under `.operator-shared/specs/onboarding/learn-mode/` (`observation-channel.md`, `home-read-back.md`, `findings-and-apply.md`), and `.operator-shared/specs/network-and-secrets/interception-and-proxy.md` — all created by subplan `settled-design` (S0) and landed on `main`.
 
 ## State and handoff
 
@@ -146,7 +146,7 @@ type ReadBackDescriber interface { ReadBackPaths() []string; CredentialProbes() 
 // type is what persists. No field can carry a value, by construction.
 type Destination struct {
     Host      string // Host header / SNI
-    IP        string // resolved IP the CONNECT target used
+    IP        string // literal IP for an IP-literal CONNECT target; empty for a hostname target (unknown to the analyser)
     Port      uint16
     Protocol  string // "https" | "http" | "connect" | "socks5" | "tcp"
     Path      string
@@ -160,7 +160,7 @@ type Destination struct {
 type Attribution struct {
     Host           string   // destination this credential went to
     Path           string
-    Credential     string   // configured secret's env-var name, when substituted in flight
+    Credential     string   // configured secret's env-var name; S4 leaves it empty, so the analyser falls back to readback.Credential.Hosts
     HeaderNames    []string // credential-bearing header names only; never values
     SawReal        bool     // a real value crossed (never stored)
     SawPlaceholder bool     // a placeholder crossed unsubstituted
