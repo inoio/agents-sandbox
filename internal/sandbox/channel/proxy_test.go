@@ -507,9 +507,13 @@ func TestStartFailsWhenCAFileCannotBeWritten(t *testing.T) {
 // Start propagates a bind failure: an unparseable bind host fails before any
 // request can be observed, and the CA file it already wrote is removed.
 func TestStartFailsWhenListenFails(t *testing.T) {
+	caDir := t.TempDir()
+	t.Setenv("TMPDIR", caDir)
+
 	if _, err := Start("[::1]"); err == nil {
 		t.Error("Start with an unparseable bind host returned no error")
 	}
+	assertNoCAFiles(t, caDir)
 }
 
 // generateCA propagates a certificate-creation failure and an unexpected parse
@@ -544,24 +548,44 @@ func TestGenerateCAPropagatesCryptoErrors(t *testing.T) {
 // created before returning.
 func TestWriteCAFilePropagatesWriteAndCloseErrors(t *testing.T) {
 	t.Run("write", func(t *testing.T) {
+		caDir := t.TempDir()
+		t.Setenv("TMPDIR", caDir)
 		withSwap(t, &writeCATempFile, func(*os.File, string) (int, error) {
 			return 0, errChannelSeam
 		})
 
-		if _, err := writeCAFile("pem"); err == nil {
-			t.Error("writeCAFile with a failing write returned no error")
+		if _, err := writeCAFile("pem"); !errors.Is(err, errChannelSeam) {
+			t.Errorf("writeCAFile with a failing write: err = %v, want %v", err, errChannelSeam)
 		}
+		assertNoCAFiles(t, caDir)
 	})
 
 	t.Run("close", func(t *testing.T) {
+		caDir := t.TempDir()
+		t.Setenv("TMPDIR", caDir)
 		withSwap(t, &closeCATempFile, func(*os.File) error {
 			return errChannelSeam
 		})
 
-		if _, err := writeCAFile("pem"); err == nil {
-			t.Error("writeCAFile with a failing close returned no error")
+		if _, err := writeCAFile("pem"); !errors.Is(err, errChannelSeam) {
+			t.Errorf("writeCAFile with a failing close: err = %v, want %v", err, errChannelSeam)
 		}
+		assertNoCAFiles(t, caDir)
 	})
+}
+
+// assertNoCAFiles fails when writeCAFile's temp CA file survives a failure, so a
+// missing cleanup is caught rather than only the error.
+func assertNoCAFiles(t *testing.T, dir string) {
+	t.Helper()
+
+	matches, err := filepath.Glob(filepath.Join(dir, "agents-sandbox-channel-ca-*"))
+	if err != nil {
+		t.Fatalf("glob CA temp files: %v", err)
+	}
+	if len(matches) != 0 {
+		t.Errorf("leftover CA temp files = %v, want none", matches)
+	}
 }
 
 // unusedLoopbackPort binds a loopback port and releases it, giving a port that

@@ -482,6 +482,9 @@ func TestArtefactPruneSkipsNonDirectoryEntries(t *testing.T) {
 // Prune propagates a slug directory it cannot read, rather than silently
 // treating the unreadable tree as pruned.
 func TestArtefactPrunePropagatesSlugDirFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: chmod 0 does not block a directory read")
+	}
 	stateDir := t.TempDir()
 	withStateDir(t, stateDir)
 	slugDir := filepath.Join(stateDir, learnStateDirName, "my-checkout")
@@ -514,6 +517,9 @@ func TestPruneSlugDirSkipsSubdirectories(t *testing.T) {
 // pruneSlugDir reports an artefact it cannot stat, so an unreadable entry fails
 // the sweep rather than being reported as pruned.
 func TestPruneSlugDirStatFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: a mode without execute does not block stat")
+	}
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "artefact.json"), []byte("{}"), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
@@ -528,6 +534,9 @@ func TestPruneSlugDirStatFailure(t *testing.T) {
 // pruneSlugDir reports an artefact it cannot remove, so a read-only tree fails
 // the sweep rather than leaving the caller believing the artefact is gone.
 func TestPruneSlugDirRemoveFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: a read-only directory does not block removal")
+	}
 	dir := t.TempDir()
 	artefact := filepath.Join(dir, "artefact.json")
 	if err := os.WriteFile(artefact, []byte("{}"), 0o600); err != nil {
