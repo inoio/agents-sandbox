@@ -12,6 +12,14 @@ emptied at the next release.
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-11-18
+
+### Fixed
+
+- The project config approval survives a symlinked checkout path: reaching one checkout through a
+  symlink no longer shows every `.agents-sandbox` file as removed and new, so a prior approval is kept
+  and only a real content change is shown.
+
 ## [0.7.1] - 2026-11-16
 
 ### Fixed
