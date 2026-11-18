@@ -37,6 +37,9 @@ func validate(v *viper.Viper) error {
 	if err := validateNetworkTLSBypass(v); err != nil {
 		return err
 	}
+	if err := validateNetworkProxy(v); err != nil {
+		return err
+	}
 	if err := validatePorts(v); err != nil {
 		return err
 	}
@@ -119,6 +122,28 @@ func validateNetworkTLSBypass(v *viper.Viper) error {
 	}
 	if _, err := network.ValidateTLSBypass(entries); err != nil {
 		return fmt.Errorf("launcher config %s: %w", keyNetworkTLSBypass, err)
+	}
+	return nil
+}
+
+// validateNetworkProxy rejects a malformed network.proxy block at config-load
+// time: an unknown protocol, a non-host:port address, credentials a protocol
+// cannot carry (socks4), or a lone username/password-env. The block is decoded
+// after validation, so the keys are read individually; an unset block is the
+// zero proxy and passes. The check runs here so a SOCKS4-with-credentials
+// configuration names the protocol at load rather than failing at VM creation.
+func validateNetworkProxy(v *viper.Viper) error {
+	proxy := network.Proxy{
+		Protocol:    network.ProxyProtocol(v.GetString(keyNetworkProxyProtocol)),
+		Address:     v.GetString(keyNetworkProxyAddress),
+		Username:    v.GetString(keyNetworkProxyUsername),
+		PasswordEnv: v.GetString(keyNetworkProxyPasswordEnv),
+	}
+	// Policy.Validate is the network layer's single well-formedness entry point;
+	// a zero-valued policy validates the proxy alone.
+	//exhaustruct:ignore // the other policy fields are deliberately zero here
+	if err := (network.Policy{Proxy: proxy}).Validate(); err != nil {
+		return fmt.Errorf("launcher config %s: %w", keyNetworkProxyPrefix, err)
 	}
 	return nil
 }

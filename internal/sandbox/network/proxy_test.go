@@ -1,0 +1,433 @@
+package network
+
+import (
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+)
+
+// TestProxyEmpty pins that every proxy field can make the proxy non-empty on
+// its own: a proxy that reads as unset while carrying a field would either skip
+// validation or fingerprint as absent, so each field must defeat Empty().
+func TestProxyEmpty(t *testing.T) {
+	if !(Proxy{}).Empty() {
+		t.Error("zero Proxy should be empty")
+	}
+	nonEmpty := []struct {
+		name  string
+		proxy Proxy
+	}{
+		{"protocol", Proxy{Protocol: ProxySOCKS5}},
+		{"address", Proxy{Address: "10.0.0.1:1080"}},
+		{"username", Proxy{Username: "u"}},
+		{"password-env", Proxy{PasswordEnv: "P"}},
+		{
+			"all fields",
+			Proxy{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080", Username: "u", PasswordEnv: "P"},
+		},
+	}
+	for _, tc := range nonEmpty {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.proxy.Empty() {
+				t.Errorf("Proxy with only %s set should not be empty", tc.name)
+			}
+		})
+	}
+}
+
+func TestParseProxy(t *testing.T) {
+	for _, tc := range []struct {
+		in       string
+		protocol ProxyProtocol
+		address  string
+	}{
+		{in: "socks5://10.0.0.1:1080", protocol: ProxySOCKS5, address: "10.0.0.1:1080"},
+		{in: "http-connect://proxy.example.com:3128", protocol: ProxyHTTPConnect, address: "proxy.example.com:3128"},
+		{in: "socks4://10.0.0.1:1080", protocol: ProxySOCKS4, address: "10.0.0.1:1080"},
+		{in: "  socks5://10.0.0.1:1080  ", protocol: ProxySOCKS5, address: "10.0.0.1:1080"},
+		// The address is trimmed separately from the whole input, so whitespace
+		// right after the scheme is normalized too.
+		{in: "socks5://  10.0.0.1:1080", protocol: ProxySOCKS5, address: "10.0.0.1:1080"},
+		// The documented port contract is 1-65535; these pin the accepted range
+		// at its boundaries so an off-by-one in the address check cannot reject
+		// a valid proxy.
+		{in: "socks5://10.0.0.1:1", protocol: ProxySOCKS5, address: "10.0.0.1:1"},
+		{in: "socks5://10.0.0.1:65535", protocol: ProxySOCKS5, address: "10.0.0.1:65535"},
+	} {
+		t.Run(tc.in, func(t *testing.T) {
+			got, err := ParseProxy(tc.in)
+			if err != nil {
+				t.Fatalf("ParseProxy(%q): %v", tc.in, err)
+			}
+			if got.Protocol != tc.protocol || got.Address != tc.address {
+				t.Fatalf("ParseProxy(%q) = %+v, want protocol %q address %q", tc.in, got, tc.protocol, tc.address)
+			}
+			if got.Username != "" || got.PasswordEnv != "" {
+				t.Fatalf("ParseProxy(%q) must not invent credentials, got %+v", tc.in, got)
+			}
+		})
+	}
+}
+
+func TestParseProxyRejectsMalformed(t *testing.T) {
+	for _, in := range []string{
+		"",
+		"   ",
+		"10.0.0.1:1080",              // no scheme
+		"ftp://10.0.0.1:1080",        // unknown protocol
+		"socks5://10.0.0.1",          // no port
+		"socks5://10.0.0.1:",         // empty port
+		"socks5://:1080",             // no host
+		"socks5://10.0.0.1:0",        // port below range
+		"socks5://10.0.0.1:65536",    // port above range
+		"socks5://10.0.0.1:notaport", // non-numeric port
+		"socks5://10.0.0.1:53:54",    // too many colons
+	} {
+		t.Run(in, func(t *testing.T) {
+			if got, err := ParseProxy(in); err == nil {
+				t.Fatalf("ParseProxy(%q) = %+v, want an error", in, got)
+			}
+		})
+	}
+}
+
+// TestProxyCredentialsRejectedForSOCKS4 pins that the SDK carries no credential
+// support for SOCKS4, so a configuration supplying one fails fast at config
+// time rather than at VM creation.
+func TestProxyCredentialsRejectedForSOCKS4(t *testing.T) {
+	policy := Policy{Profiles: []Profile{ProfileNone}, Proxy: Proxy{
+		Protocol: ProxySOCKS4, Address: "10.0.0.1:1080", Username: "u", PasswordEnv: "P",
+	}}
+	if err := policy.Validate(); err == nil {
+		t.Fatal("socks4 credentials must be rejected")
+	}
+}
+
+// TestProxyRejectsLoneCredential pins that a username and a password-env must
+// be set together: the SDK's Credentials needs both, so a lone credential would
+// otherwise reach the VM as an anonymous proxy while still changing the
+// fingerprint — two policies reaching the VM identically that fingerprint
+// differently. The rejection keeps the emission-faithful invariant by failing
+// the misconfiguration before it can reach the VM.
+func TestProxyRejectsLoneCredential(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		proxy Proxy
+	}{
+		{"username only", Proxy{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080", Username: "u"}},
+		{"password-env only", Proxy{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080", PasswordEnv: "P"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			policy := Policy{Profiles: []Profile{ProfileNone}, Proxy: tc.proxy}
+			err := policy.Validate()
+			if err == nil {
+				t.Fatal("a lone proxy credential must be rejected")
+			}
+			for _, want := range []string{"username", "password-env"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("error %q must name %q", err, want)
+				}
+			}
+			if _, err := policy.Spec(); err == nil {
+				t.Fatal("Spec must reject a lone proxy credential before any VM work")
+			}
+		})
+	}
+}
+
+// TestProxyAddressBypassesEgressPolicy pins S1's recorded composition
+// decision: the runtime dials the proxy host-side, so the dial bypasses the
+// egress policy and the launcher neither auto-adds the proxy address to the
+// allow set nor fails on a policy that omits it. Under `none` a well-formed
+// proxy is therefore accepted and its address stays out of egress-allow.
+func TestProxyAddressBypassesEgressPolicy(t *testing.T) {
+	policy := Policy{Profiles: []Profile{ProfileNone}, Proxy: Proxy{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080"}}
+	if err := policy.Validate(); err != nil {
+		t.Fatalf("Validate under none = %v, want nil (host-side dial bypasses egress)", err)
+	}
+	spec, err := policy.Spec()
+	if err != nil {
+		t.Fatalf("Spec under none = %v, want nil (host-side dial bypasses egress)", err)
+	}
+	if slices.Contains(spec.EgressAllow, "10.0.0.1:1080") {
+		t.Fatal("the proxy address must not be auto-added to egress-allow")
+	}
+}
+
+func TestProxyChangesFingerprint(t *testing.T) {
+	base := Policy{Profiles: []Profile{ProfileNone}}
+	withProxy := base
+	withProxy.Proxy = Proxy{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080"}
+	if base.Fingerprint() == withProxy.Fingerprint() {
+		t.Fatal("proxy must change the fingerprint")
+	}
+}
+
+// TestProxyFieldsChangeFingerprint pins that every proxy field that reaches the
+// VM contributes to the digest: a changed protocol, address, username, or
+// password-env must force a recreate.
+func TestProxyFieldsChangeFingerprint(t *testing.T) {
+	base := Policy{Profiles: []Profile{ProfileNone}, Proxy: Proxy{
+		Protocol: ProxySOCKS5, Address: "10.0.0.1:1080", Username: "u", PasswordEnv: "P",
+	}}
+	for _, tc := range []struct {
+		name  string
+		proxy Proxy
+	}{
+		{"protocol", Proxy{Protocol: ProxyHTTPConnect, Address: "10.0.0.1:1080", Username: "u", PasswordEnv: "P"}},
+		{"address", Proxy{Protocol: ProxySOCKS5, Address: "10.0.0.2:1080", Username: "u", PasswordEnv: "P"}},
+		{"username", Proxy{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080", Username: "other", PasswordEnv: "P"}},
+		{"password-env", Proxy{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080", Username: "u", PasswordEnv: "Q"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			other := base
+			other.Proxy = tc.proxy
+			if base.Fingerprint() == other.Fingerprint() {
+				t.Fatalf("changing proxy %s must change the fingerprint", tc.name)
+			}
+		})
+	}
+}
+
+// TestProxyZeroValueKeepsFingerprintStable pins that an unset proxy contributes
+// no digest lines, so every existing (proxy-less) VM keeps its network hash and
+// is not recreated merely because the field was added. The digest is pinned
+// against a golden rather than against another live computation, so a
+// regression that emits a proxy line for the zero value — the case this test
+// names — changes the hash and fails here.
+func TestProxyZeroValueKeepsFingerprintStable(t *testing.T) {
+	const noneGolden = "7a0868d7bf7fe9ca7e6f5522454be701374788b3ca8a31d6b9c3fde28fe442c6"
+	policy := Policy{Profiles: []Profile{ProfileNone}}
+	if got := policy.Fingerprint(); got != noneGolden {
+		t.Fatalf("zero-proxy fingerprint = %q, want golden %q", got, noneGolden)
+	}
+	for _, line := range policy.Describe() {
+		if strings.HasPrefix(line, "proxy") {
+			t.Fatalf("zero proxy must contribute no proxy line, got %q", line)
+		}
+	}
+}
+
+// TestSpecCarriesProxy pins that Spec projects the configured proxy into the
+// launcher network spec the adapter emits.
+func TestSpecCarriesProxy(t *testing.T) {
+	spec, err := (Policy{Profiles: []Profile{ProfileNone}, Proxy: Proxy{
+		Protocol: ProxySOCKS5, Address: "10.0.0.1:1080", Username: "u", PasswordEnv: "PW",
+	}}).Spec()
+	if err != nil {
+		t.Fatalf("Spec: %v", err)
+	}
+	want := msb.ProxySpec{
+		Protocol: msb.ProxySOCKS5, Address: "10.0.0.1:1080", Username: "u", PasswordEnv: "PW",
+	}
+	if spec.Proxy != want {
+		t.Fatalf("Spec.Proxy = %+v, want %+v", spec.Proxy, want)
+	}
+}
+
+// TestSpecNormalizesProxy pins that Spec emits the protocol parsed and the
+// address trimmed, so a whitespace-padded configuration reaches the VM as its
+// canonical form.
+func TestSpecNormalizesProxy(t *testing.T) {
+	spec, err := (Policy{Profiles: []Profile{ProfileNone}, Proxy: Proxy{
+		Protocol: ProxyProtocol("  socks5  "), Address: " 10.0.0.1:1080 ",
+	}}).Spec()
+	if err != nil {
+		t.Fatalf("Spec: %v", err)
+	}
+	if spec.Proxy.Protocol != msb.ProxySOCKS5 || spec.Proxy.Address != "10.0.0.1:1080" {
+		t.Fatalf("Spec.Proxy = %+v, want normalized socks5 / 10.0.0.1:1080", spec.Proxy)
+	}
+}
+
+// TestFingerprintProxyEmissionFaithful pins that the fingerprint hashes what
+// Spec emits, not the raw configuration: two proxies that reach the VM
+// identically (a whitespace-padded one and its canonical form) fingerprint
+// alike and never force a spurious recreate.
+func TestFingerprintProxyEmissionFaithful(t *testing.T) {
+	padded := Policy{Profiles: []Profile{ProfileNone}, Proxy: Proxy{
+		Protocol: ProxyProtocol(" socks5 "), Address: " 10.0.0.1:1080 ",
+	}}
+	clean := Policy{Profiles: []Profile{ProfileNone}, Proxy: Proxy{
+		Protocol: ProxySOCKS5, Address: "10.0.0.1:1080",
+	}}
+	if padded.Fingerprint() != clean.Fingerprint() {
+		t.Fatal("proxies that reach the VM identically must fingerprint alike")
+	}
+}
+
+func TestProxyDescribe(t *testing.T) {
+	got := (Policy{
+		Profiles: []Profile{ProfileNone},
+		Proxy:    Proxy{Protocol: ProxyHTTPConnect, Address: "proxy.example.com:3128", Username: "u", PasswordEnv: "PW"},
+	}).Describe()
+	want := []string{
+		"profile: none",
+		"proxy: http-connect://proxy.example.com:3128",
+		"proxy-username: u",
+		"proxy-password-env: PW",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("Describe = %q, want %q", got, want)
+	}
+}
+
+func TestPolicyValidateProxy(t *testing.T) {
+	valid := []Policy{
+		{Profiles: []Profile{ProfileNone}},
+		{Profiles: []Profile{ProfileNone}, Proxy: Proxy{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080"}},
+		{Profiles: []Profile{ProfileNone}, Proxy: Proxy{Protocol: ProxySOCKS4, Address: "10.0.0.1:1080"}},
+		{
+			Profiles: []Profile{ProfileNone},
+			Proxy:    Proxy{Protocol: ProxyHTTPConnect, Address: "10.0.0.1:3128", Username: "u", PasswordEnv: "P"},
+		},
+	}
+	for _, p := range valid {
+		if err := p.Validate(); err != nil {
+			t.Errorf("Policy%+v.Validate() = %v, want nil", p, err)
+		}
+	}
+
+	invalid := []Policy{
+		{Profiles: []Profile{ProfileNone}, Proxy: Proxy{Protocol: ProxyProtocol("ftp"), Address: "10.0.0.1:1080"}},
+		{Profiles: []Profile{ProfileNone}, Proxy: Proxy{Protocol: ProxySOCKS5}},
+		{Profiles: []Profile{ProfileNone}, Proxy: Proxy{Protocol: ProxySOCKS5, Address: "10.0.0.1"}},
+		// A proxy carrying a single field is still a configured proxy, so it
+		// must be validated (and rejected) rather than read as unset.
+		{Profiles: []Profile{ProfileNone}, Proxy: Proxy{Address: "10.0.0.1:1080"}},
+		{Profiles: []Profile{ProfileNone}, Proxy: Proxy{Username: "u"}},
+		{Profiles: []Profile{ProfileNone}, Proxy: Proxy{PasswordEnv: "P"}},
+		{
+			Profiles: []Profile{ProfileNone},
+			Proxy:    Proxy{Protocol: ProxySOCKS4, Address: "10.0.0.1:1080", PasswordEnv: "P"},
+		},
+	}
+	for _, p := range invalid {
+		if err := p.Validate(); err == nil {
+			t.Errorf("Policy%+v.Validate() = nil, want an error", p)
+		}
+	}
+}
+
+// TestProxySOCKS4CredentialErrorNamesProtocol pins the fail-fast message: the
+// error must name SOCKS4 so a user can map it to the protocol's missing
+// credential support rather than to a runtime failure.
+func TestProxySOCKS4CredentialErrorNamesProtocol(t *testing.T) {
+	err := (Policy{Profiles: []Profile{ProfileNone}, Proxy: Proxy{
+		Protocol: ProxySOCKS4, Address: "10.0.0.1:1080", Username: "u",
+	}}).Validate()
+	if err == nil {
+		t.Fatal("socks4 with a username must be rejected")
+	}
+	if !strings.Contains(err.Error(), "socks4") {
+		t.Fatalf("error %q must name the socks4 protocol", err)
+	}
+}
+
+// TestProxyValidateErrorMessages pins the launcher-layer messages verbatim. The
+// inner errors are bare: the config-load and --proxy wrappers add the
+// `launcher config network.proxy:`/`--proxy:` namespace, so an inner
+// `network.proxy:` prefix would double it.
+func TestProxyValidateErrorMessages(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		proxy Proxy
+		want  string
+	}{
+		{
+			name:  "socks4 with username",
+			proxy: Proxy{Protocol: ProxySOCKS4, Address: "10.0.0.1:1080", Username: "u"},
+			want:  "protocol socks4 carries no credentials; remove username/password-env or use socks5 or http-connect",
+		},
+		{
+			// A password-env alone must hit the socks4 rule too, not fall
+			// through to the lone-credential rule: the protocol cannot carry
+			// either half.
+			name:  "socks4 with password-env only",
+			proxy: Proxy{Protocol: ProxySOCKS4, Address: "10.0.0.1:1080", PasswordEnv: "P"},
+			want:  "protocol socks4 carries no credentials; remove username/password-env or use socks5 or http-connect",
+		},
+		{
+			name:  "lone username",
+			proxy: Proxy{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080", Username: "u"},
+			want:  "username and password-env must be set together",
+		},
+		{
+			name:  "lone password-env",
+			proxy: Proxy{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080", PasswordEnv: "P"},
+			want:  "username and password-env must be set together",
+		},
+		{
+			name:  "unknown protocol",
+			proxy: Proxy{Protocol: ProxyProtocol("ftp"), Address: "10.0.0.1:1080"},
+			want:  `unknown proxy protocol "ftp" (want http-connect, socks5, or socks4)`,
+		},
+		{
+			name:  "bad address",
+			proxy: Proxy{Protocol: ProxySOCKS5, Address: "10.0.0.1"},
+			want:  `invalid proxy address "10.0.0.1": want host:port`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := (Policy{Profiles: []Profile{ProfileNone}, Proxy: tc.proxy}).Validate()
+			if err == nil {
+				t.Fatalf("Validate() = nil, want %q", tc.want)
+			}
+			if err.Error() != tc.want {
+				t.Fatalf("Validate() error = %q, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// TestParseProxyErrorMessages pins the --proxy parser messages verbatim, so the
+// flag path reads like the config path (a bare inner error the caller wraps).
+func TestParseProxyErrorMessages(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want string
+	}{
+		{
+			in:   "ftp://10.0.0.1:1080",
+			want: `unknown proxy protocol "ftp" (want http-connect, socks5, or socks4)`,
+		},
+		{
+			in:   "socks5://10.0.0.1",
+			want: `invalid proxy address "10.0.0.1": want host:port`,
+		},
+		{
+			in:   "",
+			want: "empty proxy: want protocol://host:port",
+		},
+		{
+			// Whitespace-only input is trimmed before the emptiness check, so it
+			// reports the friendly "empty proxy" message rather than "invalid
+			// proxy" for the scheme-less text.
+			in:   "   ",
+			want: "empty proxy: want protocol://host:port",
+		},
+		{
+			in:   "10.0.0.1:1080",
+			want: `invalid proxy "10.0.0.1:1080": want protocol://host:port`,
+		},
+		{
+			// SplitHostPort returns an empty port (with no error) for a
+			// trailing colon, so the missing-port message must win over the
+			// later invalid-port check.
+			in:   "socks5://10.0.0.1:",
+			want: `invalid proxy address "10.0.0.1:": missing port`,
+		},
+	} {
+		t.Run(tc.in, func(t *testing.T) {
+			_, err := ParseProxy(tc.in)
+			if err == nil {
+				t.Fatalf("ParseProxy(%q) = nil error, want %q", tc.in, tc.want)
+			}
+			if err.Error() != tc.want {
+				t.Fatalf("ParseProxy(%q) error = %q, want %q", tc.in, err, tc.want)
+			}
+		})
+	}
+}

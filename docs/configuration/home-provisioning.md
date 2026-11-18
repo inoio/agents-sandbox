@@ -94,6 +94,13 @@ home:
   .vpn/config: .vpn/config
 ```
 
+A VPN client's private-network traffic reaches the VM through the kernel support microsandbox provides (its existing
+TUN/VETH handling covers OpenVPN and Tailscale, while Wireguard, openfortivpn, IPsec, and L2TP need further kernel
+modules — tracked in [issue #30](https://github.com/inoio/agents-sandbox/issues/30)). Use the startup-hook form to start
+the client. To let the VM reach what the VPN routes, add the `private` profile to `network.profile` (see
+[Networking]({% link configuration/networking.md %})); when the traffic instead goes through an egress
+[proxy]({% link configuration/networking.md %}#outbound-proxy), configure that proxy and let the client route it.
+
 A hook can prompt only when the launcher's stdin and stdout are both terminals; piping or redirecting the launcher's
 output (`agents-sandbox | tee run.log`, `agents-sandbox > run.log`) makes stdout a pipe or a file, so hooks run without
 input and a hook that prompts fails with its own end-of-input error. If you need both output capture and prompting, run

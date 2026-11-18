@@ -431,6 +431,7 @@ func TestPolicyEmpty(t *testing.T) {
 		{"intercept-tls", Policy{InterceptTLS: InterceptOn}},
 		{"tls-bypass", Policy{TLSBypass: []string{"*.internal.example"}}},
 		{"disable-strict", Policy{DisableStrict: true}},
+		{"proxy", Policy{Proxy: Proxy{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080"}}},
 	}
 	for _, tc := range nonEmpty {
 		t.Run(tc.name, func(t *testing.T) {
@@ -627,5 +628,39 @@ func TestDescribeUnsetPolicyNamesTheDefaultProfile(t *testing.T) {
 	got := (Policy{}).Describe()
 	if !slices.Equal(got, []string{"profile: " + DefaultProfile.String()}) {
 		t.Errorf("Describe(zero) = %q, want the default profile", got)
+	}
+}
+
+// TestDescribeNormalizesProxy pins that Describe normalizes the proxy exactly
+// as Fingerprint does, so a whitespace-padded configuration displays in its
+// canonical form rather than with the padding intact.
+func TestDescribeNormalizesProxy(t *testing.T) {
+	got := (Policy{Profiles: []Profile{ProfileNone}, Proxy: Proxy{
+		Protocol: ProxyProtocol(" socks5 "),
+		Address:  " 10.0.0.1:1080 ",
+	}}).Describe()
+	want := []string{"profile: none", "proxy: socks5://10.0.0.1:1080"}
+	if !slices.Equal(got, want) {
+		t.Errorf("Describe = %q, want %q", got, want)
+	}
+}
+
+// TestProxyEmissionFallsBackForInvalidProxy pins the defensive branch: a proxy
+// Spec rejects still contributes its trimmed raw value, so an invalid
+// configuration fingerprints and displays distinctly rather than reading as
+// absent (which would skip the recreate once the config is corrected).
+func TestProxyEmissionFallsBackForInvalidProxy(t *testing.T) {
+	padded := Policy{Profiles: []Profile{ProfileNone}, Proxy: Proxy{
+		Protocol: ProxyProtocol(" ftp "),
+		Address:  " 10.0.0.1:1080 ",
+	}}
+	got := padded.proxyEmission()
+	want := msb.ProxySpec{Protocol: msb.ProxyProtocol("ftp"), Address: "10.0.0.1:1080"}
+	if got != want {
+		t.Fatalf("proxyEmission() = %+v, want the trimmed raw %+v", got, want)
+	}
+	none := Policy{Profiles: []Profile{ProfileNone}}
+	if padded.Fingerprint() == none.Fingerprint() {
+		t.Fatal("an invalid proxy must still change the fingerprint")
 	}
 }

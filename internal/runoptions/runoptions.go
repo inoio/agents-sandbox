@@ -35,6 +35,7 @@ const (
 	FlagAgentVersion   = "agent-version"
 	FlagNetwork        = "network"
 	FlagDNSServers     = "dns"
+	FlagProxy          = "proxy"
 	FlagPort           = "port"
 	FlagNotify         = "notify"
 	FlagMemory         = "memory"
@@ -333,9 +334,10 @@ func resolveNotifyConfig(cfg *viperconfig.Config, cmd *cobra.Command) (notify.Co
 }
 
 // resolveNetwork resolves the egress policy: the --network flag wins over the
-// resolved config for the profile, while --dns replaces the DNS servers. The
-// config-file-only lists (egress-allow, egress-deny, tls-bypass) survive a
-// --network override, since the flag names only the profile.
+// resolved config for the profile, --dns replaces the DNS servers, and --proxy
+// replaces the whole network.proxy block. The config-file-only lists
+// (egress-allow, egress-deny, tls-bypass) survive a --network override, since
+// the flag names only the profile.
 func resolveNetwork(cfg *viperconfig.Config, cmd *cobra.Command, opts *options.RunOptions) error {
 	if cfg != nil {
 		opts.Network = cfg.Network.Effective()
@@ -349,6 +351,16 @@ func resolveNetwork(cfg *viperconfig.Config, cmd *cobra.Command, opts *options.R
 	}
 	if dns, _ := cmd.Flags().GetStringSlice(FlagDNSServers); len(dns) > 0 {
 		opts.Network.DNSServers = dns
+	}
+	// --proxy replaces the whole network.proxy block: the one-off endpoint
+	// supplies both protocol and address, and a different endpoint's credentials
+	// cannot legitimately carry over, so ParseProxy leaves them empty.
+	if raw, _ := cmd.Flags().GetString(FlagProxy); raw != "" {
+		proxy, err := network.ParseProxy(raw)
+		if err != nil {
+			return fmt.Errorf("--proxy: %w", err)
+		}
+		opts.Network.Proxy = *proxy
 	}
 	// The flags reach here unvalidated (unlike the env/config path, which
 	// viperconfig validates at load), so validate the resolved policy before it

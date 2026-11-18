@@ -904,6 +904,110 @@ func TestSandboxOptionsPropagateNetworkError(t *testing.T) {
 	}
 }
 
+func TestSandboxOptionsProjectProxy(t *testing.T) {
+	spec := SandboxSpec{Image: "alpine:3.19", Network: NetworkSpec{
+		Proxy: ProxySpec{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080", Username: "u", PasswordEnv: "PW"},
+	}}
+	opts, err := sandboxOptions(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg msbSdk.SandboxConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	want := msbSdk.SOCKS5Proxy("10.0.0.1:1080").Credentials("u", msbSdk.SecretSourceEnv("PW"))
+	if !reflect.DeepEqual(cfg.Proxy, want) {
+		t.Fatalf("Proxy = %+v, want the SDK-built %+v", cfg.Proxy, want)
+	}
+}
+
+// TestSandboxOptionsOmitProxyWhenUnset pins that a spec with no proxy emits no
+// proxy option, so a proxy-less sandbox is not routed through an empty proxy.
+func TestSandboxOptionsOmitProxyWhenUnset(t *testing.T) {
+	opts, err := sandboxOptions(SandboxSpec{Image: "alpine:3.19"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg msbSdk.SandboxConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	if cfg.Proxy != nil {
+		t.Fatalf("Proxy = %+v, want nil without a configured proxy", cfg.Proxy)
+	}
+}
+
+// TestSandboxOptionsProjectProxyProtocols pins that every supported protocol
+// reaches the SDK through its protocol-specific constructor.
+func TestSandboxOptionsProjectProxyProtocols(t *testing.T) {
+	for _, tc := range []struct {
+		protocol ProxyProtocol
+		want     *msbSdk.OutboundProxy
+	}{
+		{ProxyHTTPConnect, msbSdk.HTTPConnectProxy("10.0.0.1:1080")},
+		{ProxySOCKS5, msbSdk.SOCKS5Proxy("10.0.0.1:1080")},
+		{ProxySOCKS4, msbSdk.SOCKS4Proxy("10.0.0.1:1080")},
+	} {
+		t.Run(string(tc.protocol), func(t *testing.T) {
+			opts, err := sandboxOptions(SandboxSpec{
+				Image:   "alpine:3.19",
+				Network: NetworkSpec{Proxy: ProxySpec{Protocol: tc.protocol, Address: "10.0.0.1:1080"}},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var cfg msbSdk.SandboxConfig
+			for _, opt := range opts {
+				opt(&cfg)
+			}
+			if !reflect.DeepEqual(cfg.Proxy, tc.want) {
+				t.Fatalf("protocol %q projected %+v, want the SDK-built %+v", tc.protocol, cfg.Proxy, tc.want)
+			}
+		})
+	}
+}
+
+// TestSandboxOptionsRejectUnknownProxyProtocol pins that an unknown protocol
+// fails the translation rather than silently dropping the proxy, and that the
+// message carries the protocol hint shared with the launcher's parser.
+func TestSandboxOptionsRejectUnknownProxyProtocol(t *testing.T) {
+	_, err := sandboxOptions(SandboxSpec{
+		Image:   "alpine:3.19",
+		Network: NetworkSpec{Proxy: ProxySpec{Protocol: ProxyProtocol("ftp"), Address: "10.0.0.1:1080"}},
+	})
+	if err == nil {
+		t.Fatal("an unknown proxy protocol must fail the translation")
+	}
+	want := `unknown proxy protocol "ftp" (want ` + ProxyProtocolsHint + `)`
+	if err.Error() != want {
+		t.Fatalf("error = %q, want %q", err, want)
+	}
+}
+
+// TestSandboxOptionsRejectLoneProxyCredential pins that sandboxProxyOption is
+// symmetric with the launcher's Proxy.validate: exactly one of username and
+// password-env fails the translation instead of reaching the VM anonymous.
+func TestSandboxOptionsRejectLoneProxyCredential(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		proxy ProxySpec
+	}{
+		{"username only", ProxySpec{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080", Username: "u"}},
+		{"password-env only", ProxySpec{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080", PasswordEnv: "P"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := sandboxOptions(SandboxSpec{Image: "alpine:3.19", Network: NetworkSpec{Proxy: tc.proxy}})
+			if err == nil {
+				t.Fatal("a lone proxy credential must fail the translation")
+			}
+			if err.Error() != "username and password-env must be set together" {
+				t.Fatalf("error = %q, want the lone-credential rejection", err)
+			}
+		})
+	}
+}
+
 func TestNetworkConfigRuleOrder(t *testing.T) {
 	cfg, err := networkConfig(NetworkSpec{
 		Profiles:    []NetworkProfile{NetworkProfilePublic},

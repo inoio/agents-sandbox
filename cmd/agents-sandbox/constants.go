@@ -65,6 +65,7 @@ const (
 	flagServeOnly  = runoptions.FlagServeOnly
 	flagNetwork    = runoptions.FlagNetwork
 	flagDNSServers = runoptions.FlagDNSServers
+	flagProxy      = runoptions.FlagProxy
 	flagPort       = runoptions.FlagPort
 	flagAgent      = runoptions.FlagAgent
 	flagNotify     = runoptions.FlagNotify
