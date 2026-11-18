@@ -125,6 +125,16 @@ if "$RUNNER" --help >"$tmp/help" 2>&1; then help_status=0; else help_status=$?; 
 if [[ "$help_status" == 0 ]]; then ok "--help exits 0"; else bad "--help exits 0 (status $help_status)"; fi
 expect_contains "--help prints usage" "Usage" "$(cat "$tmp/help")"
 
+# --heavy-subset keeps only the heavy targets among its arguments, so the
+# inner-loop recipes can hand the runner the heavy set that matches the subset
+# of targets they actually run.
+subset="$(CHECK_HEAVY_TARGETS="alpha beta gamma" "$RUNNER" --heavy-subset beta delta gamma || true)"
+if [[ "$subset" == "beta gamma" ]]; then ok "--heavy-subset keeps only heavy targets among its arguments"; else bad "--heavy-subset (got '$subset')"; fi
+subset="$(CHECK_HEAVY_TARGETS="alpha" "$RUNNER" --heavy-subset delta epsilon || true)"
+if [[ -z "$subset" ]]; then ok "--heavy-subset prints nothing when none match"; else bad "--heavy-subset none (got '$subset')"; fi
+subset="$(CHECK_HEAVY_TARGETS="" "$RUNNER" --heavy-subset alpha beta || true)"
+if [[ -z "$subset" ]]; then ok "--heavy-subset with an empty heavy list prints nothing"; else bad "--heavy-subset empty heavy (got '$subset')"; fi
+
 # Scheduling: light targets overlap, heavy targets do not, SERIAL forces one at
 # a time, VERBOSE streams without capture or status lines.
 rm -f "$tmp"/fail-*

@@ -43,7 +43,7 @@ read_if: Executing the concise-check-output change; or working on `scripts/check
 
 **Interfaces:**
 - Consumes: env `CHECK_HEAVY_TARGETS` (space list), `JOBS`, `MAKE`, `VERBOSE`, `SERIAL`.
-- Produces: `scripts/check.sh [--help] <target>...`, exit 0 all pass / 1 any fail / 2 usage or a heavy target missing from the target list. Prints `PASS <target> <n>s` / `FAIL <target> <n>s` per target, then `--- FAIL <target> ---` and the captured log for each failure.
+- Produces: `scripts/check.sh [--help] <target>...`, exit 0 all pass / 1 any fail / 2 usage or a heavy target missing from the target list. Prints `PASS <target> <n>s` / `FAIL <target> <n>s` per target, then `--- FAIL <target> ---` and the captured log for each failure. Also `--heavy-subset <target>...`, which prints the `CHECK_HEAVY_TARGETS` entries among its arguments (used by Task 4's recipes).
 
 - [ ] **Step 1: Write the failing test** in `scripts/test-check.sh` (fixture-only; pass/fail core, no concurrency yet).
 
@@ -237,11 +237,12 @@ git commit -m "chore(check): split heavy targets and delegate check/verify to th
 
 - [ ] **Step 1: Change both recipes**
 
-Replace the final `$(MAKE) --no-print-directory -j$(JOBS) -O $$targets changelog-presence MODE=local` (and the `branch` analogue) with:
+Replace the final `$(MAKE) --no-print-directory -j$(JOBS) -O $$targets changelog-presence MODE=local` (and the `branch` analogue) with the runner. The runner rejects a heavy target absent from its target list, and the selection is a subset of `CHECK_HEAVY_TARGETS`, so pass only the heavy targets that are in the selection:
 ```make
-MODE=local CHECK_HEAVY_TARGETS="$(CHECK_HEAVY_TARGETS)" JOBS=$(JOBS) ./scripts/check.sh $$targets changelog-presence
+heavy="$$(CHECK_HEAVY_TARGETS="$(CHECK_HEAVY_TARGETS)" ./scripts/check.sh --heavy-subset $$targets)"; \
+MODE=local CHECK_HEAVY_TARGETS="$$heavy" JOBS=$(JOBS) ./scripts/check.sh $$targets changelog-presence
 ```
-and the `branch` one with `MODE=branch` plus the existing `$${BASE:+BASE=$$BASE}`. `changelog-presence` uses `MODE ?= local`, which respects an environment `MODE`.
+and the `branch` one with `MODE=branch` plus the existing `$${BASE:+BASE=$$BASE}`. `changelog-presence` uses `MODE ?= local`, which respects an environment `MODE`. `--heavy-subset` is the runner's internal mode that prints the `CHECK_HEAVY_TARGETS` entries among its arguments; it is unit-tested in `scripts/test-check.sh`.
 
 - [ ] **Step 2: Verify manually**
 
