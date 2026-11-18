@@ -182,7 +182,7 @@ func configEndpointHosts(home string, manifest Manifest) map[string][]string {
 		if err != nil {
 			continue
 		}
-		collectEndpointHosts(document, "", hostsByProvider)
+		collectEndpointHosts(document, "", "", hostsByProvider)
 	}
 	for provider, hosts := range hostsByProvider {
 		hostsByProvider[provider] = slices.Compact(slices.Sorted(slices.Values(hosts)))
@@ -191,52 +191,69 @@ func configEndpointHosts(home string, manifest Manifest) map[string][]string {
 }
 
 // collectEndpointHosts walks a decoded config document and records, per
-// provider it finds named, the endpoint host that provider's entry declares.
-// A node names a provider through its own provider/name/id field or through the
-// map key it sits under, and only when it actually declares an endpoint
-// (opencode's "provider.<id>.options.baseURL" shape names the provider by key);
-// an entry's endpoint is a direct field or a nested "options" field.
+// provider it finds, the endpoint host that provider's entry declares. Only a
+// node the document positively presents as a provider entry is considered: a
+// node inside a provider container (keyed by the provider id, opencode's
+// "provider.<id>" / "models.providers.<id>") or a node that names its provider
+// through an explicit "provider" field (hermes' "model.provider"). A node that
+// merely carries an endpoint under some other key (an MCP server's "url", a
+// tool's "endpoint") is not a provider entry, so it yields no host: an
+// unrecognised shape is never a guess.
+//
+// entryKey is the provider id the node's enclosing provider container gives it,
+// or "" outside a container.
 //
 //deadcode:ignore reason="walks the agent config for provider endpoints; reached through configEndpointHosts and Read"
-func collectEndpointHosts(node any, key string, hostsByProvider map[string][]string) {
+func collectEndpointHosts(node any, key, entryKey string, hostsByProvider map[string][]string) {
 	switch typed := node.(type) {
 	case map[string]any:
-		hosts := entryEndpointHosts(typed)
-		if len(hosts) > 0 {
-			if provider, ok := providerNamedByEntry(typed, key); ok {
+		if hosts := entryEndpointHosts(typed); len(hosts) > 0 {
+			if provider, ok := providerNamedByEntry(typed, entryKey); ok {
 				hostsByProvider[provider] = append(hostsByProvider[provider], hosts...)
 			}
 		}
+		container := isProviderContainer(key)
 		for childKey, child := range typed {
-			collectEndpointHosts(child, childKey, hostsByProvider)
+			childEntryKey := ""
+			if container {
+				childEntryKey = childKey
+			}
+			collectEndpointHosts(child, childKey, childEntryKey, hostsByProvider)
 		}
 	case []any:
 		for _, child := range typed {
-			collectEndpointHosts(child, "", hostsByProvider)
+			collectEndpointHosts(child, "", "", hostsByProvider)
 		}
 	}
 }
 
-// providerNamedByEntry returns the provider an entry names: its provider, name,
-// or id field, or the map key it sits under. It reports false for a node that
-// names no provider or names one only as a non-string.
+// providerNamedByEntry returns the provider an entry names: the id its enclosing
+// provider container gave it, or an explicit "provider" field. It reports false
+// for a node that names no provider either way, so a generic "name"/"id" field
+// on a non-provider entry (an MCP server, a tool) never claims a provider.
 //
 //deadcode:ignore reason="identifies the provider a config entry describes; reached through collectEndpointHosts and Read"
-func providerNamedByEntry(entry map[string]any, key string) (string, bool) {
-	for _, field := range providerNameFields {
-		if provider, ok := entry[field].(string); ok && provider != "" {
-			return normalizeToken(provider), true
-		}
+func providerNamedByEntry(entry map[string]any, entryKey string) (string, bool) {
+	if provider, ok := entry["provider"].(string); ok && provider != "" {
+		return normalizeToken(provider), true
 	}
-	if key != "" {
-		return normalizeToken(key), true
+	if entryKey != "" {
+		return normalizeToken(entryKey), true
 	}
 	return "", false
 }
 
-// providerNameFields are the config keys an entry uses to name the provider it
-// configures (hermes' "model.provider", an OpenAI-compatible "name").
-var providerNameFields = []string{"provider", "name", "id"}
+// providerContainers are the config keys whose value is keyed by provider id, so
+// a child entry names its provider through its container-relative key
+// (opencode's "provider.<id>" and "models.providers.<id>" shapes).
+var providerContainers = []string{"provider", "providers", "models"}
+
+// isProviderContainer reports whether a config key holds provider-keyed entries.
+//
+//deadcode:ignore reason="recognizes a provider-id-keyed config container; reached through collectEndpointHosts and Read"
+func isProviderContainer(key string) bool {
+	return key != "" && slices.Contains(providerContainers, normalizeToken(key))
+}
 
 // entryEndpointHosts returns the hosts an entry's endpoint fields name, looking
 // directly at the entry and at its nested "options" object, which is where

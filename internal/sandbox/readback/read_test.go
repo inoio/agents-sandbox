@@ -390,6 +390,41 @@ func TestReadLoginCredentialsHaveNoHosts(t *testing.T) {
 	require.Empty(t, rb.Login[0].Hosts)
 }
 
+// TestReadCredentialHostsIgnoreNonProviderEndpoints: an endpoint that sits in
+// an entry the config does not present as a provider container (an MCP server's
+// "url") must not be attributed to a provider of the same name; an unrecognised
+// shape yields no host, never a guess.
+func TestReadCredentialHostsIgnoreNonProviderEndpoints(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".config/opencode/opencode.jsonc",
+		`{"mcp":{"openai":{"type":"remote","url":"https://mcp.example/sse"}}}`)
+	writeOpenCode2DB(t, home, [2]string{"openai", `{"type":"key","key":"sk"}`})
+
+	rb, err := Read(home, "opencode2", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Static, 1)
+	require.Empty(t, rb.Static[0].Hosts,
+		"an MCP server's url is not the provider's endpoint")
+}
+
+// TestReadCredentialHostsIgnoreNamedNonProviderEndpoints: a node that carries a
+// name/id field and an endpoint is only a provider entry when it sits in a
+// provider container; a tool or agent entry that also names a url is not.
+func TestReadCredentialHostsIgnoreNamedNonProviderEndpoints(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".config/opencode/opencode.jsonc",
+		`{"agent":{"openai":{"name":"openai","url":"https://agent.example/x"}}}`)
+	writeOpenCode2DB(t, home, [2]string{"openai", `{"type":"key","key":"sk"}`})
+
+	rb, err := Read(home, "opencode2", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Static, 1)
+	require.Empty(t, rb.Static[0].Hosts,
+		"a non-provider entry's url is not the provider's endpoint")
+}
+
 // TestReadCappedFileRejectsUnreadableAndMissing: a path that cannot be opened,
 // or whose contents cannot be read (a directory), is refused.
 func TestReadCappedFileRejectsUnreadableAndMissing(t *testing.T) {
