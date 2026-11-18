@@ -209,11 +209,6 @@ Those stay a review responsibility; the gate guards against the common direct fo
 
 `TestAmbientEnvironmentUses` pins the scanner and the marker semantics.
 
-The scan skips the `test/` tree. It is the end-to-end smoke suite (currently `test/harness`),
-which drives real VMs, `docker`, and the host environment by design; its untagged helpers are
-`_test.go` so Go keeps them out of non-test builds, not to exempt ordinary default-suite tests.
-The real-command gate shares the same exclusion through `defaultBuildTestSources`.
-
 ## Deliberate real-state reads
 
 The `integration`-tagged image tests (`internal/sandbox/image/render_integration_test.go`) are the one sanctioned
@@ -319,7 +314,10 @@ seam family is reached without its injectable factory. The remaining ambient pat
   (`real_command_contract_test.go`) enforces the split in the default suite: it walks every `_test.go` the default build
   compiles and fails if one calls `testutil.RunGit`/`ConfigureRepo` — through a qualified or a same-package unqualified
   call — or execs an ambient tool (`git`, `ssh`, `gpg`, `gh`,
-  `docker`, `msb`) named by an interpreted or raw string literal — a shell interpreter is allowed. A test that asserts on a
+  `docker`, `msb`) named by an interpreted or raw string literal — a shell interpreter is allowed. A use the statement
+  sanctions with, or has immediately above it, a reason-bearing `//testenv:allow <reason>` marker is not reported — the
+  same in-place escape the ambient gate reads, which the `test/harness` smoke suite's shared `_test.go` helpers use for
+  the real `docker` they drive by design. A test that asserts on a
   git-generated artifact still pins the setting it depends on in its own fixture — a linked worktree's recorded gitdir is
   absolute only while `worktree.useRelativePaths` is false, and CI on a plain clone never exercises a developer's global
   setting (`TestResolveIdentityOutsideWorktreeReportsSharedGitDir`). Because those tests are `integration`-tagged they are

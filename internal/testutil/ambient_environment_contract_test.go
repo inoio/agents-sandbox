@@ -334,13 +334,6 @@ func scanDefaultBuildTestSources(t *testing.T, root string, packages []modulePac
 	t.Helper()
 	var sources []testSource
 	for _, pkg := range packages {
-		// The test/ tree is the end-to-end smoke suite: it drives real VMs,
-		// docker, and the host environment by design, so it is exempt from the
-		// default-suite isolation scans. Its untagged helpers are _test.go so Go
-		// keeps them out of non-test builds, not to dodge this scan.
-		if pkg.dir == "test" || strings.HasPrefix(pkg.dir, "test/") {
-			continue
-		}
 		if !pkg.hasTests {
 			continue
 		}
