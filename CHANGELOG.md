@@ -12,6 +12,31 @@ emptied at the next release.
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-11-18
+
+### Added
+
+- The `notify.on-done-subagents-running` and `notify.on-done-commands-running` config keys (both default
+  false) let a done notification fire while a subagent or a background command is still running, with the
+  reason appended to the title (#711).
+
+### Changed
+
+- The first run in a checkout now presents the project config as new configuration to approve, instead of
+  saying it changed since a previous approval that never happened (#229).
+
+### Fixed
+
+- A done notification for an `opencode2` session no longer fires while a subagent it spawned, or one of its
+  background commands, is still running: only a session fully at rest alerts, and the genuinely-quiet done
+  arrives as the session's later execution-succeeded event (#711).
+- Notification wording is now shared by `opencode` (v1) and `opencode2`: titles use the `agents-sandbox:`
+  prefix (`agents-sandbox: agent done` / `input requested` / `session error`, a done with pending work
+  appending its reasons), and the body names the session as `in session '<title>'`.
+- The microsandbox SDK is bumped to v0.7.16, which revalidates an allow rule's SNI DNS binding on reconnect
+  (upstream microsandbox#2078): an intermittent `Request blocked by network policy.` error no longer aborts
+  the turn when a client reuses a cached DNS answer past its TTL (#717).
+
 ## [0.7.2] - 2026-11-18
 
 ### Fixed
