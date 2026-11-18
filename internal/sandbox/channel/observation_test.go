@@ -17,10 +17,11 @@ func TestRecorderAggregatesRepeatedDestination(t *testing.T) {
 	if first != second {
 		t.Fatal("the same destination must aggregate onto one entry")
 	}
-	if got := len(r.obs.Destinations); got != 1 {
+	destinations := r.result(Observation{}).Destinations
+	if got := len(destinations); got != 1 {
 		t.Fatalf("destinations = %d, want 1", got)
 	}
-	destination := r.obs.Destinations[0]
+	destination := destinations[0]
 	if destination.Count != 2 {
 		t.Fatalf("count = %d, want 2", destination.Count)
 	}
@@ -33,13 +34,40 @@ func TestRecorderAggregatesRepeatedDestination(t *testing.T) {
 	}
 }
 
+// TestRecorderObservedPointerStaysValid pins the recorder's pointer contract: a
+// request hook holds the entry observe returned until the response hook, so a
+// later observe that grows the recorder must not invalidate it, and what the
+// holder wrote through it must reach the artefact.
+func TestRecorderObservedPointerStaysValid(t *testing.T) {
+	var r recorder
+	held := r.observe("api.example", "203.0.113.7", "/v1/chat", "https", []string{"authorization"})
+
+	// More destinations reallocate whatever backs the recorder's collection.
+	r.observe("other.example", "198.51.100.2", "/v1/models", "https", nil)
+	r.observe("third.example", "198.51.100.3", "/", "connect", nil)
+
+	held.Port = 443
+	held.Success = true
+
+	for _, destination := range r.result(Observation{}).Destinations {
+		if destination.Host != "api.example" || destination.Path != "/v1/chat" {
+			continue
+		}
+		if destination.Port != 443 || !destination.Success {
+			t.Fatalf("a mutation through the held pointer was lost: %+v", destination)
+		}
+		return
+	}
+	t.Fatal("the held destination is missing from the artefact")
+}
+
 func TestRecorderKeepsDestinationsDistinct(t *testing.T) {
 	var r recorder
 	r.observe("api.example", "203.0.113.7", "/v1/chat", "https", nil)
 	r.observe("api.example", "203.0.113.7", "/v1/models", "https", nil)
 	r.observe("api.example", "203.0.113.7", "/v1/chat", "http", nil)
 
-	if got := len(r.obs.Destinations); got != 3 {
+	if got := len(r.result(Observation{}).Destinations); got != 3 {
 		t.Fatalf("destinations = %d, want 3 (path and protocol both identify)", got)
 	}
 }
@@ -49,10 +77,11 @@ func TestRecorderRecordsCredentialBearingHeaderNames(t *testing.T) {
 	r.observe("api.example", "203.0.113.7", "/v1/chat", "https", []string{"x-api-key", "authorization"})
 	r.observe("api.example", "203.0.113.7", "/v1/chat", "https", []string{"authorization"})
 
-	if got := len(r.obs.Attribution); got != 1 {
+	attributions := r.result(Observation{}).Attribution
+	if got := len(attributions); got != 1 {
 		t.Fatalf("attributions = %d, want 1", got)
 	}
-	attribution := r.obs.Attribution[0]
+	attribution := attributions[0]
 	if attribution.Host != "api.example" || attribution.Path != "/v1/chat" {
 		t.Fatalf("attribution names the wrong destination: %+v", attribution)
 	}
@@ -65,7 +94,7 @@ func TestRecorderRecordsNoAttributionWithoutCredentialHeader(t *testing.T) {
 	var r recorder
 	r.observe("api.example", "203.0.113.7", "/v1/chat", "https", nil)
 
-	if got := len(r.obs.Attribution); got != 0 {
+	if got := len(r.result(Observation{}).Attribution); got != 0 {
 		t.Fatalf("attributions = %d, want 0: a request with no credential header is unattributed", got)
 	}
 }
@@ -77,15 +106,19 @@ func TestRecorderDenyMarksDestinationWithoutAllow(t *testing.T) {
 
 	r.deny("blocked.example", "198.51.100.4", "/v1/chat")
 
-	if len(r.obs.Destinations) != 1 {
-		t.Fatalf("destinations = %d, want 1", len(r.obs.Destinations))
+	destinations := r.result(Observation{}).Destinations
+	if len(destinations) != 1 {
+		t.Fatalf("destinations = %d, want 1", len(destinations))
 	}
-	got := r.obs.Destinations[0]
+	got := destinations[0]
 	if !got.Denied {
 		t.Fatal("deny must mark the destination denied")
 	}
 	if got.Success {
 		t.Fatal("a denied destination must not be marked successful")
+	}
+	if got.Count != 1 {
+		t.Fatalf("count = %d, want 1: deny must not change the request count", got.Count)
 	}
 }
 
@@ -93,11 +126,15 @@ func TestRecorderDenyRecordsUnobservedDestination(t *testing.T) {
 	var r recorder
 	r.deny("blocked.example", "198.51.100.4", "/v1/chat")
 
-	if len(r.obs.Destinations) != 1 {
-		t.Fatalf("destinations = %d, want 1", len(r.obs.Destinations))
+	destinations := r.result(Observation{}).Destinations
+	if len(destinations) != 1 {
+		t.Fatalf("destinations = %d, want 1", len(destinations))
 	}
-	if !r.obs.Destinations[0].Denied {
+	if !destinations[0].Denied {
 		t.Fatal("a denial before any observed request must still be recorded")
+	}
+	if destinations[0].Protocol != "" {
+		t.Fatalf("protocol = %q, want empty: a protocol-less deny cannot name one", destinations[0].Protocol)
 	}
 }
 
@@ -164,7 +201,7 @@ func TestRecorderResultUnionsObservedAndGivenArtefacts(t *testing.T) {
 	if want := []string{"api.example", "config.example"}; !slices.Equal(destinationHosts(got), want) {
 		t.Fatalf("hosts = %v, want %v", destinationHosts(got), want)
 	}
-	if merged := r.result(r.obs); len(merged.Destinations) != 1 {
+	if merged := r.result(r.result(Observation{})); len(merged.Destinations) != 1 {
 		t.Fatalf("merging a recorder's own artefact must not duplicate: %+v", merged.Destinations)
 	}
 }

@@ -18,7 +18,7 @@ type Destination struct {
 	Host      string    `json:"host"`       // Host header / SNI
 	IP        string    `json:"ip"`         // resolved IP the CONNECT target used
 	Port      uint16    `json:"port"`       // port the request used
-	Protocol  string    `json:"protocol"`   // "https" | "http" | "connect" | "socks5" | "tcp"
+	Protocol  string    `json:"protocol"`   // "https" | "http" | "connect" | "socks5" | "tcp"; empty for a deny seen before any request
 	Path      string    `json:"path"`       // request path, never a query
 	Success   bool      `json:"success"`    // a response arrived
 	Denied    bool      `json:"denied"`     // egress policy or transport refused it
@@ -50,15 +50,22 @@ type Observation struct {
 
 // recorder accumulates the artefact as requests are observed. Its methods take
 // the destination and the request's header NAMES; no value is ever passed in.
+// Destinations are held as stable pointers, so the entry observe returns stays
+// valid for the recorder's lifetime and a caller can keep it from the request
+// hook until the response hook.
 type recorder struct {
-	obs Observation
+	destinations []*Destination
+	attribution  []Attribution
 }
 
 // observe folds one request into the artefact and returns the destination entry
 // it belongs to, so the caller can complete what only the transport knows (the
 // port, and success once a response arrives). A repeated destination aggregates:
-// its count rises and its last-seen time advances. The header names are added to
-// the destination's attribution; a request carrying none stays unattributed.
+// its count rises and its last-seen time advances, and the returned pointer
+// keeps naming the same entry. The header names are added to the destination's
+// attribution; a request carrying none stays unattributed. The pointer stays
+// valid for the recorder's lifetime — until result or teardown tears it down —
+// so a caller may hold it across later observe calls.
 //
 //deadcode:ignore reason="the channel's capture entry point; the terminating proxy (next step in S4) calls observe from its request hook"
 func (r *recorder) observe(host, ip, path, protocol string, headerNames []string) *Destination {
@@ -81,8 +88,7 @@ func (r *recorder) observe(host, ip, path, protocol string, headerNames []string
 //deadcode:ignore reason="records a denial; the terminating proxy's RoundTrip error hook (next step in S4) calls deny"
 func (r *recorder) deny(host, ip, path string) {
 	matched := false
-	for i := range r.obs.Destinations {
-		destination := &r.obs.Destinations[i]
+	for _, destination := range r.destinations {
 		if destination.Host == host && destination.IP == ip && destination.Path == path {
 			destination.Denied = true
 			destination.Success = false
@@ -90,7 +96,7 @@ func (r *recorder) deny(host, ip, path string) {
 		}
 	}
 	if !matched {
-		r.obs.Destinations = append(r.obs.Destinations, Destination{
+		r.destinations = append(r.destinations, &Destination{
 			Host:      host,
 			IP:        ip,
 			Port:      0,
@@ -114,12 +120,13 @@ func (r *recorder) deny(host, ip, path string) {
 //deadcode:ignore reason="finalises the artefact; the terminating proxy's Stop (next step in S4) returns result"
 func (r *recorder) result(obs Observation) Observation {
 	combined := Observation{
-		Destinations: append(
-			append(make([]Destination, 0, len(obs.Destinations)+len(r.obs.Destinations)), obs.Destinations...),
-			r.obs.Destinations...),
+		Destinations: append(make([]Destination, 0, len(obs.Destinations)+len(r.destinations)), obs.Destinations...),
 		Attribution: append(
-			append(make([]Attribution, 0, len(obs.Attribution)+len(r.obs.Attribution)), obs.Attribution...),
-			r.obs.Attribution...),
+			append(make([]Attribution, 0, len(obs.Attribution)+len(r.attribution)), obs.Attribution...),
+			r.attribution...),
+	}
+	for _, destination := range r.destinations {
+		combined.Destinations = append(combined.Destinations, *destination)
 	}
 	combined.Destinations = dedupeDestinations(combined.Destinations)
 	combined.Attribution = dedupeAttributions(combined.Attribution)
@@ -129,17 +136,17 @@ func (r *recorder) result(obs Observation) Observation {
 }
 
 // destination returns the entry for a destination, appending a new one when the
-// destination was not yet seen. The first observation fixes the channel.
+// destination was not yet seen. The first observation fixes the channel; the
+// entry is heap-allocated, so the returned pointer outlives later appends.
 //
 //deadcode:ignore reason="reached through observe, whose pending production caller is the terminating proxy (next step in S4)"
 func (r *recorder) destination(host, ip, path, protocol string) *Destination {
-	for i := range r.obs.Destinations {
-		candidate := &r.obs.Destinations[i]
+	for _, candidate := range r.destinations {
 		if candidate.Host == host && candidate.IP == ip && candidate.Path == path && candidate.Protocol == protocol {
 			return candidate
 		}
 	}
-	r.obs.Destinations = append(r.obs.Destinations, Destination{
+	destination := &Destination{
 		Host:      host,
 		IP:        ip,
 		Port:      0,
@@ -151,8 +158,9 @@ func (r *recorder) destination(host, ip, path, protocol string) *Destination {
 		FirstSeen: time.Time{},
 		LastSeen:  time.Time{},
 		Channel:   observedViaProxy,
-	})
-	return &r.obs.Destinations[len(r.obs.Destinations)-1]
+	}
+	r.destinations = append(r.destinations, destination)
+	return destination
 }
 
 // attribute adds the request's credential-bearing header names to the
@@ -165,15 +173,15 @@ func (r *recorder) attribute(host, path string, headerNames []string) {
 	if len(headerNames) == 0 {
 		return
 	}
-	for i := range r.obs.Attribution {
-		attribution := &r.obs.Attribution[i]
+	for i := range r.attribution {
+		attribution := &r.attribution[i]
 		if attribution.Host != host || attribution.Path != path {
 			continue
 		}
 		attribution.HeaderNames = mergeHeaderNames(attribution.HeaderNames, headerNames)
 		return
 	}
-	r.obs.Attribution = append(r.obs.Attribution, Attribution{
+	r.attribution = append(r.attribution, Attribution{
 		Host:           host,
 		Path:           path,
 		Credential:     "",
