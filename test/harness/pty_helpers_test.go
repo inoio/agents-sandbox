@@ -1,4 +1,3 @@
-//deadcode:ignore reason="test support: referenced only by _test.go files"
 package harness
 
 import (
@@ -68,7 +67,6 @@ type ptySession struct {
 // this in a must-start helper that fails the test on error.
 func startUnderPTY(dir string, env []string, argv []string) (*ptySession, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	//nolint:gosec // G204: the caller names the binary to drive; no untrusted input reaches it.
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	if dir != "" {
 		cmd.Dir = dir

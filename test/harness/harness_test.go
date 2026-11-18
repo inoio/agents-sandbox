@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/hostlock"
 )
 
@@ -164,6 +165,90 @@ func TestSeedHomeFiles(t *testing.T) {
 		if string(got) != want {
 			t.Errorf("%s = %q, want %q", rel, got, want)
 		}
+	}
+}
+
+// TestClaudeCodeSeedsItsFirstRunState pins why and how claude-code is seeded:
+// its first run stops at onboarding, whose only quit key aborts with exit 1, so
+// its subtest seeds the first-run state claude-code keeps outside its
+// ProvisionRules paths through the launcher's home: manifest.
+func TestClaudeCodeSeedsItsFirstRunState(t *testing.T) {
+	spec, ok := harnessSpecs["claude-code"]
+	if !ok {
+		t.Fatal("claude-code has no smoke-test spec")
+	}
+	cfg, ok := spec.SeedHomeManifest[claudeCodeConfigPath]
+	if !ok {
+		t.Fatalf("claude-code SeedHomeManifest missing %s", claudeCodeConfigPath)
+	}
+	for _, want := range []string{"hasCompletedOnboarding", "/workspace", "hasTrustDialogAccepted"} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("claude-code seeded config missing %q:\n%s", want, cfg)
+		}
+	}
+	if len(spec.SeedHomeFiles) != 0 {
+		t.Errorf("claude-code SeedHomeFiles = %v; want the home: manifest", spec.SeedHomeFiles)
+	}
+}
+
+// TestSeedHomeManifest pins that a manifest seed is written to a private seed
+// file and declared in the isolated launcher config's home: manifest with an
+// absolute source, so the launcher provisions it into the VM. The written
+// config is parsed back with the launcher's own home-manifest reader, so a
+// shape the launcher would reject fails here.
+func TestSeedHomeManifest(t *testing.T) {
+	homeBase := t.TempDir()
+	files := map[string]string{
+		claudeCodeConfigPath: claudeCodeSmokeConfig,
+		".nested/seed":       "content",
+	}
+	if err := seedHomeManifest(homeBase, files); err != nil {
+		t.Fatalf("seedHomeManifest: %v", err)
+	}
+	for target, want := range files {
+		got, err := os.ReadFile(filepath.Join(homeBase, seedDirName, target))
+		if err != nil {
+			t.Fatalf("read seed %s: %v", target, err)
+		}
+		if string(got) != want {
+			t.Errorf("seed %s = %q, want %q", target, got, want)
+		}
+	}
+	configPath := filepath.Join(homeBase, configDirName, launcherConfigDirName, launcherConfigFileName)
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read launcher config: %v", err)
+	}
+	manifest, ok, err := homeconfig.ParseHomeConfig(configPath, data)
+	if err != nil {
+		t.Fatalf("parse launcher config: %v", err)
+	}
+	if !ok {
+		t.Fatalf("launcher config has no home: key:\n%s", data)
+	}
+	for target := range files {
+		entry, ok := manifest[target]
+		if !ok {
+			t.Errorf("home manifest missing target %s", target)
+			continue
+		}
+		if want := filepath.Join(homeBase, seedDirName, target); entry.Source != want {
+			t.Errorf("manifest source for %s = %q, want %q", target, entry.Source, want)
+		}
+	}
+}
+
+// TestSeedHomeManifestEmptyWritesNothing pins that a harness with no manifest
+// seed leaves the launcher config untouched, so the smoke run gets deterministic
+// defaults rather than an empty home: manifest.
+func TestSeedHomeManifestEmptyWritesNothing(t *testing.T) {
+	homeBase := t.TempDir()
+	if err := seedHomeManifest(homeBase, nil); err != nil {
+		t.Fatalf("seedHomeManifest(nil): %v", err)
+	}
+	configDir := filepath.Join(homeBase, configDirName, launcherConfigDirName)
+	if _, err := os.Stat(configDir); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("seedHomeManifest(nil) created a launcher config dir: stat err = %v", err)
 	}
 }
 

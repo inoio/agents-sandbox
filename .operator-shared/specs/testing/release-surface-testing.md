@@ -79,7 +79,7 @@ Failure modes the surface implies; each is pinned by a check in the task named.
 ## Task 0 [I]: Sweep scaffolding (isolation helper + spine root)
 
 **Files:**
-- `scripts/surface-sweep.sh` — the isolation helper (committed; follows `test/harness/harness.go`'s isolation intent —
+- `scripts/surface-sweep.sh` — the isolation helper (committed; follows `test/harness/harness_helpers_test.go`'s isolation intent —
   the `rootFitsSandboxSocket` budget check and dropping the ambient `HOME`/`XDG_*`/`AGENTS_SANDBOX_*`/`OPENCODE_SANDBOX_*`/
   `MSB_*` — but is sourced, not imported; that package is `msb`-tagged test-only. Unlike `isolatedEnv`'s strict
   allow-list it keeps the caller's wider shell env (`PATH`/`TERM`/`tmux`/…), because its `env` snippet is sourced into an
