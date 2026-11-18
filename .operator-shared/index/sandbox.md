@@ -18,6 +18,10 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 ## `internal/sandbox` Index
 
+### `channel/` — Learn-mode observation channel (terminating proxy, capture, store)
+
+- `observation.go` (`Destination`/`Attribution`/`Observation`, the value-free scrubbed capture and its recorder), `proxy.go` (the `elazarl/goproxy` terminating proxy: `Start`/`Handle.Stop`/`CAPEM`/`CAFile`, per-session CA, destination and header-name recording), `session.go` (`StartObservation`/`Observer`, the in-memory network overlay), `store.go` (`Save`/`Load`/`Prune` under `<UserStateDir>/learn/`) — the destination/credential-attribution fact source of `specs/onboarding/learn-mode/observation-channel.md`. Landed ahead of its invocation (S7 starts it before `prepareSandbox`), so unreachable declarations carry temporary `//deadcode:ignore` markers S7 deletes as it wires them.
+
 ### `docker/` — Docker client wrapper and guards
 
 - `docker.go`, `dockercontext.go` — Docker client/context

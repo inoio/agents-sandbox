@@ -25,12 +25,14 @@ What is on `main` now:
   and the strict-hostname bypass. Its per-harness read-back check covered **opencode2 only** (still partial).
 - **S2 landed** (#720): `network.intercept-tls`/`tls-bypass`/`disable-strict`.
 - **S3 landed** (#721): `network.proxy.*`/`--proxy` (SOCKS4/5, HTTP CONNECT).
+- **S4 landed**: `internal/sandbox/channel` — the terminating proxy, the scrubbed capture, the in-memory network
+  overlay, and the artefact store — still carrying its temporary `//deadcode:ignore` markers until S7 wires the
+  invocation. Its one host-only step (a real streaming turn through the proxy) is a human accept the PR carries.
 - **S5 landed** (#722): `internal/sandbox/readback` + `agent.ReadBackDescriber`, still carrying its temporary
   `//deadcode:ignore` markers (see below).
 
-**The frontier is S4 (`observation-channel`) and S6 (`analyser`)** — every predecessor of each has landed. Both plan
-files are now written. S7/S8/S9 are named in the DAG but **not yet written** — write each when its predecessor lands,
-never in advance.
+**The frontier is S6 (`analyser`)** — every predecessor has landed. S7/S8/S9 are named in the DAG but **not yet
+written** — write each when its predecessor lands, never in advance.
 
 **S6 must remove S5's dead-code markers.** S5 (`readback`) lands a library before its only consumer, so its
 declarations are unreachable from any `main` package and carry temporary declaration-scope `//deadcode:ignore
@@ -45,9 +47,9 @@ so the config-entry attribution fallback in `findings-and-apply.md` has no sourc
 
 **How to run a subplan:** create a worktree off `origin/main` (`superpowers:using-git-worktrees`), load `superpowers:subagent-driven-development`, and execute its tasks one at a time (a fresh implementer per task, a fresh reviewer gating each). Steps marked **human accept** run on a KVM host and cannot be done in the dev VM; the subplan is not done until they are checked. Finish with one `code-review`/`reviewer-large` pass over the whole subplan, then a PR into the merge queue.
 
-**S2 and S3 both landed** (they shared files). **S4 and S6 share no files** — S4 is the channel track
-(`network`/`msb`/`session`/`state`), S6 the learn track (`analyser`/`config`/`envsecret`) — so they may run in
-parallel. Within each, serialize where the plan says so.
+**S2, S3, and S4 have all landed** (S2 and S3 shared files; S4 followed them). **S4 and S6 share no files** — S4 is
+the channel track (`network`/`msb`/`session`/`state`), S6 the learn track (`analyser`/`config`/`envsecret`) — so they
+could run in parallel; with S4 landed, S6 is the last of the two. Within each, serialize where the plan says so.
 
 ## Global Constraints
 
@@ -255,9 +257,9 @@ CHANNEL TRACK                                          LEARN TRACK
 | S8 config-harden | `2026-11-17-config-harden.md` (stub) | `config harden` | yes | S6 | S7 |
 | S9 firstrun | `2026-11-17-learn-mode-firstrun.md` (stub) | first-run `Guide` choices + UC4 seed | yes | S4, S5, E2, E3 | — |
 
-S2 and S3 both landed (they shared `network.Policy`, `msb.NetworkSpec`, `msb/translate.go`,
-`viperconfig/config.go`). **S4 and S6 share no file** and may run in parallel; within each, follow its own
-serialization. Stubs and their interfaces are written when their predecessor lands, never in advance.
+S2, S3, and S4 landed (S2/S3 shared `network.Policy`, `msb.NetworkSpec`, `msb/translate.go`,
+`viperconfig/config.go`). **S4 and S6 share no file**: S4 is done and S6 is the remaining frontier. Within each,
+follow its own serialization. Stubs and their interfaces are written when their predecessor lands, never in advance.
 
 **S2 re-scope.** S2 ships the TLS-interception **controls only** (`intercept-tls`/`tls-bypass`/`disable-strict`). It does
 no registry handling — no auto-bypass, no allowlist derivation — and the in-VM `docker build` CA case stays a documented
