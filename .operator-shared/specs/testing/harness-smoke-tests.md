@@ -1,5 +1,5 @@
 ---
-description: Contract for the `msb`-tagged harness smoke tests that start every registered harness to its TUI in a real microsandbox VM (readiness by alternate-screen marker, a startup-line marker, or a settled wait; optional seeded home files), the per-harness isolated home tree with a shared microsandbox image cache, the parallel subtests sized to the host's free memory and the bounded image prebuild, the smaller per-VM memory cap, the reusable-root escape hatch, and the isolation that keeps them off the developer's existing agents-sandbox state.
+description: Contract for the `msb`-tagged harness smoke tests that start every registered harness to its TUI in a real microsandbox VM (readiness by alternate-screen marker, a startup-line marker, or a settled wait; optional seeded home files, via the isolated home or the launcher config's `home:` manifest), the per-harness isolated home tree with a shared microsandbox image cache, the parallel subtests sized to the host's free memory and the bounded image prebuild, the smaller per-VM memory cap, the reusable-root escape hatch, and the isolation that keeps them off the developer's existing agents-sandbox state.
 read_if: Adding or changing the harness smoke tests, the `msb` build tag, `make test-msb`/`make test-msb-reuse` or
   `AGENTS_SANDBOX_SMOKE_ROOT`, the harness quit-press table, the readiness signals or seeded home files, the
   per-harness home split or how the harnesses' concurrency is bounded, or when a harness's TUI startup or quit behavior changes.
@@ -96,7 +96,7 @@ coverage.
 | `opencode`, `opencode2` | `0x04` (Ctrl-D) | their documented `app_exit`; they leave once a tap lands after the TUI has finished coming up |
 | `pi` | `0x04` (Ctrl-D) | documented `app.exit`; leaves on the first tap |
 | `oh-my-pi` | `0x04` (Ctrl-D) | documented `app.exit`, inherited from pi, which it forks; readied on its no-model startup warning |
-| `claude-code` | `0x03` (Ctrl-C) | repeated presses leave it — its screen announces "Press Ctrl-C again to exit", and three is what a user found; readied on its startup-splash marker |
+| `claude-code` | `0x03` (Ctrl-C) | seeded past its first-run onboarding (below), it lands on its prompt; repeated presses leave it — its screen announces "Press Ctrl-C again to exit", and three is what a user found; readied on its startup-splash marker |
 | `codex` | `0x03` (Ctrl-C) | quits on Ctrl-C; its TUI uses the alternate screen, so readiness is the alternate-screen marker |
 | `hermes` | `0x04` (Ctrl-D) | its classic CLI's REPL exits on Ctrl-D; readied on its banner marker and seeded (below) so it starts the REPL instead of its first-run setup guard |
 
@@ -114,6 +114,15 @@ hermes reaches its REPL, where Ctrl-D exits `0`. The seed is a config, not a cre
 loopback port and no request leaves the VM before a message is submitted. `oh-my-pi` likewise seeds
 `.omp/agent/config.yml` (`startup.setupWizard: false`) so its first-run setup wizard — a fullscreen overlay that would
 otherwise come up before the editor — is skipped.
+
+**Manifest-seeded home files.** A harness whose first-run state lives outside the paths its `ProvisionRules` copy
+declares `SeedHomeManifest` instead: a map of VM-home-relative target to content, written under the run's seed dir and
+declared in the isolated launcher config's `home:` manifest with an absolute source, so the launcher provisions it into
+the VM home independently of `ProvisionRules`. `claude-code` needs it: its first-run state is `~/.claude.json`, beside
+the `~/.claude/settings.json` the agent's rules copy. Current releases stop there at onboarding — a theme picker and a
+workspace-trust dialog — whose only quit key aborts the launch with exit 1, so no quit key could leave the subtest 0.
+The seed sets `hasCompletedOnboarding` and pre-trusts the guest working directory (the project dir is not a repository,
+so it binds at `/workspace`), so claude-code reaches its prompt, where repeated Ctrl-C exits 0.
 
 **Tap until it goes, then assert the exit.** `quit` taps the harness's key every `quitPressInterval` (400ms) until the
 process exits, for at most `quitTimeout` (15s), then asserts exit code 0. A fixed sequence is wrong for two measured
@@ -216,10 +225,11 @@ waiting run only proceeds once the sweep sharing the root is done.
 ## Risks and open items
 
 - `claude-code`'s startup-splash marker is a broad product-name match, the weakest of the readiness signals: if a
-  release stops printing it (or prints it only after the login screen it shows first), the subtest fails with the
-  screen it stopped on and the marker needs a measured replacement. Its exit is also the least like a single
-  documented keybinding — a repeated Ctrl-C on a first-run screen — so a change to its onboarding is the likeliest
-  cause of a failed subtest.
+  release stops printing it, the subtest fails with the screen it stopped on and the marker needs a measured
+  replacement. Its first-run exit is also the least like a single documented keybinding, so its subtest seeds that
+  first run away (above). The seed couples the subtest to claude-code's first-run config shape — `hasCompletedOnboarding`
+  and the per-project `hasTrustDialogAccepted` keyed on the guest `/workspace` — so a change to either fails the subtest
+  with the screen it stopped on, and the fix is to update the seed, not the harness.
 - `hermes`'s seeded config couples the subtest to two upstream contracts: its `provider`/`base_url` config shape
   (whether a bare custom provider still counts as configured) and its shared-metrics `offer_version` (a bump re-asks
   the prompt before the REPL). A change to either fails the subtest with the screen hermes stopped on, and the fix is to
