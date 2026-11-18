@@ -23,18 +23,31 @@ cat >"$stub" <<'EOF'
 set -euo pipefail
 target=""
 for arg in "$@"; do target="$arg"; done
+if [[ "${STUB_ORDER:-0}" == 1 ]]; then
+  printf 'start %s\n' "$target" >>"$STUB_DIR/order"
+  sleep 0.3
+fi
 printf 'stdout %s\n' "$target"
 printf 'stderr %s\n' "$target" >&2
-if [[ -f "$STUB_DIR/fail-$target" ]]; then exit 1; fi
-exit 0
+status=0
+if [[ -f "$STUB_DIR/fail-$target" ]]; then status=1; fi
+if [[ "${STUB_ORDER:-0}" == 1 ]]; then
+  printf 'end %s\n' "$target" >>"$STUB_DIR/order"
+fi
+exit "$status"
 EOF
 chmod +x "$stub"
 export STUB_DIR="$tmp"
 
 # runner_run <heavy> <target...> -> RUN_OUT, RUN_ERR, RUN_STATUS
+# Callers set RUN_JOBS, RUN_SERIAL, RUN_VERBOSE, RUN_ORDER (all default off).
 runner_run() {
   local heavy="$1"; shift
-  if RUN_OUT="$(MAKE="$stub" CHECK_HEAVY_TARGETS="$heavy" JOBS=2 "$RUNNER" "$@" 2>"$tmp/err")"; then
+  if RUN_OUT="$(env \
+      MAKE="$stub" CHECK_HEAVY_TARGETS="$heavy" \
+      JOBS="${RUN_JOBS:-2}" SERIAL="${RUN_SERIAL:-0}" VERBOSE="${RUN_VERBOSE:-0}" \
+      STUB_ORDER="${RUN_ORDER:-0}" \
+      "$RUNNER" "$@" 2>"$tmp/err")"; then
     RUN_STATUS=0
   else
     RUN_STATUS=$?
@@ -64,6 +77,8 @@ expect_absent() {
   fi
 }
 line_of()        { printf '%s\n' "$2" | grep -nF -- "$1" | head -1 | cut -d: -f1 || true; }
+# Number of `start` markers seen before the first `end` in the order file.
+starts_before_first_end() { awk '/^end /{print s+0; exit} /^start /{s++}' "$STUB_DIR/order"; }
 
 rm -f "$tmp"/fail-*
 
@@ -109,6 +124,37 @@ expect_contains "unknown heavy target names it" "gamma" "$RUN_ERR"
 if "$RUNNER" --help >"$tmp/help" 2>&1; then help_status=0; else help_status=$?; fi
 if [[ "$help_status" == 0 ]]; then ok "--help exits 0"; else bad "--help exits 0 (status $help_status)"; fi
 expect_contains "--help prints usage" "Usage" "$(cat "$tmp/help")"
+
+# Scheduling: light targets overlap, heavy targets do not, SERIAL forces one at
+# a time, VERBOSE streams without capture or status lines.
+rm -f "$tmp"/fail-*
+RUN_ORDER=1; RUN_JOBS=2; RUN_SERIAL=0; RUN_VERBOSE=0
+: >"$STUB_DIR/order"
+runner_run "" alpha beta
+expect_status "light targets run to completion" 0
+got="$(starts_before_first_end)"
+if [[ "$got" == 2 ]]; then ok "light targets overlap"; else bad "light targets overlap (starts before first end: $got)"; fi
+
+: >"$STUB_DIR/order"
+runner_run "alpha beta" alpha beta
+expect_status "heavy targets run to completion" 0
+got="$(starts_before_first_end)"
+if [[ "$got" == 1 ]]; then ok "heavy targets run one at a time"; else bad "heavy targets run one at a time (starts before first end: $got)"; fi
+
+RUN_SERIAL=1
+: >"$STUB_DIR/order"
+runner_run "" alpha beta
+expect_status "SERIAL run completes" 0
+got="$(starts_before_first_end)"
+if [[ "$got" == 1 ]]; then ok "SERIAL runs one at a time"; else bad "SERIAL runs one at a time (starts before first end: $got)"; fi
+RUN_SERIAL=0
+
+RUN_VERBOSE=1
+runner_run "" alpha
+expect_status "VERBOSE run completes" 0
+expect_contains "VERBOSE streams target output" "stdout alpha" "$RUN_OUT"
+expect_absent "VERBOSE prints no status lines" "PASS " "$RUN_OUT"
+RUN_VERBOSE=0; RUN_ORDER=0
 
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]
