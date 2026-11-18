@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-cold test-msb-reuse compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic envelope-test check check-test verify print-check-targets check-local-changes check-branch-changes changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test backport-audit-test open-backport-pr-test event-base-test classify-changes-test brain-check brain-check-test shellcheck docs-serve
+.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-cold test-msb-reuse compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic envelope-test check check-test verify print-check-targets check-local-changes check-branch-changes check-selected changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test backport-audit-test open-backport-pr-test event-base-test classify-changes-test brain-check brain-check-test shellcheck docs-serve
 
 VERSION ?= dev
 
@@ -426,9 +426,9 @@ check-local-changes:
 		$(MAKE) --no-print-directory changelog-presence MODE=local; \
 		echo "check-local-changes: no changed files"; exit 0; \
 	fi; \
-	echo "check-local-changes: $$(printf '%s ' $$targets)"; \
-	heavy="$$(CHECK_HEAVY_TARGETS="$(CHECK_HEAVY_TARGETS)" ./scripts/check.sh --heavy-subset $$targets)"; \
-	MODE=local CHECK_HEAVY_TARGETS="$$heavy" JOBS=$(JOBS) ./scripts/check.sh $$targets changelog-presence
+	selected="$$(printf '%s ' $$targets)"; \
+	echo "check-local-changes: $$selected"; \
+	$(MAKE) --no-print-directory check-selected TARGETS="$$selected" MODE=local
 
 check-branch-changes:
 	@targets="$$(./scripts/changed-targets.sh branch $${BASE:+--base $$BASE})" || { echo "check-branch-changes: scripts/changed-targets.sh failed" >&2; exit 1; }; \
@@ -436,9 +436,16 @@ check-branch-changes:
 		$(MAKE) --no-print-directory changelog-presence MODE=branch $${BASE:+BASE=$$BASE}; \
 		echo "check-branch-changes: no changed files"; exit 0; \
 	fi; \
-	echo "check-branch-changes: $$(printf '%s ' $$targets)"; \
-	heavy="$$(CHECK_HEAVY_TARGETS="$(CHECK_HEAVY_TARGETS)" ./scripts/check.sh --heavy-subset $$targets)"; \
-	MODE=branch $${BASE:+BASE=$$BASE }CHECK_HEAVY_TARGETS="$$heavy" JOBS=$(JOBS) ./scripts/check.sh $$targets changelog-presence
+	selected="$$(printf '%s ' $$targets)"; \
+	echo "check-branch-changes: $$selected"; \
+	$(MAKE) --no-print-directory check-selected TARGETS="$$selected" MODE=branch $${BASE:+BASE=$$BASE}
+
+# Internal: run a diff-gated selection through the check runner. The heavy set is
+# filtered to the selection, since the runner rejects a heavy target it was not
+# handed. MODE/BASE feed changelog-presence; CHECK_RUNNER is a test seam.
+CHECK_RUNNER ?= ./scripts/check.sh
+check-selected:
+	@MODE="$(MODE)" BASE="$(BASE)" CHECK_HEAVY_TARGETS="$(filter $(TARGETS),$(CHECK_HEAVY_TARGETS))" JOBS=$(JOBS) $(CHECK_RUNNER) $(TARGETS) changelog-presence
 
 # Changelog presence in the fast loop: a code change with no changelog.d/
 # fragment should fail locally, not only in CI. The changed paths come from

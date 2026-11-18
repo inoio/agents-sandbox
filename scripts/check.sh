@@ -12,12 +12,6 @@
 # Usage:
 #   check.sh [--help] <target>...
 #
-# Internal:
-#   check.sh --heavy-subset <target>...
-#       Print, space-separated, the CHECK_HEAVY_TARGETS entries among the given
-#       targets. Used by the inner-loop Makefile recipes so the heavy
-#       classification matches the subset they run.
-#
 # Environment:
 #   CHECK_HEAVY_TARGETS  space-separated targets to run one at a time
 #   JOBS                 light-pool width (default: max(2, nproc/4))
@@ -36,7 +30,6 @@ targets=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help) sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    --heavy-subset) heavy_subset_mode=1; shift ;;
     -*) printf 'check: unknown option: %s\n' "$1" >&2; exit 2 ;;
     *) targets+=("$1"); shift ;;
   esac
@@ -45,19 +38,6 @@ done
 heavy_targets=()
 if [[ -n "${CHECK_HEAVY_TARGETS:-}" ]]; then
   read -r -a heavy_targets <<<"${CHECK_HEAVY_TARGETS}"
-fi
-
-if [[ "${heavy_subset_mode:-0}" == 1 ]]; then
-  subset=""
-  if [[ "${#heavy_targets[@]}" -gt 0 && "${#targets[@]}" -gt 0 ]]; then
-    for h in "${heavy_targets[@]}"; do
-      for t in "${targets[@]}"; do
-        if [[ "$h" == "$t" ]]; then subset="$subset $h"; break; fi
-      done
-    done
-  fi
-  printf '%s\n' "${subset# }"
-  exit 0
 fi
 
 if [[ "${#targets[@]}" -eq 0 ]]; then

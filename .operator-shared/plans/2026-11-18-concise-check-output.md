@@ -43,7 +43,7 @@ read_if: Executing the concise-check-output change; or working on `scripts/check
 
 **Interfaces:**
 - Consumes: env `CHECK_HEAVY_TARGETS` (space list), `JOBS`, `MAKE`, `VERBOSE`, `SERIAL`.
-- Produces: `scripts/check.sh [--help] <target>...`, exit 0 all pass / 1 any fail / 2 usage or a heavy target missing from the target list. Prints `PASS <target> <n>s` / `FAIL <target> <n>s` per target, then `--- FAIL <target> ---` and the captured log for each failure. Also `--heavy-subset <target>...`, which prints the `CHECK_HEAVY_TARGETS` entries among its arguments (used by Task 4's recipes).
+- Produces: `scripts/check.sh [--help] <target>...`, exit 0 all pass / 1 any fail / 2 usage or a heavy target missing from the target list. Prints `PASS <target> <n>s` / `FAIL <target> <n>s` per target, then `--- FAIL <target> ---` and the captured log for each failure.
 
 - [ ] **Step 1: Write the failing test** in `scripts/test-check.sh` (fixture-only; pass/fail core, no concurrency yet).
 
@@ -237,12 +237,19 @@ git commit -m "chore(check): split heavy targets and delegate check/verify to th
 
 - [ ] **Step 1: Change both recipes**
 
-Replace the final `$(MAKE) --no-print-directory -j$(JOBS) -O $$targets changelog-presence MODE=local` (and the `branch` analogue) with the runner. The runner rejects a heavy target absent from its target list, and the selection is a subset of `CHECK_HEAVY_TARGETS`, so pass only the heavy targets that are in the selection:
+Replace the final `$(MAKE) --no-print-directory -j$(JOBS) -O $$targets changelog-presence MODE=local` (and the `branch` analogue) so the target normalises the selection and delegates to the shared `check-selected` target:
 ```make
-heavy="$$(CHECK_HEAVY_TARGETS="$(CHECK_HEAVY_TARGETS)" ./scripts/check.sh --heavy-subset $$targets)"; \
-MODE=local CHECK_HEAVY_TARGETS="$$heavy" JOBS=$(JOBS) ./scripts/check.sh $$targets changelog-presence
+	selected="$$(printf '%s ' $$targets)"; \
+	echo "check-local-changes: $$selected"; \
+	$(MAKE) --no-print-directory check-selected TARGETS="$$selected" MODE=local
 ```
-and the `branch` one with `MODE=branch` plus the existing `$${BASE:+BASE=$$BASE}`. `changelog-presence` uses `MODE ?= local`, which respects an environment `MODE`. `--heavy-subset` is the runner's internal mode that prints the `CHECK_HEAVY_TARGETS` entries among its arguments; it is unit-tested in `scripts/test-check.sh`.
+the `branch` one with `MODE=branch` plus the existing `$${BASE:+BASE=$$BASE}` as trailing make arguments (the working pre-existing pattern). Add the shared target, whose every environment assignment starts with a literal `NAME=` (a leading parameter expansion is not an assignment word in POSIX `sh`):
+```make
+CHECK_RUNNER ?= ./scripts/check.sh
+check-selected:
+	@MODE="$(MODE)" BASE="$(BASE)" CHECK_HEAVY_TARGETS="$(filter $(TARGETS),$(CHECK_HEAVY_TARGETS))" JOBS=$(JOBS) $(CHECK_RUNNER) $(TARGETS) changelog-presence
+```
+`$(filter $(TARGETS),$(CHECK_HEAVY_TARGETS))` narrows the heavy set to the selection (the runner rejects a heavy target it was not handed). `MODE`/`BASE` feed `changelog-presence` (`MODE ?= local`; an empty `BASE` is unset for `changed-files.sh`). `CHECK_RUNNER` is a test seam; `scripts/test-check.sh` drives `make check-selected` against a stub to assert the filtered heavy set, `MODE`, and `BASE`.
 
 - [ ] **Step 2: Verify manually**
 

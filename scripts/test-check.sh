@@ -125,15 +125,37 @@ if "$RUNNER" --help >"$tmp/help" 2>&1; then help_status=0; else help_status=$?; 
 if [[ "$help_status" == 0 ]]; then ok "--help exits 0"; else bad "--help exits 0 (status $help_status)"; fi
 expect_contains "--help prints usage" "Usage" "$(cat "$tmp/help")"
 
-# --heavy-subset keeps only the heavy targets among its arguments, so the
-# inner-loop recipes can hand the runner the heavy set that matches the subset
-# of targets they actually run.
-subset="$(CHECK_HEAVY_TARGETS="alpha beta gamma" "$RUNNER" --heavy-subset beta delta gamma || true)"
-if [[ "$subset" == "beta gamma" ]]; then ok "--heavy-subset keeps only heavy targets among its arguments"; else bad "--heavy-subset (got '$subset')"; fi
-subset="$(CHECK_HEAVY_TARGETS="alpha" "$RUNNER" --heavy-subset delta epsilon || true)"
-if [[ -z "$subset" ]]; then ok "--heavy-subset prints nothing when none match"; else bad "--heavy-subset none (got '$subset')"; fi
-subset="$(CHECK_HEAVY_TARGETS="" "$RUNNER" --heavy-subset alpha beta || true)"
-if [[ -z "$subset" ]]; then ok "--heavy-subset with an empty heavy list prints nothing"; else bad "--heavy-subset empty heavy (got '$subset')"; fi
+# The inner-loop wiring routes through `check-selected`: it filters the heavy
+# set to TARGETS and passes MODE/BASE to the runner. CHECK_RUNNER stubs the
+# runner so no real target runs.
+record="$tmp/selected"
+stub_runner="$tmp/selected-runner"
+cat >"$stub_runner" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'heavy=[%s] mode=[%s] base=[%s] args=[%s]\n' "\${CHECK_HEAVY_TARGETS:-}" "\${MODE:-}" "\${BASE:-}" "\$*" >"$record"
+exit 0
+EOF
+chmod +x "$stub_runner"
+run_selected() {  # <targets> <mode> <base> <heavy>
+  : >"$record"
+  make -s -C "$SCRIPT_DIR/.." check-selected \
+    TARGETS="$1" MODE="$2" BASE="$3" \
+    CHECK_RUNNER="$stub_runner" CHECK_HEAVY_TARGETS="$4" >/dev/null 2>&1 || true
+  cat "$record" 2>/dev/null || true
+}
+got="$(run_selected "docs-linkcheck shellcheck" branch origin/main "validate-fmt lint test compile-all")"
+if [[ "$got" == "heavy=[] mode=[branch] base=[origin/main] args=[docs-linkcheck shellcheck changelog-presence]" ]]; then
+  ok "check-selected filters the heavy set to TARGETS and passes MODE/BASE"
+else
+  bad "check-selected wiring (got '$got')"
+fi
+got="$(run_selected "validate-fmt docs-linkcheck" local "" "validate-fmt lint test compile-all")"
+if [[ "$got" == "heavy=[validate-fmt] mode=[local] base=[] args=[validate-fmt docs-linkcheck changelog-presence]" ]]; then
+  ok "check-selected keeps a selected heavy target"
+else
+  bad "check-selected keeps a selected heavy target (got '$got')"
+fi
 
 # Scheduling: light targets overlap, heavy targets do not, SERIAL forces one at
 # a time, VERBOSE streams without capture or status lines.
