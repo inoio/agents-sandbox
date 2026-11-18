@@ -123,6 +123,10 @@ func parseSecretDocument(dir string) (*oneyaml.Document, bool, error) {
 	path := secretPath(dir)
 	data, err := readSecretFileAt(resolvedSecretTarget(path), path)
 	switch {
+	// A refusal wraps fs.ErrNotExist when the approved file has been deleted, so
+	// it must be checked before the absent-file branch.
+	case errors.Is(err, projectguard.ErrNotApproved):
+		return nil, false, err
 	case errors.Is(err, os.ErrNotExist):
 		document, parseErr := oneyaml.Parse(nil, oneyaml.Untrusted())
 		return document, false, parseErr
@@ -137,18 +141,25 @@ func parseSecretDocument(dir string) (*oneyaml.Document, bool, error) {
 }
 
 // readSecretFileAt reads target through the project guard and reports the read
-// against path, so a refusal names the file the caller asked for. The resolved
-// target is read because a symlinked secret file is edited at its target.
+// against path, so a non-refusal read error names the file the caller asked
+// for. The resolved target is read because a symlinked secret file is edited at
+// its target. A guard refusal and an absent file are both returned unwrapped and
+// unmodified: parseSecretDocument tells them apart by errors.Is, and a refusal
+// also wraps fs.ErrNotExist when the approved file has been deleted.
 //
 //deadcode:ignore reason="secret store reader; reached through parseSecretDocument from the pending S6 applier"
 func readSecretFileAt(target, path string) ([]byte, error) {
 	// The file is a project secret file, so the read is verified against the
 	// approved content the trust gate installed.
 	data, err := projectguard.ReadFile(target, configread.ReadFile)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	switch {
+	case errors.Is(err, projectguard.ErrNotApproved), errors.Is(err, os.ErrNotExist):
+		return data, err
+	case err != nil:
 		return nil, fmt.Errorf("read %s: %w", path, err)
+	default:
+		return data, nil
 	}
-	return data, err
 }
 
 // setEntry sets mapping key to value in document, replacing the entry of the

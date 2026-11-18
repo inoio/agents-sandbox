@@ -240,6 +240,47 @@ func TestWriteSecretSpecRefusesUnapprovedProjectFile(t *testing.T) {
 	assert.Equal(t, before, readFile(t, path))
 }
 
+// TestWriteSecretSpecRefusesDeletedApprovedProjectFile pins the deleted half of
+// the trust contract: projectguard refuses an approved file that has since been
+// deleted, and that refusal wraps fs.ErrNotExist alongside ErrNotApproved. The
+// writer must honour the refusal rather than read it as an absent file, or it
+// would recreate and re-bless a file the approval says must exist.
+func TestWriteSecretSpecRefusesDeletedApprovedProjectFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "env.secret.yaml")
+	content := []byte("FOO:\n  value: old\n  host: a.example\n")
+	require.NoError(t, os.WriteFile(path, content, 0o600))
+	t.Cleanup(projectguard.Install(
+		[]string{dir},
+		map[string]projectguard.Approval{path: projectguard.ApprovalOf(content)},
+	))
+	require.NoError(t, os.Remove(path))
+
+	err := WriteSecretSpec(dir, "FOO", SecretSpec{Value: "new", Host: "b.example"})
+
+	require.ErrorIs(t, err, projectguard.ErrNotApproved)
+	_, statErr := os.Stat(path)
+	assert.ErrorIs(t, statErr, os.ErrNotExist, "the refused write must not recreate the file")
+}
+
+// TestRemoveSecretSpecRefusesDeletedApprovedProjectFile covers the same deleted
+// branch through the remover, so both entry points fail closed.
+func TestRemoveSecretSpecRefusesDeletedApprovedProjectFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "env.secret.yaml")
+	content := []byte("FOO:\n  value: old\n  host: a.example\n")
+	require.NoError(t, os.WriteFile(path, content, 0o600))
+	t.Cleanup(projectguard.Install(
+		[]string{dir},
+		map[string]projectguard.Approval{path: projectguard.ApprovalOf(content)},
+	))
+	require.NoError(t, os.Remove(path))
+
+	err := RemoveSecretSpec(dir, "FOO")
+
+	require.ErrorIs(t, err, projectguard.ErrNotApproved)
+}
+
 func TestRemoveSecretSpecDeletesOneKeyAndLeavesOthers(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, WriteSecretSpec(dir, "FOO", SecretSpec{Value: "first", Host: "a.example"}))
