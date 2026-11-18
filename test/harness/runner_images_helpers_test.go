@@ -81,6 +81,7 @@ const runnerImageRemoveTimeout = 30 * time.Second
 var removeDockerImage = func(env []string, tag string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), runnerImageRemoveTimeout)
 	defer cancel()
+	//testenv:allow the smoke suite removes real runner images
 	cmd := exec.CommandContext(ctx, "docker", "rmi", "--no-prune", tag)
 	cmd.Env = env
 	return cmd.CombinedOutput()
@@ -98,6 +99,7 @@ func cleanupRunnerImages(t testing.TB, root string) {
 	if err != nil {
 		t.Logf("cleanup: some runner image tags could not be derived: %v", err)
 	}
+	//testenv:allow cleanup builds the isolated env from the suite's own
 	env := isolatedEnv(root, root, os.Environ())
 	for _, tag := range tags {
 		if out, err := removeDockerImage(env, tag); err != nil {
