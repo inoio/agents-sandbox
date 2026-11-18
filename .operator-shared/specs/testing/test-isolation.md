@@ -209,6 +209,11 @@ Those stay a review responsibility; the gate guards against the common direct fo
 
 `TestAmbientEnvironmentUses` pins the scanner and the marker semantics.
 
+The scan skips the `test/` tree. It is the end-to-end smoke suite (currently `test/harness`),
+which drives real VMs, `docker`, and the host environment by design; its untagged helpers are
+`_test.go` so Go keeps them out of non-test builds, not to exempt ordinary default-suite tests.
+The real-command gate shares the same exclusion through `defaultBuildTestSources`.
+
 ## Deliberate real-state reads
 
 The `integration`-tagged image tests (`internal/sandbox/image/render_integration_test.go`) are the one sanctioned

@@ -294,3 +294,41 @@ func TestX(t *testing.T) {
 		})
 	}
 }
+
+// TestRealCommandUsesSkipsTheTestTree pins the structural carve-out: the
+// end-to-end smoke tree under test/ drives real VMs and host tools by design,
+// so the default-suite isolation scanners skip it, while a sibling under
+// internal/ is still scanned.
+func TestRealCommandUsesSkipsTheTestTree(t *testing.T) {
+	const modulePath = "example.com/mod"
+	root := t.TempDir()
+	writeFixtureFile(t, root, "test/example/example_test.go", `package example
+
+import (
+	"os/exec"
+	"testing"
+)
+
+func TestX(t *testing.T) {
+	exec.Command("git", "commit")
+}
+`)
+	writeFixtureFile(t, root, "internal/example/example_test.go", `package example
+
+import (
+	"os/exec"
+	"testing"
+)
+
+func TestX(t *testing.T) {
+	exec.Command("gh", "pr", "list")
+}
+`)
+	var got []string
+	for _, use := range realCommandUses(t, root, modulePath, modulePackages(t, root)) {
+		got = append(got, use.what)
+	}
+	if want := []string{"exec.Command(gh)"}; !slices.Equal(got, want) {
+		t.Errorf("realCommandUses() = %v, want %v (test/ skipped, internal/ scanned)", got, want)
+	}
+}
