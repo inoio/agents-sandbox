@@ -2,16 +2,21 @@ package main
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/firstrun"
 	"github.com/inoio/agents-sandbox/internal/runoptions"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
+	"github.com/inoio/agents-sandbox/internal/testutil"
 	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 )
 
@@ -264,6 +269,51 @@ func TestRunFirstRunMenuSetsLearn(t *testing.T) {
 	}
 	if !captured().Learn {
 		t.Error("session.Run did not see opts.Learn set by the first-run menu")
+	}
+}
+
+// TestRunFirstRunMenuSeedsFromHostAndStartsLearning drives the PRODUCTION
+// first-run seam end to end for UC4: with a host config the agent's provision
+// rules select, the "learn from my host setup" choice must seed the per-slug
+// managed scope AND start a learning session. It is the only test covering the
+// seed call inside the production seam, so dropping or reordering that call
+// fails here rather than only in the manual accept.
+func TestRunFirstRunMenuSeedsFromHostAndStartsLearning(t *testing.T) {
+	initTestProjectDir(t)
+
+	captured := captureSessionRun(t)
+	root, ui := setupRunMocks(
+		t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, cmdRun, "--agent", "codex",
+	)
+
+	paths := configpaths.Get()
+	hostHome, err := paths.UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir: %v", err)
+	}
+	hostConfigDir := filepath.Join(hostHome, ".codex")
+	if err := os.MkdirAll(hostConfigDir, 0o755); err != nil {
+		t.Fatalf("create host config dir: %v", err)
+	}
+	testutil.WriteFile(t, hostConfigDir, "config.toml", "model = \"gpt-5\"\n")
+
+	slug := effectiveConfigSlugForTest(t, mustIdentity(t, "."))
+
+	ui.IsInteractiveResult = true
+	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		return string(firstrun.ChoiceLearnFromHost), nil
+	}
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	seeded := filepath.Join(paths.UserSlugConfigDir(slug), "codex", "config.toml")
+	if _, err := os.Stat(seeded); err != nil {
+		t.Errorf("the host-seed choice must write the per-slug managed config %s: %v", seeded, err)
+	}
+	if !captured().Learn {
+		t.Error("session.Run did not see opts.Learn for the host-seed choice")
 	}
 }
 
