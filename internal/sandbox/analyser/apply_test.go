@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -124,6 +125,54 @@ func TestApplyManagedConfigWritesTheFile(t *testing.T) {
 	if got := readFile(t, filepath.Join(against, "opencode.jsonc")); got != content {
 		t.Errorf("opencode.jsonc = %q; want the finding's content %q", got, content)
 	}
+	// The managed file is configuration, not a credential (its values are
+	// placeholders), so it is created world-readable at 0o644.
+	info, err := os.Stat(filepath.Join(against, "opencode.jsonc"))
+	if err != nil {
+		t.Fatalf("stat opencode.jsonc: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o644 {
+		t.Errorf("opencode.jsonc mode = %#o; want 0o644", got)
+	}
+}
+
+// TestApplyManagedConfigWritesEveryWrite pins that every managed-config write of
+// a finding is written: the plan loop must continue past a managed-config write
+// rather than stop at it, so a finding carrying more than one managed file lands
+// all of them.
+func TestApplyManagedConfigWritesEveryWrite(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	ui, _ := interactiveUI()
+
+	against := filepath.Join(cp.UserSlugConfigDir(testSlug), "opencode2")
+	finding := Finding{
+		Evidence: Evidence{Summary: "the session authored two config files"},
+		Writes: []Write{
+			{
+				Scope:         ScopePerSlugUser,
+				ManagedConfig: &ManagedConfigWrite{Name: "opencode.jsonc", Content: []byte("model: sonnet\n")},
+			},
+			{
+				Scope:         ScopePerSlugUser,
+				ManagedConfig: &ManagedConfigWrite{Name: "opencode.extra.jsonc", Content: []byte("theme: dark\n")},
+			},
+		},
+	}
+
+	results := Apply([]Finding{finding}, ApplyOptions{
+		Paths: cp, Slug: testSlug, Agent: testManagedConfigAgent, UI: ui, Mode: options.ModeRun,
+	})
+
+	if results[0].Outcome != OutcomeApplied {
+		t.Fatalf("outcome = %q (%s); want applied", results[0].Outcome, results[0].Err)
+	}
+	if got := readFile(t, filepath.Join(against, "opencode.jsonc")); got != "model: sonnet\n" {
+		t.Errorf("opencode.jsonc = %q; want the first write's content", got)
+	}
+	if got := readFile(t, filepath.Join(against, "opencode.extra.jsonc")); got != "theme: dark\n" {
+		t.Errorf("opencode.extra.jsonc = %q; want the second write's content", got)
+	}
 }
 
 // TestApplyManagedConfigCreatesTheDir pins that the managed-config write creates
@@ -189,26 +238,33 @@ func TestApplyManagedConfigProjectScopeIsGated(t *testing.T) {
 	assertNoFile(t, filepath.Join(cp.UserSlugConfigDir(testSlug), "opencode2", "opencode.jsonc"))
 }
 
-// TestApplyManagedConfigRefusesAPathElementName pins the single-path-element
+// TestApplyManagedConfigRefusesANonPathElementName pins the single-path-element
 // guard: the applier joins ManagedConfigWrite.Name under the scope directory, so
-// a name carrying a separator or ".." is refused before any write.
-func TestApplyManagedConfigRefusesAPathElementName(t *testing.T) {
-	configpathstest.WithMockConfigPaths(t)
-	cp := configpaths.Get()
-	ui, answered := interactiveUI()
+// a name that is empty, a dot-segment, or carries a separator is refused before
+// any write — nothing may escape the target directory or name a directory.
+func TestApplyManagedConfigRefusesANonPathElementName(t *testing.T) {
+	for _, name := range []string{"", ".", "..", "../escape.jsonc", "nested/escape.jsonc"} {
+		t.Run("name "+strconv.Quote(name), func(t *testing.T) {
+			configpathstest.WithMockConfigPaths(t)
+			cp := configpaths.Get()
+			ui, answered := interactiveUI()
 
-	results := Apply(
-		[]Finding{managedConfigFinding("../escape.jsonc", "model: sonnet\n")},
-		ApplyOptions{Paths: cp, Slug: testSlug, Agent: testManagedConfigAgent, UI: ui, Mode: options.ModeRun},
-	)
+			results := Apply(
+				[]Finding{managedConfigFinding(name, "model: sonnet\n")},
+				ApplyOptions{Paths: cp, Slug: testSlug, Agent: testManagedConfigAgent, UI: ui, Mode: options.ModeRun},
+			)
 
-	if results[0].Outcome != OutcomeSkipped || results[0].Note == "" {
-		t.Fatalf("result = %+v; want a skipped outcome with a note", results[0])
+			if results[0].Outcome != OutcomeSkipped || results[0].Note == "" {
+				t.Fatalf("result = %+v; want a skipped outcome with a note", results[0])
+			}
+			if *answered != 0 {
+				t.Errorf("an invalid managed name asked %d prompts; want none", *answered)
+			}
+			if strings.ContainsRune(name, filepath.Separator) {
+				assertNoFile(t, filepath.Join(cp.UserSlugConfigDir(testSlug), "opencode2", name))
+			}
+		})
 	}
-	if *answered != 0 {
-		t.Errorf("an invalid managed name asked %d prompts; want none", *answered)
-	}
-	assertNoFile(t, filepath.Join(cp.UserSlugConfigDir(testSlug), "escape.jsonc"))
 }
 
 // TestApplyManagedConfigRefusesAnEmptyAgent pins that an unset Agent is refused
