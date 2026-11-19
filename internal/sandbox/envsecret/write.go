@@ -94,6 +94,9 @@ func secretSpecValue(spec SecretSpec) map[string]any {
 	if len(spec.HeaderFields) > 0 {
 		value["header_fields"] = spec.HeaderFields
 	}
+	if spec.Placeholder != "" {
+		value["placeholder"] = spec.Placeholder
+	}
 	if spec.AllowAnyHostDangerous {
 		value["allow_any_host_dangerous"] = true
 	}

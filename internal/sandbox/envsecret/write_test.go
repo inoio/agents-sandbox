@@ -148,6 +148,18 @@ func TestWriteSecretSpecWritesEveryField(t *testing.T) {
 	assert.Equal(t, map[string]SecretSpec{"FULL": spec}, readBackSpecs(t, dir))
 }
 
+// TestWriteSecretSpecRoundTripsPlaceholder pins that an explicit placeholder
+// survives the write/parse round trip, so a later build reads back the same
+// placeholder the managed config file carries.
+func TestWriteSecretSpecRoundTripsPlaceholder(t *testing.T) {
+	dir := t.TempDir()
+	spec := SecretSpec{Value: "s3cret", Host: "api.example", Placeholder: PlaceholderFor("FOO")}
+
+	require.NoError(t, WriteSecretSpec(dir, "FOO", spec))
+
+	assert.Equal(t, map[string]SecretSpec{"FOO": spec}, readBackSpecs(t, dir))
+}
+
 // TestWriteSecretSpecRefusalLeavesMissingFileAbsent pins that a refused write
 // creates nothing: the guard runs before the file is touched.
 func TestWriteSecretSpecRefusalLeavesMissingFileAbsent(t *testing.T) {
