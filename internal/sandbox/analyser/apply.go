@@ -1,8 +1,8 @@
 package analyser
 
 import (
-	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -125,6 +125,14 @@ func applyFinding(finding Finding, opts ApplyOptions) ApplyResult {
 		result.Err = refusal.err
 		return result
 	}
+	if len(plans) == 0 {
+		// A report-only finding proposes no machine change (C2 with no host,
+		// C3 with nothing to keep, C4 dropping the last wildcard): it is
+		// reported, not prompted, and nothing is written or declined.
+		result.Outcome = OutcomeNotApplicable
+		result.Note = "nothing to apply; this finding is reported only"
+		return result
+	}
 
 	accepted, err := askApplyOrAcceptAll(opts, finding)
 	if err != nil {
@@ -187,6 +195,12 @@ type refusal struct {
 func planWrites(finding Finding, opts ApplyOptions) ([]plannedWrite, *refusal) {
 	plans := make([]plannedWrite, 0, len(finding.Writes))
 	for _, write := range finding.Writes {
+		if writeOnlyRendersText(write) {
+			// A write that names no key, secret, or mode makes no machine
+			// change: it exists so the prompt renders its Text (the inline
+			// config's reference form, until a managed-config write lands).
+			continue
+		}
 		dir, refusal := planTarget(write, opts)
 		if refusal != nil {
 			return nil, refusal
@@ -199,6 +213,13 @@ func planWrites(finding Finding, opts ApplyOptions) ([]plannedWrite, *refusal) {
 			plans = append(plans, plan)
 			continue
 		}
+		if write.FileMode != nil {
+			if refusal := planFileMode(dir); refusal != nil {
+				return nil, refusal
+			}
+			plans = append(plans, plannedWrite{write: write, dir: dir, secretValue: ""})
+			continue
+		}
 		if write.ManagedConfig != nil {
 			plans = append(plans, plannedWrite{write: write, dir: dir, secretValue: ""})
 			continue
@@ -209,6 +230,13 @@ func planWrites(finding Finding, opts ApplyOptions) ([]plannedWrite, *refusal) {
 		plans = append(plans, plannedWrite{write: write, dir: dir, secretValue: ""})
 	}
 	return plans, nil
+}
+
+// writeOnlyRendersText reports whether a write is declarative: it names no
+// config key, secret, file mode, or managed config, so it makes no machine
+// change and only its Text is meaningful.
+func writeOnlyRendersText(write Write) bool {
+	return write.ConfigKey == "" && write.Secret == nil && write.FileMode == nil && write.ManagedConfig == nil
 }
 
 // planTarget resolves a write's directory and refuses a per-slug config write
@@ -239,7 +267,8 @@ func planTarget(write Write, opts ApplyOptions) (string, *refusal) {
 		}
 		return opts.Paths.ProjectConfigDir(), nil
 	}
-	if write.Secret != nil {
+	// gomutants:disable-next-line EXPRESSION_REMOVE reason="a file-mode write carries no config key, and an empty key resolves no owner, so it reaches the same per-slug target through the fall-through"
+	if write.Secret != nil || write.FileMode != nil {
 		return opts.Paths.UserSlugConfigDir(opts.Slug), nil
 	}
 	owner, owned := viperconfig.LayerSettingOwner(opts.Paths, opts.Slug, write.ConfigKey)
@@ -346,6 +375,28 @@ func resolveSecretValue(secret *SecretWrite, opts ApplyOptions) (string, bool) {
 	return opts.SecretValue(*secret)
 }
 
+// planFileMode refuses a file-mode write when the scope's env.secret.yaml is
+// absent or cannot be edited. Nothing to chmod is a skip, not a creation; an
+// unparseable file (or one the project guard refuses) is not the file harden
+// means to tighten. A project-scope file is verified through the guard, so an
+// unapproved project scope is refused here.
+func planFileMode(dir string) *refusal {
+	path := secretFilePath(dir)
+	if _, err := os.Stat(path); err != nil {
+		return &refusal{
+			note: fmt.Sprintf("%s has no secret file to tighten", dir),
+			err:  "",
+		}
+	}
+	if err := envsecret.ValidateSecretFile(dir); err != nil {
+		return &refusal{
+			note: fmt.Sprintf("secret file %s cannot be edited: %v", path, err),
+			err:  err.Error(),
+		}
+	}
+	return nil
+}
+
 // planConfigKey refuses a config-key write that a flag or environment variable
 // would shadow, and one whose target file is not an editable YAML document.
 func planConfigKey(write Write, dir string, opts ApplyOptions) *refusal {
@@ -435,7 +486,10 @@ func applyPrompt(finding Finding) string {
 func executeWrite(plan plannedWrite, opts ApplyOptions) (string, error) {
 	write := plan.write
 	if write.Secret != nil {
-		return plan.dir, executeSecret(plan)
+		return plan.dir, executeSecret(plan, opts)
+	}
+	if write.FileMode != nil {
+		return plan.dir, executeFileMode(plan)
 	}
 	if write.ManagedConfig != nil {
 		return plan.dir, executeManagedConfig(plan)
@@ -449,6 +503,20 @@ func executeWrite(plan plannedWrite, opts ApplyOptions) (string, error) {
 	return plan.dir, viperconfig.WriteSetting(plan.dir, write.ConfigKey, write.ConfigValue)
 }
 
+// executeFileMode chmods the scope's env.secret.yaml to the write's mode. The
+// file's existence and editability were verified at plan time, so a chmod
+// failure here is an unexpected one and is surfaced as-is.
+func executeFileMode(plan plannedWrite) error {
+	path := secretFilePath(plan.dir)
+	return os.Chmod(path, plan.write.FileMode.Mode)
+}
+
+// secretFilePath returns the env.secret.yaml path a file-mode write targets in
+// dir.
+func secretFilePath(dir string) string {
+	return filepath.Join(dir, configpaths.EnvSecretFileName+".yaml")
+}
+
 // executeManagedConfig writes one managed agent config file atomically, creating
 // the agent config directory. The file is world-readable (0o644) because it is
 // configuration, not a credential: the secret values in it are placeholders.
@@ -458,8 +526,11 @@ func executeManagedConfig(plan plannedWrite) error {
 }
 
 // executeSecret writes or removes one static secret of a planned write.
-func executeSecret(plan plannedWrite) error {
+func executeSecret(plan plannedWrite, opts ApplyOptions) error {
 	secret := plan.write.Secret
+	if plan.write.Scope == ScopeProject {
+		return executeProjectSecret(plan, opts)
+	}
 	if secret.Remove {
 		return envsecret.RemoveSecretSpec(plan.dir, secret.EnvVar)
 	}
@@ -473,6 +544,27 @@ func executeSecret(plan plannedWrite) error {
 	})
 }
 
+// executeProjectSecret removes a project-scope secret through the project trust
+// gate: the approval is extended by that entry before the write, and restored
+// when the write fails, so the launcher's own change never needs re-approval.
+// Without the extension the next run would gate the removal the launcher just
+// made. C1's project half is a removal; the removal target is the structured
+// env.secret.yaml the secret writer edits.
+func executeProjectSecret(plan plannedWrite, opts ApplyOptions) error {
+	envVar := plan.write.Secret.EnvVar
+	restore, err := projecttrust.ApproveSecretWrite(opts.CheckoutSlug, envVar)
+	if err != nil {
+		return err
+	}
+	if writeErr := envsecret.RemoveSecretSpec(plan.dir, envVar); writeErr != nil {
+		restore()
+		return writeErr
+	}
+	// The secret file is also a home: source in the same project: its recorded
+	// raw-content input must match the bytes the removal just wrote.
+	return projecttrust.RefreshSecretFileInput(opts.CheckoutSlug, plan.dir)
+}
+
 // executeProjectSetting writes or removes a project-scope config key through the
 // project trust gate: the approval is extended before the write, and restored
 // when the write fails, so the launcher's own change never needs re-approval.
@@ -481,7 +573,7 @@ func executeProjectSetting(plan plannedWrite, opts ApplyOptions) error {
 	restore, err := projecttrust.ApproveSettingWrite(
 		opts.CheckoutSlug,
 		write.ConfigKey,
-		approvalValue(write.ConfigValue),
+		write.ConfigValue,
 	)
 	if err != nil {
 		return err
@@ -497,19 +589,4 @@ func executeProjectSetting(plan plannedWrite, opts ApplyOptions) error {
 		return writeErr
 	}
 	return nil
-}
-
-// approvalValue renders a config value as the string the project trust gate
-// records for a key. A string value is recorded as itself and round-trips to the
-// same approval entry the projection computes; any other value is encoded as
-// JSON, which still records the key the write adds.
-func approvalValue(value any) string {
-	if text, ok := value.(string); ok {
-		return text
-	}
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		return fmt.Sprintf("%v", value)
-	}
-	return string(encoded)
 }

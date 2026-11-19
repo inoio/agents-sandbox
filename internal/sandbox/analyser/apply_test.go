@@ -2,12 +2,13 @@ package analyser
 
 import (
 	"errors"
-	"math"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
@@ -1115,6 +1116,48 @@ func TestApplyRemovesAProjectSetting(t *testing.T) {
 	}
 }
 
+// TestApplyProjectSecretMoveKeepsTheApproval pins that moving a project secret
+// (C1's removal) extends the persistent checkout approval by the removed
+// env-var, so the next run does not gate the launcher's own removal. Without
+// ApproveSecretWrite the recorded approval still holds the removed secret and
+// the change re-prompts.
+func TestApplyProjectSecretMoveKeepsTheApproval(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	// A second project input keeps the projection non-empty after the secret is
+	// removed, so the removal is a real change the approval must absorb (an empty
+	// projection is approved regardless).
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "network:\n  profile: none\n")
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "env.secret.yaml",
+		"WIDGET_TOKEN:\n  value: sk-project\n  host: api.widget.example\n")
+	approveProjectLayer(t, cp)
+
+	ui, _ := interactiveUI()
+	finding := Finding{
+		Evidence: Evidence{Summary: "WIDGET_TOKEN is committed in the project scope"},
+		Writes: []Write{
+			{Scope: ScopeProject, Secret: &SecretWrite{EnvVar: "WIDGET_TOKEN", Remove: true}},
+			{
+				Scope:  ScopePerSlugUser,
+				Secret: &SecretWrite{EnvVar: "WIDGET_TOKEN", Hosts: []string{"api.widget.example"}},
+			},
+		},
+	}
+	results := Apply([]Finding{finding}, ApplyOptions{
+		Paths: cp, Slug: testSlug, CheckoutSlug: testCheckoutSlug, UI: ui, Mode: options.ModeRun,
+		SecretValue: func(SecretWrite) (string, bool) { return "sk-project", true },
+	})
+
+	if results[0].Outcome != OutcomeApplied {
+		t.Fatalf("outcome = %q (%s); want applied", results[0].Outcome, results[0].Err)
+	}
+	if !projectLayerApproved(t, cp) {
+		t.Error(
+			"moving a project secret left the project config needing approval; ApproveSecretWrite was not called",
+		)
+	}
+}
+
 // TestApplyFailsWhenTheProjectApprovalCannotBeRecorded pins that a project-scope
 // write fails when its approval cannot be extended: the write must not run
 // without the approval that would keep the next run from re-asking.
@@ -1174,18 +1217,53 @@ func TestApplyRestoresTheApprovalWhenTheProjectWriteFails(t *testing.T) {
 	}
 }
 
-// TestApprovalValue renders a config value as the string the trust gate records:
-// a string round-trips as itself, every other value as JSON, and an unencodable
-// value falls back to its string form rather than an empty record.
-func TestApprovalValue(t *testing.T) {
-	if got := approvalValue("none"); got != "none" {
-		t.Errorf("approvalValue(string) = %q; want the string", got)
-	}
-	if got := approvalValue([]string{"a.example", "b.example"}); got != `["a.example","b.example"]` {
-		t.Errorf("approvalValue(list) = %q; want its JSON", got)
-	}
-	if got := approvalValue(math.NaN()); got != "NaN" {
-		t.Errorf("approvalValue(NaN) = %q; want the fallback string form", got)
+// TestApplyNonStringProjectWriteKeepsTheApproval pins the trust round-trip for a
+// non-string project value: the recorded approval entry must equal the
+// projection's own rendering, or the next run gates the launcher's own change.
+// A boolean (C6's provision-host-config) and a list (C4's egress-allow) are the
+// shapes a project-scope harden write can carry.
+func TestApplyNonStringProjectWriteKeepsTheApproval(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		key     string
+		value   any
+		written string
+	}{
+		{name: "boolean", key: "provision-host-config", value: false, written: "provision-host-config: false"},
+		{
+			name:    "list",
+			key:     "network.egress-allow",
+			value:   []string{"api.example"},
+			written: "egress-allow:",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			configpathstest.WithMockConfigPaths(t)
+			unsetKeyEnvironment(t, tc.key)
+			cp := configpaths.Get()
+			testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "agent: opencode\n")
+			approveProjectLayer(t, cp)
+
+			ui, _ := interactiveUI()
+			finding := Finding{
+				Evidence: Evidence{Summary: "harden " + tc.key},
+				Writes:   []Write{{Scope: ScopeProject, ConfigKey: tc.key, ConfigValue: tc.value}},
+			}
+			results := Apply([]Finding{finding}, ApplyOptions{
+				Paths: cp, Slug: testSlug, CheckoutSlug: testCheckoutSlug, UI: ui, Mode: options.ModeRun,
+			})
+
+			if results[0].Outcome != OutcomeApplied {
+				t.Fatalf("outcome = %q (%s); want applied", results[0].Outcome, results[0].Err)
+			}
+			if !projectLayerApproved(t, cp) {
+				t.Error("a project-scope write left the project config needing approval")
+			}
+			written := readFile(t, filepath.Join(cp.ProjectConfigDir(), "config.yaml"))
+			if !strings.Contains(written, tc.written) {
+				t.Errorf("project config = %q, want it to contain %q", written, tc.written)
+			}
+		})
 	}
 }
 
@@ -1391,6 +1469,115 @@ func TestAskApplyReportsThePromptError(t *testing.T) {
 	}
 }
 
+// fileModeWriteFor builds a one-write finding proposing a mode change on a
+// scope's env.secret.yaml.
+func fileModeWriteFor(scope Scope) Finding {
+	return Finding{
+		Evidence: Evidence{Summary: "the secret file is group- or world-readable"},
+		Writes: []Write{{
+			Scope:    scope,
+			FileMode: &FileModeWrite{Mode: 0o600},
+			Text:     "Tighten env.secret.yaml to 0600.",
+		}},
+	}
+}
+
+// fileMode returns the permission bits of path.
+func fileMode(t *testing.T, path string) os.FileMode {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	return info.Mode().Perm()
+}
+
+// TestApplyFileModeChmodsTheSecretFile pins the file-mode write: a per-slug
+// env.secret.yaml with a broad mode is chmodded to the write's mode, and no
+// content is touched.
+func TestApplyFileModeChmodsTheSecretFile(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	dir := cp.UserSlugConfigDir(testSlug)
+	const content = "OPENAI_API_KEY:\n  value: v\n  host: api.openai.com\n"
+	testutil.WriteFile(t, dir, "env.secret.yaml", content)
+	secretPath := filepath.Join(dir, "env.secret.yaml")
+	if err := os.Chmod(secretPath, 0o644); err != nil {
+		t.Fatalf("chmod the seed to 0644: %v", err)
+	}
+
+	ui, _ := interactiveUI()
+	results := Apply([]Finding{fileModeWriteFor(ScopePerSlugUser)}, ApplyOptions{
+		Paths: cp, Slug: testSlug, UI: ui, Mode: options.ModeRun,
+	})
+
+	if results[0].Outcome != OutcomeApplied {
+		t.Fatalf("outcome = %q (%s); want applied", results[0].Outcome, results[0].Err)
+	}
+	if dirs := results[0].WroteDirs; len(dirs) != 1 || dirs[0] != dir {
+		t.Errorf("WroteDirs = %v; want the per-slug dir %q", dirs, dir)
+	}
+	if mode := fileMode(t, secretPath); mode != 0o600 {
+		t.Errorf("env.secret.yaml mode = %o; want %o", mode, 0o600)
+	}
+	if got := readFile(t, secretPath); got != content {
+		t.Errorf("env.secret.yaml = %q; want its content untouched %q", got, content)
+	}
+}
+
+// TestApplyFileModeSkipsAnAbsentFile pins that the file-mode write never creates
+// a file to chmod: an absent env.secret.yaml is skipped and nothing is written.
+func TestApplyFileModeSkipsAnAbsentFile(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	secretPath := filepath.Join(cp.UserSlugConfigDir(testSlug), "env.secret.yaml")
+
+	ui, answered := interactiveUI()
+	results := Apply([]Finding{fileModeWriteFor(ScopePerSlugUser)}, ApplyOptions{
+		Paths: cp, Slug: testSlug, UI: ui, Mode: options.ModeRun,
+	})
+
+	if results[0].Outcome != OutcomeSkipped || results[0].Note == "" {
+		t.Fatalf("result = %+v; want a skipped outcome with a note", results[0])
+	}
+	if *answered != 0 {
+		t.Errorf("an absent secret file asked %d prompts; want none", *answered)
+	}
+	assertNoFile(t, secretPath)
+}
+
+// TestApplyFileModeProjectScopeIsGated pins that a project-scope file-mode write
+// goes through the project trust gate: an unapproved project env.secret.yaml is
+// refused (the guard blocks its read) and its mode is left unchanged.
+func TestApplyFileModeProjectScopeIsGated(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	projectDir := cp.ProjectConfigDir()
+	testutil.WriteFile(t, projectDir, "env.secret.yaml", "OPENAI_API_KEY:\n  value: v\n  host: api.openai.com\n")
+	secretPath := filepath.Join(projectDir, "env.secret.yaml")
+	if err := os.Chmod(secretPath, 0o644); err != nil {
+		t.Fatalf("chmod the seed to 0644: %v", err)
+	}
+	// The project scope is guarded but not approved, so the guard refuses the
+	// secret file's read and the write is a refusal, not a chmod.
+	t.Cleanup(projectguard.Install([]string{projectDir}, nil))
+
+	ui, answered := interactiveUI()
+	results := Apply([]Finding{fileModeWriteFor(ScopeProject)}, ApplyOptions{
+		Paths: cp, Slug: testSlug, CheckoutSlug: testCheckoutSlug, UI: ui, Mode: options.ModeRun,
+	})
+
+	if results[0].Outcome != OutcomeSkipped {
+		t.Fatalf("outcome = %q (%s); want skipped for the unapproved project scope", results[0].Outcome, results[0].Err)
+	}
+	if *answered != 0 {
+		t.Errorf("an unapproved project secret asked %d prompts; want none", *answered)
+	}
+	if mode := fileMode(t, secretPath); mode != 0o644 {
+		t.Errorf("env.secret.yaml mode = %o; want it unchanged %o", mode, 0o644)
+	}
+}
+
 // TestApplyProjectRemovalFailureRestoresTheApproval pins that a project-scope
 // removal that fails after its approval was extended reports the failure and
 // restores the previous approval, so the failed change never leaves the project
@@ -1419,4 +1606,227 @@ func TestApplyProjectRemovalFailureRestoresTheApproval(t *testing.T) {
 	if !projectLayerApproved(t, cp) {
 		t.Error("a failed project removal left the extended approval in place; restore() was not called")
 	}
+}
+
+// TestApplySkipsATextOnlyWrite pins that a write naming no config key, secret,
+// or file mode makes no machine change: it is rendered in the prompt but never
+// planned or executed, so it cannot create a stray config file. The finding's
+// actionable write still applies.
+func TestApplySkipsATextOnlyWrite(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	finding := Finding{
+		Evidence: Evidence{Summary: "an inline secret is in the managed agent config"},
+		Writes: []Write{
+			{
+				Scope:  ScopePerSlugUser,
+				Secret: &SecretWrite{EnvVar: "OPENAI_API_KEY", Provider: "openai", Hosts: []string{"api.openai.com"}},
+				Text:   "move the value to env.secret.yaml",
+			},
+			{Scope: ScopePerSlugUser, Text: "replace the literal with ${OPENAI_API_KEY}"},
+		},
+	}
+
+	ui, answered := interactiveUI()
+	results := Apply([]Finding{finding}, ApplyOptions{
+		Paths: cp, Slug: testSlug, UI: ui, Mode: options.ModeRun,
+		SecretValue: func(SecretWrite) (string, bool) { return "sk-inline", true },
+	})
+
+	if results[0].Outcome != OutcomeApplied {
+		t.Fatalf("outcome = %q (%s); want applied", results[0].Outcome, results[0].Err)
+	}
+	if *answered != 1 {
+		t.Errorf("the finding asked %d prompts; want exactly one", *answered)
+	}
+	if got := readFile(
+		t,
+		filepath.Join(cp.UserSlugConfigDir(testSlug), "env.secret.yaml"),
+	); !strings.Contains(
+		got,
+		"OPENAI_API_KEY",
+	) {
+		t.Errorf("env.secret.yaml = %q; want the moved secret", got)
+	}
+	assertNoFile(t, filepath.Join(cp.UserSlugConfigDir(testSlug), "config.yaml"))
+}
+
+// TestApplyReportsAWriteLessFindingWithoutPrompting pins that a finding that
+// plans no write (a report-only finding, e.g. C2 with no host or C4 dropping the
+// last wildcard) is neither prompted nor counted as applied: it is reported as
+// not applicable and nothing is declined.
+func TestApplyReportsAWriteLessFindingWithoutPrompting(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	reportOnly := Finding{
+		Evidence:     Evidence{Summary: "OPENAI_API_KEY allows any host with no host to narrow to"},
+		EvidenceHash: "report-only",
+	}
+
+	ui, answered := interactiveUI()
+	results := Apply([]Finding{reportOnly}, ApplyOptions{
+		Paths: cp, Slug: testSlug, UI: ui, Mode: options.ModeRun,
+	})
+
+	if results[0].Outcome != OutcomeNotApplicable {
+		t.Fatalf("outcome = %q (%s); want not-applicable", results[0].Outcome, results[0].Err)
+	}
+	if !strings.Contains(results[0].Note, "reported only") {
+		t.Errorf("note = %q; want it to say the finding is reported only", results[0].Note)
+	}
+	if *answered != 0 {
+		t.Errorf("a write-less finding asked %d prompts; want none", *answered)
+	}
+	declined, err := state.LearnDeclined(testSlug, "report-only")
+	if err != nil {
+		t.Fatalf("LearnDeclined: %v", err)
+	}
+	if declined {
+		t.Error("a write-less finding recorded a decline")
+	}
+}
+
+// TestApplyFailsWhenTheProjectSecretApprovalCannotBeRecorded pins that a
+// project-scope secret removal fails when its approval cannot be extended: the
+// removal must not run without the approval that keeps the next run from asking
+// about the launcher's own change.
+func TestApplyFailsWhenTheProjectSecretApprovalCannotBeRecorded(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "network:\n  profile: none\n")
+	approveProjectLayer(t, cp)
+	restore := state.OverrideStateWriteForTest(func(string, []byte) error { return errors.New("boom") })
+	t.Cleanup(restore)
+
+	plan := plannedWrite{
+		dir:   cp.ProjectConfigDir(),
+		write: Write{Scope: ScopeProject, Secret: &SecretWrite{EnvVar: "WIDGET_TOKEN", Remove: true}},
+	}
+
+	err := executeProjectSecret(plan, ApplyOptions{CheckoutSlug: testCheckoutSlug})
+	if err == nil {
+		t.Fatal("executeProjectSecret with an unrecordable approval = nil, want the approval error")
+	}
+}
+
+// TestApplyRestoresTheSecretApprovalWhenTheRemovalFails pins that a project
+// secret removal that fails after the approval was extended restores the
+// previous approval, so the launcher's own failed change does not need
+// re-approval. The removal fails because the secret file is no longer parsable
+// once the approval has been extended.
+func TestApplyRestoresTheSecretApprovalWhenTheRemovalFails(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "network:\n  profile: none\n")
+	secretFile := filepath.Join(cp.ProjectConfigDir(), "env.secret.yaml")
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "env.secret.yaml",
+		"WIDGET_TOKEN:\n  value: sk\n  host: api.widget.example\n")
+	approveProjectLayer(t, cp)
+	before, _, err := projecttrust.LoadApproval(testCheckoutSlug)
+	require.NoError(t, err)
+	// Corrupt the file after the approval was recorded, so the removal fails at
+	// execution while the approval step already succeeded.
+	if err := os.WriteFile(secretFile, []byte("not: [valid"), 0o600); err != nil {
+		t.Fatalf("corrupt secret file: %v", err)
+	}
+
+	plan := plannedWrite{
+		dir:   cp.ProjectConfigDir(),
+		write: Write{Scope: ScopeProject, Secret: &SecretWrite{EnvVar: "WIDGET_TOKEN", Remove: true}},
+	}
+
+	err = executeProjectSecret(plan, ApplyOptions{CheckoutSlug: testCheckoutSlug})
+	if err == nil {
+		t.Fatal("executeProjectSecret over an unparsable secret file = nil, want the removal error")
+	}
+	after, _, err := projecttrust.LoadApproval(testCheckoutSlug)
+	require.NoError(t, err)
+	require.Equal(t, before, after, "a failed removal must restore the approval it extended")
+}
+
+// TestApplyFailsWhenAProjectSecretRemovalCannotBeRecorded pins that a failing
+// project-scope secret removal surfaced through the applier fails the finding:
+// executeWrite must carry executeProjectSecret's error, not swallow it.
+func TestApplyFailsWhenAProjectSecretRemovalCannotBeRecorded(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "network:\n  profile: none\n")
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "env.secret.yaml",
+		"WIDGET_TOKEN:\n  value: sk\n  host: api.widget.example\n")
+	approveProjectLayer(t, cp)
+	restore := state.OverrideStateWriteForTest(func(string, []byte) error { return errors.New("boom") })
+	t.Cleanup(restore)
+
+	ui, _ := interactiveUI()
+	finding := Finding{
+		Evidence: Evidence{Summary: "WIDGET_TOKEN is committed in the project scope"},
+		Writes:   []Write{{Scope: ScopeProject, Secret: &SecretWrite{EnvVar: "WIDGET_TOKEN", Remove: true}}},
+	}
+	results := Apply([]Finding{finding}, ApplyOptions{
+		Paths: cp, Slug: testSlug, CheckoutSlug: testCheckoutSlug, UI: ui, Mode: options.ModeRun,
+	})
+
+	if results[0].Outcome != OutcomeFailed || results[0].Err == "" {
+		t.Fatalf("result = %+v; want a failed removal carrying the error", results[0])
+	}
+}
+
+// TestApplyFailsWhenTheSecretFileRefreshCannotBeRecorded pins that the
+// home-source refresh after a project secret removal surfaces its failure:
+// executeProjectSecret must carry RefreshSecretFileInput's error, not swallow it.
+func TestApplyFailsWhenTheSecretFileRefreshCannotBeRecorded(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml",
+		"network:\n  profile: none\nhome:\n  .config/agents-sandbox/env.secret.yaml:\n    source: env.secret.yaml\n")
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "env.secret.yaml",
+		"WIDGET_TOKEN:\n  value: sk\n  host: api.widget.example\n")
+	approveProjectLayer(t, cp)
+
+	// The approval extension succeeds; fail the refresh's commit, the second
+	// state write, so execution reaches RefreshSecretFileInput.
+	writes := 0
+	restore := state.OverrideStateWriteForTest(func(string, []byte) error {
+		writes++
+		if writes > 1 {
+			return errors.New("boom")
+		}
+		return nil
+	})
+	t.Cleanup(restore)
+
+	plan := plannedWrite{
+		dir:   cp.ProjectConfigDir(),
+		write: Write{Scope: ScopeProject, Secret: &SecretWrite{EnvVar: "WIDGET_TOKEN", Remove: true}},
+	}
+
+	err := executeProjectSecret(plan, ApplyOptions{CheckoutSlug: testCheckoutSlug})
+	require.ErrorContains(t, err, "refresh the approval of")
+}
+
+// TestPlanWritesKeepsWritesAfterASkippedOrFileModeWrite pins that a declarative
+// (text-only) write and a file-mode write are each passed over without stopping
+// the planning of the writes that follow them.
+func TestPlanWritesKeepsWritesAfterASkippedOrFileModeWrite(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	dir := cp.UserSlugConfigDir(testSlug)
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	testutil.WriteFile(t, dir, "env.secret.yaml", "TOKEN:\n  value: sk\n  host: api.example\n")
+	finding := Finding{
+		Evidence: Evidence{Summary: "several writes"},
+		Writes: []Write{
+			{Scope: ScopePerSlugUser, Text: "declarative only"},
+			{Scope: ScopePerSlugUser, FileMode: &FileModeWrite{Mode: 0o600}},
+			{Scope: ScopePerSlugUser, Secret: &SecretWrite{EnvVar: "SECOND", Hosts: []string{"api.example"}}},
+		},
+	}
+
+	plans, refusal := planWrites(finding, ApplyOptions{
+		Paths: cp, Slug: testSlug, Mode: options.ModeRun,
+		SecretValue: func(SecretWrite) (string, bool) { return "sk-second", true },
+	})
+
+	require.Nil(t, refusal)
+	require.Len(t, plans, 2, "the file-mode and secret writes are planned past the text-only one")
 }

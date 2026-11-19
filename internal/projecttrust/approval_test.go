@@ -2,9 +2,13 @@ package projecttrust
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
@@ -281,6 +285,89 @@ func TestApproveSettingWriteRestoresThePreviousApproval(t *testing.T) {
 	}
 }
 
+// TestApproveSecretWriteKeepsTheLaunchersOwnRemovalApproved pins that the
+// launcher removing a project secret extends the recorded approval by only that
+// env-var, so the next run does not gate the launcher's own change.
+func TestApproveSecretWriteKeepsTheLaunchersOwnRemovalApproved(t *testing.T) {
+	f := newProjectFixture(t)
+	// A second project input keeps the projection non-empty after the secret is
+	// removed, so the removal is a real change the approval must absorb (an empty
+	// projection is approved regardless).
+	f.write(t, "config.yaml", "memory: 4G\n")
+	f.write(t, "env.secret.yaml", "WIDGET_TOKEN:\n  value: sk-project\n  host: api.widget.example\n")
+	if err := RecordApproval("checkout-a", f.compute(t)); err != nil {
+		t.Fatal(err)
+	}
+
+	// The launcher removed the entry; the file is left present without it.
+	f.write(t, "env.secret.yaml", "{}\n")
+	if _, err := ApproveSecretWrite("checkout-a", "WIDGET_TOKEN"); err != nil {
+		t.Fatalf("ApproveSecretWrite: %v", err)
+	}
+	approval, found, err := LoadApproval("checkout-a")
+	if err != nil || !found {
+		t.Fatalf("LoadApproval = %v, %v", found, err)
+	}
+	if got := Evaluate(f.compute(t), approval); !got.Approved {
+		t.Fatalf("after the launcher's removal: %+v, want approved", got)
+	}
+}
+
+// TestApproveSecretWriteStillGatesAnUnrelatedChange pins the scoping: extending
+// the approval by one removed env-var must not approve a change to another
+// secret in the same file.
+func TestApproveSecretWriteStillGatesAnUnrelatedChange(t *testing.T) {
+	f := newProjectFixture(t)
+	f.write(t, "env.secret.yaml",
+		"WIDGET_TOKEN:\n  value: sk\n  host: api.widget.example\n"+
+			"OTHER_TOKEN:\n  value: sk2\n  host: api.other.example\n")
+	if err := RecordApproval("checkout-a", f.compute(t)); err != nil {
+		t.Fatal(err)
+	}
+
+	// WIDGET_TOKEN is removed and OTHER_TOKEN's host is changed by the agent.
+	f.write(t, "env.secret.yaml", "OTHER_TOKEN:\n  value: sk2\n  host: api.changed.example\n")
+	if _, err := ApproveSecretWrite("checkout-a", "WIDGET_TOKEN"); err != nil {
+		t.Fatalf("ApproveSecretWrite: %v", err)
+	}
+	approval, _, _ := LoadApproval("checkout-a")
+	if got := Evaluate(f.compute(t), approval); got.Approved {
+		t.Fatalf("an unrelated secret change was approved: %+v", got)
+	}
+}
+
+func TestApproveSecretWriteWithoutAnApprovalRecordsNothing(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	restore, err := ApproveSecretWrite("checkout-a", "WIDGET_TOKEN")
+	if err != nil {
+		t.Fatalf("ApproveSecretWrite: %v", err)
+	}
+	restore()
+	if _, found, _ := LoadApproval("checkout-a"); found {
+		t.Error("an approval was created for a layer the user never approved")
+	}
+}
+
+// TestApproveSecretWriteRestoresThePreviousApproval pins the undo for a removal
+// that fails after its approval was recorded.
+func TestApproveSecretWriteRestoresThePreviousApproval(t *testing.T) {
+	f := newProjectFixture(t)
+	f.write(t, "env.secret.yaml", "WIDGET_TOKEN:\n  value: sk\n  host: api.widget.example\n")
+	if err := RecordApproval("checkout-a", f.compute(t)); err != nil {
+		t.Fatal(err)
+	}
+	before, _, _ := LoadApproval("checkout-a")
+
+	restore, err := ApproveSecretWrite("checkout-a", "WIDGET_TOKEN")
+	if err != nil {
+		t.Fatalf("ApproveSecretWrite: %v", err)
+	}
+	restore()
+	if after, _, _ := LoadApproval("checkout-a"); after.Digest != before.Digest {
+		t.Errorf("approval digest after restore = %s, want the previous %s", after.Digest, before.Digest)
+	}
+}
+
 // TestApprovalStateFailuresAreReported pins that an unreadable root state is
 // reported by every approval read and write rather than taken as no approval.
 func TestApprovalStateFailuresAreReported(t *testing.T) {
@@ -309,4 +396,236 @@ func TestApprovalStateFailuresAreReported(t *testing.T) {
 	) {
 		t.Errorf("ApproveSettingWrite = %v, want the state error", err)
 	}
+	if _, err := ApproveSecretWrite(
+		"checkout-a",
+		"WIDGET_TOKEN",
+	); !errors.Is(
+		err,
+		state.ErrStateUnparsable,
+	) {
+		t.Errorf("ApproveSecretWrite = %v, want the state error", err)
+	}
+}
+
+// TestRefreshSecretFileInputKeepsAHomeSourceSecretFileApproved pins that the
+// launcher's own removal from a project env.secret.yaml that is also a home:
+// source refreshes the file's raw-content input, so the next run does not gate
+// the launcher's own change.
+func TestRefreshSecretFileInputKeepsAHomeSourceSecretFileApproved(t *testing.T) {
+	f := newProjectFixture(t)
+	f.write(t, "config.yaml",
+		"memory: 4G\nhome:\n  .config/agents-sandbox/env.secret.yaml:\n    source: env.secret.yaml\n")
+	f.write(t, "env.secret.yaml", "WIDGET_TOKEN:\n  value: sk\n  host: api.widget.example\n")
+	if err := RecordApproval("checkout-a", f.compute(t)); err != nil {
+		t.Fatal(err)
+	}
+
+	// The launcher removed the entry; the file stays the home: source.
+	f.write(t, "env.secret.yaml", "{}\n")
+	if _, err := ApproveSecretWrite("checkout-a", "WIDGET_TOKEN"); err != nil {
+		t.Fatal(err)
+	}
+	if err := RefreshSecretFileInput("checkout-a", f.projectDir); err != nil {
+		t.Fatalf("RefreshSecretFileInput: %v", err)
+	}
+
+	approval, _, _ := LoadApproval("checkout-a")
+	if got := Evaluate(f.compute(t), approval); !got.Approved {
+		t.Fatalf("after the launcher's removal: %+v, want approved", got)
+	}
+}
+
+// TestRefreshSecretFileInputWithoutAnApprovalRecordsNothing pins that the
+// refresh is a no-op when there is no approval to extend.
+func TestRefreshSecretFileInputWithoutAnApprovalRecordsNothing(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	if err := RefreshSecretFileInput("checkout-a", t.TempDir()); err != nil {
+		t.Fatalf("RefreshSecretFileInput: %v", err)
+	}
+	if _, found, _ := LoadApproval("checkout-a"); found {
+		t.Error("an approval was created for a layer the user never approved")
+	}
+}
+
+// TestRefreshSecretFileInputWithoutAHomeSourceChangesNothing pins that the
+// refresh leaves an approval alone when the secret file is not also a home:
+// source: there is no raw-content input to refresh.
+func TestRefreshSecretFileInputWithoutAHomeSourceChangesNothing(t *testing.T) {
+	f := newProjectFixture(t)
+	f.write(t, "env.secret.yaml", "WIDGET_TOKEN:\n  value: sk\n  host: api.widget.example\n")
+	if err := RecordApproval("checkout-a", f.compute(t)); err != nil {
+		t.Fatal(err)
+	}
+
+	f.write(t, "env.secret.yaml", "{}\n")
+	if _, err := ApproveSecretWrite("checkout-a", "WIDGET_TOKEN"); err != nil {
+		t.Fatal(err)
+	}
+	before, _, _ := LoadApproval("checkout-a")
+	if err := RefreshSecretFileInput("checkout-a", f.projectDir); err != nil {
+		t.Fatalf("RefreshSecretFileInput: %v", err)
+	}
+	after, _, _ := LoadApproval("checkout-a")
+	require.Equal(t, before, after, "a file that is no home: source has nothing to refresh")
+}
+
+// TestRefreshSecretFileInputReportsAStateFailure pins that an unreadable state
+// root is reported, not taken as nothing to refresh.
+func TestRefreshSecretFileInputReportsAStateFailure(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	testutil.WriteFile(t, configpaths.Get().UserStateDir(), "state.yaml", "schema: [not-valid")
+
+	if err := RefreshSecretFileInput("checkout-a", t.TempDir()); !errors.Is(
+		err,
+		state.ErrStateUnparsable,
+	) {
+		t.Errorf("RefreshSecretFileInput = %v, want the state error", err)
+	}
+}
+
+// TestRefreshFileInputDropsAVanishedFilesInput pins that a raw-content input
+// whose file is gone by refresh time is dropped, matching the projection, which
+// adds no home: input for a missing source.
+func TestRefreshFileInputDropsAVanishedFilesInput(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "env.secret.yaml")
+	inputs := []Input{{Path: path, Kind: KindFile, Entries: []string{"sha256:old"}, Digest: "sha256:old"}}
+
+	got, changed := refreshFileInput(inputs, path)
+
+	require.True(t, changed)
+	require.Empty(t, got)
+}
+
+// TestApproveSecretWriteReportsAStateFailure pins that a failure to extend the
+// approval for a removed secret is reported rather than silently treated as
+// recorded.
+func TestApproveSecretWriteReportsAStateFailure(t *testing.T) {
+	f := newProjectFixture(t)
+	f.write(t, "config.yaml", "memory: 4G\n")
+	f.write(t, "env.secret.yaml", "WIDGET_TOKEN:\n  value: sk\n  host: api.widget.example\n")
+	if err := RecordApproval("checkout-a", f.compute(t)); err != nil {
+		t.Fatal(err)
+	}
+	restore := state.OverrideStateWriteForTest(func(string, []byte) error { return errors.New("boom") })
+	t.Cleanup(restore)
+
+	if _, err := ApproveSecretWrite("checkout-a", "WIDGET_TOKEN"); err == nil {
+		t.Fatal("ApproveSecretWrite with an unrecordable approval = nil, want the state error")
+	}
+}
+
+// TestWithoutSecretEntryKeepsUnrelatedInputsAndDropsAnEmptiedOne pins that only
+// env.secret.yaml's named entry is dropped: another input, a secret file at
+// another path, and the remaining entries all survive, and an input left with no
+// entries is dropped.
+func TestWithoutSecretEntryKeepsUnrelatedInputsAndDropsAnEmptiedOne(t *testing.T) {
+	secretFile := configpaths.EnvSecretFileName + ".yaml"
+	inputs := []Input{
+		{Path: "/p/config.yaml", Kind: KindLauncherConfig, Entries: []string{"memory: 8G"}},
+		{Path: "/p/" + secretFile, Kind: KindFile, Entries: []string{"TOKEN"}},
+		{Path: "/p/" + secretFile, Kind: KindSecrets, Entries: []string{"TOKEN", "OTHER: api.x"}},
+		{Path: "/p/" + secretFile, Kind: KindSecrets, Entries: []string{"TOKEN: api.y"}},
+		{Path: "/p/legacy.yaml", Kind: KindSecrets, Entries: []string{"TOKEN: api.z"}},
+	}
+	want := []Input{
+		{Path: "/p/config.yaml", Kind: KindLauncherConfig, Entries: []string{"memory: 8G"}},
+		// A non-secret input at the secret file's path (a home: source's digest
+		// input) is not a secret entry and must survive untouched.
+		{Path: "/p/" + secretFile, Kind: KindFile, Entries: []string{"TOKEN"}},
+		{Path: "/p/" + secretFile, Kind: KindSecrets, Entries: []string{"OTHER: api.x"}},
+		{Path: "/p/legacy.yaml", Kind: KindSecrets, Entries: []string{"TOKEN: api.z"}},
+	}
+
+	require.Equal(t, want, withoutSecretEntry(inputs, "TOKEN"))
+}
+
+// TestRefreshFileInputLeavesNonMatchingInputsUntouched pins the refresh filter: a
+// file input at another path and a non-file input at the secret file's path are
+// both passed through unchanged, so no input is rewritten and nothing is
+// reported as changed.
+func TestRefreshFileInputLeavesNonMatchingInputsUntouched(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "env.secret.yaml")
+	testutil.WriteFile(t, dir, "env.secret.yaml", "WIDGET_TOKEN:\n  value: sk\n  host: api.widget.example\n")
+	inputs := []Input{
+		{
+			Path:    filepath.Join(dir, "config.yaml"),
+			Kind:    KindFile,
+			Entries: []string{"sha256:other"},
+			Digest:  "sha256:other",
+		},
+		{Path: path, Kind: KindSecrets, Entries: []string{"WIDGET_TOKEN"}},
+	}
+
+	got, changed := refreshFileInput(inputs, path)
+
+	require.False(t, changed)
+	require.Equal(t, inputs, got)
+}
+
+// TestRefreshFileInputContinuesPastAVanishedFilesInput pins that a matching file
+// input whose source is gone is dropped without stopping the loop, so the inputs
+// after it still survive.
+func TestRefreshFileInputContinuesPastAVanishedFilesInput(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "env.secret.yaml")
+	inputs := []Input{
+		{Path: path, Kind: KindFile, Entries: []string{"sha256:old"}, Digest: "sha256:old"},
+		{Path: "/other/config.yaml", Kind: KindLauncherConfig, Entries: []string{"memory: 8G"}},
+	}
+
+	got, changed := refreshFileInput(inputs, path)
+
+	require.True(t, changed)
+	require.Equal(t, inputs[1:], got)
+}
+
+// TestSameSourcePathMatchesADifferentSpellingOfOneFile pins both spellings the
+// comparison accepts: a path equal after Clean (a spelling that does not
+// resolve) and a path equal only after symlink resolution (a spelling Clean
+// cannot fold). Two unrelated paths match neither.
+func TestSameSourcePathMatchesADifferentSpellingOfOneFile(t *testing.T) {
+	dir := t.TempDir()
+	realDir := filepath.Join(dir, "real")
+	require.NoError(t, os.MkdirAll(realDir, 0o750))
+	file := filepath.Join(realDir, "env.secret.yaml")
+	testutil.WriteFile(t, realDir, "env.secret.yaml", "x")
+	link := filepath.Join(dir, "link")
+	require.NoError(t, os.Symlink(realDir, link))
+
+	for _, tc := range []struct {
+		name string
+		a, b string
+		want bool
+	}{
+		{"identical", "/a/b", "/a/b", true},
+		{"unrelated", "/a/b", "/c/d", false},
+		{"cleaned", "/a/./b/../b", "/a/b", true},
+		{"resolved symlink", filepath.Join(link, "env.secret.yaml"), file, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, sameSourcePath(tc.a, tc.b))
+		})
+	}
+}
+
+// TestRefreshSecretFileInputWithoutAChangeDoesNotWrite pins that the refresh
+// leaves the state untouched when the approval has no raw-content input to
+// update, rather than rewriting an identical approval.
+func TestRefreshSecretFileInputWithoutAChangeDoesNotWrite(t *testing.T) {
+	f := newProjectFixture(t)
+	f.write(t, "env.secret.yaml", "WIDGET_TOKEN:\n  value: sk\n  host: api.widget.example\n")
+	if err := RecordApproval("checkout-a", f.compute(t)); err != nil {
+		t.Fatal(err)
+	}
+	writes := 0
+	restore := state.OverrideStateWriteForTest(func(string, []byte) error {
+		writes++
+		return nil
+	})
+	t.Cleanup(restore)
+
+	if err := RefreshSecretFileInput("checkout-a", f.projectDir); err != nil {
+		t.Fatalf("RefreshSecretFileInput: %v", err)
+	}
+	require.Zero(t, writes, "an approval with nothing to refresh must not be rewritten")
 }

@@ -37,6 +37,10 @@ What is on `main` now:
   the `--learn` flag, the `state.LearnSession` record (a `HomeState` schema bump), and the 30-day artefact sweep. It
   removed the S4/S5/S6 `//deadcode:ignore` markers as it wired each package's consumer. Its host-only steps (a real
   turn through the proxy, a killed-session replay) are a human accept the PR carries.
+- **S8 landed**: `config harden` — the config-only finder (`analyser.ConfigFindings`, findings C1–C7), the
+  `analyser.FileModeWrite`, and the `config harden` command. It runs no sandbox, so the whole subplan is verified in
+  the dev VM. The settled finding set and the owner-scope rule live in
+  `specs/onboarding/learn-mode/findings-and-apply.md` §`config harden`.
 - **S10 landed**: `internal/sandbox/analyser/managed_config.go` — the agent-config write-back finder
   (`ManagedConfigFindings`), the `Write.ManagedConfig`/`ApplyOptions.Agent` applier path that writes the sanitized
   config into the per-slug user scope, the `${ENVVAR}` placeholder (`envsecret.PlaceholderFor`, `SecretSpec.Placeholder`)
@@ -46,9 +50,10 @@ What is on `main` now:
 - **S11 landed** (#754): `internal/sandbox/readback`'s inline config-file secret and glob-declared directory login
   store, extending S5 (#749).
 
-**S7, S10, and S11 have landed; the frontier is S8 (`config harden`) and S9 (first-run).**
-**S8 is implemented on `feat/697-config-harden`, awaiting its PR; S9 is not yet written** — write it when its
-predecessors land, never in advance.
+**S7, S8, S10, and S11 have landed; the frontier is S9 (`firstrun`).**
+S8 landed as `feat/697-config-harden`; S10's managed-config write-back is where S8's C7 declarative reference write
+becomes a real agent-config edit (`api_key_env` for kimi).
+**S9 is not yet written** — write it when its predecessors land, never in advance.
 
 **#749 splits across three subplans.** Issue #749 ("read back inline config secrets and directory login stores") is the
 follow-up to the kimi-code profile (#748 / PR #752): its read-back classification was deferred by that profile. Its
@@ -313,8 +318,9 @@ CHANNEL TRACK                                          LEARN TRACK
 
 S2, S3, S4, and S6 landed (S2/S3 shared `network.Policy`, `msb.NetworkSpec`, `msb/translate.go`,
 `viperconfig/config.go`); S6 landed on top of S5; S7 then landed on top of S4 and S6, and S10 on top of S7. **S4 and S6
-share no file**, so S7 was the join; the frontier is now S8 and S9 (S11 landed, extending S5 and feeding S8's C7 and
-S10's native form). Within each subplan, follow its own serialization. A subplan's plan is written when its
+share no file**, so S7 was the join; S8 then landed on top of S6 (S11 landed, extending S5 and feeding S8's C7 and
+S10's native form). The frontier is now S9. Within each subplan, follow its own serialization. A subplan's plan is
+written when its
 predecessors land, never in advance — S11 was written ahead of PR #752 at the maintainer's call because #749's read-back
 half depends only on the landed S5.
 

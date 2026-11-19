@@ -1011,6 +1011,55 @@ func TestReadInlineSecretKeepsItsOwnEntryHost(t *testing.T) {
 		"the credential's own entry host, not the provider-keyed union")
 }
 
+// TestInlineCredentialsInClassifiesAProviderKey pins the exported entry point
+// the config harden finder reuses: a provider entry's inline key is classified
+// with the entry's own host and derived env-var name, and an unknown format
+// yields nothing.
+func TestInlineCredentialsInClassifiesAProviderKey(t *testing.T) {
+	credentials := InlineCredentialsIn(
+		"opencode.jsonc",
+		[]byte(`{"provider":{"openai":{"options":{"apiKey":"sk-inline","baseURL":"https://api.openai.com/v1"}}}}`),
+	)
+
+	require.Len(t, credentials, 1)
+	require.Equal(t, "openai", credentials[0].Provider)
+	require.Equal(t, "OPENAI_API_KEY", credentials[0].EnvVar)
+	require.Equal(t, []string{"api.openai.com"}, credentials[0].Hosts)
+	require.Equal(t, "sk-inline", credentials[0].Value)
+
+	require.Empty(t, InlineCredentialsIn("notes.txt", []byte("provider: openai\napi_key: sk\n")))
+}
+
+// TestSkipsInlineCredentialsMatchesLoginStoresByPathTail pins the shared
+// exclusion the read-back and the config finder both consult: the dotenv and a
+// login store are skipped, and a login store is recognized whether it is spelled
+// home-relative (.codex/auth.json) or reached under a launcher config scope
+// (.../codex/auth.json).
+func TestSkipsInlineCredentialsMatchesLoginStoresByPathTail(t *testing.T) {
+	skipped := []string{
+		".codex/auth.json",
+		"/scope/projectconfig/codex/auth.json",
+		".claude/settings.json",
+		"/x/.claude/settings.json",
+		".pi/agent/settings.json",
+		"/x/kimi-code/credentials/foo.json",
+		"/x/opencode/.env",
+	}
+	for _, path := range skipped {
+		require.Truef(t, SkipsInlineCredentials(path), "%q is skipped from the inline walk", path)
+	}
+
+	kept := []string{
+		"/x/opencode/opencode.jsonc",
+		"/x/codex/config.toml",
+		"/x/myclaude/settings.json",
+		"/x/opencode/auth.json",
+	}
+	for _, path := range kept {
+		require.Falsef(t, SkipsInlineCredentials(path), "%q is walked for inline credentials", path)
+	}
+}
+
 // TestConfigInlineCredentialsSkipsAnUnknownExtension: only a config format the
 // decoder knows is walked, so an unrecognised file yields no credential.
 func TestConfigInlineCredentialsSkipsAnUnknownExtension(t *testing.T) {
@@ -1181,4 +1230,46 @@ func TestIsModelCatalog(t *testing.T) {
 		"the models.providers wrapper is a provider container")
 	require.False(t, isModelCatalog("provider", map[string]any{"gpt-4o": map[string]any{}}),
 		"a non-models key is never a catalog")
+}
+
+// TestInlineCredentialsInIgnoresAnUndecodableDocument pins that a document in a
+// known format that does not decode yields nothing, never a guess.
+func TestInlineCredentialsInIgnoresAnUndecodableDocument(t *testing.T) {
+	require.Empty(t, InlineCredentialsIn("config.json", []byte("{not json")))
+}
+
+// TestConfigInlineCredentialsSkipsAProbeEntry pins that an entry carrying no
+// size and no mtime is a credential probe, not a file, so it is never read as
+// one even when its key names a readable provider config.
+func TestConfigInlineCredentialsSkipsAProbeEntry(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, "scope/opencode.jsonc",
+		`{"provider":{"openai":{"options":{"apiKey":"sk-inline","baseURL":"https://api.openai.com/v1"}}}}`)
+
+	credentials := configInlineCredentials(home, Manifest{Entries: []ManifestEntry{
+		{Key: "scope/opencode.jsonc", Size: 0, Hash: "probe-digest"},
+	}})
+
+	require.Empty(t, credentials, "an entry with no size or mtime is a probe, not a file")
+}
+
+// TestInlineCredentialsInIgnoresAnUnknownExtension pins that a file whose
+// extension names no known format yields nothing, even when its bytes are valid
+// YAML the decoder would accept: the format gate is what refuses it.
+func TestInlineCredentialsInIgnoresAnUnknownExtension(t *testing.T) {
+	data := []byte("provider:\n  openai:\n    options:\n" +
+		"      apiKey: sk-inline\n      baseURL: https://api.openai.com/v1\n")
+
+	require.Empty(t, InlineCredentialsIn("config.unknown", data))
+}
+
+// TestInlineCredentialsInIgnoresAPartiallyDecodedDocument pins that a document
+// the decoder errors on yields nothing even when it has already populated a
+// provider entry: the guard discards the partial state rather than scanning it.
+func TestInlineCredentialsInIgnoresAPartiallyDecodedDocument(t *testing.T) {
+	data := []byte("provider:\n  openai:\n    options:\n" +
+		"      apiKey: sk-inline\n      baseURL: https://api.openai.com/v1\n" +
+		"broken: !!int notanint\n")
+
+	require.Empty(t, InlineCredentialsIn("config.yaml", data))
 }

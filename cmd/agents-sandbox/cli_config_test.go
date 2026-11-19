@@ -16,6 +16,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/git"
+	"github.com/inoio/agents-sandbox/internal/sandbox/analyser"
 	"github.com/inoio/agents-sandbox/internal/sandbox/channel"
 	"github.com/inoio/agents-sandbox/internal/sandbox/learn"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
@@ -1023,4 +1024,721 @@ func warnsAbout(ui *termiotest.Mock, want string) bool {
 		}
 	}
 	return false
+}
+
+// hardenSlug returns the effective config slug config harden resolves for this
+// test's project, as the launcher-config resolver exposes it.
+func hardenSlug(t *testing.T, cmd *cobra.Command) string {
+	t.Helper()
+	if slug := configSlugFromContext(cmd.Context()); slug != "" {
+		return slug
+	}
+	identity, err := git.ResolveIdentity(".")
+	if err != nil {
+		t.Fatalf("resolve identity: %v", err)
+	}
+	return effectiveConfigSlug(identity)
+}
+
+// hardenPerSlugConfigFile returns the per-slug user config file a config-key
+// finding writes, so a test asserts nothing was written.
+func hardenPerSlugConfigFile(t *testing.T, slug string) string {
+	t.Helper()
+	return filepath.Join(configpaths.Get().UserSlugConfigDir(slug), "config.yaml")
+}
+
+// TestConfigHardenNonInteractiveWritesNothing pins that a config harden run on a
+// non-interactive terminal reaches the applier, prints its one-line notice
+// naming `run --learn`, and writes no file.
+func TestConfigHardenNonInteractiveWritesNothing(t *testing.T) {
+	initTestProjectDir(t)
+	// The default config has provision-host-config true, so the finder yields a
+	// finding and Apply is reached.
+	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdHarden)
+	stubPrepareMSBRuntime(t)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config harden: %v", err)
+	}
+	if len(ui.AcknowledgeCalls) != 1 {
+		t.Fatalf("AcknowledgeCalls = %v, want the one-line notice", ui.AcknowledgeCalls)
+	}
+	if !strings.Contains(ui.AcknowledgeCalls[0], "run --learn") {
+		t.Errorf("notice %q, want it to name `run --learn`", ui.AcknowledgeCalls[0])
+	}
+	// Only the one notice prints: the summary is skipped non-interactively, so a
+	// caller does not see both.
+	if joined := strings.Join(ui.InfoCalls, "\n"); strings.Contains(joined, "config harden:") {
+		t.Errorf("InfoCalls = %v, want no summary beside the non-interactive notice", ui.InfoCalls)
+	}
+	configFile := hardenPerSlugConfigFile(t, hardenSlug(t, cmd))
+	if _, err := os.Stat(configFile); !os.IsNotExist(err) {
+		t.Errorf("config harden wrote %s (stat err = %v), want nothing written", configFile, err)
+	}
+}
+
+// TestConfigHardenDryRunWritesNothing pins that --dry-run makes no change and
+// asks nothing, even where a finding exists.
+func TestConfigHardenDryRunWritesNothing(t *testing.T) {
+	initTestProjectDir(t)
+	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdHarden, "--"+flagDryRun)
+	stubPrepareMSBRuntime(t)
+	selects := 0
+	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		selects++
+		return "", nil
+	}
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config harden --dry-run: %v", err)
+	}
+	if selects != 0 {
+		t.Errorf("Select calls = %d, want none under --dry-run", selects)
+	}
+	// The preview must reach Apply and render each finding's proposed change
+	// (its Write.Text), not just report that nothing was written.
+	preview := strings.Join(ui.OutCalls, "\n")
+	if !strings.Contains(preview, "would change") || !strings.Contains(preview, "turns host-config provisioning off") {
+		t.Errorf("OutCalls = %v, want the previewed finding and its Write.Text", ui.OutCalls)
+	}
+	configFile := hardenPerSlugConfigFile(t, hardenSlug(t, cmd))
+	if _, err := os.Stat(configFile); !os.IsNotExist(err) {
+		t.Errorf("config harden --dry-run wrote %s (stat err = %v), want nothing written", configFile, err)
+	}
+}
+
+// TestConfigHardenNoFindingsIsQuiet pins that a clean config yields zero
+// findings, so the command prints nothing and never reaches the applier.
+func TestConfigHardenNoFindingsIsQuiet(t *testing.T) {
+	initTestProjectDir(t)
+	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdHarden)
+	stubPrepareMSBRuntime(t)
+	// A clean posture: the terminal none profile with no egress allow list and
+	// host-config provisioning off. The public profile would report (C3) even
+	// with no allow list.
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml",
+		"network:\n  profile: none\nprovision-host-config: false\n")
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config harden: %v", err)
+	}
+	if len(ui.AcknowledgeCalls) != 0 {
+		t.Errorf("AcknowledgeCalls = %v, want silence with no findings", ui.AcknowledgeCalls)
+	}
+	if joined := strings.Join(ui.InfoCalls, "\n"); joined != "" {
+		t.Errorf("InfoCalls = %v, want silence with no findings", ui.InfoCalls)
+	}
+	if len(ui.OutCalls) != 0 {
+		t.Errorf("OutCalls = %v, want silence with no findings", ui.OutCalls)
+	}
+}
+
+// TestConfigHardenHelpAndTree pins that config harden is present in the config
+// help and in `tree`.
+func TestConfigHardenHelpAndTree(t *testing.T) {
+	out := commandOut(t, cmdConfig, cmdHarden, "--help")
+	if !strings.Contains(out, cmdHarden) {
+		t.Errorf("config harden help does not name the command:\n%s", out)
+	}
+
+	treeOut := strings.Join(buildTree(t).InfoCalls, "\n")
+	row := "── " + cmdHarden + "  "
+	if !strings.Contains(treeOut, row) {
+		t.Fatalf("expected a %q row in tree output:\n%s", row, treeOut)
+	}
+}
+
+// acceptEveryFinding makes the mock UI interactive and answers every finding
+// prompt with "Apply".
+func acceptEveryFinding(ui *termiotest.Mock) {
+	ui.IsInteractiveResult = true
+	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		return "a", nil
+	}
+}
+
+// TestConfigHardenAppliesAFindingInteractively pins that an accepted finding is
+// written: the host-config provisioning finding turns the key off at the
+// per-slug user scope.
+func TestConfigHardenAppliesAFindingInteractively(t *testing.T) {
+	initTestProjectDir(t)
+	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdHarden)
+	stubPrepareMSBRuntime(t)
+	acceptEveryFinding(ui)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config harden: %v", err)
+	}
+	configFile := hardenPerSlugConfigFile(t, hardenSlug(t, cmd))
+	written, err := os.ReadFile(configFile)
+	if err != nil {
+		t.Fatalf("config harden did not write %s: %v", configFile, err)
+	}
+	if !strings.Contains(string(written), "provision-host-config: false") {
+		t.Errorf("per-slug config = %q, want provision-host-config false", written)
+	}
+}
+
+// hardenScopeSecretFile returns the per-slug user scope's env.secret.yaml.
+func hardenScopeSecretFile(t *testing.T, slug string) string {
+	t.Helper()
+	return filepath.Join(configpaths.Get().UserSlugConfigDir(slug), configpaths.EnvSecretFileName+".yaml")
+}
+
+// TestConfigHardenMovesAnInlineConfigSecret pins the load-bearing secret-value
+// source: an inline credential in a managed agent config file resolves in memory
+// (without it every C7 add is refused) and lands in the per-slug env.secret.yaml.
+func TestConfigHardenMovesAnInlineConfigSecret(t *testing.T) {
+	initTestProjectDir(t)
+	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdHarden)
+	stubPrepareMSBRuntime(t)
+	acceptEveryFinding(ui)
+	slug := hardenSlug(t, cmd)
+	agentDir := configpathstest.CreateDir(
+		filepath.Join(configpaths.Get().UserSlugConfigDir(slug), mustOpencode(t).ConfigDirName()),
+	)
+	testutil.WritePath(t, filepath.Join(agentDir, "opencode.jsonc"),
+		`{"provider":{"openai":{"options":{"apiKey":"sk-inline","baseURL":"https://api.openai.com/v1"}}}}`)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config harden: %v", err)
+	}
+	written, err := os.ReadFile(hardenScopeSecretFile(t, slug))
+	if err != nil {
+		t.Fatalf("config harden did not write the secret file: %v", err)
+	}
+	if !strings.Contains(string(written), "OPENAI_API_KEY") ||
+		!strings.Contains(string(written), "sk-inline") {
+		t.Errorf("secret file = %q, want the inline value moved under OPENAI_API_KEY", written)
+	}
+}
+
+// TestConfigHardenMovesAProjectSecret pins the other secret-value source: a
+// static secret committed in the approved project scope resolves from the
+// scope's env.secret.yaml and is moved to the per-slug user scope (removed from
+// the project file, added to the per-slug one).
+func TestConfigHardenMovesAProjectSecret(t *testing.T) {
+	initTestProjectDir(t)
+	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdHarden)
+	stubPrepareMSBRuntime(t)
+	projectSecret := filepath.Join(configpaths.Get().ProjectConfigDir(), configpaths.EnvSecretFileName+".yaml")
+	testutil.WritePath(t, projectSecret,
+		"WIDGET_TOKEN:\n  value: sk-project-secret\n  hosts:\n    - api.widget.example\n")
+	approveProjectConfig(t)
+	acceptEveryFinding(ui)
+	slug := hardenSlug(t, cmd)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config harden: %v", err)
+	}
+	written, err := os.ReadFile(hardenScopeSecretFile(t, slug))
+	if err != nil {
+		t.Fatalf("config harden did not write the per-slug secret file: %v", err)
+	}
+	if !strings.Contains(string(written), "WIDGET_TOKEN") ||
+		!strings.Contains(string(written), "sk-project-secret") {
+		t.Errorf("per-slug secret file = %q, want the project secret moved under WIDGET_TOKEN", written)
+	}
+	remaining, err := os.ReadFile(projectSecret)
+	if err == nil && strings.Contains(string(remaining), "WIDGET_TOKEN") {
+		t.Errorf("project secret file still names WIDGET_TOKEN:\n%s", remaining)
+	}
+}
+
+// TestConfigHardenLeavesAnUnapprovedProjectLayerAlone pins that a project
+// secret whose layer is unapproved is reported once and never read or moved:
+// the trust gate excludes the layer, and config harden writes nothing for it.
+func TestConfigHardenLeavesAnUnapprovedProjectLayerAlone(t *testing.T) {
+	initTestProjectDir(t)
+	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdHarden)
+	stubPrepareMSBRuntime(t)
+	projectSecret := filepath.Join(configpaths.Get().ProjectConfigDir(), configpaths.EnvSecretFileName+".yaml")
+	testutil.WritePath(t, projectSecret,
+		"WIDGET_TOKEN:\n  value: sk-project-secret\n  hosts:\n    - api.widget.example\n")
+	acceptEveryFinding(ui)
+	slug := hardenSlug(t, cmd)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config harden: %v", err)
+	}
+	// The gate reports the unapproved layer once; harden adds no second notice.
+	if len(ui.WarnCalls) != 1 {
+		t.Errorf("WarnCalls = %v, want the gate's one notice", ui.WarnCalls)
+	}
+	if _, err := os.Stat(hardenScopeSecretFile(t, slug)); !os.IsNotExist(err) {
+		t.Errorf("config harden wrote a per-slug secret for an unapproved layer (stat err = %v)", err)
+	}
+	if remaining, err := os.ReadFile(
+		projectSecret,
+	); err != nil ||
+		!strings.Contains(string(remaining), "WIDGET_TOKEN") {
+		t.Errorf("the unapproved project secret file changed (err = %v)", err)
+	}
+}
+
+// TestConfigHardenAllWildcardEgressReportsWithoutPrompting pins the C3/C4
+// interaction at the command boundary: an egress-allow list holding only
+// wildcards yields a report-only finding that is neither prompted nor applied,
+// so harden never silently denies egress.
+func TestConfigHardenAllWildcardEgressReportsWithoutPrompting(t *testing.T) {
+	initTestProjectDir(t)
+	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdHarden)
+	stubPrepareMSBRuntime(t)
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml",
+		"network:\n  profile: none\n  egress-allow: [\"*\", \"0.0.0.0/0\"]\nprovision-host-config: false\n")
+	selects := 0
+	ui.IsInteractiveResult = true
+	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		selects++
+		return "a", nil
+	}
+	slug := hardenSlug(t, cmd)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config harden: %v", err)
+	}
+	if selects != 0 {
+		t.Errorf("Select calls = %d, want no prompt for a report-only finding", selects)
+	}
+	if _, err := os.Stat(hardenPerSlugConfigFile(t, slug)); !os.IsNotExist(err) {
+		t.Errorf("config harden wrote a per-slug config for a report-only finding (stat err = %v)", err)
+	}
+	joined := strings.Join(ui.InfoCalls, "\n")
+	if !strings.Contains(joined, "reported") || !strings.Contains(joined, "wildcard") {
+		t.Errorf("InfoCalls = %v, want the report-only finding reported", ui.InfoCalls)
+	}
+}
+
+// TestSecretValueFromScopesUsesHighestPrecedence pins that a secret value is
+// resolved in effective-config precedence order: the higher-precedence scope
+// wins when the same env var is declared in two scopes.
+func TestSecretValueFromScopesUsesHighestPrecedence(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	slug := "widget-abc"
+	testutil.WriteFile(t, paths.UserConfigDir(), configpaths.EnvSecretFileName+".yaml",
+		"WIDGET_TOKEN:\n  value: sk-generic\n  host: api.widget.example\n")
+	testutil.WriteFile(t, paths.UserSlugConfigDir(slug), configpaths.EnvSecretFileName+".yaml",
+		"WIDGET_TOKEN:\n  value: sk-per-slug\n  host: api.widget.example\n")
+
+	value, ok := secretValueFromScopes(
+		configpaths.ConfigScopes(paths, slug),
+		"WIDGET_TOKEN",
+		&termiotest.Mock{},
+	)
+	if !ok || value != "sk-per-slug" {
+		t.Fatalf("secretValueFromScopes = %q, %v; want the highest-precedence value", value, ok)
+	}
+}
+
+// TestConfigHardenResolveIdentityFailure pins that an unresolvable project
+// directory is reported rather than deriving a degraded slug; config harden
+// resolves the identity itself, so it is reached even off the root command.
+func TestConfigHardenResolveIdentityFailure(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatalf("remove cwd: %v", err)
+	}
+
+	if err := runConfigHarden(learnBareCmd(), &termiotest.Mock{}); err == nil {
+		t.Fatal("runConfigHarden over a removed cwd = nil error, want the identity failure")
+	}
+}
+
+// TestConfigHardenBareCommandFallsBackToIdentitySlug pins the no-resolver path:
+// the effective slug falls back to the identity-derived one and, with no
+// resolver config, the finder audits the secret scopes alone, so a clean tree is
+// quiet rather than prompting or writing.
+func TestConfigHardenBareCommandFallsBackToIdentitySlug(t *testing.T) {
+	initTestProjectDir(t)
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
+
+	if err := runConfigHarden(learnBareCmd(), ui); err != nil {
+		t.Fatalf("config harden: %v", err)
+	}
+	if len(ui.AcknowledgeCalls) != 0 || len(ui.InfoCalls) != 0 || len(ui.OutCalls) != 0 {
+		t.Errorf("bare-run output = %v / %v / %v, want quiet",
+			ui.AcknowledgeCalls, ui.InfoCalls, ui.OutCalls)
+	}
+}
+
+// TestAgentNameForHardenUsesResolverAgent pins that the resolver supplies the
+// agent whose config dirs the finder and the value lookup scan, with the default
+// when no resolver is present.
+func TestAgentNameForHardenUsesResolverAgent(t *testing.T) {
+	if got := agentNameForHarden(learnCmdWithResolver(launcherconfig.Config{Agent: "pi"})); got != "pi" {
+		t.Errorf("agentNameForHarden = %q, want pi", got)
+	}
+	if got := agentNameForHarden(learnCmdWithResolver(launcherconfig.Config{})); got != defaultAgentName {
+		t.Errorf("agentNameForHarden(empty resolver agent) = %q, want %q", got, defaultAgentName)
+	}
+	if got := agentNameForHarden(learnBareCmd()); got != defaultAgentName {
+		t.Errorf("agentNameForHarden(bare) = %q, want %q", got, defaultAgentName)
+	}
+}
+
+// TestAgentConfigDirNamesReturnsTheProfilesDirs pins that a resolved profile
+// yields its config dir names for the value scan.
+func TestAgentConfigDirNamesReturnsTheProfilesDirs(t *testing.T) {
+	if names := agentConfigDirNames("opencode"); len(names) == 0 {
+		t.Error("agentConfigDirNames(opencode) = nil, want the profile's dir names")
+	}
+}
+
+// TestConfigHardenBareCommandUsesTheIdentitySlug pins the no-resolver fallback:
+// with no context slug, harden derives the slug from the project identity, so a
+// per-slug secret for that slug is found.
+func TestConfigHardenBareCommandUsesTheIdentitySlug(t *testing.T) {
+	initTestProjectDir(t)
+	configpathstest.WithMockConfigPaths(t)
+	identity, err := git.ResolveIdentity(".")
+	if err != nil {
+		t.Fatalf("ResolveIdentity: %v", err)
+	}
+	dir := configpaths.Get().UserSlugConfigDir(effectiveConfigSlug(identity))
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, dir, configpaths.EnvSecretFileName+".yaml",
+		"CUSTOM_TOKEN:\n  value: sk\n  host: api.example\n  allow_any_host_dangerous: true\n")
+	ui := &termiotest.Mock{}
+
+	if err := runConfigHarden(learnBareCmd(), ui); err != nil {
+		t.Fatalf("config harden: %v", err)
+	}
+	if len(ui.AcknowledgeCalls) == 0 {
+		t.Fatalf("harden found nothing at the identity slug; output = %v/%v", ui.InfoCalls, ui.OutCalls)
+	}
+}
+
+// TestSecretValueFromScopesSkipsAnEmptyValue pins that a scope declaring the env
+// var with no value yields no value, not an empty one.
+func TestSecretValueFromScopesSkipsAnEmptyValue(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	testutil.WriteFile(t, paths.UserSlugConfigDir("widget-abc"), configpaths.EnvSecretFileName+".yaml",
+		"CUSTOM_TOKEN:\n  host: api.example\n")
+
+	value, ok := secretValueFromScopes(
+		configpaths.ConfigScopes(paths, "widget-abc"),
+		"CUSTOM_TOKEN",
+		&termiotest.Mock{},
+	)
+	if ok || value != "" {
+		t.Fatalf("secretValueFromScopes over an empty value = %q, %v; want no value", value, ok)
+	}
+}
+
+// TestSecretValueFromSourceSkipsAnEmptyValue pins that a scope directory whose
+// env var carries no value yields no value.
+func TestSecretValueFromSourceSkipsAnEmptyValue(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	dir := t.TempDir()
+	testutil.WriteFile(t, dir, configpaths.EnvSecretFileName+".yaml", "CUSTOM_TOKEN:\n  host: api.example\n")
+
+	value, ok := secretValueFromSource(dir, "CUSTOM_TOKEN", &termiotest.Mock{})
+	if ok || value != "" {
+		t.Fatalf("secretValueFromSource over an empty value = %q, %v; want no value", value, ok)
+	}
+}
+
+// TestSecretValueFromAgentConfigsFindsAValueAcrossScopesAndDirs pins that the
+// scan walks every scope and every dir name until it finds the credential, so a
+// value in the lowest-precedence scope's second dir name is still resolved.
+func TestSecretValueFromAgentConfigsFindsAValueAcrossScopesAndDirs(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	dir := filepath.Join(paths.UserConfigDir(), "opencode")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, dir, "opencode.jsonc",
+		`{"provider":{"openai":{"options":{"apiKey":"sk-generic","baseURL":"https://api.openai.com/v1"}}}}`)
+
+	value, ok := secretValueFromAgentConfigs(
+		configpaths.ConfigScopes(paths, "widget-abc"),
+		[]string{"absent", "opencode"},
+		"OPENAI_API_KEY",
+	)
+	if !ok || value != "sk-generic" {
+		t.Fatalf("secretValueFromAgentConfigs = %q, %v; want the generic-scope value", value, ok)
+	}
+}
+
+// TestInlineCredentialValueFindsAValueAfterASkippedDirectory pins that the scan
+// passes a directory entry and reads the files that follow it.
+func TestInlineCredentialValueFindsAValueAfterASkippedDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "0-nested"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, dir, "opencode.jsonc",
+		`{"provider":{"openai":{"options":{"apiKey":"sk-inline","baseURL":"https://api.openai.com/v1"}}}}`)
+
+	value, ok := inlineCredentialValue(dir, "OPENAI_API_KEY")
+	if !ok || value != "sk-inline" {
+		t.Fatalf("inlineCredentialValue = %q, %v; want sk-inline", value, ok)
+	}
+}
+
+// TestInlineCredentialValueReturnsNothingForAMissingDir pins that an unreadable
+// directory yields no value.
+func TestInlineCredentialValueReturnsNothingForAMissingDir(t *testing.T) {
+	value, ok := inlineCredentialValue(filepath.Join(t.TempDir(), "missing"), "OPENAI_API_KEY")
+	if ok || value != "" {
+		t.Fatalf("inlineCredentialValue over a missing dir = %q, %v; want no value", value, ok)
+	}
+}
+
+// TestInlineCredentialValueInFileSkipsALoginStore pins that a path the shared
+// exclusion rejects is never read, even when its content would classify.
+func TestInlineCredentialValueInFileSkipsALoginStore(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".codex", "auth.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	// The content is a classifiable inline credential, so only the login-store
+	// skip keeps the scan from reading it.
+	testutil.WritePath(t, path,
+		`{"provider":{"openai":{"options":{"apiKey":"sk-inline","baseURL":"https://api.openai.com/v1"}}}}`)
+
+	value, ok := inlineCredentialValueInFile(path, "OPENAI_API_KEY")
+	if ok || value != "" {
+		t.Fatalf("inlineCredentialValueInFile over a login store = %q, %v; want no value", value, ok)
+	}
+}
+
+// TestInlineCredentialValueInFileIgnoresAnotherEnvVar pins that a file whose
+// credential names a different env var yields no value for the requested one.
+func TestInlineCredentialValueInFileIgnoresAnotherEnvVar(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "opencode.jsonc")
+	testutil.WritePath(t, path,
+		`{"provider":{"openai":{"options":{"apiKey":"sk-inline","baseURL":"https://api.openai.com/v1"}}}}`)
+
+	value, ok := inlineCredentialValueInFile(path, "OTHER_TOKEN")
+	if ok || value != "" {
+		t.Fatalf("inlineCredentialValueInFile for another env var = %q, %v; want no value", value, ok)
+	}
+}
+
+// TestInlineCredentialValueInFileIgnoresAnEmptyValue pins that an inline key
+// whose value is empty yields no value, so an empty credential is never written
+// as a secret.
+func TestInlineCredentialValueInFileIgnoresAnEmptyValue(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "opencode.jsonc")
+	testutil.WritePath(t, path,
+		`{"provider":{"openai":{"options":{"apiKey":"","baseURL":"https://api.openai.com/v1"}}}}`)
+
+	value, ok := inlineCredentialValueInFile(path, "OPENAI_API_KEY")
+	if ok || value != "" {
+		t.Fatalf("inlineCredentialValueInFile over an empty value = %q, %v; want no value", value, ok)
+	}
+}
+
+// TestSecretValueFromAgentConfigsFindsNoMatch pins that a scan over an
+// agent-config tree with no matching credential resolves nothing rather than
+// inventing a value.
+func TestSecretValueFromAgentConfigsFindsNoMatch(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	scopes := configpaths.ConfigScopes(configpaths.Get(), "widget-abc")
+
+	value, ok := secretValueFromAgentConfigs(scopes, []string{"opencode"}, "MISSING_TOKEN")
+	if ok || value != "" {
+		t.Fatalf("secretValueFromAgentConfigs = %q, %v; want no match", value, ok)
+	}
+}
+
+// TestHardenSecretValuePrefersTheFindingsSource pins that a finding's value
+// comes from the source it names, not from a same-named secret in a
+// higher-precedence scope: the inline credential's own file supplies sk-inline,
+// not the per-slug scope's sk-scope.
+func TestHardenSecretValuePrefersTheFindingsSource(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	slug := "widget-abc"
+	testutil.WriteFile(t, paths.UserSlugConfigDir(slug), configpaths.EnvSecretFileName+".yaml",
+		"OPENAI_API_KEY:\n  value: sk-scope\n  host: api.corp.example\n")
+	agentFile := filepath.Join(
+		configpathstest.CreateDir(filepath.Join(paths.UserSlugConfigDir(slug), "opencode")),
+		"opencode.jsonc",
+	)
+	testutil.WritePath(t, agentFile,
+		`{"provider":{"openai":{"options":{"apiKey":"sk-inline","baseURL":"https://api.openai.com/v1"}}}}`)
+
+	resolve := hardenSecretValue(configpaths.ConfigScopes(paths, slug), "opencode", &termiotest.Mock{})
+	value, ok := resolve(analyser.SecretWrite{
+		EnvVar: "OPENAI_API_KEY", Hosts: []string{"api.openai.com"}, Source: agentFile,
+	})
+
+	if !ok || value != "sk-inline" {
+		t.Fatalf("inline source value = %q, %v; want the inline value sk-inline", value, ok)
+	}
+}
+
+// TestHardenSecretValueReadsAScopeSource pins that a scope-sourced finding
+// resolves from its own scope directory.
+func TestHardenSecretValueReadsAScopeSource(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	slug := "widget-abc"
+	testutil.WriteFile(t, paths.UserSlugConfigDir(slug), configpaths.EnvSecretFileName+".yaml",
+		"WIDGET_TOKEN:\n  value: sk-per-slug\n  host: api.widget.example\n")
+
+	resolve := hardenSecretValue(configpaths.ConfigScopes(paths, slug), "opencode", &termiotest.Mock{})
+	value, ok := resolve(analyser.SecretWrite{
+		EnvVar: "WIDGET_TOKEN", Hosts: []string{"api.widget.example"}, Source: paths.UserSlugConfigDir(slug),
+	})
+
+	if !ok || value != "sk-per-slug" {
+		t.Fatalf("scope source value = %q, %v; want the scope value sk-per-slug", value, ok)
+	}
+}
+
+// TestHardenSecretValueFallsBackWithoutASource pins that a write naming no source
+// (a session proposal uses its own resolver, so this path is config harden's
+// safety net) still resolves by precedence.
+func TestHardenSecretValueFallsBackWithoutASource(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	slug := "widget-abc"
+	testutil.WriteFile(t, paths.UserSlugConfigDir(slug), configpaths.EnvSecretFileName+".yaml",
+		"WIDGET_TOKEN:\n  value: sk-precedence\n  host: api.widget.example\n")
+
+	resolve := hardenSecretValue(configpaths.ConfigScopes(paths, slug), "opencode", &termiotest.Mock{})
+	if value, ok := resolve(analyser.SecretWrite{EnvVar: "WIDGET_TOKEN"}); !ok || value != "sk-precedence" {
+		t.Fatalf("source-less value = %q, %v; want the precedence value", value, ok)
+	}
+	if _, ok := resolve(analyser.SecretWrite{EnvVar: "MISSING_TOKEN"}); ok {
+		t.Error("a source-less write with no matching secret resolved a value")
+	}
+}
+
+// TestSecretValueFromSource covers each shape a source can take: an empty
+// source, a path that does not exist, a scope directory with and without the
+// env var, and an agent config file with and without the credential.
+func TestSecretValueFromSource(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
+	dir := t.TempDir()
+	testutil.WriteFile(t, dir, configpaths.EnvSecretFileName+".yaml",
+		"TOKEN:\n  value: sk-dir\n  host: api.example\n")
+	agentFile := filepath.Join(dir, "opencode.jsonc")
+	testutil.WritePath(t, agentFile,
+		`{"provider":{"openai":{"options":{"apiKey":"sk-file","baseURL":"https://api.openai.com/v1"}}}}`)
+
+	for _, tc := range []struct {
+		name   string
+		source string
+		envVar string
+		want   string
+		ok     bool
+	}{
+		{name: "empty source", envVar: "TOKEN"},
+		{name: "missing path", source: filepath.Join(dir, "nope"), envVar: "TOKEN"},
+		{name: "scope dir", source: dir, envVar: "TOKEN", want: "sk-dir", ok: true},
+		{name: "scope dir without the env var", source: dir, envVar: "OTHER"},
+		{name: "agent config file", source: agentFile, envVar: "OPENAI_API_KEY", want: "sk-file", ok: true},
+		{name: "agent config file without the credential", source: agentFile, envVar: "OTHER"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			value, ok := secretValueFromSource(tc.source, tc.envVar, ui)
+			if ok != tc.ok || value != tc.want {
+				t.Fatalf("secretValueFromSource(%q, %q) = %q, %v; want %q, %v",
+					tc.source, tc.envVar, value, ok, tc.want, tc.ok)
+			}
+		})
+	}
+}
+
+// TestInlineCredentialValueSkipsDirsAndLoginStores pins that a directory entry
+// and a skipped file (the dotenv) contribute no value.
+func TestInlineCredentialValueSkipsDirsAndLoginStores(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "nested"), 0o750); err != nil {
+		t.Fatalf("mkdir nested: %v", err)
+	}
+	testutil.WriteFile(t, dir, ".env", "OPENAI_API_KEY=sk-dotenv\n")
+
+	value, ok := inlineCredentialValue(dir, "OPENAI_API_KEY")
+	if ok || value != "" {
+		t.Fatalf("inlineCredentialValue = %q, %v; want no value", value, ok)
+	}
+}
+
+// TestInlineCredentialValueSkipsAnUnreadableFile pins that a file the read
+// cannot open contributes no value; a dangling symlink stands in for any read
+// error.
+func TestInlineCredentialValueSkipsAnUnreadableFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Symlink(filepath.Join(dir, "missing"), filepath.Join(dir, "opencode.jsonc")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	value, ok := inlineCredentialValue(dir, "OPENAI_API_KEY")
+	if ok || value != "" {
+		t.Fatalf("inlineCredentialValue = %q, %v; want no value", value, ok)
+	}
+}
+
+// TestAgentConfigDirNamesUnknownAgent pins that an unknown agent scans no dirs.
+func TestAgentConfigDirNamesUnknownAgent(t *testing.T) {
+	if names := agentConfigDirNames("no-such-agent"); names != nil {
+		t.Errorf("agentConfigDirNames = %v, want nil for an unknown agent", names)
+	}
+}
+
+// TestPrintHardenSummaryCountsEveryOutcome pins that each outcome is counted and
+// a non-applied one is detailed, so an interactive run shows what it wrote and
+// why a finding stayed.
+func TestPrintHardenSummaryCountsEveryOutcome(t *testing.T) {
+	ui := &termiotest.Mock{}
+	results := []analyser.ApplyResult{
+		{
+			Finding: analyser.Finding{Evidence: analyser.Evidence{Summary: "applied one"}},
+			Outcome: analyser.OutcomeApplied,
+		},
+		{
+			Finding: analyser.Finding{Evidence: analyser.Evidence{Summary: "declined one"}},
+			Outcome: analyser.OutcomeDeclined,
+		},
+		{
+			Finding: analyser.Finding{Evidence: analyser.Evidence{Summary: "skipped one"}},
+			Outcome: analyser.OutcomeSkipped,
+			Note:    "a reason",
+		},
+		{
+			Finding: analyser.Finding{Evidence: analyser.Evidence{Summary: "reported one"}},
+			Outcome: analyser.OutcomeNotApplicable,
+			Note:    "reported only",
+		},
+		{
+			Finding: analyser.Finding{Evidence: analyser.Evidence{Summary: "failed one"}},
+			Outcome: analyser.OutcomeFailed,
+			Err:     "boom",
+		},
+	}
+
+	printHardenSummary(ui, results)
+
+	joined := strings.Join(ui.InfoCalls, "\n")
+	if !strings.Contains(joined, "5 findings: 1 applied, 1 declined, 1 skipped, 1 reported, 1 failed") {
+		t.Errorf("summary = %q, want every outcome counted", joined)
+	}
+	if !strings.Contains(joined, "skipped skipped one: a reason") {
+		t.Errorf("summary = %q, want the skipped detail line", joined)
+	}
+	if !strings.Contains(strings.Join(ui.WarnCalls, "\n"), "failed one failed: boom") {
+		t.Errorf("warnings = %v, want the failed detail line", ui.WarnCalls)
+	}
+}
+
+// TestFindingNounFallsBackToKind pins that a finding without an evidence summary
+// is named by its kind.
+func TestFindingNounFallsBackToKind(t *testing.T) {
+	got := findingNoun(analyser.Finding{Kind: analyser.KindConfig})
+	if got != string(analyser.KindConfig) {
+		t.Errorf("findingNoun = %q, want %q", got, analyser.KindConfig)
+	}
 }

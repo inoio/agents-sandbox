@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -144,7 +146,7 @@ func RecordApproval(checkoutSlug string, projection Projection) error {
 // restores the previous approval for a write that then fails; should that
 // restore fail too, the approval is ahead of the file, which only makes the next
 // run ask again.
-func ApproveSettingWrite(checkoutSlug, key, value string) (func(), error) {
+func ApproveSettingWrite(checkoutSlug, key string, value any) (func(), error) {
 	var previous state.ApprovedProjectLayer
 	var found bool
 	_, err := state.WithRootState(true, func(txn *state.RootTxn) error {
@@ -171,10 +173,12 @@ func ApproveSettingWrite(checkoutSlug, key, value string) (func(), error) {
 	}, nil
 }
 
-// setSetting sets key to value in the launcher config input. The launcher
-// writes only a key its project config already sets, so that input exists;
-// without it the approval stays as it is, and the next run asks.
-func setSetting(inputs []Input, key, value string) {
+// setSetting sets key to value in the launcher config input, recorded exactly as
+// the projection renders it: the value is JSON-encoded here and nowhere else, so
+// a boolean or list entry matches what `appendSettingEntries` computes. The
+// launcher writes only a key its project config already sets, so that input
+// exists; without it the approval stays as it is, and the next run asks.
+func setSetting(inputs []Input, key string, value any) {
 	encoded, _ := json.Marshal(value)
 	for i, input := range inputs {
 		if input.Kind != KindLauncherConfig {
@@ -187,4 +191,133 @@ func setSetting(inputs []Input, key, value string) {
 		slices.Sort(entries)
 		inputs[i].Entries = entries
 	}
+}
+
+// ApproveSecretWrite extends the checkout's approval by a secret the launcher is
+// about to remove from the project secret file, so the next run does not ask
+// about the launcher's own change. Only that env-var's entry is removed:
+// anything else that differs in the file still needs approval. Without an
+// approval there is nothing to extend, and nothing is recorded.
+//
+// The approval is recorded before the write: a write without its approval would
+// make the next run ask about the launcher's own change. The returned function
+// restores the previous approval for a write that then fails; should that
+// restore fail too, the approval is ahead of the file, which only makes the next
+// run ask again.
+func ApproveSecretWrite(checkoutSlug, envVar string) (func(), error) {
+	var previous state.ApprovedProjectLayer
+	var found bool
+	_, err := state.WithRootState(true, func(txn *state.RootTxn) error {
+		previous, found = txn.State().ApprovedProjectLayer(checkoutSlug)
+		if !found {
+			return nil
+		}
+		projection := fromApproval(previous)
+		projection.Inputs = withoutSecretEntry(projection.Inputs, envVar)
+		txn.State().ApproveProjectLayer(checkoutSlug, toApproval(projection))
+		return txn.Commit()
+	})
+	if err != nil {
+		return nil, fmt.Errorf("record the approval of secret %s: %w", envVar, err)
+	}
+	return func() {
+		if !found {
+			return
+		}
+		_, _ = state.WithRootState(true, func(txn *state.RootTxn) error {
+			txn.State().ApproveProjectLayer(checkoutSlug, previous)
+			return txn.Commit()
+		})
+	}, nil
+}
+
+// withoutSecretEntry removes envVar's entry from the structured project secret
+// file's input and drops an input left with no entries, so the recorded approval
+// matches the projection the file yields once the entry is gone. Only
+// env.secret.yaml is extended: the legacy secret file the writer does not touch
+// keeps its recorded entries.
+func withoutSecretEntry(inputs []Input, envVar string) []Input {
+	secretFile := configpaths.EnvSecretFileName + ".yaml"
+	result := make([]Input, 0, len(inputs))
+	for _, input := range inputs {
+		if input.Kind != KindSecrets || filepath.Base(input.Path) != secretFile {
+			result = append(result, input)
+			continue
+		}
+		entries := slices.DeleteFunc(slices.Clone(input.Entries), func(entry string) bool {
+			return secretEntryNames(entry, envVar)
+		})
+		if len(entries) == 0 {
+			continue
+		}
+		input.Entries = entries
+		result = append(result, input)
+	}
+	return result
+}
+
+// secretEntryNames reports whether entry is envVar's rendering in a secret
+// input's entries: the env-var name alone (a secret with no substitution scope)
+// or the name before the scope parts describeSecretSpec appends.
+func secretEntryNames(entry, envVar string) bool {
+	return entry == envVar || strings.HasPrefix(entry, envVar+": ")
+}
+
+// RefreshSecretFileInput updates the recorded approval's raw-content input for
+// dir's env.secret.yaml, if it has one, to the file's current bytes. A project
+// secret file that is also a home: source is projected a second time by content
+// digest, so the launcher's own edit must refresh that input too; without it the
+// next run gates the launcher's own removal. Without an approval there is
+// nothing to refresh.
+func RefreshSecretFileInput(checkoutSlug, dir string) error {
+	path := filepath.Join(dir, configpaths.EnvSecretFileName+".yaml")
+	_, err := state.WithRootState(true, func(txn *state.RootTxn) error {
+		previous, _ := txn.State().ApprovedProjectLayer(checkoutSlug)
+		projection := fromApproval(previous)
+		refreshed, changed := refreshFileInput(projection.Inputs, path)
+		if !changed {
+			return nil
+		}
+		projection.Inputs = refreshed
+		txn.State().ApproveProjectLayer(checkoutSlug, toApproval(projection))
+		return txn.Commit()
+	})
+	if err != nil {
+		return fmt.Errorf("refresh the approval of %s: %w", path, err)
+	}
+	return nil
+}
+
+// refreshFileInput rewrites path's raw-content input, if any, to the file's
+// current bytes and reports whether it changed anything. Only a file reached
+// both as a parsed input and as a home: source carries such an input, digest-only
+// so its values stay out of the projection; a file that is no source has none.
+func refreshFileInput(inputs []Input, path string) ([]Input, bool) {
+	result := make([]Input, 0, len(inputs))
+	changed := false
+	for _, input := range inputs {
+		if input.Kind != KindFile || !sameSourcePath(input.Path, path) {
+			result = append(result, input)
+			continue
+		}
+		fileInput, err := readFileInput(path)
+		if err != nil {
+			// The file is gone or unreadable; the projection adds no home:
+			// input for it either.
+			changed = true
+			continue
+		}
+		input.Entries = []string{fileInput.Digest}
+		input.Digest = fileInput.Digest
+		result = append(result, input)
+		changed = true
+	}
+	return result, changed
+}
+
+// sameSourcePath reports whether two spellings name the same file: the
+// projection resolves the base of every path it records, so a caller's
+// unresolved spelling must compare equal to the recorded one.
+func sameSourcePath(a, b string) bool {
+	return filepath.Clean(a) == filepath.Clean(b) || resolvedPath(a) == resolvedPath(b)
 }

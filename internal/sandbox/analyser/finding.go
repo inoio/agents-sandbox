@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"io/fs"
 	"sort"
 )
 
@@ -88,13 +89,15 @@ func sortedCopy(values []string) []string {
 }
 
 // Write is one proposed edit, in its own scope. Remove true deletes ConfigKey
-// from that scope's launcher config; Secret targets env.secret.yaml instead.
+// from that scope's launcher config; Secret targets env.secret.yaml instead;
+// FileMode changes that scope's secret file's mode.
 type Write struct {
 	Scope       Scope
 	ConfigKey   string
 	ConfigValue any // ignored when Remove
 	Remove      bool
-	Secret      *SecretWrite // nil unless a static secret is proposed
+	Secret      *SecretWrite   // nil unless a static secret is proposed
+	FileMode    *FileModeWrite // nil unless a secret-file mode change is proposed
 	// ManagedConfig is the managed agent config file to write, nil unless the
 	// proposal copies one back. A managed write has no ConfigKey: the file
 	// lands in the scope's agent config directory, where provisioning merges
@@ -103,6 +106,14 @@ type Write struct {
 	// Text is the user-facing sentence the applier renders in the accept
 	// prompt, beside the finding's evidence. It never carries a secret value.
 	Text string
+}
+
+// FileModeWrite changes the mode of one of the scope's known files. It targets
+// the scope's env.secret.yaml and carries no content. The finder only ever
+// proposes a tightening (secretFileMode, 0600); the applier does not itself
+// enforce narrow-only, so a caller must not propose a broader mode here.
+type FileModeWrite struct {
+	Mode fs.FileMode
 }
 
 // ManagedConfigWrite writes one host-side managed agent config file into the
@@ -124,6 +135,11 @@ type SecretWrite struct {
 	Hosts        []string
 	HeaderFields []string
 	Remove       bool
+	// Source is where the value is read from when the write is applied: a scope
+	// directory (read from its env.secret.yaml) or an agent config file (read
+	// from its inline credential). It identifies a location, never a value. It
+	// is empty for a session proposal, whose value the home read-back resolves.
+	Source string
 }
 
 // Finding is one proposed change with the evidence that justifies it. Its

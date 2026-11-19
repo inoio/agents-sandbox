@@ -406,6 +406,55 @@ func loginStoreFor(key string) (loginCredentialStore, bool) {
 	return loginCredentialStore{}, false
 }
 
+// SkipsInlineCredentials reports whether the declared config file at path is
+// excluded from the inline-credential walk: it is the dotenv (a value store,
+// not a provider config), or it is a declared login credential store, whose
+// value is never read even when the store is shaped like a provider entry and
+// would otherwise be classified. path is matched as either a
+// sandbox-home-relative key (the read-back's spelling) or a host path under a
+// launcher config scope: a login store is recognized by its trailing elements,
+// with a leading dot on the pattern's first element (and on the matched path
+// element) ignored, so `.codex/auth.json` and a scope's `.../codex/auth.json`
+// both match. It is the one exclusion both the read-back and the config finder
+// consult.
+func SkipsInlineCredentials(path string) bool {
+	if filepath.Base(path) == dotenvFileName {
+		return true
+	}
+	segments := strings.Split(filepath.ToSlash(path), "/")
+	for _, store := range loginCredentialStores {
+		pattern := strings.Split(strings.TrimPrefix(store.pattern, "."), "/")
+		if matchesStoreTail(pattern, segments) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesStoreTail reports whether pathSegments' trailing elements match pattern.
+// The pattern's leading dot is already stripped and a literal '.' separator
+// never appears, so a store dir (.codex) matches the launcher config dir it is
+// provisioned from (codex); the matched path element's own leading dot is
+// ignored for the same reason. A pattern's final element may be a glob.
+func matchesStoreTail(pattern, pathSegments []string) bool {
+	if len(pattern) > len(pathSegments) {
+		return false
+	}
+	tail := pathSegments[len(pathSegments)-len(pattern):]
+	for i, element := range pattern {
+		candidate := tail[i]
+		if i == 0 {
+			candidate = strings.TrimPrefix(candidate, ".")
+		}
+		// A malformed pattern cannot match, so its error needs no separate
+		// branch: it is a non-match.
+		if matched, _ := filepath.Match(element, candidate); !matched {
+			return false
+		}
+	}
+	return true
+}
+
 // IsCredentialStorePath reports whether path matches a declared credential-store
 // (login-store) pattern. It is agent-independent: a store declared for one agent
 // still lives at that path for another agent whose read-back reaches it, so a
@@ -446,34 +495,47 @@ func isSecretKeySeparator(r rune) bool {
 // entry is that provider's own static credential.
 var inlineCredentialKeys = []string{"apikey", "key", "token"}
 
+// InlineCredentialsIn returns each inline static credential the config document
+// in data holds: a credential-bearing key inside a provider entry, with the
+// provider, host, and env-var name taken from that entry. source names the
+// document so its format is chosen and the credential's Source records it. A
+// format the decoder does not know, or a document it cannot decode, yields
+// nothing, never a guess. The value stays in memory on Credential.Value; it is
+// never persisted.
+func InlineCredentialsIn(source string, data []byte) []Credential {
+	format, ok := configdecode.FormatFor(source)
+	if !ok {
+		return nil
+	}
+	document, err := configdecode.Decode(format, data)
+	if err != nil {
+		return nil
+	}
+	var credentials []Credential
+	walkProviderEntries(document, func(providerEntry map[string]any, provider string) {
+		credentials = append(credentials, entryCredentials(providerEntry, provider, source)...)
+	})
+	return credentials
+}
+
 // configInlineCredentials returns each inline static credential a declared
-// config file holds: a credential-bearing key inside a provider entry, with the
-// provider, host, and env-var name taken from that entry. A probe, the dotenv,
-// and a login store are skipped (the login store's value is never read); a file
-// the reader cannot decode yields nothing, never a guess.
+// config file holds, via InlineCredentialsIn. A probe, the dotenv, and a login
+// store are skipped (the login store's value is never read); a file the reader
+// cannot decode yields nothing, never a guess.
 func configInlineCredentials(home string, manifest Manifest) []Credential {
 	var credentials []Credential
 	for _, entry := range manifest.Entries {
-		if isProbe(entry) || entry.Hash == "" || filepath.Base(entry.Key) == dotenvFileName {
+		if isProbe(entry) || entry.Hash == "" || SkipsInlineCredentials(entry.Key) {
 			continue
 		}
-		if _, isLogin := loginStoreFor(entry.Key); isLogin {
-			continue
-		}
-		format, ok := configdecode.FormatFor(entry.Key)
-		if !ok {
+		// gomutants:disable-next-line BRANCH_IF reason="InlineCredentialsIn refuses an unknown format itself, so this guard duplicates the callee and its removal changes nothing"
+		if _, ok := configdecode.FormatFor(entry.Key); !ok {
 			continue
 		}
 		// A failed read yields nil content, which decodes to an empty
 		// document, so it needs no separate skip.
 		content, _ := ReadCappedFile(filepath.Join(home, entry.Key), MaxHashedBytes)
-		document, err := configdecode.Decode(format, content)
-		if err != nil {
-			continue
-		}
-		walkProviderEntries(document, func(providerEntry map[string]any, provider string) {
-			credentials = append(credentials, entryCredentials(providerEntry, provider, entry.Key)...)
-		})
+		credentials = append(credentials, InlineCredentialsIn(entry.Key, content)...)
 	}
 	return credentials
 }

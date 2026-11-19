@@ -17,7 +17,7 @@ The commands are grouped by area; jump to a group:
 - **Pruning:** [`prune`](#prune), [`prune --purge`](#prune---purge), [`image prune`](#image-prune), [`volume prune`](#volume-prune), [`sandbox prune`](#sandbox-prune), [`sandbox compact`](#sandbox-compact)
 - **Storage:** [`df`](#df), [`storage`](#storage)
 - **State:** [`state repair`](#state-repair)
-- **Configuration:** [`config`](#config), [`config paths`](#config-paths)
+- **Configuration:** [`config`](#config), [`config paths`](#config-paths), [`config harden`](#config-harden)
 - **Agents:** [`config agent`](#config-agent-name), [`config home`](#config-home)
 - **Volumes:** [`volume`](#volume)
 - **Sandboxes:** [`sandbox`](#sandbox)
@@ -523,6 +523,47 @@ List the resolved home-file mappings from the config `home:` key (VM target path
 ```console
 agents-sandbox config home
 ```
+
+#### config harden
+
+Audit your effective configuration and tighten the risky parts, without starting a sandbox.
+
+```console
+agents-sandbox config harden
+agents-sandbox config harden --dry-run
+```
+
+It reads the configuration your next run would use — the merged launcher config and each scope's `env.secret.yaml` —
+and reports what it would change, then asks about each change in turn. It is re-runnable, and it remembers a change you
+decline so it does not ask again until that finding's evidence changes.
+
+**Flags:**
+
+| Flag        | Short | Default | Purpose                                        |
+|-------------|-------|---------|------------------------------------------------|
+| `--dry-run` | `-n`  | `false` | Show what would change without writing.        |
+
+It writes nothing non-interactively or under `--dry-run`, and the global `--yes` does not answer its prompts.
+
+It audits:
+
+- a static secret committed in the project config → move it to the per-slug user config (a project removal plus a
+  per-slug addition). Removing it from the file does not remove it from git history — rotate the credential.
+- a secret that allows any host (`allow_any_host_dangerous`) → drop the flag, keeping its declared hosts.
+- a network profile that is not the terminal `none` → narrow it to `none`, keeping your current `egress-allow` list. A
+  broad profile with an empty allow list is reported, not changed, because narrowing it would deny all egress; the same
+  holds when its only allow entries are wildcards the next item would drop.
+- a wildcard `egress-allow` entry (`*`, `0.0.0.0/0`, `::/0`) → drop that entry, keeping the rest. A list whose every
+  entry is a wildcard is reported, not changed, because dropping them would deny all egress.
+- an `env.secret.yaml` whose file mode is too broad → tighten it to `0600`.
+- `provision-host-config: true` → turn host-config provisioning off. Run `agents-sandbox run --learn` first to derive
+  your managed config from a real session.
+- a static secret left inline in a managed agent config → move the value to `env.secret.yaml` and tell you to
+  replace the literal with a `${VAR}` reference in the config (the agent-config edit lands in a later release).
+
+A change to a setting your project owns is written to the project config, which goes through the
+[project-config trust gate]({% link configuration/launcher.md %}#approving-project-config-changes); everything else is
+written to the per-slug user config.
 
 ---
 
