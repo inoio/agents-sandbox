@@ -1,9 +1,11 @@
-package testutil
+package scripts
 
 import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 // TestRunScriptIsolatesAndCaptures pins the contract a harness driving a shell
@@ -13,7 +15,7 @@ import (
 func TestRunScriptIsolatesAndCaptures(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "s.sh")
-	WritePath(
+	testutil.WritePath(
 		t,
 		script,
 		"#!/usr/bin/env bash\necho \"glob=$GIT_CONFIG_GLOBAL\"\necho \"home=$HOME\"\necho err >&2\nexit 7\n",
@@ -43,7 +45,7 @@ func TestRunScriptIsolatesAndCaptures(t *testing.T) {
 func TestRunScriptDisablesRaceExitSleep(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "gorace.sh")
-	WritePath(t, script, "#!/usr/bin/env bash\nprintf '%s\\n' \"$GORACE\"\n")
+	testutil.WritePath(t, script, "#!/usr/bin/env bash\nprintf '%s\\n' \"$GORACE\"\n")
 
 	got := RunScript(t, dir, map[string]string{"GORACE": "suppress_equal_stacks=1"}, script)
 
@@ -58,7 +60,7 @@ func TestRunScriptDisablesRaceExitSleep(t *testing.T) {
 func TestRunScriptKeepsAnExplicitRaceExitSleep(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "gorace.sh")
-	WritePath(t, script, "#!/usr/bin/env bash\nprintf '%s\\n' \"$GORACE\"\n")
+	testutil.WritePath(t, script, "#!/usr/bin/env bash\nprintf '%s\\n' \"$GORACE\"\n")
 
 	got := RunScript(t, dir, map[string]string{"GORACE": "atexit_sleep_ms=500"}, script)
 
@@ -72,7 +74,7 @@ func TestRunScriptKeepsAnExplicitRaceExitSleep(t *testing.T) {
 func TestRunScriptPassesArguments(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "args.sh")
-	WritePath(t, script, "#!/usr/bin/env bash\nprintf '%s|' \"$@\"\n")
+	testutil.WritePath(t, script, "#!/usr/bin/env bash\nprintf '%s|' \"$@\"\n")
 
 	got := RunScript(t, dir, nil, script, "alpha", "beta")
 

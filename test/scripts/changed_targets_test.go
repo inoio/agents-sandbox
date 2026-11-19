@@ -9,9 +9,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/inoio/agents-sandbox/internal/testutil"
-	"github.com/inoio/agents-sandbox/internal/testutil/gittest"
 )
 
 // goDocs is the target set a changed Go file selects.
@@ -226,7 +223,7 @@ func TestChangedTargets(t *testing.T) {
 			t.Errorf("unknown mode exit status = %d, want 2", result.Status)
 		}
 		missing := filepath.Join(t.TempDir(), "does-not-exist")
-		result := testutil.RunScript(
+		result := RunScript(
 			t,
 			t.TempDir(),
 			nil,
@@ -238,7 +235,7 @@ func TestChangedTargets(t *testing.T) {
 		if result.Status != 2 {
 			t.Errorf("non-repository exit status = %d, want 2", result.Status)
 		}
-		if result := testutil.RunScript(
+		if result := RunScript(
 			t,
 			t.TempDir(),
 			nil,
@@ -292,9 +289,9 @@ func makePrintCheckTargets(root string) (string, error) {
 }
 
 // newMapRepo builds the baseline repo layout the map's cases modify.
-func newMapRepo(tb testing.TB) *gittest.Repo {
+func newMapRepo(tb testing.TB) *Repo {
 	tb.Helper()
-	repo := gittest.New(tb)
+	repo := New(tb)
 	repo.Write("internal/foo/foo.go", "package foo\n")
 	repo.Write("cmd/app/main.go", "package main\n")
 	repo.Write("README.md", "# t\n")
@@ -307,7 +304,7 @@ func newMapRepo(tb testing.TB) *gittest.Repo {
 
 // newMapDivergedRepo builds a repo where feature changes a docs page and main
 // advances after the divergence, so only the merge base is correct.
-func newMapDivergedRepo(tb testing.TB) *gittest.Repo {
+func newMapDivergedRepo(tb testing.TB) *Repo {
 	tb.Helper()
 	repo := newMapRepo(tb)
 	base, err := repo.Head()
@@ -352,7 +349,7 @@ func writeFailingLSFilesGitShim(tb testing.TB) string {
 }
 
 // runMap runs scripts/changed-targets.sh against repoDir.
-func runMap(t *testing.T, repoDir, mode, base string, extra map[string]string) testutil.ScriptResult {
+func runMap(t *testing.T, repoDir, mode, base string, extra map[string]string) ScriptResult {
 	t.Helper()
 	args := []string{"--repo", repoDir}
 	if base != "" {
@@ -361,7 +358,7 @@ func runMap(t *testing.T, repoDir, mode, base string, extra map[string]string) t
 	args = append(args, mode)
 	env := map[string]string{}
 	maps.Copy(env, extra)
-	return testutil.RunScript(t, repoDir, env, repositoryScript(t, "changed-targets.sh"), args...)
+	return RunScript(t, repoDir, env, repositoryScript(t, "changed-targets.sh"), args...)
 }
 
 // assertSorted compares the newline-separated selected targets, sorted, to want.

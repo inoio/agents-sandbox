@@ -5,9 +5,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/inoio/agents-sandbox/internal/testutil"
-	"github.com/inoio/agents-sandbox/internal/testutil/gittest"
 )
 
 // TestChangedFiles ports every case of the bash harness scripts/test-changed-files.sh.
@@ -76,7 +73,7 @@ func TestChangedFiles(t *testing.T) {
 			t.Errorf("unknown mode exit status = %d, want 2", result.Status)
 		}
 		missing := filepath.Join(t.TempDir(), "does-not-exist")
-		result := testutil.RunScript(
+		result := RunScript(
 			t,
 			t.TempDir(),
 			nil,
@@ -88,7 +85,7 @@ func TestChangedFiles(t *testing.T) {
 		if result.Status != 2 {
 			t.Errorf("non-repository exit status = %d, want 2", result.Status)
 		}
-		if result := testutil.RunScript(
+		if result := RunScript(
 			t,
 			t.TempDir(),
 			nil,
@@ -102,9 +99,9 @@ func TestChangedFiles(t *testing.T) {
 
 // newChangedFilesRepo builds a repo with a committed set of files in nested
 // directories.
-func newChangedFilesRepo(tb testing.TB) *gittest.Repo {
+func newChangedFilesRepo(tb testing.TB) *Repo {
 	tb.Helper()
-	repo := gittest.New(tb)
+	repo := New(tb)
 	repo.Write("internal/foo/foo.go", "package foo\n")
 	repo.Write("docs/guide.md", "# d\n")
 	repo.Write("README.md", "# t\n")
@@ -115,9 +112,9 @@ func newChangedFilesRepo(tb testing.TB) *gittest.Repo {
 // newDivergedRepo builds a repo where feature diverges from main and main
 // advances after the divergence, so a plain `diff main` would over-report and
 // only the merge base is correct. It leaves feature checked out.
-func newDivergedRepo(tb testing.TB) *gittest.Repo {
+func newDivergedRepo(tb testing.TB) *Repo {
 	tb.Helper()
-	repo := gittest.New(tb)
+	repo := New(tb)
 	repo.Write("internal/foo/foo.go", "package foo\n")
 	repo.Write("docs/guide.md", "# d\n")
 	repo.Write("README.md", "# t\n")
@@ -138,19 +135,19 @@ func newDivergedRepo(tb testing.TB) *gittest.Repo {
 }
 
 // runChangedFiles runs scripts/changed-files.sh in repoDir.
-func runChangedFiles(t *testing.T, repoDir, mode, base string) testutil.ScriptResult {
+func runChangedFiles(t *testing.T, repoDir, mode, base string) ScriptResult {
 	t.Helper()
 	args := []string{"--repo", repoDir}
 	if base != "" {
 		args = append(args, "--base", base)
 	}
 	args = append(args, mode)
-	return testutil.RunScript(t, repoDir, nil, repositoryScript(t, "changed-files.sh"), args...)
+	return RunScript(t, repoDir, nil, repositoryScript(t, "changed-files.sh"), args...)
 }
 
 // assertFileList compares the script's newline-separated paths, sorted, to want,
 // so order does not matter but a duplicated or missing path does.
-func assertFileList(t *testing.T, result testutil.ScriptResult, want ...string) {
+func assertFileList(t *testing.T, result ScriptResult, want ...string) {
 	t.Helper()
 	got := strings.Split(strings.TrimRight(result.Stdout, "\n"), "\n")
 	if len(got) == 1 && got[0] == "" {

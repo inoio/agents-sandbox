@@ -1,5 +1,4 @@
-//deadcode:ignore reason="test support: referenced only by _test.go files"
-package testutil
+package scripts
 
 import (
 	"context"
@@ -8,6 +7,8 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+
+	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 // ScriptResult is the captured outcome of a shell script run through RunScript.
@@ -33,10 +34,13 @@ func RunScript(tb testing.TB, dir string, extraEnv map[string]string, script str
 	if _, err := os.ReadFile(script); err != nil {
 		tb.Fatalf("read script %s: %v", script, err)
 	}
-	//nolint:gosec // the script path is a trusted test fixture, never user input
 	cmd := exec.CommandContext(context.Background(), "bash", append([]string{script}, args...)...)
 	cmd.Dir = dir
-	cmd.Env = withRaceExitSleepDisabled(overlayEnvironment(GitIsolationEnvironment(os.Environ()), extraEnv))
+	// RunScript roots the child in the caller's environment, then strips every
+	// ambient git setting, so reading os.Environ here is the point of the helper.
+	cmd.Env = withRaceExitSleepDisabled(
+		overlayEnvironment(testutil.GitIsolationEnvironment(os.Environ()), extraEnv),
+	) //testenv:allow the runner strips the ambient git settings from the caller's environment
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

@@ -1,4 +1,4 @@
-package gittest
+package scripts
 
 import (
 	"os"

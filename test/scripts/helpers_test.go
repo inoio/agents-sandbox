@@ -16,10 +16,6 @@ import (
 
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
-
-	"github.com/inoio/agents-sandbox/internal/testutil"
-	"github.com/inoio/agents-sandbox/internal/testutil/fakecmd"
-	"github.com/inoio/agents-sandbox/internal/testutil/gittest"
 )
 
 // fakeGhHandler serves the `gh` a script under test calls, the way the bash
@@ -178,7 +174,7 @@ func requestsJSONField(args []string, name string) bool {
 		if args[i] != "--json" {
 			continue
 		}
-		for _, field := range strings.Split(args[i+1], ",") {
+		for field := range strings.SplitSeq(args[i+1], ",") {
 			if strings.TrimSpace(field) == name {
 				return true
 			}
@@ -290,7 +286,7 @@ func newOpenHarness(t *testing.T) *openHarness {
 	t.Helper()
 	return &openHarness{
 		t:        t,
-		binDir:   fakecmd.BinDir(t, "gh"),
+		binDir:   BinDir(t, "gh"),
 		argvPath: filepath.Join(t.TempDir(), "argv.txt"),
 		prURL:    "https://github.com/o/r/pull/99",
 	}
@@ -298,7 +294,7 @@ func newOpenHarness(t *testing.T) *openHarness {
 
 // run executes the script with dir as BACKPORT_REPO and args, returning its
 // captured result. extra overlays the harness's base environment.
-func (h *openHarness) run(dir, mergeOID string, extra map[string]string, args ...string) testutil.ScriptResult {
+func (h *openHarness) run(dir, mergeOID string, extra map[string]string, args ...string) ScriptResult {
 	h.t.Helper()
 	_ = os.Remove(h.argvPath)
 	env := map[string]string{
@@ -309,7 +305,7 @@ func (h *openHarness) run(dir, mergeOID string, extra map[string]string, args ..
 		"PATH":          h.binDir + string(os.PathListSeparator) + envOption("PATH"),
 	}
 	maps.Copy(env, extra)
-	return testutil.RunScript(h.t, dir, env, repositoryScript(h.t, "open-backport-pr.sh"), args...)
+	return RunScript(h.t, dir, env, repositoryScript(h.t, "open-backport-pr.sh"), args...)
 }
 
 // argv returns the recorded gh argv log.
@@ -319,7 +315,7 @@ func (h *openHarness) argv() string {
 
 // openFixture is a repository plus the hashes a backport case needs.
 type openFixture struct {
-	repo   *gittest.Repo
+	repo   *Repo
 	origin string
 	merge  plumbing.Hash
 	first  plumbing.Hash
@@ -330,7 +326,7 @@ type openFixture struct {
 // fix commit on main (the merged PR), pushed to a bare origin.
 func seedFixture(tb testing.TB) *openFixture {
 	tb.Helper()
-	repo := gittest.New(tb)
+	repo := New(tb)
 	repo.Write("f", "a\n")
 	base := repo.Commit("base")
 	repo.SetBranch("release/0.1", base)
@@ -344,7 +340,7 @@ func seedFixture(tb testing.TB) *openFixture {
 // seedMainOnly builds a repo with a fix on main and no release branch.
 func seedMainOnly(tb testing.TB) *openFixture {
 	tb.Helper()
-	repo := gittest.New(tb)
+	repo := New(tb)
 	repo.Write("f", "a\n")
 	repo.Commit("base")
 	repo.Write("f", "b\n")
@@ -358,7 +354,7 @@ func seedMainOnly(tb testing.TB) *openFixture {
 // fragment, so the porter renames it for the backport PR.
 func seedFragmentFixture(tb testing.TB) *openFixture {
 	tb.Helper()
-	repo := gittest.New(tb)
+	repo := New(tb)
 	repo.Write("f", "a\n")
 	base := repo.Commit("base")
 	repo.SetBranch("release/0.1", base)
@@ -374,7 +370,7 @@ func seedFragmentFixture(tb testing.TB) *openFixture {
 // merged into main with a merge commit; release/0.1 sits below both.
 func seedTwoCommitFixture(tb testing.TB) *openFixture {
 	tb.Helper()
-	repo := gittest.New(tb)
+	repo := New(tb)
 	repo.Write("f", "a\n")
 	base := repo.Commit("base")
 	repo.SetBranch("release/0.1", base)
@@ -395,7 +391,7 @@ func seedTwoCommitFixture(tb testing.TB) *openFixture {
 // branch: a real change, an empty commit, then another real change.
 func seedEmptyCommitFixture(tb testing.TB) *openFixture {
 	tb.Helper()
-	repo := gittest.New(tb)
+	repo := New(tb)
 	repo.Write("f", "a\n")
 	base := repo.Commit("base")
 	repo.SetBranch("release/0.1", base)
@@ -415,14 +411,14 @@ func seedEmptyCommitFixture(tb testing.TB) *openFixture {
 
 // portSameDiff commits the same diff as source onto the current branch with the
 // cherry-pick -x trailer, so its patch-id matches source without a cherry-pick.
-func portSameDiff(tb testing.TB, repo *gittest.Repo, source plumbing.Hash, file, content string) {
+func portSameDiff(tb testing.TB, repo *Repo, source plumbing.Hash, file, content string) {
 	tb.Helper()
 	repo.Write(file, content)
 	repo.Commit("port\n\n(cherry picked from commit " + source.String() + ")")
 }
 
 // assertStatus fails when the script's exit status differs from want.
-func assertStatus(t *testing.T, result testutil.ScriptResult, want int) {
+func assertStatus(t *testing.T, result ScriptResult, want int) {
 	t.Helper()
 	if result.Status != want {
 		t.Errorf(
@@ -469,7 +465,7 @@ func newAuditHarness(t *testing.T) *auditHarness {
 	root := t.TempDir()
 	h := &auditHarness{
 		t:                   t,
-		binDir:              fakecmd.BinDir(t, "gh"),
+		binDir:              BinDir(t, "gh"),
 		argvPath:            filepath.Join(root, "argv.txt"),
 		mergedJSONPath:      filepath.Join(root, "merged.json"),
 		openJSONPath:        filepath.Join(root, "open.json"),
@@ -486,7 +482,7 @@ func newAuditHarness(t *testing.T) *auditHarness {
 	return h
 }
 
-func (h *auditHarness) run(repoDir string, extra map[string]string, args ...string) testutil.ScriptResult {
+func (h *auditHarness) run(repoDir string, extra map[string]string, args ...string) ScriptResult {
 	h.t.Helper()
 	_ = os.Remove(h.argvPath)
 	env := map[string]string{
@@ -500,7 +496,7 @@ func (h *auditHarness) run(repoDir string, extra map[string]string, args ...stri
 		"PATH":                     h.binDir + string(os.PathListSeparator) + envOption("PATH"),
 	}
 	maps.Copy(env, extra)
-	return testutil.RunScript(h.t, repoDir, env, repositoryScript(h.t, "backport-audit.sh"), args...)
+	return RunScript(h.t, repoDir, env, repositoryScript(h.t, "backport-audit.sh"), args...)
 }
 
 func (h *auditHarness) argv() string {
@@ -583,9 +579,9 @@ func (h *auditHarness) writeIssueLinks(numbers ...int) {
 
 // seedAuditRepository builds a repo with a base on main, a release/0.1 branch on
 // the base, and one fix commit on main, returning the fix commit.
-func seedAuditRepository(tb testing.TB) (*gittest.Repo, plumbing.Hash) {
+func seedAuditRepository(tb testing.TB) (*Repo, plumbing.Hash) {
 	tb.Helper()
-	repo := gittest.New(tb)
+	repo := New(tb)
 	repo.Write("f", "a\n")
 	base := repo.Commit("base")
 	repo.SetBranch("release/0.1", base)

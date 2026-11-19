@@ -3,8 +3,6 @@ package scripts
 import (
 	"strings"
 	"testing"
-
-	"github.com/inoio/agents-sandbox/internal/testutil/gittest"
 )
 
 // TestBackportAudit ports every case of the bash harness scripts/test-backport-audit.sh,
@@ -12,7 +10,7 @@ import (
 func TestBackportAudit(t *testing.T) {
 	t.Run("no release branch", func(t *testing.T) {
 		h := newAuditHarness(t)
-		repo := gittest.New(t)
+		repo := New(t)
 		repo.Write("f", "a\n")
 		repo.Commit("base")
 		repo.Write("g", "b\n")

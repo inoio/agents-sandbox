@@ -5,8 +5,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/inoio/agents-sandbox/internal/testutil/gittest"
 )
 
 // TestOpenBackportPR ports every case of the bash harness scripts/test-open-backport-pr.sh,
@@ -31,7 +29,7 @@ func TestOpenBackportPR(t *testing.T) {
 		if content, ok := f.repo.FileAt("backport/7-0.1", "f"); !ok || content != "b\n" {
 			t.Errorf("backport f = %q,%v, want %q", content, ok, "b\n")
 		}
-		refs := gittest.OriginRefs(t, f.origin)
+		refs := OriginRefs(t, f.origin)
 		if !slices.Contains(refs, "refs/heads/backport/7-0.1") {
 			t.Errorf("origin %v missing backport branch", refs)
 		}
@@ -48,16 +46,16 @@ func TestOpenBackportPR(t *testing.T) {
 
 		assertStatus(t, result, 0)
 		assertContains(t, "stdout", result.Stdout, h.prURL)
-		fragment, ok := gittest.OriginFile(t, f.origin, "backport/7-0.1", "changelog.d/99.fixed.md")
+		fragment, ok := OriginFile(t, f.origin, "backport/7-0.1", "changelog.d/99.fixed.md")
 		if !ok {
 			t.Fatal("renamed fragment missing")
 		}
 		assertContains(t, "fragment", fragment, "The fix.")
 		assertContains(t, "fragment", fragment, "Backport of #7 to the 0.1 line.")
-		if _, ok := gittest.OriginFile(t, f.origin, "backport/7-0.1", "changelog.d/7.fixed.md"); ok {
+		if _, ok := OriginFile(t, f.origin, "backport/7-0.1", "changelog.d/7.fixed.md"); ok {
 			t.Error("source-numbered fragment not dropped")
 		}
-		if got := gittest.OriginCount(t, f.origin, "release/0.1", "backport/7-0.1"); got != 2 {
+		if got := OriginCount(t, f.origin, "release/0.1", "backport/7-0.1"); got != 2 {
 			t.Errorf("backport commit count = %d, want 2", got)
 		}
 	})
@@ -104,13 +102,13 @@ func TestOpenBackportPR(t *testing.T) {
 		f.repo.Commit("release-side change")
 		f.repo.Push(t)
 		f.repo.Checkout("main")
-		before := gittest.OriginRefs(t, f.origin)
+		before := OriginRefs(t, f.origin)
 
 		result := h.run(f.repo.Dir(), f.merge.String(), nil, "7")
 
 		assertStatus(t, result, 1)
 		assertContains(t, "stderr", result.Stderr, "conflict")
-		if after := gittest.OriginRefs(t, f.origin); !slices.Equal(before, after) {
+		if after := OriginRefs(t, f.origin); !slices.Equal(before, after) {
 			t.Errorf("origin changed: %v -> %v", before, after)
 		}
 		assertNotContains(t, "argv", h.argv(), "pr create")
@@ -127,13 +125,13 @@ func TestOpenBackportPR(t *testing.T) {
 		result := h.run(f.repo.Dir(), f.merge.String(), nil, "7")
 
 		assertStatus(t, result, 0)
-		if !slices.Contains(gittest.OriginRefs(t, f.origin), "refs/heads/backport/7-0.1") {
+		if !slices.Contains(OriginRefs(t, f.origin), "refs/heads/backport/7-0.1") {
 			t.Error("backport branch not pushed")
 		}
-		if got := gittest.OriginCount(t, f.origin, "release/0.1", "backport/7-0.1"); got != 1 {
+		if got := OriginCount(t, f.origin, "release/0.1", "backport/7-0.1"); got != 1 {
 			t.Errorf("ported commit count = %d, want 1", got)
 		}
-		messages := strings.Join(gittest.OriginMessages(t, f.origin, "release/0.1", "backport/7-0.1"), "\n")
+		messages := strings.Join(OriginMessages(t, f.origin, "release/0.1", "backport/7-0.1"), "\n")
 		assertContains(t, "messages", messages, "second")
 		assertContains(t, "messages", messages, "(cherry picked from commit "+f.second.String()+")")
 		assertNotContains(t, "messages", messages, "(cherry picked from commit "+f.first.String()+")")
@@ -149,10 +147,10 @@ func TestOpenBackportPR(t *testing.T) {
 		assertStatus(t, result, 0)
 		assertContains(t, "stdout", result.Stdout, "nothing to port")
 		assertContains(t, "argv", h.argv(), "pr create")
-		if got := gittest.OriginCount(t, f.origin, "release/0.1", "backport/7-0.1"); got != 2 {
+		if got := OriginCount(t, f.origin, "release/0.1", "backport/7-0.1"); got != 2 {
 			t.Errorf("ported commit count = %d, want 2", got)
 		}
-		messages := strings.Join(gittest.OriginMessages(t, f.origin, "release/0.1", "backport/7-0.1"), "\n")
+		messages := strings.Join(OriginMessages(t, f.origin, "release/0.1", "backport/7-0.1"), "\n")
 		assertContains(t, "messages", messages, "(cherry picked from commit "+f.first.String()+")")
 		assertContains(t, "messages", messages, "(cherry picked from commit "+f.second.String()+")")
 		assertNotContains(t, "messages", messages, "empty")
@@ -167,13 +165,13 @@ func TestOpenBackportPR(t *testing.T) {
 		f.repo.Commit("release-side equivalent")
 		f.repo.Checkout("main")
 		f.repo.Push(t)
-		before := gittest.OriginRefs(t, f.origin)
+		before := OriginRefs(t, f.origin)
 
 		result := h.run(f.repo.Dir(), f.merge.String(), nil, "7")
 
 		assertStatus(t, result, 3)
 		assertContains(t, "stdout", result.Stdout, "already fully ported onto release/0.1")
-		if after := gittest.OriginRefs(t, f.origin); !slices.Equal(before, after) {
+		if after := OriginRefs(t, f.origin); !slices.Equal(before, after) {
 			t.Errorf("origin changed: %v -> %v", before, after)
 		}
 		assertNotContains(t, "argv", h.argv(), "pr create")
@@ -190,13 +188,13 @@ func TestOpenBackportPR(t *testing.T) {
 		portSameDiff(t, f.repo, f.second, "g", "c\n")
 		f.repo.Checkout("main")
 		f.repo.Push(t)
-		before := gittest.OriginRefs(t, f.origin)
+		before := OriginRefs(t, f.origin)
 
 		result := h.run(f.repo.Dir(), f.merge.String(), nil, "7")
 
 		assertStatus(t, result, 3)
 		assertContains(t, "stdout", result.Stdout, "already fully ported onto release/0.1")
-		if after := gittest.OriginRefs(t, f.origin); !slices.Equal(before, after) {
+		if after := OriginRefs(t, f.origin); !slices.Equal(before, after) {
 			t.Errorf("origin changed: %v -> %v", before, after)
 		}
 		assertNotContains(t, "argv", h.argv(), "pr create")

@@ -1,4 +1,4 @@
-package fakecmd
+package scripts
 
 import (
 	"bytes"

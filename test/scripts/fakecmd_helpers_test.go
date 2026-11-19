@@ -1,10 +1,9 @@
-// Package fakecmd fakes an external CLI a script under test calls without a
-// shell stub. The test puts a directory holding a symlink to the test binary on
-// PATH; when the script invokes the command the test binary runs again, and its
-// TestMain serves the canned response through Dispatch before running any test.
-//
-//deadcode:ignore reason="test support: referenced only by _test.go files"
-package fakecmd
+package scripts
+
+// Faking an external CLI a script under test calls, without a shell stub: the
+// test puts a directory holding a symlink to the test binary on PATH; when the
+// script invokes the command the test binary runs again, and its TestMain serves
+// the canned response through Dispatch before running any test.
 
 import (
 	"fmt"
@@ -53,8 +52,8 @@ func BinDir(tb testing.TB, name string) string {
 // first, registering its fakes before it does:
 //
 //	func TestMain(m *testing.M) {
-//		fakecmd.Register("gh", fakeGh)
-//		if status := fakecmd.Dispatch(); status >= 0 {
+//		Register("gh", fakeGh)
+//		if status := Dispatch(); status >= 0 {
 //			os.Exit(status)
 //		}
 //		mocks.InitFailFastMocks(m)

@@ -1,15 +1,14 @@
-// Package gittest builds git fixtures for a Go test harness without executing
-// the ambient git binary. Every operation goes through go-git, so a fixture can
-// neither read the developer's global configuration nor prompt for a signing
-// key, and a default-suite test needs no //testenv:allow marker.
+package scripts
+
+// Git fixtures for a test harness, built without executing the ambient git
+// binary: every operation goes through go-git, so a fixture can neither read
+// the developer's global configuration nor prompt for a signing key, and a
+// default-suite test needs no //testenv:allow marker.
 //
 // A fixture that must reproduce a patch-id match commits the same diff rather
 // than cherry-picking: it checks out the target branch, writes the source
 // commit's changed file contents, and commits. The resulting diff is identical,
 // so `git patch-id` matches without a cherry-pick.
-//
-//deadcode:ignore reason="test support: referenced only by _test.go files"
-package gittest
 
 import (
 	"errors"
@@ -97,7 +96,6 @@ func (r *Repo) Commit(message string) plumbing.Hash {
 		r.tb.Fatalf("stage changes: %v", err)
 	}
 	signature := r.signature()
-	//nolint:exhaustruct_v5 // the fixture pins author and emptiness; the other options keep git defaults
 	hash, err := worktree.Commit(message, &git.CommitOptions{
 		Author:            signature,
 		AllowEmptyCommits: true,
@@ -188,7 +186,6 @@ func (r *Repo) AddBareOrigin() string {
 	r.tb.Helper()
 	origin := filepath.Join(r.tb.TempDir(), "origin.git")
 	initRepository(r.tb, origin, true)
-	//nolint:exhaustruct_v5 // only name, URL, and refspec describe the fixture's origin; the rest stay zero
 	if _, err := r.repo.CreateRemote(&config.RemoteConfig{
 		Name:  "origin",
 		URLs:  []string{origin},
@@ -202,7 +199,6 @@ func (r *Repo) AddBareOrigin() string {
 // Push pushes every local branch to origin.
 func (r *Repo) Push(tb testing.TB) {
 	tb.Helper()
-	//nolint:exhaustruct_v5 // the fixture pushes every branch; the transport options keep their defaults
 	err := r.repo.Push(&git.PushOptions{
 		RemoteName: "origin",
 		RefSpecs:   []config.RefSpec{"+refs/heads/*:refs/heads/*"},
@@ -327,7 +323,6 @@ func commitsInRange(tb testing.TB, repo *git.Repository, from, to plumbing.Hash)
 	tb.Helper()
 	excluded := reachableCommits(tb, repo, from)
 	var out []*object.Commit
-	//nolint:exhaustruct_v5 // only From selects the walked history; the rest keep defaults
 	iter, err := repo.Log(&git.LogOptions{From: to})
 	if err != nil {
 		tb.Fatalf("log from %s: %v", to, err)
@@ -351,7 +346,6 @@ func commitsInRange(tb testing.TB, repo *git.Repository, from, to plumbing.Hash)
 func reachableCommits(tb testing.TB, repo *git.Repository, from plumbing.Hash) map[plumbing.Hash]bool {
 	tb.Helper()
 	excluded := map[plumbing.Hash]bool{}
-	//nolint:exhaustruct_v5 // only From selects the walked history; the rest keep defaults
 	iter, err := repo.Log(&git.LogOptions{From: from})
 	if err != nil {
 		tb.Fatalf("log from %s: %v", from, err)

@@ -2,15 +2,18 @@ package scripts
 
 import (
 	"os"
+	"strings"
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/testutil/fakecmd"
 	mocks "github.com/inoio/agents-sandbox/internal/testutil/mocks"
 )
 
 func TestMain(m *testing.M) {
-	fakecmd.Register("gh", fakeGhHandler)
-	if status := fakecmd.Dispatch(); status >= 0 {
+	Register("gh", fakeGhHandler)
+	Register("faketool", func(args []string) (string, string, int) {
+		return "out:" + strings.Join(args, ","), "err\n", 3
+	})
+	if status := Dispatch(); status >= 0 {
 		os.Exit(status)
 	}
 	mocks.InitFailFastMocks(m)
