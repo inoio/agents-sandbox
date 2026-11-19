@@ -99,10 +99,12 @@ coverage.
 | `claude-code` | `0x03` (Ctrl-C) | seeded past its first-run onboarding (below), it lands on its prompt; repeated presses leave it — its screen announces "Press Ctrl-C again to exit", and three is what a user found; readied on its startup-splash marker |
 | `codex` | `0x03` (Ctrl-C) | quits on Ctrl-C; its TUI uses the alternate screen, so readiness is the alternate-screen marker |
 | `hermes` | `0x04` (Ctrl-D) | its classic CLI's REPL exits on Ctrl-D; readied on its banner marker and seeded (below) so it starts the REPL instead of its first-run setup guard |
+| `kimi-code` | `0x04` (Ctrl-D) | its TUI renders in the normal buffer; seeded past its workspace-trust dialog it lands at the prompt, and Ctrl-D exits on a second press, which the repeated tap covers; readied on its welcome banner |
+| `grok-build` | `0x03` (Ctrl-C) | quits on Ctrl-C; with no credential it comes up on its device-code sign-in screen, which is its alternate-screen TUI |
 
-Three harnesses keep the terminal's normal buffer (`KeepsNormalBuffer`) and are all readied by a marker:
-`claude-code`, `hermes`, and `oh-my-pi`. The alternate-screen harnesses are `opencode`, `opencode2`, `pi`, and
-`codex`.
+Four harnesses keep the terminal's normal buffer (`KeepsNormalBuffer`) and are all readied by a marker:
+`claude-code`, `hermes`, `oh-my-pi`, and `kimi-code`. The alternate-screen harnesses are `opencode`, `opencode2`,
+`pi`, `codex`, and `grok-build`.
 
 **Seeded home files.** A harness whose host-side state decides whether its CLI starts headful declares `SeedHomeFiles`,
 a map of home-relative path to content written under the harness's isolated HOME
@@ -198,8 +200,8 @@ would otherwise sweep every sandbox in the shared home, destroying the other's l
 **Network.** A harness runs with `--network none` (the secure default) unless the table overrides it, and `claude-code`
 and `codex` do, with `public`: `claude-code` offline exits `1` (`ECONNREFUSED api.anthropic.com`), because it checks
 in with its API before drawing anything, and `codex` may reach its API at startup. `hermes` runs under the default
-`none` — its seeded provider endpoint is loopback, so it needs no egress to reach its REPL. The other four
-(`opencode`, `opencode2`, `pi`, `oh-my-pi`) render identically with and without egress.
+`none` — its seeded provider endpoint is loopback, so it needs no egress to reach its REPL. The other six
+(`opencode`, `opencode2`, `pi`, `oh-my-pi`, `kimi-code`, `grok-build`) render identically with and without egress.
 
 **Preflight.** Skip, never fail, when the environment cannot run the suite: `/dev/kvm` missing on Linux, a
 non-Linux/non-darwin platform, or an unreachable docker daemon. The platform/KVM check runs before anything
@@ -243,7 +245,7 @@ waiting run only proceeds once the sweep sharing the root is done.
   update the seed, not the harness.
 - The quit tap is a bound, not a diagnosis: a harness that starts ignoring its key fails after `quitTimeout` of taps
   rather than reporting why.
-- Seven harnesses mean seven runner-image builds on a cold home. The cold home also re-transfers each
+- Nine harnesses mean nine runner-image builds on a cold home. The cold home also re-transfers each
   multi-GB runner image into the microsandbox cache, which dominates the suite's wall time; the caching `make test-msb`
   keeps the home (`AGENTS_SANDBOX_SMOKE_ROOT`) so the transfer is paid once, and the prebuilds and harness
   subtests run with small bounded concurrency (the harness count sized to the host's free memory). The host-only
