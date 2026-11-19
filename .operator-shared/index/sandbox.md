@@ -18,6 +18,10 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 ## `internal/sandbox` Index
 
+### `analyser/` — The learn-mode findings engine
+
+- `finding.go` (the finding model: `Scope`/`Kind`/`Evidence`/`Write`/`SecretWrite`/`Finding`/`Outcome`/`ApplyResult`, the evidence hash), `observation.go` (`SessionFacts` and `ObservationFindings`: the observation finder, the network diff that never widens, and the env-var-keyed secret attribution), `apply.go` (`Apply`, the interactive per-finding applier: the decline memory, the shadowing skip, YAML-only config writes, the project trust-gate approval) — the findings engine of `specs/onboarding/learn-mode/findings-and-apply.md`. Landed ahead of its invocation (S7 wires `run --learn`), so unreachable declarations carry temporary `//deadcode:ignore` markers S7 deletes as it wires them.
+
 ### `channel/` — Learn-mode observation channel (terminating proxy, capture, store)
 
 - `observation.go` (`Destination`/`Attribution`/`Observation`, the value-free scrubbed capture and its recorder), `proxy.go` (the `elazarl/goproxy` terminating proxy: `Start`/`Handle.Stop`/`CAPEM`/`CAFile`, per-session CA, destination and header-name recording), `session.go` (`StartObservation`/`Observer`, the in-memory network overlay), `store.go` (`Save`/`Load`/`Prune` under `<UserStateDir>/learn/`) — the destination/credential-attribution fact source of `specs/onboarding/learn-mode/observation-channel.md`. Landed ahead of its invocation (S7 starts it before `prepareSandbox`), so unreachable declarations carry temporary `//deadcode:ignore` markers S7 deletes as it wires them.
@@ -104,7 +108,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 ### `readback/` — Host-side home-volume read-back for learn mode
 
-- `readback.go` (`HomeVolumePath`: state → home volume → host path, with `ErrNoHomeVolume` distinct from `state.ErrStateNotFound`), `manifest.go` (`TakeManifest`/`Manifest.Changed`, the baseline change-detection manifest), `read.go` (`Read`: config paths, static secrets, recorded logins), `probe_opencode2.go` (bounded read of opencode2's SQLite `credential` table) — the fact source for the after-run analyser of `specs/onboarding/learn-mode/home-read-back.md`; landed ahead of its consumer (S6), so unreachable declarations carry temporary `//deadcode:ignore` markers S6 deletes as it wires them.
+- `readback.go` (`HomeVolumePath`: state → home volume → host path, with `ErrNoHomeVolume` distinct from `state.ErrStateNotFound`), `manifest.go` (`TakeManifest`/`Manifest.Changed`, the baseline change-detection manifest), `read.go` (`Read`: config paths, static secrets with their dotenv `EnvVar` key and provider-endpoint `Hosts`, recorded logins), `probe_opencode2.go` (bounded read of opencode2's SQLite `credential` table) — the fact source for the after-run analyser of `specs/onboarding/learn-mode/home-read-back.md`; its consumer is S7's `run --learn` (the S6 analyser is a library with no production caller yet), so unreachable declarations carry temporary `//deadcode:ignore` markers S7 deletes as it wires them.
 
 ### `reconfig/` — Reconfiguration planning
 

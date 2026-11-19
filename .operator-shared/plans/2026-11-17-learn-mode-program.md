@@ -30,26 +30,33 @@ What is on `main` now:
   invocation. Its one host-only step (a real streaming turn through the proxy) is a human accept the PR carries.
 - **S5 landed** (#722): `internal/sandbox/readback` + `agent.ReadBackDescriber`, still carrying its temporary
   `//deadcode:ignore` markers (see below).
+- **S6 landed**: `internal/sandbox/analyser` — the finding model, the observation finder with the never-widen
+  network diff, the interactive applier with the slug-keyed decline memory — plus the `envsecret`
+  `WriteSecretSpec`/`RemoveSecretSpec` and `viperconfig.RemoveSetting` write primitives it added. It still carries
+  its temporary `//deadcode:ignore` markers until S7 wires `run --learn` (see below).
 
-**The frontier is S6 (`analyser`)** — every predecessor has landed. S7/S8/S9 are named in the DAG but **not yet
-written** — write each when its predecessor lands, never in advance.
+**S6 has landed; the frontier is S7 (`run --learn`) and S8 (`config harden`)** — every predecessor has landed.
+S7/S8/S9 are named in the DAG but **not yet written** — write each when its predecessor lands, never in advance.
 
-**S6 must remove S5's dead-code markers.** S5 (`readback`) lands a library before its only consumer, so its
-declarations are unreachable from any `main` package and carry temporary declaration-scope `//deadcode:ignore
-reason="…"` markers (on the `internal/sandbox/readback` package and `agent.AsReadBackDescriber`). As S6 imports the
-package and wires its caller, S6 **deletes each marker**: a marker left on a declaration that is now reachable is a
-stale marker, which also fails the `deadcode` gate (the gate's self-defence against markers-as-decoration; see
-`../specs/ci/quality-gates.md` §Dead-code gate).
+**S7 must remove the dead-code markers S5 and S6 left.** Both S5 (`readback` + `agent.AsReadBackDescriber`) and
+S6 (`analyser`) land a library before its only consumer, so their declarations are unreachable from any `main`
+package and carry temporary declaration-scope `//deadcode:ignore reason="…"` markers. S6's `analyser` has no
+production caller until S7 wires `run --learn`; S4's `channel` is in the same position. When S7 imports the
+packages and wires the invocation, S7 **deletes each marker** — both marker sets: a marker left on a declaration
+that is now reachable is a stale marker, which also fails the `deadcode` gate (the gate's self-defence against
+markers-as-decoration; see `../specs/ci/quality-gates.md` §Dead-code gate).
 
-**S6 also closes two read-back gaps it consumes.** `readback.Credential.Hosts` is declared but nothing populates it,
-so the config-entry attribution fallback in `findings-and-apply.md` has no source until S6 fills it; and no
-`env.secret.yaml` writer exists, so S6 builds one. Both are tasks in the S6 plan.
+**S6 closed three read-back gaps it consumes.** `readback.Credential.Hosts` was declared but nothing populated it,
+so S6 wired `read.go` to fill it from the provider's config entry, giving the config-entry attribution fallback in
+`findings-and-apply.md` a source; no `env.secret.yaml` writer existed, so S6 added `envsecret.WriteSecretSpec`/
+`RemoveSecretSpec`; and `readback.Credential.EnvVar` now carries the dotenv key (the configured secret's env-var
+name) so the analyser can match a credential to its channel attribution.
 
 **How to run a subplan:** create a worktree off `origin/main` (`superpowers:using-git-worktrees`), load `superpowers:subagent-driven-development`, and execute its tasks one at a time (a fresh implementer per task, a fresh reviewer gating each). Steps marked **human accept** run on a KVM host and cannot be done in the dev VM; the subplan is not done until they are checked. Finish with one `code-review`/`reviewer-large` pass over the whole subplan, then a PR into the merge queue.
 
 **S2, S3, and S4 have all landed** (S2 and S3 shared files; S4 followed them). **S4 and S6 share no files** — S4 is
 the channel track (`network`/`msb`/`session`/`state`), S6 the learn track (`analyser`/`config`/`envsecret`) — so they
-could run in parallel; with S4 landed, S6 is the last of the two. Within each, serialize where the plan says so.
+could run in parallel; both have now landed. Within each, serialize where the plan says so.
 
 ## Global Constraints
 
@@ -123,7 +130,7 @@ func (m Manifest) Changed(prev Manifest) []string
 
 type CredentialKind int
 const (CredentialStatic CredentialKind = iota; CredentialLogin)
-type Credential struct { Kind CredentialKind; Source, Provider, Field string; Hosts []string; Value string }
+type Credential struct { Kind CredentialKind; Source, Provider, Field string; EnvVar string; Hosts []string; Value string } // EnvVar is the dotenv key (the configured secret's env-var name), empty for a login/probe credential
 type ReadBack struct { ConfigPaths []string; Static, Login []Credential; Changed, Unreadable []string }
 func Read(home, agentName string, baseline Manifest) (ReadBack, error)
 func HomeVolumePath(ctx context.Context, k state.Key) (string, error)
@@ -169,11 +176,13 @@ type Observation struct { Destinations []Destination; Attribution []Attribution 
 ```
 
 ```go
-// internal/sandbox/analyser — owned by S6 (analyser). The learn-mode proposal
-// (S6) emits per-slug, non-removing writes only; the applier supports both scopes
-// and removal because S8's `config harden` reuses it (e.g. move a secret out of
-// the committed project config). The config-only finder is S8's; S6 owns the model,
-// the observation finder, and the applier.
+// internal/sandbox/analyser — owned by S6 (analyser). Landed: shipped as a library,
+// with no production caller until S7 wires `run --learn`, so its unreachable
+// declarations keep temporary //deadcode:ignore markers S7 deletes as it wires them.
+// The learn-mode proposal (S6) emits per-slug, non-removing writes only; the applier
+// supports both scopes and removal because S8's `config harden` reuses it (e.g. move
+// a secret out of the committed project config). The config-only finder remains S8's;
+// S6 owns the model, the observation finder, and the applier.
 type Scope string
 const (ScopePerSlugUser Scope = "per-slug-user"; ScopeProject Scope = "project")
 type Kind string
@@ -257,9 +266,10 @@ CHANNEL TRACK                                          LEARN TRACK
 | S8 config-harden | `2026-11-17-config-harden.md` (stub) | `config harden` | yes | S6 | S7 |
 | S9 firstrun | `2026-11-17-learn-mode-firstrun.md` (stub) | first-run `Guide` choices + UC4 seed | yes | S4, S5, E2, E3 | — |
 
-S2, S3, and S4 landed (S2/S3 shared `network.Policy`, `msb.NetworkSpec`, `msb/translate.go`,
-`viperconfig/config.go`). **S4 and S6 share no file**: S4 is done and S6 is the remaining frontier. Within each,
-follow its own serialization. Stubs and their interfaces are written when their predecessor lands, never in advance.
+S2, S3, S4, and S6 landed (S2/S3 shared `network.Policy`, `msb.NetworkSpec`, `msb/translate.go`,
+`viperconfig/config.go`); S6 landed last on top of S5. **S4 and S6 share no file**: S4 is done and S6 has landed,
+so the frontier is S7/S8. Within each subplan, follow its own serialization. Stubs and their interfaces are written
+when their predecessor lands, never in advance.
 
 **S2 re-scope.** S2 ships the TLS-interception **controls only** (`intercept-tls`/`tls-bypass`/`disable-strict`). It does
 no registry handling — no auto-bypass, no allowlist derivation — and the in-VM `docker build` CA case stays a documented
