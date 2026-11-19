@@ -1,6 +1,6 @@
 ---
-description: Contract for the shell scripts' test harnesses - the host-git-config isolation every git fixture harness must apply, the shared `internal/testutil` helpers (`GitIsolationEnvironment`, `RunScript`, the `gittest` fixture builder), the re-exec fake-command pattern, the `test/scripts` Go home for harnesses that need no worktree, and the boundary where a harness stays in bash.
-read_if: Writing or fixing a `scripts/test-*.sh` or `ci/test-check-*.sh` harness that creates git fixtures; a harness that prompts for an ssh passphrase or fails with `failed to write commit object` under commit signing; exporting `internal/testutil`'s git-isolation helper or adding `RunScript` or a go-git fixture builder; moving a shell harness into a Go test package; or the ambient-command contract for a test that execs git.
+description: Contract for the shell scripts' test harnesses - the host-git-config isolation every git fixture harness must apply, the shared helpers (`GitIsolationEnvironment` in `internal/testutil`; `RunScript`, the `gittest` fixture builder, and `fakecmd` as `*_helpers_test.go` in `test/scripts`), the re-exec fake-command pattern, the `test/scripts` Go home for harnesses that need no worktree, and the boundary where a harness stays in bash.
+read_if: Writing or fixing a `scripts/test-*.sh` or `ci/test-check-*.sh` harness that creates git fixtures; a harness that prompts for an ssh passphrase or fails with `failed to write commit object` under commit signing; exporting `internal/testutil`'s git-isolation helper, or adding or re-homing a shared `test/scripts` helper (`RunScript`, the go-git `gittest` builder, `fakecmd`); moving a shell harness into a Go test package; or the ambient-command contract for a test that execs git.
 ---
 
 # Shell script test harnesses
@@ -33,15 +33,16 @@ itself, rather than reading the host's.
 
 ### The shared Go helpers
 
-`internal/testutil/testgit.go` owns git-fixture isolation for Go tests: `gitIsolationEnvironment` (over
+`internal/testutil/testgit.go` owns git-fixture isolation for Go tests: `GitIsolationEnvironment` (over
 `isAmbientGitSetting`) neutralizes the set above, and `RunGit`, `ConfigureRepo`, and `InitRepo` build and drive
-fixtures. A Go harness reuses these instead of re-deriving the environment. Three things complete the pattern:
+fixtures. A Go harness reuses these instead of re-deriving the environment. The rest of the pattern lives in
+`test/scripts` — its only consumer — as test-only files:
 
-- `GitIsolationEnvironment(environ []string) []string` — the exported form of `gitIsolationEnvironment`, so a
-  caller outside `testutil` can build a child process environment. `isAmbientGitSetting` stays unexported: the
-  exported function is the only entry point, so a caller cannot filter by hand and miss a channel.
+- `GitIsolationEnvironment(environ []string) []string` — the exported form of the isolation filter, so a caller
+  outside `testutil` can build a child process environment. `isAmbientGitSetting` stays unexported: the exported
+  function is the only entry point, so a caller cannot filter by hand and miss a channel.
 - `RunScript(tb testing.TB, dir string, extraEnv map[string]string, script string, args ...string) ScriptResult`
-  — runs `bash <script> <args...>` in `dir` with an environment rooted in
+  (`runscript_helpers_test.go`) — runs `bash <script> <args...>` in `dir` with an environment rooted in
   `GitIsolationEnvironment(os.Environ())` and `extraEnv` overlaid, returning captured stdout, stderr, and exit
   status. Isolation is internal, so a harness that drives a script cannot forget it. It also reads the script
   file itself, so `cmd/go` records it as a test-cache input: the child `bash` reads the script, which the test
@@ -49,11 +50,18 @@ fixtures. A Go harness reuses these instead of re-deriving the environment. Thre
   disables the race runtime's exit delay for the child (`GORACE=atexit_sleep_ms=0`, preserving any `GORACE`
   options the environment already sets), because a fake command re-execs the race-instrumented test binary and
   every clean exit of one would otherwise sleep a second (see Current state).
-- A fixture builder in `internal/testutil/gittest`, a leaf package so a test-support package can import it
-  without a cycle. It returns a repo handle with commit, branch, checkout, a two-parent merge commit, a bare
-  origin, and push, all through go-git — `InitRepo` is too minimal (one commit, a path, no handle), and a
-  go-git builder never execs the ambient `git`. A fixture that must reproduce a patch-id match does so by
-  committing the same diff, not by cherry-picking.
+- The fixture builder (`gittest_helpers_test.go`) returns a repo handle with commit, branch, checkout, a
+  two-parent merge commit, a bare origin, and push, all through go-git — `InitRepo` is too minimal (one commit,
+  a path, no handle), and a go-git builder never execs the ambient `git`. A fixture that must reproduce a
+  patch-id match does so by committing the same diff, not by cherry-picking.
+- The re-exec fake-command helper (`fakecmd_helpers_test.go`, see Fake commands).
+
+These are `*_helpers_test.go` files, not importable packages: a `_test.go` file is compiled only into its own
+package's test binary, so coverage never counts it and `deadcode` skips it, and no `.codecov.yml` `ignore` entry
+or `//deadcode:ignore` marker is needed. A test-support helper a *different* package's tests need is re-homed
+into that consumer's `*_helpers_test.go` the same way, rather than kept importable and excluded from coverage
+(the earlier `internal/testutil/gittest`, `fakecmd`, and `runscript.go` were exactly that, with a file-level
+`ignore` broader than its "transitively exercised" reason — each also had direct tests the profile credited).
 
 ### Where harnesses live
 
@@ -70,7 +78,7 @@ need a real-git porcelain go-git does not implement stays in bash: `rebase-statu
 
 A harness fakes an external CLI the script calls (`gh`, `docker`, `msb`) without a shell stub: it puts a symlink
 to the test binary on `PATH`, and `TestMain` registers the canned response. When the test binary is invoked under
-the fake's name, `fakecmd.Dispatch` — keyed on `filepath.Base(os.Args[0])` — serves it, argv-logged. This removes
+the fake's name, `Dispatch` — keyed on `filepath.Base(os.Args[0])` — serves it, argv-logged. This removes
 the fake-`gh` shell script the bash harnesses each carry.
 
 ### Ambient-command contract
@@ -95,9 +103,9 @@ Several harnesses have landed. `scripts/test-open-backport-pr.sh`,
 `scripts/test-backport-audit.sh`, `scripts/test-changed-files.sh`, and
 `scripts/test-changed-targets.sh` are gone; their cases live in the Go `test/scripts` package,
 driving `scripts/open-backport-pr.sh`, `scripts/backport-audit.sh`, `scripts/changed-files.sh`, and
-`scripts/changed-targets.sh` through `testutil.RunScript` with `gittest` go-git fixtures and a re-exec
-fake `gh`. The helpers exist — `GitIsolationEnvironment`, `RunScript`, `internal/testutil/gittest`,
-and `internal/testutil/fakecmd` — and each migrated Make target runs
+`scripts/changed-targets.sh` through `RunScript` with `gittest` go-git fixtures and a re-exec
+fake `gh`. The helpers exist — `GitIsolationEnvironment` in `internal/testutil`, and `RunScript`,
+`gittest`, and `fakecmd` as `*_helpers_test.go` in `test/scripts` — and each migrated Make target runs
 `go test ./test/scripts/ -run <Tool>`.
 
 The remaining bash fixture harnesses still hand-copy the isolation head; a new one must include it

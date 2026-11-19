@@ -290,6 +290,75 @@ Same template unless noted. These are mostly fixture trees and stub binaries, wh
 
 ---
 
+## Follow-up (bundled onto this PR)
+
+Both tasks pick up `Final rulings (deferred minors)` from the review ledger; they land on this branch (PR #742), not a new one.
+
+### Task 23: Enforce that the audit reads a PR's commits from the clone, not the API
+
+**Files:**
+- Modify: `test/scripts/helpers_test.go` (the fake `gh`)
+- Modify: `test/scripts/backport_audit_test.go`
+
+**Interfaces:**
+- Produces: `func requestsJSONField(args []string, name string) bool`
+
+- [ ] **Step 1: Fail the fake `gh` on a `commits` field** — in `fakeGhHandler`, after the argv record, return `"", "fake gh: the audit must not request commits: "+strings.Join(args, " ")+"\n", 1` when `requestsJSONField(args, "commits")` is true.
+
+- [ ] **Step 2: Add `requestsJSONField`** — scan `args` for `--json`, split its value on `,`, trim each element, and report whether one equals `name`.
+
+- [ ] **Step 3: Delete the weak assertion** — remove `assertNotContains(t, "argv", h.argv(), "--json commits")` from the `truncated expected set` subtest; it inspects the argv of a run that aborts before the commit read, for a token no code path emits.
+
+- [ ] **Step 4: Pin the debt to the clone's commits** — in the `issue label, unlabeled PR` subtest (which reaches the per-PR read), add `assertContains(t, "stdout", result.Stdout, "missing:1")`.
+
+- [ ] **Step 5: Run** — `CGO_ENABLED=1 go test -tags microsandbox_ffi_path -count=1 ./test/scripts/ -run BackportAudit` — PASS.
+
+- [ ] **Step 6: Verify the probe bites** — in a scratch copy, append `,commits` to a `--json` list in `scripts/backport-audit.sh`; the suite fails. Revert.
+
+- [ ] **Step 7: Commit.**
+
+### Task 24: Re-home the Go harness helpers as test-only files
+
+**Files:**
+- Create: `test/scripts/gittest_helpers_test.go`, `test/scripts/runscript_helpers_test.go`, `test/scripts/fakecmd_helpers_test.go` (the moved production files, `package scripts`)
+- Create: `test/scripts/gittest_test.go`, `test/scripts/runscript_test.go`, `test/scripts/fakecmd_test.go` (the moved unit tests)
+- Modify: `test/scripts/main_test.go`, `test/scripts/helpers_test.go`, every `test/scripts/*_test.go` call site
+- Delete: `internal/testutil/gittest/`, `internal/testutil/fakecmd/`, `internal/testutil/runscript.go`, `internal/testutil/runscript_test.go`
+- Modify: `.codecov.yml`
+
+**Interfaces:**
+- Consumes: `testutil.GitIsolationEnvironment` (Task 1), `testutil.WritePath`, `internal/testutil/mocks`.
+- Produces: the same symbols as `internal/testutil/gittest`, `internal/testutil/fakecmd`, `internal/testutil.RunScript`, now unqualified in `package scripts`.
+
+- [ ] **Step 1: Move `gittest`** — `git mv internal/testutil/gittest/gittest.go test/scripts/gittest_helpers_test.go`, change its `package gittest` to `package scripts`, drop the file-scope `//deadcode:ignore`; move `gittest_test.go` to `test/scripts/gittest_test.go` (`package scripts`); delete `internal/testutil/gittest/main_test.go` (the folded `TestMain` is Step 6). Drop the `gittest.` qualifier at every call site in `test/scripts/*_test.go`.
+
+- [ ] **Step 2: Move `fakecmd`** — same move for `fakecmd.go` → `test/scripts/fakecmd_helpers_test.go` and `fakecmd_test.go` → `test/scripts/fakecmd_test.go`; delete its `main_test.go`; drop the `fakecmd.` qualifier at every call site.
+
+- [ ] **Step 3: Move `RunScript`** — `internal/testutil/runscript.go` → `test/scripts/runscript_helpers_test.go` (`package scripts`), `internal/testutil/runscript_test.go` → `test/scripts/runscript_test.go`; drop the file-scope marker; qualify `GitIsolationEnvironment` as `testutil.GitIsolationEnvironment`; drop the `testutil.` qualifier from `RunScript`/`ScriptResult` at every call site (keep `testutil.WritePath`).
+
+- [ ] **Step 4: Fold the `TestMain`** — `test/scripts/main_test.go` registers `"faketool"` (the handler from the deleted `internal/testutil/fakecmd/main_test.go`) before `Dispatch()`, and calls `Register`/`Dispatch` unqualified; keep `mocks.InitFailFastMocks(m)`.
+
+- [ ] **Step 5: Resolve collisions** — the moved `gittest.go` names (`New`, `Repo`, `Write`, `Commit`, …) must not clash with the existing `test/scripts/helpers_test.go` names; rename within the moved file where they do.
+
+- [ ] **Step 6: Remove the coverage exceptions** — in `.codecov.yml` delete `"**/testutil/runscript.go"`, `"**/testutil/gittest/*.go"`, `"**/testutil/fakecmd/*.go"`; rewrite the comment to keep only `testgit.go`'s reason and state that a test-support helper living in another package is re-homed into its consumer's `_test.go` rather than ignored.
+
+- [ ] **Step 7: Run** — `go test -tags microsandbox_ffi_path -count=1 ./test/scripts/ ./internal/testutil/...` PASS; `make deadcode` clean (three fewer markers); `make shellcheck`; `make changed-targets-test`.
+
+- [ ] **Step 8: Commit.**
+
+### Task 25: Sync the brain and changelog
+
+**Files:** Modify `specs/testing/shell-script-harnesses.md`, `specs/testing/test-coverage.md`, `index/index.md`, `catalog.md`, `changelog.d/742.changed.md`.
+
+- [ ] **Step 1: `shell-script-harnesses.md`** — the shared helpers now live in `test/scripts` as `*_helpers_test.go`; `GitIsolationEnvironment` stays in `internal/testutil/testgit.go` as the exported entry point. Update the frontmatter `description` and the `The shared Go helpers`/`Where harnesses live` sections.
+- [ ] **Step 2: `test-coverage.md`** — drop the harness-helpers clause; keep `testgit.go`'s reason.
+- [ ] **Step 3: Index/catalog** — `internal/testutil` no longer owns `gittest`/`RunScript`/`fakecmd`; `test/scripts` does.
+- [ ] **Step 4: `changelog.d/742.changed.md`** — record the re-homing and the stronger audit probe.
+- [ ] **Step 5: Run** — `make brain-check` — PASS; `bash ci/check-changelog.sh . --changed <(printf 'test/scripts/gittest_helpers_test.go\n')` — PASS.
+- [ ] **Step 6: Commit.**
+
+---
+
 ## Self-review notes
 
 - **Spec coverage:** isolation contract → Tasks 1–3; shared helpers → Tasks 1–4; `test/scripts` home → Task 5; fake commands → Task 4/5; ambient contract → Global Constraints + Task 5 Step 5; "where bash stays" → Tasks 14–21 and Task 22 Step 1.
