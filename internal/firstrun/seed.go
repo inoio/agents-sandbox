@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
@@ -25,10 +24,17 @@ const managedConfigMode = 0o644
 // memory only, threading it straight to the secret writer; the raw value never
 // reaches the managed config. It returns the number of static secrets migrated.
 //
-// A host file the classifier cannot read (an unknown format, an undecodable
-// document, or a static value it cannot scope) is left unseeded — never copied
-// raw — and named in the returned error, while the readable files are still
-// seeded. A nil error therefore means every host file was seeded whole.
+// Reporting is split by kind. An expected skip is silent: a file that is not a
+// config format (provision rules select broadly, so a README or a script in the
+// tree is not a failure), a value store (the dotenv, or a login store), or a
+// config file holding no credential and no secret-shaped value — the last is
+// copied whole. A file that is credential-bearing but cannot be sanitized —
+// unreadable or over the read-back cap, a known format that does not decode, a
+// credential with no env-var name or no host, a value that survives
+// substitution, or a non-reference string under a secret-shaped key the
+// credential walk did not name — is left unseeded, never copied raw or truncated,
+// and named in the returned error while the readable files are still seeded. A
+// nil error therefore means every candidate was seeded or silently skipped.
 func SeedFromHost(f Facts, paths configpaths.ConfigPaths, hostHome string) (int, error) {
 	if f.Slug == "" {
 		return 0, errors.New("firstrun: seed needs a repo slug for the per-slug scope")
@@ -48,7 +54,7 @@ func SeedFromHost(f Facts, paths configpaths.ConfigPaths, hostHome string) (int,
 	}.AgentConfigDir(dirNames[0])
 
 	migrated := 0
-	var skipped []string
+	var unseedable []string
 	for _, hostPath := range f.HostFiles {
 		if readback.SkipsInlineCredentials(hostPath) {
 			// The dotenv and the login stores are value stores: they are never
@@ -56,49 +62,58 @@ func SeedFromHost(f Facts, paths configpaths.ConfigPaths, hostHome string) (int,
 			continue
 		}
 		path := hostRelativePath(hostHome, hostPath)
-		content, ok := readback.ReadCappedFile(hostPath, readback.MaxHashedBytes)
-		if !ok {
-			skipped = append(skipped, hostPath)
+		if _, known := configdecode.FormatFor(path); !known {
+			// Not a config format: an expected skip, not a failure.
 			continue
 		}
-		static, login, err := readback.ClassifyConfigContent(path, content, f.Agent)
-		if err != nil || len(login) > 0 {
-			skipped = append(skipped, hostPath)
-			continue
-		}
-		// The classification carries no value, so re-read the credentials to
-		// substitute. A value the classification did not name would be copied
-		// raw, so a count mismatch leaves the file unseeded.
-		credentials := readback.InlineCredentialsIn(path, content)
-		if len(credentials) != len(static) {
-			skipped = append(skipped, hostPath)
-			continue
-		}
-		placeholdered, ok := placeholderStaticValues(path, content, credentials)
-		if !ok {
-			skipped = append(skipped, hostPath)
-			continue
-		}
-		if err := writeSeedSecrets(scopeDir, credentials); err != nil {
-			return migrated, err
-		}
-		migrated += len(credentials)
-		if err := atomicwrite.WriteFileMode(
-			filepath.Join(targetDir, filepath.Base(hostPath)),
-			[]byte(placeholdered),
-			managedConfigMode,
-		); err != nil {
-			return migrated, fmt.Errorf("firstrun: write managed config %s: %w", path, err)
+		if seeded, err := seedOneHostFile(f.Agent, path, hostPath, scopeDir, targetDir); err != nil {
+			unseedable = append(unseedable, hostPath)
+		} else {
+			migrated += seeded
 		}
 	}
-	if len(skipped) > 0 {
+	if len(unseedable) > 0 {
 		return migrated, fmt.Errorf(
-			"firstrun: skipped %d host config file(s) that could not be classified: %s",
-			len(skipped),
-			strings.Join(skipped, ", "),
+			"firstrun: skipped %d host config file(s) that could not be seeded: %s",
+			len(unseedable),
+			strings.Join(unseedable, ", "),
 		)
 	}
 	return migrated, nil
+}
+
+// seedOneHostFile seeds one host config file and returns the number of static
+// secrets it migrated. It reads the file under the read-back cap, classifies it,
+// substitutes every classified value, and refuses — with an error — a file it
+// cannot sanitize, so a raw value never reaches the managed scope.
+func seedOneHostFile(
+	agentName, path, hostPath, scopeDir, targetDir string,
+) (int, error) {
+	content, ok := readback.ReadCappedFile(hostPath, readback.MaxHashedBytes)
+	if !ok {
+		return 0, fmt.Errorf("unreadable or over the %d-byte cap", readback.MaxHashedBytes)
+	}
+	if _, _, err := readback.ClassifyConfigContent(path, content, agentName); err != nil {
+		return 0, err
+	}
+	// The classification carries no value, so re-read the credentials to
+	// substitute them in memory.
+	credentials := readback.InlineCredentialsIn(path, content)
+	placeholdered, ok := placeholderStaticValues(path, content, credentials)
+	if !ok {
+		return 0, errors.New("a credential could not be replaced by a placeholder")
+	}
+	if err := writeSeedSecrets(scopeDir, credentials); err != nil {
+		return 0, err
+	}
+	if err := atomicwrite.WriteFileMode(
+		filepath.Join(targetDir, filepath.Base(hostPath)),
+		[]byte(placeholdered),
+		managedConfigMode,
+	); err != nil {
+		return 0, fmt.Errorf("write managed config %s: %w", path, err)
+	}
+	return len(credentials), nil
 }
 
 // hostRelativePath returns hostPath's path relative to hostHome, or its base
@@ -130,11 +145,13 @@ func writeSeedSecrets(dir string, credentials []readback.Credential) error {
 }
 
 // placeholderStaticValues replaces every static credential value in content with
-// its ${ENVVAR} placeholder. ok is false when a credential cannot be migrated —
-// it has no env-var name to reference, no value, or no host to scope it — or
-// when a value survives the substitution, so the caller leaves the file
-// unseeded rather than copy a raw value. Substitution is longest value first,
-// so a value that is a prefix of another does not corrupt the longer one.
+// its ${ENVVAR} placeholder through the shared readback sanitizer, with the
+// host-seed guard on: a non-reference string under a secret-shaped key the walk
+// did not name (e.g. an MCP Authorization header, or an options.accessToken)
+// refuses the file rather than let a raw value through. ok is false when a
+// credential cannot be migrated — it has no env-var name, no value, or no host
+// to scope it — or when the sanitizer refuses the content, so the caller leaves
+// the file unseeded rather than copy a raw value or an orphan placeholder.
 func placeholderStaticValues(
 	path string,
 	content []byte,
@@ -145,81 +162,12 @@ func placeholderStaticValues(
 			return "", false
 		}
 	}
-	ordered := slices.Clone(credentials)
-	slices.SortStableFunc(ordered, func(a, b readback.Credential) int {
-		return len(b.Value) - len(a.Value)
+	return readback.SanitizeConfig(content, readback.SanitizeParams{
+		Path:                       path,
+		Credentials:                credentials,
+		AllCredentials:             credentials,
+		AllowedEnvVars:             nil,
+		IndirectionKey:             "",
+		RefuseUndeclaredSecretKeys: true,
 	})
-	placeholdered := string(content)
-	for _, credential := range ordered {
-		placeholdered = strings.ReplaceAll(
-			placeholdered,
-			credential.Value,
-			envsecret.PlaceholderFor(credential.EnvVar),
-		)
-	}
-	if retainsStaticValue(path, placeholdered, credentials) {
-		return "", false
-	}
-	return placeholdered, true
-}
-
-// retainsStaticValue reports whether content may still hold any of the
-// credentials' values after substitution. It tests the literal content and,
-// when the path's format decodes, every string the decoded document holds: a
-// config file may store a value in its escaped form, which a literal search
-// misses even though the harness reads the value. A known format that no longer
-// parses is reported as retaining a value, since the decoded walk cannot run.
-func retainsStaticValue(path, content string, credentials []readback.Credential) bool {
-	for _, credential := range credentials {
-		if credential.Value != "" && strings.Contains(content, credential.Value) {
-			return true
-		}
-	}
-	format, ok := configdecode.FormatFor(path)
-	if !ok {
-		return false
-	}
-	decoded, err := configdecode.Decode(format, []byte(content))
-	if err != nil {
-		return true
-	}
-	return decodedRetainsValue(decoded, credentials)
-}
-
-// decodedRetainsValue reports whether any string a decoded document holds — a
-// key or a leaf value — contains one of the credentials' values.
-func decodedRetainsValue(node any, credentials []readback.Credential) bool {
-	switch typed := node.(type) {
-	case map[string]any:
-		for key, child := range typed {
-			if containsCredentialValue(key, credentials) || decodedRetainsValue(child, credentials) {
-				return true
-			}
-		}
-	case map[any]any:
-		for _, child := range typed {
-			if decodedRetainsValue(child, credentials) {
-				return true
-			}
-		}
-	case []any:
-		for _, child := range typed {
-			if decodedRetainsValue(child, credentials) {
-				return true
-			}
-		}
-	case string:
-		return containsCredentialValue(typed, credentials)
-	}
-	return false
-}
-
-// containsCredentialValue reports whether text holds any credential's value.
-func containsCredentialValue(text string, credentials []readback.Credential) bool {
-	for _, credential := range credentials {
-		if credential.Value != "" && strings.Contains(text, credential.Value) {
-			return true
-		}
-	}
-	return false
 }

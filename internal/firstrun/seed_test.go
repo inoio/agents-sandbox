@@ -135,10 +135,37 @@ func TestSeedFromHostWritesOnlyThePerSlugScope(t *testing.T) {
 	require.NoError(t, perSlugErr, "the managed copy lands in the per-slug user scope")
 }
 
-// TestSeedFromHostReportsAnUnclassifiableFile pins the reporting path: a file the
-// classification cannot read is left unseeded and named in the returned error,
-// while a readable sibling is still seeded.
-func TestSeedFromHostReportsAnUnclassifiableFile(t *testing.T) {
+// TestSeedFromHostReportsAnUndecodableFile pins the reporting contract: a file
+// of a known format that does not decode is reported and left unseeded, while a
+// readable sibling is still seeded.
+func TestSeedFromHostReportsAnUndecodableFile(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	hostHome := t.TempDir()
+	writeHostFile(t, hostHome, ".hermes/config.yaml", hermesHostConfig)
+	writeHostFile(t, hostHome, ".hermes/broken.yaml",
+		"model:\n  provider: openai\n  api_key: sk\nbroken: !!int notanint\n")
+
+	migrated, err := SeedFromHost(Facts{
+		Agent: "hermes",
+		Slug:  "widget-abc",
+		HostFiles: []string{
+			filepath.Join(hostHome, ".hermes/config.yaml"),
+			filepath.Join(hostHome, ".hermes/broken.yaml"),
+		},
+	}, paths, hostHome)
+
+	require.Equal(t, 1, migrated, "the readable sibling is still seeded")
+	require.Error(t, err, "the undecodable file is reported")
+	require.Contains(t, err.Error(), "broken.yaml")
+	_, copyErr := os.Stat(filepath.Join(paths.UserSlugConfigDir("widget-abc"), "hermes", "broken.yaml"))
+	require.True(t, os.IsNotExist(copyErr), "an undecodable file is never copied raw")
+}
+
+// TestSeedFromHostSilentlySkipsANonConfigFile pins the expected-skip contract:
+// an agent's provision rules select broadly (`**`), so a `.txt` in the tree is
+// skipped silently rather than reported as a failure.
+func TestSeedFromHostSilentlySkipsANonConfigFile(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	paths := configpaths.Get()
 	hostHome := t.TempDir()
@@ -154,11 +181,97 @@ func TestSeedFromHostReportsAnUnclassifiableFile(t *testing.T) {
 		},
 	}, paths, hostHome)
 
-	require.Equal(t, 1, migrated, "the readable sibling is still seeded")
-	require.Error(t, err, "the unclassifiable file is reported")
-	require.Contains(t, err.Error(), "notes.txt")
+	require.NoError(t, err, "a non-config file is an expected skip, not a failure")
+	require.Equal(t, 1, migrated)
 	_, copyErr := os.Stat(filepath.Join(paths.UserSlugConfigDir("widget-abc"), "hermes", "notes.txt"))
-	require.True(t, os.IsNotExist(copyErr), "an unclassifiable file is never copied raw")
+	require.True(t, os.IsNotExist(copyErr), "a non-config file is never copied")
+}
+
+// TestSeedFromHostRefusesAnMCPAuthorizationHeader pins the Critical guard: an
+// MCP entry's Authorization header is not a classified credential, so without
+// the secret-shaped-key guard its raw value would reach the managed config. The
+// whole file is left unseeded and reported.
+func TestSeedFromHostRefusesAnMCPAuthorizationHeader(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	hostHome := t.TempDir()
+	writeHostFile(t, hostHome, ".config/opencode/opencode.jsonc",
+		`{"mcp":{"github":{"headers":{"Authorization":"Bearer sk-mcp-secret"}}}}`)
+
+	migrated, err := SeedFromHost(Facts{
+		Agent:     "opencode",
+		Slug:      "widget-abc",
+		HostFiles: []string{filepath.Join(hostHome, ".config/opencode/opencode.jsonc")},
+	}, paths, hostHome)
+
+	require.Zero(t, migrated)
+	require.Error(t, err, "a raw Authorization header must refuse the file")
+	slugDir := paths.UserSlugConfigDir("widget-abc")
+	_, copyErr := os.Stat(filepath.Join(slugDir, "opencode", "opencode.jsonc"))
+	require.True(t, os.IsNotExist(copyErr), "the file is never copied with a raw Authorization header")
+}
+
+// TestSeedFromHostRefusesAnUndeclaredAccessToken pins the guard for a provider
+// entry key outside the recognized set: options.accessToken is not classified,
+// so its raw value must refuse the file rather than be copied.
+func TestSeedFromHostRefusesAnUndeclaredAccessToken(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	hostHome := t.TempDir()
+	writeHostFile(t, hostHome, ".config/opencode/opencode.jsonc",
+		`{"provider":{"openai":{"options":{"accessToken":"sk-raw-inline",`+
+			`"baseURL":"https://api.openai.com/v1"}}}}`)
+
+	migrated, err := SeedFromHost(Facts{
+		Agent:     "opencode",
+		Slug:      "widget-abc",
+		HostFiles: []string{filepath.Join(hostHome, ".config/opencode/opencode.jsonc")},
+	}, paths, hostHome)
+
+	require.Zero(t, migrated)
+	require.Error(t, err)
+	_, copyErr := os.Stat(filepath.Join(paths.UserSlugConfigDir("widget-abc"), "opencode", "opencode.jsonc"))
+	require.True(t, os.IsNotExist(copyErr))
+}
+
+// TestSeedFromHostRefusesOnlyTheLeakingFile pins that a refused file does not
+// stop the seed: a clean sibling is still migrated and copied, while the file
+// with an undeclared secret-shaped value is left unseeded and named.
+func TestSeedFromHostRefusesOnlyTheLeakingFile(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	hostHome := t.TempDir()
+	writeHostFile(t, hostHome, ".config/opencode/good.jsonc",
+		`{"provider":{"openai":{"options":{"apiKey":"sk-good",`+
+			`"baseURL":"https://api.openai.com/v1"}}}}`)
+	writeHostFile(t, hostHome, ".config/opencode/bad.jsonc",
+		`{"mcp":{"github":{"headers":{"Authorization":"Bearer sk-mcp-secret"}}}}`)
+
+	migrated, err := SeedFromHost(Facts{
+		Agent: "opencode",
+		Slug:  "widget-abc",
+		HostFiles: []string{
+			filepath.Join(hostHome, ".config/opencode/good.jsonc"),
+			filepath.Join(hostHome, ".config/opencode/bad.jsonc"),
+		},
+	}, paths, hostHome)
+
+	require.Equal(t, 1, migrated, "the clean sibling is still seeded")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "bad.jsonc")
+	slugDir := paths.UserSlugConfigDir("widget-abc")
+	require.Contains(t, readSlugFile(t, slugDir, "opencode", "good.jsonc"), "${OPENAI_API_KEY}")
+	_, badCopyErr := os.Stat(filepath.Join(slugDir, "opencode", "bad.jsonc"))
+	require.True(t, os.IsNotExist(badCopyErr), "the leaking file is left unseeded")
+}
+
+// readSlugFile reads a file under the per-slug agent config dir, failing the
+// test if it is absent.
+func readSlugFile(t *testing.T, slugDir, agentDir, name string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(slugDir, agentDir, name))
+	require.NoError(t, err)
+	return string(data)
 }
 
 // TestSeedFromHostLeavesAnUnscopableFileUnseeded pins the no-raw-value guard: a
