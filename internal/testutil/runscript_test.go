@@ -13,7 +13,11 @@ import (
 func TestRunScriptIsolatesAndCaptures(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "s.sh")
-	WritePath(t, script, "#!/usr/bin/env bash\necho \"glob=$GIT_CONFIG_GLOBAL\"\necho \"home=$HOME\"\necho err >&2\nexit 7\n")
+	WritePath(
+		t,
+		script,
+		"#!/usr/bin/env bash\necho \"glob=$GIT_CONFIG_GLOBAL\"\necho \"home=$HOME\"\necho err >&2\nexit 7\n",
+	)
 
 	got := RunScript(t, dir, map[string]string{"HOME": dir}, script)
 
