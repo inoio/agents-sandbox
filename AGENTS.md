@@ -2,15 +2,17 @@
 
 ## Project
 
-`agents-sandbox`: a launcher that runs coding agents (opencode, pi, ...) inside a microsandbox VM, binding a host directory as `/workspace` and
-persisting user state via a home directory volume.
+`agents-sandbox`: a launcher that runs agent harnesses (opencode, pi, claude, hermes, codex) inside a microsandbox VM,
+binding a host
+directory as `/workspace` and persisting user state via a home directory volume.
 
 ## Code style
 
 - Follow idiomatic Go (Effective Go / Go Proverbs).
 - Write clear, self-documenting code (ex. extract a function and name it clearly).
-- Use self-documenting, non-abbreviated identifiers (```additionResult := add(1,2)```). 
-- Keep inline comments concise and avoid them when the code can instead be refactored to be self-documenting.
+- Use self-documenting, non-abbreviated identifiers (```additionResult := add(1,2)```).
+- Keep inline comments concise and avoid them when the code can instead be refactored to be self-documenting via
+  structure and identifier naming.
 - Production comments state the contract; leave issue references and change history to commits, PRs and specs unless
   the code would otherwise look wrong.
 - Start/stay concrete and simple. Add abstractions when the code gives you a reason to.
@@ -34,14 +36,12 @@ persisting user state via a home directory volume.
 
 You are dogfooding the project, you are not on the host, but in an agents-sandbox VM. Filesystem layout:
 
-- `/workspace` bind mount of the host CWD, mounted rw. When working there, don't commit/revert/stash etc yourself: 
-  There's potential for parallel edits by other agents/humans. Always ask the user how to finalize the session.
-- `~/.local/share/opencode/worktree/` git worktrees of `/workspace`, created by opencode. If that's your CWD, finalize 
-  the session by pushing a PR to github and deleting the worktree.
+- `/workspace` bind mount of the host CWD, mounted rw, containing a bare checkout with worktrees
+- all other paths are sandbox-contained
 
-Some sessions run on the host instead: there is no `/workspace`, and `/dev/kvm` is writable. There you can start VMs and
-run `make test-msb` yourself, so runtime behavior (network policy, DNS, harness startup) can be verified against real
-VMs instead of being handed to the user. Issues labelled `ready-for-human` for that reason are workable on the host.
+When working on `/workspace/main` worktree, don't commit/revert/stash etc yourself: There's potential for parallel edits
+by other agents/humans. Always ask the user how to finalize the session. When starting real work, move off of the main
+checkout into a dedicated worktree.
 
 ## Development environment
 
@@ -115,7 +115,8 @@ Use the linter as a guide for code style: Run it after every major edit, for sma
 - When changing or adding behavior, keep `README.md` and `docs` directory (except `docs/superpowers`) in sync and
   current, and add a `changelog.d/<PR-number>.<type>.md` fragment (see `CONTRIBUTING.md`).
 - Linking style: root-level docs (README.md, SECURITY.md, ...) link into `docs/` with rendered HTML links
-  (`https://inoio.github.io/agents-sandbox/<page>.html`, or `.../<dir>/` for an `index.md` page); non-docs relative links
+  (`https://inoio.github.io/agents-sandbox/<page>.html`, or `.../<dir>/` for an `index.md` page); non-docs relative
+  links
   must resolve to a repo file. Pages under `docs/` link to each other with Jekyll `{% link %}` tags. `make check` runs
   `ci/check-docs.sh` (and its harness `test/scripts/check_docs_test.go`) to enforce this.
 - When you struggled with something non-obvious, propose to the user to document it in `AGENTS.md`.
