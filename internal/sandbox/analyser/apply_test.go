@@ -78,6 +78,115 @@ func assertNoFile(t *testing.T, path string) {
 	}
 }
 
+// testManagedConfigAgent is the agent whose config-dir name a managed-config
+// write targets: opencode2's primary config-dir name is "opencode2".
+const testManagedConfigAgent = "opencode2"
+
+// managedConfigFinding builds one per-slug managed-config finding.
+func managedConfigFinding(name, content string) Finding {
+	return Finding{
+		Evidence: Evidence{Summary: "the session authored " + name},
+		Writes: []Write{{
+			Scope:         ScopePerSlugUser,
+			ManagedConfig: &ManagedConfigWrite{Name: name, Content: []byte(content)},
+		}},
+	}
+}
+
+// TestApplyManagedConfigWritesTheFile pins the managed-config write: the
+// finding's content lands at <UserSlugConfigDir>/<agent dir name>/<Name>, the
+// managed snippet path the next run's provisioning merges.
+func TestApplyManagedConfigWritesTheFile(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	ui, answered := interactiveUI()
+
+	const content = "{\n  // the session's config\n  \"model\": \"sonnet\"\n}\n"
+	results := Apply(
+		[]Finding{managedConfigFinding("opencode.jsonc", content)},
+		ApplyOptions{
+			Paths: cp, Slug: testSlug, Agent: testManagedConfigAgent, UI: ui, Mode: options.ModeRun,
+		},
+	)
+
+	if results[0].Outcome != OutcomeApplied {
+		t.Fatalf("outcome = %q (%s); want applied", results[0].Outcome, results[0].Err)
+	}
+	if *answered != 1 {
+		t.Errorf("the write asked %d prompts; want one", *answered)
+	}
+	against := filepath.Join(cp.UserSlugConfigDir(testSlug), "opencode2")
+	if dirs := results[0].WroteDirs; len(dirs) != 1 || dirs[0] != against {
+		t.Errorf("WroteDirs = %v; want the agent config dir %q", dirs, against)
+	}
+	if got := readFile(t, filepath.Join(against, "opencode.jsonc")); got != content {
+		t.Errorf("opencode.jsonc = %q; want the finding's content %q", got, content)
+	}
+}
+
+// TestApplyManagedConfigCreatesTheDir pins that the managed-config write creates
+// the agent config directory it targets, so a session's first changed config
+// file has somewhere to land.
+func TestApplyManagedConfigCreatesTheDir(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	ui, _ := interactiveUI()
+
+	against := filepath.Join(cp.UserSlugConfigDir(testSlug), "opencode2")
+	if _, err := os.Stat(against); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("%s exists before the write; want the agent config dir absent", against)
+	}
+	const content = "model: sonnet\n"
+
+	results := Apply(
+		[]Finding{managedConfigFinding("opencode.jsonc", content)},
+		ApplyOptions{
+			Paths: cp, Slug: testSlug, Agent: testManagedConfigAgent, UI: ui, Mode: options.ModeRun,
+		},
+	)
+
+	if results[0].Outcome != OutcomeApplied {
+		t.Fatalf("outcome = %q (%s); want applied", results[0].Outcome, results[0].Err)
+	}
+	info, err := os.Stat(against)
+	if err != nil {
+		t.Fatalf("stat %s: %v; want the agent config dir created", against, err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("%s is not a directory; want one", against)
+	}
+	if got := readFile(t, filepath.Join(against, "opencode.jsonc")); got != content {
+		t.Errorf("opencode.jsonc = %q; want the finding's content %q", got, content)
+	}
+}
+
+// TestApplyManagedConfigProjectScopeIsGated pins that a project-scope
+// managed-config write is skipped, not written: the applier has no per-file
+// project-trust approval (only ApproveSettingWrite, keyed by a launcher config
+// key), so the finding is refused before any prompt or write.
+func TestApplyManagedConfigProjectScopeIsGated(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	ui, answered := interactiveUI()
+
+	finding := managedConfigFinding("opencode.jsonc", "model: sonnet\n")
+	finding.Writes[0].Scope = ScopeProject
+
+	results := Apply([]Finding{finding}, ApplyOptions{
+		Paths: cp, Slug: testSlug, CheckoutSlug: testCheckoutSlug,
+		Agent: testManagedConfigAgent, UI: ui, Mode: options.ModeRun,
+	})
+
+	if results[0].Outcome != OutcomeSkipped || results[0].Note == "" {
+		t.Fatalf("result = %+v; want a skipped outcome with a note", results[0])
+	}
+	if *answered != 0 {
+		t.Errorf("a project-scope managed write asked %d prompts; want none", *answered)
+	}
+	assertNoFile(t, filepath.Join(cp.ProjectConfigDir(), "opencode2", "opencode.jsonc"))
+	assertNoFile(t, filepath.Join(cp.UserSlugConfigDir(testSlug), "opencode2", "opencode.jsonc"))
+}
+
 func TestApplyDryRunWritesNothing(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	ui, answered := interactiveUI()

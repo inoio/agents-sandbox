@@ -104,6 +104,7 @@ func analyse(
 		Paths:        a.Paths,
 		Slug:         a.Slug,
 		CheckoutSlug: a.CheckoutSlug,
+		Agent:        a.Agent,
 		UI:           ui,
 		Mode:         mode,
 		SetByFlag:    setByFlag,
