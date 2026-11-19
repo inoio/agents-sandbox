@@ -48,8 +48,8 @@ func TestSnippetFileMatches(t *testing.T) {
 		{"pi-*.{json,yaml}", "other.yaml", false},
 	}
 	for _, c := range cases {
-		if got := snippetFileMatches(c.pattern, c.name); got != c.want {
-			t.Errorf("snippetFileMatches(%q, %q) = %v, want %v", c.pattern, c.name, got, c.want)
+		if got := SnippetNameMatches(c.pattern, c.name); got != c.want {
+			t.Errorf("SnippetNameMatches(%q, %q) = %v, want %v", c.pattern, c.name, got, c.want)
 		}
 	}
 }

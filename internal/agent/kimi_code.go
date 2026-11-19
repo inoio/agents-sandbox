@@ -109,6 +109,13 @@ func (kimiCodeProfile) ReadBackPaths() []string {
 
 func (kimiCodeProfile) CredentialProbes() []string { return nil }
 
+// EnvIndirectionKey is kimi's native env indirection: it reads no key from the
+// process environment and only accepts an environment-variable name in
+// "api_key_env", so "api_key = \"${VAR}\"" would send the literal. The
+// write-back therefore rewrites kimi's "api_key" assignment to
+// "api_key_env = \"<ENVVAR>\"" (#749).
+func (kimiCodeProfile) EnvIndirectionKey() string { return "api_key_env" }
+
 // AttachCommand forwards every argument shell-quoted, because the command runs
 // through `bash -c`.
 func (kimiCodeProfile) AttachCommand(_ string, args []string) string {

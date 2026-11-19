@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/atomicwrite"
 	"github.com/inoio/agents-sandbox/internal/configdecode"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/projecttrust"
@@ -35,9 +37,12 @@ type ApplyOptions struct {
 	Paths        configpaths.ConfigPaths
 	Slug         string // repo slug (per-slug default + decline key)
 	CheckoutSlug string // for a project-scope write's approval
-	UI           termio.Prompter
-	Mode         options.Mode
-	SetByFlag    func(key string) bool
+	// Agent is the agent whose config-dir name a managed-config write targets.
+	Agent string
+	UI    termio.Prompter
+	Mode  options.Mode
+	// SetByFlag reports whether a flag set a launcher config key.
+	SetByFlag func(key string) bool
 	// SecretValue resolves a finding's static secret value in memory (from the
 	// read-back); it is never persisted and never logged. nil for config-only.
 	SecretValue func(w SecretWrite) (string, bool)
@@ -215,6 +220,10 @@ func planWrites(finding Finding, opts ApplyOptions) ([]plannedWrite, *refusal) {
 			plans = append(plans, plannedWrite{write: write, dir: dir, secretValue: ""})
 			continue
 		}
+		if write.ManagedConfig != nil {
+			plans = append(plans, plannedWrite{write: write, dir: dir, secretValue: ""})
+			continue
+		}
 		if refusal := planConfigKey(write, dir, opts); refusal != nil {
 			return nil, refusal
 		}
@@ -224,16 +233,34 @@ func planWrites(finding Finding, opts ApplyOptions) ([]plannedWrite, *refusal) {
 }
 
 // writeOnlyRendersText reports whether a write is declarative: it names no
-// config key, secret, or file mode, so it makes no machine change and only its
-// Text is meaningful.
+// config key, secret, file mode, or managed config, so it makes no machine
+// change and only its Text is meaningful.
 func writeOnlyRendersText(write Write) bool {
-	return write.ConfigKey == "" && write.Secret == nil && write.FileMode == nil
+	return write.ConfigKey == "" && write.Secret == nil && write.FileMode == nil && write.ManagedConfig == nil
 }
 
 // planTarget resolves a write's directory and refuses a per-slug config write
 // whose key the project layer owns, since the higher-precedence project value
-// would shadow it.
+// would shadow it. A project-scope managed-config write is refused: the applier
+// has no per-file project approval, and the learn proposal never targets it.
 func planTarget(write Write, opts ApplyOptions) (string, *refusal) {
+	if write.ManagedConfig != nil {
+		if write.Scope == ScopeProject {
+			return "", &refusal{
+				note: "a managed agent config file is not written to the project scope; " +
+					"only the per-slug user scope owns it",
+				err: "",
+			}
+		}
+		if refusal := validateManagedConfigName(write.ManagedConfig.Name); refusal != nil {
+			return "", refusal
+		}
+		dir, refusal := managedConfigDir(opts)
+		if refusal != nil {
+			return "", refusal
+		}
+		return dir, nil
+	}
 	if write.Scope == ScopeProject {
 		if opts.CheckoutSlug == "" {
 			return "", &refusal{note: "a project-scope write has no checkout slug for its approval", err: ""}
@@ -255,6 +282,56 @@ func planTarget(write Write, opts ApplyOptions) (string, *refusal) {
 		}
 	}
 	return opts.Paths.UserSlugConfigDir(opts.Slug), nil
+}
+
+// managedConfigDir resolves the agent config directory a managed-config write
+// targets: the per-slug user scope's dir joined with the agent's primary
+// config-dir name, which is what provisioning merges snippets from. It refuses
+// an unset agent — which agent.Lookup would otherwise resolve to the default —
+// an unknown agent, or one whose profile declares an unusable config-dir name,
+// rather than writing into a directory no scope reads or one the caller did not
+// name.
+func managedConfigDir(opts ApplyOptions) (string, *refusal) {
+	if opts.Agent == "" {
+		return "", &refusal{
+			note: "a managed agent config file has no agent selected; it is not written",
+			err:  "",
+		}
+	}
+	profile, ok := agent.Lookup(opts.Agent)
+	if !ok {
+		return "", &refusal{
+			note: fmt.Sprintf("unknown agent %q; a managed agent config file has no target dir", opts.Agent),
+			err:  "",
+		}
+	}
+	names, err := agent.ConfigDirNames(profile)
+	if err != nil {
+		return "", &refusal{
+			note: fmt.Sprintf("agent %s has no usable config-dir name: %v", opts.Agent, err),
+			err:  err.Error(),
+		}
+	}
+	scope := configpaths.ConfigScope{Kind: configpaths.ScopePerSlugUser, Dir: opts.Paths.UserSlugConfigDir(opts.Slug)}
+	return scope.AgentConfigDir(names[0]), nil
+}
+
+// validateManagedConfigName refuses a managed-config file name that is not a
+// single clean path element. The finder always passes filepath.Base, but the
+// applier joins the name under the scope directory unchecked, so a name like
+// "../x" would escape it; the write is a reported skip, never a path outside
+// the target directory.
+func validateManagedConfigName(name string) *refusal {
+	if name == "" || name == "." || name == ".." || strings.ContainsRune(name, filepath.Separator) {
+		return &refusal{
+			note: fmt.Sprintf(
+				"managed agent config name %q is not a single file name; it is not written",
+				name,
+			),
+			err: "",
+		}
+	}
+	return nil
 }
 
 // planSecret validates that the target secret file can be edited, resolves a
@@ -414,6 +491,9 @@ func executeWrite(plan plannedWrite, opts ApplyOptions) (string, error) {
 	if write.FileMode != nil {
 		return plan.dir, executeFileMode(plan)
 	}
+	if write.ManagedConfig != nil {
+		return plan.dir, executeManagedConfig(plan)
+	}
 	if write.Scope == ScopeProject {
 		return plan.dir, executeProjectSetting(plan, opts)
 	}
@@ -437,6 +517,14 @@ func secretFilePath(dir string) string {
 	return filepath.Join(dir, configpaths.EnvSecretFileName+".yaml")
 }
 
+// executeManagedConfig writes one managed agent config file atomically, creating
+// the agent config directory. The file is world-readable (0o644) because it is
+// configuration, not a credential: the secret values in it are placeholders.
+func executeManagedConfig(plan plannedWrite) error {
+	managed := plan.write.ManagedConfig
+	return atomicwrite.WriteFileMode(filepath.Join(plan.dir, managed.Name), managed.Content, 0o644)
+}
+
 // executeSecret writes or removes one static secret of a planned write.
 func executeSecret(plan plannedWrite, opts ApplyOptions) error {
 	secret := plan.write.Secret
@@ -451,6 +539,7 @@ func executeSecret(plan plannedWrite, opts ApplyOptions) error {
 		Host:                  "",
 		Hosts:                 secret.Hosts,
 		HeaderFields:          secret.HeaderFields,
+		Placeholder:           envsecret.PlaceholderFor(secret.EnvVar),
 		AllowAnyHostDangerous: false,
 	})
 }

@@ -708,6 +708,32 @@ func TestNormalizeHeaderFields(t *testing.T) {
 	}
 }
 
+// TestPlaceholderFor pins the placeholder form a managed config carries
+// verbatim: the runtime substitutes it, so the helper must produce exactly
+// "${" + envVar + "}".
+func TestPlaceholderFor(t *testing.T) {
+	if got := PlaceholderFor("OPENAI_API_KEY"); got != "${OPENAI_API_KEY}" {
+		t.Errorf("PlaceholderFor = %q, want %q", got, "${OPENAI_API_KEY}")
+	}
+}
+
+// TestBuildSecretsFromSpecsCarriesPlaceholder pins that a spec's explicit
+// placeholder reaches the built entry, so the runtime substitutes the same
+// placeholder a managed config file was written with.
+func TestBuildSecretsFromSpecsCarriesPlaceholder(t *testing.T) {
+	testUI := termiotest.NewTestMock(t)
+	in := map[string]SecretSpec{"K": {
+		Value: "v", Host: "h.example", Placeholder: PlaceholderFor("K"),
+	}}
+	secrets := BuildSecretsFromSpecs(in, nil, &testUI)
+	if len(secrets) != 1 {
+		t.Fatalf("expected 1 secret, got %d", len(secrets))
+	}
+	if secrets[0].Placeholder != "${K}" {
+		t.Errorf("Placeholder = %q, want %q", secrets[0].Placeholder, "${K}")
+	}
+}
+
 // TestParseSecretSpecLegacyTrimsKey pins that the legacy parser trims
 // surrounding whitespace from a key; the line is trimmed as a whole, but the
 // part before '=' can still carry trailing spaces.

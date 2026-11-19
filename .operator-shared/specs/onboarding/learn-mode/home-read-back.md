@@ -12,7 +12,10 @@ only channel that works when the launcher-owned proxy
 
 ## What read-back establishes
 
-1. Which agent config files the session created or changed, and which of their entries are credentials.
+1. Which agent config files the session created or changed, and which of their entries are credentials. The
+   [agent-config write-back](findings-and-apply.md#the-agent-config-write-back) is this fact's consumer: it copies a
+   **changed** config file — only a changed one — into the per-slug user scope, and excludes the credential-store
+   sources from the copy.
 2. Which **static** secrets exist in the sandbox home, from either of two shapes:
    - A **dotenv** key names a secret when one of its `_`/`-`-separated segments is `KEY`, `TOKEN`, `SECRET`, or
      `PASSWORD`; the markers are matched as whole segments, so a token-count setting such as `MAX_TOKENS` is

@@ -11,10 +11,12 @@ import (
 	"github.com/inoio/agents-sandbox/internal/filewalk"
 )
 
-// maxHashedBytes caps the size of a file whose content is hashed. A larger
+// MaxHashedBytes caps the size of a file whose content is hashed. A larger
 // declared file (opencode2's ~13 MB churny database) is recorded opaque:
-// size and mtime only.
-const maxHashedBytes = 256 * 1024
+// size and mtime only. It is also the bound the write-back reads a candidate
+// config file under, so a file the read-back recorded opaque is never copied
+// back half-read.
+const MaxHashedBytes = 256 * 1024
 
 // ManifestEntry is one declared path or credential probe in a baseline
 // manifest. It holds metadata and a digest, never a file or secret value.
@@ -41,7 +43,7 @@ type Manifest struct {
 
 // TakeManifest records a ManifestEntry for every declared path of the named
 // agent plus exactly one probe digest per agent credential probe. Files over
-// maxHashedBytes are recorded opaque (size+mtime, no hash); a probe entry
+// MaxHashedBytes are recorded opaque (size+mtime, no hash); a probe entry
 // carries neither size nor mtime, only the digest of the rows it read — or the
 // sentinel hash when that read failed. An agent with no declared paths yields
 // an empty manifest, never an error; a declared path that does not exist yet is
@@ -171,7 +173,7 @@ func appendDeclaredPath(manifest *Manifest, seen map[string]bool, home, declared
 		matches, _ := filepath.Match(base, rel)
 		return matches
 	}
-	return filewalk.WalkCapped(root, maxHashedBytes, take, func(entry filewalk.Entry) error {
+	return filewalk.WalkCapped(root, MaxHashedBytes, take, func(entry filewalk.Entry) error {
 		manifestEntry := describeFile(home, entry)
 		if seen[manifestEntry.Key] {
 			return nil

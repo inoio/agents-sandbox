@@ -23,7 +23,15 @@ type SecretSpec struct {
 	Host                  string   `yaml:"host"`
 	Hosts                 []string `yaml:"hosts"`
 	HeaderFields          []string `yaml:"header_fields"`
+	Placeholder           string   `yaml:"placeholder,omitempty"`
 	AllowAnyHostDangerous bool     `yaml:"allow_any_host_dangerous"`
+}
+
+// PlaceholderFor returns the guest-visible placeholder a managed config uses to
+// reference envVar. It is the explicit placeholder the runtime substitutes, so
+// a config file can carry it verbatim.
+func PlaceholderFor(envVar string) string {
+	return "${" + envVar + "}"
 }
 
 func BuildSecretsFromSpecs(
@@ -56,6 +64,7 @@ func BuildSecretsFromSpecs(
 			msb.SecretEnvOptions{
 				Allow:               hosts,
 				AllowPlaceholderFor: placeholderHostsFor(hosts, allowPlaceholderFor),
+				Placeholder:         spec.Placeholder,
 				Substitution: msb.SecretSubstitution{
 					HeaderFields: normalizeHeaderFields(spec.HeaderFields),
 				},

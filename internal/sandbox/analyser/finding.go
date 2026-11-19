@@ -98,6 +98,11 @@ type Write struct {
 	Remove      bool
 	Secret      *SecretWrite   // nil unless a static secret is proposed
 	FileMode    *FileModeWrite // nil unless a secret-file mode change is proposed
+	// ManagedConfig is the managed agent config file to write, nil unless the
+	// proposal copies one back. A managed write has no ConfigKey: the file
+	// lands in the scope's agent config directory, where provisioning merges
+	// it into the VM config.
+	ManagedConfig *ManagedConfigWrite
 	// Text is the user-facing sentence the applier renders in the accept
 	// prompt, beside the finding's evidence. It never carries a secret value.
 	Text string
@@ -109,6 +114,17 @@ type Write struct {
 // enforce narrow-only, so a caller must not propose a broader mode here.
 type FileModeWrite struct {
 	Mode fs.FileMode
+}
+
+// ManagedConfigWrite writes one host-side managed agent config file into the
+// scope's agent config directory. Content is the file's bytes with each static
+// secret value replaced by its placeholder; it carries no value.
+type ManagedConfigWrite struct {
+	// Name is the file name inside the agent config directory.
+	Name string
+	// Content is the file's bytes, holding a placeholder where a static secret
+	// value stood.
+	Content []byte
 }
 
 // SecretWrite carries no Value field — the value is threaded in memory from

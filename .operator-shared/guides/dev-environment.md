@@ -87,3 +87,7 @@ location is what bounds it, not a size cap.
   `chmod g-w ~/.local/share` or run under `umask 022`. The default `~/.microsandbox`
   home used by a bare `msb` is unaffected (its ancestors are not group-writable).
   See `docs/troubleshooting.md` → Microsandbox runtime.
+- **Do not run a mutation sweep (`make mutation`, or `go run gomutants`) inside this VM.**
+  gomutants is memory-heavy (a per-package sweep spawns many test binaries) and its load
+  reliably OOMs the VM, which has no swap. Run it on the host, or read the advisory `mutation`
+  CI job's sticky PR comment instead. See `guides/mutation-testing.md`.

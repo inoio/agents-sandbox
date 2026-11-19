@@ -102,7 +102,7 @@ func Read(home, agentName string, baseline Manifest) (ReadBack, error) {
 			})
 		}
 		if filepath.Base(entry.Key) == dotenvFileName {
-			if content, ok := readCappedFile(filepath.Join(home, entry.Key), maxHashedBytes); ok {
+			if content, ok := ReadCappedFile(filepath.Join(home, entry.Key), MaxHashedBytes); ok {
 				readBack.Static = append(readBack.Static, staticCredentials(entry.Key, content)...)
 			}
 			continue
@@ -177,7 +177,7 @@ func configEndpointHosts(home string, manifest Manifest) map[string][]string {
 		}
 		// A failed read yields nil content, which decodes to no hosts, so it
 		// needs no separate skip.
-		content, _ := readCappedFile(filepath.Join(home, entry.Key), maxHashedBytes)
+		content, _ := ReadCappedFile(filepath.Join(home, entry.Key), MaxHashedBytes)
 		document, err := configdecode.Decode(format, content)
 		if err != nil {
 			continue
@@ -455,6 +455,18 @@ func matchesStoreTail(pattern, pathSegments []string) bool {
 	return true
 }
 
+// IsCredentialStorePath reports whether path matches a declared credential-store
+// (login-store) pattern. It is agent-independent: a store declared for one agent
+// still lives at that path for another agent whose read-back reaches it, so a
+// caller copying a home file out must refuse the path regardless of which agent
+// the store is scoped to. The Read login classification applies the store's
+// agents filter on top of the pattern; this predicate deliberately does not, so
+// it also refuses a path the caller's agent does not classify as a login.
+func IsCredentialStorePath(path string) bool {
+	_, isStore := loginStoreFor(path)
+	return isStore
+}
+
 // secretKeyMarkers are the whole key segments that mark a dotenv key as a
 // secret. A key without one is ordinary configuration, not a credential.
 var secretKeyMarkers = []string{"KEY", "TOKEN", "SECRET", "PASSWORD"}
@@ -522,7 +534,7 @@ func configInlineCredentials(home string, manifest Manifest) []Credential {
 		}
 		// A failed read yields nil content, which decodes to an empty
 		// document, so it needs no separate skip.
-		content, _ := readCappedFile(filepath.Join(home, entry.Key), maxHashedBytes)
+		content, _ := ReadCappedFile(filepath.Join(home, entry.Key), MaxHashedBytes)
 		credentials = append(credentials, InlineCredentialsIn(entry.Key, content)...)
 	}
 	return credentials
@@ -716,10 +728,12 @@ func staticCredentialProviderField(key string) (string, string) {
 	return "", ""
 }
 
-// readCappedFile reads path's contents, bounded by maxBytes. ok is false when
+// ReadCappedFile reads path's contents, bounded by maxBytes. ok is false when
 // the file cannot be read or exceeds the cap: a secret file larger than the cap
-// is not parsed whole into host memory.
-func readCappedFile(path string, maxBytes int64) ([]byte, bool) {
+// is not parsed whole into host memory. It is exported so a consumer that reads
+// a declared file under the same cap (the analyser's write-back) shares one
+// bounded-read implementation.
+func ReadCappedFile(path string, maxBytes int64) ([]byte, bool) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, false

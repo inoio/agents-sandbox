@@ -87,6 +87,18 @@ func TestLoginStoreForUnknownIsAbsent(t *testing.T) {
 	require.False(t, ok)
 }
 
+// TestIsCredentialStorePath is agent-independent: it reports a store path true
+// whether or not the caller's agent classifies it a login. The opencode store is
+// scoped to agent "opencode", yet its path is still a credential store for any
+// agent that reaches it; an ordinary config path is not.
+func TestIsCredentialStorePath(t *testing.T) {
+	require.True(t, IsCredentialStorePath(".local/share/opencode/auth.json"),
+		"a store scoped to another agent is still a credential-store path")
+	require.True(t, IsCredentialStorePath(".kimi-code/credentials/a.json"))
+	require.False(t, IsCredentialStorePath(".config/opencode/opencode.jsonc"))
+	require.False(t, IsCredentialStorePath(".nope/x"))
+}
+
 // TestReadClassifiesADirectoryLoginStore: a store declared as a glob records one
 // login per file it selects. kimi-code declares .kimi-code/credentials/*.json,
 // so both files are logins whose values are never read.
@@ -490,11 +502,11 @@ func TestReadCredentialHostsIgnoreNamedNonProviderEndpoints(t *testing.T) {
 // TestReadCappedFileRejectsUnreadableAndMissing: a path that cannot be opened,
 // or whose contents cannot be read (a directory), is refused.
 func TestReadCappedFileRejectsUnreadableAndMissing(t *testing.T) {
-	data, ok := readCappedFile(filepath.Join(t.TempDir(), "missing"), 16)
+	data, ok := ReadCappedFile(filepath.Join(t.TempDir(), "missing"), 16)
 	require.False(t, ok, "a missing file is refused")
 	require.Nil(t, data)
 
-	data, ok = readCappedFile(t.TempDir(), 16)
+	data, ok = ReadCappedFile(t.TempDir(), 16)
 	require.False(t, ok, "a directory is refused")
 	require.Nil(t, data)
 }
@@ -508,11 +520,11 @@ func TestReadCappedFileBoundary(t *testing.T) {
 	overCap := filepath.Join(dir, "over-cap")
 	require.NoError(t, os.WriteFile(overCap, bytes.Repeat([]byte("a"), 17), 0o600))
 
-	data, ok := readCappedFile(atCap, 16)
+	data, ok := ReadCappedFile(atCap, 16)
 	require.True(t, ok)
 	require.Len(t, data, 16, "a file exactly at the cap is read whole")
 
-	_, ok = readCappedFile(overCap, 16)
+	_, ok = ReadCappedFile(overCap, 16)
 	require.False(t, ok, "a file over the cap is refused")
 }
 
