@@ -69,10 +69,12 @@ The standalone tools (`scripts/*.sh`, `ci/*.sh`) stay bash: a Makefile target, a
 file from a checkout with no build step.
 
 A harness moves to Go — the test-only package `test/scripts`, beside `test/harness`, whose `TestMain` installs
-the fail-fast mocks — when it drives a script and can build its fixtures with go-git. The porcelain-shaped
-harnesses (`open-backport-pr`, `backport-audit`, `upstream-drift`, `enqueue-pr`) fit. A harness whose fixtures
-need a real-git porcelain go-git does not implement stays in bash: `rebase-status` (an in-progress rebase) and
-`cleanup-merged-branches` (`git worktree`, `clone`, `push --force-with-lease`).
+the fail-fast mocks — when it drives a script and can build its fixtures with go-git. The migration is complete:
+the porcelain-shaped harnesses (`open-backport-pr`, `backport-audit`, `upstream-drift`, `enqueue-pr`) all fit, and
+the rest of the Go-fitting set moved with them (Current state lists every one). A harness whose fixtures need a
+real-git porcelain go-git does not implement stays in bash: `rebase-status` (an in-progress rebase) and
+`cleanup-merged-branches` (`git worktree`, `clone`, `push --force-with-lease`). Those two are the only bash
+harnesses left.
 
 ### Fake commands
 
