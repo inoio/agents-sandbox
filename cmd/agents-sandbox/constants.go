@@ -42,6 +42,7 @@ const (
 	cmdCompact    = "compact"
 	cmdState      = "state"
 	cmdRepair     = "repair"
+	cmdLearn      = "learn"
 
 	flagRemove = "rm"
 

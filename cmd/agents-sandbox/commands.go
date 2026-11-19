@@ -217,6 +217,11 @@ func commandNeedsMSBRuntime(cmd *cobra.Command) bool {
 	if cmd == nil {
 		return false
 	}
+	// config learn inspects a home volume, so unlike its config siblings it needs
+	// the microsandbox runtime.
+	if cmd.Name() == cmdLearn {
+		return true
+	}
 	for current := cmd; current != nil; current = current.Parent() {
 		if current.Name() == cmdConfig || current.Name() == cmdCompletion || current.Name() == cmdState {
 			return false

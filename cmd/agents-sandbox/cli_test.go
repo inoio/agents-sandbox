@@ -47,6 +47,7 @@ func TestCommandNeedsMSBRuntimeSkipsLauncherOnlyCommands(t *testing.T) {
 		{name: "completion", cmd: &cobra.Command{Use: cmdCompletion}, want: false},
 		{name: "doctor", cmd: &cobra.Command{Use: cmdDoctor}, want: false},
 		{name: "config child", cmd: configChildCommand(), want: false},
+		{name: "config learn", cmd: configLearnChildCommand(), want: true},
 		{name: "state child", cmd: stateChildCommand(), want: false},
 		{name: "run", cmd: &cobra.Command{Use: cmdRun}, want: true},
 	}
@@ -161,6 +162,15 @@ func TestDoctorRunsItsOwnChecksWithoutPreflightRuntimeInstall(t *testing.T) {
 func configChildCommand() *cobra.Command {
 	config := &cobra.Command{Use: cmdConfig}
 	child := &cobra.Command{Use: cmdHome}
+	config.AddCommand(child)
+	return child
+}
+
+// configLearnChildCommand builds `config learn`, which inspects a volume and so
+// needs the microsandbox runtime unlike its config siblings.
+func configLearnChildCommand() *cobra.Command {
+	config := &cobra.Command{Use: cmdConfig}
+	child := &cobra.Command{Use: cmdLearn}
 	config.AddCommand(child)
 	return child
 }

@@ -14,6 +14,12 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
+	"github.com/inoio/agents-sandbox/internal/git"
+	"github.com/inoio/agents-sandbox/internal/sandbox/channel"
+	"github.com/inoio/agents-sandbox/internal/sandbox/learn"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
@@ -562,5 +568,176 @@ func TestConfigAgentRejectsAHomeTargetOutsideTheHome(t *testing.T) {
 	err := cmd.Execute()
 	if err == nil || !strings.Contains(err.Error(), `home manifest target "../escape" escapes the home directory`) {
 		t.Fatalf("error = %v, want the escaping target refused", err)
+	}
+}
+
+// stubPrepareMSBRuntime replaces the runtime preparer, so a command the preflight
+// treats as runtime-needing (config learn inspects a volume) does not install the
+// runtime in a test.
+func stubPrepareMSBRuntime(t *testing.T) {
+	t.Helper()
+	old := prepareMSBRuntime
+	prepareMSBRuntime = func(context.Context, termio.Logger, string) error { return nil }
+	t.Cleanup(func() { prepareMSBRuntime = old })
+}
+
+// learnTestKey returns the state key config learn resolves for this test's
+// project.
+func learnTestKey(t *testing.T) state.Key {
+	t.Helper()
+	identity, err := git.ResolveIdentity(".")
+	if err != nil {
+		t.Fatalf("resolve identity: %v", err)
+	}
+	return state.Key{Slug: identity.CheckoutSlug, Agent: defaultAgentName}
+}
+
+// seedLearnState writes the current home volume and, on top of it, a recorded
+// learning session.
+func seedLearnState(t *testing.T, key state.Key, record state.LearnSession) {
+	t.Helper()
+	if err := state.WithHomeState(key, func(cur *state.HomeState, _ bool) (bool, error) {
+		cur.HomeVolume = record.HomeVolume
+		return true, nil
+	}); err != nil {
+		t.Fatalf("seed home volume: %v", err)
+	}
+	if err := state.RecordLearnSession(key, record); err != nil {
+		t.Fatalf("record learn session: %v", err)
+	}
+}
+
+// stubLearnHomeVolume points config learn's home-volume lookup at a fixed path.
+func stubLearnHomeVolume(t *testing.T, path string) {
+	t.Helper()
+	orig := learnHomeVolume
+	learnHomeVolume = func(context.Context, state.Key) (string, error) { return path, nil }
+	t.Cleanup(func() { learnHomeVolume = orig })
+}
+
+// analyseCapture records whether config learn ran the analysis and with what.
+type analyseCapture struct {
+	analysis learn.Analysis
+	called   bool
+}
+
+// stubLearnAnalyse replaces the analysis seam, so the command's wiring can be
+// asserted without applying anything.
+func stubLearnAnalyse(t *testing.T) *analyseCapture {
+	t.Helper()
+	captured := &analyseCapture{}
+	orig := learnAnalyse
+	learnAnalyse = func(
+		_ context.Context,
+		a learn.Analysis,
+		_ termio.UI,
+		_ options.Mode,
+		_ func(string) bool,
+	) (learn.Summary, error) {
+		captured.analysis = a
+		captured.called = true
+		return learn.Summary{}, nil
+	}
+	t.Cleanup(func() { learnAnalyse = orig })
+	return captured
+}
+
+func TestConfigLearnNoRecordedSession(t *testing.T) {
+	initTestProjectDir(t)
+	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdLearn)
+	stubPrepareMSBRuntime(t)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config learn: %v", err)
+	}
+	if !slices.Contains(ui.InfoCalls, "No learning session to review.") {
+		t.Errorf("InfoCalls = %v, want the no-session line", ui.InfoCalls)
+	}
+}
+
+func TestConfigLearnRecreatedVolumeIsDiscarded(t *testing.T) {
+	initTestProjectDir(t)
+	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdLearn)
+	stubPrepareMSBRuntime(t)
+	key := learnTestKey(t)
+	seedLearnState(t, key, state.LearnSession{HomeVolume: "vol-old", ArtefactPath: "/nonexistent"})
+	// The current state records a different volume than the session did.
+	if err := state.WithHomeState(key, func(cur *state.HomeState, _ bool) (bool, error) {
+		cur.HomeVolume = "vol-live"
+		return true, nil
+	}); err != nil {
+		t.Fatalf("seed current volume: %v", err)
+	}
+	captured := stubLearnAnalyse(t)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config learn: %v", err)
+	}
+	if !strings.Contains(strings.Join(ui.InfoCalls, "\n"), "recreated") {
+		t.Errorf("InfoCalls = %v, want a recreated-volume report", ui.InfoCalls)
+	}
+	if _, ok, err := state.ReadLearnSession(key); err != nil || ok {
+		t.Errorf("ReadLearnSession = ok=%v err=%v, want the record cleared", ok, err)
+	}
+	if captured.called {
+		t.Error("config learn analysed a session whose volume was recreated")
+	}
+}
+
+func TestConfigLearnReplaysTheRecordedSession(t *testing.T) {
+	initTestProjectDir(t)
+	cmd, _ := setupCommandFixtures(t, cmdConfig, cmdLearn)
+	stubPrepareMSBRuntime(t)
+	key := learnTestKey(t)
+
+	artefactPath, err := channel.Save(key.Slug, 1763458200, channel.Observation{
+		Destinations: []channel.Destination{{Host: "api.example.com", Protocol: "https", Success: true, Count: 2}},
+	})
+	if err != nil {
+		t.Fatalf("save artefact: %v", err)
+	}
+	seedLearnState(t, key, state.LearnSession{
+		HomeVolume:   "vol-1",
+		ArtefactPath: artefactPath,
+		Baseline:     []state.LearnManifestEntry{{Key: ".config/opencode/opencode.jsonc", Hash: "h1"}},
+	})
+	stubLearnHomeVolume(t, "/home/vol")
+	captured := stubLearnAnalyse(t)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config learn: %v", err)
+	}
+	if !captured.called {
+		t.Fatal("config learn did not run the analysis")
+	}
+	if captured.analysis.Home != "/home/vol" {
+		t.Errorf("analysis.Home = %q, want /home/vol", captured.analysis.Home)
+	}
+	if len(captured.analysis.Baseline.Entries) != 1 ||
+		captured.analysis.Baseline.Entries[0].Key != ".config/opencode/opencode.jsonc" {
+		t.Errorf("analysis.Baseline = %+v, want the recorded entry", captured.analysis.Baseline)
+	}
+	if len(captured.analysis.Observation.Destinations) != 1 ||
+		captured.analysis.Observation.Destinations[0].Host != "api.example.com" {
+		t.Errorf("analysis.Observation = %+v, want the loaded artefact", captured.analysis.Observation)
+	}
+}
+
+func TestConfigLearnNonInteractiveWritesNothing(t *testing.T) {
+	initTestProjectDir(t)
+	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdLearn)
+	stubPrepareMSBRuntime(t)
+	key := learnTestKey(t)
+	seedLearnState(t, key, state.LearnSession{HomeVolume: "vol-1"})
+	stubLearnHomeVolume(t, "/home/vol")
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config learn: %v", err)
+	}
+	if len(ui.AcknowledgeCalls) != 1 {
+		t.Fatalf("AcknowledgeCalls = %v, want the one-line notice", ui.AcknowledgeCalls)
+	}
+	if !strings.Contains(ui.AcknowledgeCalls[0], "run --learn") {
+		t.Errorf("notice %q, want it to name `run --learn`", ui.AcknowledgeCalls[0])
 	}
 }

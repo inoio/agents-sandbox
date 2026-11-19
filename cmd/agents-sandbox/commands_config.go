@@ -12,7 +12,13 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
+	"github.com/inoio/agents-sandbox/internal/sandbox/channel"
+	"github.com/inoio/agents-sandbox/internal/sandbox/learn"
+	"github.com/inoio/agents-sandbox/internal/sandbox/network"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/readback"
 	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/viperconfig"
 )
@@ -27,6 +33,8 @@ func buildConfigCmd(ui termio.UI) *cobra.Command {
 	cmd.AddCommand(buildConfigAgentCmd(ui))
 
 	cmd.AddCommand(buildConfigPathsCmd(ui))
+
+	cmd.AddCommand(buildConfigLearnCmd(ui))
 
 	cmd.AddCommand(&cobra.Command{
 		Use:   cmdHome,
@@ -291,4 +299,115 @@ func describeConfigDir(dir string) string {
 		return fmt.Sprintf("%q", dir)
 	}
 	return fmt.Sprintf("%q (missing)", dir)
+}
+
+// Learn-mode seams: the config learn command reads launcher state, resolves the
+// home volume, and runs the same analysis the live after-run does. They are
+// package variables so a test drives the command without a live VM.
+var (
+	learnReadSession  = state.ReadLearnSession
+	learnClearSession = state.ClearLearnSession
+	learnHomeVolume   = readback.HomeVolumePath
+	learnAnalyse      = learn.Analyse
+)
+
+// buildConfigLearnCmd returns the config learn subcommand: it replays the last
+// recorded learning session for this checkout and agent, when the owning process
+// is gone.
+func buildConfigLearnCmd(ui termio.UI) *cobra.Command {
+	return &cobra.Command{
+		Use:   cmdLearn,
+		Args:  cobra.NoArgs,
+		Short: "Review what the last learning session needed",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runConfigLearn(cmd, ui)
+		},
+	}
+}
+
+func runConfigLearn(cmd *cobra.Command, ui termio.UI) error {
+	identity, err := git.ResolveIdentity(".")
+	if err != nil {
+		return err
+	}
+	agentName := defaultAgentName
+	r := resolverFromContext(cmd.Context())
+	if r != nil && r.Agent() != "" {
+		agentName = r.Agent()
+	}
+	key := state.Key{Slug: identity.CheckoutSlug, Agent: agentName}
+
+	record, ok, err := learnReadSession(key)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		ui.Infof("No learning session to review.")
+		return nil
+	}
+
+	homeState, err := state.ReadState(key)
+	if err != nil {
+		return fmt.Errorf("read state for %s/%s: %w", key.Slug, key.Agent, err)
+	}
+	// A recreated volume makes the recorded baseline meaningless, so the session
+	// is reported and discarded rather than analysed against a different home.
+	if record.HomeVolume != homeState.HomeVolume {
+		ui.Infof("The last learning session's home volume was recreated since it ran; discarding the recorded session.")
+		return learnClearSession(key)
+	}
+
+	home, err := learnHomeVolume(cmd.Context(), key)
+	if err != nil {
+		return err
+	}
+
+	//exhaustruct:ignore // a session with no saved artefact has an empty observation
+	observation := channel.Observation{}
+	if record.ArtefactPath != "" {
+		observation, err = channel.Load(record.ArtefactPath)
+		if err != nil {
+			return err
+		}
+	}
+
+	//exhaustruct:ignore // the zero policy resolves to the default (public) profile
+	current := network.Policy{}
+	if r != nil {
+		current = r.Config().Network.Effective()
+	}
+
+	//exhaustruct:ignore // ReadBack is filled by the analysis from the home volume
+	analysis := learn.Analysis{
+		Key:          key,
+		Slug:         identity.RepoSlug,
+		CheckoutSlug: identity.CheckoutSlug,
+		Agent:        agentName,
+		Paths:        configpaths.Get(),
+		Home:         home,
+		Baseline:     manifestFromState(record.Baseline),
+		Observation:  observation,
+		Current:      current,
+	}
+	_, err = learnAnalyse(cmd.Context(), analysis, ui, options.ModeRun, nil)
+	return err
+}
+
+// manifestFromState rebuilds the read-back manifest from a recorded baseline, so
+// the replay reads the home back against the same entries the session started
+// with.
+func manifestFromState(entries []state.LearnManifestEntry) readback.Manifest {
+	if len(entries) == 0 {
+		return readback.Manifest{}
+	}
+	manifest := readback.Manifest{Entries: make([]readback.ManifestEntry, 0, len(entries))}
+	for _, entry := range entries {
+		manifest.Entries = append(manifest.Entries, readback.ManifestEntry{
+			Key:     entry.Key,
+			Size:    entry.Size,
+			ModTime: entry.ModTime,
+			Hash:    entry.Hash,
+		})
+	}
+	return manifest
 }
