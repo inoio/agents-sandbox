@@ -48,8 +48,9 @@ var pruneLearnArtefacts = learn.PruneArtefacts
 // firstRunMenu is the first-run setup seam: a variable so a test can drive the
 // run/shell path without a host config or a state dir. Production gathers the
 // first-run facts, offers the menu, seeds the per-slug scope for the host-seed
-// choice, and applies the outcome to opts. An explicit --learn (UC2) is left
-// alone: the menu must not override the user's flag.
+// choice, and applies the outcome to opts (including the manual choice's
+// provisioned host config, gated by the menu's warning). An explicit --learn
+// (UC2) is left alone: the menu must not override the user's flag.
 var firstRunMenu = func(ui termio.UI, opts *options.RunOptions, slug, agentName string) error {
 	if opts.Learn {
 		return nil

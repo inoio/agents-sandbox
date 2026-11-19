@@ -148,6 +148,63 @@ func TestPromptLearnFromHostRecommendedWithHostConfig(t *testing.T) {
 	}
 }
 
+// TestPromptManualWarnsBeforeProvisioning pins the manual path's one consent
+// point: choosing "configure it myself" asks the provisioning warning before
+// returning, and a yes answer turns on the unsafe opt-in.
+func TestPromptManualWarnsBeforeProvisioning(t *testing.T) {
+	ui := &termiotest.Mock{IsInteractiveResult: true, ConfirmResult: true}
+	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		return string(ChoiceManual), nil
+	}
+
+	out, offered := Prompt(ui, Facts{Agent: "pi", Slug: "widget-abc"})
+	if !offered {
+		t.Fatal("the menu must be offered")
+	}
+	if len(ui.ConfirmCalls) != 1 || ui.ConfirmCalls[0] != manualProvisionWarning {
+		t.Fatalf(
+			"Confirm calls = %v, want exactly the provisioning warning %q",
+			ui.ConfirmCalls,
+			manualProvisionWarning,
+		)
+	}
+	if out.Choice != ChoiceManual {
+		t.Errorf("Choice = %q, want %q", out.Choice, ChoiceManual)
+	}
+	if !out.ProvisionHostConfig {
+		t.Error("a confirmed provisioning warning must set Outcome.ProvisionHostConfig")
+	}
+	if out.Learn {
+		t.Error("the manual choice must not start a learning session")
+	}
+}
+
+// TestPromptManualDeclinedLeavesProvisioningOff pins that declining the warning
+// keeps the manual choice but leaves the unsafe opt-in off.
+func TestPromptManualDeclinedLeavesProvisioningOff(t *testing.T) {
+	ui := &termiotest.Mock{IsInteractiveResult: true, ConfirmResult: false}
+	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		return string(ChoiceManual), nil
+	}
+
+	out, offered := Prompt(ui, Facts{Agent: "pi", Slug: "widget-abc"})
+	if !offered {
+		t.Fatal("the menu must be offered")
+	}
+	if len(ui.ConfirmCalls) != 1 {
+		t.Fatalf("Confirm calls = %d, want the warning to be asked once", len(ui.ConfirmCalls))
+	}
+	if out.Choice != ChoiceManual {
+		t.Errorf("Choice = %q, want %q after declining", out.Choice, ChoiceManual)
+	}
+	if out.ProvisionHostConfig {
+		t.Error("a declined provisioning warning must leave Outcome.ProvisionHostConfig false")
+	}
+	if out.Learn {
+		t.Error("the manual choice must not start a learning session")
+	}
+}
+
 // TestOutcomeApplyRecordsLearned pins that Apply sets opts.Learn and records the
 // learned decision against the host-config source hash.
 func TestOutcomeApplyRecordsLearned(t *testing.T) {
@@ -182,5 +239,58 @@ func TestOutcomeApplyRecordsLearned(t *testing.T) {
 	}
 	if got.At.IsZero() {
 		t.Error("Apply must let RecordFirstRun stamp At")
+	}
+}
+
+// TestOutcomeApplyRecordsManual pins that Apply carries the manual choice's
+// provisioning opt-in onto opts and records the manual decision.
+func TestOutcomeApplyRecordsManual(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+
+	opts := options.RunOptions{}
+	outcome := Outcome{
+		Choice:              ChoiceManual,
+		Learn:               false,
+		ProvisionHostConfig: true,
+		sourceHash:          "hostconfig-abc123",
+	}
+	if err := outcome.Apply(&opts, "widget-abc", "pi"); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if opts.Learn {
+		t.Error("Apply must not set opts.Learn for the manual choice")
+	}
+	if opts.ProvisionHostConfig == nil || !*opts.ProvisionHostConfig {
+		t.Errorf("ProvisionHostConfig = %v, want a pointer to true from the manual choice", opts.ProvisionHostConfig)
+	}
+
+	got, ok, err := state.ReadFirstRun("widget-abc", "pi")
+	if err != nil {
+		t.Fatalf("ReadFirstRun: %v", err)
+	}
+	if !ok {
+		t.Fatal("Apply must record the first-run decision")
+	}
+	if got.Choice != state.FirstRunManual {
+		t.Errorf("recorded choice = %q, want %q", got.Choice, state.FirstRunManual)
+	}
+	if got.SourceHash != "hostconfig-abc123" {
+		t.Errorf("recorded source hash = %q, want %q", got.SourceHash, "hostconfig-abc123")
+	}
+}
+
+// TestOutcomeApplyLearningLeavesProvisionHostConfigUntouched pins that a
+// learning choice applies nothing to the config-resolved provisioning setting.
+func TestOutcomeApplyLearningLeavesProvisionHostConfigUntouched(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+
+	configured := true
+	opts := options.RunOptions{ProvisionHostConfig: &configured}
+	outcome := Outcome{Choice: ChoiceLearnByUsing, Learn: true, ProvisionHostConfig: false}
+	if err := outcome.Apply(&opts, "widget-abc", "pi"); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if opts.ProvisionHostConfig != &configured {
+		t.Error("a learning choice must leave the config-resolved ProvisionHostConfig untouched")
 	}
 }

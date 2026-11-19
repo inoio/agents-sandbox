@@ -14,6 +14,11 @@ const firstRunConsent = "Let agents-sandbox learn from this session: set up your
 // firstRunQuestion heads the menu choices.
 const firstRunQuestion = "How would you like to set up this checkout?"
 
+// manualProvisionWarning is the one confirmation the manual path asks before it
+// turns on host-config provisioning: that path copies host credentials into the
+// sandbox, so the unsafe opt-in is only set on an explicit yes.
+const manualProvisionWarning = "Provisioning copies your host agent config, including credentials, into the sandbox. Continue?"
+
 // Outcome is the resolved first-run choice applied to the run options.
 type Outcome struct {
 	Choice              Choice
@@ -48,18 +53,31 @@ func Prompt(ui termio.UI, f Facts) (Outcome, bool) {
 		ui.Warnf("first-run setup: %v", err)
 		return noOutcome, false
 	}
-	return outcomeFor(key, f.HostSourceHash), true
+	provisionConfirmed := false
+	if Choice(key) == ChoiceManual {
+		provisionConfirmed, err = ui.Confirm(manualProvisionWarning, false)
+		if err != nil {
+			ui.Warnf("first-run setup: %v", err)
+			return noOutcome, false
+		}
+	}
+	return outcomeFor(key, f.HostSourceHash, provisionConfirmed), true
 }
 
 // Apply sets the outcome's effect on the run options and records the decision.
-// A learning choice records FirstRunLearned; the manual choice records
-// FirstRunManual. The recorded source hash re-arms the menu on a host-config
-// change.
+// A learning choice records FirstRunLearned and leaves the config-resolved
+// provisioning setting untouched (a learning session applies nothing); the
+// manual choice records FirstRunManual and carries the warning's opt-in onto
+// opts. The recorded source hash re-arms the menu on a host-config change.
 func (o Outcome) Apply(opts *options.RunOptions, slug, agentName string) error {
 	opts.Learn = o.Learn
 	choice := state.FirstRunManual
 	if o.Learn {
 		choice = state.FirstRunLearned
+	}
+	if o.Choice == ChoiceManual {
+		provisionHostConfig := o.ProvisionHostConfig
+		opts.ProvisionHostConfig = &provisionHostConfig
 	}
 	return state.RecordFirstRun(slug, agentName, state.FirstRunRecord{
 		Choice:     choice,
@@ -101,13 +119,19 @@ func firstRunDefault(f Facts) string {
 }
 
 // outcomeFor maps a selected menu key to its outcome, carrying the source hash
-// so Apply records it.
-func outcomeFor(key, sourceHash string) Outcome {
+// so Apply records it. provisionConfirmed is the manual path's warning answer,
+// so the manual outcome carries the opt-in only when the user confirmed it.
+func outcomeFor(key, sourceHash string, provisionConfirmed bool) Outcome {
 	switch Choice(key) {
 	case ChoiceLearnFromHost:
 		return Outcome{Choice: ChoiceLearnFromHost, Learn: true, ProvisionHostConfig: false, sourceHash: sourceHash}
 	case ChoiceManual:
-		return Outcome{Choice: ChoiceManual, Learn: false, ProvisionHostConfig: false, sourceHash: sourceHash}
+		return Outcome{
+			Choice:              ChoiceManual,
+			Learn:               false,
+			ProvisionHostConfig: provisionConfirmed,
+			sourceHash:          sourceHash,
+		}
 	case ChoiceLearnByUsing:
 		return Outcome{Choice: ChoiceLearnByUsing, Learn: true, ProvisionHostConfig: false, sourceHash: sourceHash}
 	}

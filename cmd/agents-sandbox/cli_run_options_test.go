@@ -317,6 +317,37 @@ func TestRunFirstRunMenuSeedsFromHostAndStartsLearning(t *testing.T) {
 	}
 }
 
+// TestRunFirstRunMenuManualCarriesProvisioning drives the PRODUCTION first-run
+// seam end to end for the manual path: choosing "configure it myself" and
+// confirming the warning must reach session.Run as the provisioning opt-in, so
+// the gated warning is what enables host-config copying, not a default.
+func TestRunFirstRunMenuManualCarriesProvisioning(t *testing.T) {
+	initTestProjectDir(t)
+
+	captured := captureSessionRun(t)
+	_, ui := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, cmdRun)
+
+	ui.IsInteractiveResult = true
+	ui.ConfirmResult = true
+	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		return string(firstrun.ChoiceManual), nil
+	}
+
+	if err := execute([]string{cmdRun}, ui); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if len(ui.ConfirmCalls) != 1 {
+		t.Errorf("Confirm calls = %d, want the provisioning warning asked once", len(ui.ConfirmCalls))
+	}
+	got := captured().ProvisionHostConfig
+	if got == nil || !*got {
+		t.Errorf(
+			"session.Run saw ProvisionHostConfig = %v, want a pointer to true from the confirmed manual choice",
+			got,
+		)
+	}
+}
+
 // TestRunFirstRunMenuSkippedNonInteractive pins invariant 6 at the cmd boundary:
 // a non-interactive run runs the production menu (against mocked config and
 // state), which offers nothing and warns, so session.Run sees no learning.
