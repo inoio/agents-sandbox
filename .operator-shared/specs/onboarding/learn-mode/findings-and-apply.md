@@ -27,6 +27,8 @@ One finding shape serves both a learning session and config-only analysis (`conf
   ineffective no-op where the project layer owns the key, and invariant 4 forbids the proposal overriding a
   user-set project entry. When the project layer owns a proposed key, the applier reports the finding and skips
   the write.
+- **A per-slug write is YAML-only.** The applier edits a config file format-preservingly by rewriting its document
+  tree, so a per-slug config in JSON, JSONC, JSON5, or TOML is reported and skipped rather than converted to YAML.
 - **A harden move writes two scopes.** A static secret wrongly committed in the project scope is removed from the
   project config and added at the per-slug user scope; the removal is harden's "reduce" contract, which the
   proposal never invokes. Both writes are trust-gated and applied together (or neither).
@@ -41,13 +43,17 @@ managed agent config; login entries stay only in the persistent sandbox home.
 
 ## Attribution and the network diff
 
-- **A learned static secret is attributed before it is scoped.** Its host set comes from the destinations the
-  session was observed sending that credential to; with no attribution (a client pins certificates, a non-HTTP
-  protocol) it falls back to the endpoint in the same config entry, then to a question at apply time. When none is
-  derivable the secret is not migrated: it stays in the sandbox home. A learned value never produces
-  `allow_any_host_dangerous`.
-- **Network changes are proposed as a diff**, normally `profile: none` plus the observed allow set, and never widen
-  a policy the user already set. Denied destinations are reported separately and never auto-allowed.
+- **A learned static secret is attributed before it is scoped, and a secret that cannot be attributed is not
+  proposed at all.** Its host set comes from the destinations the session was observed sending that credential to
+  (channel attribution, matched to the credential's configured env-var name); with no channel attribution (a client
+  pins certificates, a non-HTTP protocol) it falls back to the endpoint the same config entry names (the read-back
+  `Credential.Hosts`). When neither yields a host the secret is not migrated — no finding is emitted, and the
+  proposal asks nothing at apply time. A static credential with no configured env-var name cannot be scoped and is
+  likewise not proposed. A learned value never produces `allow_any_host_dangerous`.
+- **Network changes are proposed as a diff**: `network.profile = none` plus `network.egress-allow` set to the
+  current allow set **∪** the observed-and-used destinations, where observed-and-used means a destination the
+  session reached successfully and that was not denied. It never widens: no current allow entry is removed and no
+  denied destination enters the allow set. Denied destinations are reported separately and never auto-allowed.
 - The applied network policy is creation-only, so it takes effect at the next VM creation through the existing
   recreate path; the proposal states that.
 

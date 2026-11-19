@@ -56,7 +56,7 @@ var openDatabase = func(dsn string) (*sql.DB, error) {
 // oversized content is never materialized, and the caller reports the probe as
 // undetermined rather than silently dropping the row.
 //
-//deadcode:ignore reason="opencode2's credential reader; invoked through runCredentialProbe once the pending S6 analyser reads the home back"
+//deadcode:ignore reason="opencode2's credential reader; invoked through runCredentialProbe once the S7 run --learn after-run reads the home back"
 func opencode2Probe(agentName, home string) (probeResult, error) {
 	databasePath := filepath.Join(home, opencode2DatabasePath)
 	if _, err := os.Stat(databasePath); errors.Is(err, os.ErrNotExist) {
@@ -124,7 +124,7 @@ func opencode2Probe(agentName, home string) (probeResult, error) {
 // it is a static credential; any other type (opencode2's "oauth") is a login,
 // whose value is not read out.
 //
-//deadcode:ignore reason="maps an opencode2 credential row to a Credential; reached through opencode2Probe from the pending S6 analyser"
+//deadcode:ignore reason="maps an opencode2 credential row to a Credential; reached through opencode2Probe from the S7 run --learn after-run"
 func opencode2Credential(agentName, integrationID, value string) []Credential {
 	var stored struct {
 		Type string `json:"type"`
@@ -207,7 +207,7 @@ type probeResult struct {
 // than no result: the caller must still record exactly one entry per declared
 // probe, so a transient failure is not mistaken for the probe's removal.
 //
-//deadcode:ignore reason="dispatches an agent's declared credential probes; reached through Read and TakeManifest from the pending S6 analyser"
+//deadcode:ignore reason="dispatches an agent's declared credential probes; reached through Read and TakeManifest from the S7 run --learn after-run"
 func runCredentialProbe(agentName, home, probe string) probeResult {
 	if probe != opencode2ProbeID {
 		return unreadableProbeResult()

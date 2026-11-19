@@ -148,6 +148,105 @@ func WriteSetting(dir, key string, value any) error {
 	return nil
 }
 
+// RemoveSetting deletes key from the config file in dir, preserving every other
+// key, comment, and the file mode. It is a no-op when the file or the key is
+// absent, and returns ErrUnsupportedConfigFormat for a non-YAML config.
+//
+// Removal is the harden contract: it narrows a broad setting or strips a
+// misplaced secret. A key the file does not set leaves it byte-identical, so a
+// decline or a repeated removal never rewrites the user's config, and a removal
+// never creates config.yaml.
+//
+//deadcode:ignore reason="harden primitive; the analyser applier and the config harden (S8) caller remove a setting through it, pending the S7 run --learn caller"
+func RemoveSetting(dir, key string) error {
+	if dir == "" {
+		return fmt.Errorf("config dir is empty; the config path did not resolve")
+	}
+	path, ext, found, err := configdecode.FindFile(dir)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return nil
+	}
+	if ext != extYAML && ext != extYML {
+		return ErrUnsupportedConfigFormat
+	}
+	// Edit the link target, not the link: atomicwrite renames its temporary
+	// file over path, which would replace a symlinked config with a regular file.
+	target, err := evalSymlinks(path)
+	if err != nil {
+		return fmt.Errorf("resolve config file link %s: %w", path, err)
+	}
+	info, statErr := os.Stat(target)
+	// The file is read as the approved project config it must still be, so a
+	// change made since the approval is never edited into an approved file.
+	data, readErr := projectguard.ReadFile(path, configread.ReadFile)
+	if joined := errors.Join(statErr, readErr); joined != nil {
+		return fmt.Errorf("read config file %s: %w", path, joined)
+	}
+	edited, err := removeYAMLSetting(target, data, info.Mode().Perm(), key)
+	if err != nil {
+		return err
+	}
+	if edited == nil {
+		return nil
+	}
+	projectguard.Accept(path, edited)
+	return nil
+}
+
+// removeYAMLSetting applies a removal of the dotted key to the YAML document in
+// data, writes the result atomically to path with mode perm, and returns the
+// written bytes. It returns nil bytes without writing when the key is absent, so
+// an absent key is a byte-preserving no-op. A non-mapping root is refused, since
+// the document cannot hold the key at all. An anchored value an alias still uses
+// is refused by the document edit, leaving the file untouched.
+//
+//deadcode:ignore reason="helper reached only through RemoveSetting, whose analyser applier / config harden (S8) caller lands in S7/S8"
+func removeYAMLSetting(path string, data []byte, perm os.FileMode, key string) ([]byte, error) {
+	document, err := oneyaml.Parse(data, oneyaml.Untrusted())
+	if err != nil {
+		return nil, yamlfmt.WrapErr(path, err)
+	}
+	edited, err := removeDocumentValue(document, strings.Split(key, "."))
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	if edited == nil {
+		return nil, nil
+	}
+	return edited, atomicwrite.WriteFileMode(path, edited, perm)
+}
+
+// removeDocumentValue removes the dotted key from document and returns the new
+// document bytes, or nil bytes when the key is absent. Entries are matched
+// case-insensitively, mirroring viper's key resolution, so a removal reaches a
+// differently-cased entry rather than leaving it in place.
+//
+//deadcode:ignore reason="helper reached only through removeYAMLSetting from the analyser applier / config harden (S8) caller, pending S7/S8"
+func removeDocumentValue(document *oneyaml.Document, keyPath []string) ([]byte, error) {
+	root := document.Root()
+	if !root.IsValid() {
+		return nil, nil
+	}
+	if root.Kind() != oneyaml.MappingNode {
+		return nil, errors.New("config file root is not a mapping")
+	}
+	_, valueNode, found := resolveExistingPath(root, keyPath)
+	if !found {
+		return nil, nil
+	}
+	pointer, err := valueNode.Pointer()
+	if err != nil {
+		return nil, err
+	}
+	if err := document.Remove(pointer); err != nil {
+		return nil, err
+	}
+	return document.Bytes(), nil
+}
+
 // writeYAMLSetting applies key=value to the YAML document in data, writes the
 // result atomically to path with mode perm, and returns the written bytes. An
 // empty data set starts a new document.

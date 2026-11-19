@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"go.yaml.in/yaml/v4"
-
-	"github.com/inoio/agents-sandbox/internal/atomicwrite"
 )
 
 // RootState is the launcher-global state document at the top of the state root,
@@ -25,6 +23,9 @@ type RootState struct {
 	// ProjectTrust records, per checkout slug, the project config layer the
 	// user approved. See ApprovedProjectLayer.
 	ProjectTrust map[string]ApprovedProjectLayer `yaml:"project_trust,omitempty"`
+	// LearnDeclines records, per repo slug, the learn-mode findings the user
+	// declined. See LearnDecline.
+	LearnDeclines map[string][]LearnDecline `yaml:"learn_declines,omitempty"`
 }
 
 // Updates groups the launcher-global update-check state: Launcher for
@@ -287,7 +288,7 @@ func writeRootState(s RootState) error {
 	if err != nil {
 		return fmt.Errorf("marshal root state: %w", err)
 	}
-	if err := atomicwrite.WriteFile(rootStateFile(), data); err != nil {
+	if err := writeStateFile(rootStateFile(), data); err != nil {
 		return fmt.Errorf("write root state: %w", err)
 	}
 	return nil

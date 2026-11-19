@@ -297,6 +297,134 @@ func TestAppendProbeCredentialsKeepsLoginAndStatic(t *testing.T) {
 	require.Len(t, rb.Static, 1)
 }
 
+// TestReadFillsCredentialHosts: a static credential's Hosts come from the
+// endpoint the config entry naming its provider declares, normalized to a host
+// (scheme, port, and path dropped). The dotenv credential and the config
+// endpoint live in different files; the provider name is what ties them.
+func TestReadFillsCredentialHosts(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/.env", "OPENAI_API_KEY=sk-secret\n")
+	writeFile(t, home, ".hermes/config.yaml",
+		"model:\n  provider: openai\n  base_url: https://api.example:8443/v1\n")
+
+	rb, err := Read(home, "hermes", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Static, 1)
+	require.Equal(t, "openai", rb.Static[0].Provider)
+	require.Equal(t, []string{"api.example"}, rb.Static[0].Hosts,
+		"the endpoint host, with scheme, port, and path dropped")
+}
+
+// TestReadCredentialHostsEmptyWithoutAnEndpoint: an entry that names the
+// provider but declares no endpoint yields no hosts, never a guess.
+func TestReadCredentialHostsEmptyWithoutAnEndpoint(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/.env", "OPENAI_API_KEY=sk-secret\n")
+	writeFile(t, home, ".hermes/config.yaml", "model:\n  provider: openai\n")
+
+	rb, err := Read(home, "hermes", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Static, 1)
+	require.Empty(t, rb.Static[0].Hosts)
+}
+
+// TestReadCredentialHostsEmptyWhenTheEndpointNamesAnotherProvider: an endpoint
+// hosted by a different provider's entry is not the credential's endpoint, so
+// it yields no hosts rather than a mismatched attribution.
+func TestReadCredentialHostsEmptyWhenTheEndpointNamesAnotherProvider(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/.env", "OPENAI_API_KEY=sk-secret\n")
+	writeFile(t, home, ".hermes/config.yaml",
+		"model:\n  provider: anthropic\n  base_url: https://api.anthropic.example/v1\n")
+
+	rb, err := Read(home, "hermes", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Static, 1)
+	require.Empty(t, rb.Static[0].Hosts)
+}
+
+// TestReadFillsCredentialHostsFromAProvidersEntry: opencode's nested shape
+// (`provider.<id>.options.baseURL`) ties the endpoint to the provider by the
+// map key, so the credential found in its SQLite probe gains that host.
+func TestReadFillsCredentialHostsFromAProvidersEntry(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".config/opencode/opencode.jsonc",
+		`{"provider":{"openai":{"options":{"baseURL":"https://api.example/v1"}}}}`)
+	writeOpenCode2DB(t, home, [2]string{"openai", `{"type":"key","key":"sk"}`})
+
+	rb, err := Read(home, "opencode2", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Static, 1)
+	require.Equal(t, []string{"api.example"}, rb.Static[0].Hosts)
+}
+
+// TestReadCredentialHostsIgnoreUnparsableAndEndpointlessConfigs: a config the
+// read cannot parse, or whose endpoint value is not an absolute URL, never
+// aborts the read and never invents a host.
+func TestReadCredentialHostsIgnoreUnparsableAndEndpointlessConfigs(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/.env", "OPENAI_API_KEY=sk-secret\n")
+	writeFile(t, home, ".hermes/config.yaml", "model: {provider: openai, base_url: not a url\n")
+
+	rb, err := Read(home, "hermes", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Static, 1)
+	require.Empty(t, rb.Static[0].Hosts)
+}
+
+// TestReadLoginCredentialsHaveNoHosts: a login credential is recorded, never
+// read or attributed, so its Hosts stay empty.
+func TestReadLoginCredentialsHaveNoHosts(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".codex/auth.json", `{"tokens":{"access_token":"super-secret"}}`)
+
+	rb, err := Read(home, "codex", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Login, 1)
+	require.Empty(t, rb.Login[0].Hosts)
+}
+
+// TestReadCredentialHostsIgnoreNonProviderEndpoints: an endpoint that sits in
+// an entry the config does not present as a provider container (an MCP server's
+// "url") must not be attributed to a provider of the same name; an unrecognised
+// shape yields no host, never a guess.
+func TestReadCredentialHostsIgnoreNonProviderEndpoints(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".config/opencode/opencode.jsonc",
+		`{"mcp":{"openai":{"type":"remote","url":"https://mcp.example/sse"}}}`)
+	writeOpenCode2DB(t, home, [2]string{"openai", `{"type":"key","key":"sk"}`})
+
+	rb, err := Read(home, "opencode2", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Static, 1)
+	require.Empty(t, rb.Static[0].Hosts,
+		"an MCP server's url is not the provider's endpoint")
+}
+
+// TestReadCredentialHostsIgnoreNamedNonProviderEndpoints: a node that carries a
+// name/id field and an endpoint is only a provider entry when it sits in a
+// provider container; a tool or agent entry that also names a url is not.
+func TestReadCredentialHostsIgnoreNamedNonProviderEndpoints(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".config/opencode/opencode.jsonc",
+		`{"agent":{"openai":{"name":"openai","url":"https://agent.example/x"}}}`)
+	writeOpenCode2DB(t, home, [2]string{"openai", `{"type":"key","key":"sk"}`})
+
+	rb, err := Read(home, "opencode2", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Static, 1)
+	require.Empty(t, rb.Static[0].Hosts,
+		"a non-provider entry's url is not the provider's endpoint")
+}
+
 // TestReadCappedFileRejectsUnreadableAndMissing: a path that cannot be opened,
 // or whose contents cannot be read (a directory), is refused.
 func TestReadCappedFileRejectsUnreadableAndMissing(t *testing.T) {
@@ -324,4 +452,76 @@ func TestReadCappedFileBoundary(t *testing.T) {
 
 	_, ok = readCappedFile(overCap, 16)
 	require.False(t, ok, "a file over the cap is refused")
+}
+
+// TestConfigEndpointHostsSkipsEntriesItCannotRead: an entry with an unknown
+// extension, no hash (an opaque over-cap file), or content that cannot be read
+// contributes no endpoint: an unrecognised shape yields no host, never a guess.
+func TestConfigEndpointHostsSkipsEntriesItCannotRead(t *testing.T) {
+	home := t.TempDir()
+	manifest := Manifest{Entries: []ManifestEntry{
+		{Key: ".hermes/notes.txt", Size: 1, Hash: "abc"},   // unknown extension
+		{Key: ".hermes/config.yaml", Size: 1, Hash: "abc"}, // known extension but the file is absent
+		{Key: ".hermes/opaque.yaml", Size: 1, Hash: ""},    // opaque (over-cap) entry
+		{Key: ".hermes:probe", Hash: "abc"},                // a probe entry
+		{Key: ".hermes/.env", Size: 1, Hash: "abc"},        // the dotenv carries no endpoint
+	}}
+
+	hostsByProvider := configEndpointHosts(home, manifest)
+
+	require.Empty(t, hostsByProvider)
+}
+
+// TestCollectEndpointHostsWalksSequences: an endpoint declared inside a
+// sequence node is still found, so a provider entry expressed as a list item
+// yields its host.
+func TestCollectEndpointHostsWalksSequences(t *testing.T) {
+	hostsByProvider := map[string][]string{}
+
+	collectEndpointHosts(
+		[]any{map[string]any{"provider": "openai", "base_url": "https://api.example/v1"}},
+		"", "", hostsByProvider,
+	)
+
+	require.Equal(t, []string{"api.example"}, hostsByProvider["openai"])
+}
+
+// TestEndpointHostsIgnoresNonStringValues: an endpoint key whose value is not a
+// string contributes nothing rather than a guessed host.
+func TestEndpointHostsIgnoresNonStringValues(t *testing.T) {
+	require.Empty(t, endpointHosts(map[string]any{"url": 123}))
+}
+
+// TestEndpointHostRejectsNonURLAndHostlessValues: a value that is not an
+// absolute URL with a host normalizes to the empty host.
+func TestEndpointHostRejectsNonURLAndHostlessValues(t *testing.T) {
+	require.Empty(t, endpointHost("not a url"))
+	require.Empty(t, endpointHost("http://[::1"))
+}
+
+// TestReadStaticCredentialCarriesDotenvKeyAsEnvVar: the dotenv key is the
+// configured secret's env-var name, carried on the credential so a learn-mode
+// finding can scope the secret write to the variable it replaces.
+func TestReadStaticCredentialCarriesDotenvKeyAsEnvVar(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/.env", "OPENAI_API_KEY=sk-secret\n")
+
+	rb, err := Read(home, "hermes", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Static, 1)
+	require.Equal(t, "OPENAI_API_KEY", rb.Static[0].EnvVar)
+}
+
+// TestReadLoginCredentialHasNoEnvVar: the env-var name is a static-secret fact;
+// a login credential, whose value is never read, carries none.
+func TestReadLoginCredentialHasNoEnvVar(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".codex/auth.json", `{"tokens":{"access_token":"super-secret"}}`)
+
+	rb, err := Read(home, "codex", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Login, 1)
+	require.Empty(t, rb.Login[0].EnvVar)
 }
