@@ -50,9 +50,10 @@ Legend for the first four rows: ✅ = stronger isolation or host-side handling; 
 | Project config            | `.agents-sandbox/` sits in the checkout the agent can edit. A run uses it only after you approve its content for the checkout, and asks again whenever it changes; see [Approving project config changes](https://inoio.github.io/agents-sandbox/configuration/launcher.html#approving-project-config-changes). |
 | Raw credentials           | `env.secret` and `env.secret.yaml` keep the real value on the host and expose a placeholder to the guest. This is separate from ordinary file provisioning. |
 
-> **Credential warning:** The convenience setup copies the active agent's host configuration into the VM by default. For
-> opencode, that can include `~/.local/share/opencode/auth.json`. If credentials must not be stored in the VM, set
-> `provision-host-config: false`, use the secret mechanism, and keep credentials out of `/workspace`, `home:`, `env`, and
+> **Credential warning:** Host agent configuration is not copied into the VM by default. Opt in with
+> `provision-host-config: true` to copy the active agent's host configuration; for
+> opencode, that can include `~/.local/share/opencode/auth.json`. If credentials must not be stored in the VM, leave
+> provisioning off and use the secret mechanism, and keep credentials out of `/workspace`, `home:`, `env`, and
 > writable mounts. See the [Secrets](https://inoio.github.io/agents-sandbox/configuration/secrets.html) and [Agent configuration](https://inoio.github.io/agents-sandbox/configuration/agent.html)
 > documentation.
 
