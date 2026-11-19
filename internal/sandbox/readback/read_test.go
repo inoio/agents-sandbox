@@ -2,6 +2,7 @@ package readback
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -709,6 +710,156 @@ func TestReadInlineSecretSkipsNonStringValue(t *testing.T) {
 	require.Empty(t, rb.Static)
 }
 
+// TestReadInlineSecretSkipsReferenceValues: a value that is a reference rather
+// than a literal secret yields no credential — a ${...} placeholder, a
+// leading-! command reference, or a bare environment-variable identifier the
+// read-back cannot tell apart from a bound variable name.
+func TestReadInlineSecretSkipsReferenceValues(t *testing.T) {
+	cases := []struct {
+		name  string
+		value string
+	}{
+		{"placeholder", "${MOONSHOT_API_KEY}"},
+		{"command reference", "!op read op://vault/openai/key"},
+		{"bare env-var identifier", "COPILOT_GITHUB_TOKEN"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			writeFile(t, home, ".hermes/config.yaml",
+				fmt.Sprintf("model:\n  provider: moonshot\n  api_key: %q\n", tc.value))
+
+			rb, err := Read(home, "hermes", Manifest{})
+
+			require.NoError(t, err)
+			require.Empty(t, rb.Static, "%q is a reference, not a secret", tc.value)
+		})
+	}
+}
+
+// TestReadInlineSecretKeepsALiteralValue: a normal key value is not an
+// environment-variable identifier and stays a credential.
+func TestReadInlineSecretKeepsALiteralValue(t *testing.T) {
+	for _, value := range []string{"sk-abcd1234", "abc.def/xyz="} {
+		home := t.TempDir()
+		writeFile(t, home, ".hermes/config.yaml",
+			fmt.Sprintf("model:\n  provider: moonshot\n  api_key: %q\n", value))
+
+		rb, err := Read(home, "hermes", Manifest{})
+
+		require.NoError(t, err)
+		require.Len(t, rb.Static, 1, "%q is a literal secret", value)
+		require.Equal(t, value, rb.Static[0].Value)
+	}
+}
+
+// TestIsReferenceValue pins the reference forms the read-back refuses.
+func TestIsReferenceValue(t *testing.T) {
+	for _, value := range []string{
+		"${MOONSHOT_API_KEY}",
+		"  ${VAR}  ",
+		"!op read op://vault/openai/key",
+		"COPILOT_GITHUB_TOKEN",
+		"ABCD",
+	} {
+		require.True(t, isReferenceValue(value), "%q is a reference", value)
+	}
+	for _, value := range []string{
+		"sk-abcd1234",
+		"abc.def/xyz=",
+		"sk",
+		"1234",
+		"aB12",
+		"ABC", // one character short of a bare identifier
+	} {
+		require.False(t, isReferenceValue(value), "%q is a literal", value)
+	}
+}
+
+// TestReadInlineSecretOrderIsDeterministic: two provider entries yield their
+// credentials in a stable, sorted-by-key order across repeated reads, not in
+// map iteration order.
+func TestReadInlineSecretOrderIsDeterministic(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".config/opencode/opencode.jsonc",
+		`{"provider":{"beta":{"apiKey":"sk-beta"},"alpha":{"apiKey":"sk-alpha"}}}`)
+
+	for range 5 {
+		rb, err := Read(home, "opencode", Manifest{})
+
+		require.NoError(t, err)
+		require.Len(t, rb.Static, 2)
+		require.Equal(t, "alpha", rb.Static[0].Provider)
+		require.Equal(t, "beta", rb.Static[1].Provider)
+	}
+}
+
+// TestReadInlineSecretDerivesEnvVarFromRawProvider: the derived env-var name
+// keeps the raw provider token's word boundaries, so github-copilot yields
+// GITHUB_COPILOT_API_KEY, while Credential.Provider stays the normalized form
+// the endpoint-map key uses.
+func TestReadInlineSecretDerivesEnvVarFromRawProvider(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".config/opencode/opencode.jsonc",
+		`{"provider":{"github-copilot":{"apiKey":"sk-inline"}}}`)
+
+	rb, err := Read(home, "opencode", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Static, 1)
+	require.Equal(t, "githubcopilot", rb.Static[0].Provider, "the endpoint-map key is normalized")
+	require.Equal(t, "GITHUB_COPILOT_API_KEY", rb.Static[0].EnvVar,
+		"the derived name keeps the raw token's word boundaries")
+}
+
+// TestReadClassifiesInlineSecretFromJSON: the acceptance names JSON alongside
+// TOML and YAML; a JSON/JSONC config with an inline provider key is classified.
+func TestReadClassifiesInlineSecretFromJSON(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".config/opencode/opencode.jsonc",
+		`{"provider":{"openai":{"api_key":"sk-json-inline"}}}`)
+
+	rb, err := Read(home, "opencode", Manifest{})
+
+	require.NoError(t, err)
+	require.Empty(t, rb.Login)
+	require.Len(t, rb.Static, 1)
+	credential := rb.Static[0]
+	require.Equal(t, CredentialStatic, credential.Kind)
+	require.Equal(t, ".config/opencode/opencode.jsonc", credential.Source)
+	require.Equal(t, "openai", credential.Provider)
+	require.Equal(t, "OPENAI_API_KEY", credential.EnvVar)
+	require.Equal(t, "sk-json-inline", credential.Value)
+}
+
+// TestReadInlineSecretSkipsAnEmptyNormalizedProvider: a provider name that
+// normalizes to empty (e.g. "___") names no provider, so no credential is
+// reported with an empty Provider and a bogus derived env-var name.
+func TestReadInlineSecretSkipsAnEmptyNormalizedProvider(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/config.yaml",
+		"model:\n  provider: ___\n  api_key: sk-inline\n")
+
+	rb, err := Read(home, "hermes", Manifest{})
+
+	require.NoError(t, err)
+	require.Empty(t, rb.Static, "a provider that normalizes to empty names no provider")
+}
+
+// TestConfigInlineCredentialsSkipsAnOpaqueEntry: an opaque (over-cap) entry has
+// no content hash and is skipped before the reader opens it.
+func TestConfigInlineCredentialsSkipsAnOpaqueEntry(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/config.yaml",
+		"model:\n  provider: moonshot\n  api_key: sk-inline\n")
+
+	credentials := configInlineCredentials(home, Manifest{Entries: []ManifestEntry{
+		{Key: ".hermes/config.yaml", Size: 1, Hash: ""},
+	}})
+
+	require.Empty(t, credentials, "an opaque entry carries no credential")
+}
+
 // TestReadInlineSecretSkipsALoginStore: a declared login store is excluded
 // from the inline walk, so a token it holds is a login, never a static secret.
 func TestReadInlineSecretSkipsALoginStore(t *testing.T) {
@@ -869,8 +1020,10 @@ func TestConfigEndpointHostsHasNoEntryWithoutAnEndpoint(t *testing.T) {
 }
 
 // TestProviderNamedByEntryNeedsAProvider pins that only an explicit non-empty
-// provider field or a container key names a provider; an empty field or a
-// providerless entry names none.
+// provider field or a container key names a provider; an empty field, a
+// providerless entry, or a name that normalizes to empty names none. The token
+// is returned verbatim; callers normalize it for the endpoint-map and credential
+// keys.
 func TestProviderNamedByEntryNeedsAProvider(t *testing.T) {
 	provider, ok := providerNamedByEntry(map[string]any{"url": "https://x.example"}, "")
 	require.False(t, ok, "a providerless entry names no provider")
@@ -882,11 +1035,19 @@ func TestProviderNamedByEntryNeedsAProvider(t *testing.T) {
 
 	provider, ok = providerNamedByEntry(map[string]any{"provider": "OpenAI"}, "")
 	require.True(t, ok)
-	require.Equal(t, "openai", provider)
+	require.Equal(t, "OpenAI", provider, "the raw token is returned")
 
 	provider, ok = providerNamedByEntry(map[string]any{}, "OpenAI")
 	require.True(t, ok, "a provider-container key names the provider")
-	require.Equal(t, "openai", provider)
+	require.Equal(t, "OpenAI", provider)
+
+	provider, ok = providerNamedByEntry(map[string]any{"provider": "___"}, "")
+	require.False(t, ok, "a name that normalizes to empty names no provider")
+	require.Empty(t, provider)
+
+	provider, ok = providerNamedByEntry(map[string]any{}, "___")
+	require.False(t, ok, "a container key that normalizes to empty names no provider")
+	require.Empty(t, provider)
 }
 
 // TestEndpointHostsIgnoresNonEndpointKeys pins that only a value under an

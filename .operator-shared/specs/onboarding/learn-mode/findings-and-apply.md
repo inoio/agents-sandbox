@@ -106,8 +106,9 @@ findings. It is re-runnable and audits the effective configuration (file modes, 
 over-broad posture, an over-broad secret scope, a static secret left inline in a managed agent config), and it is
 the home of "reduce egress later". The inline-secret finding uses the read-back classification ([home
 read-back](home-read-back.md) fact 2): the provider, host, and env-var name come from the entry that holds the key,
-and the finding moves the value to `env.secret.yaml` and leaves a placeholder (kimi) or an `api_key_env` reference
-([the agent-config write-back](#the-agent-config-write-back)) in the config. It runs the findings
+and the finding moves the value to `env.secret.yaml` and, in the config, leaves a placeholder or — for a harness
+that does not expand `${VAR}` (kimi) — an `api_key_env = "<ENVVAR>"` reference
+([the agent-config write-back](#the-agent-config-write-back)). It runs the findings
 that need configuration; the after-run analyser runs both configuration and observation findings. It is the only
 writer of the project scope, and the only home of a removal: moving a static secret committed there to the per-slug
 user secret is a harden finding (a project removal plus a per-slug addition). Removing a secret from a file does not

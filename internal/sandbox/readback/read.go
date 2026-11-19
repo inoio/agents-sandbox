@@ -37,9 +37,10 @@ type Credential struct {
 	Kind     CredentialKind
 	Source   string // sandbox-home-relative path, or "<agent>:<probe>"
 	Provider string
-	// EnvVar is the configured secret's env-var name (the dotenv key), set for
-	// a static credential only. It scopes a proposed secret write; empty means
-	// the credential cannot be scoped.
+	// EnvVar is the configured secret's env-var name — a dotenv key or the
+	// derived <PROVIDER>_API_KEY of an inline provider key — set for a static
+	// credential only. It scopes a proposed secret write; empty means the
+	// credential cannot be scoped.
 	EnvVar string
 	Field  string   // header-field hint, optional
 	Hosts  []string // endpoints named for the entry, optional
@@ -190,7 +191,7 @@ func configEndpointHosts(home string, manifest Manifest) map[string][]string {
 }
 
 // walkProviderEntries calls visit for every node the document positively
-// presents as a provider entry, with the provider name that entry declares. A
+// presents as a provider entry, with the provider token that entry declares. A
 // node is a provider entry when it sits inside a provider container (keyed by
 // the provider id, opencode's "provider.<id>" / "models.providers.<id>") or
 // names its provider through an explicit "provider" field (hermes'
@@ -204,7 +205,9 @@ func walkProviderEntries(node any, visit func(entry map[string]any, provider str
 
 // walkProviderNode is walkProviderEntries' recursion. key is the node's key in
 // its parent; entryKey is the provider id the node's enclosing provider
-// container gives it, or "" outside a container.
+// container gives it, or "" outside a container. The child keys are visited in
+// sorted order, so the whole traversal — and therefore the credentials it yields
+// — does not depend on map iteration order.
 func walkProviderNode(node any, key, entryKey string, visit func(entry map[string]any, provider string)) {
 	switch typed := node.(type) {
 	case map[string]any:
@@ -212,12 +215,12 @@ func walkProviderNode(node any, key, entryKey string, visit func(entry map[strin
 			visit(typed, provider)
 		}
 		container := isProviderContainer(key)
-		for childKey, child := range typed {
+		for _, childKey := range slices.Sorted(maps.Keys(typed)) {
 			childEntryKey := ""
 			if container {
 				childEntryKey = childKey
 			}
-			walkProviderNode(child, childKey, childEntryKey, visit)
+			walkProviderNode(typed[childKey], childKey, childEntryKey, visit)
 		}
 	case []any:
 		for _, child := range typed {
@@ -232,22 +235,30 @@ func walkProviderNode(node any, key, entryKey string, visit func(entry map[strin
 // empty provider key.
 func collectEndpointHosts(node any, hostsByProvider map[string][]string) {
 	walkProviderEntries(node, func(entry map[string]any, provider string) {
-		if hosts := entryEndpointHosts(entry); len(hosts) > 0 {
-			hostsByProvider[provider] = append(hostsByProvider[provider], hosts...)
+		hosts := entryEndpointHosts(entry)
+		if len(hosts) == 0 {
+			return
 		}
+		normalized := normalizeToken(provider)
+		hostsByProvider[normalized] = append(hostsByProvider[normalized], hosts...)
 	})
 }
 
-// providerNamedByEntry returns the provider an entry names: the id its enclosing
-// provider container gave it, or an explicit "provider" field. It reports false
-// for a node that names no provider either way, so a generic "name"/"id" field
-// on a non-provider entry (an MCP server, a tool) never claims a provider.
+// providerNamedByEntry returns the provider an entry names, verbatim: the id its
+// enclosing provider container gave it, or an explicit "provider" field. It
+// reports false for a node that names no provider either way, so a generic
+// "name"/"id" field on a non-provider entry (an MCP server, a tool) never claims
+// a provider. A name that normalizes to empty (e.g. "___") names no provider
+// either.
 func providerNamedByEntry(entry map[string]any, entryKey string) (string, bool) {
 	if provider, _ := entry["provider"].(string); provider != "" {
-		return normalizeToken(provider), true
+		if normalizeToken(provider) == "" {
+			return "", false
+		}
+		return provider, true
 	}
-	if entryKey != "" {
-		return normalizeToken(entryKey), true
+	if entryKey != "" && normalizeToken(entryKey) != "" {
+		return entryKey, true
 	}
 	return "", false
 }
@@ -401,7 +412,7 @@ var inlineCredentialKeys = []string{"apikey", "key", "token"}
 func configInlineCredentials(home string, manifest Manifest) []Credential {
 	var credentials []Credential
 	for _, entry := range manifest.Entries {
-		if isProbe(entry) || filepath.Base(entry.Key) == dotenvFileName {
+		if isProbe(entry) || entry.Hash == "" || filepath.Base(entry.Key) == dotenvFileName {
 			continue
 		}
 		if _, isLogin := loginStoreFor(entry.Key); isLogin {
@@ -428,11 +439,15 @@ func configInlineCredentials(home string, manifest Manifest) []Credential {
 // entryCredentials returns the static credentials one provider entry holds: its
 // own credential key (api_key/apiKey/key/token) and the secret-looking keys of
 // its "env" sub-table, each scoped by an env-var name. A non-string value (a
-// token count) and a value that is already a ${...} reference are not
-// credentials; the header field is left to the harness. The keys are visited in
-// sorted order, so the output does not depend on map iteration order.
+// token count) and a value that is a reference are not credentials; the header
+// field is left to the harness. The keys are visited in sorted order, so the
+// output does not depend on map iteration order. provider is the entry's raw
+// provider token: Credential.Provider takes the normalized form (the
+// endpoint-map key), while a derived env-var name keeps the token's word
+// boundaries.
 func entryCredentials(entry map[string]any, provider, source string) []Credential {
 	hosts := entryEndpointHosts(entry)
+	normalizedProvider := normalizeToken(provider)
 	var credentials []Credential
 	for _, key := range slices.Sorted(maps.Keys(entry)) {
 		if !slices.Contains(inlineCredentialKeys, normalizeToken(key)) {
@@ -442,7 +457,7 @@ func entryCredentials(entry map[string]any, provider, source string) []Credentia
 			credentials = append(credentials, Credential{
 				Kind:     CredentialStatic,
 				Source:   source,
-				Provider: provider,
+				Provider: normalizedProvider,
 				EnvVar:   derivedEnvVarName(provider),
 				Hosts:    hosts,
 				Value:    value,
@@ -458,7 +473,7 @@ func entryCredentials(entry map[string]any, provider, source string) []Credentia
 			credentials = append(credentials, Credential{
 				Kind:     CredentialStatic,
 				Source:   source,
-				Provider: provider,
+				Provider: normalizedProvider,
 				// A key the entry declares is the env-var name it scopes by,
 				// and it wins over the derived one.
 				EnvVar: key,
@@ -471,11 +486,12 @@ func entryCredentials(entry map[string]any, provider, source string) []Credentia
 }
 
 // inlineCredentialValue returns a config value as a static secret's value, and
-// whether it is one: a non-string value (a token count) and a value that is
-// already a ${...} reference are not.
+// whether it is one: a non-string value (a token count) and a value that is a
+// reference rather than a literal are not. The value stays in memory; this
+// predicate returns only the classification.
 func inlineCredentialValue(raw any) (string, bool) {
 	value, ok := raw.(string)
-	if !ok || isPlaceholderValue(value) {
+	if !ok || isReferenceValue(value) {
 		return "", false
 	}
 	return value, true
@@ -497,10 +513,38 @@ func derivedEnvVarName(provider string) string {
 	return name.String()
 }
 
-// isPlaceholderValue reports whether a config value is a ${...} reference: a
-// value the launcher already placeholdered is not a literal secret to copy.
-func isPlaceholderValue(value string) bool {
-	return strings.HasPrefix(strings.TrimSpace(value), "${")
+// isReferenceValue reports whether a config value is a reference rather than a
+// literal secret to copy: a ${...} placeholder, a leading-! command reference
+// (oh-my-pi's "!op read ..."), or a bare environment-variable identifier (a
+// value the read-back cannot tell apart from a bound variable name). Only the
+// classification leaves this predicate; the value stays in memory.
+func isReferenceValue(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	return strings.HasPrefix(trimmed, "${") ||
+		strings.HasPrefix(trimmed, "!") ||
+		isEnvVarIdentifier(trimmed)
+}
+
+// isEnvVarIdentifier reports whether value is a bare environment-variable name:
+// at least four characters of A-Z, 0-9, and '_', starting with a letter. A value
+// in that form is a variable name the read-back cannot confidently classify as a
+// literal secret.
+func isEnvVarIdentifier(value string) bool {
+	if len(value) < 4 {
+		return false
+	}
+	if c := value[0]; c < 'A' || c > 'Z' {
+		return false
+	}
+	for i := 1; i < len(value); i++ {
+		c := value[i]
+		switch {
+		case c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '_':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // credentialProviders maps a provider token in a secret's key name to the

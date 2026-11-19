@@ -19,8 +19,9 @@ only channel that works when the launcher-owned proxy
      configuration, not a secret.
    - An **inline** credential key (`api_key`/`apiKey`/`key`/`token`) inside a provider entry of a declared config
      file is a static secret too. Its provider and host come from that same entry (the endpoint walk below). A value
-     that is already a reference — a `${…}` placeholder — is not a secret, and a provider that names its key
-     indirectly (`api_key_env`) is not reported as one.
+     that is a reference rather than a literal — a `${…}` placeholder, a leading-`!` command reference, or a bare
+     environment-variable identifier — is not a secret, and a provider that names its key indirectly
+     (`api_key_env`) is not reported as one.
    Every static credential is scoped by an **env-var name**. Where the entry declares the name, it wins (kimi's
    `[providers.<id>.env]` table key, e.g. `KIMI_API_KEY`); otherwise the read-back derives `<PROVIDER>_API_KEY` from
    the entry's provider id — `moonshot` → `MOONSHOT_API_KEY`, `kimi` → `KIMI_API_KEY`, uppercased with
