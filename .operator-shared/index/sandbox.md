@@ -20,7 +20,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 ### `analyser/` — The learn-mode findings engine
 
-- `finding.go` (the finding model: `Scope`/`Kind`/`Evidence`/`Write`/`SecretWrite`/`Finding`/`Outcome`/`ApplyResult`, the evidence hash), `observation.go` (`SessionFacts` and `ObservationFindings`: the observation finder, the network diff that never widens, and the env-var-keyed secret attribution), `apply.go` (`Apply`, the interactive per-finding applier: the decline memory, the shadowing skip, YAML-only config writes, the project trust-gate approval, the `AcceptAll` top-level accept-all) — the findings engine of `specs/onboarding/learn-mode/findings-and-apply.md`, wired by `learn`'s `run --learn` and `config learn`.
+- `finding.go` (the finding model: `Scope`/`Kind`/`Evidence`/`Write`/`SecretWrite`/`Finding`/`Outcome`/`ApplyResult`, the evidence hash), `observation.go` (`SessionFacts` and `ObservationFindings`: the observation finder, the network diff that never widens, and the env-var-keyed secret attribution), `managed_config.go` (`ManagedConfigFacts`/`ManagedConfigFindings`: the agent-config write-back finder — one finding per changed, non-credential agent config file, sanitized of static secret values), `apply.go` (`Apply`, the interactive per-finding applier: the decline memory, the shadowing skip, YAML-only config writes, the project trust-gate approval, the `AcceptAll` top-level accept-all) — the findings engine of `specs/onboarding/learn-mode/findings-and-apply.md`, wired by `learn`'s `run --learn` and `config learn`.
 
 ### `channel/` — Learn-mode observation channel (terminating proxy, capture, store)
 
@@ -40,7 +40,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 ### `envsecret/` — Host env-var files and secret specs
 
-- `env.go`, `secrets.go` — loads host environment variable files and secret specs
+- `env.go`, `secrets.go` (`SecretSpec` with its `Placeholder` field, `PlaceholderFor`, `BuildSecretsFromSpecs`), `write.go` (`WriteSecretSpec`/`RemoveSecretSpec`) — loads host environment variable files and secret specs, and writes their `env.secret.yaml` entries
 
 ### `image/` — Runner image build, Dockerfile, fetch, inspect, tags
 
@@ -113,7 +113,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 ### `readback/` — Host-side home-volume read-back for learn mode
 
-- `readback.go` (`HomeVolumePath`: state → home volume → host path, with `ErrNoHomeVolume` distinct from `state.ErrStateNotFound`), `manifest.go` (`TakeManifest`/`Manifest.Changed`, the baseline change-detection manifest), `read.go` (`Read`: config paths, static secrets with their `EnvVar` key — a dotenv key or the derived `<PROVIDER>_API_KEY` for an inline provider key — and provider-endpoint `Hosts`, recorded logins), `probe_opencode2.go` (bounded read of opencode2's SQLite `credential` table) — the fact source for the after-run analyser of `specs/onboarding/learn-mode/home-read-back.md`; read by `learn`'s after-run and `config learn`.
+- `readback.go` (`HomeVolumePath`: state → home volume → host path, with `ErrNoHomeVolume` distinct from `state.ErrStateNotFound`), `manifest.go` (`TakeManifest`/`Manifest.Changed`/`MaxHashedBytes`, the baseline change-detection manifest and its per-file content cap), `read.go` (`Read`: config paths, static secrets with their `EnvVar` key — a dotenv key or the derived `<PROVIDER>_API_KEY` for an inline provider key — and provider-endpoint `Hosts`, recorded logins; `IsCredentialStorePath`, the agent-independent credential-store predicate the write-back refuses), `probe_opencode2.go` (bounded read of opencode2's SQLite `credential` table) — the fact source for the after-run analyser of `specs/onboarding/learn-mode/home-read-back.md`; read by `learn`'s after-run and `config learn`.
 
 ### `reconfig/` — Reconfiguration planning
 
