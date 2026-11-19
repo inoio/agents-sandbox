@@ -52,6 +52,66 @@ func TestReadClassifiesLoginStore(t *testing.T) {
 		"a login store is also a config fact")
 }
 
+// TestLoginStoreForMatchesExactPath pins that a pattern with no metacharacter
+// matches its exact path.
+func TestLoginStoreForMatchesExactPath(t *testing.T) {
+	store, ok := loginStoreFor(".codex/auth.json")
+
+	require.True(t, ok)
+	require.Equal(t, "codex", store.provider)
+}
+
+// TestLoginStoreForMatchesAGlob pins that a directory store declared as a glob
+// matches the files it selects, not just the literal pattern.
+func TestLoginStoreForMatchesAGlob(t *testing.T) {
+	store, ok := loginStoreFor(".kimi-code/credentials/a.json")
+
+	require.True(t, ok)
+	require.Equal(t, "kimi-code", store.provider)
+}
+
+// TestLoginStoreForDoesNotCrossSeparators pins that a glob's "*" never crosses a
+// separator, so a nested file is not a member of the store.
+func TestLoginStoreForDoesNotCrossSeparators(t *testing.T) {
+	_, ok := loginStoreFor(".kimi-code/credentials/sub/a.json")
+
+	require.False(t, ok, "* does not cross a path separator")
+}
+
+// TestLoginStoreForUnknownIsAbsent pins that a key no patterns match reports no
+// store.
+func TestLoginStoreForUnknownIsAbsent(t *testing.T) {
+	_, ok := loginStoreFor(".nope/x")
+
+	require.False(t, ok)
+}
+
+// TestReadClassifiesADirectoryLoginStore: a store declared as a glob records one
+// login per file it selects. kimi-code declares .kimi-code/credentials/*.json,
+// so both files are logins whose values are never read.
+func TestReadClassifiesADirectoryLoginStore(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".kimi-code/credentials/a.json", `{"access_token":"secret-a"}`)
+	writeFile(t, home, ".kimi-code/credentials/b.json", `{"access_token":"secret-b"}`)
+
+	rb, err := Read(home, "kimi-code", Manifest{})
+
+	require.NoError(t, err)
+	require.Empty(t, rb.Static, "a login store must not yield a static credential")
+	require.Len(t, rb.Login, 2)
+	for _, credential := range rb.Login {
+		require.Equal(t, CredentialLogin, credential.Kind)
+		require.Equal(t, "kimi-code", credential.Provider)
+		require.Empty(t, credential.Value, "a login value is never read")
+	}
+	require.Equal(
+		t,
+		[]string{".kimi-code/credentials/a.json", ".kimi-code/credentials/b.json"},
+		rb.ConfigPaths,
+		"a login store is also a config fact",
+	)
+}
+
 // TestReadScopesSharedAuthStoreToOpenCode: the shared opencode auth.json is a
 // login for opencode (v1) only. opencode2 keeps credentials in its database and
 // never imports the file, so it must not report a login for it.

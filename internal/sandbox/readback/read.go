@@ -90,7 +90,7 @@ func Read(home, agentName string, baseline Manifest) (ReadBack, error) {
 			// gomutants:disable-next-line INVERT_LOOP_CTRL reason="a probe entry is always the last (its key '<agent>:<probe>' sorts after every '.'-prefixed path), so continuing past it and breaking on it are the same"
 			continue
 		}
-		loginStore, isLogin := loginCredentialStores[entry.Key]
+		loginStore, isLogin := loginStoreFor(entry.Key)
 		if isLogin && loginStore.appliesTo(agentName) {
 			readBack.Login = append(readBack.Login, Credential{
 				Kind:     CredentialLogin,
@@ -305,6 +305,9 @@ func normalizeToken(token string) string {
 //
 //exhaustruct:ignore
 type loginCredentialStore struct {
+	// pattern is an exact sandbox-home-relative path or a glob matched with
+	// filepath.Match.
+	pattern  string
 	provider string
 	agents   []string
 }
@@ -314,15 +317,31 @@ func (s loginCredentialStore) appliesTo(agentName string) bool {
 	return s.agents == nil || slices.Contains(s.agents, agentName)
 }
 
-// loginCredentialStores maps a declared login store (sandbox-home-relative path)
-// to its rule. The shared opencode auth.json is scoped to opencode (v1):
-// opencode2 keeps credentials in its database and a fresh database never imports
-// the file, so reporting it as an opencode2 login would be a false positive.
-var loginCredentialStores = map[string]loginCredentialStore{
-	".claude/settings.json":           {provider: "claude-code"},
-	".codex/auth.json":                {provider: "codex"},
-	".local/share/opencode/auth.json": {provider: "opencode", agents: []string{"opencode"}},
-	".pi/agent/settings.json":         {provider: "pi"},
+// loginCredentialStores gives each declared login store's pattern its rule. An
+// exact path is a pattern without metacharacters; a directory store is a glob
+// whose files each classify individually. The shared opencode auth.json is
+// scoped to opencode (v1): opencode2 keeps credentials in its database and a
+// fresh database never imports the file, so reporting it as an opencode2 login
+// would be a false positive.
+var loginCredentialStores = []loginCredentialStore{
+	{pattern: ".claude/settings.json", provider: "claude-code"},
+	{pattern: ".codex/auth.json", provider: "codex"},
+	{pattern: ".local/share/opencode/auth.json", provider: "opencode", agents: []string{"opencode"}},
+	{pattern: ".pi/agent/settings.json", provider: "pi"},
+	{pattern: ".kimi-code/credentials/*.json", provider: "kimi-code"},
+}
+
+// loginStoreFor returns the login-store rule matching a manifest entry key, if
+// a pattern matches it. A pattern with no metacharacter matches its exact path.
+func loginStoreFor(key string) (loginCredentialStore, bool) {
+	for _, store := range loginCredentialStores {
+		// A malformed pattern cannot match any key, so its error needs no
+		// separate branch: it is a non-match.
+		if matched, _ := filepath.Match(store.pattern, key); matched {
+			return store, true
+		}
+	}
+	return loginCredentialStore{}, false
 }
 
 // secretKeyMarkers are the whole key segments that mark a dotenv key as a
