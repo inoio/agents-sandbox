@@ -285,7 +285,9 @@ func contentRetainsStaticValue(configPath, content string, credentials []readbac
 }
 
 // decodedContainsStaticValue reports whether any string a decoded document holds
-// — a key or a leaf value — contains one of the credentials' values.
+// — a key or a leaf value — contains one of the credentials' values. A YAML
+// mapping with a non-string key decodes to map[any]any rather than
+// map[string]any, so both shapes are walked; a non-string key is not a value.
 func decodedContainsStaticValue(node any, credentials []readback.Credential) bool {
 	switch typed := node.(type) {
 	case map[string]any:
@@ -294,6 +296,8 @@ func decodedContainsStaticValue(node any, credentials []readback.Credential) boo
 				return true
 			}
 		}
+	case map[any]any:
+		return anyMapContainsStaticValue(typed, credentials)
 	case []any:
 		for _, child := range typed {
 			if decodedContainsStaticValue(child, credentials) {
@@ -302,6 +306,20 @@ func decodedContainsStaticValue(node any, credentials []readback.Credential) boo
 		}
 	case string:
 		return containsStaticValue(typed, credentials)
+	}
+	return false
+}
+
+// anyMapContainsStaticValue walks a mapping that decoded to map[any]any (a YAML
+// mapping with a non-string key): a string key or any descendant holds a value.
+func anyMapContainsStaticValue(document map[any]any, credentials []readback.Credential) bool {
+	for key, child := range document {
+		if keyString, ok := key.(string); ok && containsStaticValue(keyString, credentials) {
+			return true
+		}
+		if decodedContainsStaticValue(child, credentials) {
+			return true
+		}
 	}
 	return false
 }

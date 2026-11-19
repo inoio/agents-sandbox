@@ -863,6 +863,61 @@ func TestDecodedContainsStaticValueFindsAKey(t *testing.T) {
 	require.False(t, decodedContainsStaticValue(map[string]any{"other": "x"}, credentials))
 }
 
+// TestDecodedContainsStaticValueWalksAnyMap pins the map[any]any walk directly:
+// a string key holding the value is found, a non-string key is not a value, and
+// a map without the value is not reported (so the fix does not over-refuse).
+func TestDecodedContainsStaticValueWalksAnyMap(t *testing.T) {
+	credentials := []readback.Credential{{Value: "sk-x"}}
+
+	require.True(t, decodedContainsStaticValue(map[any]any{"sk-x": "y"}, credentials))
+	require.False(t, decodedContainsStaticValue(map[any]any{1: "y", "other": "z"}, credentials))
+}
+
+// TestManagedConfigWritesAYAMLFileWithANonStringKeyAndNoSecret pins that the
+// map[any]any walk does not over-refuse: a YAML config with a non-string key and
+// no secret value is written back rather than dropped.
+func TestManagedConfigWritesAYAMLFileWithANonStringKeyAndNoSecret(t *testing.T) {
+	home := t.TempDir()
+	const configPath = ".hermes/config.yaml"
+	writeManagedConfig(t, home, configPath, "model:\n  provider: openai\n  123: x\n")
+
+	findings := ManagedConfigFindings(ManagedConfigFacts{
+		Home:     home,
+		Agent:    "hermes",
+		ReadBack: changedConfigBack(configPath),
+	})
+
+	require.Len(t, findings, 1)
+}
+
+// TestManagedConfigRefusesAnEscapedValueBehindANonStringKey pins the decoded
+// walk against YAML's nested map[any]any: a mapping that has a non-string key
+// decodes to map[any]any rather than map[string]any, so an escaped value beneath
+// it is missed by the literal search and only the walk can refuse the file.
+func TestManagedConfigRefusesAnEscapedValueBehindANonStringKey(t *testing.T) {
+	home := t.TempDir()
+	const configPath = ".hermes/config.yaml"
+	const secret = `sk-a"b`
+	// The value is stored escaped and the enclosing mapping has an int key, so
+	// it decodes to map[any]any.
+	writeManagedConfig(t, home, configPath, "model:\n  provider: openai\n  api_key: \"sk-a\\\"b\"\n  123: x\n")
+	logger := &termiotest.Mock{}
+
+	findings := ManagedConfigFindings(ManagedConfigFacts{
+		Home:          home,
+		Agent:         "hermes",
+		SecretEnvVars: []string{"OPENAI_API_KEY"},
+		ReadBack: changedConfigBack(
+			configPath,
+			testStaticCredential(configPath, "OPENAI_API_KEY", secret),
+		),
+		Logger: logger,
+	})
+
+	require.Empty(t, findings)
+	require.NotEmpty(t, logger.WarnCalls, "an escaped value behind a non-string key must be reported")
+}
+
 // TestSubstituteStaticValuesRewritesEveryCredential pins that the substitution
 // loop under a native indirection key processes every credential, not just the
 // first: two credentials both yield their rewritten assignment and neither value
