@@ -464,7 +464,9 @@ func (f *ciGuardsFixture) replaceNth(rel, old, replacement string, nth int) {
 		f.t.Fatalf("%s has fewer than %d occurrences of %q", rel, nth, old)
 	}
 	parts[nth-1] = replacement
-	f.write(rel, strings.Join(parts, old))
+	updated := strings.Join(parts, old)
+	f.requireChange(rel, old, content, updated)
+	f.write(rel, updated)
 }
 
 // removeLines drops every line containing substring, or only the first when

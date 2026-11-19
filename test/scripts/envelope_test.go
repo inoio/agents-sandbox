@@ -1,12 +1,14 @@
 package scripts
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
@@ -14,7 +16,8 @@ import (
 // TestEnvelope ports every case of the bash harness scripts/test-envelope_test.sh,
 // driving scripts/test-envelope.sh with throwaway fixture modules and asserting
 // the same exit codes and stdout/stderr substrings. The envelope never touches
-// this repository: every case passes an explicit --source under a temp root.
+// this repository: every case that copies a source passes an explicit --source
+// under a temp root (the print and help cases deliberately read the default).
 func TestEnvelope(t *testing.T) {
 	t.Run("scrubbed run", func(t *testing.T) {
 		root := t.TempDir()
@@ -416,13 +419,16 @@ func envelopeHasTool(name string) bool {
 }
 
 // envelopeResolveEgressIP returns the first IPv4 address example.com resolves
-// to, bounded like the bash harness's `timeout 10 getent ahostsv4`, or "".
+// to, bounded by the same 10-second budget the bash harness's
+// `timeout 10 getent ahostsv4` imposed, or "".
 func envelopeResolveEgressIP(tb testing.TB) string {
 	tb.Helper()
-	if !envelopeHasTool("getent") || !envelopeHasTool("awk") {
+	if !envelopeHasTool("getent") {
 		return ""
 	}
-	command := exec.Command("getent", "ahostsv4", "example.com")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, "getent", "ahostsv4", "example.com")
 	var stdout strings.Builder
 	command.Stdout = &stdout
 	if err := command.Run(); err != nil {

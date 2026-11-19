@@ -6,14 +6,14 @@ import (
 )
 
 // TestUpstreamDrift ports every case of the bash harness scripts/test-upstream-drift.sh,
-// asserting the same exit codes, output substrings, and overlap/origin state. The
-// bash harness's git-isolation head is dropped: the fixture is go-git and RunScript
-// strips the ambient git settings from the script's environment itself.
+// asserting the same exit codes and output substrings. The bash harness's
+// git-isolation head is dropped: the fixture is go-git and RunScript strips the
+// ambient git settings from the script's environment itself.
 func TestUpstreamDrift(t *testing.T) {
 	t.Run("counts, overlap, and names", func(t *testing.T) {
 		repo := seedDriftRepo(t)
 
-		result := runDrift(t, repo.Dir(), "--repo", repo.Dir(), "--base", "main", "--no-fetch")
+		result := runDrift(t, repo.Dir(), "--base", "main", "--no-fetch")
 
 		assertStatus(t, result, 0)
 		assertContains(t, "stdout", result.Stdout, "upstream commits since merge-base: 2")
@@ -36,7 +36,7 @@ func TestUpstreamDrift(t *testing.T) {
 		repo.Write("fileZ", "z\n")
 		repo.Commit("feat-z")
 
-		result := runDrift(t, repo.Dir(), "--repo", repo.Dir(), "--base", "main", "--no-fetch")
+		result := runDrift(t, repo.Dir(), "--base", "main", "--no-fetch")
 
 		assertStatus(t, result, 0)
 		assertContains(t, "stdout", result.Stdout, "No file changed on both sides")
@@ -45,7 +45,7 @@ func TestUpstreamDrift(t *testing.T) {
 	t.Run("quiet omits the upstream commit list", func(t *testing.T) {
 		repo := seedDriftRepo(t)
 
-		result := runDrift(t, repo.Dir(), "--repo", repo.Dir(), "--base", "main", "--no-fetch", "--quiet")
+		result := runDrift(t, repo.Dir(), "--base", "main", "--no-fetch", "--quiet")
 
 		assertStatus(t, result, 0)
 		assertNotContains(t, "stdout", result.Stdout, "Upstream commits:")
@@ -53,10 +53,16 @@ func TestUpstreamDrift(t *testing.T) {
 
 	t.Run("usage", func(t *testing.T) {
 		missing := filepath.Join(t.TempDir(), "does-not-exist")
-		result := runDrift(t, t.TempDir(), "--repo", missing, "--no-fetch")
-		if result.Status == 0 {
-			t.Errorf("missing repo exited 0, want non-zero")
-		}
+		result := RunScript(
+			t,
+			t.TempDir(),
+			nil,
+			repositoryScript(t, "upstream-drift.sh"),
+			"--repo",
+			missing,
+			"--no-fetch",
+		)
+		assertStatus(t, result, 2)
 		assertContains(t, "stderr", result.Stderr, "not a git repository")
 
 		if result := runDrift(t, t.TempDir(), "--help"); result.Status != 0 {
@@ -89,8 +95,10 @@ func seedDriftRepo(tb testing.TB) *Repo {
 	return repo
 }
 
-// runDrift runs scripts/upstream-drift.sh against a fixture.
+// runDrift runs scripts/upstream-drift.sh with repoDir as both its working
+// directory and its --repo target.
 func runDrift(t *testing.T, repoDir string, args ...string) ScriptResult {
 	t.Helper()
-	return RunScript(t, repoDir, nil, repositoryScript(t, "upstream-drift.sh"), args...)
+	full := append([]string{"--repo", repoDir}, args...)
+	return RunScript(t, repoDir, nil, repositoryScript(t, "upstream-drift.sh"), full...)
 }
