@@ -2,9 +2,14 @@ package agent
 
 import "context"
 
-// settingsFileName is the settings filename shared by the pi and claude-code
-// agents, whose merged snippet config is written to <config dir>/settings.json.
+// settingsFileName is the settings filename shared by the pi, claude-code, and
+// qwen-code agents, whose merged snippet config is written to
+// <config dir>/settings.json.
 const settingsFileName = "settings.json"
+
+// settingsSnippetPattern matches the launcher snippets that merge into a
+// settings.json agent config.
+const settingsSnippetPattern = "settings*.json*"
 
 // Daemon bind hostnames: loopback for a co-located client, the external
 // interface when the host forwards a published port into the VM.

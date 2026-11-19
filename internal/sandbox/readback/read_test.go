@@ -53,6 +53,27 @@ func TestReadClassifiesLoginStore(t *testing.T) {
 		"a login store is also a config fact")
 }
 
+// TestReadClassifiesQwenLoginStores pins qwen's two login stores: its OAuth
+// login and its MCP OAuth tokens. Its settings file is configuration.
+func TestReadClassifiesQwenLoginStores(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".qwen/settings.json", `{"general":{"vimMode":true}}`)
+	writeFile(t, home, ".qwen/oauth_creds.json", `{"access_token":"secret"}`)
+	writeFile(t, home, ".qwen/mcp-oauth-tokens.json", `[{"serverName":"x"}]`)
+
+	rb, err := Read(home, "qwen-code", Manifest{})
+
+	require.NoError(t, err)
+	require.Empty(t, rb.Static)
+	var sources []string
+	for _, credential := range rb.Login {
+		require.Equal(t, "qwen-code", credential.Provider)
+		require.Empty(t, credential.Value, "a login value is never read")
+		sources = append(sources, credential.Source)
+	}
+	require.ElementsMatch(t, []string{".qwen/oauth_creds.json", ".qwen/mcp-oauth-tokens.json"}, sources)
+}
+
 // TestLoginStoreForMatchesExactPath pins that a pattern with no metacharacter
 // matches its exact path.
 func TestLoginStoreForMatchesExactPath(t *testing.T) {

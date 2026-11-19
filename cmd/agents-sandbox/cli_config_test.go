@@ -352,6 +352,31 @@ func TestConfigAgentKimiCodeMergesTOMLSnippets(t *testing.T) {
 	}
 }
 
+// TestConfigAgentQwenCodeMergesJSONSnippets verifies that qwen-code snippets
+// merge into one settings.json document, with a provider key referenced from the
+// environment instead of written inline.
+func TestConfigAgentQwenCodeMergesJSONSnippets(t *testing.T) {
+	cmd, ui := setupCommandFixtures(t, "config", "agent", "qwen-code")
+	a, _ := agent.Lookup("qwen-code")
+	dir := configpathstest.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName()))
+	testutil.WriteFile(t, dir, "settings-ui.json", `{"general":{"vimMode":true}}`+"\n")
+	testutil.WriteFile(t, dir, "settings-auth.json",
+		`{"security":{"auth":{"selectedType":"openai"}},"model":{"name":"qwen3-coder-plus"}}`+"\n")
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config agent qwen-code: %v", err)
+	}
+	joined := strings.Join(ui.OutCalls, "\n")
+	for _, want := range []string{
+		"settings-ui.json", "settings-auth.json", "merged agent config:",
+		`"vimMode": true`, `"selectedType": "openai"`, `"name": "qwen3-coder-plus"`,
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("output missing %q, got:\n%s", want, joined)
+		}
+	}
+}
+
 func TestConfigAgentAmbiguousFlagAndPositional(t *testing.T) {
 	cmd, _ := setupCommandFixtures(t, "config", "agent", "--agent", "pi", "claude-code")
 	err := cmd.Execute()
