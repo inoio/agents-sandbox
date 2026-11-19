@@ -116,6 +116,10 @@ are.
   still needs approval. Without a recorded approval there is nothing to extend and nothing is recorded.
   The approval is recorded first and restored if the write then fails; a failed approval writes nothing,
   and a failed restore leaves the approval ahead of the file, which only makes the next run ask again.
+  The launcher's own **removal** of a project secret (`projecttrust.ApproveSecretWrite`) extends the approval
+  the same way, by only the removed env-var. When the edited file is also a `home:` source the projection holds
+  a second, digest-only input for it, which the same act refreshes to the file's new bytes
+  (`projecttrust.RefreshSecretFileInput`); a stale digest would gate the launcher's own change.
 
 ## Non-interactive behavior
 

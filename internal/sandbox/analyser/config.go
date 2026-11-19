@@ -203,6 +203,10 @@ func secretFileModeFinding(scope configpaths.ConfigScope) (Finding, bool) {
 // findings the effective config supports.
 func (f ConfigFacts) policyFindings() []Finding {
 	policy := f.Config.Network.Effective()
+	// The network spec drops empty egress entries (network's dedupe), so a
+	// finding's allow list must too: an empty entry admits no host, and treating
+	// it as reachable would let C3 and C4 leave `none` with an empty allow list.
+	policy.EgressAllow = reachableEgress(policy.EgressAllow)
 	var findings []Finding
 	if finding, ok := f.broadProfileFinding(policy); ok {
 		findings = append(findings, finding)
@@ -311,12 +315,19 @@ func (f ConfigFacts) wildcardEgressFinding(policy network.Policy) (Finding, bool
 // entry that is not a wildcard, sorted and de-duplicated.
 func remainingAfterWildcardDrop(entries []string) []string {
 	var kept []string
-	for _, entry := range entries {
+	for _, entry := range reachableEgress(entries) {
 		if !slices.Contains(wildcardEgressEntries, entry) {
 			kept = append(kept, entry)
 		}
 	}
 	return sortedUnique(kept)
+}
+
+// reachableEgress drops the empty entries the network spec drops, so a finding's
+// allow list matches what the launcher would admit: an entry that is only the
+// empty string is not a reachable host.
+func reachableEgress(entries []string) []string {
+	return slices.DeleteFunc(slices.Clone(entries), func(entry string) bool { return entry == "" })
 }
 
 // provisionHostConfigFinding is C6: host-config provisioning is turned off. Its
@@ -354,13 +365,36 @@ func (f ConfigFacts) inlineConfigFindings() []Finding {
 	// A registered profile's dir names are validated at registration, so the
 	// error is unreachable; a failure drops the names, as an unknown agent does.
 	names, _ := agent.ConfigDirNames(profile)
+	declared := f.perSlugSecretEnvVars()
 	var findings []Finding
 	for _, scope := range f.Scopes {
 		for _, name := range names {
-			findings = append(findings, inlineConfigFindingsInScope(scope, scope.AgentConfigDir(name))...)
+			findings = append(
+				findings,
+				inlineConfigFindingsInScope(scope, scope.AgentConfigDir(name), declared)...,
+			)
 		}
 	}
 	return findings
+}
+
+// perSlugSecretEnvVars are the env vars the per-slug user scope already
+// declares. C7's move target is the per-slug secret file, so an inline
+// credential whose env var is already declared there would overwrite the value
+// and host scope the user set for this repo.
+func (f ConfigFacts) perSlugSecretEnvVars() map[string]bool {
+	for _, scope := range f.Scopes {
+		if scope.Kind != configpaths.ScopePerSlugUser {
+			continue
+		}
+		specs := envsecret.ParseSecretSpecYAML(scope.EnvSecretYAMLFile(), f.Logger)
+		declared := make(map[string]bool, len(specs))
+		for name := range specs {
+			declared[name] = true
+		}
+		return declared
+	}
+	return nil
 }
 
 // inlineConfigFindingsInScope classifies every regular file under the scope's
@@ -370,7 +404,11 @@ func (f ConfigFacts) inlineConfigFindings() []Finding {
 // layer — and the read goes through the project guard, so a project-scope file
 // changed since it was approved is refused. A file that names no credential
 // contributes nothing.
-func inlineConfigFindingsInScope(scope configpaths.ConfigScope, dir string) []Finding {
+func inlineConfigFindingsInScope(
+	scope configpaths.ConfigScope,
+	dir string,
+	declared map[string]bool,
+) []Finding {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
@@ -389,7 +427,7 @@ func inlineConfigFindingsInScope(scope configpaths.ConfigScope, dir string) []Fi
 			continue
 		}
 		for _, credential := range readback.InlineCredentialsIn(path, data) {
-			if finding, ok := inlineConfigFinding(scope, credential); ok {
+			if finding, ok := inlineConfigFinding(scope, credential, declared); ok {
 				findings = append(findings, finding)
 			}
 		}
@@ -405,7 +443,11 @@ func inlineConfigFindingsInScope(scope configpaths.ConfigScope, dir string) []Fi
 // credential's Source, so two inline copies of the same secret (e.g. opencode2's
 // primary and alias dirs) hash distinctly and a decline for one does not skip
 // the other.
-func inlineConfigFinding(scope configpaths.ConfigScope, credential readback.Credential) (Finding, bool) {
+func inlineConfigFinding(
+	scope configpaths.ConfigScope,
+	credential readback.Credential,
+	declared map[string]bool,
+) (Finding, bool) {
 	hosts := sortedUnique(credential.Hosts)
 	if credential.EnvVar == "" || len(hosts) == 0 || credential.Value == "" {
 		return Finding{}, false
@@ -416,6 +458,15 @@ func inlineConfigFinding(scope configpaths.ConfigScope, credential readback.Cred
 			credential.Source,
 		Destinations: hosts,
 		Channel:      evidenceChannelConfig,
+	}
+	if declared[credential.EnvVar] {
+		// The move target is the per-slug secret file, which already declares
+		// this env var; writing there would replace the entry the user set, so
+		// the finding is reported, not moved (as C2 reports a generic-scope
+		// dangerous secret, which likewise has no safe write target).
+		evidence.Summary += "; the per-slug scope already declares it"
+		//exhaustruct:ignore // a reported-only finding proposes no write
+		return Finding{Evidence: evidence, Kind: KindConfig}, true
 	}
 	//exhaustruct:ignore // a secret write names no config key and no mode
 	secretWrite := Write{

@@ -262,3 +262,65 @@ func withoutSecretEntry(inputs []Input, envVar string) []Input {
 func secretEntryNames(entry, envVar string) bool {
 	return entry == envVar || strings.HasPrefix(entry, envVar+": ")
 }
+
+// RefreshSecretFileInput updates the recorded approval's raw-content input for
+// dir's env.secret.yaml, if it has one, to the file's current bytes. A project
+// secret file that is also a home: source is projected a second time by content
+// digest, so the launcher's own edit must refresh that input too; without it the
+// next run gates the launcher's own removal. Without an approval there is
+// nothing to refresh.
+func RefreshSecretFileInput(checkoutSlug, dir string) error {
+	path := filepath.Join(dir, configpaths.EnvSecretFileName+".yaml")
+	_, err := state.WithRootState(true, func(txn *state.RootTxn) error {
+		previous, found := txn.State().ApprovedProjectLayer(checkoutSlug)
+		if !found {
+			return nil
+		}
+		projection := fromApproval(previous)
+		refreshed, changed := refreshFileInput(projection.Inputs, path)
+		if !changed {
+			return nil
+		}
+		projection.Inputs = refreshed
+		txn.State().ApproveProjectLayer(checkoutSlug, toApproval(projection))
+		return txn.Commit()
+	})
+	if err != nil {
+		return fmt.Errorf("refresh the approval of %s: %w", path, err)
+	}
+	return nil
+}
+
+// refreshFileInput rewrites path's raw-content input, if any, to the file's
+// current bytes and reports whether it changed anything. Only a file reached
+// both as a parsed input and as a home: source carries such an input, digest-only
+// so its values stay out of the projection; a file that is no source has none.
+func refreshFileInput(inputs []Input, path string) ([]Input, bool) {
+	result := make([]Input, 0, len(inputs))
+	changed := false
+	for _, input := range inputs {
+		if input.Kind != KindFile || !sameSourcePath(input.Path, path) {
+			result = append(result, input)
+			continue
+		}
+		fileInput, err := readFileInput(path)
+		if err != nil {
+			// The file is gone or unreadable; the projection adds no home:
+			// input for it either.
+			changed = true
+			continue
+		}
+		input.Entries = []string{fileInput.Digest}
+		input.Digest = fileInput.Digest
+		result = append(result, input)
+		changed = true
+	}
+	return result, changed
+}
+
+// sameSourcePath reports whether two spellings name the same file: the
+// projection resolves the base of every path it records, so a caller's
+// unresolved spelling must compare equal to the recorded one.
+func sameSourcePath(a, b string) bool {
+	return filepath.Clean(a) == filepath.Clean(b) || resolvedPath(a) == resolvedPath(b)
+}

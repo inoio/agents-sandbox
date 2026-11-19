@@ -471,7 +471,9 @@ func executeProjectSecret(plan plannedWrite, opts ApplyOptions) error {
 		restore()
 		return writeErr
 	}
-	return nil
+	// The secret file is also a home: source in the same project: its recorded
+	// raw-content input must match the bytes the removal just wrote.
+	return projecttrust.RefreshSecretFileInput(opts.CheckoutSlug, plan.dir)
 }
 
 // executeProjectSetting writes or removes a project-scope config key through the

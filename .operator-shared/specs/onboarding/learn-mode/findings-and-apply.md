@@ -123,13 +123,14 @@ git history — harden says so and points at rotating the credential.
   lower-precedence value up could overwrite the per-slug entry the user set for that repo.
 - **C3 — an over-broad egress profile.** A policy that is not the terminal `none` profile is narrowed to `none`,
   keeping the current allow list. An **empty** allow list is reported, not written: narrowing to `none` with nothing
-  to keep would deny all egress. An allow list whose only entries are wildcards C4 would drop is reported too, for the
-  same reason. A default `public` (or empty-allow) config therefore fires C3 as a report, so `config harden` is never
-  silent on a default config.
+  to keep would deny all egress. An empty *entry* is not a reachable host — the network spec drops it (`network`'s
+  `dedupe`) — so a list whose only entries are empty is reported like an empty one. An allow list whose only entries are
+  wildcards C4 would drop is reported too, for the same reason. A default `public` (or empty-allow) config therefore
+  fires C3 as a report, so `config harden` is never silent on a default config.
 - **C4 — a wildcard egress entry.** An `egress-allow` entry `*`, `0.0.0.0/0`, or `::/0` is dropped, keeping the
-  remaining entries. A list whose every entry is a wildcard has nothing to keep, so C4 reports it rather than dropping
-  the last entry. C3 and C4 therefore never combine to leave `none` with an empty allow list, which would deny all
-  egress.
+  remaining entries. A list whose every entry is a wildcard (or empty) has nothing to keep, so C4 reports it rather than
+  dropping the last entry. C3 and C4 therefore never combine to leave `none` with an empty allow list, which would deny
+  all egress.
 - **C5 — a secret file mode.** Each scope's `env.secret.yaml` whose mode is not `0600` is tightened by a file-mode
   write; a scope with no secret file yields no finding, and one is never created to chmod it.
 - **C6 — host-config provisioning on.** `provision-host-config: true` is turned off, its text pointing at
@@ -137,7 +138,10 @@ git history — harden says so and points at rotating the credential.
 - **C7 — a static secret inline in a managed agent config.** A credential-bearing key inside a provider entry is
   moved to `env.secret.yaml`, using the read-back classification ([home
   read-back](home-read-back.md) fact 2): the provider, hosts, and env-var name come from the entry that holds the key,
-  never a guessed host. The value is read in memory only to re-write it.
+  never a guessed host. The value is read in memory only to re-write it. The move target is the per-slug user scope, so
+  an inline credential whose env var the per-slug `env.secret.yaml` already declares is reported, not moved: the write
+  would replace the value and host scope the user set there (the same reason C2 reports a generic-scope dangerous
+  secret, whose only target is likewise the per-slug scope).
 
 **A write targets the key's owner.** A launcher-config key is written at the project scope when the project layer
 owns it — `viperconfig.LayerSettingOwner` names the highest-precedence file layer that sets a key — and at the

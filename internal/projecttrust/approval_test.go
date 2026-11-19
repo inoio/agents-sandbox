@@ -2,6 +2,7 @@ package projecttrust
 
 import (
 	"errors"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -394,6 +395,95 @@ func TestApprovalStateFailuresAreReported(t *testing.T) {
 	) {
 		t.Errorf("ApproveSettingWrite = %v, want the state error", err)
 	}
+}
+
+// TestRefreshSecretFileInputKeepsAHomeSourceSecretFileApproved pins that the
+// launcher's own removal from a project env.secret.yaml that is also a home:
+// source refreshes the file's raw-content input, so the next run does not gate
+// the launcher's own change.
+func TestRefreshSecretFileInputKeepsAHomeSourceSecretFileApproved(t *testing.T) {
+	f := newProjectFixture(t)
+	f.write(t, "config.yaml",
+		"memory: 4G\nhome:\n  .config/agents-sandbox/env.secret.yaml:\n    source: env.secret.yaml\n")
+	f.write(t, "env.secret.yaml", "WIDGET_TOKEN:\n  value: sk\n  host: api.widget.example\n")
+	if err := RecordApproval("checkout-a", f.compute(t)); err != nil {
+		t.Fatal(err)
+	}
+
+	// The launcher removed the entry; the file stays the home: source.
+	f.write(t, "env.secret.yaml", "{}\n")
+	if _, err := ApproveSecretWrite("checkout-a", "WIDGET_TOKEN"); err != nil {
+		t.Fatal(err)
+	}
+	if err := RefreshSecretFileInput("checkout-a", f.projectDir); err != nil {
+		t.Fatalf("RefreshSecretFileInput: %v", err)
+	}
+
+	approval, _, _ := LoadApproval("checkout-a")
+	if got := Evaluate(f.compute(t), approval); !got.Approved {
+		t.Fatalf("after the launcher's removal: %+v, want approved", got)
+	}
+}
+
+// TestRefreshSecretFileInputWithoutAnApprovalRecordsNothing pins that the
+// refresh is a no-op when there is no approval to extend.
+func TestRefreshSecretFileInputWithoutAnApprovalRecordsNothing(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	if err := RefreshSecretFileInput("checkout-a", t.TempDir()); err != nil {
+		t.Fatalf("RefreshSecretFileInput: %v", err)
+	}
+	if _, found, _ := LoadApproval("checkout-a"); found {
+		t.Error("an approval was created for a layer the user never approved")
+	}
+}
+
+// TestRefreshSecretFileInputWithoutAHomeSourceChangesNothing pins that the
+// refresh leaves an approval alone when the secret file is not also a home:
+// source: there is no raw-content input to refresh.
+func TestRefreshSecretFileInputWithoutAHomeSourceChangesNothing(t *testing.T) {
+	f := newProjectFixture(t)
+	f.write(t, "env.secret.yaml", "WIDGET_TOKEN:\n  value: sk\n  host: api.widget.example\n")
+	if err := RecordApproval("checkout-a", f.compute(t)); err != nil {
+		t.Fatal(err)
+	}
+
+	f.write(t, "env.secret.yaml", "{}\n")
+	if _, err := ApproveSecretWrite("checkout-a", "WIDGET_TOKEN"); err != nil {
+		t.Fatal(err)
+	}
+	before, _, _ := LoadApproval("checkout-a")
+	if err := RefreshSecretFileInput("checkout-a", f.projectDir); err != nil {
+		t.Fatalf("RefreshSecretFileInput: %v", err)
+	}
+	after, _, _ := LoadApproval("checkout-a")
+	require.Equal(t, before, after, "a file that is no home: source has nothing to refresh")
+}
+
+// TestRefreshSecretFileInputReportsAStateFailure pins that an unreadable state
+// root is reported, not taken as nothing to refresh.
+func TestRefreshSecretFileInputReportsAStateFailure(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	testutil.WriteFile(t, configpaths.Get().UserStateDir(), "state.yaml", "schema: [not-valid")
+
+	if err := RefreshSecretFileInput("checkout-a", t.TempDir()); !errors.Is(
+		err,
+		state.ErrStateUnparsable,
+	) {
+		t.Errorf("RefreshSecretFileInput = %v, want the state error", err)
+	}
+}
+
+// TestRefreshFileInputDropsAVanishedFilesInput pins that a raw-content input
+// whose file is gone by refresh time is dropped, matching the projection, which
+// adds no home: input for a missing source.
+func TestRefreshFileInputDropsAVanishedFilesInput(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "env.secret.yaml")
+	inputs := []Input{{Path: path, Kind: KindFile, Entries: []string{"sha256:old"}, Digest: "sha256:old"}}
+
+	got, changed := refreshFileInput(inputs, path)
+
+	require.True(t, changed)
+	require.Empty(t, got)
 }
 
 // TestApproveSecretWriteReportsAStateFailure pins that a failure to extend the

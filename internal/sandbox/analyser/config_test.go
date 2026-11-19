@@ -303,6 +303,42 @@ func TestConfigFindingsAllWildcardEgressIsReportedNotWritten(t *testing.T) {
 	}
 }
 
+// TestConfigFindingsEmptyEgressEntriesDoNotCountAsReachable pins that an empty
+// egress entry, which the network spec drops, is not a reachable host: a list
+// holding only empty entries is no allow list, so C3 reports rather than
+// narrowing to none with nothing reachable.
+func TestConfigFindingsEmptyEgressEntriesDoNotCountAsReachable(t *testing.T) {
+	f := configFacts(t, &viperconfig.Config{Network: network.Policy{
+		Profiles:    []network.Profile{network.ProfilePublic},
+		EgressAllow: []string{""},
+	}})
+
+	findings := ConfigFindings(f)
+
+	require.Len(t, findings, 1, "an empty allow list is reported once")
+	require.Contains(t, findings[0].Evidence.Summary, "no egress-allow entries")
+	require.Empty(t, findings[0].Writes)
+}
+
+// TestConfigFindingsWildcardPlusEmptyEgressIsReported pins that an empty entry
+// beside a wildcard does not keep the list reachable: dropping the wildcard
+// leaves nothing, so C3 and C4 report rather than leave none with an empty allow
+// list, which would deny all egress.
+func TestConfigFindingsWildcardPlusEmptyEgressIsReported(t *testing.T) {
+	f := configFacts(t, &viperconfig.Config{Network: network.Policy{
+		Profiles:    []network.Profile{network.ProfilePublic},
+		EgressAllow: []string{"*", ""},
+	}})
+
+	findings := ConfigFindings(f)
+
+	require.Len(t, findings, 2, "the profile and the egress finding are both reported")
+	for _, finding := range findings {
+		require.Contains(t, finding.Evidence.Summary, "only wildcard entries")
+		require.Empty(t, finding.Writes)
+	}
+}
+
 // TestConfigFindingsSecretFileMode pins C5: a broadly readable secret file
 // yields a finding that tightens it to 0600.
 func TestConfigFindingsSecretFileMode(t *testing.T) {
@@ -358,6 +394,50 @@ func TestConfigFindingsMovesAnInlineConfigSecret(t *testing.T) {
 	require.Empty(t, reference.ConfigKey)
 	require.Nil(t, reference.Secret)
 	require.Nil(t, reference.FileMode)
+}
+
+// TestConfigFindingsReportsAnInlineCredentialThePerSlugScopeAlreadyDeclares pins
+// that C7 does not move an inline credential whose env var the per-slug secret
+// file already declares: C7's only secret target is the per-slug scope, so the
+// write would overwrite the value and host scope the user set there.
+func TestConfigFindingsReportsAnInlineCredentialThePerSlugScopeAlreadyDeclares(t *testing.T) {
+	f := configFacts(t, &viperconfig.Config{Agent: "opencode"})
+	dir := filepath.Join(f.Paths.UserConfigDir(), "opencode")
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	testutil.WriteFile(t, dir, "opencode.jsonc",
+		`{"provider":{"openai":{"options":{"apiKey":"sk-inline","baseURL":"https://api.openai.com/v1"}}}}`)
+	writeSecretFile(t, f.Paths.UserSlugConfigDir(testSlug),
+		"OPENAI_API_KEY:\n  value: sk-repo\n  host: api.corp.example\n")
+	tightFile(t, f.Paths.UserSlugConfigDir(testSlug))
+
+	findings := ConfigFindings(f)
+
+	var inline []Finding
+	for _, finding := range findings {
+		if strings.Contains(finding.Evidence.Summary, "inline in the managed agent config") {
+			inline = append(inline, finding)
+		}
+	}
+	require.Len(t, inline, 1)
+	require.Contains(t, inline[0].Evidence.Summary, "the per-slug scope already declares it")
+	require.Empty(t, inline[0].Writes, "the per-slug entry must not be overwritten")
+}
+
+// TestConfigFindingsInlineWithoutAPerSlugScopeMovesTheCredential pins that with
+// no per-slug scope in the projection, C7 still moves an inline credential: it
+// has no per-slug declaration to protect.
+func TestConfigFindingsInlineWithoutAPerSlugScopeMovesTheCredential(t *testing.T) {
+	f := configFacts(t, &viperconfig.Config{Agent: "opencode"})
+	f.Scopes = []configpaths.ConfigScope{{Kind: configpaths.ScopeGenericUser, Dir: f.Paths.UserConfigDir()}}
+	dir := filepath.Join(f.Paths.UserConfigDir(), "opencode")
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	testutil.WriteFile(t, dir, "opencode.jsonc",
+		`{"provider":{"openai":{"options":{"apiKey":"sk-inline","baseURL":"https://api.openai.com/v1"}}}}`)
+
+	findings := ConfigFindings(f)
+
+	finding := findingWithSecretFor(t, findings, "OPENAI_API_KEY")
+	require.Len(t, finding.Writes, 2)
 }
 
 // TestConfigFindingsStampEvidenceHash pins that every finding carries the
@@ -546,7 +626,7 @@ func TestInlineConfigFindingsInScopeSkipsDirectories(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "nested"), 0o750))
 
-	require.Empty(t, inlineConfigFindingsInScope(scope, dir))
+	require.Empty(t, inlineConfigFindingsInScope(scope, dir, nil))
 }
 
 // TestInlineConfigFindingRejectsAnIncompleteCredential pins that a credential
@@ -556,7 +636,7 @@ func TestInlineConfigFindingRejectsAnIncompleteCredential(t *testing.T) {
 	f := configFacts(t, &viperconfig.Config{Network: network.Policy{Profiles: []network.Profile{network.ProfileNone}}})
 	scope := f.Scopes[len(f.Scopes)-1]
 
-	_, ok := inlineConfigFinding(scope, readback.Credential{})
+	_, ok := inlineConfigFinding(scope, readback.Credential{}, nil)
 
 	require.False(t, ok, "an empty credential cannot be moved to env.secret.yaml")
 }
@@ -676,7 +756,7 @@ func TestInlineConfigFindingsInScopeReturnsNothingWhenTheDirCannotBeRead(t *test
 	f := configFacts(t, &viperconfig.Config{Network: network.Policy{Profiles: []network.Profile{network.ProfileNone}}})
 	scope := f.Scopes[len(f.Scopes)-1]
 
-	require.Empty(t, inlineConfigFindingsInScope(scope, filepath.Join(t.TempDir(), "missing")))
+	require.Empty(t, inlineConfigFindingsInScope(scope, filepath.Join(t.TempDir(), "missing"), nil))
 }
 
 // TestInlineConfigFindingsInScopeProcessesEveryEntry pins that a directory, a
@@ -692,7 +772,7 @@ func TestInlineConfigFindingsInScopeProcessesEveryEntry(t *testing.T) {
 	testutil.WriteFile(t, dir, "c-opencode.jsonc",
 		`{"provider":{"openai":{"options":{"apiKey":"sk-inline","baseURL":"https://api.openai.com/v1"}}}}`)
 
-	findings := inlineConfigFindingsInScope(scope, dir)
+	findings := inlineConfigFindingsInScope(scope, dir, nil)
 
 	require.Len(t, findings, 1)
 	require.Contains(t, findings[0].Evidence.Summary, "OPENAI_API_KEY")
@@ -726,7 +806,7 @@ func TestInlineConfigFindingRequiresEachField(t *testing.T) {
 		{name: "no value", credential: without(func(c *readback.Credential) { c.Value = "" })},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, ok := inlineConfigFinding(scope, tc.credential)
+			_, ok := inlineConfigFinding(scope, tc.credential, nil)
 			require.Equal(t, tc.wantOK, ok)
 		})
 	}
