@@ -20,8 +20,9 @@ only channel that works when the launcher-owned proxy
 
 Facts 1–3 come from reading the home volume. It also gives configured providers, login presence, and
 harness-specific host and error mentions where the harness happens to record them (usually failure paths, and never
-as reliable attribution). It does not give the destinations actually used, or which credential went where; alone it
-cannot propose a network or secret-substitution change.
+as reliable attribution). It does not give the destinations actually used, or which credential went where; alone it cannot propose a network
+change (its attribution fallback can still scope a static secret to the endpoint the entry's own config names — see
+[findings and apply](findings-and-apply.md)).
 
 Reading a credential is not always reading a file. A harness may write no config file and keep its API key inline in
 its own database; the reader must therefore parse the agent's database, not only config files. The spike verified
@@ -46,11 +47,12 @@ sentinel digest.
 ## Baseline manifest
 
 Change detection rests on a manifest of the agent config dirs and the known credential paths — **path, size, mtime,
-and content hash** for files under a small size cap — taken when the learning session starts. It is not a scan of
-the home volume.
+and content hash** for files under a small size cap — taken when the learning session starts. It is recorded with the
+session (paths and a digest, never a value), so `config learn` compares the same baseline the session began with. It
+is not a scan of the home volume.
 
-The manifest is refreshed at the end of every run once the mode exists, because UC2's file-attributed detection
-needs a baseline from an ordinary run too. A manifest must expect large, frequently-changing files inside a config
+UC2's file-attributed detection will need a baseline from an ordinary run too, refreshed at the end of every run once
+that detection lands. A manifest must expect large, frequently-changing files inside a config
 dir — opencode2's `opencode.db` is ~13 MB, almost all of it a churny model catalog — so a whole-file hash changes
 often and only a changed entry is evidence, not every refreshed line.
 

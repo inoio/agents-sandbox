@@ -26,27 +26,26 @@ What is on `main` now:
 - **S2 landed** (#720): `network.intercept-tls`/`tls-bypass`/`disable-strict`.
 - **S3 landed** (#721): `network.proxy.*`/`--proxy` (SOCKS4/5, HTTP CONNECT).
 - **S4 landed**: `internal/sandbox/channel` — the terminating proxy, the scrubbed capture, the in-memory network
-  overlay, and the artefact store — still carrying its temporary `//deadcode:ignore` markers until S7 wires the
-  invocation. Its one host-only step (a real streaming turn through the proxy) is a human accept the PR carries.
-- **S5 landed** (#722): `internal/sandbox/readback` + `agent.ReadBackDescriber`, still carrying its temporary
-  `//deadcode:ignore` markers (see below).
+  overlay, and the artefact store. Its one host-only step (a real streaming turn through the proxy) is a human accept
+  the PR carries.
+- **S5 landed** (#722): `internal/sandbox/readback` + `agent.ReadBackDescriber`.
 - **S6 landed**: `internal/sandbox/analyser` — the finding model, the observation finder with the never-widen
   network diff, the interactive applier with the slug-keyed decline memory — plus the `envsecret`
-  `WriteSecretSpec`/`RemoveSecretSpec` and `viperconfig.RemoveSetting` write primitives it added. It still carries
-  its temporary `//deadcode:ignore` markers until S7 wires `run --learn` (see below).
+  `WriteSecretSpec`/`RemoveSecretSpec` and `viperconfig.RemoveSetting` write primitives it added.
+- **S7 landed**: `internal/sandbox/learn` — the `run --learn` invocation (the channel `Begin`/overlay before prepare,
+  the baseline capture, the exit prompt, the after-run), `config learn` for a session whose owning process is gone,
+  the `--learn` flag, the `state.LearnSession` record (a `HomeState` schema bump), and the 30-day artefact sweep. It
+  removed the S4/S5/S6 `//deadcode:ignore` markers as it wired each package's consumer. Its host-only steps (a real
+  turn through the proxy, a killed-session replay) are a human accept the PR carries.
 
-**S6 has landed; the frontier is S7 (`run --learn`) and S8 (`config harden`)** — every predecessor has landed.
-**S7, S8, and S10 are now written** (branch `docs/697-learn-mode-s7-s8-s10-plans`):
-`2026-11-17-learn-mode-run.md`, `2026-11-17-config-harden.md`, `2026-11-17-agent-config-writeback.md`.
+**S7 has landed; the frontier is S8 (`config harden`) and S10 (`agent-config-writeback`).**
+**S8 and S10 are now written** (branch `docs/697-learn-mode-s7-s8-s10-plans`):
+`2026-11-17-config-harden.md`, `2026-11-17-agent-config-writeback.md`.
 **S9 is not yet written** — write it when its predecessors land, never in advance.
 
-**S7 must remove the dead-code markers S4, S5, and S6 left.** S4 (`channel`), S5 (`readback` +
-`agent.AsReadBackDescriber`), and S6 (`analyser`) each land a library before its only consumer, so their
-declarations are unreachable from any `main` package and carry temporary declaration-scope
-`//deadcode:ignore reason="…"` markers. None has a production caller until S7 wires `run --learn`. When S7
-imports the packages and wires the invocation, S7 **deletes each marker** — all three marker sets: a marker left
-on a declaration that is now reachable is a stale marker, which also fails the `deadcode` gate (the gate's
-self-defence against markers-as-decoration; see `../specs/ci/quality-gates.md` §Dead-code gate).
+**The S4/S5/S6 markers are gone.** S7 removed every temporary declaration-scope `//deadcode:ignore` marker as it
+wired each package's consumer. A marker left on a now-reachable declaration is a stale marker, which the `deadcode`
+gate fails (its self-defence against markers-as-decoration; see `../specs/ci/quality-gates.md` §Dead-code gate).
 
 **S6 closed three read-back gaps it consumes.** `readback.Credential.Hosts` was declared but nothing populated it,
 so S6 wired `read.go` to fill it from the provider's config entry, giving the config-entry attribution fallback in
@@ -178,9 +177,9 @@ type Observation struct { Destinations []Destination; Attribution []Attribution 
 ```
 
 ```go
-// internal/sandbox/analyser — owned by S6 (analyser). Landed: shipped as a library,
-// with no production caller until S7 wires `run --learn`, so its unreachable
-// declarations keep temporary //deadcode:ignore markers S7 deletes as it wires them.
+// internal/sandbox/analyser — owned by S6 (analyser). Wired by S7's `run --learn`
+// and `config learn`; the temporary //deadcode:ignore markers it carried before
+// its consumer existed were removed in S7.
 // The learn-mode proposal (S6) emits per-slug, non-removing writes only; the applier
 // supports both scopes and removal because S8's `config harden` reuses it (e.g. move
 // a secret out of the committed project config). The config-only finder remains S8's;
@@ -288,9 +287,9 @@ CHANNEL TRACK                                          LEARN TRACK
 | S9 firstrun | `2026-11-17-learn-mode-firstrun.md` (stub) | first-run `Guide` choices + UC4 seed | yes | S4, S5, S7, S10, E2, E3 | — |
 
 S2, S3, S4, and S6 landed (S2/S3 shared `network.Policy`, `msb.NetworkSpec`, `msb/translate.go`,
-`viperconfig/config.go`); S6 landed last on top of S5. **S4 and S6 share no file**: S4 is done and S6 has landed,
-so the frontier is S7/S8 (S10 follows S7, which it extends). Within each subplan, follow its own serialization. A
-subplan's plan is written when its predecessors land, never in advance.
+`viperconfig/config.go`); S6 landed on top of S5; S7 then landed on top of S4 and S6. **S4 and S6 share no file**,
+so S7 was the join; the frontier is now S8 and S10 (S10 follows S7, which it extends). Within each subplan, follow
+its own serialization. A subplan's plan is written when its predecessors land, never in advance.
 
 **S2 re-scope.** S2 ships the TLS-interception **controls only** (`intercept-tls`/`tls-bypass`/`disable-strict`). It does
 no registry handling — no auto-bypass, no allowlist derivation — and the in-VM `docker build` CA case stays a documented

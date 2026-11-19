@@ -59,6 +59,9 @@ managed agent config; login entries stay only in the persistent sandbox home.
 
 ## Applying
 
+- A learning session presents its whole proposal behind one prompt: **Review and save**, **Save all**, or **Not now**.
+  Review and save drives the per-finding prompt below; Save all applies every finding without asking (an explicit
+  top-level accept-all, never `--yes`); Not now writes nothing and records nothing.
 - Applying is interactive and per finding, and a finding's writes each name their own scope and are applied together
   (a move applies both writes or neither). A decline is remembered, keyed on a hash of the evidence, and re-armed
   when the evidence changes. The record lives in the user state dir, keyed by repo slug, so it survives a config-dir
@@ -75,6 +78,12 @@ one-per-checkout with several attachable clients and the last-detach path runs w
 If the owning process is gone (killed harness, closed terminal), the session record stays in state and
 `config learn` performs the same analysis later. A recorded session whose home volume has since been recreated is
 reported and discarded, not analysed.
+
+The record lives in the per-`(checkout, agent)` home state, holding the session's start time, the home volume it was
+taken against, the capture's path, and the baseline manifest — paths and a digest, never a value (invariant 3). The
+after-run is owned by the process that started the session, so it runs before the record is cleared and the capture
+deleted; `config learn`, which resolves the same record for the current checkout and agent, is the replay for a process
+that is gone.
 
 ## `config harden`
 

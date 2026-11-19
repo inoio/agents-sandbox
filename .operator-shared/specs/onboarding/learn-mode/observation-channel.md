@@ -142,7 +142,8 @@ identity — the placeholder-versus-real distinction the topology establishes is
 so the analyser attributes a header to a configured secret by falling back to `readback.Credential.Hosts`.
 
 The artefact stays on the host, is deleted after analysis by default, and is never uploaded. It is secret material
-(invariant 3).
+(invariant 3). An unreviewed artefact — a session whose owning process died — is swept at the next launcher start once
+it is 30 days old.
 
 ## Prerequisites and constraints
 
@@ -162,7 +163,8 @@ network config, which is creation-only. On an existing project VM the session th
 normal reconfiguration path and its guards — the per-project creation lock, and the same keep/quit/restart prompt
 when other clients are attached — with the prompt naming the temporary observation settings. The user's config is
 never written for the overlay. A user who declines the recreate gets a passive-read-back session, which establishes
-facts 1–3 and proposes no network or secret-substitution change.
+facts 1–3 and proposes no network change. It can still propose a static secret whose endpoint the entry's own config
+names (the config-entry fallback in [findings and apply](findings-and-apply.md)), since that needs no attribution.
 
 ## Open validation
 
