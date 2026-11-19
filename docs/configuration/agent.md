@@ -185,10 +185,10 @@ The drop-in copy is scoped to the agent's settings and, for opencode, its creden
   keeps literal provider keys (`api_key`, `[providers.<id>.env]`) beside its settings; nor are `mcp.json` (MCP
   headers and env can hold tokens), the `credentials/` logins, or runtime state. Put Kimi settings in `config*.toml`
   snippets instead (see [Config snippet merge](#config-snippet-merge)).
-- **qwen-code** — from `~/.qwen`: `QWEN.md`, `AGENTS.md`, and the `commands/`, `skills/`, and `agents/` directories.
-  `settings.json` is not copied, because `/auth` saves API keys into its `env` section beside the settings; nor are the
-  `oauth_creds.json` and `mcp-oauth-tokens.json` logins, `extensions/` (each extension keeps its settings, including
-  secret ones, in a `.env`), or runtime state. Put Qwen settings in `settings*.json` snippets instead (see
+- **qwen-code** — from `~/.qwen`: `QWEN.md`, `AGENTS.md`, and the `commands/`, `skills/`, `agents/`, and `workflows/`
+  directories. `settings.json` is not copied, because `/auth` saves API keys into its `env` section beside the
+  settings; nor are `.env` (environment variables, typically keys), the `oauth_creds.json` and `mcp-oauth-tokens.json`
+  logins, `extensions/` (each extension keeps its settings, including secret ones, in a `.env`), or runtime state. Put Qwen settings in `settings*.json` snippets instead (see
   [Config snippet merge](#config-snippet-merge)).
 
 Precedence: the merged snippet config and any `home:` mappings override the drop-in copy for the same VM path.

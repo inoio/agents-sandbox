@@ -222,9 +222,11 @@ func TestQwenCodeProvisionRulesCopyOnlyCredentialFreeFiles(t *testing.T) {
 		"commands/review.toml",
 		"skills/fix/SKILL.md",
 		"agents/reviewer.md",
+		"workflows/release.js",
 	}
 	notCopied := []string{
 		"settings.json",
+		".env",
 		"oauth_creds.json",
 		"mcp-oauth-tokens.json",
 		"extensions/notify/.env",

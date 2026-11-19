@@ -105,15 +105,15 @@ func (qwenCodeProfile) VMConfigPath(home string) string {
 func (qwenCodeProfile) ConfigFileNames() []string { return []string{settingsFileName} }
 
 // ProvisionRules copies the data root's user-authored files that carry no
-// credential: the global instructions and the command, skill, and subagent
-// trees. settings.json holds the keys /auth saves in its env, oauth_creds.json
-// and mcp-oauth-tokens.json hold logins, and every extension keeps its settings
-// in a .env; keys reach the VM only as msb secrets, and the rest of the data
+// credential: the global instructions and the command, skill, subagent, and
+// saved-workflow trees. settings.json holds the keys /auth saves in its env,
+// .env holds environment secrets, oauth_creds.json and mcp-oauth-tokens.json
+// hold logins, and every extension keeps its settings in a .env; keys reach the VM only as msb secrets, and the rest of the data
 // root is runtime state.
 func (qwenCodeProfile) ProvisionRules() []ProvisionRule {
 	return []ProvisionRule{
 		{Dir: qwenCodeDataDir, Patterns: []string{
-			"/QWEN.md", "/AGENTS.md", "/commands/", "/skills/", "/agents/",
+			"/QWEN.md", "/AGENTS.md", "/commands/", "/skills/", "/agents/", "/workflows/",
 		}},
 	}
 }
