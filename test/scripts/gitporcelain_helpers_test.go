@@ -27,6 +27,7 @@ func porcelainGit(tb testing.TB, dir string, args ...string) (string, error) {
 		"git",
 		args...) //testenv:allow the two porcelain fixtures need the real git the tools under test drive
 	command.Dir = dir
+	//testenv:allow the porcelain helper builds the child git environment from the caller's, then strips the ambient git settings
 	command.Env = testutil.GitIsolationEnvironment(os.Environ())
 	out, err := command.CombinedOutput()
 	return string(out), err

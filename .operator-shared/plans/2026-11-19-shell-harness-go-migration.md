@@ -29,7 +29,7 @@ The failure modes the spec implies that no single task's tests own, most likely 
 2. **A fixture whose commit reproduces a patch-id by accident rather than by identical diff.** `backport-audit`/`open-backport-pr` depend on it; Task 3's builder documents the rule and Task 9/8 assert the ported/unported outcomes.
 3. **A fake command whose argv handling diverges from the real CLI.** `gh ... --jq`/`-q` matters to `backport-audit` (`serve_doc`) and `enqueue-pr`; the fake must strip and honor it.
 4. **A harness that reads or writes ambient paths.** `HOME`/`TMPDIR`/`XDG_*` must be redirected into `t.TempDir()` by the runner; `surface-sweep` and `envelope` additionally own socket/`XDG_DATA_HOME` paths.
-5. **A harness migrated onto go-git that actually needed a real-git porcelain.** `rebase-status` (in-progress rebase) and `cleanup-merged-branches` (`worktree`, `clone`, `push --force-with-lease`) stay bash; migrating them is out of scope and a task that touches them is a red flag.
+5. **A harness migrated onto go-git that actually needed a real-git porcelain.** `rebase-status` (in-progress rebase) and `cleanup-merged-branches` (`worktree`, `clone --bare`, `push --force-with-lease`) could not be built on go-git. Superseded: both were ported to Go and drive real git through the shared exec-git porcelain helper `test/scripts/gitporcelain_helpers_test.go` (the single sanctioned ambient-git exec in `test/scripts`), so the host-git-config isolation is applied at one chokepoint and cannot drift.
 
 ## File Structure
 

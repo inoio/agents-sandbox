@@ -270,7 +270,8 @@ func cleanupRunGh(t *testing.T, proj, records string) ScriptResult {
 	env := map[string]string{
 		cleanupMergedBranchesFakeGhEnv: "1",
 		cleanupMergedBranchesPrsEnv:    records,
-		"PATH":                         binDir + string(os.PathListSeparator) + os.Getenv("PATH"),
+		//testenv:allow the fake gh on PATH must extend the caller's PATH
+		"PATH": binDir + string(os.PathListSeparator) + os.Getenv("PATH"),
 	}
 	return RunScript(t, filepath.Join(proj, "main"), env, repositoryScript(t, "cleanup-merged-branches.sh"),
 		"--dry-run", "--no-fetch", "--fresh", "0", "--color", "never")
