@@ -1078,6 +1078,23 @@ func TestRemoveSettingAbsentKeyIsANoOp(t *testing.T) {
 	}
 }
 
+// TestRemoveSettingEmptyFileIsANoOp pins that an existing but empty config file
+// (a document with no mapping root) is a no-op: the removal addresses a key that
+// cannot be present, so the file stays byte-identical.
+func TestRemoveSettingEmptyFileIsANoOp(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	dir := configpaths.Get().UserConfigDir()
+	testutil.WriteFile(t, dir, "config.yaml", "")
+
+	if err := RemoveSetting(dir, "memory"); err != nil {
+		t.Fatalf("RemoveSetting: %v", err)
+	}
+
+	if got := readTestFile(t, filepath.Join(dir, "config.yaml")); got != "" {
+		t.Errorf("empty config changed to %q; want it untouched", got)
+	}
+}
+
 // TestRemoveSettingAbsentFileIsANoOp pins that a directory with no config file
 // is left without one: removing a key never creates config.yaml.
 func TestRemoveSettingAbsentFileIsANoOp(t *testing.T) {

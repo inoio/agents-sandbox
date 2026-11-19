@@ -74,13 +74,9 @@ func (e Evidence) hash() string {
 		Channel:      e.Channel,
 		HeaderFields: sortedCopy(e.HeaderFields),
 	}
-	// Evidence holds only strings, numbers, and bools, so marshalling cannot
-	// fail; a digest is still the caller's only handle on the evidence, so a
-	// panic beats a silently empty hash.
-	rendered, err := json.Marshal(canonical)
-	if err != nil {
-		panic("analyser: marshal evidence: " + err.Error())
-	}
+	// Evidence holds only strings, numbers, and bools, so its canonical
+	// rendering cannot fail to marshal.
+	rendered, _ := json.Marshal(canonical)
 	sum := sha256.Sum256(rendered)
 	return hex.EncodeToString(sum[:])
 }

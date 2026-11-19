@@ -2,7 +2,6 @@ package analyser
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -143,14 +142,10 @@ func applyFinding(finding Finding, opts ApplyOptions) ApplyResult {
 	for _, plan := range plans {
 		dir, err := executeWrite(plan, opts)
 		if err != nil {
-			// An unsupported config format writes nothing, so it is a skip, not
-			// a failure; anything else is a failure.
-			if errors.Is(err, viperconfig.ErrUnsupportedConfigFormat) {
-				result.Outcome = OutcomeSkipped
-				result.Note = err.Error()
-			} else {
-				result.Outcome = OutcomeFailed
-			}
+			// planWrites refuses a target it cannot edit before any write runs,
+			// so an execution-time failure is an unexpected one: it fails the
+			// finding rather than reading as a skip.
+			result.Outcome = OutcomeFailed
 			result.Err = err.Error()
 			return result
 		}

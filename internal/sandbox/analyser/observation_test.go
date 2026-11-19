@@ -231,6 +231,51 @@ func TestObservationSecretUsesChannelAttributionThenConfigEntryHosts(t *testing.
 		"with no channel attribution the credential's header-field hint is used")
 }
 
+// TestObservationAttributionSkipsUnmatchedEntries: an attribution entry for
+// another credential, or one with no host, is not a host source; only a matching
+// entry with a host contributes.
+func TestObservationAttributionSkipsUnmatchedEntries(t *testing.T) {
+	s := SessionFacts{
+		Current: narrowNone(),
+		ReadBack: readback.ReadBack{Static: []readback.Credential{{
+			Kind:     readback.CredentialStatic,
+			EnvVar:   "OPENAI_API_KEY",
+			Provider: "openai",
+			Hosts:    []string{"config.example"},
+		}}},
+		Observation: channel.Observation{Attribution: []channel.Attribution{
+			{Credential: "OTHER_TOKEN", Host: "other.example"},
+			{Credential: "OPENAI_API_KEY", Host: ""},
+			{Credential: "OPENAI_API_KEY", Host: "attributed.example"},
+		}},
+	}
+
+	findings := ObservationFindings(s)
+
+	require.Len(t, findings, 1)
+	require.Equal(t, []string{"attributed.example"}, findings[0].Writes[0].Secret.Hosts)
+}
+
+// TestObservationSecretWithoutAHeaderHintHasNoHeaderFields pins that a
+// credential with no channel attribution and no header-field hint scopes the
+// secret to no specific header.
+func TestObservationSecretWithoutAHeaderHintHasNoHeaderFields(t *testing.T) {
+	s := SessionFacts{
+		Current: narrowNone(),
+		ReadBack: readback.ReadBack{Static: []readback.Credential{{
+			Kind:     readback.CredentialStatic,
+			EnvVar:   "CUSTOM_TOKEN",
+			Provider: "custom",
+			Hosts:    []string{"api.example"},
+		}}},
+	}
+
+	findings := ObservationFindings(s)
+
+	require.Len(t, findings, 1)
+	require.Empty(t, findings[0].Writes[0].Secret.HeaderFields)
+}
+
 // TestObservationSecretWriteShape: the secret write names the env var, the
 // provider, the scoped hosts, and the header-field hint, and never the value.
 func TestObservationSecretWriteShape(t *testing.T) {

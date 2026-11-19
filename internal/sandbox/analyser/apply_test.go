@@ -2,6 +2,7 @@ package analyser
 
 import (
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/projecttrust"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -478,6 +480,331 @@ func TestApplyPromptSurfacesWriteText(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "The network policy is creation-only.") {
 		t.Errorf("prompt = %q; want the write's text", prompt)
+	}
+}
+
+// TestApplyFailsWhenTheDeclineMemoryCannotBeRead pins that an unreadable decline
+// memory is a failure, not a silent re-proposal: the applier must not ask about a
+// finding whose decline state it could not determine.
+func TestApplyFailsWhenTheDeclineMemoryCannotBeRead(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	stateDir := cp.UserStateDir()
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatalf("mkdir state root: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "state.yaml"), []byte("{ corrupt: [\n"), 0o600); err != nil {
+		t.Fatalf("seed corrupt state: %v", err)
+	}
+
+	finding := perSlugWrite("network.profile", "none")
+	finding.EvidenceHash = finding.Evidence.hash()
+	ui, answered := interactiveUI()
+	results := Apply([]Finding{finding}, ApplyOptions{
+		Paths: cp, Slug: testSlug, UI: ui, Mode: options.ModeRun,
+	})
+
+	if results[0].Outcome != OutcomeFailed || results[0].Err == "" {
+		t.Fatalf("result = %+v; want a failed outcome carrying the read error", results[0])
+	}
+	if *answered != 0 {
+		t.Errorf("the unreadable decline memory asked %d prompts; want none", *answered)
+	}
+}
+
+// TestApplyFailsWhenThePromptFails pins that a prompt error fails the finding
+// rather than being read as a decline.
+func TestApplyFailsWhenThePromptFails(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	ui := &termiotest.Mock{IsInteractiveResult: true}
+	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		return "", errors.New("prompt failed")
+	}
+
+	results := Apply([]Finding{perSlugWrite("network.profile", "none")}, ApplyOptions{
+		Paths: cp, Slug: testSlug, UI: ui, Mode: options.ModeRun,
+	})
+
+	if results[0].Outcome != OutcomeFailed || !strings.Contains(results[0].Err, "ask to apply the finding") {
+		t.Fatalf("result = %+v; want a failed outcome naming the prompt error", results[0])
+	}
+}
+
+// TestApplyReportsAFailedDeclineRecord pins that a decline the applier could not
+// persist is surfaced: the finding is declined, but the run reports that the
+// memory was not updated.
+func TestApplyReportsAFailedDeclineRecord(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	restore := state.OverrideStateWriteForTest(func(string, []byte) error {
+		return errors.New("state write boom")
+	})
+	t.Cleanup(restore)
+
+	finding := perSlugWrite("network.profile", "none")
+	finding.EvidenceHash = finding.Evidence.hash()
+	results := Apply([]Finding{finding}, ApplyOptions{
+		Paths: cp, Slug: testSlug, UI: decliningUI(), Mode: options.ModeRun,
+	})
+
+	if results[0].Outcome != OutcomeDeclined || results[0].Err == "" {
+		t.Fatalf("result = %+v; want a declined outcome carrying the record error", results[0])
+	}
+}
+
+// TestApplySkipsAProjectWriteWithoutACheckoutSlug pins that a project-scope
+// write the applier cannot gate is refused before any prompt or write.
+func TestApplySkipsAProjectWriteWithoutACheckoutSlug(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	ui, answered := interactiveUI()
+
+	finding := Finding{
+		Evidence: Evidence{Summary: "narrow the profile"},
+		Writes:   []Write{{Scope: ScopeProject, ConfigKey: "network.profile", ConfigValue: "none"}},
+	}
+	results := Apply([]Finding{finding}, ApplyOptions{
+		Paths: cp, Slug: testSlug, UI: ui, Mode: options.ModeRun,
+	})
+
+	if results[0].Outcome != OutcomeSkipped || results[0].Note == "" {
+		t.Fatalf("result = %+v; want a skipped outcome with a note", results[0])
+	}
+	if *answered != 0 {
+		t.Errorf("a project write with no checkout slug asked %d prompts; want none", *answered)
+	}
+}
+
+// TestApplySkipsASecretWithNoResolvableValue pins that a static secret whose
+// value the applier cannot resolve is refused, and that a nil resolver reports
+// the same: a login credential's value is never read.
+func TestApplySkipsASecretWithNoResolvableValue(t *testing.T) {
+	t.Run("nil resolver", func(t *testing.T) {
+		configpathstest.WithMockConfigPaths(t)
+		cp := configpaths.Get()
+		ui, _ := interactiveUI()
+
+		results := Apply([]Finding{secretFindingFor("OPENAI_API_KEY")}, ApplyOptions{
+			Paths: cp, Slug: testSlug, UI: ui, Mode: options.ModeRun,
+		})
+
+		if results[0].Outcome != OutcomeSkipped || results[0].Note == "" {
+			t.Fatalf("result = %+v; want a skipped outcome with a note", results[0])
+		}
+	})
+
+	t.Run("empty value", func(t *testing.T) {
+		configpathstest.WithMockConfigPaths(t)
+		cp := configpaths.Get()
+		ui, _ := interactiveUI()
+
+		results := Apply([]Finding{secretFindingFor("OPENAI_API_KEY")}, ApplyOptions{
+			Paths: cp, Slug: testSlug, UI: ui, Mode: options.ModeRun,
+			SecretValue: func(SecretWrite) (string, bool) { return "", true },
+		})
+
+		if results[0].Outcome != OutcomeSkipped || results[0].Note == "" {
+			t.Fatalf("result = %+v; want a skipped outcome with a note", results[0])
+		}
+	})
+}
+
+// TestApplySkipsAConfigDirItCannotRead pins that a target directory whose config
+// file cannot be discovered is refused before any prompt: an approved config file
+// that has gone missing is a refusal, not an absent file to create.
+func TestApplySkipsAConfigDirItCannotRead(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	dir := cp.UserSlugConfigDir(testSlug)
+	gone := filepath.Join(dir, "config.yaml")
+	t.Cleanup(projectguard.Install(
+		[]string{dir},
+		map[string]projectguard.Approval{gone: projectguard.ApprovalOf([]byte("memory: 1G\n"))},
+	))
+
+	ui, answered := interactiveUI()
+	results := Apply([]Finding{perSlugWrite("network.profile", "none")}, ApplyOptions{
+		Paths: cp, Slug: testSlug, UI: ui, Mode: options.ModeRun,
+	})
+
+	if results[0].Outcome != OutcomeSkipped || results[0].Err == "" {
+		t.Fatalf("result = %+v; want a skipped outcome carrying the read error", results[0])
+	}
+	if *answered != 0 {
+		t.Errorf("an unreadable config dir asked %d prompts; want none", *answered)
+	}
+}
+
+// TestApplyRemovesAConfigKey pins the removal form: a per-slug finding whose
+// write removes a key deletes it through RemoveSetting.
+func TestApplyRemovesAConfigKey(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	unsetKeyEnvironment(t, "network.profile")
+	cp := configpaths.Get()
+	dir := cp.UserSlugConfigDir(testSlug)
+	testutil.WriteFile(t, dir, "config.yaml", "network:\n  profile: none\n")
+
+	ui, _ := interactiveUI()
+	finding := Finding{
+		Evidence: Evidence{Summary: "narrow the profile"},
+		Writes:   []Write{{Scope: ScopePerSlugUser, ConfigKey: "network.profile", Remove: true}},
+	}
+	results := Apply([]Finding{finding}, ApplyOptions{
+		Paths: cp, Slug: testSlug, UI: ui, Mode: options.ModeRun,
+	})
+
+	if results[0].Outcome != OutcomeApplied {
+		t.Fatalf("outcome = %q (%s); want applied", results[0].Outcome, results[0].Err)
+	}
+	if content := readFile(t, filepath.Join(dir, "config.yaml")); strings.Contains(content, "profile") {
+		t.Errorf("config.yaml = %q; want network.profile removed", content)
+	}
+}
+
+// TestApplyRemovesASecret pins the removal form for a secret: a finding whose
+// write removes a static credential deletes it through RemoveSecretSpec.
+func TestApplyRemovesASecret(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	dir := cp.UserSlugConfigDir(testSlug)
+	testutil.WriteFile(t, dir, "env.secret.yaml", "OPENAI_API_KEY:\n  value: v\n  host: api.openai\n")
+
+	ui, _ := interactiveUI()
+	finding := Finding{
+		Evidence: Evidence{Summary: "remove the committed secret"},
+		Writes:   []Write{{Scope: ScopePerSlugUser, Secret: &SecretWrite{EnvVar: "OPENAI_API_KEY", Remove: true}}},
+	}
+	results := Apply([]Finding{finding}, ApplyOptions{
+		Paths: cp, Slug: testSlug, UI: ui, Mode: options.ModeRun,
+	})
+
+	if results[0].Outcome != OutcomeApplied {
+		t.Fatalf("outcome = %q (%s); want applied", results[0].Outcome, results[0].Err)
+	}
+	if content := readFile(t, filepath.Join(dir, "env.secret.yaml")); strings.Contains(content, "OPENAI_API_KEY") {
+		t.Errorf("env.secret.yaml = %q; want the secret removed", content)
+	}
+}
+
+// TestApplyRemovesAProjectSetting pins the project-scope removal: it extends the
+// approval, removes the key through the trust gate, and leaves the file without
+// it.
+func TestApplyRemovesAProjectSetting(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	unsetKeyEnvironment(t, "network.profile")
+	cp := configpaths.Get()
+	if err := viperconfig.WriteSetting(cp.ProjectConfigDir(), "network.profile", "broad"); err != nil {
+		t.Fatalf("seed the project config: %v", err)
+	}
+	approveProjectLayer(t, cp)
+
+	ui, _ := interactiveUI()
+	finding := Finding{
+		Evidence: Evidence{Summary: "narrow the profile"},
+		Writes:   []Write{{Scope: ScopeProject, ConfigKey: "network.profile", Remove: true}},
+	}
+	results := Apply([]Finding{finding}, ApplyOptions{
+		Paths: cp, Slug: testSlug, CheckoutSlug: testCheckoutSlug, UI: ui, Mode: options.ModeRun,
+	})
+
+	if results[0].Outcome != OutcomeApplied {
+		t.Fatalf("outcome = %q (%s); want applied", results[0].Outcome, results[0].Err)
+	}
+	if content := readFile(
+		t,
+		filepath.Join(cp.ProjectConfigDir(), "config.yaml"),
+	); strings.Contains(
+		content,
+		"profile",
+	) {
+		t.Errorf("project config = %q; want network.profile removed", content)
+	}
+}
+
+// TestApplyFailsWhenTheProjectApprovalCannotBeRecorded pins that a project-scope
+// write fails when its approval cannot be extended: the write must not run
+// without the approval that would keep the next run from re-asking.
+func TestApplyFailsWhenTheProjectApprovalCannotBeRecorded(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	unsetKeyEnvironment(t, "network.profile")
+	cp := configpaths.Get()
+	stateDir := cp.UserStateDir()
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatalf("mkdir state root: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "state.yaml"), []byte("{ corrupt: [\n"), 0o600); err != nil {
+		t.Fatalf("seed corrupt state: %v", err)
+	}
+
+	ui, _ := interactiveUI()
+	finding := Finding{
+		Evidence: Evidence{Summary: "narrow the profile"},
+		Writes:   []Write{{Scope: ScopeProject, ConfigKey: "network.profile", ConfigValue: "none"}},
+	}
+	results := Apply([]Finding{finding}, ApplyOptions{
+		Paths: cp, Slug: testSlug, CheckoutSlug: testCheckoutSlug, UI: ui, Mode: options.ModeRun,
+	})
+
+	if results[0].Outcome != OutcomeFailed || results[0].Err == "" {
+		t.Fatalf("result = %+v; want a failed outcome carrying the approval error", results[0])
+	}
+}
+
+// TestApplyRestoresTheApprovalWhenTheProjectWriteFails pins that a project write
+// that fails after its approval was extended restores the previous approval, so
+// the launcher's own failed change does not need re-approval.
+func TestApplyRestoresTheApprovalWhenTheProjectWriteFails(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	unsetKeyEnvironment(t, "network.profile")
+	cp := configpaths.Get()
+	// The key's prefix is a scalar, so setting the nested key cannot be
+	// expressed and the write fails after the approval is extended.
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "network: private\n")
+	approveProjectLayer(t, cp)
+	before := readFile(t, filepath.Join(cp.ProjectConfigDir(), "config.yaml"))
+
+	ui, _ := interactiveUI()
+	finding := Finding{
+		Evidence: Evidence{Summary: "narrow the profile"},
+		Writes:   []Write{{Scope: ScopeProject, ConfigKey: "network.profile", ConfigValue: "none"}},
+	}
+	results := Apply([]Finding{finding}, ApplyOptions{
+		Paths: cp, Slug: testSlug, CheckoutSlug: testCheckoutSlug, UI: ui, Mode: options.ModeRun,
+	})
+
+	if results[0].Outcome != OutcomeFailed {
+		t.Fatalf("outcome = %q (%s); want a failed write", results[0].Outcome, results[0].Err)
+	}
+	if after := readFile(t, filepath.Join(cp.ProjectConfigDir(), "config.yaml")); after != before {
+		t.Errorf("project config changed to %q; want it untouched %q", after, before)
+	}
+}
+
+// TestApprovalValue renders a config value as the string the trust gate records:
+// a string round-trips as itself, every other value as JSON, and an unencodable
+// value falls back to its string form rather than an empty record.
+func TestApprovalValue(t *testing.T) {
+	if got := approvalValue("none"); got != "none" {
+		t.Errorf("approvalValue(string) = %q; want the string", got)
+	}
+	if got := approvalValue([]string{"a.example", "b.example"}); got != `["a.example","b.example"]` {
+		t.Errorf("approvalValue(list) = %q; want its JSON", got)
+	}
+	if got := approvalValue(math.NaN()); got != "NaN" {
+		t.Errorf("approvalValue(NaN) = %q; want the fallback string form", got)
+	}
+}
+
+// secretFindingFor builds a one-write finding proposing a static secret with a
+// derivable host.
+func secretFindingFor(envVar string) Finding {
+	return Finding{
+		Evidence: Evidence{Summary: "the session used " + envVar},
+		Writes: []Write{{
+			Scope:  ScopePerSlugUser,
+			Secret: &SecretWrite{EnvVar: envVar, Provider: "openai", Hosts: []string{"api.openai.com"}},
+		}},
 	}
 }
 

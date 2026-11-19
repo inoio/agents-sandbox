@@ -113,6 +113,23 @@ func TestLearnDeclineAbsentIsNotDeclined(t *testing.T) {
 	}
 }
 
+// TestLearnDeclinedSurfacesACorruptDocument pins that a root document that
+// cannot be read is returned as an error rather than reported as "not declined":
+// an unreadable decline memory must not silently re-propose a declined finding.
+func TestLearnDeclinedSurfacesACorruptDocument(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	if err := os.MkdirAll(stateRoot(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rootStateFile(), []byte("{ corrupt: [\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LearnDeclined("widget-abc", "h1"); err == nil {
+		t.Fatal("LearnDeclined over a corrupt document = nil error, want a read failure")
+	}
+}
+
 // TestRootStateOmitsEmptyLearnDeclines pins the omitempty contract: an empty
 // registry is dropped from the document rather than written as an empty key.
 func TestRootStateOmitsEmptyLearnDeclines(t *testing.T) {

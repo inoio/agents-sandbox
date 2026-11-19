@@ -19,6 +19,11 @@ import (
 // directory the caller resolved (a config scope directory).
 const secretFileName = configpaths.EnvSecretFileName + ".yaml"
 
+// writeSecretFile is the durable writer the secret store edits through. Tests
+// substitute it to exercise the write-failure path a full disk or a vanished
+// directory otherwise produces.
+var writeSecretFile = atomicwrite.WriteFileMode
+
 // WriteSecretSpec merges one keyed secret spec into <dir>/env.secret.yaml,
 // creating the file mode 0600 when absent and preserving every other key and
 // comment. It never writes a spec with an empty value or with neither hosts nor
@@ -228,7 +233,7 @@ func writeSecretDocument(dir string, document *oneyaml.Document, existed bool) e
 		}
 	}
 	edited := document.Bytes()
-	if err := atomicwrite.WriteFileMode(target, edited, perm); err != nil {
+	if err := writeSecretFile(target, edited, perm); err != nil {
 		return err
 	}
 	projectguard.Accept(path, edited)

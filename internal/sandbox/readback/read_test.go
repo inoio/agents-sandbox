@@ -454,6 +454,51 @@ func TestReadCappedFileBoundary(t *testing.T) {
 	require.False(t, ok, "a file over the cap is refused")
 }
 
+// TestConfigEndpointHostsSkipsEntriesItCannotRead: an entry with an unknown
+// extension, no hash (an opaque over-cap file), or content that cannot be read
+// contributes no endpoint: an unrecognised shape yields no host, never a guess.
+func TestConfigEndpointHostsSkipsEntriesItCannotRead(t *testing.T) {
+	home := t.TempDir()
+	manifest := Manifest{Entries: []ManifestEntry{
+		{Key: ".hermes/notes.txt", Size: 1, Hash: "abc"},   // unknown extension
+		{Key: ".hermes/config.yaml", Size: 1, Hash: "abc"}, // known extension but the file is absent
+		{Key: ".hermes/opaque.yaml", Size: 1, Hash: ""},    // opaque (over-cap) entry
+		{Key: ".hermes:probe", Hash: "abc"},                // a probe entry
+		{Key: ".hermes/.env", Size: 1, Hash: "abc"},        // the dotenv carries no endpoint
+	}}
+
+	hostsByProvider := configEndpointHosts(home, manifest)
+
+	require.Empty(t, hostsByProvider)
+}
+
+// TestCollectEndpointHostsWalksSequences: an endpoint declared inside a
+// sequence node is still found, so a provider entry expressed as a list item
+// yields its host.
+func TestCollectEndpointHostsWalksSequences(t *testing.T) {
+	hostsByProvider := map[string][]string{}
+
+	collectEndpointHosts(
+		[]any{map[string]any{"provider": "openai", "base_url": "https://api.example/v1"}},
+		"", "", hostsByProvider,
+	)
+
+	require.Equal(t, []string{"api.example"}, hostsByProvider["openai"])
+}
+
+// TestEndpointHostsIgnoresNonStringValues: an endpoint key whose value is not a
+// string contributes nothing rather than a guessed host.
+func TestEndpointHostsIgnoresNonStringValues(t *testing.T) {
+	require.Empty(t, endpointHosts(map[string]any{"url": 123}))
+}
+
+// TestEndpointHostRejectsNonURLAndHostlessValues: a value that is not an
+// absolute URL with a host normalizes to the empty host.
+func TestEndpointHostRejectsNonURLAndHostlessValues(t *testing.T) {
+	require.Empty(t, endpointHost("not a url"))
+	require.Empty(t, endpointHost("http://[::1"))
+}
+
 // TestReadStaticCredentialCarriesDotenvKeyAsEnvVar: the dotenv key is the
 // configured secret's env-var name, carried on the credential so a learn-mode
 // finding can scope the secret write to the variable it replaces.

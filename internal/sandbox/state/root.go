@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"go.yaml.in/yaml/v4"
-
-	"github.com/inoio/agents-sandbox/internal/atomicwrite"
 )
 
 // RootState is the launcher-global state document at the top of the state root,
@@ -290,7 +288,7 @@ func writeRootState(s RootState) error {
 	if err != nil {
 		return fmt.Errorf("marshal root state: %w", err)
 	}
-	if err := atomicwrite.WriteFile(rootStateFile(), data); err != nil {
+	if err := writeStateFile(rootStateFile(), data); err != nil {
 		return fmt.Errorf("write root state: %w", err)
 	}
 	return nil

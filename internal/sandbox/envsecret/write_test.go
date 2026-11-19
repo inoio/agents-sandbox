@@ -1,6 +1,7 @@
 package envsecret
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -184,6 +185,102 @@ func TestWriteSecretSpecRejectsUnparseableFile(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Equal(t, malformed, readFile(t, path))
+}
+
+// TestWriteSecretSpecSurfacesANonMappingRoot pins that a file whose root cannot
+// hold a mapping key is refused rather than rewritten.
+func TestWriteSecretSpecSurfacesANonMappingRoot(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "env.secret.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("42\n"), 0o600))
+
+	err := WriteSecretSpec(dir, "FOO", SecretSpec{Value: "v", Host: "h.example"})
+
+	require.Error(t, err)
+	assert.Equal(t, "42\n", readFile(t, path))
+}
+
+// TestWriteSecretSpecSurfacesAnAmbiguousDuplicateKey pins that a key occurring
+// twice has no unambiguous target, so the write is refused and the file is left
+// untouched rather than editing an arbitrary one of the entries.
+func TestWriteSecretSpecSurfacesAnAmbiguousDuplicateKey(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "env.secret.yaml")
+	content := "FOO:\n  value: v\n  host: h.example\nFOO:\n  value: w\n  host: h.example\n"
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+
+	err := WriteSecretSpec(dir, "FOO", SecretSpec{Value: "v2", Host: "h.example"})
+
+	require.Error(t, err)
+	assert.Equal(t, content, readFile(t, path))
+}
+
+// TestRemoveSecretSpecSurfacesAnAmbiguousDuplicateKey covers the same ambiguous
+// key through the remover, so both entry points fail closed.
+func TestRemoveSecretSpecSurfacesAnAmbiguousDuplicateKey(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "env.secret.yaml")
+	content := "FOO:\n  value: v\n  host: h.example\nFOO:\n  value: w\n  host: h.example\n"
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+
+	err := RemoveSecretSpec(dir, "FOO")
+
+	require.Error(t, err)
+	assert.Equal(t, content, readFile(t, path))
+}
+
+// TestRemoveSecretSpecRefusesAnAnchorInUse pins that removing an anchored entry
+// an alias elsewhere references is refused: the alias would be left dangling.
+func TestRemoveSecretSpecRefusesAnAnchorInUse(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "env.secret.yaml")
+	content := "FOO: &x\n  value: v\n  host: h.example\nBAR: *x\n"
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+
+	err := RemoveSecretSpec(dir, "FOO")
+
+	require.Error(t, err)
+	assert.Equal(t, content, readFile(t, path))
+}
+
+// TestWriteSecretSpecSurfacesAReadFailure pins that a path the reader cannot
+// read (a directory named like the secret file) is refused, never treated as an
+// absent file to create over.
+func TestWriteSecretSpecSurfacesAReadFailure(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "env.secret.yaml"), 0o700))
+
+	err := WriteSecretSpec(dir, "FOO", SecretSpec{Value: "v", Host: "h.example"})
+
+	require.Error(t, err)
+}
+
+// TestWriteSecretSpecSurfacesAWriteFailure pins that a failed atomic write is
+// returned rather than swallowed, so a caller knows the secret did not land.
+func TestWriteSecretSpecSurfacesAWriteFailure(t *testing.T) {
+	dir := t.TempDir()
+	orig := writeSecretFile
+	writeSecretFile = func(string, []byte, os.FileMode) error { return errors.New("disk full") }
+	t.Cleanup(func() { writeSecretFile = orig })
+
+	err := WriteSecretSpec(dir, "FOO", SecretSpec{Value: "v", Host: "h.example"})
+
+	require.ErrorContains(t, err, "disk full")
+}
+
+// TestValidateSecretFileReportsWhatCanBeEdited pins the validator's contract:
+// an absent or parseable file can be edited, an unparseable one cannot.
+func TestValidateSecretFileReportsWhatCanBeEdited(t *testing.T) {
+	absent := t.TempDir()
+	require.NoError(t, ValidateSecretFile(absent))
+
+	valid := t.TempDir()
+	require.NoError(t, WriteSecretSpec(valid, "FOO", SecretSpec{Value: "v", Host: "h.example"}))
+	require.NoError(t, ValidateSecretFile(valid))
+
+	unparseable := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(unparseable, "env.secret.yaml"), []byte("{ not yaml\n"), 0o600))
+	require.Error(t, ValidateSecretFile(unparseable))
 }
 
 // TestWriteSecretSpecEscapesKey pins that a key whose characters JSON-pointer
