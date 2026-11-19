@@ -774,6 +774,57 @@ func TestRunAgentOhMyPiRejectsDaemonOnlyFlags(t *testing.T) {
 	}
 }
 
+// TestRunDryRunAgentKimiCode verifies `run --agent kimi-code` resolves the
+// kimi-code profile, notices that it is experimental, and previews without
+// starting a VM.
+func TestRunDryRunAgentKimiCode(t *testing.T) {
+	initTestProjectDir(t)
+
+	mock := &msbtest.MockMsbClient{}
+	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{},
+		"run", "--dry-run", "--agent", "kimi-code", "--agent-version", "2.7.0")
+	setupAbsentImagePreviewMocks(t, mock)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var pinnedVersion, experimental bool
+	for _, line := range ui.InfoCalls {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "dry-run: agent version 2.7.0" {
+			pinnedVersion = true
+		}
+		if strings.Contains(trimmed, "experimental") {
+			experimental = true
+		}
+	}
+	if !pinnedVersion {
+		t.Errorf("expected pinned kimi-code version line; got: %v", ui.InfoCalls)
+	}
+	if !experimental {
+		t.Errorf("expected an experimental notice for kimi-code; got: %v", ui.InfoCalls)
+	}
+	if len(mock.CreatedSandboxCalls) != 0 {
+		t.Errorf("--dry-run created %d sandbox(es), want 0", len(mock.CreatedSandboxCalls))
+	}
+}
+
+// TestRunAgentKimiCodeRejectsDaemonOnlyFlags verifies kimi-code, which runs no
+// daemon, rejects --worktree and --serve-only.
+func TestRunAgentKimiCodeRejectsDaemonOnlyFlags(t *testing.T) {
+	for _, flagArgs := range [][]string{{"--worktree", "feat"}, {"--serve-only"}} {
+		t.Run(flagArgs[0], func(t *testing.T) {
+			initTestProjectDir(t)
+			args := append([]string{"run", "--dry-run", "--agent", "kimi-code"}, flagArgs...)
+			root, _ := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, args...)
+			err := root.Execute()
+			if err == nil || !strings.Contains(err.Error(), `not supported by agent "kimi-code"`) {
+				t.Errorf("err = %v, want 'not supported by agent \"kimi-code\"'", err)
+			}
+		})
+	}
+}
+
 // writeHostOpencodeManifest writes a ~/.config/opencode/package.json declaring
 // a dependency into the mocked host home and returns its path.
 func writeHostOpencodeManifest(t *testing.T) string {

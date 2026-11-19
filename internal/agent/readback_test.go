@@ -17,6 +17,7 @@ func TestReadBackPaths(t *testing.T) {
 		"codex":       {".codex/auth.json"},
 		"claude-code": {".claude/settings.json"},
 		"hermes":      {".hermes/config.yaml", ".hermes/.env"},
+		"kimi-code":   {".kimi-code/config.toml", ".kimi-code/mcp.json", ".kimi-code/credentials/*.json"},
 		"oh-my-pi":    {".omp/agent/config.yml", ".omp/agent/config.yaml", ".omp/agent/models.yml", ".omp/agent/.env"},
 		"pi":          {".pi/agent/settings.json"},
 	}
@@ -49,7 +50,7 @@ func TestCredentialProbes(t *testing.T) {
 		t.Errorf("opencode2 CredentialProbes() = %v, want [opencode2-sqlite]", got)
 	}
 
-	for _, name := range []string{"opencode", "codex", "claude-code", "hermes", "oh-my-pi", "pi"} {
+	for _, name := range []string{"opencode", "codex", "claude-code", "hermes", "kimi-code", "oh-my-pi", "pi"} {
 		t.Run(name, func(t *testing.T) {
 			a, _ := agent.Lookup(name)
 			describer, _ := agent.AsReadBackDescriber(a)

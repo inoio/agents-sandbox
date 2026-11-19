@@ -328,6 +328,30 @@ func TestConfigAgentOhMyPiMergesBothYAMLExtensions(t *testing.T) {
 	}
 }
 
+// TestConfigAgentKimiCodeMergesTOMLSnippets verifies that kimi-code snippets
+// merge into one TOML document.
+func TestConfigAgentKimiCodeMergesTOMLSnippets(t *testing.T) {
+	cmd, ui := setupCommandFixtures(t, "config", "agent", "kimi-code")
+	a, _ := agent.Lookup("kimi-code")
+	dir := configpathstest.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName()))
+	testutil.WriteFile(t, dir, "config-model.toml", "default_model = \"kimi-code/k3\"\n")
+	testutil.WriteFile(t, dir, "config-provider.toml",
+		"[providers.moonshot]\ntype = \"kimi\"\napi_key_env = \"MOONSHOT_API_KEY\"\n")
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config agent kimi-code: %v", err)
+	}
+	joined := strings.Join(ui.OutCalls, "\n")
+	for _, want := range []string{
+		"config-model.toml", "config-provider.toml", "merged agent config:",
+		"default_model = 'kimi-code/k3'", "[providers.moonshot]", "api_key_env = 'MOONSHOT_API_KEY'",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("output missing %q, got:\n%s", want, joined)
+		}
+	}
+}
+
 func TestConfigAgentAmbiguousFlagAndPositional(t *testing.T) {
 	cmd, _ := setupCommandFixtures(t, "config", "agent", "--agent", "pi", "claude-code")
 	err := cmd.Execute()
