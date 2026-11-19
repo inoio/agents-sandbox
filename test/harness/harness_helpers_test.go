@@ -238,7 +238,7 @@ const publicNetwork = "public"
 // Terminal keys that leave a harness's full-screen TUI: Ctrl-D is `opencode`'s,
 // `opencode2`'s, `pi`'s, and `oh-my-pi`'s documented `app_exit`/`app.exit`, and Ctrl-C is the
 // interrupt `claude-code` announces as its exit ("Press Ctrl-C again to exit")
-// and `codex` quits on.
+// and `codex` and `qwen-code` quit on.
 const (
 	ctrlC = 0x03
 	ctrlD = 0x04
@@ -308,6 +308,11 @@ var harnessSpecs = map[string]harnessSpec{
 		ReadyMarker:       kimiCodeReadyMarker,
 		SeedAgentSnippets: map[string]string{kimiCodeSmokeSnippet: kimiCodeSmokeConfig},
 	},
+	// qwen-code draws its TUI on the alternate screen and, with no provider
+	// configured, starts at its auth dialog, so it needs no seed and no egress.
+	// It ignores the first Ctrl-C and exits on the second, which the repeated tap
+	// covers.
+	"qwen-code": {QuitKey: []byte{ctrlC}, Network: "", KeepsNormalBuffer: false},
 	// opencode's editor owns Ctrl-C, so its TUI leaves on Ctrl-D.
 	"opencode":  {QuitKey: []byte{ctrlD}, Network: "", KeepsNormalBuffer: false},
 	"opencode2": {QuitKey: []byte{ctrlD}, Network: "", KeepsNormalBuffer: false},
