@@ -1499,9 +1499,12 @@ func TestInlineCredentialValueInFileSkipsALoginStore(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	testutil.WritePath(t, path, `{"provider":"codex","token":"super-secret"}`)
+	// The content is a classifiable inline credential, so only the login-store
+	// skip keeps the scan from reading it.
+	testutil.WritePath(t, path,
+		`{"provider":{"openai":{"options":{"apiKey":"sk-inline","baseURL":"https://api.openai.com/v1"}}}}`)
 
-	value, ok := inlineCredentialValueInFile(path, "TOKEN")
+	value, ok := inlineCredentialValueInFile(path, "OPENAI_API_KEY")
 	if ok || value != "" {
 		t.Fatalf("inlineCredentialValueInFile over a login store = %q, %v; want no value", value, ok)
 	}

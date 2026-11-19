@@ -759,6 +759,22 @@ func TestInlineConfigFindingsInScopeReturnsNothingWhenTheDirCannotBeRead(t *test
 	require.Empty(t, inlineConfigFindingsInScope(scope, filepath.Join(t.TempDir(), "missing"), nil))
 }
 
+// TestInlineConfigFindingsInScopeSkipsALoginStore pins that a login store is
+// never read as a managed config, even when its content would classify, so a
+// credential store's value is not moved.
+func TestInlineConfigFindingsInScopeSkipsALoginStore(t *testing.T) {
+	f := configFacts(t, &viperconfig.Config{Network: network.Policy{Profiles: []network.Profile{network.ProfileNone}}})
+	scope := f.Scopes[len(f.Scopes)-1]
+	dir := filepath.Join(t.TempDir(), ".codex")
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	testutil.WriteFile(t, dir, "auth.json",
+		`{"provider":{"openai":{"options":{"apiKey":"sk-inline","baseURL":"https://api.openai.com/v1"}}}}`)
+
+	findings := inlineConfigFindingsInScope(scope, dir, nil)
+
+	require.Empty(t, findings, "a login store is never read as a managed config")
+}
+
 // TestInlineConfigFindingsInScopeProcessesEveryEntry pins that a directory, a
 // skipped login store, and an unreadable file each pass by without stopping the
 // scan, so a later valid file still yields its finding.

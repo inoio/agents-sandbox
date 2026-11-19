@@ -395,6 +395,15 @@ func TestApprovalStateFailuresAreReported(t *testing.T) {
 	) {
 		t.Errorf("ApproveSettingWrite = %v, want the state error", err)
 	}
+	if _, err := ApproveSecretWrite(
+		"checkout-a",
+		"WIDGET_TOKEN",
+	); !errors.Is(
+		err,
+		state.ErrStateUnparsable,
+	) {
+		t.Errorf("ApproveSecretWrite = %v, want the state error", err)
+	}
 }
 
 // TestRefreshSecretFileInputKeepsAHomeSourceSecretFileApproved pins that the
@@ -512,12 +521,16 @@ func TestWithoutSecretEntryKeepsUnrelatedInputsAndDropsAnEmptiedOne(t *testing.T
 	secretFile := configpaths.EnvSecretFileName + ".yaml"
 	inputs := []Input{
 		{Path: "/p/config.yaml", Kind: KindLauncherConfig, Entries: []string{"memory: 8G"}},
+		{Path: "/p/" + secretFile, Kind: KindFile, Entries: []string{"TOKEN"}},
 		{Path: "/p/" + secretFile, Kind: KindSecrets, Entries: []string{"TOKEN", "OTHER: api.x"}},
 		{Path: "/p/" + secretFile, Kind: KindSecrets, Entries: []string{"TOKEN: api.y"}},
 		{Path: "/p/legacy.yaml", Kind: KindSecrets, Entries: []string{"TOKEN: api.z"}},
 	}
 	want := []Input{
 		{Path: "/p/config.yaml", Kind: KindLauncherConfig, Entries: []string{"memory: 8G"}},
+		// A non-secret input at the secret file's path (a home: source's digest
+		// input) is not a secret entry and must survive untouched.
+		{Path: "/p/" + secretFile, Kind: KindFile, Entries: []string{"TOKEN"}},
 		{Path: "/p/" + secretFile, Kind: KindSecrets, Entries: []string{"OTHER: api.x"}},
 		{Path: "/p/legacy.yaml", Kind: KindSecrets, Entries: []string{"TOKEN: api.z"}},
 	}

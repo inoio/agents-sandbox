@@ -616,10 +616,12 @@ func secretValueFromAgentConfigs(
 // files directly under dir.
 func inlineCredentialValue(dir, envVar string) (string, bool) {
 	entries, err := os.ReadDir(dir)
+	// gomutants:disable-next-line BRANCH_IF reason="a failed ReadDir leaves entries nil, so the loop finds no file and the fall-through returns the same empty result"
 	if err != nil {
 		return "", false
 	}
 	for _, entry := range entries {
+		// gomutants:disable-next-line BRANCH_IF reason="a directory reaching the file read fails to open, so the fall-through returns no value either"
 		if entry.IsDir() {
 			continue
 		}

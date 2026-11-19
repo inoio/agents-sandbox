@@ -359,6 +359,7 @@ func (f ConfigFacts) provisionHostConfigFinding() (Finding, bool) {
 // and hosts the entry declares, never a guessed host.
 func (f ConfigFacts) inlineConfigFindings() []Finding {
 	profile, ok := agent.Lookup(f.Config.Agent)
+	// gomutants:disable-next-line BRANCH_IF reason="a failed lookup yields the zero profile, whose ConfigDirNames errors to an empty list, so the fall-through finds nothing either"
 	if !ok {
 		return nil
 	}
@@ -410,11 +411,13 @@ func inlineConfigFindingsInScope(
 	declared map[string]bool,
 ) []Finding {
 	entries, err := os.ReadDir(dir)
+	// gomutants:disable-next-line BRANCH_IF reason="a failed ReadDir leaves entries nil, so the loop finds no file and the fall-through contributes no finding either"
 	if err != nil {
 		return nil
 	}
 	var findings []Finding
 	for _, entry := range entries {
+		// gomutants:disable-next-line BRANCH_IF reason="a directory reaching the guarded read fails to open, so the fall-through contributes no finding either"
 		if entry.IsDir() {
 			continue
 		}
@@ -423,6 +426,7 @@ func inlineConfigFindingsInScope(
 			continue
 		}
 		data, err := projectguard.ReadFile(path, configread.ReadFile)
+		// gomutants:disable-next-line BRANCH_IF reason="a read failure leaves data nil, which decodes to no credentials through the same path, so the fall-through contributes nothing either"
 		if err != nil {
 			continue
 		}

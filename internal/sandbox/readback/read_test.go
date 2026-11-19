@@ -1240,3 +1240,13 @@ func TestConfigInlineCredentialsSkipsAProbeEntry(t *testing.T) {
 
 	require.Empty(t, credentials, "an entry with no size or mtime is a probe, not a file")
 }
+
+// TestInlineCredentialsInIgnoresAnUnknownExtension pins that a file whose
+// extension names no known format yields nothing, even when its bytes are valid
+// YAML the decoder would accept: the format gate is what refuses it.
+func TestInlineCredentialsInIgnoresAnUnknownExtension(t *testing.T) {
+	data := []byte("provider:\n  openai:\n    options:\n" +
+		"      apiKey: sk-inline\n      baseURL: https://api.openai.com/v1\n")
+
+	require.Empty(t, InlineCredentialsIn("config.unknown", data))
+}
