@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"testing"
@@ -8,6 +9,8 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/runoptions"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 )
@@ -214,6 +217,72 @@ func TestRunNotifySpaceFormInvalidValueRejected(t *testing.T) {
 				t.Fatalf("execute run --notify %s error = %v, want the invalid value rejected", value, err)
 			}
 		})
+	}
+}
+
+// stubFirstRunMenu replaces the first-run menu with a no-op for the test, so an
+// interactive run/shell test is not interrupted by the first-run setup prompt.
+func stubFirstRunMenu(t *testing.T) {
+	t.Helper()
+	original := firstRunMenu
+	firstRunMenu = func(termio.UI, *options.RunOptions, string, string) error { return nil }
+	t.Cleanup(func() { firstRunMenu = original })
+}
+
+// captureSessionRun replaces the session-start seam with one that records the
+// options the cmd boundary hands the session, so a test can assert the menu's
+// outcome reaches the options session.Run actually consumes.
+func captureSessionRun(t *testing.T) func() options.RunOptions {
+	t.Helper()
+	var captured options.RunOptions
+	original := sessionRun
+	sessionRun = func(_ context.Context, opts options.RunOptions, _ options.Mode, _ termio.UI) error {
+		captured = opts
+		return nil
+	}
+	t.Cleanup(func() { sessionRun = original })
+	return func() options.RunOptions { return captured }
+}
+
+// TestRunFirstRunMenuSetsLearn pins Review Focus 6: the outcome the first-run
+// menu applies reaches the very options session.Run consumes, not a copy. The
+// menu is stubbed so the test needs no host config or state dir.
+func TestRunFirstRunMenuSetsLearn(t *testing.T) {
+	initTestProjectDir(t)
+
+	original := firstRunMenu
+	firstRunMenu = func(_ termio.UI, opts *options.RunOptions, _, _ string) error {
+		opts.Learn = true
+		return nil
+	}
+	t.Cleanup(func() { firstRunMenu = original })
+
+	captured := captureSessionRun(t)
+	root, _ := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, cmdRun)
+	if err := root.Execute(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if !captured().Learn {
+		t.Error("session.Run did not see opts.Learn set by the first-run menu")
+	}
+}
+
+// TestRunFirstRunMenuSkippedNonInteractive pins invariant 6 at the cmd boundary:
+// a non-interactive run runs the production menu (against mocked config and
+// state), which offers nothing and warns, so session.Run sees no learning.
+func TestRunFirstRunMenuSkippedNonInteractive(t *testing.T) {
+	initTestProjectDir(t)
+
+	captured := captureSessionRun(t)
+	root, ui := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, cmdRun)
+	if err := root.Execute(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if captured().Learn {
+		t.Error("a non-interactive run must not start a learning session")
+	}
+	if !slices.ContainsFunc(ui.WarnCalls, func(w string) bool { return strings.Contains(w, "first-run") }) {
+		t.Errorf("warnings = %v, want a non-interactive first-run warning", ui.WarnCalls)
 	}
 }
 
