@@ -36,7 +36,9 @@ What is on `main` now:
   its temporary `//deadcode:ignore` markers until S7 wires `run --learn` (see below).
 
 **S6 has landed; the frontier is S7 (`run --learn`) and S8 (`config harden`)** — every predecessor has landed.
-S7/S8/S9 are named in the DAG but **not yet written** — write each when its predecessor lands, never in advance.
+**S7, S8, and S10 are now written** (branch `docs/697-learn-mode-s7-s8-s10-plans`):
+`2026-11-17-learn-mode-run.md`, `2026-11-17-config-harden.md`, `2026-11-17-agent-config-writeback.md`.
+**S9 is not yet written** — write it when its predecessors land, never in advance.
 
 **S7 must remove the dead-code markers S4, S5, and S6 left.** S4 (`channel`), S5 (`readback` +
 `agent.AsReadBackDescriber`), and S6 (`analyser`) each land a library before its only consumer, so their
@@ -234,6 +236,23 @@ type ApplyResult struct { Finding Finding; Outcome Outcome; WroteDirs []string; 
 ```
 
 ```go
+// internal/sandbox/analyser — S8 and S10 additions to the S6 model.
+//   S8 (config harden): type FileModeWrite struct { Mode fs.FileMode }
+//       Write gains: FileMode *FileModeWrite // chmods the scope's env.secret.yaml
+//       func ConfigFindings(f ConfigFacts) []Finding   // KindConfig, never widens
+//       type ConfigFacts struct { Paths configpaths.ConfigPaths; Slug string; Config *viperconfig.Config; Scopes []configpaths.ConfigScope; Logger termio.Logger }
+//   S10 (agent-config write-back):
+//       type ManagedConfigWrite struct { Name string; Content []byte }
+//       Write gains: ManagedConfig *ManagedConfigWrite
+//       ApplyOptions gains: Agent string // the agent whose config-dir name the write targets
+//       func ManagedConfigFindings(f ManagedConfigFacts) []Finding
+//       type ManagedConfigFacts struct { Paths configpaths.ConfigPaths; Slug, Home, Agent string; ReadBack readback.ReadBack }
+//
+// internal/sandbox/envsecret — S10
+//   func PlaceholderFor(envVar string) string // "${" + envVar + "}"; SecretSpec gains Placeholder string
+```
+
+```go
 // internal/sandbox/state — owned by S6 (the decline memory, a RootState section keyed
 // by repo slug; bumps RootStateSchema).
 type LearnDecline struct { EvidenceHash string; At time.Time }
@@ -248,9 +267,10 @@ CHANNEL TRACK                                          LEARN TRACK
  S1 sdk-semantics       spike    (no SDD; HOST-GATED)
  S2 tls-interception    SDD  ─┐                          S5  readback    SDD ─┐
  S3 outbound-proxy      SDD  ←┘ serialize after S2        S6  analyser    SDD ←┘
- S4 observation-channel SDD  ← after S1,S2,S3              ├─ S7 run      SDD
-                                                           └─ S8 harden   SDD
-                                                          S9  firstrun    SDD ← S4,S5,E2,E3
+ S4 observation-channel SDD  ← after S1,S2,S3              ├─ S7 run       SDD
+                                                           ├─ S8 harden    SDD
+                                                           └─ S10 writeback SDD ← S7
+                                                          S9  firstrun    SDD ← S4,S5,S7,S10,E2,E3
 ```
 
 | Subplan | Plan file | Deliverable | SDD? | Depends on | Parallel with |
@@ -262,14 +282,15 @@ CHANNEL TRACK                                          LEARN TRACK
 | S4 observation-channel | `2026-11-17-learn-mode-observation-channel.md` | channel (proxy + capture) + overlay + teardown | yes | S1, S2, S3 | S6 |
 | S5 readback | `2026-11-17-learn-mode-readback.md` | home-volume reader + manifest | yes | E1 (SQLite) | S2, S3 |
 | S6 analyser | `2026-11-17-learn-mode-analyser.md` | findings engine + applier | yes | S5 | S4 |
-| S7 run-learn | `2026-11-17-learn-mode-run.md` (stub) | `run --learn` + after-run + session boundary | yes | S4, S6 | S8 |
-| S8 config-harden | `2026-11-17-config-harden.md` (stub) | `config harden` | yes | S6 | S7 |
-| S9 firstrun | `2026-11-17-learn-mode-firstrun.md` (stub) | first-run `Guide` choices + UC4 seed | yes | S4, S5, E2, E3 | — |
+| S7 run-learn | `2026-11-17-learn-mode-run.md` | `run --learn` + after-run + session boundary | yes | S4, S6 | S8 |
+| S8 config-harden | `2026-11-17-config-harden.md` | `config harden` | yes | S6 | S7 |
+| S10 agent-config-writeback | `2026-11-17-agent-config-writeback.md` | managed agent config from a session + placeholders | yes | S5, S6, S7 | S8 |
+| S9 firstrun | `2026-11-17-learn-mode-firstrun.md` (stub) | first-run `Guide` choices + UC4 seed | yes | S4, S5, S7, S10, E2, E3 | — |
 
 S2, S3, S4, and S6 landed (S2/S3 shared `network.Policy`, `msb.NetworkSpec`, `msb/translate.go`,
 `viperconfig/config.go`); S6 landed last on top of S5. **S4 and S6 share no file**: S4 is done and S6 has landed,
-so the frontier is S7/S8. Within each subplan, follow its own serialization. Stubs and their interfaces are written
-when their predecessor lands, never in advance.
+so the frontier is S7/S8 (S10 follows S7, which it extends). Within each subplan, follow its own serialization. A
+subplan's plan is written when its predecessors land, never in advance.
 
 **S2 re-scope.** S2 ships the TLS-interception **controls only** (`intercept-tls`/`tls-bypass`/`disable-strict`). It does
 no registry handling — no auto-bypass, no allowlist derivation — and the in-VM `docker build` CA case stays a documented
