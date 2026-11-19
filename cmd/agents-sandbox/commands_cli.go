@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -18,6 +19,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/runoptions"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
+	"github.com/inoio/agents-sandbox/internal/sandbox/learn"
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -36,6 +38,11 @@ const minUsagePadding = 25
 // path invokes the prune without consuming the pruning package's process-wide
 // once (which other run tests in this binary may already have used).
 var autoPrune = pruning.AutoPrune
+
+// pruneLearnArtefacts is the learn-artefact sweep seam: a variable so a test can
+// assert the startup stage sweeps abandoned observation artefacts without
+// touching the state dir.
+var pruneLearnArtefacts = learn.PruneArtefacts
 
 // newLifecycleTrace creates the trace a run or shell records its lifecycle
 // stages into (specs/vm/lifecycle.md). It is a seam so a test can keep the trace it
@@ -207,6 +214,15 @@ func runStartupStages(
 			&autoPruneOutToVerboseRedirect{UI: ui},
 			currentRunImageKeys(opts.Agent)...,
 		)
+	}
+	// Sweep abandoned learn artefacts (a session whose process died) so they do
+	// not accumulate. A failure is a verbose warning, never a run failure.
+	if !isDryRun {
+		if removed, err := pruneLearnArtefacts(time.Now()); err != nil {
+			ui.Verbosef("learn artefact prune: %v", err)
+		} else if removed > 0 {
+			ui.Verbosef("pruned %d abandoned learn artefact(s)", removed)
+		}
 	}
 	return false, nil
 }

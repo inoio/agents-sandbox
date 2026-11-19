@@ -206,6 +206,29 @@ func TestRunShellInvokeStartupAutoPrune(t *testing.T) {
 	}
 }
 
+// TestRunInvokesLearnArtefactPrune pins that the startup stages sweep abandoned
+// learn artefacts (a session whose process died) behind the prune seam.
+func TestRunInvokesLearnArtefactPrune(t *testing.T) {
+	initTestProjectDir(t)
+
+	var calls int
+	original := pruneLearnArtefacts
+	pruneLearnArtefacts = func(time.Time) (int, error) {
+		calls++
+		return 0, nil
+	}
+	t.Cleanup(func() { pruneLearnArtefacts = original })
+
+	mock := &msbtest.MockMsbClient{}
+	root, _ := setupRunMocks(t, mock, &msbtest.MockSandbox{}, cmdRun, "--dry-run-vm")
+	if err := root.Execute(); err != nil {
+		t.Fatalf("run --dry-run-vm: %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("pruneLearnArtefacts calls = %d, want 1", calls)
+	}
+}
+
 // TestMainProcess exercises the real main() entrypoint in a subprocess so that
 // os.Exit is not invoked in the test process itself. It covers both the
 // successful version path (exit 0) and the error path (exit 1).
