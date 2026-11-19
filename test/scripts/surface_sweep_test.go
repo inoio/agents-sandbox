@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -58,7 +59,10 @@ func TestSurfaceSweep(t *testing.T) {
 
 	t.Run("init resolves a relative root absolute", func(t *testing.T) {
 		h := newSurfaceSweepHarness(t)
-		name := "asb-rel-" + strings.TrimPrefix(filepath.Base(h.root), "asb-sweep-")
+		// A PID-sized name mirrors the deleted bash harness's asb-rel-$$: the
+		// MkdirTemp suffix (9-10 digits) pushes the derived socket path over the
+		// sun_path budget on macOS, where /tmp resolves to /private/tmp.
+		name := "asb-rel-" + strconv.Itoa(os.Getpid())
 		physical, err := filepath.EvalSymlinks(surfaceSweepRootBase)
 		if err != nil {
 			t.Fatalf("resolve %s: %v", surfaceSweepRootBase, err)
