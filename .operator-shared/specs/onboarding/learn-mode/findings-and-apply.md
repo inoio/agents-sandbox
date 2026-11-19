@@ -49,6 +49,12 @@ content is replaced by its **placeholder**, which is also recorded on the secret
 runtime substitutes it in flight for the allowed hosts; the value never appears in the finding, the artefact, or a
 log. Only a config file the agent authored is copied — never a login store or a credential probe's database.
 
+The write's target is `<per-slug user scope>/<agent's primary config-dir name>/<file name>` — the directory whose
+snippets `reprovision` merges — written atomically with mode `0o644` (it is configuration, not a credential: the
+values in it are placeholders). A project-scope managed-config write is **skipped, never written**: the applier has
+no per-file project approval (only `ApproveSettingWrite`, keyed by a launcher config key), and the learn proposal
+never targets that scope. An unknown agent resolves to no target directory and is likewise skipped.
+
 The placeholder convention is `${<ENVVAR>}` **where the harness passes a config value through verbatim**: a literal
 config string is not shell-expanded, so the placeholder reaches the request. A harness that does not expand `${VAR}`
 in its config needs its **native env indirection** instead — kimi reads no key from the process environment and only
