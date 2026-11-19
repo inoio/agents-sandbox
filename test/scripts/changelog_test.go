@@ -73,51 +73,51 @@ func TestChangelog(t *testing.T) {
 
 	t.Run("code, no fragment", func(t *testing.T) {
 		dir := newChangelogFixture(t)
-		result := runChangelog(t, dir, changedPath(t, "internal/foo/foo.go")...)
+		result := runChangelog(t, dir, changelogChangedPath(t, "internal/foo/foo.go")...)
 		assertStatus(t, result, 1)
 		assertContains(t, "output", changelogOutput(result), "no changelog.d")
 	})
 
 	t.Run("code, with fragment", func(t *testing.T) {
 		dir := newChangelogFixture(t, "432.added.md")
-		result := runChangelog(t, dir, changedPath(t, "internal/foo/foo.go", "changelog.d/432.added.md")...)
+		result := runChangelog(t, dir, changelogChangedPath(t, "internal/foo/foo.go", "changelog.d/432.added.md")...)
 		assertStatus(t, result, 0)
 	})
 
 	t.Run("docs only", func(t *testing.T) {
 		dir := newChangelogFixture(t)
-		result := runChangelog(t, dir, changedPath(t, "docs/commands.md")...)
+		result := runChangelog(t, dir, changelogChangedPath(t, "docs/commands.md")...)
 		assertStatus(t, result, 0)
 	})
 
 	t.Run("markdown only", func(t *testing.T) {
 		dir := newChangelogFixture(t)
-		result := runChangelog(t, dir, changedPath(t, "README.md")...)
+		result := runChangelog(t, dir, changelogChangedPath(t, "README.md")...)
 		assertStatus(t, result, 0)
 	})
 
 	t.Run("gitignore only", func(t *testing.T) {
 		dir := newChangelogFixture(t)
-		result := runChangelog(t, dir, changedPath(t, ".gitignore")...)
+		result := runChangelog(t, dir, changelogChangedPath(t, ".gitignore")...)
 		assertStatus(t, result, 0)
 	})
 
 	t.Run("release PR, all markdown", func(t *testing.T) {
 		dir := newChangelogFixture(t)
-		result := runChangelog(t, dir, changedPath(t, "CHANGELOG.md", "changelog.d/432.added.md")...)
+		result := runChangelog(t, dir, changelogChangedPath(t, "CHANGELOG.md", "changelog.d/432.added.md")...)
 		assertStatus(t, result, 0)
 	})
 
 	t.Run("workflow change", func(t *testing.T) {
 		dir := newChangelogFixture(t)
-		result := runChangelog(t, dir, changedPath(t, ".github/workflows/ci.yml")...)
+		result := runChangelog(t, dir, changelogChangedPath(t, ".github/workflows/ci.yml")...)
 		assertStatus(t, result, 1)
 		assertContains(t, "output", changelogOutput(result), "no changelog.d")
 	})
 
 	t.Run("code, only changelog README", func(t *testing.T) {
 		dir := newChangelogFixture(t, "README.md")
-		result := runChangelog(t, dir, changedPath(t, "internal/foo/foo.go", "changelog.d/README.md")...)
+		result := runChangelog(t, dir, changelogChangedPath(t, "internal/foo/foo.go", "changelog.d/README.md")...)
 		assertStatus(t, result, 1)
 		assertContains(t, "output", changelogOutput(result), "no changelog.d")
 	})
@@ -125,7 +125,10 @@ func TestChangelog(t *testing.T) {
 	t.Run("code, only nested fragment", func(t *testing.T) {
 		dir := newChangelogFixture(t)
 		writeChangelogFile(t, filepath.Join(dir, "changelog.d", "sub", "432.added.md"))
-		result := runChangelog(t, dir, changedPath(t, "internal/foo/foo.go", "changelog.d/sub/432.added.md")...)
+		result := runChangelog(
+			t,
+			dir,
+			changelogChangedPath(t, "internal/foo/foo.go", "changelog.d/sub/432.added.md")...)
 		assertStatus(t, result, 1)
 		assertContains(t, "output", changelogOutput(result), "no changelog.d")
 	})
@@ -135,13 +138,13 @@ func TestChangelog(t *testing.T) {
 		result := runChangelog(
 			t,
 			dir,
-			changedPath(t, "internal/foo/foo_test.go", "internal/foo/foo_internal_test.go")...)
+			changelogChangedPath(t, "internal/foo/foo_test.go", "internal/foo/foo_internal_test.go")...)
 		assertStatus(t, result, 0)
 	})
 
 	t.Run("code plus test", func(t *testing.T) {
 		dir := newChangelogFixture(t)
-		result := runChangelog(t, dir, changedPath(t, "internal/foo/foo.go", "internal/foo/foo_test.go")...)
+		result := runChangelog(t, dir, changelogChangedPath(t, "internal/foo/foo.go", "internal/foo/foo_test.go")...)
 		assertStatus(t, result, 1)
 		assertContains(t, "output", changelogOutput(result), "no changelog.d")
 	})
@@ -149,7 +152,7 @@ func TestChangelog(t *testing.T) {
 	t.Run("code, fragment only deleted", func(t *testing.T) {
 		// The fragment path is listed as changed but is absent from the tree.
 		dir := newChangelogFixture(t)
-		result := runChangelog(t, dir, changedPath(t, "internal/foo/foo.go", "changelog.d/432.added.md")...)
+		result := runChangelog(t, dir, changelogChangedPath(t, "internal/foo/foo.go", "changelog.d/432.added.md")...)
 		assertStatus(t, result, 1)
 		assertContains(t, "output", changelogOutput(result), "no changelog.d")
 	})
@@ -159,7 +162,7 @@ func TestChangelog(t *testing.T) {
 		result := runChangelog(
 			t,
 			dir,
-			append(changedPath(t, "internal/foo/foo.go", "changelog.d/432.added.md"), "--pr", "432")...)
+			append(changelogChangedPath(t, "internal/foo/foo.go", "changelog.d/432.added.md"), "--pr", "432")...)
 		assertStatus(t, result, 0)
 	})
 
@@ -168,7 +171,7 @@ func TestChangelog(t *testing.T) {
 		result := runChangelog(
 			t,
 			dir,
-			append(changedPath(t, "internal/foo/foo.go", "changelog.d/431.added.md"), "--pr", "432")...)
+			append(changelogChangedPath(t, "internal/foo/foo.go", "changelog.d/431.added.md"), "--pr", "432")...)
 		assertStatus(t, result, 1)
 		assertContains(t, "output", changelogOutput(result), "not the pull-request number")
 	})
@@ -180,13 +183,13 @@ func TestChangelog(t *testing.T) {
 		result := runChangelog(
 			t,
 			dir,
-			append(changedPath(t, "CHANGELOG.md", "changelog.d/432.added.md"), "--pr", "500")...)
+			append(changelogChangedPath(t, "CHANGELOG.md", "changelog.d/432.added.md"), "--pr", "500")...)
 		assertStatus(t, result, 0)
 	})
 
 	t.Run("no fragment, nothing to check", func(t *testing.T) {
 		dir := newChangelogFixture(t)
-		result := runChangelog(t, dir, append(changedPath(t, "internal/foo/foo_test.go"), "--pr", "432")...)
+		result := runChangelog(t, dir, append(changelogChangedPath(t, "internal/foo/foo_test.go"), "--pr", "432")...)
 		assertStatus(t, result, 0)
 	})
 }
@@ -211,11 +214,16 @@ func changelogChecker(tb testing.TB) string {
 	return filepath.Join(repositoryRoot(tb), "ci", "check-changelog.sh")
 }
 
-// newChangelogFixture builds a temp root whose changelog.d/ holds one
-// placeholder fragment per name, mirroring the bash harness's new_fixture.
+// newChangelogFixture builds a temp root whose changelog.d/ exists and holds one
+// placeholder fragment per name, mirroring the bash harness's new_fixture (which
+// always `mkdir -p`s the directory, so the empty case is a present-but-empty
+// changelog.d, distinct from an absent one).
 func newChangelogFixture(tb testing.TB, names ...string) string {
 	tb.Helper()
 	dir := tb.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "changelog.d"), 0o750); err != nil {
+		tb.Fatalf("create changelog.d: %v", err)
+	}
 	for _, name := range names {
 		writeChangelogFile(tb, filepath.Join(dir, "changelog.d", name))
 	}
@@ -232,9 +240,10 @@ func writeChangelogFile(tb testing.TB, path string) {
 	writeDoc(tb, path, "- x\n")
 }
 
-// changedPath writes the listed paths, one per line as `git diff --name-only`
-// emits them, to a temp file and returns the `--changed <file>` argument pair.
-func changedPath(tb testing.TB, paths ...string) []string {
+// changelogChangedPath writes the listed paths, one per line as
+// `git diff --name-only` emits them, to a temp file and returns the
+// `--changed <file>` argument pair.
+func changelogChangedPath(tb testing.TB, paths ...string) []string {
 	tb.Helper()
 	file := filepath.Join(tb.TempDir(), "changed.txt")
 	writeDoc(tb, file, strings.Join(paths, "\n")+"\n")
