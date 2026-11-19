@@ -275,6 +275,29 @@ func TestConfigFindingsRemovesWildcardEntry(t *testing.T) {
 	require.Equal(t, []string{"api.example"}, write.ConfigValue)
 }
 
+// TestConfigFindingsAllWildcardEgressIsReportedNotWritten pins the C3/C4
+// interaction: an egress-allow list holding only wildcard entries has nothing to
+// keep, so neither C3's profile narrowing nor C4's wildcard drop writes — the
+// pair would otherwise leave none + an empty allow list, denying all egress.
+func TestConfigFindingsAllWildcardEgressIsReportedNotWritten(t *testing.T) {
+	f := configFacts(t, &viperconfig.Config{Network: network.Policy{
+		Profiles:    []network.Profile{network.ProfilePublic},
+		EgressAllow: []string{"*", "0.0.0.0/0"},
+	}})
+
+	findings := ConfigFindings(f)
+
+	require.NotEmpty(t, findings, "an all-wildcard allow list is reported")
+	for _, finding := range findings {
+		for _, write := range finding.Writes {
+			require.NotEqual(t, "network.profile", write.ConfigKey,
+				"narrowing to none while dropping the last wildcards would deny all egress")
+			require.NotEqual(t, "network.egress-allow", write.ConfigKey,
+				"dropping the last wildcards would deny all egress")
+		}
+	}
+}
+
 // TestConfigFindingsSecretFileMode pins C5: a broadly readable secret file
 // yields a finding that tightens it to 0600.
 func TestConfigFindingsSecretFileMode(t *testing.T) {

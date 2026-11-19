@@ -121,6 +121,14 @@ func applyFinding(finding Finding, opts ApplyOptions) ApplyResult {
 		result.Err = refusal.err
 		return result
 	}
+	if len(plans) == 0 {
+		// A report-only finding proposes no machine change (C2 with no host,
+		// C3 with nothing to keep, C4 dropping the last wildcard): it is
+		// reported, not prompted, and nothing is written or declined.
+		result.Outcome = OutcomeNotApplicable
+		result.Note = "nothing to apply; this finding is reported only"
+		return result
+	}
 
 	accepted, err := askApplyOrAcceptAll(opts, finding)
 	if err != nil {
@@ -401,7 +409,7 @@ func applyPrompt(finding Finding) string {
 func executeWrite(plan plannedWrite, opts ApplyOptions) (string, error) {
 	write := plan.write
 	if write.Secret != nil {
-		return plan.dir, executeSecret(plan)
+		return plan.dir, executeSecret(plan, opts)
 	}
 	if write.FileMode != nil {
 		return plan.dir, executeFileMode(plan)
@@ -430,8 +438,11 @@ func secretFilePath(dir string) string {
 }
 
 // executeSecret writes or removes one static secret of a planned write.
-func executeSecret(plan plannedWrite) error {
+func executeSecret(plan plannedWrite, opts ApplyOptions) error {
 	secret := plan.write.Secret
+	if plan.write.Scope == ScopeProject {
+		return executeProjectSecret(plan, opts)
+	}
 	if secret.Remove {
 		return envsecret.RemoveSecretSpec(plan.dir, secret.EnvVar)
 	}
@@ -442,6 +453,25 @@ func executeSecret(plan plannedWrite) error {
 		HeaderFields:          secret.HeaderFields,
 		AllowAnyHostDangerous: false,
 	})
+}
+
+// executeProjectSecret removes a project-scope secret through the project trust
+// gate: the approval is extended by that entry before the write, and restored
+// when the write fails, so the launcher's own change never needs re-approval.
+// Without the extension the next run would gate the removal the launcher just
+// made. C1's project half is a removal; the removal target is the structured
+// env.secret.yaml the secret writer edits.
+func executeProjectSecret(plan plannedWrite, opts ApplyOptions) error {
+	envVar := plan.write.Secret.EnvVar
+	restore, err := projecttrust.ApproveSecretWrite(opts.CheckoutSlug, envVar)
+	if err != nil {
+		return err
+	}
+	if writeErr := envsecret.RemoveSecretSpec(plan.dir, envVar); writeErr != nil {
+		restore()
+		return writeErr
+	}
+	return nil
 }
 
 // executeProjectSetting writes or removes a project-scope config key through the

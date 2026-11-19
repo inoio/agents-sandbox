@@ -121,10 +121,13 @@ git history — harden says so and points at rotating the credential.
   the project scope, where C1 moves the secret whole.
 - **C3 — an over-broad egress profile.** A policy that is not the terminal `none` profile is narrowed to `none`,
   keeping the current allow list. An **empty** allow list is reported, not written: narrowing to `none` with nothing
-  to keep would deny all egress. A default `public` (or empty-allow) config therefore fires C3 as a report, so
-  `config harden` is never silent on a default config.
+  to keep would deny all egress. An allow list whose only entries are wildcards C4 would drop is reported too, for the
+  same reason. A default `public` (or empty-allow) config therefore fires C3 as a report, so `config harden` is never
+  silent on a default config.
 - **C4 — a wildcard egress entry.** An `egress-allow` entry `*`, `0.0.0.0/0`, or `::/0` is dropped, keeping the
-  remaining entries.
+  remaining entries. A list whose every entry is a wildcard has nothing to keep, so C4 reports it rather than dropping
+  the last entry. C3 and C4 therefore never combine to leave `none` with an empty allow list, which would deny all
+  egress.
 - **C5 — a secret file mode.** Each scope's `env.secret.yaml` whose mode is not `0600` is tightened by a file-mode
   write; a scope with no secret file yields no finding, and one is never created to chmod it.
 - **C6 — host-config provisioning on.** `provision-host-config: true` is turned off, its text pointing at

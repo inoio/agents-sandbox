@@ -281,6 +281,89 @@ func TestApproveSettingWriteRestoresThePreviousApproval(t *testing.T) {
 	}
 }
 
+// TestApproveSecretWriteKeepsTheLaunchersOwnRemovalApproved pins that the
+// launcher removing a project secret extends the recorded approval by only that
+// env-var, so the next run does not gate the launcher's own change.
+func TestApproveSecretWriteKeepsTheLaunchersOwnRemovalApproved(t *testing.T) {
+	f := newProjectFixture(t)
+	// A second project input keeps the projection non-empty after the secret is
+	// removed, so the removal is a real change the approval must absorb (an empty
+	// projection is approved regardless).
+	f.write(t, "config.yaml", "memory: 4G\n")
+	f.write(t, "env.secret.yaml", "WIDGET_TOKEN:\n  value: sk-project\n  host: api.widget.example\n")
+	if err := RecordApproval("checkout-a", f.compute(t)); err != nil {
+		t.Fatal(err)
+	}
+
+	// The launcher removed the entry; the file is left present without it.
+	f.write(t, "env.secret.yaml", "{}\n")
+	if _, err := ApproveSecretWrite("checkout-a", "WIDGET_TOKEN"); err != nil {
+		t.Fatalf("ApproveSecretWrite: %v", err)
+	}
+	approval, found, err := LoadApproval("checkout-a")
+	if err != nil || !found {
+		t.Fatalf("LoadApproval = %v, %v", found, err)
+	}
+	if got := Evaluate(f.compute(t), approval); !got.Approved {
+		t.Fatalf("after the launcher's removal: %+v, want approved", got)
+	}
+}
+
+// TestApproveSecretWriteStillGatesAnUnrelatedChange pins the scoping: extending
+// the approval by one removed env-var must not approve a change to another
+// secret in the same file.
+func TestApproveSecretWriteStillGatesAnUnrelatedChange(t *testing.T) {
+	f := newProjectFixture(t)
+	f.write(t, "env.secret.yaml",
+		"WIDGET_TOKEN:\n  value: sk\n  host: api.widget.example\n"+
+			"OTHER_TOKEN:\n  value: sk2\n  host: api.other.example\n")
+	if err := RecordApproval("checkout-a", f.compute(t)); err != nil {
+		t.Fatal(err)
+	}
+
+	// WIDGET_TOKEN is removed and OTHER_TOKEN's host is changed by the agent.
+	f.write(t, "env.secret.yaml", "OTHER_TOKEN:\n  value: sk2\n  host: api.changed.example\n")
+	if _, err := ApproveSecretWrite("checkout-a", "WIDGET_TOKEN"); err != nil {
+		t.Fatalf("ApproveSecretWrite: %v", err)
+	}
+	approval, _, _ := LoadApproval("checkout-a")
+	if got := Evaluate(f.compute(t), approval); got.Approved {
+		t.Fatalf("an unrelated secret change was approved: %+v", got)
+	}
+}
+
+func TestApproveSecretWriteWithoutAnApprovalRecordsNothing(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	restore, err := ApproveSecretWrite("checkout-a", "WIDGET_TOKEN")
+	if err != nil {
+		t.Fatalf("ApproveSecretWrite: %v", err)
+	}
+	restore()
+	if _, found, _ := LoadApproval("checkout-a"); found {
+		t.Error("an approval was created for a layer the user never approved")
+	}
+}
+
+// TestApproveSecretWriteRestoresThePreviousApproval pins the undo for a removal
+// that fails after its approval was recorded.
+func TestApproveSecretWriteRestoresThePreviousApproval(t *testing.T) {
+	f := newProjectFixture(t)
+	f.write(t, "env.secret.yaml", "WIDGET_TOKEN:\n  value: sk\n  host: api.widget.example\n")
+	if err := RecordApproval("checkout-a", f.compute(t)); err != nil {
+		t.Fatal(err)
+	}
+	before, _, _ := LoadApproval("checkout-a")
+
+	restore, err := ApproveSecretWrite("checkout-a", "WIDGET_TOKEN")
+	if err != nil {
+		t.Fatalf("ApproveSecretWrite: %v", err)
+	}
+	restore()
+	if after, _, _ := LoadApproval("checkout-a"); after.Digest != before.Digest {
+		t.Errorf("approval digest after restore = %s, want the previous %s", after.Digest, before.Digest)
+	}
+}
+
 // TestApprovalStateFailuresAreReported pins that an unreadable root state is
 // reported by every approval read and write rather than taken as no approval.
 func TestApprovalStateFailuresAreReported(t *testing.T) {

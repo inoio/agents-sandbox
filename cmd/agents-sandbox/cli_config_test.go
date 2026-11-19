@@ -1065,6 +1065,11 @@ func TestConfigHardenNonInteractiveWritesNothing(t *testing.T) {
 	if !strings.Contains(ui.AcknowledgeCalls[0], "run --learn") {
 		t.Errorf("notice %q, want it to name `run --learn`", ui.AcknowledgeCalls[0])
 	}
+	// Only the one notice prints: the summary is skipped non-interactively, so a
+	// caller does not see both.
+	if joined := strings.Join(ui.InfoCalls, "\n"); strings.Contains(joined, "config harden:") {
+		t.Errorf("InfoCalls = %v, want no summary beside the non-interactive notice", ui.InfoCalls)
+	}
 	configFile := hardenPerSlugConfigFile(t, hardenSlug(t, cmd))
 	if _, err := os.Stat(configFile); !os.IsNotExist(err) {
 		t.Errorf("config harden wrote %s (stat err = %v), want nothing written", configFile, err)
@@ -1088,6 +1093,12 @@ func TestConfigHardenDryRunWritesNothing(t *testing.T) {
 	}
 	if selects != 0 {
 		t.Errorf("Select calls = %d, want none under --dry-run", selects)
+	}
+	// The preview must reach Apply and render each finding's proposed change
+	// (its Write.Text), not just report that nothing was written.
+	preview := strings.Join(ui.OutCalls, "\n")
+	if !strings.Contains(preview, "would change") || !strings.Contains(preview, "turns host-config provisioning off") {
+		t.Errorf("OutCalls = %v, want the previewed finding and its Write.Text", ui.OutCalls)
 	}
 	configFile := hardenPerSlugConfigFile(t, hardenSlug(t, cmd))
 	if _, err := os.Stat(configFile); !os.IsNotExist(err) {
@@ -1261,5 +1272,60 @@ func TestConfigHardenLeavesAnUnapprovedProjectLayerAlone(t *testing.T) {
 	); err != nil ||
 		!strings.Contains(string(remaining), "WIDGET_TOKEN") {
 		t.Errorf("the unapproved project secret file changed (err = %v)", err)
+	}
+}
+
+// TestConfigHardenAllWildcardEgressReportsWithoutPrompting pins the C3/C4
+// interaction at the command boundary: an egress-allow list holding only
+// wildcards yields a report-only finding that is neither prompted nor applied,
+// so harden never silently denies egress.
+func TestConfigHardenAllWildcardEgressReportsWithoutPrompting(t *testing.T) {
+	initTestProjectDir(t)
+	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdHarden)
+	stubPrepareMSBRuntime(t)
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml",
+		"network:\n  profile: none\n  egress-allow: [\"*\", \"0.0.0.0/0\"]\nprovision-host-config: false\n")
+	selects := 0
+	ui.IsInteractiveResult = true
+	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		selects++
+		return "a", nil
+	}
+	slug := hardenSlug(t, cmd)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config harden: %v", err)
+	}
+	if selects != 0 {
+		t.Errorf("Select calls = %d, want no prompt for a report-only finding", selects)
+	}
+	if _, err := os.Stat(hardenPerSlugConfigFile(t, slug)); !os.IsNotExist(err) {
+		t.Errorf("config harden wrote a per-slug config for a report-only finding (stat err = %v)", err)
+	}
+	joined := strings.Join(ui.InfoCalls, "\n")
+	if !strings.Contains(joined, "reported") || !strings.Contains(joined, "wildcard") {
+		t.Errorf("InfoCalls = %v, want the report-only finding reported", ui.InfoCalls)
+	}
+}
+
+// TestSecretValueFromScopesUsesHighestPrecedence pins that a secret value is
+// resolved in effective-config precedence order: the higher-precedence scope
+// wins when the same env var is declared in two scopes.
+func TestSecretValueFromScopesUsesHighestPrecedence(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	slug := "widget-abc"
+	testutil.WriteFile(t, paths.UserConfigDir(), configpaths.EnvSecretFileName+".yaml",
+		"WIDGET_TOKEN:\n  value: sk-generic\n  host: api.widget.example\n")
+	testutil.WriteFile(t, paths.UserSlugConfigDir(slug), configpaths.EnvSecretFileName+".yaml",
+		"WIDGET_TOKEN:\n  value: sk-per-slug\n  host: api.widget.example\n")
+
+	value, ok := secretValueFromScopes(
+		configpaths.ConfigScopes(paths, slug),
+		"WIDGET_TOKEN",
+		&termiotest.Mock{},
+	)
+	if !ok || value != "sk-per-slug" {
+		t.Fatalf("secretValueFromScopes = %q, %v; want the highest-precedence value", value, ok)
 	}
 }

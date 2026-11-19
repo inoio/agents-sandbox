@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -187,4 +189,74 @@ func setSetting(inputs []Input, key, value string) {
 		slices.Sort(entries)
 		inputs[i].Entries = entries
 	}
+}
+
+// ApproveSecretWrite extends the checkout's approval by a secret the launcher is
+// about to remove from the project secret file, so the next run does not ask
+// about the launcher's own change. Only that env-var's entry is removed:
+// anything else that differs in the file still needs approval. Without an
+// approval there is nothing to extend, and nothing is recorded.
+//
+// The approval is recorded before the write: a write without its approval would
+// make the next run ask about the launcher's own change. The returned function
+// restores the previous approval for a write that then fails; should that
+// restore fail too, the approval is ahead of the file, which only makes the next
+// run ask again.
+func ApproveSecretWrite(checkoutSlug, envVar string) (func(), error) {
+	var previous state.ApprovedProjectLayer
+	var found bool
+	_, err := state.WithRootState(true, func(txn *state.RootTxn) error {
+		previous, found = txn.State().ApprovedProjectLayer(checkoutSlug)
+		if !found {
+			return nil
+		}
+		projection := fromApproval(previous)
+		projection.Inputs = withoutSecretEntry(projection.Inputs, envVar)
+		txn.State().ApproveProjectLayer(checkoutSlug, toApproval(projection))
+		return txn.Commit()
+	})
+	if err != nil {
+		return nil, fmt.Errorf("record the approval of secret %s: %w", envVar, err)
+	}
+	return func() {
+		if !found {
+			return
+		}
+		_, _ = state.WithRootState(true, func(txn *state.RootTxn) error {
+			txn.State().ApproveProjectLayer(checkoutSlug, previous)
+			return txn.Commit()
+		})
+	}, nil
+}
+
+// withoutSecretEntry removes envVar's entry from the structured project secret
+// file's input and drops an input left with no entries, so the recorded approval
+// matches the projection the file yields once the entry is gone. Only
+// env.secret.yaml is extended: the legacy secret file the writer does not touch
+// keeps its recorded entries.
+func withoutSecretEntry(inputs []Input, envVar string) []Input {
+	secretFile := configpaths.EnvSecretFileName + ".yaml"
+	result := make([]Input, 0, len(inputs))
+	for _, input := range inputs {
+		if input.Kind != KindSecrets || filepath.Base(input.Path) != secretFile {
+			result = append(result, input)
+			continue
+		}
+		entries := slices.DeleteFunc(slices.Clone(input.Entries), func(entry string) bool {
+			return secretEntryNames(entry, envVar)
+		})
+		if len(entries) == 0 {
+			continue
+		}
+		input.Entries = entries
+		result = append(result, input)
+	}
+	return result
+}
+
+// secretEntryNames reports whether entry is envVar's rendering in a secret
+// input's entries: the env-var name alone (a secret with no substitution scope)
+// or the name before the scope parts describeSecretSpec appends.
+func secretEntryNames(entry, envVar string) bool {
+	return entry == envVar || strings.HasPrefix(entry, envVar+": ")
 }

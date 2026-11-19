@@ -551,8 +551,10 @@ It audits:
   per-slug addition). Removing it from the file does not remove it from git history — rotate the credential.
 - a secret that allows any host (`allow_any_host_dangerous`) → drop the flag, keeping its declared hosts.
 - a network profile that is not the terminal `none` → narrow it to `none`, keeping your current `egress-allow` list. A
-  broad profile with an empty allow list is reported, not changed, because narrowing it would deny all egress.
-- a wildcard `egress-allow` entry (`*`, `0.0.0.0/0`, `::/0`) → drop that entry, keeping the rest.
+  broad profile with an empty allow list is reported, not changed, because narrowing it would deny all egress; the same
+  holds when its only allow entries are wildcards the next item would drop.
+- a wildcard `egress-allow` entry (`*`, `0.0.0.0/0`, `::/0`) → drop that entry, keeping the rest. A list whose every
+  entry is a wildcard is reported, not changed, because dropping them would deny all egress.
 - an `env.secret.yaml` whose file mode is too broad → tighten it to `0600`.
 - `provision-host-config: true` → turn host-config provisioning off. Run `agents-sandbox run --learn` first to derive
   your managed config from a real session.

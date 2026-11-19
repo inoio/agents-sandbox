@@ -207,8 +207,9 @@ func (f ConfigFacts) policyFindings() []Finding {
 
 // broadProfileFinding is C3: a policy whose profile admits broad egress is
 // narrowed to the terminal none profile, keeping the current allow list. An
-// empty allow list has nothing to keep, so narrowing would deny all egress: it
-// is reported, not written.
+// allow list with nothing C4 would keep (empty, or only wildcard entries C4
+// drops) has nothing to keep, so narrowing would deny all egress: it is
+// reported, not written.
 func (f ConfigFacts) broadProfileFinding(policy network.Policy) (Finding, bool) {
 	if slices.Equal(policy.Profiles, []network.Profile{network.ProfileNone}) {
 		return Finding{}, false
@@ -219,6 +220,18 @@ func (f ConfigFacts) broadProfileFinding(policy network.Policy) (Finding, bool) 
 		evidence := Evidence{
 			Summary: "the network profile " + profiles + " admits broad egress with no egress-allow entries; " +
 				"narrowing to none would deny all egress",
+			Channel: evidenceChannelConfig,
+		}
+		//exhaustruct:ignore // a reported-only finding proposes no write
+		return Finding{Evidence: evidence, Kind: KindConfig}, true
+	}
+	if len(remainingAfterWildcardDrop(policy.EgressAllow)) == 0 {
+		// The only allow entries are wildcards C4 would drop, so narrowing the
+		// profile while dropping them would leave nothing reachable.
+		//exhaustruct:ignore // a config finding reports no denial and no count
+		evidence := Evidence{
+			Summary: "the network profile " + profiles + " admits broad egress and its egress-allow list holds only " +
+				"wildcard entries; narrowing to none while dropping them would deny all egress",
 			Channel: evidenceChannelConfig,
 		}
 		//exhaustruct:ignore // a reported-only finding proposes no write
@@ -242,20 +255,30 @@ func (f ConfigFacts) broadProfileFinding(policy network.Policy) (Finding, bool) 
 }
 
 // wildcardEgressFinding is C4: an egress-allow entry that admits every host is
-// dropped, keeping the remaining entries.
+// dropped, keeping the remaining entries. A list whose every entry is a wildcard
+// has nothing to keep, so dropping them would deny all egress: it is reported,
+// not written.
 func (f ConfigFacts) wildcardEgressFinding(policy network.Policy) (Finding, bool) {
-	var kept, dropped []string
+	var dropped []string
 	for _, entry := range policy.EgressAllow {
 		if slices.Contains(wildcardEgressEntries, entry) {
 			dropped = append(dropped, entry)
-			continue
 		}
-		kept = append(kept, entry)
 	}
 	if len(dropped) == 0 {
 		return Finding{}, false
 	}
-	remaining := sortedUnique(kept)
+	remaining := remainingAfterWildcardDrop(policy.EgressAllow)
+	if len(remaining) == 0 {
+		//exhaustruct:ignore // a config finding reports no denial and no count
+		evidence := Evidence{
+			Summary: "the egress-allow list holds only wildcard entries: " + strings.Join(sortedUnique(dropped), ", ") +
+				"; dropping them would deny all egress",
+			Channel: evidenceChannelConfig,
+		}
+		//exhaustruct:ignore // a reported-only finding proposes no write
+		return Finding{Evidence: evidence, Kind: KindConfig}, true
+	}
 	//exhaustruct:ignore // a config finding reports no denial and no count
 	evidence := Evidence{
 		Summary:      "the egress-allow list contains a wildcard entry: " + strings.Join(sortedUnique(dropped), ", "),
@@ -271,6 +294,18 @@ func (f ConfigFacts) wildcardEgressFinding(policy network.Policy) (Finding, bool
 	}
 	//exhaustruct:ignore // EvidenceHash is stamped by ConfigFindings
 	return Finding{Evidence: evidence, Writes: []Write{write}, Kind: KindConfig}, true
+}
+
+// remainingAfterWildcardDrop returns the egress-allow entries C4 keeps: every
+// entry that is not a wildcard, sorted and de-duplicated.
+func remainingAfterWildcardDrop(entries []string) []string {
+	var kept []string
+	for _, entry := range entries {
+		if !slices.Contains(wildcardEgressEntries, entry) {
+			kept = append(kept, entry)
+		}
+	}
+	return sortedUnique(kept)
 }
 
 // provisionHostConfigFinding is C6: host-config provisioning is turned off. Its

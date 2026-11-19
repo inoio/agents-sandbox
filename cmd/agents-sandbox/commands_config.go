@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -494,7 +495,14 @@ func runConfigHarden(cmd *cobra.Command, ui termio.UI) error {
 		SecretValue:  hardenSecretValue(scopes, agentNameForHarden(cmd), ui),
 	}
 	results := analyser.Apply(findings, opts)
-	printHardenSummary(ui, results)
+	switch {
+	case opts.Mode.Previews():
+		// A dry run previews each finding's proposed change without writing; the
+		// applier already reported that it made no change.
+		printHardenPreview(ui, results)
+	case ui.IsInteractive():
+		printHardenSummary(ui, results)
+	}
 	return nil
 }
 
@@ -537,16 +545,19 @@ func hardenSecretValue(
 	}
 }
 
-// secretValueFromScopes returns the literal value of envVar from the first
-// scope whose env.secret.yaml declares it, preferring a non-empty value. Each
-// file is read through envsecret, which routes the project scope through the
-// project guard, so an unapproved project secret is never read.
+// secretValueFromScopes returns the literal value of envVar from the highest-
+// precedence scope whose env.secret.yaml declares it, preferring a non-empty
+// value. It walks the scopes in reverse (project → per-slug → generic), matching
+// the effective-config precedence, so a same-named lower-scope key does not
+// supply the wrong value. Each file is read through envsecret, which routes the
+// project scope through the project guard, so an unapproved project secret is
+// never read.
 func secretValueFromScopes(
 	scopes []configpaths.ConfigScope,
 	envVar string,
 	ui termio.Logger,
 ) (string, bool) {
-	for _, scope := range scopes {
+	for _, scope := range slices.Backward(scopes) {
 		specs := envsecret.ParseSecretSpecYAML(scope.EnvSecretYAMLFile(), ui)
 		if spec, ok := specs[envVar]; ok && spec.Value != "" {
 			return spec.Value, true
@@ -556,16 +567,16 @@ func secretValueFromScopes(
 }
 
 // secretValueFromAgentConfigs returns the literal value of envVar from the
-// first regular agent config file that declares it as an inline credential
-// under a scope's agent config dir. A login store or the dotenv is skipped, and
-// the read goes through the project guard, so an unapproved project file is not
-// read.
+// highest-precedence scope whose agent config dir declares it inline. It walks
+// the scopes in reverse, matching the effective-config precedence. A login store
+// or the dotenv is skipped, and the read goes through the project guard, so an
+// unapproved project file is not read.
 func secretValueFromAgentConfigs(
 	scopes []configpaths.ConfigScope,
 	dirNames []string,
 	envVar string,
 ) (string, bool) {
-	for _, scope := range scopes {
+	for _, scope := range slices.Backward(scopes) {
 		for _, name := range dirNames {
 			if value, ok := inlineCredentialValue(scope.AgentConfigDir(name), envVar); ok {
 				return value, true
@@ -618,10 +629,11 @@ func agentConfigDirNames(agentName string) []string {
 }
 
 // printHardenSummary reports a one-line outcome summary — how many findings
-// were applied, declined, or skipped — and a line for each finding that was not
-// applied, so an interactive run shows what it wrote and why a finding stayed.
+// were applied, declined, reported, or skipped — and a line for each finding
+// that was not applied, so an interactive run shows what it wrote and why a
+// finding stayed.
 func printHardenSummary(ui termio.UI, results []analyser.ApplyResult) {
-	var applied, declined, skipped, failed int
+	var applied, declined, skipped, notApplicable, failed int
 	for _, result := range results {
 		switch result.Outcome {
 		case analyser.OutcomeApplied:
@@ -633,18 +645,34 @@ func printHardenSummary(ui termio.UI, results []analyser.ApplyResult) {
 		case analyser.OutcomeFailed:
 			failed++
 		case analyser.OutcomeNotApplicable:
-			skipped++
+			notApplicable++
 		}
 	}
-	ui.Infof("config harden: %d findings: %d applied, %d declined, %d skipped, %d failed.",
-		len(results), applied, declined, skipped, failed)
+	ui.Infof("config harden: %d findings: %d applied, %d declined, %d skipped, %d reported, %d failed.",
+		len(results), applied, declined, skipped, notApplicable, failed)
 	for _, result := range results {
 		switch result.Outcome {
 		case analyser.OutcomeSkipped:
 			ui.Infof("config harden: skipped %s: %s", findingNoun(result.Finding), result.Note)
+		case analyser.OutcomeNotApplicable:
+			ui.Infof("config harden: reported %s: %s", findingNoun(result.Finding), result.Note)
 		case analyser.OutcomeFailed:
 			ui.Warnf("config harden: %s failed: %s", findingNoun(result.Finding), result.Err)
-		case analyser.OutcomeApplied, analyser.OutcomeDeclined, analyser.OutcomeNotApplicable:
+		case analyser.OutcomeApplied, analyser.OutcomeDeclined:
+		}
+	}
+}
+
+// printHardenPreview renders each finding's proposed change under --dry-run: its
+// evidence summary and every write's Text, which carries no secret value. The
+// applier writes nothing and asks nothing, so this is what a preview shows.
+func printHardenPreview(ui termio.UI, results []analyser.ApplyResult) {
+	for _, result := range results {
+		ui.Outf("config harden: would change %s", findingNoun(result.Finding))
+		for _, write := range result.Finding.Writes {
+			if write.Text != "" {
+				ui.Outf("  %s", write.Text)
+			}
 		}
 	}
 }

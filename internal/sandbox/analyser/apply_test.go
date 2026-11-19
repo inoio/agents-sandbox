@@ -804,6 +804,48 @@ func TestApplyRemovesAProjectSetting(t *testing.T) {
 	}
 }
 
+// TestApplyProjectSecretMoveKeepsTheApproval pins that moving a project secret
+// (C1's removal) extends the persistent checkout approval by the removed
+// env-var, so the next run does not gate the launcher's own removal. Without
+// ApproveSecretWrite the recorded approval still holds the removed secret and
+// the change re-prompts.
+func TestApplyProjectSecretMoveKeepsTheApproval(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	// A second project input keeps the projection non-empty after the secret is
+	// removed, so the removal is a real change the approval must absorb (an empty
+	// projection is approved regardless).
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "network:\n  profile: none\n")
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "env.secret.yaml",
+		"WIDGET_TOKEN:\n  value: sk-project\n  host: api.widget.example\n")
+	approveProjectLayer(t, cp)
+
+	ui, _ := interactiveUI()
+	finding := Finding{
+		Evidence: Evidence{Summary: "WIDGET_TOKEN is committed in the project scope"},
+		Writes: []Write{
+			{Scope: ScopeProject, Secret: &SecretWrite{EnvVar: "WIDGET_TOKEN", Remove: true}},
+			{
+				Scope:  ScopePerSlugUser,
+				Secret: &SecretWrite{EnvVar: "WIDGET_TOKEN", Hosts: []string{"api.widget.example"}},
+			},
+		},
+	}
+	results := Apply([]Finding{finding}, ApplyOptions{
+		Paths: cp, Slug: testSlug, CheckoutSlug: testCheckoutSlug, UI: ui, Mode: options.ModeRun,
+		SecretValue: func(SecretWrite) (string, bool) { return "sk-project", true },
+	})
+
+	if results[0].Outcome != OutcomeApplied {
+		t.Fatalf("outcome = %q (%s); want applied", results[0].Outcome, results[0].Err)
+	}
+	if !projectLayerApproved(t, cp) {
+		t.Error(
+			"moving a project secret left the project config needing approval; ApproveSecretWrite was not called",
+		)
+	}
+}
+
 // TestApplyFailsWhenTheProjectApprovalCannotBeRecorded pins that a project-scope
 // write fails when its approval cannot be extended: the write must not run
 // without the approval that would keep the next run from re-asking.
@@ -1260,4 +1302,36 @@ func TestApplySkipsATextOnlyWrite(t *testing.T) {
 		t.Errorf("env.secret.yaml = %q; want the moved secret", got)
 	}
 	assertNoFile(t, filepath.Join(cp.UserSlugConfigDir(testSlug), "config.yaml"))
+}
+
+// TestApplyReportsAWriteLessFindingWithoutPrompting pins that a finding that
+// plans no write (a report-only finding, e.g. C2 with no host or C4 dropping the
+// last wildcard) is neither prompted nor counted as applied: it is reported as
+// not applicable and nothing is declined.
+func TestApplyReportsAWriteLessFindingWithoutPrompting(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	reportOnly := Finding{
+		Evidence:     Evidence{Summary: "OPENAI_API_KEY allows any host with no host to narrow to"},
+		EvidenceHash: "report-only",
+	}
+
+	ui, answered := interactiveUI()
+	results := Apply([]Finding{reportOnly}, ApplyOptions{
+		Paths: cp, Slug: testSlug, UI: ui, Mode: options.ModeRun,
+	})
+
+	if results[0].Outcome != OutcomeNotApplicable {
+		t.Fatalf("outcome = %q (%s); want not-applicable", results[0].Outcome, results[0].Err)
+	}
+	if *answered != 0 {
+		t.Errorf("a write-less finding asked %d prompts; want none", *answered)
+	}
+	declined, err := state.LearnDeclined(testSlug, "report-only")
+	if err != nil {
+		t.Fatalf("LearnDeclined: %v", err)
+	}
+	if declined {
+		t.Error("a write-less finding recorded a decline")
+	}
 }
