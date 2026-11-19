@@ -2,6 +2,7 @@ package projecttrust
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -536,4 +537,95 @@ func TestWithoutSecretEntryKeepsUnrelatedInputsAndDropsAnEmptiedOne(t *testing.T
 	}
 
 	require.Equal(t, want, withoutSecretEntry(inputs, "TOKEN"))
+}
+
+// TestRefreshFileInputLeavesNonMatchingInputsUntouched pins the refresh filter: a
+// file input at another path and a non-file input at the secret file's path are
+// both passed through unchanged, so no input is rewritten and nothing is
+// reported as changed.
+func TestRefreshFileInputLeavesNonMatchingInputsUntouched(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "env.secret.yaml")
+	testutil.WriteFile(t, dir, "env.secret.yaml", "WIDGET_TOKEN:\n  value: sk\n  host: api.widget.example\n")
+	inputs := []Input{
+		{
+			Path:    filepath.Join(dir, "config.yaml"),
+			Kind:    KindFile,
+			Entries: []string{"sha256:other"},
+			Digest:  "sha256:other",
+		},
+		{Path: path, Kind: KindSecrets, Entries: []string{"WIDGET_TOKEN"}},
+	}
+
+	got, changed := refreshFileInput(inputs, path)
+
+	require.False(t, changed)
+	require.Equal(t, inputs, got)
+}
+
+// TestRefreshFileInputContinuesPastAVanishedFilesInput pins that a matching file
+// input whose source is gone is dropped without stopping the loop, so the inputs
+// after it still survive.
+func TestRefreshFileInputContinuesPastAVanishedFilesInput(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "env.secret.yaml")
+	inputs := []Input{
+		{Path: path, Kind: KindFile, Entries: []string{"sha256:old"}, Digest: "sha256:old"},
+		{Path: "/other/config.yaml", Kind: KindLauncherConfig, Entries: []string{"memory: 8G"}},
+	}
+
+	got, changed := refreshFileInput(inputs, path)
+
+	require.True(t, changed)
+	require.Equal(t, inputs[1:], got)
+}
+
+// TestSameSourcePathMatchesADifferentSpellingOfOneFile pins both spellings the
+// comparison accepts: a path equal after Clean (a spelling that does not
+// resolve) and a path equal only after symlink resolution (a spelling Clean
+// cannot fold). Two unrelated paths match neither.
+func TestSameSourcePathMatchesADifferentSpellingOfOneFile(t *testing.T) {
+	dir := t.TempDir()
+	realDir := filepath.Join(dir, "real")
+	require.NoError(t, os.MkdirAll(realDir, 0o750))
+	file := filepath.Join(realDir, "env.secret.yaml")
+	testutil.WriteFile(t, realDir, "env.secret.yaml", "x")
+	link := filepath.Join(dir, "link")
+	require.NoError(t, os.Symlink(realDir, link))
+
+	for _, tc := range []struct {
+		name string
+		a, b string
+		want bool
+	}{
+		{"identical", "/a/b", "/a/b", true},
+		{"unrelated", "/a/b", "/c/d", false},
+		{"cleaned", "/a/./b/../b", "/a/b", true},
+		{"resolved symlink", filepath.Join(link, "env.secret.yaml"), file, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, sameSourcePath(tc.a, tc.b))
+		})
+	}
+}
+
+// TestRefreshSecretFileInputWithoutAChangeDoesNotWrite pins that the refresh
+// leaves the state untouched when the approval has no raw-content input to
+// update, rather than rewriting an identical approval.
+func TestRefreshSecretFileInputWithoutAChangeDoesNotWrite(t *testing.T) {
+	f := newProjectFixture(t)
+	f.write(t, "env.secret.yaml", "WIDGET_TOKEN:\n  value: sk\n  host: api.widget.example\n")
+	if err := RecordApproval("checkout-a", f.compute(t)); err != nil {
+		t.Fatal(err)
+	}
+	writes := 0
+	restore := state.OverrideStateWriteForTest(func(string, []byte) error {
+		writes++
+		return nil
+	})
+	t.Cleanup(restore)
+
+	if err := RefreshSecretFileInput("checkout-a", f.projectDir); err != nil {
+		t.Fatalf("RefreshSecretFileInput: %v", err)
+	}
+	require.Zero(t, writes, "an approval with nothing to refresh must not be rewritten")
 }

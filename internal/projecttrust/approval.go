@@ -272,10 +272,7 @@ func secretEntryNames(entry, envVar string) bool {
 func RefreshSecretFileInput(checkoutSlug, dir string) error {
 	path := filepath.Join(dir, configpaths.EnvSecretFileName+".yaml")
 	_, err := state.WithRootState(true, func(txn *state.RootTxn) error {
-		previous, found := txn.State().ApprovedProjectLayer(checkoutSlug)
-		if !found {
-			return nil
-		}
+		previous, _ := txn.State().ApprovedProjectLayer(checkoutSlug)
 		projection := fromApproval(previous)
 		refreshed, changed := refreshFileInput(projection.Inputs, path)
 		if !changed {

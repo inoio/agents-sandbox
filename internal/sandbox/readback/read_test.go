@@ -1262,3 +1262,14 @@ func TestInlineCredentialsInIgnoresAnUnknownExtension(t *testing.T) {
 
 	require.Empty(t, InlineCredentialsIn("config.unknown", data))
 }
+
+// TestInlineCredentialsInIgnoresAPartiallyDecodedDocument pins that a document
+// the decoder errors on yields nothing even when it has already populated a
+// provider entry: the guard discards the partial state rather than scanning it.
+func TestInlineCredentialsInIgnoresAPartiallyDecodedDocument(t *testing.T) {
+	data := []byte("provider:\n  openai:\n    options:\n" +
+		"      apiKey: sk-inline\n      baseURL: https://api.openai.com/v1\n" +
+		"broken: !!int notanint\n")
+
+	require.Empty(t, InlineCredentialsIn("config.yaml", data))
+}

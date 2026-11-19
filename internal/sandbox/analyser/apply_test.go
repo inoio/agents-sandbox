@@ -1771,6 +1771,39 @@ func TestApplyFailsWhenAProjectSecretRemovalCannotBeRecorded(t *testing.T) {
 	}
 }
 
+// TestApplyFailsWhenTheSecretFileRefreshCannotBeRecorded pins that the
+// home-source refresh after a project secret removal surfaces its failure:
+// executeProjectSecret must carry RefreshSecretFileInput's error, not swallow it.
+func TestApplyFailsWhenTheSecretFileRefreshCannotBeRecorded(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml",
+		"network:\n  profile: none\nhome:\n  .config/agents-sandbox/env.secret.yaml:\n    source: env.secret.yaml\n")
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "env.secret.yaml",
+		"WIDGET_TOKEN:\n  value: sk\n  host: api.widget.example\n")
+	approveProjectLayer(t, cp)
+
+	// The approval extension succeeds; fail the refresh's commit, the second
+	// state write, so execution reaches RefreshSecretFileInput.
+	writes := 0
+	restore := state.OverrideStateWriteForTest(func(string, []byte) error {
+		writes++
+		if writes > 1 {
+			return errors.New("boom")
+		}
+		return nil
+	})
+	t.Cleanup(restore)
+
+	plan := plannedWrite{
+		dir:   cp.ProjectConfigDir(),
+		write: Write{Scope: ScopeProject, Secret: &SecretWrite{EnvVar: "WIDGET_TOKEN", Remove: true}},
+	}
+
+	err := executeProjectSecret(plan, ApplyOptions{CheckoutSlug: testCheckoutSlug})
+	require.ErrorContains(t, err, "refresh the approval of")
+}
+
 // TestPlanWritesKeepsWritesAfterASkippedOrFileModeWrite pins that a declarative
 // (text-only) write and a file-mode write are each passed over without stopping
 // the planning of the writes that follow them.
