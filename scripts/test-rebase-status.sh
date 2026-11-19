@@ -7,6 +7,10 @@
 # `make rebase-status-test`.
 set -euo pipefail
 
+# Full isolation head (specs/testing/shell-script-harnesses.md): the fixtures run
+# the real git binary, so an ambient commit-signing/askpass setting or config
+# file must not reach them.
+unset GIT_CONFIG_SYSTEM GIT_ASKPASS SSH_ASKPASS SSH_ASKPASS_REQUIRE
 export GIT_CONFIG_NOSYSTEM=1
 export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_TERMINAL_PROMPT=0

@@ -12,7 +12,10 @@ set -euo pipefail
 # commit signing/askpass or credential helper must not reach them — a signing
 # commit would otherwise pop a GUI askpass such as ksshaskpass. The real
 # cleanup-merged-branches.sh is a user tool and deliberately keeps the user's
-# config; only this test isolates.
+# config; only this test isolates. This is the full isolation head
+# (specs/testing/shell-script-harnesses.md); the Go harnesses get it from
+# GitIsolationEnvironment instead.
+unset GIT_CONFIG_SYSTEM GIT_ASKPASS SSH_ASKPASS SSH_ASKPASS_REQUIRE
 export GIT_CONFIG_NOSYSTEM=1
 export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_TERMINAL_PROMPT=0
