@@ -541,7 +541,7 @@ func TestCollectEndpointHostsWalksSequences(t *testing.T) {
 
 	collectEndpointHosts(
 		[]any{map[string]any{"provider": "openai", "base_url": "https://api.example/v1"}},
-		"", "", hostsByProvider,
+		hostsByProvider,
 	)
 
 	require.Equal(t, []string{"api.example"}, hostsByProvider["openai"])
@@ -585,6 +585,173 @@ func TestReadLoginCredentialHasNoEnvVar(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rb.Login, 1)
 	require.Empty(t, rb.Login[0].EnvVar)
+}
+
+// TestDerivedEnvVarName pins the env-var name an inline credential is scoped by
+// when its entry names none: the provider id uppercased, non-alphanumerics
+// folded to '_', with an _API_KEY suffix.
+func TestDerivedEnvVarName(t *testing.T) {
+	require.Equal(t, "MOONSHOT_API_KEY", derivedEnvVarName("moonshot"))
+	require.Equal(t, "KIMI_API_KEY", derivedEnvVarName("kimi"))
+	require.Equal(t, "OH_MY_PI_API_KEY", derivedEnvVarName("oh-my-pi"))
+}
+
+// TestReadClassifiesInlineConfigSecret: a credential key inline in a provider
+// entry of a declared config file is a static secret, with provider, host, and
+// env-var name taken from that entry.
+func TestReadClassifiesInlineConfigSecret(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/config.yaml",
+		"model:\n  provider: moonshot\n  api_key: sk-inline\n  base_url: https://api.moonshot.example/v1\n")
+
+	rb, err := Read(home, "hermes", Manifest{})
+
+	require.NoError(t, err)
+	require.Empty(t, rb.Login)
+	require.Len(t, rb.Static, 1)
+	credential := rb.Static[0]
+	require.Equal(t, CredentialStatic, credential.Kind)
+	require.Equal(t, ".hermes/config.yaml", credential.Source)
+	require.Equal(t, "moonshot", credential.Provider)
+	require.Equal(t, "MOONSHOT_API_KEY", credential.EnvVar)
+	require.Equal(t, []string{"api.moonshot.example"}, credential.Hosts)
+	require.Equal(t, "sk-inline", credential.Value)
+	require.Empty(t, credential.Field, "the harness owns the header")
+}
+
+// TestReadInlineSecretTakesHostFromItsEntry: the credential's Hosts come from
+// its own entry's endpoint, normalized to a host.
+func TestReadInlineSecretTakesHostFromItsEntry(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/config.yaml",
+		"model:\n  provider: moonshot\n  api_key: sk-inline\n  base_url: https://api.moonshot.example:8443/v1\n")
+
+	rb, err := Read(home, "hermes", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Static, 1)
+	require.Equal(t, []string{"api.moonshot.example"}, rb.Static[0].Hosts,
+		"the entry's endpoint host, with scheme, port, and path dropped")
+}
+
+// TestReadInlineSecretDerivesEnvVarName: a bare api_key with no declared
+// env-var name is scoped by <PROVIDER>_API_KEY, derived from the entry.
+func TestReadInlineSecretDerivesEnvVarName(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/config.yaml",
+		"model:\n  provider: kimi\n  api_key: sk-inline\n")
+
+	rb, err := Read(home, "hermes", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Static, 1)
+	require.Equal(t, "KIMI_API_KEY", rb.Static[0].EnvVar)
+}
+
+// TestReadInlineSecretUsesDeclaredEnvVarName: a secret-looking key in the
+// entry's env sub-table names its own env var, which wins over the derived one.
+func TestReadInlineSecretUsesDeclaredEnvVarName(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".kimi-code/config.toml", strings.Join([]string{
+		"[providers.x]",
+		`base_url = "https://api.x.example/v1"`,
+		"",
+		"[providers.x.env]",
+		`KIMI_API_KEY = "sk-declared"`,
+		`REGION = "us"`,
+		"",
+	}, "\n"))
+
+	rb, err := Read(home, "kimi-code", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Static, 1, "only the secret-looking env key is a credential")
+	require.Equal(t, "KIMI_API_KEY", rb.Static[0].EnvVar, "the declared name wins over X_API_KEY")
+	require.Equal(t, "sk-declared", rb.Static[0].Value)
+}
+
+// TestReadInlineSecretSkipsPlaceholderValue: a ${...} reference is not a
+// literal secret, so it yields no credential.
+func TestReadInlineSecretSkipsPlaceholderValue(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/config.yaml",
+		"model:\n  provider: moonshot\n  api_key: \"${MOONSHOT_API_KEY}\"\n")
+
+	rb, err := Read(home, "hermes", Manifest{})
+
+	require.NoError(t, err)
+	require.Empty(t, rb.Static)
+}
+
+// TestReadInlineSecretSkipsApiKeyEnvOnly: an entry that names its key
+// indirectly (api_key_env) holds no literal secret.
+func TestReadInlineSecretSkipsApiKeyEnvOnly(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/config.yaml",
+		"model:\n  provider: moonshot\n  api_key_env: MOONSHOT_API_KEY\n")
+
+	rb, err := Read(home, "hermes", Manifest{})
+
+	require.NoError(t, err)
+	require.Empty(t, rb.Static)
+}
+
+// TestReadInlineSecretSkipsNonStringValue: a numeric token setting is a count,
+// not a literal secret.
+func TestReadInlineSecretSkipsNonStringValue(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/config.yaml",
+		"model:\n  provider: moonshot\n  token: 4096\n")
+
+	rb, err := Read(home, "hermes", Manifest{})
+
+	require.NoError(t, err)
+	require.Empty(t, rb.Static)
+}
+
+// TestReadInlineSecretSkipsALoginStore: a declared login store is excluded
+// from the inline walk, so a token it holds is a login, never a static secret.
+func TestReadInlineSecretSkipsALoginStore(t *testing.T) {
+	home := t.TempDir()
+	// The store is shaped with a provider entry so the inline walk would
+	// consider its token: the login-store skip is what keeps it a login.
+	writeFile(t, home, ".codex/auth.json", `{"provider":"codex","token":"super-secret"}`)
+
+	rb, err := Read(home, "codex", Manifest{})
+
+	require.NoError(t, err)
+	require.Empty(t, rb.Static, "a login store must not yield a static credential")
+	require.Len(t, rb.Login, 1)
+	require.Equal(t, "codex", rb.Login[0].Provider)
+}
+
+// TestReadInlineSecretKeepsDotenvHostFill: a dotenv credential, whose file
+// names no host, still gets its host from the configEndpointHosts fill.
+func TestReadInlineSecretKeepsDotenvHostFill(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/.env", "OPENAI_API_KEY=sk-secret\n")
+	writeFile(t, home, ".hermes/config.yaml",
+		"model:\n  provider: openai\n  base_url: https://api.example/v1\n")
+
+	rb, err := Read(home, "hermes", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Static, 1)
+	require.Equal(t, "openai", rb.Static[0].Provider)
+	require.Equal(t, []string{"api.example"}, rb.Static[0].Hosts)
+}
+
+// TestConfigInlineCredentialsSkipsAnUnknownExtension: only a config format the
+// decoder knows is walked, so an unrecognised file yields no credential.
+func TestConfigInlineCredentialsSkipsAnUnknownExtension(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/notes.txt", "provider: moonshot\napi_key: sk\n")
+
+	credentials := configInlineCredentials(home, Manifest{Entries: []ManifestEntry{
+		{Key: ".hermes/notes.txt", Size: 1, Hash: "abc"},
+	}})
+
+	require.Empty(t, credentials)
 }
 
 // configEntry is a readable provider entry that declares an endpoint host.

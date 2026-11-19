@@ -2,12 +2,14 @@ package readback
 
 import (
 	"io"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configdecode"
@@ -108,6 +110,7 @@ func Read(home, agentName string, baseline Manifest) (ReadBack, error) {
 		readBack.ConfigPaths = append(readBack.ConfigPaths, entry.Key)
 	}
 	readBack.appendProbeCredentials(collection.probes)
+	readBack.Static = append(readBack.Static, configInlineCredentials(home, collection.manifest)...)
 	readBack.fillStaticCredentialHosts(home, collection.manifest)
 	// The manifest entries are already sorted by key, so appending the
 	// config paths in this loop is order-preserving.
@@ -144,11 +147,15 @@ const dotenvFileName = ".env"
 // fillStaticCredentialHosts sets each static credential's Hosts from the
 // endpoint the agent's config entry for its provider declares: the spec's
 // "endpoint in the same config entry" attribution fallback for a session the
-// observation channel did not see. A credential whose provider no entry names
-// keeps empty Hosts.
+// observation channel did not see. A credential that already carries hosts (an
+// inline credential takes its own entry's) keeps them; a credential whose
+// provider no entry names keeps empty Hosts.
 func (r *ReadBack) fillStaticCredentialHosts(home string, manifest Manifest) {
 	hostsByProvider := configEndpointHosts(home, manifest)
 	for i := range r.Static {
+		if len(r.Static[i].Hosts) > 0 {
+			continue
+		}
 		r.Static[i].Hosts = hostsByProvider[normalizeToken(r.Static[i].Provider)]
 	}
 }
@@ -174,7 +181,7 @@ func configEndpointHosts(home string, manifest Manifest) map[string][]string {
 		if err != nil {
 			continue
 		}
-		collectEndpointHosts(document, "", "", hostsByProvider)
+		collectEndpointHosts(document, hostsByProvider)
 	}
 	for provider, hosts := range hostsByProvider {
 		hostsByProvider[provider] = slices.Compact(slices.Sorted(slices.Values(hosts)))
@@ -182,25 +189,27 @@ func configEndpointHosts(home string, manifest Manifest) map[string][]string {
 	return hostsByProvider
 }
 
-// collectEndpointHosts walks a decoded config document and records, per
-// provider it finds, the endpoint host that provider's entry declares. Only a
-// node the document positively presents as a provider entry is considered: a
-// node inside a provider container (keyed by the provider id, opencode's
-// "provider.<id>" / "models.providers.<id>") or a node that names its provider
-// through an explicit "provider" field (hermes' "model.provider"). A node that
-// merely carries an endpoint under some other key (an MCP server's "url", a
-// tool's "endpoint") is not a provider entry, so it yields no host: an
-// unrecognised shape is never a guess.
-//
-// entryKey is the provider id the node's enclosing provider container gives it,
-// or "" outside a container.
-func collectEndpointHosts(node any, key, entryKey string, hostsByProvider map[string][]string) {
+// walkProviderEntries calls visit for every node the document positively
+// presents as a provider entry, with the provider name that entry declares. A
+// node is a provider entry when it sits inside a provider container (keyed by
+// the provider id, opencode's "provider.<id>" / "models.providers.<id>") or
+// names its provider through an explicit "provider" field (hermes'
+// "model.provider"). A node that merely carries an endpoint under some other key
+// (an MCP server's "url", a tool's "endpoint") is not a provider entry, so an
+// unrecognised shape is never a guess. It factors the traversal the endpoint
+// walk uses, so both walks agree on what a provider entry is.
+func walkProviderEntries(node any, visit func(entry map[string]any, provider string)) {
+	walkProviderNode(node, "", "", visit)
+}
+
+// walkProviderNode is walkProviderEntries' recursion. key is the node's key in
+// its parent; entryKey is the provider id the node's enclosing provider
+// container gives it, or "" outside a container.
+func walkProviderNode(node any, key, entryKey string, visit func(entry map[string]any, provider string)) {
 	switch typed := node.(type) {
 	case map[string]any:
-		if hosts := entryEndpointHosts(typed); len(hosts) > 0 {
-			if provider, ok := providerNamedByEntry(typed, entryKey); ok {
-				hostsByProvider[provider] = append(hostsByProvider[provider], hosts...)
-			}
+		if provider, ok := providerNamedByEntry(typed, entryKey); ok {
+			visit(typed, provider)
 		}
 		container := isProviderContainer(key)
 		for childKey, child := range typed {
@@ -208,13 +217,25 @@ func collectEndpointHosts(node any, key, entryKey string, hostsByProvider map[st
 			if container {
 				childEntryKey = childKey
 			}
-			collectEndpointHosts(child, childKey, childEntryKey, hostsByProvider)
+			walkProviderNode(child, childKey, childEntryKey, visit)
 		}
 	case []any:
 		for _, child := range typed {
-			collectEndpointHosts(child, "", "", hostsByProvider)
+			walkProviderNode(child, "", "", visit)
 		}
 	}
+}
+
+// collectEndpointHosts records, per provider a decoded config document names,
+// the endpoint host that provider's entry declares. An entry that names a
+// provider but declares no endpoint adds nothing: the hosts map never carries an
+// empty provider key.
+func collectEndpointHosts(node any, hostsByProvider map[string][]string) {
+	walkProviderEntries(node, func(entry map[string]any, provider string) {
+		if hosts := entryEndpointHosts(entry); len(hosts) > 0 {
+			hostsByProvider[provider] = append(hostsByProvider[provider], hosts...)
+		}
+	})
 }
 
 // providerNamedByEntry returns the provider an entry names: the id its enclosing
@@ -366,6 +387,120 @@ func looksLikeSecretKey(key string) bool {
 // (TOKENS).
 func isSecretKeySeparator(r rune) bool {
 	return r == '_' || r == '-'
+}
+
+// inlineCredentialKeys are the normalized keys whose value inside a provider
+// entry is that provider's own static credential.
+var inlineCredentialKeys = []string{"apikey", "key", "token"}
+
+// configInlineCredentials returns each inline static credential a declared
+// config file holds: a credential-bearing key inside a provider entry, with the
+// provider, host, and env-var name taken from that entry. A probe, the dotenv,
+// and a login store are skipped (the login store's value is never read); a file
+// the reader cannot decode yields nothing, never a guess.
+func configInlineCredentials(home string, manifest Manifest) []Credential {
+	var credentials []Credential
+	for _, entry := range manifest.Entries {
+		if isProbe(entry) || filepath.Base(entry.Key) == dotenvFileName {
+			continue
+		}
+		if _, isLogin := loginStoreFor(entry.Key); isLogin {
+			continue
+		}
+		format, ok := configdecode.FormatFor(entry.Key)
+		if !ok {
+			continue
+		}
+		// A failed read yields nil content, which decodes to an empty
+		// document, so it needs no separate skip.
+		content, _ := readCappedFile(filepath.Join(home, entry.Key), maxHashedBytes)
+		document, err := configdecode.Decode(format, content)
+		if err != nil {
+			continue
+		}
+		walkProviderEntries(document, func(providerEntry map[string]any, provider string) {
+			credentials = append(credentials, entryCredentials(providerEntry, provider, entry.Key)...)
+		})
+	}
+	return credentials
+}
+
+// entryCredentials returns the static credentials one provider entry holds: its
+// own credential key (api_key/apiKey/key/token) and the secret-looking keys of
+// its "env" sub-table, each scoped by an env-var name. A non-string value (a
+// token count) and a value that is already a ${...} reference are not
+// credentials; the header field is left to the harness. The keys are visited in
+// sorted order, so the output does not depend on map iteration order.
+func entryCredentials(entry map[string]any, provider, source string) []Credential {
+	hosts := entryEndpointHosts(entry)
+	var credentials []Credential
+	for _, key := range slices.Sorted(maps.Keys(entry)) {
+		if !slices.Contains(inlineCredentialKeys, normalizeToken(key)) {
+			continue
+		}
+		if value, ok := inlineCredentialValue(entry[key]); ok {
+			credentials = append(credentials, Credential{
+				Kind:     CredentialStatic,
+				Source:   source,
+				Provider: provider,
+				EnvVar:   derivedEnvVarName(provider),
+				Hosts:    hosts,
+				Value:    value,
+			})
+		}
+	}
+	env, _ := entry["env"].(map[string]any)
+	for _, key := range slices.Sorted(maps.Keys(env)) {
+		if !looksLikeSecretKey(key) {
+			continue
+		}
+		if value, ok := inlineCredentialValue(env[key]); ok {
+			credentials = append(credentials, Credential{
+				Kind:     CredentialStatic,
+				Source:   source,
+				Provider: provider,
+				// A key the entry declares is the env-var name it scopes by,
+				// and it wins over the derived one.
+				EnvVar: key,
+				Hosts:  hosts,
+				Value:  value,
+			})
+		}
+	}
+	return credentials
+}
+
+// inlineCredentialValue returns a config value as a static secret's value, and
+// whether it is one: a non-string value (a token count) and a value that is
+// already a ${...} reference are not.
+func inlineCredentialValue(raw any) (string, bool) {
+	value, ok := raw.(string)
+	if !ok || isPlaceholderValue(value) {
+		return "", false
+	}
+	return value, true
+}
+
+// derivedEnvVarName returns the env-var name an inline credential is scoped by
+// when its entry names none: <PROVIDER>_API_KEY, uppercased with
+// non-alphanumerics folded to '_'.
+func derivedEnvVarName(provider string) string {
+	var name strings.Builder
+	for _, r := range strings.ToUpper(provider) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			name.WriteRune(r)
+			continue
+		}
+		name.WriteRune('_')
+	}
+	name.WriteString("_API_KEY")
+	return name.String()
+}
+
+// isPlaceholderValue reports whether a config value is a ${...} reference: a
+// value the launcher already placeholdered is not a literal secret to copy.
+func isPlaceholderValue(value string) bool {
+	return strings.HasPrefix(strings.TrimSpace(value), "${")
 }
 
 // credentialProviders maps a provider token in a secret's key name to the
