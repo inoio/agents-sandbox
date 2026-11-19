@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +15,13 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
+	"github.com/inoio/agents-sandbox/internal/git"
+	"github.com/inoio/agents-sandbox/internal/sandbox/channel"
+	"github.com/inoio/agents-sandbox/internal/sandbox/learn"
+	"github.com/inoio/agents-sandbox/internal/sandbox/network"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
@@ -563,4 +571,432 @@ func TestConfigAgentRejectsAHomeTargetOutsideTheHome(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), `home manifest target "../escape" escapes the home directory`) {
 		t.Fatalf("error = %v, want the escaping target refused", err)
 	}
+}
+
+// stubPrepareMSBRuntime replaces the runtime preparer, so a command the preflight
+// treats as runtime-needing (config learn inspects a volume) does not install the
+// runtime in a test.
+func stubPrepareMSBRuntime(t *testing.T) {
+	t.Helper()
+	old := prepareMSBRuntime
+	prepareMSBRuntime = func(context.Context, termio.Logger, string) error { return nil }
+	t.Cleanup(func() { prepareMSBRuntime = old })
+}
+
+// learnTestKey returns the state key config learn resolves for this test's
+// project.
+func learnTestKey(t *testing.T) state.Key {
+	t.Helper()
+	identity, err := git.ResolveIdentity(".")
+	if err != nil {
+		t.Fatalf("resolve identity: %v", err)
+	}
+	return state.Key{Slug: identity.CheckoutSlug, Agent: defaultAgentName}
+}
+
+// seedLearnState writes the current home volume and, on top of it, a recorded
+// learning session.
+func seedLearnState(t *testing.T, key state.Key, record state.LearnSession) {
+	t.Helper()
+	if err := state.WithHomeState(key, func(cur *state.HomeState, _ bool) (bool, error) {
+		cur.HomeVolume = record.HomeVolume
+		return true, nil
+	}); err != nil {
+		t.Fatalf("seed home volume: %v", err)
+	}
+	if err := state.RecordLearnSession(key, record); err != nil {
+		t.Fatalf("record learn session: %v", err)
+	}
+}
+
+// stubLearnHomeVolume points config learn's home-volume lookup at a fixed path.
+func stubLearnHomeVolume(t *testing.T, path string) {
+	t.Helper()
+	orig := learnHomeVolume
+	learnHomeVolume = func(context.Context, state.Key) (string, error) { return path, nil }
+	t.Cleanup(func() { learnHomeVolume = orig })
+}
+
+// analyseCapture records whether config learn ran the analysis and with what.
+type analyseCapture struct {
+	analysis learn.Analysis
+	called   bool
+}
+
+// stubLearnAnalyse replaces the analysis seam, so the command's wiring can be
+// asserted without applying anything.
+func stubLearnAnalyse(t *testing.T) *analyseCapture {
+	t.Helper()
+	captured := &analyseCapture{}
+	orig := learnAnalyse
+	learnAnalyse = func(
+		_ context.Context,
+		a learn.Analysis,
+		_ termio.UI,
+		_ options.Mode,
+		_ func(string) bool,
+	) (learn.Summary, error) {
+		captured.analysis = a
+		captured.called = true
+		return learn.Summary{}, nil
+	}
+	t.Cleanup(func() { learnAnalyse = orig })
+	return captured
+}
+
+func TestConfigLearnNoRecordedSession(t *testing.T) {
+	initTestProjectDir(t)
+	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdLearn)
+	stubPrepareMSBRuntime(t)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config learn: %v", err)
+	}
+	if !slices.Contains(ui.InfoCalls, "No learning session to review.") {
+		t.Errorf("InfoCalls = %v, want the no-session line", ui.InfoCalls)
+	}
+}
+
+func TestConfigLearnRecreatedVolumeIsDiscarded(t *testing.T) {
+	initTestProjectDir(t)
+	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdLearn)
+	stubPrepareMSBRuntime(t)
+	key := learnTestKey(t)
+	seedLearnState(t, key, state.LearnSession{HomeVolume: "vol-old", ArtefactPath: "/nonexistent"})
+	// The current state records a different volume than the session did.
+	if err := state.WithHomeState(key, func(cur *state.HomeState, _ bool) (bool, error) {
+		cur.HomeVolume = "vol-live"
+		return true, nil
+	}); err != nil {
+		t.Fatalf("seed current volume: %v", err)
+	}
+	captured := stubLearnAnalyse(t)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config learn: %v", err)
+	}
+	if !strings.Contains(strings.Join(ui.InfoCalls, "\n"), "recreated") {
+		t.Errorf("InfoCalls = %v, want a recreated-volume report", ui.InfoCalls)
+	}
+	if _, ok, err := state.ReadLearnSession(key); err != nil || ok {
+		t.Errorf("ReadLearnSession = ok=%v err=%v, want the record cleared", ok, err)
+	}
+	if captured.called {
+		t.Error("config learn analysed a session whose volume was recreated")
+	}
+}
+
+func TestConfigLearnReplaysTheRecordedSession(t *testing.T) {
+	initTestProjectDir(t)
+	cmd, _ := setupCommandFixtures(t, cmdConfig, cmdLearn)
+	stubPrepareMSBRuntime(t)
+	key := learnTestKey(t)
+
+	artefactPath, err := channel.Save(key.Slug, 1763458200, channel.Observation{
+		Destinations: []channel.Destination{{Host: "api.example.com", Protocol: "https", Success: true, Count: 2}},
+	})
+	if err != nil {
+		t.Fatalf("save artefact: %v", err)
+	}
+	seedLearnState(t, key, state.LearnSession{
+		HomeVolume:   "vol-1",
+		ArtefactPath: artefactPath,
+		Baseline:     []state.LearnManifestEntry{{Key: ".config/opencode/opencode.jsonc", Hash: "h1"}},
+	})
+	stubLearnHomeVolume(t, "/home/vol")
+	captured := stubLearnAnalyse(t)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config learn: %v", err)
+	}
+	if !captured.called {
+		t.Fatal("config learn did not run the analysis")
+	}
+	if captured.analysis.Home != "/home/vol" {
+		t.Errorf("analysis.Home = %q, want /home/vol", captured.analysis.Home)
+	}
+	if len(captured.analysis.Baseline.Entries) != 1 ||
+		captured.analysis.Baseline.Entries[0].Key != ".config/opencode/opencode.jsonc" {
+		t.Errorf("analysis.Baseline = %+v, want the recorded entry", captured.analysis.Baseline)
+	}
+	if len(captured.analysis.Observation.Destinations) != 1 ||
+		captured.analysis.Observation.Destinations[0].Host != "api.example.com" {
+		t.Errorf("analysis.Observation = %+v, want the loaded artefact", captured.analysis.Observation)
+	}
+}
+
+// TestConfigLearnConsumesTheRecord pins that a successful replay clears the
+// session record and deletes the capture, so a second `config learn` does not
+// re-prompt and the artefact does not linger.
+func TestConfigLearnConsumesTheRecord(t *testing.T) {
+	initTestProjectDir(t)
+	cmd, _ := setupCommandFixtures(t, cmdConfig, cmdLearn)
+	stubPrepareMSBRuntime(t)
+	key := learnTestKey(t)
+
+	artefactPath, err := channel.Save(key.Slug, 1763458200, channel.Observation{
+		Destinations: []channel.Destination{{Host: "api.example.com", Protocol: "https", Success: true, Count: 1}},
+	})
+	if err != nil {
+		t.Fatalf("save artefact: %v", err)
+	}
+	seedLearnState(t, key, state.LearnSession{HomeVolume: "vol-1", ArtefactPath: artefactPath})
+	stubLearnHomeVolume(t, "/home/vol")
+	stubLearnAnalyse(t)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config learn: %v", err)
+	}
+	if _, ok, err := state.ReadLearnSession(key); err != nil || ok {
+		t.Errorf("ReadLearnSession = ok=%v err=%v, want the record cleared", ok, err)
+	}
+	if _, err := os.Stat(artefactPath); !os.IsNotExist(err) {
+		t.Errorf("artefact still present after config learn (err = %v)", err)
+	}
+}
+
+func TestConfigLearnNonInteractiveWritesNothing(t *testing.T) {
+	initTestProjectDir(t)
+	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdLearn)
+	stubPrepareMSBRuntime(t)
+	key := learnTestKey(t)
+	seedLearnState(t, key, state.LearnSession{HomeVolume: "vol-1"})
+	stubLearnHomeVolume(t, "/home/vol")
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config learn: %v", err)
+	}
+	if len(ui.AcknowledgeCalls) != 1 {
+		t.Fatalf("AcknowledgeCalls = %v, want the one-line notice", ui.AcknowledgeCalls)
+	}
+	if !strings.Contains(ui.AcknowledgeCalls[0], "run --learn") {
+		t.Errorf("notice %q, want it to name `run --learn`", ui.AcknowledgeCalls[0])
+	}
+}
+
+// learnBareCmd returns a bare command with a background context, so
+// resolverFromContext yields nil (the no-config path).
+func learnBareCmd() *cobra.Command {
+	return &cobra.Command{}
+}
+
+// learnCmdWithResolver returns a bare command whose context carries a resolver
+// built from cfg, as the root command installs it.
+func learnCmdWithResolver(cfg launcherconfig.Config) *cobra.Command {
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.WithValue(
+		context.Background(),
+		(*launcherConfigKey)(nil),
+		launcherconfig.NewResolverWithConfig(cfg),
+	))
+	return cmd
+}
+
+// learnCheckoutSlug returns the checkout slug config learn resolves for this
+// test's project.
+func learnCheckoutSlug(t *testing.T) string {
+	t.Helper()
+	identity, err := git.ResolveIdentity(".")
+	if err != nil {
+		t.Fatalf("resolve identity: %v", err)
+	}
+	return identity.CheckoutSlug
+}
+
+// TestConfigLearnResolveIdentityFailure pins that an unresolvable project
+// directory is reported rather than deriving a degraded slug.
+func TestConfigLearnResolveIdentityFailure(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatalf("remove cwd: %v", err)
+	}
+
+	if err := runConfigLearn(learnBareCmd(), &termiotest.Mock{}); err == nil {
+		t.Fatal("runConfigLearn over a removed cwd = nil error, want the identity failure")
+	}
+}
+
+// TestConfigLearnUsesResolverAgentAndPolicy pins that the resolver supplies the
+// agent key and the pre-overlay current policy.
+func TestConfigLearnUsesResolverAgentAndPolicy(t *testing.T) {
+	initTestProjectDir(t)
+	configpathstest.WithMockConfigPaths(t)
+	stubLearnHomeVolume(t, "/home/vol")
+
+	key := state.Key{Slug: learnCheckoutSlug(t), Agent: "pi"}
+	seedLearnState(t, key, state.LearnSession{HomeVolume: "vol-1"})
+	captured := stubLearnAnalyse(t)
+
+	cfg := launcherconfig.Config{
+		Agent:   "pi",
+		Network: network.Policy{Profiles: []network.Profile{network.ProfileNone}},
+	}
+	if err := runConfigLearn(learnCmdWithResolver(cfg), &termiotest.Mock{}); err != nil {
+		t.Fatalf("config learn: %v", err)
+	}
+	if !captured.called {
+		t.Fatal("config learn did not run the analysis")
+	}
+	if captured.analysis.Agent != "pi" {
+		t.Errorf("analysis.Agent = %q, want pi from the resolver", captured.analysis.Agent)
+	}
+	if captured.analysis.Key.Agent != "pi" {
+		t.Errorf("analysis.Key.Agent = %q, want pi from the resolver", captured.analysis.Key.Agent)
+	}
+	if captured.analysis.Current.Fingerprint() != cfg.Network.Effective().Fingerprint() {
+		t.Errorf("analysis.Current = %q, want the resolver's effective policy",
+			captured.analysis.Current.Fingerprint())
+	}
+}
+
+// TestConfigLearnReadSessionFailure pins that a session-read failure is returned.
+func TestConfigLearnReadSessionFailure(t *testing.T) {
+	initTestProjectDir(t)
+	configpathstest.WithMockConfigPaths(t)
+	orig := learnReadSession
+	learnReadSession = func(state.Key) (state.LearnSession, bool, error) {
+		return state.LearnSession{}, false, errors.New("read session boom")
+	}
+	t.Cleanup(func() { learnReadSession = orig })
+
+	err := runConfigLearn(learnBareCmd(), &termiotest.Mock{})
+	if err == nil || !strings.Contains(err.Error(), "read session boom") {
+		t.Fatalf("runConfigLearn error = %v, want the session-read failure", err)
+	}
+}
+
+// TestConfigLearnStateReadFailure pins that a state read failure is reported,
+// naming the key.
+func TestConfigLearnStateReadFailure(t *testing.T) {
+	initTestProjectDir(t)
+	configpathstest.WithMockConfigPaths(t)
+	orig := learnReadSession
+	learnReadSession = func(state.Key) (state.LearnSession, bool, error) {
+		return state.LearnSession{HomeVolume: "vol-1"}, true, nil
+	}
+	t.Cleanup(func() { learnReadSession = orig })
+
+	err := runConfigLearn(learnBareCmd(), &termiotest.Mock{})
+	if err == nil || !strings.Contains(err.Error(), "read state for") {
+		t.Fatalf("runConfigLearn error = %v, want the wrapped state read failure", err)
+	}
+}
+
+// TestConfigLearnHomeVolumeFailure pins that a home-volume resolution failure is
+// returned rather than analysing against a missing home.
+func TestConfigLearnHomeVolumeFailure(t *testing.T) {
+	initTestProjectDir(t)
+	configpathstest.WithMockConfigPaths(t)
+	key := learnTestKey(t)
+	seedLearnState(t, key, state.LearnSession{HomeVolume: "vol-1"})
+
+	orig := learnHomeVolume
+	learnHomeVolume = func(context.Context, state.Key) (string, error) {
+		return "", errors.New("home boom")
+	}
+	t.Cleanup(func() { learnHomeVolume = orig })
+
+	err := runConfigLearn(learnBareCmd(), &termiotest.Mock{})
+	if err == nil || !strings.Contains(err.Error(), "home boom") {
+		t.Fatalf("runConfigLearn error = %v, want the home-volume failure", err)
+	}
+}
+
+// TestConfigLearnLoadCaptureFailure pins that a recorded capture that cannot be
+// loaded is reported rather than analysed as an empty session.
+func TestConfigLearnLoadCaptureFailure(t *testing.T) {
+	initTestProjectDir(t)
+	configpathstest.WithMockConfigPaths(t)
+	key := learnTestKey(t)
+	seedLearnState(t, key, state.LearnSession{
+		HomeVolume:   "vol-1",
+		ArtefactPath: filepath.Join(t.TempDir(), "absent.json"),
+	})
+	stubLearnHomeVolume(t, "/home/vol-learn")
+
+	err := runConfigLearn(learnBareCmd(), &termiotest.Mock{})
+	if err == nil || !strings.Contains(err.Error(), "read observation") {
+		t.Fatalf("runConfigLearn error = %v, want the capture load failure", err)
+	}
+}
+
+// TestConfigLearnAnalyseFailure pins that a failed analysis is returned.
+func TestConfigLearnAnalyseFailure(t *testing.T) {
+	initTestProjectDir(t)
+	configpathstest.WithMockConfigPaths(t)
+	key := learnTestKey(t)
+	seedLearnState(t, key, state.LearnSession{HomeVolume: "vol-1"})
+	stubLearnHomeVolume(t, "/home/vol")
+
+	orig := learnAnalyse
+	learnAnalyse = func(context.Context, learn.Analysis, termio.UI, options.Mode, func(string) bool) (learn.Summary, error) {
+		return learn.Summary{}, errors.New("analyse boom")
+	}
+	t.Cleanup(func() { learnAnalyse = orig })
+
+	err := runConfigLearn(learnBareCmd(), &termiotest.Mock{})
+	if err == nil || !strings.Contains(err.Error(), "analyse boom") {
+		t.Fatalf("runConfigLearn error = %v, want the analysis failure", err)
+	}
+}
+
+// TestConfigLearnWarnsWhenClearingTheRecordFails pins that a failed clear is a
+// warning, not a failed command.
+func TestConfigLearnWarnsWhenClearingTheRecordFails(t *testing.T) {
+	initTestProjectDir(t)
+	configpathstest.WithMockConfigPaths(t)
+	key := learnTestKey(t)
+	seedLearnState(t, key, state.LearnSession{HomeVolume: "vol-1"})
+	stubLearnHomeVolume(t, "/home/vol")
+	stubLearnAnalyse(t)
+
+	orig := learnClearSession
+	learnClearSession = func(state.Key) error { return errors.New("clear boom") }
+	t.Cleanup(func() { learnClearSession = orig })
+
+	ui := &termiotest.Mock{}
+	if err := runConfigLearn(learnBareCmd(), ui); err != nil {
+		t.Fatalf("config learn: %v", err)
+	}
+	if !warnsAbout(ui, "clearing the session record failed") {
+		t.Errorf("WarnCalls = %v, want the clear-failure warning", ui.WarnCalls)
+	}
+}
+
+// TestConfigLearnWarnsWhenDeletingTheCaptureFails pins that a failed capture
+// delete is a warning, not a failed command.
+func TestConfigLearnWarnsWhenDeletingTheCaptureFails(t *testing.T) {
+	initTestProjectDir(t)
+	configpathstest.WithMockConfigPaths(t)
+	key := learnTestKey(t)
+	artefactPath, err := channel.Save(key.Slug, 1763458200, channel.Observation{})
+	if err != nil {
+		t.Fatalf("save artefact: %v", err)
+	}
+	seedLearnState(t, key, state.LearnSession{HomeVolume: "vol-1", ArtefactPath: artefactPath})
+	stubLearnHomeVolume(t, "/home/vol")
+	stubLearnAnalyse(t)
+
+	orig := learnDeleteArtefact
+	learnDeleteArtefact = func(string) error { return errors.New("delete boom") }
+	t.Cleanup(func() { learnDeleteArtefact = orig })
+
+	ui := &termiotest.Mock{}
+	if err := runConfigLearn(learnBareCmd(), ui); err != nil {
+		t.Fatalf("config learn: %v", err)
+	}
+	if !warnsAbout(ui, "deleting the capture failed") {
+		t.Errorf("WarnCalls = %v, want the delete-failure warning", ui.WarnCalls)
+	}
+}
+
+// warnsAbout reports whether any warning contains want.
+func warnsAbout(ui *termiotest.Mock, want string) bool {
+	for _, warning := range ui.WarnCalls {
+		if strings.Contains(warning, want) {
+			return true
+		}
+	}
+	return false
 }

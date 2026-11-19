@@ -486,6 +486,54 @@ func TestApplyAssumeYesDoesNotAccept(t *testing.T) {
 	assertNoFile(t, filepath.Join(cp.UserSlugConfigDir(testSlug), "config.yaml"))
 }
 
+// TestApplyAcceptAllSkipsThePrompt pins the top-level "Save all": with AcceptAll
+// set, every writable finding is applied without a per-finding Select.
+func TestApplyAcceptAllSkipsThePrompt(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	unsetKeyEnvironment(t, "network.profile")
+	cp := configpaths.Get()
+	ui, answered := interactiveUI()
+
+	results := Apply([]Finding{perSlugWrite("network.profile", "none")}, ApplyOptions{
+		Paths: cp, Slug: testSlug, UI: ui, Mode: options.ModeRun, AcceptAll: true,
+	})
+
+	if results[0].Outcome != OutcomeApplied {
+		t.Fatalf("outcome = %q (%s); want applied", results[0].Outcome, results[0].Err)
+	}
+	if *answered != 0 {
+		t.Errorf("AcceptAll asked %d prompts; want none", *answered)
+	}
+}
+
+// TestApplyAcceptAllStillRefusesAShadowedKey pins that AcceptAll still runs the
+// write planner: a project-owned key is refused, never applied.
+func TestApplyAcceptAllStillRefusesAShadowedKey(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	unsetKeyEnvironment(t, "network.egress-allow")
+	cp := configpaths.Get()
+	if err := viperconfig.WriteSetting(
+		cp.ProjectConfigDir(),
+		"network.egress-allow",
+		[]string{"api.example"},
+	); err != nil {
+		t.Fatalf("seed the project config: %v", err)
+	}
+
+	ui, answered := interactiveUI()
+	results := Apply(
+		[]Finding{perSlugWrite("network.egress-allow", []string{"api.example", "new.example"})},
+		ApplyOptions{Paths: cp, Slug: testSlug, UI: ui, Mode: options.ModeRun, AcceptAll: true},
+	)
+
+	if results[0].Outcome != OutcomeSkipped {
+		t.Fatalf("outcome = %q; want skipped for a shadowed key", results[0].Outcome)
+	}
+	if *answered != 0 {
+		t.Errorf("a shadowed key asked %d prompts; want none", *answered)
+	}
+}
+
 // TestApplyPromptSurfacesWriteText: a write's free text is part of the question
 // the user accepts, so a proposal that must state a fact renders it.
 func TestApplyPromptSurfacesWriteText(t *testing.T) {

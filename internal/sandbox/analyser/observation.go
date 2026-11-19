@@ -42,8 +42,6 @@ type SessionFacts struct {
 // never removes a user-set entry and never widens a policy, because the
 // proposed allow set is the current allow set plus only the destinations the
 // session actually used. A denied destination is evidence, never an allow entry.
-//
-//deadcode:ignore reason="observation findings engine; pending S7 run --learn caller wires the analyser"
 func ObservationFindings(s SessionFacts) []Finding {
 	findings := s.secretFindings()
 	if networkFinding, ok := s.networkFinding(); ok {
@@ -61,8 +59,6 @@ func ObservationFindings(s SessionFacts) []Finding {
 // to act on, or when the current `none` policy already admits everything the
 // session used — a finding whose summary promised to lock egress would be a
 // misleading no-op, and the spec's denial reporting is S7's, not a finding's.
-//
-//deadcode:ignore reason="observation findings engine; pending S7 run --learn caller wires the analyser"
 func (s SessionFacts) networkFinding() (Finding, bool) {
 	destinations := s.Observation.Destinations
 	used := observedUsedHosts(destinations)
@@ -108,8 +104,6 @@ func (s SessionFacts) networkFinding() (Finding, bool) {
 
 // policyIsNarrowNone reports whether policy is already the terminal `none`
 // profile with exactly allow as its allow set.
-//
-//deadcode:ignore reason="observation findings engine; pending S7 run --learn caller wires the analyser"
 func policyIsNarrowNone(policy network.Policy, allow []string) bool {
 	if !slices.Equal(policy.Profiles, []network.Profile{network.ProfileNone}) {
 		return false
@@ -124,8 +118,6 @@ func policyIsNarrowNone(policy network.Policy, allow []string) bool {
 // request was denied still carries a successful connect entry, and that tunnel
 // is not evidence the host is safe to allow. A denied destination is never a used
 // one.
-//
-//deadcode:ignore reason="observation findings engine; pending S7 run --learn caller wires the analyser"
 func observedUsedHosts(destinations []channel.Destination) []string {
 	denied := deniedHosts(destinations)
 	var hosts []string
@@ -143,8 +135,6 @@ func observedUsedHosts(destinations []channel.Destination) []string {
 
 // deniedHosts returns the sorted, de-duplicated hosts of the destinations the
 // proxy's own dial refused.
-//
-//deadcode:ignore reason="observation findings engine; pending S7 run --learn caller wires the analyser"
 func deniedHosts(destinations []channel.Destination) []string {
 	var hosts []string
 	for _, destination := range destinations {
@@ -158,8 +148,6 @@ func deniedHosts(destinations []channel.Destination) []string {
 
 // usedRequestCount sums the request counts of the destinations the session used,
 // so the evidence names how often the allow set was exercised.
-//
-//deadcode:ignore reason="observation findings engine; pending S7 run --learn caller wires the analyser"
 func usedRequestCount(destinations []channel.Destination) int {
 	total := 0
 	for _, destination := range destinations {
@@ -175,8 +163,6 @@ func usedRequestCount(destinations []channel.Destination) int {
 // host set and env-var name are both derivable. A credential with no env-var
 // name cannot be scoped, and one with no host is not migrated: neither yields a
 // finding.
-//
-//deadcode:ignore reason="observation findings engine; pending S7 run --learn caller wires the analyser"
 func (s SessionFacts) secretFindings() []Finding {
 	var findings []Finding
 	for _, credential := range s.ReadBack.Static {
@@ -198,8 +184,6 @@ func (s SessionFacts) secretFindings() []Finding {
 // The header names are the credential-bearing names the attribution saw; with no
 // attribution they fall back to the credential's header-field hint. attributed
 // reports which source supplied the hosts.
-//
-//deadcode:ignore reason="observation findings engine; pending S7 run --learn caller wires the analyser"
 func credentialHosts(
 	credential readback.Credential,
 	attribution []channel.Attribution,
@@ -220,8 +204,6 @@ func credentialHosts(
 
 // secretFinding builds the per-slug secret write and its evidence. The evidence
 // carries the header NAMES only, never a value.
-//
-//deadcode:ignore reason="observation findings engine; pending S7 run --learn caller wires the analyser"
 func secretFinding(credential readback.Credential, hosts, headerNames []string, attributed bool) Finding {
 	//exhaustruct:ignore // a secret finding reports no denials and no request count
 	evidence := Evidence{
@@ -249,8 +231,6 @@ func secretFinding(credential readback.Credential, hosts, headerNames []string, 
 
 // headerFieldNames wraps a header-field hint as a one-element list, or nil when
 // there is no hint.
-//
-//deadcode:ignore reason="observation findings engine; pending S7 run --learn caller wires the analyser"
 func headerFieldNames(field string) []string {
 	if field == "" {
 		return nil
@@ -260,8 +240,6 @@ func headerFieldNames(field string) []string {
 
 // sortedUnique returns a sorted copy of values with duplicates removed, leaving
 // the caller's slice untouched. An empty input yields nil.
-//
-//deadcode:ignore reason="observation findings engine; pending S7 run --learn caller wires the analyser"
 func sortedUnique(values []string) []string {
 	if len(values) == 0 {
 		return nil

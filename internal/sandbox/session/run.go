@@ -11,9 +11,13 @@ import (
 	"syscall"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/notify"
+	"github.com/inoio/agents-sandbox/internal/sandbox/channel"
+	"github.com/inoio/agents-sandbox/internal/sandbox/learn"
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
 	"github.com/inoio/agents-sandbox/internal/sandbox/prepare"
@@ -40,6 +44,26 @@ type preparedSandbox interface {
 var prepareSandbox = func(ctx context.Context, opts options.RunOptions, skipVM bool, ui termio.UI) (preparedSandbox, error) {
 	return prepare.PrepareSandbox(ctx, opts, skipVM, ui)
 }
+
+// learnSession is the subset of *learn.Run the session drives. It is an
+// interface so a test can assert the learn wiring order without a real
+// observation channel or home volume.
+type learnSession interface {
+	Overlay() network.Policy
+	Passive() bool
+	Stop() channel.Observation
+	CaptureBaseline(ctx context.Context, k state.Key, agentName string) (string, error)
+	Finish(ctx context.Context, in learn.FinishInput) error
+}
+
+// learnBegin and learnPassive are the session's learn seams; production uses
+// learn.Begin and learn.Passive.
+var (
+	learnBegin = func(base network.Policy) (learnSession, error) {
+		return learn.Begin(base)
+	}
+	learnPassive = func(base network.Policy) learnSession { return learn.Passive(base) }
+)
 
 // previewSandbox is a test seam swapped in tests to avoid real host inspection.
 var previewSandbox = prepare.PreviewSandbox
@@ -209,6 +233,21 @@ func Run(ctx context.Context, opts options.RunOptions, mode options.Mode, ui ter
 		return previewAndRender(ctx, opts, ui, false)
 	}
 
+	// The never-widen diff compares against the pre-overlay policy, so capture it
+	// before learn.Begin injects the proxy address and upstream CA.
+	base := opts.Network
+	var learnRun learnSession
+	if opts.Learn {
+		lr, err := learnBegin(base)
+		if err != nil {
+			ui.Warnf("learn mode: the observation channel is unavailable (%v); continuing with read-back only", err)
+			lr = learnPassive(base)
+		}
+		learnRun = lr
+		defer learnRun.Stop()
+		opts.Network = learnRun.Overlay()
+	}
+
 	ses, err := prepareSandbox(ctx, opts, mode.SkipsVM(), ui)
 	if err != nil {
 		return err
@@ -227,6 +266,16 @@ func Run(ctx context.Context, opts options.RunOptions, mode options.Mode, ui ter
 
 	opts.Trace.Record(lifecycle.Attach)
 	k := ses.Key()
+
+	learnHome := ""
+	if learnRun != nil {
+		home, err := learnRun.CaptureBaseline(ctx, k, k.Agent)
+		if err != nil {
+			ui.Warnf("learn mode: capturing the session baseline failed: %v", err)
+		} else {
+			learnHome = home
+		}
+	}
 
 	a := opts.ResolvedAgent
 	var streamSpec *agent.EventStreamSpec
@@ -259,7 +308,27 @@ func Run(ctx context.Context, opts options.RunOptions, mode options.Mode, ui ter
 	// putting tools installed under /usr/local/go/bin and ~/go/bin on
 	// PATH for the agent and its child shells. The image's composed PATH
 	// is restored by the /etc/profile.d/agents-sandbox-path.sh merge.
-	return runAttach(ctx, k, sb, ses.GuestCWD(), ui, opts, "-l", "-c", setup)
+	attachErr := runAttach(ctx, k, sb, ses.GuestCWD(), ui, opts, "-l", "-c", setup)
+
+	// The after-run is owned by this process: it runs here, after the attach,
+	// and only when the context is still live. A cancelled context leaves the
+	// recorded session for `config learn`.
+	if learnRun != nil && ctx.Err() == nil {
+		if err := learnRun.Finish(ctx, learn.FinishInput{
+			Key:       k,
+			Slug:      opts.ConfigSlug,
+			Agent:     k.Agent,
+			Paths:     configpaths.Get(),
+			Home:      learnHome,
+			Base:      base,
+			UI:        ui,
+			Mode:      mode,
+			SetByFlag: opts.SetByFlag,
+		}); err != nil {
+			ui.Warnf("learn mode: the after-run failed: %v", err)
+		}
+	}
+	return attachErr
 }
 
 // withClientSession owns the client-lease lifecycle shared by the attach and

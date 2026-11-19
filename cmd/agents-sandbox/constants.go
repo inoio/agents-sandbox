@@ -42,6 +42,7 @@ const (
 	cmdCompact    = "compact"
 	cmdState      = "state"
 	cmdRepair     = "repair"
+	cmdLearn      = "learn"
 
 	flagRemove = "rm"
 
@@ -63,6 +64,7 @@ const (
 	flagWorktree   = runoptions.FlagWorktree
 	flagRoot       = runoptions.FlagRoot
 	flagServeOnly  = runoptions.FlagServeOnly
+	flagLearn      = runoptions.FlagLearn
 	flagNetwork    = runoptions.FlagNetwork
 	flagDNSServers = runoptions.FlagDNSServers
 	flagProxy      = runoptions.FlagProxy

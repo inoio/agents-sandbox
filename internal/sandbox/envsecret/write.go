@@ -28,8 +28,6 @@ var writeSecretFile = atomicwrite.WriteFileMode
 // creating the file mode 0600 when absent and preserving every other key and
 // comment. It never writes a spec with an empty value or with neither hosts nor
 // an explicit dangerous flag (that spec would be dropped at VM build).
-//
-//deadcode:ignore reason="secret store writer; the analyser applier (executeSecret) writes a learned static secret through it, pending the S7 run --learn caller"
 func WriteSecretSpec(dir, envVar string, spec SecretSpec) error {
 	if reason, refused := refuseWrite(envVar, spec); refused {
 		return fmt.Errorf("write secret %q: %s", envVar, reason)
@@ -46,8 +44,6 @@ func WriteSecretSpec(dir, envVar string, spec SecretSpec) error {
 
 // RemoveSecretSpec deletes envVar from <dir>/env.secret.yaml, preserving the
 // rest; a no-op when the file or key is absent.
-//
-//deadcode:ignore reason="secret store remover; the analyser applier (executeSecret) removes a migrated project secret through it, pending the S7 run --learn caller"
 func RemoveSecretSpec(dir, envVar string) error {
 	document, existed, err := parseSecretDocument(dir)
 	if err != nil {
@@ -71,8 +67,6 @@ func RemoveSecretSpec(dir, envVar string) error {
 // the explicit dangerous flag, so persisting one would record a secret the VM
 // never provisions. An empty key is refused too: it is the file's YAML key, and
 // the runtime refuses to boot an empty env name.
-//
-//deadcode:ignore reason="secret store guard; reached through WriteSecretSpec from the analyser applier (executeSecret), pending the S7 run --learn caller"
 func refuseWrite(envVar string, spec SecretSpec) (string, bool) {
 	switch {
 	case envVar == "":
@@ -89,8 +83,6 @@ func refuseWrite(envVar string, spec SecretSpec) (string, bool) {
 // secretSpecValue renders a spec as the mapping the YAML loader decodes into
 // SecretSpec: the same field names, omitempty-style, so a written entry never
 // carries a field the spec did not set.
-//
-//deadcode:ignore reason="secret store encoder; reached through WriteSecretSpec from the analyser applier (executeSecret), pending the S7 run --learn caller"
 func secretSpecValue(spec SecretSpec) map[string]any {
 	value := map[string]any{"value": spec.Value}
 	if spec.Host != "" {
@@ -109,8 +101,6 @@ func secretSpecValue(spec SecretSpec) map[string]any {
 }
 
 // secretPath returns the file the writer edits in dir.
-//
-//deadcode:ignore reason="secret store path helper; reached through WriteSecretSpec/RemoveSecretSpec from the analyser applier (executeSecret), pending the S7 run --learn caller"
 func secretPath(dir string) string {
 	return filepath.Join(dir, secretFileName)
 }
@@ -119,8 +109,6 @@ func secretPath(dir string) string {
 // every other key, comment and style. An absent file yields an empty document
 // and existed false. A file the loader cannot parse yields an error: editing it
 // would silently drop content the launcher previously skipped with a warning.
-//
-//deadcode:ignore reason="secret store reader; reached through WriteSecretSpec/RemoveSecretSpec/ValidateSecretFile from the analyser applier (executeSecret/planSecret), pending the S7 run --learn caller"
 func parseSecretDocument(dir string) (*oneyaml.Document, bool, error) {
 	path := secretPath(dir)
 	data, err := readSecretFileAt(path)
@@ -148,8 +136,6 @@ func parseSecretDocument(dir string) (*oneyaml.Document, bool, error) {
 // absent, or it parses. It returns the parse or trust-gate error otherwise and
 // writes nothing, so a caller that plans several writes can refuse a finding
 // whose secret file cannot be edited before the first write runs.
-//
-//deadcode:ignore reason="secret store validator; the analyser applier (planSecret) refuses an uneditable secret file through it, pending the S7 run --learn caller"
 func ValidateSecretFile(dir string) error {
 	_, _, err := parseSecretDocument(dir)
 	return err
@@ -162,8 +148,6 @@ func ValidateSecretFile(dir string) error {
 // returned unwrapped and unmodified: parseSecretDocument tells them apart by
 // errors.Is, and a refusal also wraps fs.ErrNotExist when the approved file has
 // been deleted.
-//
-//deadcode:ignore reason="secret store reader; reached through parseSecretDocument from the analyser applier (executeSecret), pending the S7 run --learn caller"
 func readSecretFileAt(path string) ([]byte, error) {
 	// The file is a project secret file, so the read is verified against the
 	// approved content the trust gate installed.
@@ -179,8 +163,6 @@ func readSecretFileAt(path string) ([]byte, error) {
 
 // setEntry sets mapping key to value in document, replacing the entry of the
 // same literal key when present and appending it otherwise.
-//
-//deadcode:ignore reason="secret store editor; reached through WriteSecretSpec from the analyser applier (executeSecret), pending the S7 run --learn caller"
 func setEntry(document *oneyaml.Document, key string, value any) error {
 	if !document.Root().IsValid() {
 		return document.Set("", map[string]any{key: value})
@@ -192,8 +174,6 @@ func setEntry(document *oneyaml.Document, key string, value any) error {
 // literally key, and whether that entry exists. The document's own pointer is
 // compared against the entry's, so a key oneyaml escapes (a '/' or '~' becomes
 // "~1"/"~0") is still the entry that a later write replaces.
-//
-//deadcode:ignore reason="secret store editor helper; reached through setEntry and RemoveSecretSpec from the analyser applier (executeSecret), pending the S7 run --learn caller"
 func entryValuePointer(document *oneyaml.Document, key string) (string, bool, error) {
 	for existingKey, existingValue := range document.Root().Entries() {
 		if existingKey.Value() != key {
@@ -214,8 +194,6 @@ func entryValuePointer(document *oneyaml.Document, key string) (string, bool, er
 // secret file is edited at its target rather than replaced by a regular file.
 // The edited bytes are accepted as the approved project content, so a later
 // read in the same command does not refuse the write.
-//
-//deadcode:ignore reason="secret store writer; reached through WriteSecretSpec/RemoveSecretSpec from the analyser applier (executeSecret), pending the S7 run --learn caller"
 func writeSecretDocument(dir string, document *oneyaml.Document, existed bool) error {
 	path := secretPath(dir)
 	target := resolvedSecretTarget(path)
@@ -236,8 +214,6 @@ func writeSecretDocument(dir string, document *oneyaml.Document, existed bool) e
 // resolvedSecretTarget returns path's link target when it is a symlink and that
 // target resolves, and path itself otherwise. An absent file resolves to itself,
 // which is where a created file belongs.
-//
-//deadcode:ignore reason="secret store path helper; reached through WriteSecretSpec/RemoveSecretSpec from the analyser applier (executeSecret), pending the S7 run --learn caller"
 func resolvedSecretTarget(path string) string {
 	target, err := filepath.EvalSymlinks(path)
 	if err != nil {

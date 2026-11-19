@@ -121,6 +121,7 @@ There's dedicated documentation per topic. You can also browse the documentation
 | [Get started](https://inoio.github.io/agents-sandbox/get-started.html)         | Installation, system requirements, and first run.                                        |
 | [Switch from your existing agent](https://inoio.github.io/agents-sandbox/switch.html) | Use agents-sandbox with your existing agent config and credentials (host-config drop-in). |
 | [Manage config in the sandbox](https://inoio.github.io/agents-sandbox/manage-config.html) | Declarative, self-contained config: secrets, provisioning, agent snippets.            |
+| [Letting agents-sandbox learn your setup](https://inoio.github.io/agents-sandbox/learn-your-setup.html) | Learn the config a session needed, then accept the proposal.            |
 | [Commands](https://inoio.github.io/agents-sandbox/commands.html)                 | Complete CLI reference                                                                   |
 | [Configuration](https://inoio.github.io/agents-sandbox/configuration/)         | Split into subpages: Configuration files & Environment variables, secrets, networking, host mounts, home provisioning & startup hooks, agent configuration, notifications, self-upgrade |
 | [Runner Image](https://inoio.github.io/agents-sandbox/runner-image.html)         | Base image, custom tooling                                                               |

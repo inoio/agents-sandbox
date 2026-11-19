@@ -16,7 +16,7 @@ import (
 // Schema 0 (no schema: key) is the unversioned document written before
 // versioning; it is read as the current schema and stamped on the next write.
 const (
-	HomeStateSchema = 4
+	HomeStateSchema = 5
 	RootStateSchema = 3
 )
 

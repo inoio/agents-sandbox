@@ -5,6 +5,7 @@
 package runoptions
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -30,6 +31,7 @@ const (
 	FlagDryRun         = "dry-run"
 	FlagDryRunVM       = "dry-run-vm"
 	FlagServeOnly      = "serve-only"
+	FlagLearn          = "learn"
 	FlagRoot           = "root"
 	FlagAgent          = "agent"
 	FlagAgentVersion   = "agent-version"
@@ -213,6 +215,7 @@ func resolveFlags(cmd *cobra.Command) (options.RunOptions, error) {
 	opts.NoRebuild, _ = cmd.Flags().GetBool(FlagNoRebuild)
 	opts.AgentVersion, _ = cmd.Flags().GetString(FlagAgentVersion)
 	opts.ServeOnly, _ = cmd.Flags().GetBool(FlagServeOnly)
+	opts.Learn, _ = cmd.Flags().GetBool(FlagLearn)
 	if cmd.Flags().Lookup(FlagRoot) != nil {
 		opts.Root, _ = cmd.Flags().GetBool(FlagRoot)
 	}
@@ -269,6 +272,11 @@ func resolveAgentAndValidate(
 		if resolved.Daemon == nil {
 			return agent.Resolved{}, fmt.Errorf("--serve-only is not supported by agent %q", a.Name())
 		}
+	}
+	// A learning session attaches a TUI (the after-run runs at teardown), so it
+	// cannot serve without attaching.
+	if opts.Learn && opts.ServeOnly {
+		return agent.Resolved{}, errors.New("--learn and --serve-only cannot be combined")
 	}
 	return resolved, nil
 }

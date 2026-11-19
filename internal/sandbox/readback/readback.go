@@ -33,8 +33,6 @@ var volumeInspector VolumeInspector = productionInspector{}
 type productionInspector struct{}
 
 // InspectVolume asks the volume package, which asks microsandbox.
-//
-//deadcode:ignore reason="the volume seam's production method; reached through HomeVolumePath once the S7 run --learn after-run resolves the home volume"
 func (productionInspector) InspectVolume(ctx context.Context, name string) (volume.VolumeDetail, error) {
 	return volume.InspectVolume(ctx, name)
 }
@@ -44,8 +42,6 @@ func (productionInspector) InspectVolume(ctx context.Context, name string) (volu
 // state.ErrStateNotFound and a state that records no volume wraps
 // ErrNoHomeVolume; both name the project whose volume is unknown, because the
 // read-back has nothing to look up.
-//
-//deadcode:ignore reason="read-back API; the S7 run --learn after-run resolves the home-volume path before reading it"
 func HomeVolumePath(ctx context.Context, k state.Key) (string, error) {
 	homeState, err := state.ReadState(k)
 	if err != nil {

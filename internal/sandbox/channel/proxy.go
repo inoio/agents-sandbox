@@ -73,8 +73,6 @@ type proxyState struct {
 // An empty bindHost means loopback (127.0.0.1): the channel is never bound to
 // every interface, so an unset or blank value cannot expose the proxy on the
 // network.
-//
-//deadcode:ignore reason="the channel's start entry point; S7 starts the observer before prepareSandbox"
 func Start(bindHost string) (Handle, error) {
 	if bindHost == "" {
 		bindHost = "127.0.0.1"
@@ -123,8 +121,6 @@ func Start(bindHost string) (Handle, error) {
 // before our proxy is consulted, so a policy-denied destination never reaches
 // the request hook at all; the denial this records is our proxy's dial error,
 // not a sandbox-policy denial.
-//
-//deadcode:ignore reason="reached only from Start, whose invocation S7 wires"
 func terminateProxy(ca tls.Certificate, state *proxyState) *goproxy.ProxyHttpServer {
 	proxy := goproxy.NewProxyHttpServer()
 	// goproxy's own logger warns unconditionally; route it to a discard so it
@@ -156,7 +152,6 @@ func terminateProxy(ca tls.Certificate, state *proxyState) *goproxy.ProxyHttpSer
 // session.
 type discardLogger struct{}
 
-//deadcode:ignore reason="satisfies goproxy.Logger through the interface value in terminateProxy"
 func (discardLogger) Printf(string, ...any) {}
 
 // observeConnect records a CONNECT target as a value-free "connect" destination
@@ -166,8 +161,6 @@ func (discardLogger) Printf(string, ...any) {}
 // the request inside the tunnel is never seen (nil header names). A host that
 // also terminates appears twice — once here as "connect" and once as its own
 // "https" destination with attribution.
-//
-//deadcode:ignore reason="the proxy's CONNECT hook body; reached only from terminateProxy, whose invocation S7 wires"
 func (s *proxyState) observeConnect(host string) {
 	hostname, port := splitHostPort(host)
 	ip := ""
@@ -183,8 +176,6 @@ func (s *proxyState) observeConnect(host string) {
 
 // splitHostPort returns a CONNECT target's host and port, leaving the port zero
 // when the target carries none.
-//
-//deadcode:ignore reason="reached only from observeConnect, reached only from terminateProxy, whose invocation S7 wires"
 func splitHostPort(host string) (string, uint16) {
 	hostname, rawPort, err := net.SplitHostPort(host)
 	if err != nil {
@@ -202,8 +193,6 @@ func splitHostPort(host string) (string, uint16) {
 // onRequest records one request's destination and credential-bearing header
 // names, and installs a round-trip hook that records a denial when this proxy's
 // own dial to the upstream fails. The request is returned unchanged.
-//
-//deadcode:ignore reason="the proxy's request hook; reached only from Start, whose invocation S7 wires"
 func (s *proxyState) onRequest(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
 	host := req.URL.Hostname()
 	path := req.URL.Path
@@ -239,8 +228,6 @@ func (s *proxyState) onRequest(req *http.Request, ctx *goproxy.ProxyCtx) (*http.
 // onResponse marks the destination of a completed request successful. A nil
 // response — a round-trip error already recorded as a denial — is returned
 // unchanged.
-//
-//deadcode:ignore reason="the proxy's response hook; reached only from Start, whose invocation S7 wires"
 func (s *proxyState) onResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
 	if resp == nil {
 		return resp
@@ -255,8 +242,6 @@ func (s *proxyState) onResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *htt
 
 // Stop tears the proxy down, removes its CA file, and returns the scrubbed
 // artefact. It is idempotent: a second call returns the same artefact.
-//
-//deadcode:ignore reason="tears the channel down; S7 calls it at teardown"
 func (h Handle) Stop() Observation {
 	if h.state == nil {
 		// gomutants:disable-next-line RETURN_ZERO reason="an empty Observation is the zero value, so zeroing the literal is the identical value"
@@ -267,21 +252,15 @@ func (h Handle) Stop() Observation {
 
 // CAPEM returns the PEM-encoded CA certificate the runtime must trust as an
 // upstream CA (R1). It is empty only on a zero Handle.
-//
-//deadcode:ignore reason="exposes the channel CA; S7 projects it into the network overlay"
 func (h Handle) CAPEM() string { return h.caPEM }
 
 // CAFile returns the path to the 0600 host file holding the CA PEM, because the
 // runtime's TLSConfig.UpstreamCACerts takes paths, not PEM contents (R1). Stop
 // removes the file.
-//
-//deadcode:ignore reason="exposes the channel CA file path; S7 projects it into the network overlay"
 func (h Handle) CAFile() string { return h.caFile }
 
 // stop closes the server, removes the CA file, and returns the artefact. It is
 // idempotent.
-//
-//deadcode:ignore reason="reached only from Handle.Stop, whose invocation S7 wires"
 func (s *proxyState) stop() Observation {
 	s.mu.Lock()
 	// Close is idempotent, so a second Stop needs no flag to stay a no-op.
@@ -297,7 +276,6 @@ func (s *proxyState) stop() Observation {
 // goproxy's per-host leaf signing) and PEM-encoded (for the runtime to trust).
 //
 //nolint:exhaustruct_v5 // a throwaway session CA sets only the fields it needs; the rest stay zero
-//deadcode:ignore reason="reached only from Start, whose invocation S7 wires"
 func generateCA() (tls.Certificate, string, error) {
 	key, err := generateECKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -327,8 +305,6 @@ func generateCA() (tls.Certificate, string, error) {
 
 // writeCAFile writes the CA PEM to a per-handle 0600 host file and returns its
 // path.
-//
-//deadcode:ignore reason="reached only from Start, whose invocation S7 wires"
 func writeCAFile(caPEM string) (string, error) {
 	file, err := os.CreateTemp("", "agents-sandbox-channel-ca-*.pem")
 	if err != nil {
@@ -348,8 +324,6 @@ func writeCAFile(caPEM string) (string, error) {
 
 // observedCredentialHeaders returns the lower-case names of the request headers
 // that can carry a credential. Only the names are read; no value is touched.
-//
-//deadcode:ignore reason="reached only from onRequest, reached only from Start, whose invocation S7 wires"
 func observedCredentialHeaders(header http.Header) []string {
 	var names []string
 	for name := range header {
@@ -363,8 +337,6 @@ func observedCredentialHeaders(header http.Header) []string {
 
 // requestPort returns the port the request used, defaulting by scheme when the
 // URL carries none.
-//
-//deadcode:ignore reason="reached only from onRequest, reached only from Start, whose invocation S7 wires"
 func requestPort(u *url.URL) uint16 {
 	if raw := u.Port(); raw != "" {
 		if port, err := strconv.ParseUint(raw, 10, 16); err == nil {

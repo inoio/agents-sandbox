@@ -20,11 +20,11 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 ### `analyser/` — The learn-mode findings engine
 
-- `finding.go` (the finding model: `Scope`/`Kind`/`Evidence`/`Write`/`SecretWrite`/`Finding`/`Outcome`/`ApplyResult`, the evidence hash), `observation.go` (`SessionFacts` and `ObservationFindings`: the observation finder, the network diff that never widens, and the env-var-keyed secret attribution), `apply.go` (`Apply`, the interactive per-finding applier: the decline memory, the shadowing skip, YAML-only config writes, the project trust-gate approval) — the findings engine of `specs/onboarding/learn-mode/findings-and-apply.md`. Landed ahead of its invocation (S7 wires `run --learn`), so unreachable declarations carry temporary `//deadcode:ignore` markers S7 deletes as it wires them.
+- `finding.go` (the finding model: `Scope`/`Kind`/`Evidence`/`Write`/`SecretWrite`/`Finding`/`Outcome`/`ApplyResult`, the evidence hash), `observation.go` (`SessionFacts` and `ObservationFindings`: the observation finder, the network diff that never widens, and the env-var-keyed secret attribution), `apply.go` (`Apply`, the interactive per-finding applier: the decline memory, the shadowing skip, YAML-only config writes, the project trust-gate approval, the `AcceptAll` top-level accept-all) — the findings engine of `specs/onboarding/learn-mode/findings-and-apply.md`, wired by `learn`'s `run --learn` and `config learn`.
 
 ### `channel/` — Learn-mode observation channel (terminating proxy, capture, store)
 
-- `observation.go` (`Destination`/`Attribution`/`Observation`, the value-free scrubbed capture and its recorder), `proxy.go` (the `elazarl/goproxy` terminating proxy: `Start`/`Handle.Stop`/`CAPEM`/`CAFile`, per-session CA, destination and header-name recording), `session.go` (`StartObservation`/`Observer`, the in-memory network overlay), `store.go` (`Save`/`Load`/`Prune` under `<UserStateDir>/learn/`) — the destination/credential-attribution fact source of `specs/onboarding/learn-mode/observation-channel.md`. Landed ahead of its invocation (S7 starts it before `prepareSandbox`), so unreachable declarations carry temporary `//deadcode:ignore` markers S7 deletes as it wires them.
+- `observation.go` (`Destination`/`Attribution`/`Observation`, the value-free scrubbed capture and its recorder), `proxy.go` (the `elazarl/goproxy` terminating proxy: `Start`/`Handle.Stop`/`CAPEM`/`CAFile`, per-session CA, destination and header-name recording), `session.go` (`StartObservation`/`Observer`, the in-memory network overlay), `store.go` (`Save`/`Load`/`Delete`/`Prune` under `<UserStateDir>/learn/`) — the destination/credential-attribution fact source of `specs/onboarding/learn-mode/observation-channel.md`; started by `learn.Begin` before the VM is prepared.
 - `observation_test.go`, `proxy_test.go`, `session_test.go`, `store_test.go` — unit tests; `channel_msb_test.go` (`//go:build msb`) — the host-only acceptance test that drives a real session through the proxy.
 
 ### `docker/` — Docker client wrapper and guards
@@ -50,6 +50,11 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 - `data/` — build-context assets embedded into the image: the managed-base `Dockerfile`, `agents-sandbox-path.sh` (profile.d `PATH` merge, 0644), `msb-trust.sh` (the vendored CA-trust helper, installed 0755; `msb-trust.LICENSE` beside it records provenance and is neither embedded nor shipped; see `specs/runner-image/ca-trust-helper.md`), and `xdg-open.sh` (the in-VM opener shim, installed 0755; see `guides/agent-link-opening.md`)
 - `render_integration_test.go` — `//go:build integration` docker-build tests for `RenderDockerfile` composition (no Dockerfile / managed base / custom Fedora base, each ± dind). Run via `make test-integration`; wired into CI as a required job on code-affecting PRs, main pushes, release tags, and manual dispatch (the gating contract is `specs/ci/ci-pipeline.md`; the `run-integration` label is retired). **In the agents-sandbox VM, microsandbox's egress-inspection CA makes in-image downloads (apt/dnf/node) fail** unless each base image is replaced by a CA-trusting rebuild first (the `AGENTS.md` workaround covers `debian:trixie-slim`, so the managed-base cases run; the custom-base cases need the same for `fedora:latest`).
 - Custom-base requirements (shadow-utils, POSIX shell bash→zsh→sh, curl+tar, dind prereqs) and unsupported bases (Alpine/distroless/scratch) are documented in `docs/runner-image.md`.
+
+### `learn/` — Learn-mode invocation (`run --learn`, `config learn`, the after-run)
+
+- `run.go` (`Begin`/`Passive`/`Overlay`/`Stop`/`CaptureBaseline`: start the channel before prepare, apply its overlay, take the baseline manifest and record the session in `state.HomeState`), `analyse.go` (`Analysis`/`Findings`/`SecretValue`/`Analyse`/`Summary`: read the home back, derive the findings, apply), `prompt.go` (`Finish`/`FinishInput`, the Review and save / Save all / Not now exit prompt, the summary renderer), `prune.go` (`PruneArtefacts`, the 30-day artefact sweep at startup) — the invocation wiring `analyser`/`channel`/`readback` into the run lifecycle (`specs/onboarding/learn-mode/findings-and-apply.md` §After-run ownership).
+- `run_test.go`, `analyse_test.go`, `prompt_test.go`, `prune_test.go`, `main_test.go` — unit tests.
 
 ### `lifecycle/` — Run lifecycle vocabulary and trace
 
@@ -108,7 +113,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 ### `readback/` — Host-side home-volume read-back for learn mode
 
-- `readback.go` (`HomeVolumePath`: state → home volume → host path, with `ErrNoHomeVolume` distinct from `state.ErrStateNotFound`), `manifest.go` (`TakeManifest`/`Manifest.Changed`, the baseline change-detection manifest), `read.go` (`Read`: config paths, static secrets with their dotenv `EnvVar` key and provider-endpoint `Hosts`, recorded logins), `probe_opencode2.go` (bounded read of opencode2's SQLite `credential` table) — the fact source for the after-run analyser of `specs/onboarding/learn-mode/home-read-back.md`; its consumer is S7's `run --learn` (the S6 analyser is a library with no production caller yet), so unreachable declarations carry temporary `//deadcode:ignore` markers S7 deletes as it wires them.
+- `readback.go` (`HomeVolumePath`: state → home volume → host path, with `ErrNoHomeVolume` distinct from `state.ErrStateNotFound`), `manifest.go` (`TakeManifest`/`Manifest.Changed`, the baseline change-detection manifest), `read.go` (`Read`: config paths, static secrets with their dotenv `EnvVar` key and provider-endpoint `Hosts`, recorded logins), `probe_opencode2.go` (bounded read of opencode2's SQLite `credential` table) — the fact source for the after-run analyser of `specs/onboarding/learn-mode/home-read-back.md`; read by `learn`'s after-run and `config learn`.
 
 ### `reconfig/` — Reconfiguration planning
 

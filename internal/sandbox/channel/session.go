@@ -30,8 +30,6 @@ type observer struct {
 // The invocation is S7's: S7 starts the observer before prepareSandbox, assigns
 // opts.Network = obs.Overlay() there, and calls Stop at teardown. This subplan
 // does not touch session/options/prepare/vm.
-//
-//deadcode:ignore reason="the channel's facade entry point; S7 starts the observer before prepareSandbox"
 func StartObservation(bindHost string, base network.Policy) (Observer, error) {
 	handle, err := Start(bindHost)
 	if err != nil {
@@ -47,11 +45,7 @@ func StartObservation(bindHost string, base network.Policy) (Observer, error) {
 }
 
 // Overlay returns the policy the run applies before preparing the VM.
-//
-//deadcode:ignore reason="reached from the observer StartObservation returns, whose invocation S7 wires"
 func (o observer) Overlay() network.Policy { return o.overlay }
 
 // Stop tears the proxy down and returns the scrubbed artefact.
-//
-//deadcode:ignore reason="reached from the observer StartObservation returns, whose invocation S7 wires"
 func (o observer) Stop() Observation { return o.handle.Stop() }

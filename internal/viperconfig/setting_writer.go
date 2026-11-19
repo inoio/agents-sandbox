@@ -156,8 +156,6 @@ func WriteSetting(dir, key string, value any) error {
 // misplaced secret. A key the file does not set leaves it byte-identical, so a
 // decline or a repeated removal never rewrites the user's config, and a removal
 // never creates config.yaml.
-//
-//deadcode:ignore reason="harden primitive; the analyser applier and the config harden (S8) caller remove a setting through it, pending the S7 run --learn caller"
 func RemoveSetting(dir, key string) error {
 	if dir == "" {
 		return fmt.Errorf("config dir is empty; the config path did not resolve")
@@ -202,8 +200,6 @@ func RemoveSetting(dir, key string) error {
 // an absent key is a byte-preserving no-op. A non-mapping root is refused, since
 // the document cannot hold the key at all. An anchored value an alias still uses
 // is refused by the document edit, leaving the file untouched.
-//
-//deadcode:ignore reason="helper reached only through RemoveSetting, whose analyser applier / config harden (S8) caller lands in S7/S8"
 func removeYAMLSetting(path string, data []byte, perm os.FileMode, key string) ([]byte, error) {
 	document, err := oneyaml.Parse(data, oneyaml.Untrusted())
 	if err != nil {
@@ -223,8 +219,6 @@ func removeYAMLSetting(path string, data []byte, perm os.FileMode, key string) (
 // document bytes, or nil bytes when the key is absent. Entries are matched
 // case-insensitively, mirroring viper's key resolution, so a removal reaches a
 // differently-cased entry rather than leaving it in place.
-//
-//deadcode:ignore reason="helper reached only through removeYAMLSetting from the analyser applier / config harden (S8) caller, pending S7/S8"
 func removeDocumentValue(document *oneyaml.Document, keyPath []string) ([]byte, error) {
 	root := document.Root()
 	if !root.IsValid() {

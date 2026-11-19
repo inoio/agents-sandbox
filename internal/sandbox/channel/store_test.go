@@ -235,6 +235,45 @@ func TestArtefactLoadMalformedFile(t *testing.T) {
 	assertWrapsCause(t, err)
 }
 
+// Delete removes one saved artefact, and a missing path is not an error: the
+// after-run deletes its own artefact, and a replay may find it already gone.
+func TestArtefactDelete(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+
+	path, err := Save("delete-me", 1763458200, sampleObservation())
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := Delete(path); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("artefact still present after Delete (err = %v)", err)
+	}
+	if err := Delete(path); err != nil {
+		t.Errorf("Delete of a missing artefact = %v, want nil", err)
+	}
+}
+
+// Delete reports a path it cannot remove that is not simply missing, rather than
+// silently treating a failed removal as done. A non-empty directory cannot be
+// removed by os.Remove.
+func TestArtefactDeleteFailure(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "keep"), []byte("x"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	err := Delete(dir)
+	if err == nil {
+		t.Fatal("Delete of a non-empty directory returned no error")
+	}
+	if !strings.Contains(err.Error(), "remove observation") {
+		t.Errorf("Delete error = %q, want it to name the removal", err)
+	}
+	assertWrapsCause(t, err)
+}
+
 // Prune removes artefacts modified before the cutoff, keeps recent ones, and
 // removes the slug directory once it is empty.
 func TestArtefactPruneCutoff(t *testing.T) {

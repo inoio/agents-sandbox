@@ -111,6 +111,10 @@ type RunOptions struct {
 	// Trace records the lifecycle stages the invocation reaches. cmd creates
 	// it; the stages in vm and session record into it. Nil records nothing.
 	Trace *lifecycle.Trace
+	// Learn runs a learning session: the observation channel and the read-back
+	// derive what the session used and the after-run proposes it. It is a run
+	// flag only, never set from config (mirroring ServeOnly).
+	Learn bool
 	// Seams carries the run's behavior test seams. The zero value is
 	// production (every stage uses its package default); only tests populate a
 	// field.

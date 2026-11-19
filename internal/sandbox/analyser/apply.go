@@ -40,6 +40,9 @@ type ApplyOptions struct {
 	// SecretValue resolves a finding's static secret value in memory (from the
 	// read-back); it is never persisted and never logged. nil for config-only.
 	SecretValue func(w SecretWrite) (string, bool)
+	// AcceptAll applies every finding without asking. It is set only by an
+	// explicit top-level "Save all", never by --yes.
+	AcceptAll bool
 }
 
 // Apply walks findings, applying each finding's writes together after one
@@ -48,8 +51,6 @@ type ApplyOptions struct {
 // decline memory holds for its evidence hash, and skips a per-slug write whose
 // key the project layer owns (a shadowed no-op). A move applies its writes or
 // none: if the project removal fails, the per-slug addition does not run.
-//
-//deadcode:ignore reason="applier; pending S7 run --learn caller wires the analyser"
 func Apply(findings []Finding, opts ApplyOptions) []ApplyResult {
 	if opts.Mode.Previews() {
 		return allSkipped(findings, "preview: the run makes no changes")
@@ -71,8 +72,6 @@ func Apply(findings []Finding, opts ApplyOptions) []ApplyResult {
 
 // allSkipped reports every finding as skipped with note, without asking or
 // writing.
-//
-//deadcode:ignore reason="applier helper; reached through the pending S7 run --learn caller"
 func allSkipped(findings []Finding, note string) []ApplyResult {
 	results := make([]ApplyResult, 0, len(findings))
 	for _, finding := range findings {
@@ -83,8 +82,6 @@ func allSkipped(findings []Finding, note string) []ApplyResult {
 
 // newApplyResult builds a result with every field set, so a partial literal
 // never reaches the linter's exhaustiveness check.
-//
-//deadcode:ignore reason="applier helper; reached through the pending S7 run --learn caller"
 func newApplyResult(finding Finding, outcome Outcome, note, errText string) ApplyResult {
 	return ApplyResult{
 		Finding:   finding,
@@ -98,8 +95,6 @@ func newApplyResult(finding Finding, outcome Outcome, note, errText string) Appl
 // applyFinding decides and performs one finding's writes. It consults the
 // decline memory, validates every write before touching the filesystem, asks
 // once, and applies the writes in order.
-//
-//deadcode:ignore reason="applier helper; reached through the pending S7 run --learn caller"
 func applyFinding(finding Finding, opts ApplyOptions) ApplyResult {
 	result := newApplyResult(finding, "", "", "")
 
@@ -125,7 +120,7 @@ func applyFinding(finding Finding, opts ApplyOptions) ApplyResult {
 		return result
 	}
 
-	accepted, err := askApply(opts.UI, finding)
+	accepted, err := askApplyOrAcceptAll(opts, finding)
 	if err != nil {
 		result.Outcome = OutcomeFailed
 		result.Err = err.Error()
@@ -157,8 +152,6 @@ func applyFinding(finding Finding, opts ApplyOptions) ApplyResult {
 
 // recordDecline remembers a declined finding. An empty evidence hash has no
 // decline record, so it is not one to write.
-//
-//deadcode:ignore reason="applier helper; reached through the pending S7 run --learn caller"
 func recordDecline(slug, evidenceHash string) error {
 	if evidenceHash == "" {
 		return nil
@@ -185,8 +178,6 @@ type refusal struct {
 // planWrites resolves and validates every one of a finding's writes without
 // writing anything, so a finding that cannot be written whole is refused before
 // its first write runs. It returns the plans, or the first refusal.
-//
-//deadcode:ignore reason="applier helper; reached through the pending S7 run --learn caller"
 func planWrites(finding Finding, opts ApplyOptions) ([]plannedWrite, *refusal) {
 	plans := make([]plannedWrite, 0, len(finding.Writes))
 	for _, write := range finding.Writes {
@@ -213,8 +204,6 @@ func planWrites(finding Finding, opts ApplyOptions) ([]plannedWrite, *refusal) {
 // planTarget resolves a write's directory and refuses a per-slug config write
 // whose key the project layer owns, since the higher-precedence project value
 // would shadow it.
-//
-//deadcode:ignore reason="applier helper; reached through the pending S7 run --learn caller"
 func planTarget(write Write, opts ApplyOptions) (string, *refusal) {
 	if write.Scope == ScopeProject {
 		if opts.CheckoutSlug == "" {
@@ -244,8 +233,6 @@ func planTarget(write Write, opts ApplyOptions) (string, *refusal) {
 // removal or addition would fail on an unparseable file is refused whole, before
 // any of its writes run. A static secret is never migrated without a host and
 // never gains allow_any_host_dangerous; a login credential is never read.
-//
-//deadcode:ignore reason="applier helper; reached through the pending S7 run --learn caller"
 func planSecret(write Write, dir string, opts ApplyOptions) (plannedWrite, *refusal) {
 	if err := envsecret.ValidateSecretFile(dir); err != nil {
 		return plannedWrite{}, &refusal{
@@ -274,8 +261,6 @@ func planSecret(write Write, dir string, opts ApplyOptions) (plannedWrite, *refu
 
 // resolveSecretValue resolves a static secret's value through the caller's
 // in-memory source, and reports false when there is none.
-//
-//deadcode:ignore reason="applier helper; reached through the pending S7 run --learn caller"
 func resolveSecretValue(secret *SecretWrite, opts ApplyOptions) (string, bool) {
 	if opts.SecretValue == nil {
 		return "", false
@@ -285,8 +270,6 @@ func resolveSecretValue(secret *SecretWrite, opts ApplyOptions) (string, bool) {
 
 // planConfigKey refuses a config-key write that a flag or environment variable
 // would shadow, and one whose target file is not an editable YAML document.
-//
-//deadcode:ignore reason="applier helper; reached through the pending S7 run --learn caller"
 func planConfigKey(write Write, dir string, opts ApplyOptions) *refusal {
 	if source, shadowed := resourceproposal.ShadowSource(write.ConfigKey, setByFlag(opts, write.ConfigKey)); shadowed {
 		return &refusal{
@@ -311,8 +294,6 @@ func planConfigKey(write Write, dir string, opts ApplyOptions) *refusal {
 // can be edited format-preservingly: a directory with no config file (a new YAML
 // file may be created) or one holding a YAML file. A JSON, JSONC, JSON5, or TOML
 // file is not editable, so the caller skips rather than corrupt the document.
-//
-//deadcode:ignore reason="applier helper; reached through the pending S7 run --learn caller"
 func configDirEditable(dir string) (bool, error) {
 	// A directory with no config file reports no path, whose empty extension
 	// configdecode reads as YAML, so the fall-through allows creating one.
@@ -328,17 +309,23 @@ func configDirEditable(dir string) (bool, error) {
 
 // setByFlag reports whether the caller says a flag set key, treating a nil
 // predicate as "no flag".
-//
-//deadcode:ignore reason="applier helper; reached through the pending S7 run --learn caller"
 func setByFlag(opts ApplyOptions, key string) bool {
 	return opts.SetByFlag != nil && opts.SetByFlag(key)
+}
+
+// askApplyOrAcceptAll resolves whether a finding is accepted. AcceptAll (the
+// top-level "Save all") skips the per-finding prompt; otherwise the finding is
+// put to the user through askApply.
+func askApplyOrAcceptAll(opts ApplyOptions, finding Finding) (bool, error) {
+	if opts.AcceptAll {
+		return true, nil
+	}
+	return askApply(opts.UI, finding)
 }
 
 // askApply puts one finding to the user and reports whether it was accepted.
 // Select is not answered by assume-yes, mirroring the project trust gate, and
 // its default declines, so an unanswered prompt never writes.
-//
-//deadcode:ignore reason="applier helper; reached through the pending S7 run --learn caller"
 func askApply(ui termio.Prompter, finding Finding) (bool, error) {
 	key, err := ui.Select(applyPrompt(finding), []termio.Choice{
 		{Key: applyFindingKey, Label: "Apply", Description: "write the proposed change"},
@@ -352,8 +339,6 @@ func askApply(ui termio.Prompter, finding Finding) (bool, error) {
 
 // applyPrompt renders the one question a finding is accepted through: its
 // evidence summary and each write's text, never a secret value.
-//
-//deadcode:ignore reason="applier helper; reached through the pending S7 run --learn caller"
 func applyPrompt(finding Finding) string {
 	var lines []string
 	if finding.Evidence.Summary != "" {
@@ -369,8 +354,6 @@ func applyPrompt(finding Finding) string {
 }
 
 // executeWrite performs one planned write and returns the directory it wrote to.
-//
-//deadcode:ignore reason="applier helper; reached through the pending S7 run --learn caller"
 func executeWrite(plan plannedWrite, opts ApplyOptions) (string, error) {
 	write := plan.write
 	if write.Secret != nil {
@@ -386,8 +369,6 @@ func executeWrite(plan plannedWrite, opts ApplyOptions) (string, error) {
 }
 
 // executeSecret writes or removes one static secret of a planned write.
-//
-//deadcode:ignore reason="applier helper; reached through the pending S7 run --learn caller"
 func executeSecret(plan plannedWrite) error {
 	secret := plan.write.Secret
 	if secret.Remove {
@@ -405,8 +386,6 @@ func executeSecret(plan plannedWrite) error {
 // executeProjectSetting writes or removes a project-scope config key through the
 // project trust gate: the approval is extended before the write, and restored
 // when the write fails, so the launcher's own change never needs re-approval.
-//
-//deadcode:ignore reason="applier helper; reached through the pending S7 run --learn caller"
 func executeProjectSetting(plan plannedWrite, opts ApplyOptions) error {
 	write := plan.write
 	restore, err := projecttrust.ApproveSettingWrite(
@@ -434,8 +413,6 @@ func executeProjectSetting(plan plannedWrite, opts ApplyOptions) error {
 // records for a key. A string value is recorded as itself and round-trips to the
 // same approval entry the projection computes; any other value is encoded as
 // JSON, which still records the key the write adds.
-//
-//deadcode:ignore reason="applier helper; reached through the pending S7 run --learn caller"
 func approvalValue(value any) string {
 	if text, ok := value.(string); ok {
 		return text

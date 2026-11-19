@@ -62,8 +62,6 @@ type ReadBack struct {
 // reports what it found, comparing the current manifest against baseline. An
 // agent without a ReadBackDescriber (unknown, or not yet verified) yields an
 // empty ReadBack, never an error.
-//
-//deadcode:ignore reason="read-back API; the S7 run --learn after-run calls Read after a session"
 func Read(home, agentName string, baseline Manifest) (ReadBack, error) {
 	// An unknown agent yields the nil Agent, for which AsReadBackDescriber is
 	// false, so no separate lookup guard is needed.
@@ -124,8 +122,6 @@ func Read(home, agentName string, baseline Manifest) (ReadBack, error) {
 // appendProbeCredentials reports the credentials each credential probe found and
 // names the probe sources whose store was unreadable. The outcomes come from the
 // same pass that produced the manifest digest, so the two cannot disagree.
-//
-//deadcode:ignore reason="folds one collection pass's probe outcomes into the ReadBack; reached through Read from the S7 run --learn after-run"
 func (r *ReadBack) appendProbeCredentials(probes []probeOutcome) {
 	for _, probe := range probes {
 		if probe.unreadable {
@@ -150,8 +146,6 @@ const dotenvFileName = ".env"
 // "endpoint in the same config entry" attribution fallback for a session the
 // observation channel did not see. A credential whose provider no entry names
 // keeps empty Hosts.
-//
-//deadcode:ignore reason="fills Credential.Hosts from the provider's config entry; reached through Read from the S7 run --learn after-run"
 func (r *ReadBack) fillStaticCredentialHosts(home string, manifest Manifest) {
 	hostsByProvider := configEndpointHosts(home, manifest)
 	for i := range r.Static {
@@ -163,8 +157,6 @@ func (r *ReadBack) fillStaticCredentialHosts(home string, manifest Manifest) {
 // provider they name to the endpoint host its entry declares. A probe entry and
 // the dotenv carry no endpoint; an opaque (over-cap) or unparsable file is
 // skipped, never guessed at.
-//
-//deadcode:ignore reason="extracts provider endpoints from the agent config files; reached through Read from the S7 run --learn after-run"
 func configEndpointHosts(home string, manifest Manifest) map[string][]string {
 	hostsByProvider := map[string][]string{}
 	for _, entry := range manifest.Entries {
@@ -202,8 +194,6 @@ func configEndpointHosts(home string, manifest Manifest) map[string][]string {
 //
 // entryKey is the provider id the node's enclosing provider container gives it,
 // or "" outside a container.
-//
-//deadcode:ignore reason="walks the agent config for provider endpoints; reached through configEndpointHosts and Read"
 func collectEndpointHosts(node any, key, entryKey string, hostsByProvider map[string][]string) {
 	switch typed := node.(type) {
 	case map[string]any:
@@ -231,8 +221,6 @@ func collectEndpointHosts(node any, key, entryKey string, hostsByProvider map[st
 // provider container gave it, or an explicit "provider" field. It reports false
 // for a node that names no provider either way, so a generic "name"/"id" field
 // on a non-provider entry (an MCP server, a tool) never claims a provider.
-//
-//deadcode:ignore reason="identifies the provider a config entry describes; reached through collectEndpointHosts and Read"
 func providerNamedByEntry(entry map[string]any, entryKey string) (string, bool) {
 	if provider, _ := entry["provider"].(string); provider != "" {
 		return normalizeToken(provider), true
@@ -249,8 +237,6 @@ func providerNamedByEntry(entry map[string]any, entryKey string) (string, bool) 
 var providerContainers = []string{"provider", "providers", "models"}
 
 // isProviderContainer reports whether a config key holds provider-keyed entries.
-//
-//deadcode:ignore reason="recognizes a provider-id-keyed config container; reached through collectEndpointHosts and Read"
 func isProviderContainer(key string) bool {
 	return slices.Contains(providerContainers, normalizeToken(key))
 }
@@ -258,8 +244,6 @@ func isProviderContainer(key string) bool {
 // entryEndpointHosts returns the hosts an entry's endpoint fields name, looking
 // directly at the entry and at its nested "options" object, which is where
 // opencode keeps a provider's baseURL.
-//
-//deadcode:ignore reason="collects an entry's endpoint hosts; reached through collectEndpointHosts and Read"
 func entryEndpointHosts(entry map[string]any) []string {
 	hosts := endpointHosts(entry)
 	if options, ok := entry["options"].(map[string]any); ok {
@@ -271,8 +255,6 @@ func entryEndpointHosts(entry map[string]any) []string {
 // endpointHosts returns the host each endpoint field of node names. A value that
 // is not a string, or is not an absolute URL with a host, contributes nothing:
 // an unknown shape yields no host rather than a guess.
-//
-//deadcode:ignore reason="extracts a host from an entry's endpoint fields; reached through entryEndpointHosts and Read"
 func endpointHosts(node map[string]any) []string {
 	var hosts []string
 	for key, value := range node {
@@ -290,8 +272,6 @@ func endpointHosts(node map[string]any) []string {
 // isEndpointKey reports whether a config key names an endpoint URL. It matches
 // case-insensitively and treats '_' and '-' as separators, so baseURL,
 // base_url, and BASE-URL all name the endpoint.
-//
-//deadcode:ignore reason="recognizes an endpoint field in a config entry; reached through endpointHosts and Read"
 func isEndpointKey(key string) bool {
 	normalized := normalizeToken(key)
 	return slices.Contains(endpointKeys, normalized)
@@ -303,8 +283,6 @@ var endpointKeys = []string{"baseurl", "endpoint", "url"}
 
 // endpointHost normalizes an endpoint value to its host, dropping the scheme,
 // port, and path. A value that is not an absolute URL with a host yields "".
-//
-//deadcode:ignore reason="normalizes an endpoint URL to its host; reached through endpointHosts and Read"
 func endpointHost(raw string) string {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
@@ -316,8 +294,6 @@ func endpointHost(raw string) string {
 // normalizeToken folds a provider name or a config key to its comparison form:
 // lowercase, with '_' and '-' dropped, so OPENAI_API_KEY matches openai and
 // baseURL matches base_url.
-//
-//deadcode:ignore reason="folds provider and endpoint-key tokens for comparison; reached through Read"
 func normalizeToken(token string) string {
 	return strings.NewReplacer("_", "", "-", "").Replace(strings.ToLower(strings.TrimSpace(token)))
 }
@@ -334,8 +310,6 @@ type loginCredentialStore struct {
 }
 
 // appliesTo reports whether the store classifies as a login for agentName.
-//
-//deadcode:ignore reason="scopes a login store to its agents; reached through Read from the S7 run --learn after-run"
 func (s loginCredentialStore) appliesTo(agentName string) bool {
 	return s.agents == nil || slices.Contains(s.agents, agentName)
 }
@@ -359,8 +333,6 @@ var secretKeyMarkers = []string{"KEY", "TOKEN", "SECRET", "PASSWORD"}
 // markers against the key's segments rather than its substrings: MAX_TOKENS is
 // a token count, while OPENAI_API_KEY carries a KEY segment. Obvious
 // non-secrets (DEBUG, LOG_LEVEL) stay out of the static credentials.
-//
-//deadcode:ignore reason="filters a dotenv key before it becomes a credential; reached through Read from the S7 run --learn after-run"
 func looksLikeSecretKey(key string) bool {
 	for segment := range strings.FieldsFuncSeq(strings.ToUpper(key), isSecretKeySeparator) {
 		if slices.Contains(secretKeyMarkers, segment) {
@@ -373,8 +345,6 @@ func looksLikeSecretKey(key string) bool {
 // isSecretKeySeparator reports whether r separates two segments of a dotenv key,
 // so a marker is matched as a whole segment (MAX_TOKENS) rather than a substring
 // (TOKENS).
-//
-//deadcode:ignore reason="splits a dotenv key into segments for looksLikeSecretKey; reached through Read from the S7 run --learn after-run"
 func isSecretKeySeparator(r rune) bool {
 	return r == '_' || r == '-'
 }
@@ -396,8 +366,6 @@ var credentialProviders = []struct {
 // credentials. Blank lines, # comments, and keys that do not look like secrets
 // are skipped; the value comes from the right-hand side, and Provider/Field are
 // derived from a recognisable provider name in the key.
-//
-//deadcode:ignore reason="parses a dotenv's secret lines; reached through Read from the S7 run --learn after-run"
 func staticCredentials(source string, content []byte) []Credential {
 	var credentials []Credential
 	for line := range strings.SplitSeq(string(content), "\n") {
@@ -429,8 +397,6 @@ func staticCredentials(source string, content []byte) []Credential {
 // staticCredentialProviderField derives a provider and header-field hint from a
 // dotenv key when the key names a known provider (OPENAI_API_KEY → provider
 // "openai", field "authorization"). Both are empty for an unrecognised key.
-//
-//deadcode:ignore reason="derives a provider and header-field hint for a dotenv secret; reached through staticCredentials"
 func staticCredentialProviderField(key string) (string, string) {
 	upper := strings.ToUpper(key)
 	for _, known := range credentialProviders {
@@ -444,8 +410,6 @@ func staticCredentialProviderField(key string) (string, string) {
 // readCappedFile reads path's contents, bounded by maxBytes. ok is false when
 // the file cannot be read or exceeds the cap: a secret file larger than the cap
 // is not parsed whole into host memory.
-//
-//deadcode:ignore reason="bounds a secret-file read; reached through Read from the S7 run --learn after-run"
 func readCappedFile(path string, maxBytes int64) ([]byte, bool) {
 	file, err := os.Open(path)
 	if err != nil {

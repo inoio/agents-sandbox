@@ -118,6 +118,10 @@ type HomeState struct {
 	// DiskPressure records detected disk-limit hits keyed by kind (root-disk,
 	// workspace-quota, tmp) and whether the user has answered their offers.
 	DiskPressure map[string]DiskPressureState `yaml:"disk_pressure,omitempty"`
+
+	// Learn records an in-flight or unreviewed learning session, so the
+	// after-run can analyse it later (in this process or via config learn).
+	Learn *LearnSession `yaml:"learn,omitempty"`
 }
 
 // Offered reports whether the version has already had its rebuild prompt shown
