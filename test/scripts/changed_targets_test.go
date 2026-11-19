@@ -44,7 +44,34 @@ func TestChangedTargets(t *testing.T) {
 			"# x",
 			[]string{"changelog-check", "changelog-check-test", "ci-guards-check", "shellcheck"},
 		},
+		{
+			"modified changelog Go harness",
+			"test/scripts/changelog_test.go",
+			"# x",
+			[]string{
+				"changelog-check",
+				"changelog-check-test",
+				"ci-guards-check",
+				"compile-all",
+				"lint",
+				"test",
+				"validate-fmt",
+			},
+		},
 		{"modified deadcode checker", "ci/check-deadcode.sh", "# x", []string{"deadcode-test", "shellcheck"}},
+		{
+			"modified deadcode Go harness",
+			"test/scripts/deadcode_test.go",
+			"# x",
+			[]string{"deadcode-test", "compile-all", "lint", "test", "validate-fmt"},
+		},
+		{"modified brain checker", "scripts/brain-check.sh", "# x", []string{"brain-check-test", "shellcheck"}},
+		{
+			"modified brain-check Go harness",
+			"test/scripts/brain_check_test.go",
+			"# x",
+			[]string{"brain-check-test", "compile-all", "lint", "test", "validate-fmt"},
+		},
 		{
 			"modified changed-files script",
 			"scripts/changed-files.sh",
@@ -58,7 +85,12 @@ func TestChangedTargets(t *testing.T) {
 			[]string{"changed-files-test", "compile-all", "lint", "test", "validate-fmt"},
 		},
 		{"modified check runner", "scripts/check.sh", "# x", []string{"check-test", "shellcheck"}},
-		{"modified check runner test", "scripts/test-check.sh", "# x", []string{"check-test", "shellcheck"}},
+		{
+			"modified check Go harness",
+			"test/scripts/check_test.go",
+			"# x",
+			[]string{"check-test", "compile-all", "lint", "test", "validate-fmt"},
+		},
 		{
 			"modified upstream-drift script",
 			"scripts/upstream-drift.sh",
@@ -78,6 +110,12 @@ func TestChangedTargets(t *testing.T) {
 			[]string{"rebase-status-test", "shellcheck"},
 		},
 		{"modified enqueue-pr script", "scripts/enqueue-pr.sh", "# x", []string{"enqueue-pr-test", "shellcheck"}},
+		{
+			"modified enqueue-pr Go harness",
+			"test/scripts/enqueue_pr_test.go",
+			"# x",
+			[]string{"enqueue-pr-test", "compile-all", "lint", "test", "validate-fmt"},
+		},
 		{
 			"modified backport-audit script",
 			"scripts/backport-audit.sh",
@@ -102,7 +140,13 @@ func TestChangedTargets(t *testing.T) {
 			"# x",
 			[]string{"open-backport-pr-test", "compile-all", "lint", "test", "validate-fmt"},
 		},
-		{"modified envelope test", "scripts/test-envelope.sh", "# x", []string{"envelope-test", "shellcheck"}},
+		{"modified envelope driver", "scripts/test-envelope.sh", "# x", []string{"envelope-test", "shellcheck"}},
+		{
+			"modified envelope Go harness",
+			"test/scripts/envelope_test.go",
+			"# x",
+			[]string{"envelope-test", "compile-all", "lint", "test", "validate-fmt"},
+		},
 		{
 			"modified cleanup script",
 			"scripts/cleanup-merged-branches.sh",
@@ -116,10 +160,22 @@ func TestChangedTargets(t *testing.T) {
 			[]string{"ci-guards-check", "ci-guards-check-test", "shellcheck"},
 		},
 		{
+			"modified ci-guards Go harness",
+			"test/scripts/ci_guards_test.go",
+			"# x",
+			[]string{"ci-guards-check", "ci-guards-check-test", "compile-all", "lint", "test", "validate-fmt"},
+		},
+		{
 			"modified change classifier",
 			"ci/classify-changes.sh",
 			"# x",
 			[]string{"ci-guards-check", "classify-changes-test", "shellcheck"},
+		},
+		{
+			"modified classify-changes Go harness",
+			"test/scripts/classify_changes_test.go",
+			"# x",
+			[]string{"ci-guards-check", "classify-changes-test", "compile-all", "lint", "test", "validate-fmt"},
 		},
 		{
 			"modified base-SHA resolver",
@@ -127,12 +183,24 @@ func TestChangedTargets(t *testing.T) {
 			"# x",
 			[]string{"ci-guards-check", "event-base-test", "shellcheck"},
 		},
+		{
+			"modified event-base Go harness",
+			"test/scripts/event_base_test.go",
+			"# x",
+			[]string{"ci-guards-check", "event-base-test", "compile-all", "lint", "test", "validate-fmt"},
+		},
 		{"modified workflow", ".github/workflows/ci.yml", "# x", []string{"actionlint", "ci-guards-check"}},
 		{
 			"modified surface-sweep script",
 			"scripts/surface-sweep.sh",
 			"# x",
 			[]string{"shellcheck", "surface-sweep-test"},
+		},
+		{
+			"modified surface-sweep Go harness",
+			"test/scripts/surface_sweep_test.go",
+			"# x",
+			[]string{"surface-sweep-test", "compile-all", "lint", "test", "validate-fmt"},
 		},
 		{
 			"modified changed-targets script",

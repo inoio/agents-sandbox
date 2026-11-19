@@ -243,7 +243,7 @@ deadcode:
 
 # Test the dead-code gate script itself (fixtures only: never runs deadcode).
 deadcode-test:
-	ci/test-check-deadcode.sh
+	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -count=1 ./test/scripts/ -run Deadcode
 
 # Mutation testing: mutate the code and check whether the tests notice. Run on
 # demand (at release time) and as an advisory CI signal, never as a gate — a
@@ -326,7 +326,7 @@ cleanup-branches-test:
 
 # Test the release-surface sweep isolation helper itself (fixtures only: no VM, no real state).
 surface-sweep-test:
-	./scripts/test-surface-sweep.sh
+	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -count=1 ./test/scripts/ -run SurfaceSweep
 
 # Run the default suite in a hermetic envelope: a module copy outside any git
 # checkout and a scrubbed environment. See specs/testing/test-isolation.md.
@@ -342,7 +342,7 @@ test-hermetic:
 
 # Test the hermetic envelope driver itself (fixtures only: never touches this repo).
 envelope-test:
-	./scripts/test-envelope_test.sh
+	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -count=1 ./test/scripts/ -run Envelope
 
 # Test the upstream-drift reporter itself (fixtures only: never touches this repo).
 upstream-drift-test:
@@ -354,7 +354,7 @@ rebase-status-test:
 
 # Test the merge-queue enqueue helper itself (fixtures only: never touches this repo).
 enqueue-pr-test:
-	./scripts/test-enqueue-pr.sh
+	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -count=1 ./test/scripts/ -run EnqueuePr
 
 # Structural checks on the Operator brain (.operator-shared/): frontmatter,
 # relative links, catalog coverage, plan citations, Read If style, partition
@@ -364,7 +364,7 @@ brain-check:
 
 # Test the brain checker itself (fixtures only: never touches this repo).
 brain-check-test:
-	./scripts/test-brain-check.sh
+	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -count=1 ./test/scripts/ -run BrainCheck
 
 # Test the outstanding-backport detector itself (fixtures only: never touches this repo).
 backport-audit-test:
@@ -376,7 +376,7 @@ open-backport-pr-test:
 
 # Test the check runner itself (fixtures only: never runs the real targets).
 check-test:
-	bash scripts/test-check.sh
+	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -count=1 ./test/scripts/ -run Check
 
 # The gates' targets are independent and read-only. `check`/`verify` delegate to
 # scripts/check.sh, which captures each target, prints one line per target, and
@@ -508,7 +508,7 @@ ci-guards-check:
 
 # Test the guards checker itself (fixtures plus a self-check of this repo).
 ci-guards-check-test:
-	ci/test-check-ci-guards.sh
+	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -count=1 ./test/scripts/ -run CIGuards
 
 # Test the documentation link checker itself.
 docs-linkcheck-test:
@@ -520,15 +520,15 @@ changelog-check:
 
 # Test the changelog fragment checker itself.
 changelog-check-test:
-	ci/test-check-changelog.sh
+	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -count=1 ./test/scripts/ -run Changelog
 
 # Test the CI base-SHA resolver itself (fixtures only: never touches this repo).
 event-base-test:
-	ci/test-check-event-base.sh
+	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -count=1 ./test/scripts/ -run EventBase
 
 # Test the CI change-classifier itself (fixtures only: never touches this repo).
 classify-changes-test:
-	ci/test-check-classify-changes.sh
+	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -count=1 ./test/scripts/ -run ClassifyChanges
 
 # Serve the docs locally the same way GitHub Pages does (Jekyll build + live reload) at http://localhost:4000/.
 docs-serve: docs-diagrams

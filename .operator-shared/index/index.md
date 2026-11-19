@@ -71,8 +71,7 @@ read_if: Navigating the codebase.
 
 ### `ci/` — Build and verification scripts
 
-- `check-docs.sh`/`test-check-docs.sh` (doc link/style gate), `check-deadcode.sh`/`test-check-deadcode.sh` + `deadcodecheck/` (dead-code gate driver and helper), `check-changelog.sh`/`test-check-changelog.sh` (changelog fragments).
-- `check-ci-guards.sh`/`test-check-ci-guards.sh` (the `github.event_name`/`on.pull_request.types` invariants and the four exempt-path copies), `event-base.sh`/`test-check-event-base.sh` (the single base-SHA resolver), `classify-changes.sh`/`test-check-classify-changes.sh` (the `changes` job's `code`/`exec` classification); see `specs/ci/ci-pipeline.md`.
+- The gate scripts: `check-docs.sh`/`test-check-docs.sh` (doc link/style gate), `check-deadcode.sh` + `deadcodecheck/` (dead-code gate driver and helper), `check-changelog.sh` (changelog fragments), `check-ci-guards.sh` (the `github.event_name`/`on.pull_request.types` invariants and the four exempt-path copies), `event-base.sh` (the single base-SHA resolver), and `classify-changes.sh` (the `changes` job's `code`/`exec` classification); see `specs/ci/ci-pipeline.md`. Their harnesses are Go `test/scripts/*_test.go` tests (`docs-linkcheck-test` is the lone bash holdout).
 
 ### `Formula/` — Homebrew formula
 

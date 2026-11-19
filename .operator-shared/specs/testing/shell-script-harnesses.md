@@ -1,6 +1,6 @@
 ---
 description: Contract for the shell scripts' test harnesses - the host-git-config isolation every git fixture harness must apply, the shared helpers (`GitIsolationEnvironment` in `internal/testutil`; `RunScript`, the `gittest` fixture builder, and `fakecmd` as `*_helpers_test.go` in `test/scripts`), the re-exec fake-command pattern, the `test/scripts` Go home for harnesses that need no worktree, and the boundary where a harness stays in bash.
-read_if: Writing or fixing a `scripts/test-*.sh` or `ci/test-check-*.sh` harness that creates git fixtures; a harness that prompts for an ssh passphrase or fails with `failed to write commit object` under commit signing; exporting `internal/testutil`'s git-isolation helper, or adding or re-homing a shared `test/scripts` helper (`RunScript`, the go-git `gittest` builder, `fakecmd`); moving a shell harness into a Go test package; or the ambient-command contract for a test that execs git.
+read_if: Writing or fixing the two remaining bash git-fixture harnesses `scripts/test-rebase-status.sh` and `scripts/test-cleanup-merged-branches.sh`; a harness that prompts for an ssh passphrase or fails with `failed to write commit object` under commit signing; exporting `internal/testutil`'s git-isolation helper, or adding or re-homing a shared `test/scripts` helper (`RunScript`, the go-git `gittest` builder, `fakecmd`); moving a shell harness into a Go test package; or the ambient-command contract for a test that execs git.
 ---
 
 # Shell script test harnesses
@@ -102,17 +102,22 @@ See [test isolation](test-isolation.md) for the Go-side seam contract this sits 
 
 ## Current state
 
-Several harnesses have landed. `scripts/test-open-backport-pr.sh`,
-`scripts/test-backport-audit.sh`, `scripts/test-changed-files.sh`, and
-`scripts/test-changed-targets.sh` are gone; their cases live in the Go `test/scripts` package,
-driving `scripts/open-backport-pr.sh`, `scripts/backport-audit.sh`, `scripts/changed-files.sh`, and
-`scripts/changed-targets.sh` through `RunScript` with `gittest` go-git fixtures and a re-exec
-fake `gh`. The helpers exist — `GitIsolationEnvironment` in `internal/testutil`, and `RunScript`,
-`gittest`, and `fakecmd` as `*_helpers_test.go` in `test/scripts` — and each migrated Make target runs
-`go test ./test/scripts/ -run <Tool>`.
+The migration is complete. Fifteen harnesses live in the Go `test/scripts` package —
+`open-backport-pr`, `backport-audit`, `changed-files`, `changed-targets`, `upstream-drift`,
+`enqueue-pr`, `event-base`, `brain-check`, `check`, `changelog`, `ci-guards`,
+`classify-changes`, `deadcode`, `surface-sweep`, and `envelope` — each driving its standalone
+`scripts/*.sh` or `ci/*.sh` tool through `RunScript` with go-git `gittest` fixtures and re-exec
+fakes. The helpers are `GitIsolationEnvironment` in `internal/testutil`, and `RunScript`,
+`gittest`, and `fakecmd` as `*_helpers_test.go` in `test/scripts`; each migrated Make target runs
+`go test ./test/scripts/ -run <Tool>`, and `scripts/changed-targets.sh` selects it from both the
+tool path and the `test/scripts/<tool>_test.go` path.
 
-The remaining bash fixture harnesses still hand-copy the isolation head; a new one must include it
-until it migrates.
+Two harnesses stay bash, both because their porcelain is not implementable on go-git:
+`scripts/test-rebase-status.sh` (an in-progress rebase) and
+`scripts/test-cleanup-merged-branches.sh` (`git worktree`, `clone`, `push --force-with-lease`).
+Each still carries the isolation head by hand, and a new bash harness that creates git fixtures
+must include it. `ci/test-check-docs.sh` was never in scope — it is fixture-only, creates no git
+fixtures, and stays bash.
 
 A fake command re-execs the race-instrumented test binary, and a race-instrumented process sleeps
 `atexit_sleep_ms` (1000 ms by default) on a clean exit — to give other threads time to report a
