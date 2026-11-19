@@ -132,6 +132,9 @@ func TestApplyDeclinedEvidenceIsSkipped(t *testing.T) {
 	if results[0].Outcome != OutcomeSkipped {
 		t.Fatalf("outcome = %q; want skipped", results[0].Outcome)
 	}
+	if results[0].Note != "declined for this evidence" {
+		t.Errorf("Note = %q; want it to name the recorded decline", results[0].Note)
+	}
 	if *answered != 0 {
 		t.Errorf("a declined finding asked %d prompts; want none", *answered)
 	}
@@ -335,6 +338,9 @@ func TestApplySecretMigratesStaticOnly(t *testing.T) {
 	if results[0].Outcome != OutcomeApplied {
 		t.Fatalf("static secret outcome = %q (%s); want applied", results[0].Outcome, results[0].Err)
 	}
+	if dirs := results[0].WroteDirs; len(dirs) != 1 || dirs[0] != cp.UserSlugConfigDir(testSlug) {
+		t.Errorf("WroteDirs = %v; want the per-slug dir %q", dirs, cp.UserSlugConfigDir(testSlug))
+	}
 	if results[1].Outcome != OutcomeSkipped {
 		t.Fatalf("login outcome = %q; want skipped", results[1].Outcome)
 	}
@@ -377,6 +383,9 @@ func TestApplyProjectScopeIsGated(t *testing.T) {
 
 		if results[0].Outcome != OutcomeApplied {
 			t.Fatalf("outcome = %q (%s); want applied", results[0].Outcome, results[0].Err)
+		}
+		if dirs := results[0].WroteDirs; len(dirs) != 1 || dirs[0] != cp.ProjectConfigDir() {
+			t.Errorf("WroteDirs = %v; want the project config dir %q", dirs, cp.ProjectConfigDir())
 		}
 		if !projectLayerApproved(t, cp) {
 			t.Error(
@@ -441,6 +450,22 @@ func TestApplyNeverShadowedByFlagOrEnv(t *testing.T) {
 		}
 		assertNoFile(t, filepath.Join(cp.UserSlugConfigDir(testSlug), "config.yaml"))
 	})
+
+	t.Run("flag predicate false writes", func(t *testing.T) {
+		configpathstest.WithMockConfigPaths(t)
+		unsetKeyEnvironment(t, "network.profile")
+		cp := configpaths.Get()
+		ui, _ := interactiveUI()
+
+		results := Apply([]Finding{perSlugWrite("network.profile", "none")}, ApplyOptions{
+			Paths: cp, Slug: testSlug, UI: ui, Mode: options.ModeRun,
+			SetByFlag: func(string) bool { return false },
+		})
+
+		if results[0].Outcome != OutcomeApplied {
+			t.Fatalf("outcome = %q (%s); want applied", results[0].Outcome, results[0].Err)
+		}
+	})
 }
 
 func TestApplyAssumeYesDoesNotAccept(t *testing.T) {
@@ -480,6 +505,9 @@ func TestApplyPromptSurfacesWriteText(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "The network policy is creation-only.") {
 		t.Errorf("prompt = %q; want the write's text", prompt)
+	}
+	if !strings.Contains(prompt, "Apply this change?") {
+		t.Errorf("prompt = %q; want the final question line", prompt)
 	}
 }
 
@@ -631,6 +659,9 @@ func TestApplySkipsAConfigDirItCannotRead(t *testing.T) {
 	if results[0].Outcome != OutcomeSkipped || results[0].Err == "" {
 		t.Fatalf("result = %+v; want a skipped outcome carrying the read error", results[0])
 	}
+	if !strings.Contains(results[0].Note, "cannot be read for editing") {
+		t.Errorf("Note = %q; want the read failure, not a format mismatch", results[0].Note)
+	}
 	if *answered != 0 {
 		t.Errorf("an unreadable config dir asked %d prompts; want none", *answered)
 	}
@@ -656,6 +687,9 @@ func TestApplyRemovesAConfigKey(t *testing.T) {
 
 	if results[0].Outcome != OutcomeApplied {
 		t.Fatalf("outcome = %q (%s); want applied", results[0].Outcome, results[0].Err)
+	}
+	if dirs := results[0].WroteDirs; len(dirs) != 1 || dirs[0] != dir {
+		t.Errorf("WroteDirs = %v; want the per-slug dir %q", dirs, dir)
 	}
 	if content := readFile(t, filepath.Join(dir, "config.yaml")); strings.Contains(content, "profile") {
 		t.Errorf("config.yaml = %q; want network.profile removed", content)
@@ -833,4 +867,197 @@ func projectLayerApproved(t *testing.T, cp configpaths.ConfigPaths) bool {
 		t.Fatalf("load approval: %v", err)
 	}
 	return projecttrust.Evaluate(projection, approval).Approved
+}
+
+// TestApplyWithoutAUIReportsNoInteractiveTerminal pins that a missing UI is
+// treated as a non-interactive run: the applier asks nothing and writes nothing
+// rather than dereferencing the nil terminal.
+func TestApplyWithoutAUIReportsNoInteractiveTerminal(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+
+	results := Apply([]Finding{perSlugWrite("network.profile", "none")}, ApplyOptions{
+		Paths: cp, Slug: testSlug, UI: nil, Mode: options.ModeRun,
+	})
+
+	if len(results) != 1 || results[0].Outcome != OutcomeSkipped {
+		t.Fatalf("outcomes = %+v; want one OutcomeSkipped", results)
+	}
+	if results[0].Note != "no interactive terminal" {
+		t.Errorf("Note = %q; want the non-interactive notice", results[0].Note)
+	}
+	assertNoFile(t, filepath.Join(cp.UserSlugConfigDir(testSlug), "config.yaml"))
+}
+
+// TestApplyDecliningAnUnhashedFindingRecordsNoDecline pins that a finding with
+// no evidence hash is declined without a decline record: there is no evidence
+// to key one on, so the next run proposes it again.
+func TestApplyDecliningAnUnhashedFindingRecordsNoDecline(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+
+	results := Apply([]Finding{perSlugWrite("network.profile", "none")}, ApplyOptions{
+		Paths: cp, Slug: testSlug, UI: decliningUI(), Mode: options.ModeRun,
+	})
+	if results[0].Outcome != OutcomeDeclined {
+		t.Fatalf("outcome = %q; want declined", results[0].Outcome)
+	}
+
+	declined, err := state.LearnDeclined(testSlug, "")
+	if err != nil {
+		t.Fatalf("LearnDeclined: %v", err)
+	}
+	if declined {
+		t.Error("an empty evidence hash was recorded as a decline; want no record")
+	}
+}
+
+// TestApplySecretWriteIsNeverShadowedByAProjectOwnedKey pins that a secret write
+// targets the per-slug directory directly: it is not a config-key write, so the
+// ownership scan never redirects or refuses it, even when the project config
+// holds a key the ownership scan would resolve.
+func TestApplySecretWriteIsNeverShadowedByAProjectOwnedKey(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	// An empty key is the only key the ownership scan resolves for a bare
+	// secret write (whose ConfigKey is ""); the secret write must not consult it.
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "\"\": 1\n")
+
+	dir, refusal := planTarget(
+		Write{
+			Scope:  ScopePerSlugUser,
+			Secret: &SecretWrite{EnvVar: "OPENAI_API_KEY", Hosts: []string{"api.example"}},
+		},
+		ApplyOptions{Paths: cp, Slug: testSlug},
+	)
+	if refusal != nil {
+		t.Fatalf("refusal = %+v; want none for a secret write", refusal)
+	}
+	if dir != cp.UserSlugConfigDir(testSlug) {
+		t.Errorf("dir = %q; want the per-slug dir %q", dir, cp.UserSlugConfigDir(testSlug))
+	}
+}
+
+// emptyConfigPaths resolves no directories, so a per-slug write's ownership scan
+// finds no owner and the project dir shares the empty owner string.
+type emptyConfigPaths struct{}
+
+func (emptyConfigPaths) UserConfigDir() string            { return "" }
+func (emptyConfigPaths) UserSlugConfigDir(string) string  { return "" }
+func (emptyConfigPaths) UserCacheDir() string             { return "" }
+func (emptyConfigPaths) UserStateDir() string             { return "" }
+func (emptyConfigPaths) UserDataDir() string              { return "" }
+func (emptyConfigPaths) UserHomeDir() (string, error)     { return "", nil }
+func (emptyConfigPaths) ProjectConfigDir() string         { return "" }
+func (emptyConfigPaths) ProjectConfigDirAbs() string      { return "" }
+func (emptyConfigPaths) ProjectDockerfile() string        { return "" }
+func (emptyConfigPaths) IgnoredWorktreeConfigDir() string { return "" }
+
+// TestPlanTargetKeepsAPerSlugWriteWithNoResolvedOwner pins that a per-slug
+// config write is allowed when no file layer owns its key, even when the
+// project dir is unresolved and shares the empty owner string: an unresolved
+// path must not read as a project-owned key.
+func TestPlanTargetKeepsAPerSlugWriteWithNoResolvedOwner(t *testing.T) {
+	_, refusal := planTarget(
+		Write{Scope: ScopePerSlugUser, ConfigKey: "network.profile", ConfigValue: "none"},
+		ApplyOptions{Paths: emptyConfigPaths{}, Slug: testSlug},
+	)
+	if refusal != nil {
+		t.Fatalf("refusal = %+v; want none when no layer owns the key", refusal)
+	}
+}
+
+// TestApplySkipsASecretWhoseResolverReportsNoValue pins that a secret is refused
+// whenever the resolver does not positively supply a value, even if it returns a
+// non-empty string alongside ok=false: only ok authorizes the write.
+func TestApplySkipsASecretWhoseResolverReportsNoValue(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	ui, answered := interactiveUI()
+
+	results := Apply([]Finding{secretFindingFor("OPENAI_API_KEY")}, ApplyOptions{
+		Paths: cp, Slug: testSlug, UI: ui, Mode: options.ModeRun,
+		SecretValue: func(SecretWrite) (string, bool) { return "sk-never-written", false },
+	})
+
+	if results[0].Outcome != OutcomeSkipped || results[0].Note == "" {
+		t.Fatalf("result = %+v; want a skipped outcome with a note", results[0])
+	}
+	if *answered != 0 {
+		t.Errorf("a secret with no resolvable value asked %d prompts; want none", *answered)
+	}
+	assertNoFile(t, filepath.Join(cp.UserSlugConfigDir(testSlug), "env.secret.yaml"))
+}
+
+// TestResolveSecretValueWithoutAResolverReportsNoValue pins the nil-resolver
+// contract at the helper: no resolver means no value, not an empty-string value.
+func TestResolveSecretValueWithoutAResolverReportsNoValue(t *testing.T) {
+	value, ok := resolveSecretValue(&SecretWrite{EnvVar: "OPENAI_API_KEY"}, ApplyOptions{})
+	if ok || value != "" {
+		t.Fatalf("resolveSecretValue = (%q, %v); want no value", value, ok)
+	}
+}
+
+// TestConfigDirEditableReportsAReadError pins that a config directory whose file
+// cannot be discovered is reported uneditable with the read error, not as a
+// format mismatch.
+func TestConfigDirEditableReportsAReadError(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	dir := configpaths.Get().UserSlugConfigDir(testSlug)
+	gone := filepath.Join(dir, "config.yaml")
+	t.Cleanup(projectguard.Install(
+		[]string{dir},
+		map[string]projectguard.Approval{gone: projectguard.ApprovalOf([]byte("memory: 1G\n"))},
+	))
+
+	editable, err := configDirEditable(dir)
+	if editable || err == nil {
+		t.Fatalf("configDirEditable = (%v, %v); want false and the read error", editable, err)
+	}
+}
+
+// TestAskApplyReportsThePromptError pins that a failed prompt is returned as a
+// failure with its cause preserved, and never read as an acceptance.
+func TestAskApplyReportsThePromptError(t *testing.T) {
+	sentinel := errors.New("prompt boom")
+	ui := &termiotest.Mock{IsInteractiveResult: true}
+	ui.SelectFn = func(string, []termio.Choice, string) (string, error) { return "", sentinel }
+
+	accepted, err := askApply(ui, perSlugWrite("network.profile", "none"))
+	if accepted {
+		t.Error("askApply accepted = true; want false when the prompt fails")
+	}
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("askApply error = %v; want it to wrap the prompt error", err)
+	}
+}
+
+// TestApplyProjectRemovalFailureRestoresTheApproval pins that a project-scope
+// removal that fails after its approval was extended reports the failure and
+// restores the previous approval, so the failed change never leaves the project
+// config needing re-approval.
+func TestApplyProjectRemovalFailureRestoresTheApproval(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	unsetKeyEnvironment(t, "network.profile")
+	cp := configpaths.Get()
+	// The anchored value is referenced by an alias, so the document edit refuses
+	// the removal after the approval is extended.
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "network: &n private\nmirror: *n\n")
+	approveProjectLayer(t, cp)
+
+	ui, _ := interactiveUI()
+	finding := Finding{
+		Evidence: Evidence{Summary: "narrow the profile"},
+		Writes:   []Write{{Scope: ScopeProject, ConfigKey: "network", Remove: true}},
+	}
+	results := Apply([]Finding{finding}, ApplyOptions{
+		Paths: cp, Slug: testSlug, CheckoutSlug: testCheckoutSlug, UI: ui, Mode: options.ModeRun,
+	})
+
+	if results[0].Outcome != OutcomeFailed || results[0].Err == "" {
+		t.Fatalf("result = %+v; want a failed removal carrying the error", results[0])
+	}
+	if !projectLayerApproved(t, cp) {
+		t.Error("a failed project removal left the extended approval in place; restore() was not called")
+	}
 }

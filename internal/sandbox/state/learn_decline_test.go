@@ -125,8 +125,12 @@ func TestLearnDeclinedSurfacesACorruptDocument(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := LearnDeclined("widget-abc", "h1"); err == nil {
+	declined, err := LearnDeclined("widget-abc", "h1")
+	if err == nil {
 		t.Fatal("LearnDeclined over a corrupt document = nil error, want a read failure")
+	}
+	if declined {
+		t.Error("a failed read reported the finding as declined; want false")
 	}
 }
 
