@@ -23,6 +23,28 @@ session needed.
 | Review a session whose process is gone | `agents-sandbox config learn` |
 | Audit your configuration without a session | `agents-sandbox config harden` |
 
+## Your first run
+
+On a first run in a checkout with no managed config, agents-sandbox asks how to set the sandbox up. It offers three
+choices:
+
+| Choice | What it does |
+| --- | --- |
+| Learn by using it | Start a learning session (the recommended choice when no host config exists) |
+| Learn from my host setup | Seed the sandbox from your host config, then start the same learning session (only offered when host config exists, and recommended in that case) |
+| Configure it myself | Configure the sandbox by hand; also offers to copy your host config and credentials into the VM, and warns before it turns that on |
+
+Before the menu, agents-sandbox asks one consent question:
+
+> Let agents-sandbox learn from this session: set up your providers here, use the agent normally, and when you exit it
+> offers to save what it needed.
+
+Either learning choice runs the session described on this page. "Learn from my host setup" copies your host config as
+placeholders, never raw credentials. "Configure it myself" is the only choice that turns on
+[drop-in provisioning]({% link configuration/agent.md %}#drop-in-provisioning-opt-in), and it warns first.
+
+The choice is recorded, so later runs start the agent directly. It returns if you change your host agent config.
+
 ## Learn from a session
 
 Start the agent with `--learn`:

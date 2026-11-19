@@ -25,7 +25,9 @@ provisioning on — in that case set it back to false:
 provision-host-config: false
 ```
 
-See [Drop-in provisioning]({% link configuration/agent.md %}#drop-in-provisioning-opt-in) for what provisioning copies.
+See [Drop-in provisioning]({% link configuration/agent.md %}#drop-in-provisioning-opt-in) for what provisioning copies. A
+first run also offers to learn your setup from a session instead — see
+[Letting agents-sandbox learn your setup]({% link learn-your-setup.md %}).
 
 ## 2. Bring over your config
 

@@ -53,6 +53,13 @@ Only a file the agent's **snippet pattern** matches is proposed — a candidate 
 config-family name such as opencode's `config.json`, or any name outside the pattern) would be a managed write that
 takes no effect.
 
+**The no-raw-sibling rule is enforced only on the host-seed path so far.** The shared sanitizer
+(`readback.SanitizeConfig`) takes a `RefuseUndeclaredSecretKeys` flag: the UC4 host seed sets it, so any non-reference
+string left under a secret-shaped key the credential walk did not name refuses the whole file. The after-run write-back
+(`analyser.ManagedConfigFindings`) leaves it off — a pre-existing S10 gap — so a secret-shaped value the walk did not
+classify can still be copied verbatim into the managed config. Until that flag is turned on for the write-back, the
+shared sanitizer must not be read as enforcing this rule on both paths.
+
 A candidate whose path matches a **declared credential-store pattern** is excluded by the pattern alone, independently
 of whether that store is a login for the current agent: `readback.IsCredentialStorePath` tests the pattern
 agent-independently, so opencode2 — which declares and provisions opencode's `auth.json` — refuses that path even
