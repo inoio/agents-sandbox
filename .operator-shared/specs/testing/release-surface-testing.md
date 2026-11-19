@@ -84,7 +84,7 @@ Failure modes the surface implies; each is pinned by a check in the task named.
   `MSB_*` — but is sourced, not imported; that package is `msb`-tagged test-only. Unlike `isolatedEnv`'s strict
   allow-list it keeps the caller's wider shell env (`PATH`/`TERM`/`tmux`/…), because its `env` snippet is sourced into an
   interactive journey shell).
-- `scripts/test-surface-sweep.sh` — its tests, runnable without a VM or a real `asb`.
+- `test/scripts/surface_sweep_test.go` — its tests, runnable without a VM or a real `asb`.
 
 **Interfaces:**
 - `surface-sweep.sh init` → prints the root path, creating `<root>/{data,runs}`, `chmod 700`-ing the root, recording

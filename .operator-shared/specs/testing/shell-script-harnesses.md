@@ -1,6 +1,6 @@
 ---
-description: Contract for the shell scripts' test harnesses - the host-git-config isolation every git fixture harness must apply, the shared helpers (`GitIsolationEnvironment` in `internal/testutil`; `RunScript`, the `gittest` fixture builder, and `fakecmd` as `*_helpers_test.go` in `test/scripts`), the re-exec fake-command pattern, the `test/scripts` Go home for harnesses that need no worktree, and the boundary where a harness stays in bash.
-read_if: Writing or fixing a `scripts/test-*.sh` or `ci/test-check-*.sh` harness that creates git fixtures; a harness that prompts for an ssh passphrase or fails with `failed to write commit object` under commit signing; exporting `internal/testutil`'s git-isolation helper, or adding or re-homing a shared `test/scripts` helper (`RunScript`, the go-git `gittest` builder, `fakecmd`); moving a shell harness into a Go test package; or the ambient-command contract for a test that execs git.
+description: Contract for the shell scripts' test harnesses - the host-git-config isolation every git fixture harness must apply, the shared helpers (`GitIsolationEnvironment` in `internal/testutil`; `RunScript`, the `gittest` fixture builder, and `fakecmd` as `*_helpers_test.go` in `test/scripts`), the re-exec fake-command pattern, the `test/scripts` Go home every harness now lives in, and the one exec-git porcelain helper (`gitporcelain_helpers_test.go`) a real-git fixture drives through.
+read_if: Writing or fixing a Go `test/scripts` harness (`<tool>_test.go`), or the exec-git porcelain helper `gitporcelain_helpers_test.go` that a real-git fixture drives; a harness that prompts for an ssh passphrase or fails with `failed to write commit object` under commit signing; exporting `internal/testutil`'s git-isolation helper, or adding or re-homing a shared `test/scripts` helper (`RunScript`, the go-git `gittest` builder, `fakecmd`); moving a shell harness into a Go test package; or the ambient-command contract for a test that execs git.
 ---
 
 # Shell script test harnesses
@@ -69,10 +69,12 @@ The standalone tools (`scripts/*.sh`, `ci/*.sh`) stay bash: a Makefile target, a
 file from a checkout with no build step.
 
 A harness moves to Go — the test-only package `test/scripts`, beside `test/harness`, whose `TestMain` installs
-the fail-fast mocks — when it drives a script and can build its fixtures with go-git. The porcelain-shaped
-harnesses (`open-backport-pr`, `backport-audit`, `upstream-drift`, `enqueue-pr`) fit. A harness whose fixtures
-need a real-git porcelain go-git does not implement stays in bash: `rebase-status` (an in-progress rebase) and
-`cleanup-merged-branches` (`git worktree`, `clone`, `push --force-with-lease`).
+the fail-fast mocks — when it drives a script and can build its fixtures with go-git. A harness whose fixture
+needs real-git porcelain that go-git does not implement — an in-progress rebase, `git worktree`, `clone --bare`,
+`cherry-pick`/`merge`, `push --force-with-lease` — still moves to Go: it drives that git through the shared
+exec-git helper `gitporcelain_helpers_test.go`, so the host-git-config isolation is applied once and cannot
+drift. The migration is complete: every harness lives in the Go `test/scripts` package (Current state lists every
+one).
 
 ### Fake commands
 
@@ -89,8 +91,9 @@ caller reads as the command's output. The raw exit skips the hook.
 `TestUntaggedTestsExecuteNoAmbientTool` and `TestUntaggedTestsReachNoUnsanctionedEnvironment`
 (`internal/testutil`) apply to a Go harness like any default-suite test: execing `bash` is allowed; execing an
 ambient tool (`docker`, `gh`, `git`, `gpg`, `msb`, `ssh`) or calling `testutil.RunGit`/`ConfigureRepo` is not
-unless the statement carries a reason-bearing `//testenv:allow <reason>` marker. The fixture builder is go-git,
-so a porcelain harness normally needs no marker.
+unless the statement carries a reason-bearing `//testenv:allow <reason>` marker. The go-git fixture builder
+needs no marker. The porcelain helper `gitporcelain_helpers_test.go` is the one harness file that execs git, and
+it carries the marker for that; no other harness file execs git, so none need one for it.
 
 See [test isolation](test-isolation.md) for the Go-side seam contract this sits beside.
 
@@ -102,17 +105,21 @@ See [test isolation](test-isolation.md) for the Go-side seam contract this sits 
 
 ## Current state
 
-Several harnesses have landed. `scripts/test-open-backport-pr.sh`,
-`scripts/test-backport-audit.sh`, `scripts/test-changed-files.sh`, and
-`scripts/test-changed-targets.sh` are gone; their cases live in the Go `test/scripts` package,
-driving `scripts/open-backport-pr.sh`, `scripts/backport-audit.sh`, `scripts/changed-files.sh`, and
-`scripts/changed-targets.sh` through `RunScript` with `gittest` go-git fixtures and a re-exec
-fake `gh`. The helpers exist — `GitIsolationEnvironment` in `internal/testutil`, and `RunScript`,
-`gittest`, and `fakecmd` as `*_helpers_test.go` in `test/scripts` — and each migrated Make target runs
-`go test ./test/scripts/ -run <Tool>`.
+The migration is complete. Eighteen harnesses live in the Go `test/scripts` package —
+`open-backport-pr`, `backport-audit`, `changed-files`, `changed-targets`, `upstream-drift`,
+`enqueue-pr`, `event-base`, `brain-check`, `check`, `changelog`, `ci-guards`,
+`classify-changes`, `deadcode`, `surface-sweep`, `envelope`, `rebase-status`,
+`cleanup-merged-branches`, and `check-docs` — each driving its standalone `scripts/*.sh` or
+`ci/*.sh` tool through `RunScript` with go-git `gittest` fixtures and re-exec fakes; the two
+porcelain fixtures (`rebase-status`, `cleanup-merged-branches`) drive real git through the shared
+exec-git helper. The helpers are `GitIsolationEnvironment` in
+`internal/testutil`, and `RunScript`, `gittest`, and `fakecmd` as `*_helpers_test.go` in
+`test/scripts`; each migrated Make target runs `go test ./test/scripts/ -run <Tool>`, and
+`scripts/changed-targets.sh` selects it from both the tool path and the
+`test/scripts/<tool>_test.go` path.
 
-The remaining bash fixture harnesses still hand-copy the isolation head; a new one must include it
-until it migrates.
+No bash test harness remains. `ci/check-docs.sh` itself stays bash — only its harness moved — and
+the other standalone tools stay bash for the same reason they always did.
 
 A fake command re-execs the race-instrumented test binary, and a race-instrumented process sleeps
 `atexit_sleep_ms` (1000 ms by default) on a clean exit — to give other threads time to report a

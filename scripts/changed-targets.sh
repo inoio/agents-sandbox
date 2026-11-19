@@ -119,22 +119,23 @@ if [[ -z "$selected" ]]; then
       changelog.d/*) add_targets changelog-check; known=1 ;;
     esac
     case "$path" in
-      ci/check-docs.sh|ci/test-check-docs.sh) add_targets docs-linkcheck docs-linkcheck-test; known=1 ;;
-      ci/check-changelog.sh|ci/test-check-changelog.sh) add_targets changelog-check changelog-check-test ci-guards-check; known=1 ;;
-      ci/check-ci-guards.sh|ci/test-check-ci-guards.sh) add_targets ci-guards-check ci-guards-check-test; known=1 ;;
-      ci/event-base.sh|ci/test-check-event-base.sh) add_targets event-base-test ci-guards-check; known=1 ;;
-      ci/classify-changes.sh|ci/test-check-classify-changes.sh) add_targets classify-changes-test ci-guards-check; known=1 ;;
-      ci/check-deadcode.sh|ci/test-check-deadcode.sh|ci/deadcodecheck/*) add_targets deadcode-test; known=1 ;;
+      ci/check-docs.sh|test/scripts/check_docs_test.go) add_targets docs-linkcheck docs-linkcheck-test; known=1 ;;
+      ci/check-changelog.sh|test/scripts/changelog_test.go) add_targets changelog-check changelog-check-test ci-guards-check; known=1 ;;
+      ci/check-ci-guards.sh|test/scripts/ci_guards_test.go) add_targets ci-guards-check ci-guards-check-test; known=1 ;;
+      ci/event-base.sh|test/scripts/event_base_test.go) add_targets event-base-test ci-guards-check; known=1 ;;
+      ci/classify-changes.sh|test/scripts/classify_changes_test.go) add_targets classify-changes-test ci-guards-check; known=1 ;;
+      ci/check-deadcode.sh|test/scripts/deadcode_test.go|ci/deadcodecheck/*) add_targets deadcode-test; known=1 ;;
       .github/workflows/*) add_targets actionlint ci-guards-check; known=1 ;;
       scripts/changed-files.sh|test/scripts/changed_files_test.go) add_targets changed-files-test; known=1 ;;
       scripts/changed-targets.sh|test/scripts/changed_targets_test.go) add_targets changed-targets-test; known=1 ;;
-      scripts/check.sh|scripts/test-check.sh) add_targets check-test; known=1 ;;
-      scripts/cleanup-merged-branches.sh|scripts/test-cleanup-merged-branches.sh) add_targets cleanup-branches-test; known=1 ;;
-      scripts/surface-sweep.sh|scripts/test-surface-sweep.sh) add_targets surface-sweep-test; known=1 ;;
-      scripts/test-envelope.sh|scripts/test-envelope_test.sh) add_targets envelope-test; known=1 ;;
-      scripts/upstream-drift.sh|scripts/test-upstream-drift.sh) add_targets upstream-drift-test; known=1 ;;
-      scripts/rebase-status.sh|scripts/test-rebase-status.sh) add_targets rebase-status-test; known=1 ;;
-      scripts/enqueue-pr.sh|scripts/test-enqueue-pr.sh) add_targets enqueue-pr-test; known=1 ;;
+      scripts/check.sh|test/scripts/check_test.go) add_targets check-test; known=1 ;;
+      scripts/cleanup-merged-branches.sh|test/scripts/cleanup_merged_branches_test.go) add_targets cleanup-branches-test; known=1 ;;
+      scripts/surface-sweep.sh|test/scripts/surface_sweep_test.go) add_targets surface-sweep-test; known=1 ;;
+      scripts/hermetic-envelope.sh|test/scripts/envelope_test.go) add_targets envelope-test; known=1 ;;
+      scripts/upstream-drift.sh|test/scripts/upstream_drift_test.go) add_targets upstream-drift-test; known=1 ;;
+      scripts/rebase-status.sh|test/scripts/rebase_status_test.go) add_targets rebase-status-test; known=1 ;;
+      scripts/enqueue-pr.sh|test/scripts/enqueue_pr_test.go) add_targets enqueue-pr-test; known=1 ;;
+      scripts/brain-check.sh|test/scripts/brain_check_test.go) add_targets brain-check-test; known=1 ;;
       scripts/backport-audit.sh|test/scripts/backport_audit_test.go) add_targets backport-audit-test; known=1 ;;
       scripts/open-backport-pr.sh|test/scripts/open_backport_pr_test.go) add_targets open-backport-pr-test; known=1 ;;
     esac

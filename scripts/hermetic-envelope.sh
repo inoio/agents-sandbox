@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# test-envelope.sh - run a command (default: the test suite) in a hermetic
+# hermetic-envelope.sh - run a command (default: the test suite) in a hermetic
 # envelope: a copy of the module outside any git checkout, with a scrubbed
 # environment.
 #
@@ -10,7 +10,7 @@
 # specs/testing/test-isolation.md.
 #
 # Usage:
-#   test-envelope.sh [options] [-- COMMAND...]
+#   hermetic-envelope.sh [options] [-- COMMAND...]
 #
 # Options:
 #   --source DIR    Directory to copy into the work dir (default: this repo's

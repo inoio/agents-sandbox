@@ -22,7 +22,7 @@
 #                     stale-marker pass is skipped and reported as skipped.
 #   TAGS              one build-tag configuration instead of the full matrix.
 #
-# Test-only seams, set by ci/test-check-deadcode.sh and by nothing else:
+# Test-only seams, set by test/scripts/deadcode_test.go and by nothing else:
 #   DEADCODE_FIXTURE_DIR  directory of <configuration>.json report payloads to
 #                         use instead of running deadcode.
 #   DEADCODE_FILES        file listing the source paths to scan, instead of

@@ -29,7 +29,7 @@ The failure modes the spec implies that no single task's tests own, most likely 
 2. **A fixture whose commit reproduces a patch-id by accident rather than by identical diff.** `backport-audit`/`open-backport-pr` depend on it; Task 3's builder documents the rule and Task 9/8 assert the ported/unported outcomes.
 3. **A fake command whose argv handling diverges from the real CLI.** `gh ... --jq`/`-q` matters to `backport-audit` (`serve_doc`) and `enqueue-pr`; the fake must strip and honor it.
 4. **A harness that reads or writes ambient paths.** `HOME`/`TMPDIR`/`XDG_*` must be redirected into `t.TempDir()` by the runner; `surface-sweep` and `envelope` additionally own socket/`XDG_DATA_HOME` paths.
-5. **A harness migrated onto go-git that actually needed a real-git porcelain.** `rebase-status` (in-progress rebase) and `cleanup-merged-branches` (`worktree`, `clone`, `push --force-with-lease`) stay bash; migrating them is out of scope and a task that touches them is a red flag.
+5. **A harness migrated onto go-git that actually needed a real-git porcelain.** `rebase-status` (in-progress rebase) and `cleanup-merged-branches` (`worktree`, `clone --bare`, `push --force-with-lease`) could not be built on go-git. Superseded: both were ported to Go and drive real git through the shared exec-git porcelain helper `test/scripts/gitporcelain_helpers_test.go` (the single sanctioned ambient-git exec in `test/scripts`), so the host-git-config isolation is applied at one chokepoint and cannot drift.
 
 ## File Structure
 
@@ -360,7 +360,270 @@ Both tasks pick up `Final rulings (deferred minors)` from the review ledger; the
 ---
 
 ## Self-review notes
-
 - **Spec coverage:** isolation contract → Tasks 1–3; shared helpers → Tasks 1–4; `test/scripts` home → Task 5; fake commands → Task 4/5; ambient contract → Global Constraints + Task 5 Step 5; "where bash stays" → Tasks 14–21 and Task 22 Step 1.
 - **Type consistency:** `GitIsolationEnvironment(environ []string) []string`, `RunScript(tb, dir, extraEnv, script, args...) ScriptResult`, and the `gittest.Repo` methods are consumed unchanged in every later task.
 - **Proportion:** infrastructure and the pilot are specified with tests; the repeated harnesses reference the pilot's template rather than re-transcribing it.
+
+---
+
+# Phase 6 — the two porcelain harnesses (approved extension)
+
+> **For agentic workers:** This phase supersedes **Review Focus 5** above. The two harnesses it
+> named (`rebase-status`, `cleanup-merged-branches`) are ported to Go after all: the benefit is not
+> go-git fixtures (they need real-git porcelain) but that their fixture `git` runs through the same
+> shared isolation chokepoint as the other thirteen, so the head can never drift.
+
+**Goal:** Move `scripts/test-rebase-status.sh` and `scripts/test-cleanup-merged-branches.sh` into
+`test/scripts`, driving each tool through `RunScript` and building each fixture's git state through
+one exec-git helper that applies `GitIsolationEnvironment`.
+
+**Architecture:** New `test/scripts/gitporcelain_helpers_test.go` funnels every fixture git command
+through a single function that calls `testutil.RunGit` (which applies `GitIsolationEnvironment`),
+carrying one reason-bearing `//testenv:allow` marker. Thin wrappers (`bareClone`, `worktreeAdd`,
+`updateRef`, `revParse`, …) call it. Harness code carries no markers; the tools stay bash and
+unchanged; `ci/test-check-docs.sh` stays bash (git-free, out of scope).
+
+**Tech Stack:** Go 1.27, `internal/testutil.RunGit`, the existing `test/scripts` helpers
+(`RunScript`, `fakecmd`, `assertStatus`/`assertContains`/`assertNotContains`).
+
+**Spec:** `.operator-shared/specs/testing/shell-script-harnesses.md`
+
+**Execution order:** Tasks 26 → 27 → 28 (helper, then the two ports), then 30 → 31 → 32 (rename,
+macOS fix, optional check-docs port), and **Task 29 last** (the brain/gate close-out).
+
+## Global Constraints (Phase 6)
+
+- Every test package's `TestMain` calls `mocks.InitFailFastMocks(m)` — already done.
+- Fixture `git` runs only through the shared exec helper; the sole `//testenv:allow` marker is on
+  that helper's `testutil.RunGit` call. No other default-suite file execs `git`.
+- Driving a tool under test uses `RunScript` (already isolated). Execing `bash` is allowed.
+- The standalone tools (`rebase-status.sh`, `cleanup-merged-branches.sh`) stay bash, behavior
+  unchanged.
+- `make test` builds with `-tags microsandbox_ffi_path`; the package must build and pass under it.
+- A change to a harness must keep `scripts/changed-targets.sh` selecting the right target, pinned by
+  `test/scripts/changed_targets_test.go`.
+- Adding a fake requires `Register` in `test/scripts/main_test.go` before `Dispatch`; use `fakecmd`
+  for `gh` (no shell stub).
+
+## Review Focus (Phase 6)
+
+1. **A ported harness that still execs ambient `git` outside the helper.** The scanner
+   (`internal/testutil/real_command_contract_test.go`) flags any `exec.Command("git", …)` or
+   `testutil.RunGit` without a marker; only `gitporcelain_helpers_test.go` may appear in its output.
+2. **A fixture that does not reproduce the bash repo shape.** `cleanup-merged-branches` depends on
+   exact refs/worktree topology (config mirror, `refs/remotes/origin/*`, detached worktrees) and on
+   real porcelain (`clone --bare`, `worktree`, `cherry-pick`, `merge`, `--force-with-lease`);
+   `rebase-status` needs a genuinely in-progress conflicting rebase. A fixture that only approximates
+   it makes the tool's output assertions vacuous.
+3. **A `gh` fake whose argv handling diverges from the stub.** `cleanup-merged-branches` calls
+   `gh repo view`, `gh pr view`, `gh api`; the fake must serve the same shape the bash stub did.
+4. **A harness that reads or writes ambient paths.** `HOME`/`TMPDIR`/`XDG_*` stay redirected into
+   `t.TempDir()`; the fixtures live under it.
+
+---
+
+### Task 26: Add the exec-git fixture helper
+
+**Files:**
+- Create: `test/scripts/gitporcelain_helpers_test.go`
+- Test: `test/scripts/gitporcelain_test.go`
+
+**Interfaces:**
+- Consumes: `testutil.RunGit(tb, dir, args...) string`.
+- Produces (all in `package scripts`, tool-named to avoid collisions):
+  - `porcelainGit(tb testing.TB, dir string, args ...string) string` — the one marked call.
+  - `gitInit(tb, dir string)`, `gitConfig(tb, dir, key, value string)`, `gitCommitAll(tb, dir, msg string)`,
+    `gitBranch(tb, dir, name, at string)`, `gitCheckout(tb, dir, name string)`,
+    `gitSymbolicRefHead(tb, dir, ref string)`, `gitBareClone(tb, seed, into string)`,
+    `gitWorktreeAdd(tb, dir, path, rev string)`, `gitWorktreeAddDetached(tb, dir, path, rev string)`,
+    `gitUpdateRef(tb, dir, ref, rev string)`, `gitSymbolicRef(tb, dir, ref, target string)`,
+    `gitCherryPick(tb, dir, rev string)`, `gitMerge(tb, dir, rev string)`,
+    `gitRevParse(tb, dir, rev string) string`, `gitRebase(tb, dir, onto string) error` (captures failure),
+    `gitRebaseAbort(tb, dir string)`, `gitCloneBareConfig(...)`.
+
+- [ ] **Step 1: Write the failing test** — a repo built with the helper yields the expected
+  `rev-parse` values, a `worktree add` creates the tree, and `porcelainGit` returns trimmed stdout:
+
+```go
+func TestPorcelainGitHelpers(t *testing.T) {
+	dir := t.TempDir()
+	gitInit(t, dir)
+	gitConfig(t, dir, "user.email", "test@example.com")
+	gitConfig(t, dir, "user.name", "test")
+	os.WriteFile(filepath.Join(dir, "f"), []byte("a\n"), 0o600)
+	gitCommitAll(t, dir, "base") // stages every change
+	if got := gitRevParse(t, dir, "HEAD"); len(got) != 40 { t.Fatalf("HEAD = %q", got) }
+}
+```
+
+- [ ] **Step 2: Run** `CGO_ENABLED=1 go test -tags microsandbox_ffi_path -count=1 ./test/scripts/ -run TestPorcelainGitHelpers` — FAIL (undefined).
+
+- [ ] **Step 3: Implement** the helper. `porcelainGit` calls `testutil.RunGit` with a
+  `//testenv:allow the two porcelain fixtures drive the real git the tool needs` marker; every other
+  function wraps it. `gitRevParse` returns the first line trimmed.
+
+- [ ] **Step 4: Run** — PASS. Also `CGO_ENABLED=1 go test -tags microsandbox_ffi_path -count=1 ./internal/testutil/ -run TestUntaggedTestsExecuteNoAmbientTool` — PASS (the scanner sees only the sanctioned helper).
+
+- [ ] **Step 5: Commit.**
+
+### Task 27: Port `rebase-status`
+
+**Files:**
+- Create: `test/scripts/rebase_status_test.go`
+- Delete: `scripts/test-rebase-status.sh`
+- Read for cases: `scripts/test-rebase-status.sh`
+- Modify (wiring): `Makefile` (`rebase-status-test`), `scripts/changed-targets.sh`, `test/scripts/changed_targets_test.go`
+
+**Interfaces:**
+- Consumes: Task 26 helpers; `RunScript`, `assertStatus`/`assertContains`/`assertNotContains`.
+- Produces: `TestRebaseStatus`; `Makefile`'s `rebase-status-test` runs `go test ./test/scripts/ -run RebaseStatus`.
+
+- [ ] **Step 1: Write the failing test** — port every case: clean repo (`no rebase in progress`,
+  `unmerged paths: 0`, `files with conflict markers: 0`); a conflicting rebase (built with
+  `gitInit`/`gitConfig`/`gitCommitAll`/`gitBranch`/`gitCheckout`/`gitRebase` as the bash harness does)
+  asserting `rebase in progress`, `step 2/2`, `onto <main-tip>`, `unmerged paths: 1`, `conflict.txt`,
+  `files with conflict markers: 1`; `gitRebaseAbort` then clean; missing repo → non-zero; `--help` → 0.
+  Run the tool with `RunScript(t, repoDir, nil, repositoryScript(t, "rebase-status.sh"), "--repo", repoDir)`.
+- [ ] **Step 2: Run** `-run RebaseStatus` — FAIL (undefined).
+- [ ] **Step 3: Implement** and delete `scripts/test-rebase-status.sh`; repoint the Make target,
+  `scripts/changed-targets.sh` (`scripts/rebase-status.sh|test/scripts/rebase_status_test.go` →
+  `rebase-status-test`), and the pinned cases in `test/scripts/changed_targets_test.go`.
+- [ ] **Step 4: Run** `-run RebaseStatus` and `-run ChangedTargets` — PASS.
+- [ ] **Step 5: Commit.**
+
+### Task 28: Port `cleanup-merged-branches`
+
+**Files:**
+- Create: `test/scripts/cleanup_merged_branches_test.go`
+- Delete: `scripts/test-cleanup-merged-branches.sh`
+- Read for cases: `scripts/test-cleanup-merged-branches.sh`
+- Modify: `Makefile` (`cleanup-branches-test`), `scripts/changed-targets.sh`,
+  `test/scripts/changed_targets_test.go`, `test/scripts/main_test.go` (register the `gh` fake)
+
+**Interfaces:**
+- Consumes: Task 26 helpers; `RunScript`, `fakecmd`; a local `cleanupSection(output, header) string`
+  helper (the bash `section` awk: the lines under a header up to the next blank line).
+- Produces: `TestCleanupMergedBranches`; a `cleanupMergedBranchesFakeGh` handler registered as `gh`;
+  `Makefile`'s `cleanup-branches-test` runs `go test ./test/scripts/ -run CleanupMergedBranches`.
+
+- [ ] **Step 1: Write the failing test** — build `newCleanupFixture(tb, configDir, configBranch, symlink, dirty, containment)`
+  with the helpers: seed repo (init, `.agents-sandbox/Dockerfile`, commit, `branch -M main`, optional
+  containment history via cherry-pick/merge/amend), `gitBareClone(seed, proj+"/.git")`, config,
+  `worktree.useRelativePaths true`, `worktree add` for `main` and the config branch, the `.agents-sandbox`
+  symlink (relative/absolute/none), advance `main`, `update-ref` the `origin/*` refs, `symbolic-ref`
+  `origin/HEAD`, `branch stale-branch`, `worktree add -b old-work`, the containment detached worktrees,
+  and an optional untracked dirt file. Port every assertion block from the bash harness (cases 1–4,
+  branch-loop protection, `--quiet`, non-TTY abort, zero-planned-actions, content containment, detached
+  worktrees, dirty detached, remote branches, kept-entry notes, fresh worktree, and the two `gh` cases).
+  Run the tool via `RunScript` with `cmd.Dir = proj+"/main"` and the bash flags
+  `--dry-run --no-fetch [--no-gh] --fresh 0 --color never`; use the `gh` fake for the two gh cases.
+- [ ] **Step 2: Run** `-run CleanupMergedBranches` — FAIL (undefined).
+- [ ] **Step 3: Implement** and delete the bash harness; register the fake in `main_test.go`; repoint
+  `Makefile`, `scripts/changed-targets.sh`
+  (`scripts/cleanup-merged-branches.sh|test/scripts/cleanup_merged_branches_test.go` → `cleanup-branches-test`),
+  and `test/scripts/changed_targets_test.go`.
+- [ ] **Step 4: Run** `-run CleanupMergedBranches` and `-run ChangedTargets` — PASS.
+- [ ] **Step 5: Commit.**
+
+### Task 29: Sync the brain and close the gate
+**Files:**
+- Modify: `.operator-shared/specs/testing/shell-script-harnesses.md` (frontmatter, "Where harnesses
+  live", `Current state`), `.operator-shared/index/index.md`, `.operator-shared/catalog.md`,
+  `changelog.d/<n>.changed.md`
+- Modify: the plan's **Review Focus 5** note above (superseded — already done in this phase)
+
+- [ ] **Step 1: Update `shell-script-harnesses.md`** — the boundary is now "a harness whose fixture
+  `git` runs through the shared exec helper"; the `Current state` lists all fifteen Go harnesses and
+  states no bash git-fixture harness remains (`ci/test-check-docs.sh` stays bash, git-free).
+- [ ] **Step 2: `index.md`/`catalog.md`** — `scripts/` no longer has `test-*.sh` harnesses; name the
+  Go `test/scripts` home; keep `ci/test-check-docs.sh`.
+- [ ] **Step 3: changelog** — record the two additional ports.
+- [ ] **Step 4: Run** `make check` (green), `make shellcheck`, `make brain-check`.
+- [ ] **Step 5: Commit.**
+
+### Task 30: Rename the hermetic-envelope tool off the `test-` prefix
+
+**Rationale:** `scripts/test-envelope.sh` is a tool (the hermetic-envelope runner behind
+`make test-scrubbed`/`test-hermetic`), not a harness; its harness was `scripts/test-envelope_test.sh`,
+already migrated to `test/scripts/envelope_test.go`. Rename it so no tool carries a harness-looking
+name. Ask the user to confirm the target name; default `scripts/hermetic-envelope.sh`.
+
+**Files:**
+- Rename: `scripts/test-envelope.sh` → `scripts/hermetic-envelope.sh`
+- Modify: `Makefile` (`test-scrubbed`, `test-hermetic`), `scripts/changed-targets.sh` (the
+  `envelope-test` alternative), `test/scripts/envelope_test.go` (`repositoryScript(t, "test-envelope.sh")`),
+  `test/scripts/changed_targets_test.go` (the `"modified envelope test"` case path),
+  `.operator-shared/specs/testing/test-isolation.md` and `shell-script-harnesses.md` references.
+
+- [ ] **Step 1: `git mv scripts/test-envelope.sh scripts/hermetic-envelope.sh`.**
+- [ ] **Step 2: Update every reference** — run
+  `grep -rn 'test-envelope\.sh' Makefile scripts test .operator-shared/specs` and repoint each (the
+  `.sh` stays bash; only the filename changes).
+- [ ] **Step 3: Run** `CGO_ENABLED=1 go test -tags microsandbox_ffi_path -count=1 ./test/scripts/ -run 'Envelope|ChangedTargets'`
+  and `make shellcheck` — PASS.
+- [ ] **Step 4: Commit.**
+
+### Task 31: Fix the surface-sweep relative-root case for macOS
+
+**Rationale (Greptile P2):** the harness stages its root directly under `/tmp` because the sandbox
+socket path must fit `sun_path` (104). The relative-root subtest composes its name from Go's
+`os.MkdirTemp` suffix (9–10 digits); on macOS `/tmp` resolves to `/private/tmp`, so the derived
+socket path reaches `105 >= 104` and `scripts/surface-sweep.sh init` exits 1, failing the
+`assertStatus(..., 0)`. The deleted bash harness used `asb-rel-$$` (a short PID), which fits.
+
+**Files:**
+- Modify: `test/scripts/surface_sweep_test.go:59-78`
+
+- [ ] **Step 1: Confirm the failure mechanism** by arithmetic on this host: the subtest's `name` is
+  `"asb-rel-" + <MkdirTemp suffix>`; the script's `check_root_fits_sandbox_socket` uses
+  `len(socketPath) + SOCKET_SUFFIX(50) >= 104`. A 9–10 digit suffix plus the resolved base is over
+  budget on macOS.
+- [ ] **Step 2: Change the name to mirror the bash harness** — replace the suffix derivation with
+  `name := "asb-rel-" + strconv.Itoa(os.Getpid())` (add the `strconv` import if absent). Keep the
+  `expected`/cleanup logic unchanged.
+- [ ] **Step 3: Run** `CGO_ENABLED=1 go test -tags microsandbox_ffi_path -count=1 ./test/scripts/ -run TestSurfaceSweep` — PASS.
+- [ ] **Step 4: Commit.**
+
+### Task 32: Port `ci/test-check-docs.sh` to Go (optional, for a single harness home)
+
+**Rationale:** the last bash harness. No isolation rationale (git-free fixtures), so this is a
+consistency call: after it, `test/scripts` is the only harness home and no `test-*.sh` harness
+remains. The tool `ci/check-docs.sh` stays bash.
+
+**Files:**
+- Create: `test/scripts/check_docs_test.go`
+- Delete: `ci/test-check-docs.sh`
+- Read for cases: `ci/test-check-docs.sh` (600 lines)
+- Modify: `Makefile` (`docs-linkcheck-test`), `scripts/changed-targets.sh` (line 122),
+  `test/scripts/changed_targets_test.go`
+
+**Interfaces:**
+- Consumes: `RunScript`, `assertStatus`/`assertContains`/`assertNotContains`, `repositoryScript`.
+- Produces: `TestCheckDocs`; `Makefile`'s `docs-linkcheck-test` runs
+  `go test ./test/scripts/ -run CheckDocs`.
+
+- [ ] **Step 1: Write the failing test** — port every case. Build the bash `new_fixture` tree in
+  `t.TempDir()` (README with rendered-HTML links, `docs/` pages with `{% link %}` tags, a `.puml`, a
+  Go file calling `docslink.SectionURL`, a troubleshooting page); then port each mutation+assertion:
+  the pass/fail matrix for each link source, the slug edge cases (backticked/punctuated, duplicate →
+  `-1`/`-2`, declared `{#id}`, dash-led, `#` in front matter), explicit `<a id="…">` anchors, fenced
+  code blocks, the `_site/`/`vendor/` ignores, and the terminology cases. Run via
+  `RunScript(t, root, nil, repositoryScript(t, "check-docs.sh"), root)` (the checker takes ROOT as
+  `$1`).
+- [ ] **Step 2: Run** `-run CheckDocs` — FAIL (undefined).
+- [ ] **Step 3: Implement**; delete `ci/test-check-docs.sh`; repoint `Makefile`'s
+  `docs-linkcheck-test`, `scripts/changed-targets.sh`
+  (`ci/check-docs.sh|test/scripts/check_docs_test.go` → `docs-linkcheck docs-linkcheck-test`), and add
+  the `test/scripts/check_docs_test.go` pinned case to `test/scripts/changed_targets_test.go`.
+- [ ] **Step 4: Run** `-run CheckDocs`, `-run ChangedTargets`, and `make check` — PASS.
+- [ ] **Step 5: Commit.**
+
+## Self-review notes (Phase 6)
+
+- **Spec coverage:** the isolation chokepoint → Task 26; the two ports → Tasks 27–28; the boundary
+  rewrite and gate → Task 29.
+- **Type consistency:** every fixture helper is `test/scripts`-local and tool-named; `TestRebaseStatus`
+  and `TestCleanupMergedBranches` are the `-run` values.
+- **Proportion:** the ports reference the bash harnesses as the case source rather than re-transcribing
+  ~40 assertions; the helper is specified by its wrapper list.
+

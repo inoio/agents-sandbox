@@ -32,6 +32,20 @@ func fakeGhHandler(args []string) (string, string, int) {
 			return "", "fake gh: record argv: " + err.Error() + "\n", 1
 		}
 	}
+	// cleanup-merged-branches' fake gh is specialized (a repo slug, canned PR
+	// record lines, a failing api call); it activates only when its own tests set
+	// CLEANUP_MERGED_BRANCHES_FAKE_GH, so every other case keeps the shared
+	// behaviour untouched.
+	if handled, stdout, stderr, status := cleanupMergedBranchesFakeGh(args); handled {
+		return stdout, stderr, status
+	}
+	// enqueue-pr's fake gh is specialized (a view payload indexed across calls, a
+	// checks retry, issue labels, a mutation exit knob); it activates only when
+	// its own tests set ENQUEUE_PR_FAKE_GH, so the open-backport-pr and
+	// backport-audit cases keep the shared behaviour untouched.
+	if handled, stdout, stderr, status := enqueuePrFakeGh(args); handled {
+		return stdout, stderr, status
+	}
 	// The audit derives a PR's commits from the local clone, never the API: fail
 	// any request whose --json field list names `commits`, so a regression to an
 	// API commit fetch is caught in every case instead of passing silently.
