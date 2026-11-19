@@ -54,10 +54,9 @@ func TestReadClassifiesLoginStore(t *testing.T) {
 }
 
 // TestReadClassifiesQwenLoginStores pins qwen's two login stores: its OAuth
-// login and its MCP OAuth tokens. Its settings file is configuration.
+// login and its MCP OAuth tokens.
 func TestReadClassifiesQwenLoginStores(t *testing.T) {
 	home := t.TempDir()
-	writeFile(t, home, ".qwen/settings.json", `{"general":{"vimMode":true}}`)
 	writeFile(t, home, ".qwen/oauth_creds.json", `{"access_token":"secret"}`)
 	writeFile(t, home, ".qwen/mcp-oauth-tokens.json", `[{"serverName":"x"}]`)
 

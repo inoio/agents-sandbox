@@ -44,7 +44,7 @@ func TestQwenCodeImageSpec(t *testing.T) {
 		`-C /opt/agents-sandbox/qwen-code --strip-components=1`,
 		`'exec /opt/agents-sandbox/qwen-code/bin/qwen "$@"'`,
 		`> /opt/agents-sandbox/bin/qwen && chmod 755 /opt/agents-sandbox/bin/qwen`,
-		`'{"general":{"enableAutoUpdate":false}}' > /etc/qwen-code/settings.json`,
+		`'{"general":{"enableAutoUpdate":false}}' > /opt/agents-sandbox/qwen-code/system-settings.json`,
 		`/opt/agents-sandbox/bin/qwen --version`,
 	} {
 		if !strings.Contains(spec.InstallCommand, want) {
@@ -54,8 +54,19 @@ func TestQwenCodeImageSpec(t *testing.T) {
 	if strings.Index(spec.InstallCommand, "sha256sum") > strings.Index(spec.InstallCommand, "tar -xzf") {
 		t.Errorf("InstallCommand = %q must verify the checksum before extracting", spec.InstallCommand)
 	}
-	if len(spec.AgentEnv) != 0 {
-		t.Errorf("AgentEnv = %v, want none (updates are off through the system settings file)", spec.AgentEnv)
+	// The system settings file must live under the tool tree, the only path the
+	// runner copies from the agent stage; a path outside it (the default
+	// /etc/qwen-code/settings.json) would be dropped from the shipped image.
+	// QWEN_CODE_SYSTEM_SETTINGS_PATH points qwen at the relocated file.
+	if want := "/opt/agents-sandbox/qwen-code/system-settings.json"; spec.AgentEnv["QWEN_CODE_SYSTEM_SETTINGS_PATH"] != want {
+		t.Errorf(
+			"AgentEnv[QWEN_CODE_SYSTEM_SETTINGS_PATH] = %q, want %q",
+			spec.AgentEnv["QWEN_CODE_SYSTEM_SETTINGS_PATH"],
+			want,
+		)
+	}
+	if len(spec.AgentEnv) != 1 {
+		t.Errorf("AgentEnv = %v, want only QWEN_CODE_SYSTEM_SETTINGS_PATH", spec.AgentEnv)
 	}
 	if spec.RequiresNode {
 		t.Error("RequiresNode = true, want false (the standalone release bundles its Node)")

@@ -18,7 +18,7 @@ func TestReadBackPaths(t *testing.T) {
 		"claude-code": {".claude/settings.json"},
 		"hermes":      {".hermes/config.yaml", ".hermes/.env"},
 		"kimi-code":   {".kimi-code/config.toml", ".kimi-code/mcp.json", ".kimi-code/credentials/*.json"},
-		"qwen-code":   {".qwen/settings.json", ".qwen/oauth_creds.json", ".qwen/mcp-oauth-tokens.json"},
+		"qwen-code":   {".qwen/oauth_creds.json", ".qwen/mcp-oauth-tokens.json"},
 		"oh-my-pi":    {".omp/agent/config.yml", ".omp/agent/config.yaml", ".omp/agent/models.yml", ".omp/agent/.env"},
 		"pi":          {".pi/agent/settings.json"},
 	}

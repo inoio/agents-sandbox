@@ -38,8 +38,9 @@ config key or the `AGENTS_SANDBOX_AGENT` environment variable. Nine agents ship 
   itself. The binary is about 194 MB.
 - **`qwen-code`** — [Qwen Code](https://github.com/QwenLM/qwen-code) (binary `qwen`), installed from its standalone
   GitHub release (which bundles its own Node) after its checksum is verified, and run interactively; upgrade checks via
-  the npm registry. Its update check is turned off in the image's system settings file
-  (`/etc/qwen-code/settings.json`), because agents-sandbox offers upgrades itself. The release unpacks to about 326 MB.
+  the npm registry. Its update check is turned off through a system settings file baked into the image
+  (`QWEN_CODE_SYSTEM_SETTINGS_PATH` points at it under `/opt/agents-sandbox`), because agents-sandbox offers
+  upgrades itself. The release unpacks to about 326 MB.
 
 > **Experimental agents:** `opencode` and `opencode2` are the tested default agents. Every other built-in
 > profile (`pi`, `claude-code`, `codex`, `hermes`, `oh-my-pi`, `kimi-code`, `qwen-code`) is **experimental** — not well tested with agents-sandbox.
@@ -344,9 +345,12 @@ DASHSCOPE_API_KEY:
 }
 ```
 
-**In the VM:** run `/auth` in the TUI and pick a provider. An API key entered there is saved into `~/.qwen/settings.json`
-on the home volume, and a Qwen OAuth sign-in into `~/.qwen/oauth_creds.json`, so you set it up once per project and
-agent; neither is copied from the host. Qwen OAuth signs in through a browser.
+**In the VM:** run `/auth` in the TUI and pick a provider. A Qwen OAuth sign-in is saved into
+`~/.qwen/oauth_creds.json` on the home volume, so you sign in once per project and agent; it is never copied from the
+host. Qwen OAuth signs in through a browser. An API key entered through `/auth` is written to
+`~/.qwen/settings.json`, but agents-sandbox owns that file through the `settings*.json` snippet merge — with a snippet
+it is replaced by the merged document, and with none it is removed — so an API key entered there does not survive the
+next run. Use the `envKey` + `env.secret` snippet instead for an API key that persists.
 
 ## Example: permissions
 

@@ -40,11 +40,21 @@ const qwenCodeVerifyAsset = `{ grep -E "^[0-9a-f]{64}  $qwen_asset\$" "$qwen_dir
 const qwenCodeLauncherShim = `printf '%s\n' '#!/bin/sh' 'exec ` + qwenCodeInstallDir + `/bin/qwen "$@"' ` +
 	`> /opt/agents-sandbox/bin/qwen && chmod 755 /opt/agents-sandbox/bin/qwen`
 
+// qwenCodeSystemSettingsEnv relocates qwen's system settings file, the scope
+// that outranks user and project settings. It is set in the image so the file
+// can live under the install dir: only toolDir is copied from the agent stage
+// into the runner image, so the default /etc/qwen-code/settings.json would be
+// dropped.
+const qwenCodeSystemSettingsEnv = "QWEN_CODE_SYSTEM_SETTINGS_PATH"
+
+// qwenCodeSystemSettingsPath is the system settings file the image bakes,
+// under the copied tool tree (see qwenCodeSystemSettingsEnv).
+const qwenCodeSystemSettingsPath = qwenCodeInstallDir + "/system-settings.json"
+
 // qwenCodeDisableUpdates turns off qwen's update check and auto-install in the
-// system settings file, which outranks user and project settings: the sandbox
-// pins the baked version and offers upgrades itself.
-const qwenCodeDisableUpdates = `mkdir -p /etc/qwen-code && ` +
-	`printf '%s\n' '{"general":{"enableAutoUpdate":false}}' > /etc/qwen-code/settings.json`
+// system settings file: the sandbox pins the baked version and offers upgrades
+// itself.
+const qwenCodeDisableUpdates = `printf '%s\n' '{"general":{"enableAutoUpdate":false}}' > ` + qwenCodeSystemSettingsPath
 
 type qwenCodeProfile struct{}
 
@@ -59,8 +69,9 @@ func (qwenCodeProfile) Experimental() bool    { return true }
 func (qwenCodeProfile) ImageSpec() ImageSpec {
 	return ImageSpec{
 		VersionArg: versionArgFor(qwenCodeName),
-		// The update check is turned off in the system settings file instead.
-		AgentEnv: nil,
+		// Qwen has no env switch for its update check; qwenCodeDisableUpdates
+		// writes the system settings file and this points qwen at it.
+		AgentEnv: map[string]string{qwenCodeSystemSettingsEnv: qwenCodeSystemSettingsPath},
 		InstallCommand: qwenCodeResolveAsset + ` && ` +
 			`qwen_dir=/tmp/qwen-code && mkdir -p "$qwen_dir" && ` +
 			`qwen_release="https://github.com/QwenLM/qwen-code/releases/download/v${QWEN_CODE_VERSION}" && ` +
@@ -107,11 +118,14 @@ func (qwenCodeProfile) ProvisionRules() []ProvisionRule {
 	}
 }
 
-// ReadBackPaths declares qwen's settings, which can carry static keys in their
-// env, and its two login stores.
+// ReadBackPaths declares qwen's two login stores. Its settings file is left out
+// for now: /auth saves provider keys into its top-level env table, and MCP and
+// hook entries keep tokens in their own env tables, shapes the read-back does
+// not yet classify. Declaring it would let a learning session's agent-config
+// write-back copy a raw value into the host's per-slug config; it is added once
+// that classification lands (#760).
 func (qwenCodeProfile) ReadBackPaths() []string {
 	return []string{
-		qwenCodeDataDir + "/" + settingsFileName,
 		qwenCodeDataDir + "/oauth_creds.json",
 		qwenCodeDataDir + "/mcp-oauth-tokens.json",
 	}

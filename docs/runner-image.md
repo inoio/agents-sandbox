@@ -418,7 +418,8 @@ its `MoonshotAI/kimi-code` GitHub release (a Node single-executable of about 194
 `qwen-code-linux-<arch>.tar.gz` standalone asset of its `QwenLM/qwen-code` GitHub release (about 326 MB unpacked, with
 its own Node.js bundled), checked against the release's `SHA256SUMS`, unpacked into `/opt/agents-sandbox/qwen-code`, and
 started through a shim in `/opt/agents-sandbox/bin`; their images contain no tool-installed node/npm. The `qwen-code`
-image also writes `/etc/qwen-code/settings.json` to turn off Qwen's update check. `hermes` is the one whose installer needs more than a
+image also bakes a system settings file (under `/opt/agents-sandbox/qwen-code`, pointed at by
+`QWEN_CODE_SYSTEM_SETTINGS_PATH`) to turn off Qwen's update check. `hermes` is the one whose installer needs more than a
 binary copy: it clones the pinned release tag into `/opt/agents-sandbox/hermes` and provisions its own Python (and
 Node, for the TUI/web product build) into `/opt/agents-sandbox/hermes-home`, so the tool stage needs no node of its
 own, publishes its launcher into `/opt/agents-sandbox/bin`, and keeps its tree outside `/home/dev` — which the sandbox
