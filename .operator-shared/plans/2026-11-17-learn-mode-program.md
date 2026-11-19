@@ -38,13 +38,13 @@ What is on `main` now:
 **S6 has landed; the frontier is S7 (`run --learn`) and S8 (`config harden`)** — every predecessor has landed.
 S7/S8/S9 are named in the DAG but **not yet written** — write each when its predecessor lands, never in advance.
 
-**S7 must remove the dead-code markers S5 and S6 left.** Both S5 (`readback` + `agent.AsReadBackDescriber`) and
-S6 (`analyser`) land a library before its only consumer, so their declarations are unreachable from any `main`
-package and carry temporary declaration-scope `//deadcode:ignore reason="…"` markers. S6's `analyser` has no
-production caller until S7 wires `run --learn`; S4's `channel` is in the same position. When S7 imports the
-packages and wires the invocation, S7 **deletes each marker** — both marker sets: a marker left on a declaration
-that is now reachable is a stale marker, which also fails the `deadcode` gate (the gate's self-defence against
-markers-as-decoration; see `../specs/ci/quality-gates.md` §Dead-code gate).
+**S7 must remove the dead-code markers S4, S5, and S6 left.** S4 (`channel`), S5 (`readback` +
+`agent.AsReadBackDescriber`), and S6 (`analyser`) each land a library before its only consumer, so their
+declarations are unreachable from any `main` package and carry temporary declaration-scope
+`//deadcode:ignore reason="…"` markers. None has a production caller until S7 wires `run --learn`. When S7
+imports the packages and wires the invocation, S7 **deletes each marker** — all three marker sets: a marker left
+on a declaration that is now reachable is a stale marker, which also fails the `deadcode` gate (the gate's
+self-defence against markers-as-decoration; see `../specs/ci/quality-gates.md` §Dead-code gate).
 
 **S6 closed three read-back gaps it consumes.** `readback.Credential.Hosts` was declared but nothing populated it,
 so S6 wired `read.go` to fill it from the provider's config entry, giving the config-entry attribution fallback in

@@ -86,8 +86,7 @@ func (e Evidence) hash() string {
 }
 
 // sortedCopy returns a sorted copy of values, leaving the caller's slice (and
-// its order) untouched. It serves Evidence.hash, which no production caller
-// reaches until S7.
+// its order) untouched.
 //
 //deadcode:ignore reason="evidence-hash helper; reached only through the marked Evidence.hash until S7 wires run --learn"
 func sortedCopy(values []string) []string {

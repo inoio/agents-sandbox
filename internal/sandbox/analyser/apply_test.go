@@ -410,6 +410,28 @@ func TestApplyAssumeYesDoesNotAccept(t *testing.T) {
 	assertNoFile(t, filepath.Join(cp.UserSlugConfigDir(testSlug), "config.yaml"))
 }
 
+// TestApplyPromptSurfacesWriteText: a write's free text is part of the question
+// the user accepts, so a proposal that must state a fact renders it.
+func TestApplyPromptSurfacesWriteText(t *testing.T) {
+	finding := Finding{
+		Evidence: Evidence{Summary: "the session used api.example"},
+		Writes: []Write{{
+			Scope:     ScopePerSlugUser,
+			ConfigKey: "network.egress-allow",
+			Text:      "The network policy is creation-only.",
+		}},
+	}
+
+	prompt := applyPrompt(finding)
+
+	if !strings.Contains(prompt, "the session used api.example") {
+		t.Errorf("prompt = %q; want the evidence summary", prompt)
+	}
+	if !strings.Contains(prompt, "The network policy is creation-only.") {
+		t.Errorf("prompt = %q; want the write's text", prompt)
+	}
+}
+
 // approveProjectLayer records the current project config layer as approved.
 func approveProjectLayer(t *testing.T, cp configpaths.ConfigPaths) {
 	t.Helper()

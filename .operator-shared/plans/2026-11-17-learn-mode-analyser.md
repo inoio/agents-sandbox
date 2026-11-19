@@ -162,7 +162,7 @@ git commit -m "feat(readback): fill credential hosts from the config entry"
 
 **Files:**
 - Create: `internal/sandbox/analyser/observation.go`, `internal/sandbox/analyser/observation_test.go`
-- Modify: `internal/sandbox/readback/*.go`, `internal/agent/readback.go` — **remove the S5 `//deadcode:ignore` markers** (this task is the first production consumer)
+- Modify: `internal/sandbox/readback/*.go`, `internal/agent/readback.go` — the S5 `//deadcode:ignore` markers **stay**: the read-back is a library without a production caller until S7 wires `run --learn`, which deletes them (ruling R1)
 
 **Interfaces:**
 - Consumes: `readback.ReadBack`, `channel.Observation`, `network.Policy`, `viperconfig.LayerSettingOwner` (the shadow check).
@@ -210,7 +210,7 @@ func TestProposalSkipsAProjectOwnedKey(t *testing.T) {
 ```
 
 - [ ] **Step 2: Run to verify it fails** — `go test ./internal/sandbox/analyser/ -run TestObservation`. Expected: FAIL.
-- [ ] **Step 3: Implement** `ObservationFindings`: (a) the network diff — propose `network.profile: none` plus `currentAllow ∪ observed-used` when the current policy is broader; nothing when it is already as narrow; report denied destinations separately with `Evidence.Denied`; (b) secret migration — for each `CredentialStatic`, hosts come from the channel attribution first, then `Credential.Hosts`; with no hosts, no finding. Every write is `ScopePerSlugUser` and non-removing; a key the project layer owns is still emitted (the applier skips it) or not emitted — pick one and pin it in the test. Then **delete every `//deadcode:ignore` marker** in `internal/sandbox/readback/` and `internal/agent/readback.go`.
+- [ ] **Step 3: Implement** `ObservationFindings`: (a) the network diff — propose `network.profile: none` plus `currentAllow ∪ observed-used` when the current policy is broader; nothing when it is already as narrow; report denied destinations separately with `Evidence.Denied`; (b) secret migration — for each `CredentialStatic`, hosts come from the channel attribution first, then `Credential.Hosts`; with no hosts, no finding. Every write is `ScopePerSlugUser` and non-removing; a key the project layer owns is still emitted (the applier skips it) or not emitted — pick one and pin it in the test. The S5 `//deadcode:ignore` markers in `internal/sandbox/readback/` and `internal/agent/readback.go` **stay**: the read-back is a library without a production caller until S7 wires `run --learn`, which deletes them (ruling R1).
 - [ ] **Step 4: Run** — `go test ./internal/sandbox/analyser/ && make deadcode`. Expected: PASS (the gate rejects a marker left on a now-reachable declaration).
 - [ ] **Step 5: Commit**
 

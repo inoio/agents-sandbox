@@ -81,10 +81,15 @@ func (s SessionFacts) networkFinding() (Finding, bool) {
 		Channel:      evidenceChannelProxy,
 	}
 	writes := []Write{
-		//exhaustruct:ignore // a config write names no secret and no free text
+		//exhaustruct:ignore // a config write names no secret and never removes
 		{Scope: ScopePerSlugUser, ConfigKey: "network.profile", ConfigValue: network.ProfileNone.String()},
-		//exhaustruct:ignore // a config write names no secret and no free text
-		{Scope: ScopePerSlugUser, ConfigKey: "network.egress-allow", ConfigValue: allow},
+		//exhaustruct:ignore // a config write names no secret and never removes
+		{
+			Scope:       ScopePerSlugUser,
+			ConfigKey:   "network.egress-allow",
+			ConfigValue: allow,
+			Text:        "The network policy is creation-only: it takes effect at the next VM creation.",
+		},
 	}
 	//exhaustruct:ignore // EvidenceHash is stamped by ObservationFindings
 	return Finding{Evidence: evidence, Writes: writes, Kind: KindObservation}, true
@@ -207,7 +212,7 @@ func secretFinding(credential readback.Credential, hosts, headerNames []string, 
 		Channel:      evidenceChannelReadback,
 		HeaderFields: headerNames,
 	}
-	//exhaustruct:ignore // a secret write names no config key and no free text
+	//exhaustruct:ignore // a secret write names no config key and no removal
 	write := Write{
 		Scope: ScopePerSlugUser,
 		//exhaustruct:ignore // a proposal never removes
@@ -215,8 +220,9 @@ func secretFinding(credential readback.Credential, hosts, headerNames []string, 
 			EnvVar:       credential.EnvVar,
 			Provider:     credential.Provider,
 			Hosts:        hosts,
-			HeaderFields: headerFieldNames(credential.Field),
+			HeaderFields: headerNames,
 		},
+		Text: "This scopes the secret to the per-slug user config, keyed by the repo slug, so it applies to every clone of the remote.",
 	}
 	//exhaustruct:ignore // EvidenceHash is stamped by ObservationFindings
 	return Finding{Evidence: evidence, Writes: []Write{write}, Kind: KindObservation}

@@ -59,6 +59,8 @@ func TestObservationNetworkDiffNeverWidens(t *testing.T) {
 	require.Equal(t, ScopePerSlugUser, allow.Scope)
 	require.False(t, allow.Remove, "the proposal never removes a user-set entry")
 	require.Equal(t, []string{"already.example", "api.example"}, allow.ConfigValue)
+	require.Contains(t, allow.Text, "creation-only",
+		"the proposal states the network policy takes effect at the next VM creation")
 
 	profile := configWrite(t, findings[0], "network.profile")
 	require.Equal(t, ScopePerSlugUser, profile.Scope)
@@ -125,7 +127,7 @@ func TestObservationSecretUsesChannelAttributionThenConfigEntryHosts(t *testing.
 		Current:  narrowNone(),
 		ReadBack: readback.ReadBack{Static: []readback.Credential{credential}},
 		Observation: channel.Observation{Attribution: []channel.Attribution{
-			{Host: "attributed.example", Credential: "OPENAI_API_KEY", HeaderNames: []string{"authorization"}},
+			{Host: "attributed.example", Credential: "OPENAI_API_KEY", HeaderNames: []string{"x-goog-api-key"}},
 		}},
 	}
 	findings := ObservationFindings(attributed)
@@ -134,6 +136,8 @@ func TestObservationSecretUsesChannelAttributionThenConfigEntryHosts(t *testing.
 	require.NotNil(t, secret)
 	require.Equal(t, []string{"attributed.example"}, secret.Hosts,
 		"the channel attribution supersedes the config entry")
+	require.Equal(t, []string{"x-goog-api-key"}, secret.HeaderFields,
+		"the write scopes substitution to the attributed header name, not the credential's hint")
 
 	configEntry := attributed
 	configEntry.Observation = channel.Observation{}
@@ -141,6 +145,8 @@ func TestObservationSecretUsesChannelAttributionThenConfigEntryHosts(t *testing.
 	require.Len(t, findings, 1)
 	require.Equal(t, []string{"config.example"}, findings[0].Writes[0].Secret.Hosts,
 		"with no channel attribution the config-entry host is used")
+	require.Equal(t, []string{"authorization"}, findings[0].Writes[0].Secret.HeaderFields,
+		"with no channel attribution the credential's header-field hint is used")
 }
 
 // TestObservationSecretWriteShape: the secret write names the env var, the
@@ -172,6 +178,8 @@ func TestObservationSecretWriteShape(t *testing.T) {
 	require.Equal(t, "anthropic", write.Secret.Provider)
 	require.Equal(t, []string{"api.anthropic.example"}, write.Secret.Hosts)
 	require.Equal(t, []string{"x-api-key"}, write.Secret.HeaderFields)
+	require.Contains(t, write.Text, "clone",
+		"the proposal states the per-slug scope is shared by every clone of the remote")
 }
 
 // TestObservationSecretWithoutHostsYieldsNoFinding: a static secret with no

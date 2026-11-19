@@ -28,7 +28,7 @@ One finding shape serves both a learning session and config-only analysis (`conf
   user-set project entry. When the project layer owns a proposed key, the applier reports the finding and skips
   the write.
 - **A per-slug write is YAML-only.** The applier edits a config file format-preservingly by rewriting its document
-  tree, so a per-slug config in JSON, JSON5, or JSONC is reported and skipped rather than converted to YAML.
+  tree, so a per-slug config in JSON, JSONC, JSON5, or TOML is reported and skipped rather than converted to YAML.
 - **A harden move writes two scopes.** A static secret wrongly committed in the project scope is removed from the
   project config and added at the per-slug user scope; the removal is harden's "reduce" contract, which the
   proposal never invokes. Both writes are trust-gated and applied together (or neither).

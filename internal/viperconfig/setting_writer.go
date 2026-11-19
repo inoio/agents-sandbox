@@ -157,7 +157,7 @@ func WriteSetting(dir, key string, value any) error {
 // decline or a repeated removal never rewrites the user's config, and a removal
 // never creates config.yaml.
 //
-//deadcode:ignore reason="harden primitive; the pending S6 applier / config harden (S8) caller removes a setting through it"
+//deadcode:ignore reason="harden primitive; the analyser applier and the config harden (S8) caller remove a setting through it, pending the S7 run --learn caller"
 func RemoveSetting(dir, key string) error {
 	if dir == "" {
 		return fmt.Errorf("config dir is empty; the config path did not resolve")
@@ -203,7 +203,7 @@ func RemoveSetting(dir, key string) error {
 // the document cannot hold the key at all. An anchored value an alias still uses
 // is refused by the document edit, leaving the file untouched.
 //
-//deadcode:ignore reason="helper reached only through RemoveSetting, whose pending S6 applier / config harden (S8) caller is not wired yet"
+//deadcode:ignore reason="helper reached only through RemoveSetting, whose analyser applier / config harden (S8) caller lands in S7/S8"
 func removeYAMLSetting(path string, data []byte, perm os.FileMode, key string) ([]byte, error) {
 	document, err := oneyaml.Parse(data, oneyaml.Untrusted())
 	if err != nil {
@@ -224,7 +224,7 @@ func removeYAMLSetting(path string, data []byte, perm os.FileMode, key string) (
 // case-insensitively, mirroring viper's key resolution, so a removal reaches a
 // differently-cased entry rather than leaving it in place.
 //
-//deadcode:ignore reason="helper reached only through removeYAMLSetting from the pending S6 applier / config harden (S8) caller"
+//deadcode:ignore reason="helper reached only through removeYAMLSetting from the analyser applier / config harden (S8) caller, pending S7/S8"
 func removeDocumentValue(document *oneyaml.Document, keyPath []string) ([]byte, error) {
 	root := document.Root()
 	if !root.IsValid() {

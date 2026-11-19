@@ -18,7 +18,7 @@ type LearnDecline struct {
 // already-recorded hash keeps the original entry (and its timestamp) and writes
 // nothing.
 //
-//deadcode:ignore reason="decline store; the pending S6 applier is the production caller"
+//deadcode:ignore reason="decline store; the analyser applier (analyser.Apply) is the production caller, pending the S7 run --learn caller"
 func RecordLearnDecline(slug, evidenceHash string) error {
 	_, err := WithRootState(true, func(txn *RootTxn) error {
 		if txn.State().learnDeclined(slug, evidenceHash) {
@@ -34,7 +34,7 @@ func RecordLearnDecline(slug, evidenceHash string) error {
 // evidenceHash was already declined for the given repo slug. A missing document,
 // slug, or hash reports false: an unrecorded finding is proposed.
 //
-//deadcode:ignore reason="decline store; the pending S6 applier is the production caller"
+//deadcode:ignore reason="decline store; the analyser applier (analyser.Apply) is the production caller, pending the S7 run --learn caller"
 func LearnDeclined(slug, evidenceHash string) (bool, error) {
 	var declined bool
 	_, err := WithRootState(true, func(txn *RootTxn) error {
@@ -49,7 +49,7 @@ func LearnDeclined(slug, evidenceHash string) (bool, error) {
 
 // learnDeclined reports whether slug already holds a decline for evidenceHash.
 //
-//deadcode:ignore reason="helper reached only through the marked RecordLearnDecline/LearnDeclined until the S6 applier lands"
+//deadcode:ignore reason="helper reached only through the marked RecordLearnDecline/LearnDeclined, whose analyser applier (analyser.Apply) caller lands in S7"
 func (s *RootState) learnDeclined(slug, evidenceHash string) bool {
 	for _, decline := range s.LearnDeclines[slug] {
 		if decline.EvidenceHash == evidenceHash {
@@ -62,7 +62,7 @@ func (s *RootState) learnDeclined(slug, evidenceHash string) bool {
 // addLearnDecline appends a decline to the slug's record, initializing the
 // registry if nil.
 //
-//deadcode:ignore reason="helper reached only through the marked RecordLearnDecline until the S6 applier lands"
+//deadcode:ignore reason="helper reached only through the marked RecordLearnDecline, whose analyser applier (analyser.Apply) caller lands in S7"
 func (s *RootState) addLearnDecline(slug string, decline LearnDecline) {
 	if s.LearnDeclines == nil {
 		s.LearnDeclines = map[string][]LearnDecline{}
