@@ -54,7 +54,8 @@ func ObservationFindings(s SessionFacts) []Finding {
 // session used: the terminal `none` profile plus the current allow set unioned
 // with the observed-used hosts. It emits nothing when there is no observation
 // to act on, or when the current `none` policy already admits everything the
-// session used.
+// session used — a finding whose summary promised to lock egress would be a
+// misleading no-op, and the spec's denial reporting is S7's, not a finding's.
 //
 //deadcode:ignore reason="observation findings engine; pending S7 run --learn caller wires the analyser"
 func (s SessionFacts) networkFinding() (Finding, bool) {
@@ -67,7 +68,7 @@ func (s SessionFacts) networkFinding() (Finding, bool) {
 
 	current := s.Current.Effective()
 	allow := sortedUnique(append(slices.Clone(current.EgressAllow), used...))
-	if policyIsNarrowNone(current, allow) && len(denied) == 0 {
+	if policyIsNarrowNone(current, allow) {
 		return Finding{}, false
 	}
 
@@ -82,7 +83,12 @@ func (s SessionFacts) networkFinding() (Finding, bool) {
 	}
 	writes := []Write{
 		//exhaustruct:ignore // a config write names no secret and never removes
-		{Scope: ScopePerSlugUser, ConfigKey: "network.profile", ConfigValue: network.ProfileNone.String()},
+		{
+			Scope:       ScopePerSlugUser,
+			ConfigKey:   "network.profile",
+			ConfigValue: network.ProfileNone.String(),
+			Text:        "This scopes the policy to the per-slug user config, keyed by the repo slug, so it applies to every clone of the remote.",
+		},
 		//exhaustruct:ignore // a config write names no secret and never removes
 		{
 			Scope:       ScopePerSlugUser,
@@ -222,7 +228,7 @@ func secretFinding(credential readback.Credential, hosts, headerNames []string, 
 			Hosts:        hosts,
 			HeaderFields: headerNames,
 		},
-		Text: "This scopes the secret to the per-slug user config, keyed by the repo slug, so it applies to every clone of the remote.",
+		Text: "The per-slug user config scopes this secret, keyed by the repo slug, so it applies to every clone of the remote.",
 	}
 	//exhaustruct:ignore // EvidenceHash is stamped by ObservationFindings
 	return Finding{Evidence: evidence, Writes: []Write{write}, Kind: KindObservation}

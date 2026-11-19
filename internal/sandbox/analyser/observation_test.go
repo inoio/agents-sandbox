@@ -65,6 +65,8 @@ func TestObservationNetworkDiffNeverWidens(t *testing.T) {
 	profile := configWrite(t, findings[0], "network.profile")
 	require.Equal(t, ScopePerSlugUser, profile.Scope)
 	require.Equal(t, network.ProfileNone.String(), profile.ConfigValue)
+	require.Contains(t, profile.Text, "clone",
+		"the proposal states the per-slug scope is shared by every clone of the remote")
 }
 
 // TestObservationNetworkDiffIsSilentWhenAlreadyNarrow: a session whose used
@@ -78,6 +80,26 @@ func TestObservationNetworkDiffIsSilentWhenAlreadyNarrow(t *testing.T) {
 		},
 		Observation: channel.Observation{Destinations: []channel.Destination{
 			{Host: "api.example", Success: true, Count: 3},
+		}},
+	}
+
+	require.Empty(t, ObservationFindings(s))
+}
+
+// TestObservationNetworkFindingIsSilentWhenAlreadyNarrowEvenWithDenials: a
+// session whose used destinations the current `none` policy already allows
+// yields no network finding — the policy is already as narrow as the proposal
+// can make it, so a finding whose summary promised to lock egress would be a
+// misleading no-op. A denied destination is still not a reason to emit one.
+func TestObservationNetworkFindingIsSilentWhenAlreadyNarrowEvenWithDenials(t *testing.T) {
+	s := SessionFacts{
+		Current: network.Policy{
+			Profiles:    []network.Profile{network.ProfileNone},
+			EgressAllow: []string{"api.example"},
+		},
+		Observation: channel.Observation{Destinations: []channel.Destination{
+			{Host: "api.example", Success: true, Count: 3},
+			{Host: "blocked.example", Denied: true},
 		}},
 	}
 

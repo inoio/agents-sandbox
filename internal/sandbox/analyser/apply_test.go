@@ -250,6 +250,12 @@ func TestApplyMoveIsAtomic(t *testing.T) {
 	if results[0].Outcome != OutcomeSkipped {
 		t.Fatalf("outcome = %q; want skipped (the project secret file cannot be edited)", results[0].Outcome)
 	}
+	if results[0].Err == "" {
+		t.Error("Err is empty; want the unparseable secret file's message")
+	}
+	if !strings.Contains(results[0].Note, results[0].Err) {
+		t.Errorf("Note = %q; want it to carry Err = %q", results[0].Note, results[0].Err)
+	}
 	if content := readFile(t, filepath.Join(cp.ProjectConfigDir(), "env.secret.yaml")); content != projectContent {
 		t.Errorf("project secret changed to %q; want it untouched", content)
 	}

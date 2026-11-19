@@ -106,7 +106,9 @@ type Write struct {
 	ConfigValue any // ignored when Remove
 	Remove      bool
 	Secret      *SecretWrite // nil unless a static secret is proposed
-	Text        string
+	// Text is the user-facing sentence the applier renders in the accept
+	// prompt, beside the finding's evidence. It never carries a secret value.
+	Text string
 }
 
 // SecretWrite carries no Value field — the value is threaded in memory from

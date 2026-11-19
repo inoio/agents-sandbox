@@ -118,7 +118,7 @@ func secretPath(dir string) string {
 // and existed false. A file the loader cannot parse yields an error: editing it
 // would silently drop content the launcher previously skipped with a warning.
 //
-//deadcode:ignore reason="secret store reader; reached through WriteSecretSpec/RemoveSecretSpec from the analyser applier (executeSecret), pending the S7 run --learn caller"
+//deadcode:ignore reason="secret store reader; reached through WriteSecretSpec/RemoveSecretSpec/ValidateSecretFile from the analyser applier (executeSecret/planSecret), pending the S7 run --learn caller"
 func parseSecretDocument(dir string) (*oneyaml.Document, bool, error) {
 	path := secretPath(dir)
 	data, err := readSecretFileAt(path)

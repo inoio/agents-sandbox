@@ -255,7 +255,7 @@ func planSecret(write Write, dir string, opts ApplyOptions) (plannedWrite, *refu
 	if err := envsecret.ValidateSecretFile(dir); err != nil {
 		return plannedWrite{}, &refusal{
 			note: fmt.Sprintf("secret %s cannot be edited in %s: %v", write.Secret.EnvVar, dir, err),
-			err:  "",
+			err:  err.Error(),
 		}
 	}
 	if write.Secret.Remove {
