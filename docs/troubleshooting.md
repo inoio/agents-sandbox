@@ -304,6 +304,27 @@ Other protocols see the connection fail instead. Allow the destination with `egr
 covers it (`private` for your local network, `host` for a service on the host); see
 [Networking]({% link configuration/networking.md %}).
 
+### Intermittent denials for an allowed host
+
+If the `403` names a host your `egress-allow` already covers, appears only now and then, and resending the request
+succeeds, the client reused a cached IP address that microsandbox no longer accepts for that name. microsandbox admits
+a connection to an allowed name only while the IP is bound to it by a recent DNS answer. When the binding has expired, it
+resolves the name again and admits the connection only if the fresh answer still contains that IP. Hosts that rotate
+through several addresses with one address per answer fail this check whenever the rotation has moved on
+([microsandbox#2111](https://github.com/superradcompany/microsandbox/issues/2111)).
+
+Bun-based agents such as opencode2 are affected because Bun caches DNS answers for 30 seconds regardless of the record's
+TTL. GitHub Copilot on GitHub Enterprise (`copilot-api.<tenant>.ghe.com`) is one such host: its record has a 12-second
+TTL and rotates. Make Bun's DNS cache shorter than the host's TTL by adding this line to
+`~/.config/agents-sandbox/env`:
+
+```text
+BUN_CONFIG_DNS_TIME_TO_LIVE_SECONDS=5
+```
+
+The next session recreates the VM once to apply it. Check a host's TTL with `dig <host>`; if it is shorter than 5
+seconds, use a smaller value.
+
 ## Forbidden: Request blocked by secret policy
 
 The proxy refused to forward a request that carried a secret placeholder. Two causes produce the same message: the
