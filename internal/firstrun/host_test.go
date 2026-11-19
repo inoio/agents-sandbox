@@ -105,3 +105,28 @@ func TestHostSourceHashIndependentOfHostHome(t *testing.T) {
 		t.Errorf("source hash depends on the host home: %q != %q", firstHash, secondHash)
 	}
 }
+
+// TestHostSourceHashIndependentOfRuleOrder pins that neither the file list nor
+// the source hash depends on the order the agent's provision rules are declared
+// in. The walk concatenates files rule by rule, so a multi-rule agent whose
+// rules are declared in reverse lexical order must still hash the same as its
+// forward declaration — the probe sorts before hashing. It fails if the sort is
+// removed.
+func TestHostSourceHashIndependentOfRuleOrder(t *testing.T) {
+	hostHome := t.TempDir()
+	writeHostFile(t, hostHome, ".config/a/a.json", `{"a":1}`)
+	writeHostFile(t, hostHome, ".config/z/z.json", `{"z":1}`)
+
+	zRule := agent.ProvisionRule{Dir: ".config/z", Patterns: []string{"**"}}
+	aRule := agent.ProvisionRule{Dir: ".config/a", Patterns: []string{"**"}}
+
+	forwardFiles, forwardHash := HostFiles(provisionProfile{rules: []agent.ProvisionRule{aRule, zRule}}, hostHome)
+	reverseFiles, reverseHash := HostFiles(provisionProfile{rules: []agent.ProvisionRule{zRule, aRule}}, hostHome)
+
+	if forwardHash != reverseHash {
+		t.Errorf("source hash depends on provision-rule order: %q != %q", reverseHash, forwardHash)
+	}
+	if !slices.Equal(forwardFiles, reverseFiles) {
+		t.Errorf("host file order depends on provision-rule order: %v != %v", reverseFiles, forwardFiles)
+	}
+}
