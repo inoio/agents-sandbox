@@ -71,7 +71,7 @@ func (f ConfigFacts) secretFindingsForScope(scope configpaths.ConfigScope) []Fin
 		if scope.Kind == configpaths.ScopeProject {
 			// A project secret is moved whole by C1; narrowing it in place as
 			// well would let the C2 rewrite re-create the entry C1 removed.
-			findings = append(findings, projectSecretMoveFinding(envVar, spec))
+			findings = append(findings, projectSecretMoveFinding(scope, envVar, spec))
 			continue
 		}
 		if spec.AllowAnyHostDangerous {
@@ -86,8 +86,9 @@ func (f ConfigFacts) secretFindingsForScope(scope configpaths.ConfigScope) []Fin
 
 // projectSecretMoveFinding is C1: a static secret committed in the project scope
 // is removed from the committed file and added at the per-slug user scope. Its
-// value is resolved in memory by the applier and never carried in the finding.
-func projectSecretMoveFinding(envVar string, spec envsecret.SecretSpec) Finding {
+// value is resolved in memory by the applier and never carried in the finding;
+// the add write's Source is the project scope the value is read from.
+func projectSecretMoveFinding(scope configpaths.ConfigScope, envVar string, spec envsecret.SecretSpec) Finding {
 	hosts := specHosts(spec)
 	headerFields := sortedUnique(spec.HeaderFields)
 	//exhaustruct:ignore // a removal write names no value and keeps the entry's hosts
@@ -110,6 +111,7 @@ func projectSecretMoveFinding(envVar string, spec envsecret.SecretSpec) Finding 
 			EnvVar:       envVar,
 			Hosts:        hosts,
 			HeaderFields: headerFields,
+			Source:       scope.Dir,
 		},
 		Text: "The per-slug user config scopes this secret, keyed by the repo slug, so it applies to every clone of the remote.",
 	}
@@ -151,6 +153,7 @@ func dangerousSecretFinding(scope configpaths.ConfigScope, envVar string, spec e
 			EnvVar:       envVar,
 			Hosts:        hosts,
 			HeaderFields: headerFields,
+			Source:       scope.Dir,
 		},
 		Text: "This drops allow_any_host_dangerous and keeps the declared host list.",
 	}
@@ -414,6 +417,7 @@ func inlineConfigFinding(scope configpaths.ConfigScope, credential readback.Cred
 			EnvVar:   credential.EnvVar,
 			Provider: credential.Provider,
 			Hosts:    hosts,
+			Source:   credential.Source,
 		},
 		Text: "This moves the value to env.secret.yaml at the per-slug user scope.",
 	}

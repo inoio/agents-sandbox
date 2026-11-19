@@ -2,7 +2,6 @@ package analyser
 
 import (
 	"errors"
-	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -907,18 +906,53 @@ func TestApplyRestoresTheApprovalWhenTheProjectWriteFails(t *testing.T) {
 	}
 }
 
-// TestApprovalValue renders a config value as the string the trust gate records:
-// a string round-trips as itself, every other value as JSON, and an unencodable
-// value falls back to its string form rather than an empty record.
-func TestApprovalValue(t *testing.T) {
-	if got := approvalValue("none"); got != "none" {
-		t.Errorf("approvalValue(string) = %q; want the string", got)
-	}
-	if got := approvalValue([]string{"a.example", "b.example"}); got != `["a.example","b.example"]` {
-		t.Errorf("approvalValue(list) = %q; want its JSON", got)
-	}
-	if got := approvalValue(math.NaN()); got != "NaN" {
-		t.Errorf("approvalValue(NaN) = %q; want the fallback string form", got)
+// TestApplyNonStringProjectWriteKeepsTheApproval pins the trust round-trip for a
+// non-string project value: the recorded approval entry must equal the
+// projection's own rendering, or the next run gates the launcher's own change.
+// A boolean (C6's provision-host-config) and a list (C4's egress-allow) are the
+// shapes a project-scope harden write can carry.
+func TestApplyNonStringProjectWriteKeepsTheApproval(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		key     string
+		value   any
+		written string
+	}{
+		{name: "boolean", key: "provision-host-config", value: false, written: "provision-host-config: false"},
+		{
+			name:    "list",
+			key:     "network.egress-allow",
+			value:   []string{"api.example"},
+			written: "egress-allow:",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			configpathstest.WithMockConfigPaths(t)
+			unsetKeyEnvironment(t, tc.key)
+			cp := configpaths.Get()
+			testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "agent: opencode\n")
+			approveProjectLayer(t, cp)
+
+			ui, _ := interactiveUI()
+			finding := Finding{
+				Evidence: Evidence{Summary: "harden " + tc.key},
+				Writes:   []Write{{Scope: ScopeProject, ConfigKey: tc.key, ConfigValue: tc.value}},
+			}
+			results := Apply([]Finding{finding}, ApplyOptions{
+				Paths: cp, Slug: testSlug, CheckoutSlug: testCheckoutSlug, UI: ui, Mode: options.ModeRun,
+			})
+
+			if results[0].Outcome != OutcomeApplied {
+				t.Fatalf("outcome = %q (%s); want applied", results[0].Outcome, results[0].Err)
+			}
+			if !projectLayerApproved(t, cp) {
+				t.Error("a project-scope write left the project config needing approval")
+			}
+			written := readFile(t, filepath.Join(cp.ProjectConfigDir(), "config.yaml"))
+			if !strings.Contains(written, tc.written) {
+				t.Errorf("project config = %q, want it to contain %q", written, tc.written)
+			}
+		})
 	}
 }
 

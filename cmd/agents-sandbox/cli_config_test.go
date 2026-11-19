@@ -1389,6 +1389,108 @@ func TestSecretValueFromAgentConfigsFindsNoMatch(t *testing.T) {
 	}
 }
 
+// TestHardenSecretValuePrefersTheFindingsSource pins that a finding's value
+// comes from the source it names, not from a same-named secret in a
+// higher-precedence scope: the inline credential's own file supplies sk-inline,
+// not the per-slug scope's sk-scope.
+func TestHardenSecretValuePrefersTheFindingsSource(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	slug := "widget-abc"
+	testutil.WriteFile(t, paths.UserSlugConfigDir(slug), configpaths.EnvSecretFileName+".yaml",
+		"OPENAI_API_KEY:\n  value: sk-scope\n  host: api.corp.example\n")
+	agentFile := filepath.Join(
+		configpathstest.CreateDir(filepath.Join(paths.UserSlugConfigDir(slug), "opencode")),
+		"opencode.jsonc",
+	)
+	testutil.WritePath(t, agentFile,
+		`{"provider":{"openai":{"options":{"apiKey":"sk-inline","baseURL":"https://api.openai.com/v1"}}}}`)
+
+	resolve := hardenSecretValue(configpaths.ConfigScopes(paths, slug), "opencode", &termiotest.Mock{})
+	value, ok := resolve(analyser.SecretWrite{
+		EnvVar: "OPENAI_API_KEY", Hosts: []string{"api.openai.com"}, Source: agentFile,
+	})
+
+	if !ok || value != "sk-inline" {
+		t.Fatalf("inline source value = %q, %v; want the inline value sk-inline", value, ok)
+	}
+}
+
+// TestHardenSecretValueReadsAScopeSource pins that a scope-sourced finding
+// resolves from its own scope directory.
+func TestHardenSecretValueReadsAScopeSource(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	slug := "widget-abc"
+	testutil.WriteFile(t, paths.UserSlugConfigDir(slug), configpaths.EnvSecretFileName+".yaml",
+		"WIDGET_TOKEN:\n  value: sk-per-slug\n  host: api.widget.example\n")
+
+	resolve := hardenSecretValue(configpaths.ConfigScopes(paths, slug), "opencode", &termiotest.Mock{})
+	value, ok := resolve(analyser.SecretWrite{
+		EnvVar: "WIDGET_TOKEN", Hosts: []string{"api.widget.example"}, Source: paths.UserSlugConfigDir(slug),
+	})
+
+	if !ok || value != "sk-per-slug" {
+		t.Fatalf("scope source value = %q, %v; want the scope value sk-per-slug", value, ok)
+	}
+}
+
+// TestHardenSecretValueFallsBackWithoutASource pins that a write naming no source
+// (a session proposal uses its own resolver, so this path is config harden's
+// safety net) still resolves by precedence.
+func TestHardenSecretValueFallsBackWithoutASource(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	slug := "widget-abc"
+	testutil.WriteFile(t, paths.UserSlugConfigDir(slug), configpaths.EnvSecretFileName+".yaml",
+		"WIDGET_TOKEN:\n  value: sk-precedence\n  host: api.widget.example\n")
+
+	resolve := hardenSecretValue(configpaths.ConfigScopes(paths, slug), "opencode", &termiotest.Mock{})
+	if value, ok := resolve(analyser.SecretWrite{EnvVar: "WIDGET_TOKEN"}); !ok || value != "sk-precedence" {
+		t.Fatalf("source-less value = %q, %v; want the precedence value", value, ok)
+	}
+	if _, ok := resolve(analyser.SecretWrite{EnvVar: "MISSING_TOKEN"}); ok {
+		t.Error("a source-less write with no matching secret resolved a value")
+	}
+}
+
+// TestSecretValueFromSource covers each shape a source can take: an empty
+// source, a path that does not exist, a scope directory with and without the
+// env var, and an agent config file with and without the credential.
+func TestSecretValueFromSource(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
+	dir := t.TempDir()
+	testutil.WriteFile(t, dir, configpaths.EnvSecretFileName+".yaml",
+		"TOKEN:\n  value: sk-dir\n  host: api.example\n")
+	agentFile := filepath.Join(dir, "opencode.jsonc")
+	testutil.WritePath(t, agentFile,
+		`{"provider":{"openai":{"options":{"apiKey":"sk-file","baseURL":"https://api.openai.com/v1"}}}}`)
+
+	for _, tc := range []struct {
+		name   string
+		source string
+		envVar string
+		want   string
+		ok     bool
+	}{
+		{name: "empty source", envVar: "TOKEN"},
+		{name: "missing path", source: filepath.Join(dir, "nope"), envVar: "TOKEN"},
+		{name: "scope dir", source: dir, envVar: "TOKEN", want: "sk-dir", ok: true},
+		{name: "scope dir without the env var", source: dir, envVar: "OTHER"},
+		{name: "agent config file", source: agentFile, envVar: "OPENAI_API_KEY", want: "sk-file", ok: true},
+		{name: "agent config file without the credential", source: agentFile, envVar: "OTHER"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			value, ok := secretValueFromSource(tc.source, tc.envVar, ui)
+			if ok != tc.ok || value != tc.want {
+				t.Fatalf("secretValueFromSource(%q, %q) = %q, %v; want %q, %v",
+					tc.source, tc.envVar, value, ok, tc.want, tc.ok)
+			}
+		})
+	}
+}
+
 // TestInlineCredentialValueSkipsDirsAndLoginStores pins that a directory entry
 // and a skipped file (the dotenv) contribute no value.
 func TestInlineCredentialValueSkipsDirsAndLoginStores(t *testing.T) {

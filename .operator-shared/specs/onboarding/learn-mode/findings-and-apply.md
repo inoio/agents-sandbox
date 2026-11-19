@@ -144,9 +144,11 @@ shadowed, so the owner rule is what makes the change take effect. A project-scop
 and is reported, never forced when refused.
 
 **C7's reference write is declarative for now.** C7 emits the secret write (the move to `env.secret.yaml`) plus a
-text-only write naming the reference the config should keep — a `${<ENVVAR>}` placeholder, or a harness's native
-`api_key_env = "<ENVVAR>"` where it does not expand `${VAR}` (kimi). The actual agent-config edit lands with the S10
-managed-config write-back; the finding shape is shared, but the edit is S10's.
+text-only write naming the reference the config should keep: always the `${<ENVVAR>}` placeholder, since the finding is
+harness-agnostic and the declarative write edits no config. Choosing the reference form — including a harness's native
+`api_key_env = "<ENVVAR>"` where it does not expand `${VAR}` (kimi) — is a property of the write-back, not the finding.
+The actual agent-config edit lands with the S10 managed-config write-back; the finding shape is shared, but the edit and
+the native form are S10's.
 
 **The generic user scope is not a file-mode target (R8).** C5 skips `ScopeGenericUser`: the applier's file-mode target
 is only the per-slug user or project scope, and a file mode cannot be shadowed, so a generic-scope finding would

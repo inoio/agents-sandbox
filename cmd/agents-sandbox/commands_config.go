@@ -538,11 +538,37 @@ func hardenSecretValue(
 ) func(analyser.SecretWrite) (string, bool) {
 	dirNames := agentConfigDirNames(agentName)
 	return func(write analyser.SecretWrite) (string, bool) {
+		if value, ok := secretValueFromSource(write.Source, write.EnvVar, ui); ok {
+			return value, true
+		}
 		if value, ok := secretValueFromScopes(scopes, write.EnvVar, ui); ok {
 			return value, true
 		}
 		return secretValueFromAgentConfigs(scopes, dirNames, write.EnvVar)
 	}
+}
+
+// secretValueFromSource resolves envVar from the exact location a finding came
+// from: a scope directory's env.secret.yaml, or an agent config file's inline
+// credential. Resolving from the source rather than by precedence keeps a move's
+// value with its own entry when the same env var is declared in another scope.
+func secretValueFromSource(source, envVar string, ui termio.Logger) (string, bool) {
+	if source == "" {
+		return "", false
+	}
+	info, err := os.Stat(source)
+	if err != nil {
+		return "", false
+	}
+	if !info.IsDir() {
+		return inlineCredentialValueInFile(source, envVar)
+	}
+	specs := envsecret.ParseSecretSpecYAML(filepath.Join(source, configpaths.EnvSecretFileName+".yaml"), ui)
+	spec, ok := specs[envVar]
+	if !ok || spec.Value == "" {
+		return "", false
+	}
+	return spec.Value, true
 }
 
 // secretValueFromScopes returns the literal value of envVar from the highest-
@@ -597,18 +623,27 @@ func inlineCredentialValue(dir, envVar string) (string, bool) {
 		if entry.IsDir() {
 			continue
 		}
-		path := filepath.Join(dir, entry.Name())
-		if readback.SkipsInlineCredentials(path) {
-			continue
+		if value, ok := inlineCredentialValueInFile(filepath.Join(dir, entry.Name()), envVar); ok {
+			return value, true
 		}
-		data, err := projectguard.ReadFile(path, configread.ReadFile)
-		if err != nil {
-			continue
-		}
-		for _, credential := range readback.InlineCredentialsIn(path, data) {
-			if credential.EnvVar == envVar && credential.Value != "" {
-				return credential.Value, true
-			}
+	}
+	return "", false
+}
+
+// inlineCredentialValueInFile returns envVar's inline value from one agent
+// config file, skipping a login store or the dotenv and reading through the
+// project guard.
+func inlineCredentialValueInFile(path, envVar string) (string, bool) {
+	if readback.SkipsInlineCredentials(path) {
+		return "", false
+	}
+	data, err := projectguard.ReadFile(path, configread.ReadFile)
+	if err != nil {
+		return "", false
+	}
+	for _, credential := range readback.InlineCredentialsIn(path, data) {
+		if credential.EnvVar == envVar && credential.Value != "" {
+			return credential.Value, true
 		}
 	}
 	return "", false

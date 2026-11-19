@@ -146,7 +146,7 @@ func RecordApproval(checkoutSlug string, projection Projection) error {
 // restores the previous approval for a write that then fails; should that
 // restore fail too, the approval is ahead of the file, which only makes the next
 // run ask again.
-func ApproveSettingWrite(checkoutSlug, key, value string) (func(), error) {
+func ApproveSettingWrite(checkoutSlug, key string, value any) (func(), error) {
 	var previous state.ApprovedProjectLayer
 	var found bool
 	_, err := state.WithRootState(true, func(txn *state.RootTxn) error {
@@ -173,10 +173,12 @@ func ApproveSettingWrite(checkoutSlug, key, value string) (func(), error) {
 	}, nil
 }
 
-// setSetting sets key to value in the launcher config input. The launcher
-// writes only a key its project config already sets, so that input exists;
-// without it the approval stays as it is, and the next run asks.
-func setSetting(inputs []Input, key, value string) {
+// setSetting sets key to value in the launcher config input, recorded exactly as
+// the projection renders it: the value is JSON-encoded here and nowhere else, so
+// a boolean or list entry matches what `appendSettingEntries` computes. The
+// launcher writes only a key its project config already sets, so that input
+// exists; without it the approval stays as it is, and the next run asks.
+func setSetting(inputs []Input, key string, value any) {
 	encoded, _ := json.Marshal(value)
 	for i, input := range inputs {
 		if input.Kind != KindLauncherConfig {

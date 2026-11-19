@@ -119,6 +119,11 @@ type SecretWrite struct {
 	Hosts        []string
 	HeaderFields []string
 	Remove       bool
+	// Source is where the value is read from when the write is applied: a scope
+	// directory (read from its env.secret.yaml) or an agent config file (read
+	// from its inline credential). It identifies a location, never a value. It
+	// is empty for a session proposal, whose value the home read-back resolves.
+	Source string
 }
 
 // Finding is one proposed change with the evidence that justifies it. Its

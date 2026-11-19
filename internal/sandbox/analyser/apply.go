@@ -1,7 +1,6 @@
 package analyser
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -482,7 +481,7 @@ func executeProjectSetting(plan plannedWrite, opts ApplyOptions) error {
 	restore, err := projecttrust.ApproveSettingWrite(
 		opts.CheckoutSlug,
 		write.ConfigKey,
-		approvalValue(write.ConfigValue),
+		write.ConfigValue,
 	)
 	if err != nil {
 		return err
@@ -498,19 +497,4 @@ func executeProjectSetting(plan plannedWrite, opts ApplyOptions) error {
 		return writeErr
 	}
 	return nil
-}
-
-// approvalValue renders a config value as the string the project trust gate
-// records for a key. A string value is recorded as itself and round-trips to the
-// same approval entry the projection computes; any other value is encoded as
-// JSON, which still records the key the write adds.
-func approvalValue(value any) string {
-	if text, ok := value.(string); ok {
-		return text
-	}
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		return fmt.Sprintf("%v", value)
-	}
-	return string(encoded)
 }
