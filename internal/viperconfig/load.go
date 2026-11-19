@@ -90,8 +90,10 @@ func NewResolver(cmd *cobra.Command, paths configpaths.ConfigPaths, slug string)
 		bindConfigFlags(v, cmd)
 	}
 
-	// Non-flag defaults: host config provisioning is on unless opted out.
-	v.SetDefault(keyProvisionHostConfig, true)
+	// Non-flag defaults: host-config provisioning is opt-in. The first run
+	// offers a guided path (learn mode) instead of dropping the host config in
+	// unasked; copying host config, credentials included, is an explicit choice.
+	v.SetDefault(keyProvisionHostConfig, false)
 
 	if err := validate(v); err != nil {
 		return nil, err

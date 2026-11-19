@@ -8,7 +8,7 @@ nav_order: 30
 
 # Switch from your existing agent
 
-Use agents-sandbox with the agent setup you already have without writing any config. If you haven't
+Use agents-sandbox with the agent setup you already have. If you haven't
 installed agents-sandbox yet, [install it]({% link install/installation.md %}) first.
 
 ## Run it
@@ -19,12 +19,18 @@ In any project directory:
 agents-sandbox
 ```
 
-agents-sandbox copies your existing agent config (e.g. `~/.config/opencode/**`)
-and credentials into the VM by default, so your normal agent,
+Turn on host-config provisioning to copy your existing agent config (e.g. `~/.config/opencode/**`)
+and credentials into the VM, so your normal agent,
 models, and permissions are available immediately, now running in a hardware-isolated VM with
 your project at `/workspace`.
 
-> **Note:** Keep your normal workflow — because your config is mirrored, you can keep managing it where
+```yaml
+# ~/.config/agents-sandbox/config.yaml
+provision-host-config: true
+```
+
+> **Note:** Provisioning is off by default — nothing from your host config is copied until you turn it on. Keep your
+> normal workflow — because the copied config is mirrored, you can keep managing it where
 > and how you already do, including managing config via the agents' TUI on the host, and it stays in sync
 > with the sandbox.
 

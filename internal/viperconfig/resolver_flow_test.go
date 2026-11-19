@@ -404,16 +404,16 @@ func TestResolverDottedKeyUsesAgentsEnvPrefix(t *testing.T) {
 	}
 }
 
-// Host-config provisioning defaults to on with no configuration at all.
-func TestResolverProvisionHostConfigDefaultsOn(t *testing.T) {
+// Host-config provisioning defaults to off with no configuration at all.
+func TestResolverProvisionHostConfigDefaultsOff(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
 	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	if !r.ProvisionHostConfig() {
-		t.Error("ProvisionHostConfig() = false, want the default true")
+	if r.ProvisionHostConfig() {
+		t.Error("ProvisionHostConfig() = true, want the default false")
 	}
 }
 

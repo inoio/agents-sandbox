@@ -33,7 +33,8 @@ type Config struct {
 	ImageCacheFrom string `mapstructure:"image-cache-from"`
 	ImageCacheTo   string `mapstructure:"image-cache-to"`
 	// ProvisionHostConfig controls whether the agent's host config files are
-	// copied into the VM (drop-in provisioning). Default true.
+	// copied into the VM (drop-in provisioning). Default false; provisioning is
+	// an explicit opt-in.
 	ProvisionHostConfig bool `mapstructure:"provision-host-config"`
 	// OpenLinks lets processes in the VM open links on the host through the
 	// xdg-open shim. Default true; false is the kill switch.

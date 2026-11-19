@@ -857,6 +857,9 @@ func TestRunWarnsAboutUnprovisionedConfigDirDependencies(t *testing.T) {
 	mock := &msbtest.MockMsbClient{}
 	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{}, "run", "--dry-run-vm")
 	manifest := writeHostOpencodeManifest(t)
+	// Provisioning is opt-in; enable it so the manifest is actually copied and
+	// the dependency warning fires.
+	enableHostConfigProvisioning(t)
 
 	if err := root.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -867,13 +870,24 @@ func TestRunWarnsAboutUnprovisionedConfigDirDependencies(t *testing.T) {
 	}
 }
 
+// enableHostConfigProvisioning turns on the opt-in host-config drop-in copy in
+// the generic user config layer.
+func enableHostConfigProvisioning(t *testing.T) {
+	t.Helper()
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml", "provision-host-config: true\n")
+}
+
 func TestRunSkipsDependencyWarningWhenAMountSuppliesNodeModules(t *testing.T) {
 	initTestProjectDir(t)
 	mock := &msbtest.MockMsbClient{}
 	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{}, "run", "--dry-run-vm")
 	manifest := writeHostOpencodeManifest(t)
-	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml",
-		"mounts:\n  /home/dev/node_modules:\n    source: "+t.TempDir()+"\n    readonly: true\n")
+	testutil.WriteFile(
+		t,
+		configpaths.Get().UserConfigDir(),
+		"config.yaml",
+		"provision-host-config: true\nmounts:\n  /home/dev/node_modules:\n    source: "+t.TempDir()+"\n    readonly: true\n",
+	)
 
 	if err := root.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
