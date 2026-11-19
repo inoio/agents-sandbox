@@ -359,7 +359,6 @@ func (f ConfigFacts) provisionHostConfigFinding() (Finding, bool) {
 // and hosts the entry declares, never a guessed host.
 func (f ConfigFacts) inlineConfigFindings() []Finding {
 	profile, ok := agent.Lookup(f.Config.Agent)
-	// gomutants:disable-next-line BRANCH_IF reason="a failed lookup yields the zero profile, whose ConfigDirNames errors to an empty list, so the fall-through finds nothing either"
 	if !ok {
 		return nil
 	}
@@ -382,15 +381,19 @@ func (f ConfigFacts) inlineConfigFindings() []Finding {
 // perSlugSecretEnvVars are the env vars the per-slug user scope already
 // declares. C7's move target is the per-slug secret file, so an inline
 // credential whose env var is already declared there would overwrite the value
-// and host scope the user set for this repo.
+// and host scope the user set for this repo. Both spellings count: the launcher
+// merges every scope's legacy specs before every scope's YAML specs, so a new
+// entry in the YAML file would override a per-slug legacy `env.secret` entry.
 func (f ConfigFacts) perSlugSecretEnvVars() map[string]bool {
 	for _, scope := range f.Scopes {
 		if scope.Kind != configpaths.ScopePerSlugUser {
 			continue
 		}
-		specs := envsecret.ParseSecretSpecYAML(scope.EnvSecretYAMLFile(), f.Logger)
-		declared := make(map[string]bool, len(specs))
-		for name := range specs {
+		declared := make(map[string]bool)
+		for name := range envsecret.ParseSecretSpecLegacy(scope.EnvSecretFile(), f.Logger) {
+			declared[name] = true
+		}
+		for name := range envsecret.ParseSecretSpecYAML(scope.EnvSecretYAMLFile(), f.Logger) {
 			declared[name] = true
 		}
 		return declared

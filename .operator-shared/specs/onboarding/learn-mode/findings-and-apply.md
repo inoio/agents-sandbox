@@ -14,8 +14,8 @@ One finding shape serves both a learning session and config-only analysis (`conf
   whether it succeeded, and which channel saw it. A proposed secret names the provider and the field, never the
   value.
 - **Scope** is the write's target (see [Scopes](#scopes)).
-- **A finding declares whether it needs configuration or observation.** `config harden` runs the former; the
-  after-run analyser runs both.
+- **A finding declares whether it needs configuration or observation.** `config harden` runs the configuration
+  findings; the after-run analyser runs the observation findings.
 
 ## Scopes
 
@@ -105,7 +105,7 @@ that is gone.
 Harden is the analyser with no session: the same findings engine, the same applier, the config-only subset of
 findings, and it is the home of "reduce egress later". It is re-runnable and audits the effective configuration —
 the `viperconfig.Config`, the ordered scopes, and each scope's `env.secret.yaml`. It runs the findings that need
-configuration; the after-run analyser runs both configuration and observation findings. It is the only writer of the
+configuration; the after-run analyser runs the observation findings. It is the only writer of the
 project scope, and the only home of a removal: moving a static secret committed there to the per-slug user secret is
 a harden finding (a project removal plus a per-slug addition). Removing a secret from a file does not remove it from
 git history — harden says so and points at rotating the credential.

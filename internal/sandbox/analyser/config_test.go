@@ -423,6 +423,32 @@ func TestConfigFindingsReportsAnInlineCredentialThePerSlugScopeAlreadyDeclares(t
 	require.Empty(t, inline[0].Writes, "the per-slug entry must not be overwritten")
 }
 
+// TestConfigFindingsReportsAnInlineCredentialTheLegacyPerSlugSecretDeclares pins
+// that the per-slug declaration guard sees the legacy `env.secret` spelling too:
+// the launcher merges legacy specs before YAML specs, so a new YAML entry would
+// override a per-slug legacy secret.
+func TestConfigFindingsReportsAnInlineCredentialTheLegacyPerSlugSecretDeclares(t *testing.T) {
+	f := configFacts(t, &viperconfig.Config{Agent: "opencode"})
+	dir := filepath.Join(f.Paths.UserConfigDir(), "opencode")
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	testutil.WriteFile(t, dir, "opencode.jsonc",
+		`{"provider":{"openai":{"options":{"apiKey":"sk-inline","baseURL":"https://api.openai.com/v1"}}}}`)
+	testutil.WriteFile(t, f.Paths.UserSlugConfigDir(testSlug), configpaths.EnvSecretFileName,
+		"OPENAI_API_KEY=sk-work@api.corp.example\n")
+
+	findings := ConfigFindings(f)
+
+	var inline []Finding
+	for _, finding := range findings {
+		if strings.Contains(finding.Evidence.Summary, "inline in the managed agent config") {
+			inline = append(inline, finding)
+		}
+	}
+	require.Len(t, inline, 1)
+	require.Contains(t, inline[0].Evidence.Summary, "the per-slug scope already declares it")
+	require.Empty(t, inline[0].Writes, "the per-slug legacy entry must not be overwritten")
+}
+
 // TestConfigFindingsInlineWithoutAPerSlugScopeMovesTheCredential pins that with
 // no per-slug scope in the projection, C7 still moves an inline credential: it
 // has no per-slug declaration to protect.
