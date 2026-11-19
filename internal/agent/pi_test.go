@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -79,20 +80,64 @@ func TestPIConfigMerger(t *testing.T) {
 	}
 }
 
-func TestPIProvisionRules(t *testing.T) {
+// TestPIProvisionRulesCopyOnlyCredentialFreeFiles pins the drop-in copy to the
+// agent dir's user-authored, credential-free files: auth.json (logins),
+// models.json and mcp.json (literal keys and headers), mcp-auth.json (MCP
+// tokens), and runtime state stay on the host.
+func TestPIProvisionRulesCopyOnlyCredentialFreeFiles(t *testing.T) {
 	a, _ := agent.Lookup("pi")
 	provisioner, ok := agent.AsProvisioner(a)
 	if !ok {
 		t.Fatal("pi should implement Provisioner")
 	}
-	found := false
-	for _, r := range provisioner.ProvisionRules() {
-		if r.Dir == ".pi/agent" {
-			found = true
+	copied := []string{
+		"settings.json",
+		"keybindings.json",
+		"AGENTS.md",
+		"AGENTS.override.md",
+		"AGENTS.MD",
+		"CLAUDE.md",
+		"CLAUDE.MD",
+		"SYSTEM.md",
+		"APPEND_SYSTEM.md",
+		"extensions/notify/index.ts",
+		"skills/review/SKILL.md",
+		"prompts/fix.md",
+		"themes/dark.json",
+	}
+	notCopied := []string{
+		"auth.json",
+		"models.json",
+		"mcp.json",
+		"mcp-auth.json",
+		"sessions/2026/session.jsonl",
+		"bin/fd",
+	}
+	hostHome := t.TempDir()
+	for _, rel := range append(slices.Clone(copied), notCopied...) {
+		path := filepath.Join(hostHome, ".pi", "agent", rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
 		}
 	}
-	if !found {
-		t.Errorf("ProvisionRules missing .pi/agent: %+v", provisioner.ProvisionRules())
+	vmHome := "/home/dev"
+	var got []string
+	_, err := agent.EvalProvisionRules(provisioner.ProvisionRules(), hostHome, vmHome,
+		func(dst string, _ []byte, _ os.FileMode) error {
+			rel, _ := filepath.Rel(filepath.Join(vmHome, ".pi", "agent"), dst)
+			got = append(got, filepath.ToSlash(rel))
+			return nil
+		})
+	if err != nil {
+		t.Fatalf("EvalProvisionRules: %v", err)
+	}
+	slices.Sort(got)
+	want := slices.Sorted(slices.Values(copied))
+	if !slices.Equal(got, want) {
+		t.Errorf("copied %v, want %v", got, want)
 	}
 }
 
