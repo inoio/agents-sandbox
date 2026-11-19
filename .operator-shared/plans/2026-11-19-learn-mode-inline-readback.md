@@ -127,7 +127,7 @@ type loginCredentialStore struct {
     agents   []string // nil = every agent that declares the path
 }
 var loginCredentialStores = []loginCredentialStore{ /* .claude/settings.json, .codex/auth.json,
-    .local/share/opencode/auth.json, .pi/agent/settings.json, .kimi-code/credentials/*.json */ }
+    .local/share/opencode/auth.json, .pi/agent/auth.json, .kimi-code/credentials/*.json */ }
 
 // loginStoreFor returns the login-store rule matching a manifest entry key, if
 // a pattern matches it. A pattern with no metacharacter matches its exact path.

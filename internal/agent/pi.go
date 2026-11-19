@@ -13,6 +13,10 @@ const piName = "pi"
 // logins, and runtime state.
 const piAgentDir = ".pi/agent"
 
+// piLoginFileName is pi's login store under its agent dir: saved API keys and
+// OAuth credentials.
+const piLoginFileName = "auth.json"
+
 type piProfile struct{}
 
 func (piProfile) Name() string          { return piName }
@@ -66,10 +70,15 @@ func (piProfile) ProvisionRules() []ProvisionRule {
 	}
 }
 
-// ReadBackPaths declares pi's settings file, which holds its login (recorded,
-// never copied).
+// ReadBackPaths declares pi's settings and its login store. models.json and
+// mcp.json are withheld: a provider's or MCP server's headers can carry a token
+// the reader does not classify yet, which would reach the managed-config
+// write-back verbatim.
 func (piProfile) ReadBackPaths() []string {
-	return []string{".pi/agent/" + settingsFileName}
+	return []string{
+		piAgentDir + "/" + settingsFileName,
+		piAgentDir + "/" + piLoginFileName,
+	}
 }
 
 func (piProfile) CredentialProbes() []string { return nil }

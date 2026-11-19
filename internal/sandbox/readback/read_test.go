@@ -93,6 +93,22 @@ func TestReadClassifiesGrokBuildLoginStore(t *testing.T) {
 		"config.toml is withheld until its inline key is classified")
 }
 
+// TestReadClassifiesPILoginInAuthJSON pins pi's login store to auth.json, where
+// pi saves its keys and OAuth logins; its settings file is configuration only.
+func TestReadClassifiesPILoginInAuthJSON(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".pi/agent/settings.json", `{"defaultProvider":"anthropic"}`)
+	writeFile(t, home, ".pi/agent/auth.json", `{"anthropic":{"type":"oauth"}}`)
+
+	rb, err := Read(home, "pi", Manifest{})
+
+	require.NoError(t, err)
+	require.Empty(t, rb.Static)
+	require.Len(t, rb.Login, 1)
+	require.Equal(t, ".pi/agent/auth.json", rb.Login[0].Source)
+	require.Equal(t, "pi", rb.Login[0].Provider)
+}
+
 // TestLoginStoreForMatchesExactPath pins that a pattern with no metacharacter
 // matches its exact path.
 func TestLoginStoreForMatchesExactPath(t *testing.T) {
@@ -1081,7 +1097,7 @@ func TestSkipsInlineCredentialsMatchesLoginStoresByPathTail(t *testing.T) {
 		"/scope/projectconfig/codex/auth.json",
 		".claude/settings.json",
 		"/x/.claude/settings.json",
-		".pi/agent/settings.json",
+		".pi/agent/auth.json",
 		"/x/kimi-code/credentials/foo.json",
 		"/x/opencode/.env",
 	}
