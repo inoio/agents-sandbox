@@ -52,7 +52,9 @@ func cleanupMergedBranchesFakeGh(args []string) (handled bool, stdout, stderr st
 }
 
 func TestCleanupMergedBranches(t *testing.T) {
+	t.Parallel()
 	t.Run("config worktree protection", func(t *testing.T) {
+		t.Parallel()
 		// Case 1 (B+A): named config, mirror branch, relative symlink.
 		cleanupCheckProtection(
 			t,
@@ -83,6 +85,7 @@ func TestCleanupMergedBranches(t *testing.T) {
 	})
 
 	t.Run("dirty config worktree kept under force", func(t *testing.T) {
+		t.Parallel()
 		// Case 4 (dirty): protection must precede the dirty/--force check.
 		proj := newCleanupFixture(t, "config", "agents-sandbox-config", "relative", true, false)
 		out := cleanupRunCleanup(t, proj, "--force")
@@ -92,6 +95,7 @@ func TestCleanupMergedBranches(t *testing.T) {
 	})
 
 	t.Run("config branch loop protection", func(t *testing.T) {
+		t.Parallel()
 		// The config branch and its origin ref stay put.
 		proj := newCleanupFixture(t, "config", "agents-sandbox-config", "relative", false, false)
 		out := cleanupRunCleanup(t, proj)
@@ -107,6 +111,7 @@ func TestCleanupMergedBranches(t *testing.T) {
 	})
 
 	t.Run("quiet still names what it acts on", func(t *testing.T) {
+		t.Parallel()
 		proj := newCleanupFixture(t, "config", "agents-sandbox-config", "relative", false, false)
 		out := cleanupRunCleanup(t, proj, "--quiet")
 		assertContains(t, "quiet names worktree", out.Stdout, filepath.Join(proj, "oldwork"))
@@ -117,6 +122,7 @@ func TestCleanupMergedBranches(t *testing.T) {
 	})
 
 	t.Run("plan printed before non-TTY abort", func(t *testing.T) {
+		t.Parallel()
 		proj := newCleanupFixture(t, "config", "agents-sandbox-config", "relative", false, false)
 		out := cleanupRunConfirmless(t, proj)
 		assertContains(t, "plan names worktree before abort", out.Stdout, filepath.Join(proj, "oldwork"))
@@ -127,6 +133,7 @@ func TestCleanupMergedBranches(t *testing.T) {
 	})
 
 	t.Run("zero planned actions", func(t *testing.T) {
+		t.Parallel()
 		proj := newCleanupFixture(t, "config", "agents-sandbox-config", "relative", false, false)
 		gitWorktreeRemove(t, proj, filepath.Join(proj, "oldwork"))
 		gitBranchDelete(t, proj, "old-work", "stale-branch")
@@ -139,6 +146,7 @@ func TestCleanupMergedBranches(t *testing.T) {
 	})
 
 	t.Run("content containment", func(t *testing.T) {
+		t.Parallel()
 		// A branch whose only own commit is patch-equivalent to a main commit
 		// plus a clean auto-merge is removed; a manual-resolution merge and a
 		// branch with unique commits are kept.
@@ -154,6 +162,7 @@ func TestCleanupMergedBranches(t *testing.T) {
 	})
 
 	t.Run("detached worktrees", func(t *testing.T) {
+		t.Parallel()
 		// A contained one is removed, a unique one is kept, and one at the
 		// default-branch tip is kept.
 		proj := newCleanupFixture(t, "config", "agents-sandbox-config", "relative", false, true)
@@ -168,6 +177,7 @@ func TestCleanupMergedBranches(t *testing.T) {
 	})
 
 	t.Run("dirty detached worktree kept without force", func(t *testing.T) {
+		t.Parallel()
 		proj := newCleanupFixture(t, "config", "agents-sandbox-config", "relative", true, true)
 		writeFixture(t, filepath.Join(proj, "detached-contained", "scratch.txt"), "scratch\n")
 		out := cleanupRunCleanup(t, proj)
@@ -176,6 +186,7 @@ func TestCleanupMergedBranches(t *testing.T) {
 	})
 
 	t.Run("remote branches get the same content proof", func(t *testing.T) {
+		t.Parallel()
 		proj := newCleanupFixture(t, "config", "agents-sandbox-config", "relative", false, true)
 		out := cleanupRunCleanup(t, proj)
 		remRb := cleanupSection(out.Stdout, "Origin branches to delete:")
@@ -186,6 +197,7 @@ func TestCleanupMergedBranches(t *testing.T) {
 	})
 
 	t.Run("kept entries carry a reason", func(t *testing.T) {
+		t.Parallel()
 		proj := newCleanupFixture(t, "config", "agents-sandbox-config", "relative", false, true)
 		out := cleanupRunCleanup(t, proj)
 		keepLb := cleanupSection(out.Stdout, "Remaining local branches:")
@@ -194,6 +206,7 @@ func TestCleanupMergedBranches(t *testing.T) {
 	})
 
 	t.Run("fresh detached worktree kept", func(t *testing.T) {
+		t.Parallel()
 		// A fresh detached worktree is kept even when its content is provable
 		// (not only when it is an ancestor of the default branch).
 		proj := newCleanupFixture(t, "config", "agents-sandbox-config", "relative", false, true)
@@ -206,6 +219,7 @@ func TestCleanupMergedBranches(t *testing.T) {
 	})
 
 	t.Run("gh closed-unmerged PR context", func(t *testing.T) {
+		t.Parallel()
 		proj := newCleanupFixture(t, "config", "agents-sandbox-config", "relative", false, true)
 		gitUpdateRef(t, proj, "refs/remotes/origin/fix-issue-94", gitRevParse(t, proj, "unique"))
 		records := "98 CLOSED main fix-issue-94 1111111111111111111111111111111111111111"
@@ -215,6 +229,7 @@ func TestCleanupMergedBranches(t *testing.T) {
 	})
 
 	t.Run("gh non-target base PR is not removal proof", func(t *testing.T) {
+		t.Parallel()
 		proj := newCleanupFixture(t, "config", "agents-sandbox-config", "relative", false, true)
 		records := fmt.Sprintf("777 MERGED feature-base unique %s", gitRevParse(t, proj, "unique"))
 		out := cleanupRunGh(t, proj, records)

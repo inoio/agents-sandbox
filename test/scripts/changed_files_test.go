@@ -9,12 +9,15 @@ import (
 
 // TestChangedFiles ports every case of the bash harness scripts/test-changed-files.sh.
 func TestChangedFiles(t *testing.T) {
+	t.Parallel()
 	t.Run("clean tree lists nothing", func(t *testing.T) {
+		t.Parallel()
 		repo := newChangedFilesRepo(t)
 		assertFileList(t, runChangedFiles(t, repo.Dir(), "local", ""))
 	})
 
 	t.Run("modified tracked file", func(t *testing.T) {
+		t.Parallel()
 		repo := newChangedFilesRepo(t)
 		repo.Write("internal/foo/foo.go", "package foo // x\n")
 		result := runChangedFiles(t, repo.Dir(), "local", "")
@@ -23,6 +26,7 @@ func TestChangedFiles(t *testing.T) {
 	})
 
 	t.Run("modified plus untracked", func(t *testing.T) {
+		t.Parallel()
 		repo := newChangedFilesRepo(t)
 		repo.Write("internal/foo/foo.go", "package foo // x\n")
 		repo.Write("internal/new.go", "package new\n")
@@ -31,6 +35,7 @@ func TestChangedFiles(t *testing.T) {
 	})
 
 	t.Run("deleted tracked file", func(t *testing.T) {
+		t.Parallel()
 		repo := newChangedFilesRepo(t)
 		repo.Remove("docs/guide.md")
 		result := runChangedFiles(t, repo.Dir(), "local", "")
@@ -38,6 +43,7 @@ func TestChangedFiles(t *testing.T) {
 	})
 
 	t.Run("rename lists both endpoints", func(t *testing.T) {
+		t.Parallel()
 		repo := newChangedFilesRepo(t)
 		repo.Rename("docs/guide.md", "internal/guide.md")
 		result := runChangedFiles(t, repo.Dir(), "local", "")
@@ -45,6 +51,7 @@ func TestChangedFiles(t *testing.T) {
 	})
 
 	t.Run("branch uses the merge base", func(t *testing.T) {
+		t.Parallel()
 		repo := newDivergedRepo(t)
 		result := runChangedFiles(t, repo.Dir(), "branch", "main")
 		assertStatus(t, result, 0)
@@ -52,6 +59,7 @@ func TestChangedFiles(t *testing.T) {
 	})
 
 	t.Run("branch includes untracked", func(t *testing.T) {
+		t.Parallel()
 		repo := newDivergedRepo(t)
 		repo.Write("internal/untracked.go", "package untracked\n")
 		result := runChangedFiles(t, repo.Dir(), "branch", "main")
@@ -59,12 +67,14 @@ func TestChangedFiles(t *testing.T) {
 	})
 
 	t.Run("missing base exits 3", func(t *testing.T) {
+		t.Parallel()
 		repo := newDivergedRepo(t)
 		result := runChangedFiles(t, repo.Dir(), "branch", "no-such-ref")
 		assertStatus(t, result, 3)
 	})
 
 	t.Run("usage", func(t *testing.T) {
+		t.Parallel()
 		repo := newChangedFilesRepo(t)
 		if result := runChangedFiles(t, repo.Dir(), "", ""); result.Status != 2 {
 			t.Errorf("no mode exit status = %d, want 2", result.Status)

@@ -15,7 +15,9 @@ import (
 // ordering. The script itself creates no git fixtures, so the cases differ only
 // in the canned gh responses.
 func TestEnqueuePr(t *testing.T) {
+	t.Parallel()
 	t.Run("already merged", func(t *testing.T) {
+		t.Parallel()
 		h := newEnqueuePrHarness(t)
 
 		result := h.run(`{"state":"MERGED","id":"PR_1"}`, nil, nil, "42")
@@ -26,6 +28,7 @@ func TestEnqueuePr(t *testing.T) {
 	})
 
 	t.Run("checks pass", func(t *testing.T) {
+		t.Parallel()
 		h := newEnqueuePrHarness(t)
 
 		result := h.run(`{"state":"OPEN","id":"PR_2"}`, nil, nil, "42")
@@ -40,6 +43,7 @@ func TestEnqueuePr(t *testing.T) {
 	})
 
 	t.Run("linked issue needs a backport", func(t *testing.T) {
+		t.Parallel()
 		h := newEnqueuePrHarness(t)
 
 		result := h.run(
@@ -69,6 +73,7 @@ func TestEnqueuePr(t *testing.T) {
 	})
 
 	t.Run("marker copy is refused", func(t *testing.T) {
+		t.Parallel()
 		h := newEnqueuePrHarness(t)
 
 		result := h.run(
@@ -86,6 +91,7 @@ func TestEnqueuePr(t *testing.T) {
 	})
 
 	t.Run("linked issue does not need a backport", func(t *testing.T) {
+		t.Parallel()
 		h := newEnqueuePrHarness(t)
 
 		result := h.run(
@@ -101,6 +107,7 @@ func TestEnqueuePr(t *testing.T) {
 	})
 
 	t.Run("no closing issues", func(t *testing.T) {
+		t.Parallel()
 		h := newEnqueuePrHarness(t)
 
 		result := h.run(`{"state":"OPEN","id":"PR_12","closingIssuesReferences":[]}`, nil, nil, "42")
@@ -111,6 +118,7 @@ func TestEnqueuePr(t *testing.T) {
 	})
 
 	t.Run("checks not yet registered", func(t *testing.T) {
+		t.Parallel()
 		h := newEnqueuePrHarness(t)
 
 		result := h.run(`{"state":"OPEN","id":"PR_8"}`, nil, map[string]string{"GH_CHECKS_NOREPORT": "2"}, "42")
@@ -120,6 +128,7 @@ func TestEnqueuePr(t *testing.T) {
 	})
 
 	t.Run("checks fail", func(t *testing.T) {
+		t.Parallel()
 		h := newEnqueuePrHarness(t)
 
 		result := h.run(`{"state":"OPEN","id":"PR_3"}`, nil, map[string]string{"GH_CHECKS_EXIT": "1"}, "42")
@@ -130,6 +139,7 @@ func TestEnqueuePr(t *testing.T) {
 	})
 
 	t.Run("checks pending", func(t *testing.T) {
+		t.Parallel()
 		h := newEnqueuePrHarness(t)
 
 		result := h.run(`{"state":"OPEN","id":"PR_4"}`, nil, map[string]string{"GH_CHECKS_EXIT": "8"}, "42")
@@ -140,6 +150,7 @@ func TestEnqueuePr(t *testing.T) {
 	})
 
 	t.Run("closed while waiting", func(t *testing.T) {
+		t.Parallel()
 		h := newEnqueuePrHarness(t)
 		// The watch reaches pr_state on the fourth view probe; the marker copy no
 		// longer consumes one, because it runs after the enqueue.
@@ -157,6 +168,7 @@ func TestEnqueuePr(t *testing.T) {
 	})
 
 	t.Run("closed", func(t *testing.T) {
+		t.Parallel()
 		h := newEnqueuePrHarness(t)
 
 		result := h.run(`{"state":"CLOSED","id":"PR_6"}`, nil, nil, "42")
@@ -167,6 +179,7 @@ func TestEnqueuePr(t *testing.T) {
 	})
 
 	t.Run("merge conflict", func(t *testing.T) {
+		t.Parallel()
 		h := newEnqueuePrHarness(t)
 
 		result := h.run(
@@ -183,6 +196,7 @@ func TestEnqueuePr(t *testing.T) {
 	})
 
 	t.Run("enqueue fails", func(t *testing.T) {
+		t.Parallel()
 		h := newEnqueuePrHarness(t)
 
 		result := h.run(`{"state":"OPEN","id":"PR_7"}`, nil, map[string]string{"GH_ENQUEUE_EXIT": "1"}, "42")
@@ -193,6 +207,7 @@ func TestEnqueuePr(t *testing.T) {
 	})
 
 	t.Run("usage", func(t *testing.T) {
+		t.Parallel()
 		h := newEnqueuePrHarness(t)
 
 		if result := h.run(`{}`, nil, nil, "--help"); result.Status != 0 {

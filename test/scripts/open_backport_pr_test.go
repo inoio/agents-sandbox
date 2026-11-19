@@ -10,7 +10,9 @@ import (
 // TestOpenBackportPR ports every case of the bash harness scripts/test-open-backport-pr.sh,
 // asserting the same exit codes, output substrings, gh argv, and origin refs.
 func TestOpenBackportPR(t *testing.T) {
+	t.Parallel()
 	t.Run("clean port", func(t *testing.T) {
+		t.Parallel()
 		h := newOpenHarness(t)
 		f := seedFixture(t)
 
@@ -39,6 +41,7 @@ func TestOpenBackportPR(t *testing.T) {
 	})
 
 	t.Run("fragment named for the backport PR", func(t *testing.T) {
+		t.Parallel()
 		h := newOpenHarness(t)
 		f := seedFragmentFixture(t)
 
@@ -61,6 +64,7 @@ func TestOpenBackportPR(t *testing.T) {
 	})
 
 	t.Run("references the tracker", func(t *testing.T) {
+		t.Parallel()
 		h := newOpenHarness(t)
 		f := seedFragmentFixture(t)
 
@@ -71,6 +75,7 @@ func TestOpenBackportPR(t *testing.T) {
 	})
 
 	t.Run("no tracker reference without the knob", func(t *testing.T) {
+		t.Parallel()
 		h := newOpenHarness(t)
 		f := seedFragmentFixture(t)
 
@@ -80,6 +85,7 @@ func TestOpenBackportPR(t *testing.T) {
 	})
 
 	t.Run("rename push failure", func(t *testing.T) {
+		t.Parallel()
 		h := newOpenHarness(t)
 		f := seedFragmentFixture(t)
 		brokenOrigin := filepath.Join(t.TempDir(), "missing.git")
@@ -95,6 +101,7 @@ func TestOpenBackportPR(t *testing.T) {
 	})
 
 	t.Run("conflict aborts without pushing", func(t *testing.T) {
+		t.Parallel()
 		h := newOpenHarness(t)
 		f := seedFixture(t)
 		f.repo.Checkout("release/0.1")
@@ -115,6 +122,7 @@ func TestOpenBackportPR(t *testing.T) {
 	})
 
 	t.Run("partially ported", func(t *testing.T) {
+		t.Parallel()
 		h := newOpenHarness(t)
 		f := seedTwoCommitFixture(t)
 		f.repo.Checkout("release/0.1")
@@ -139,6 +147,7 @@ func TestOpenBackportPR(t *testing.T) {
 	})
 
 	t.Run("empty commit", func(t *testing.T) {
+		t.Parallel()
 		h := newOpenHarness(t)
 		f := seedEmptyCommitFixture(t)
 
@@ -157,6 +166,7 @@ func TestOpenBackportPR(t *testing.T) {
 	})
 
 	t.Run("change already present in another form", func(t *testing.T) {
+		t.Parallel()
 		h := newOpenHarness(t)
 		f := seedFixture(t)
 		f.repo.Checkout("release/0.1")
@@ -181,6 +191,7 @@ func TestOpenBackportPR(t *testing.T) {
 	})
 
 	t.Run("fully ported", func(t *testing.T) {
+		t.Parallel()
 		h := newOpenHarness(t)
 		f := seedTwoCommitFixture(t)
 		f.repo.Checkout("release/0.1")
@@ -204,6 +215,7 @@ func TestOpenBackportPR(t *testing.T) {
 	})
 
 	t.Run("no release branch", func(t *testing.T) {
+		t.Parallel()
 		h := newOpenHarness(t)
 		f := seedMainOnly(t)
 
@@ -214,6 +226,7 @@ func TestOpenBackportPR(t *testing.T) {
 	})
 
 	t.Run("unknown PR", func(t *testing.T) {
+		t.Parallel()
 		h := newOpenHarness(t)
 		f := seedFixture(t)
 
@@ -224,6 +237,7 @@ func TestOpenBackportPR(t *testing.T) {
 	})
 
 	t.Run("usage", func(t *testing.T) {
+		t.Parallel()
 		h := newOpenHarness(t)
 		dir := t.TempDir()
 

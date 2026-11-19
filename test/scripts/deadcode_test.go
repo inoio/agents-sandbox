@@ -14,6 +14,7 @@ import (
 // asserting the same exit codes and output substrings for the dead-code gate
 // (ci/check-deadcode.sh) driven by throwaway fixture reports.
 func TestDeadcode(t *testing.T) {
+	t.Parallel()
 	// Build ci/deadcodecheck once for this invocation and hand it to every case
 	// through DEADCODE_CHECKER: the script's default rebuild per case would
 	// dominate this harness. The binary lives in this invocation's temp dir, so
@@ -24,6 +25,7 @@ func TestDeadcode(t *testing.T) {
 	checker := buildDeadcodeChecker(t, repositoryRoot(t))
 
 	t.Run("marked finding in every configuration", func(t *testing.T) {
+		t.Parallel()
 		h := newDeadcodeHarness(t, checker, `//deadcode:ignore reason="test seam"`)
 		h.writeAllConfigurations(h.deadLine, "Dead")
 
@@ -31,6 +33,7 @@ func TestDeadcode(t *testing.T) {
 	})
 
 	t.Run("unmarked finding reported by one configuration", func(t *testing.T) {
+		t.Parallel()
 		h := newDeadcodeHarness(t, checker, "")
 		h.writeEmptyReport("no-tags")
 		h.writeEmptyReport("msb")
@@ -42,6 +45,7 @@ func TestDeadcode(t *testing.T) {
 	})
 
 	t.Run("stale marker", func(t *testing.T) {
+		t.Parallel()
 		h := newDeadcodeHarness(t, checker, `//deadcode:ignore reason="test seam"`)
 		h.writeAllConfigurations(99, "Elsewhere")
 
@@ -50,6 +54,7 @@ func TestDeadcode(t *testing.T) {
 	})
 
 	t.Run("malformed report payload", func(t *testing.T) {
+		t.Parallel()
 		h := newDeadcodeHarness(t, checker, "")
 		h.writeAllConfigurations(h.deadLine, "Dead")
 		writeDoc(t, filepath.Join(h.reports, "no-tags.json"), "not a report\n")
@@ -58,6 +63,7 @@ func TestDeadcode(t *testing.T) {
 	})
 
 	t.Run("missing source file", func(t *testing.T) {
+		t.Parallel()
 		h := newDeadcodeHarness(t, checker, "")
 		h.writeAllConfigurations(h.deadLine, "Dead")
 		writeDoc(t, h.files, filepath.Join(h.work, "src", "absent.go")+"\n")
@@ -66,6 +72,7 @@ func TestDeadcode(t *testing.T) {
 	})
 
 	t.Run("single configuration run", func(t *testing.T) {
+		t.Parallel()
 		h := newDeadcodeHarness(t, checker, `//deadcode:ignore reason="test seam"`)
 		h.writeReport("no-tags", h.deadLine, "Dead")
 
@@ -73,6 +80,7 @@ func TestDeadcode(t *testing.T) {
 	})
 
 	t.Run("missing configuration payload", func(t *testing.T) {
+		t.Parallel()
 		h := newDeadcodeHarness(t, checker, `//deadcode:ignore reason="test seam"`)
 		h.writeReport("no-tags", h.deadLine, "Dead")
 
@@ -80,6 +88,7 @@ func TestDeadcode(t *testing.T) {
 	})
 
 	t.Run("package-scoped run skips staleness", func(t *testing.T) {
+		t.Parallel()
 		h := newDeadcodeHarness(t, checker, `//deadcode:ignore reason="test seam"`)
 		h.writeEmptyReport("no-tags")
 		h.writeEmptyReport("integration")
@@ -95,6 +104,7 @@ func TestDeadcode(t *testing.T) {
 	})
 
 	t.Run("supplied checker is executed", func(t *testing.T) {
+		t.Parallel()
 		h := newDeadcodeHarness(t, checker, "")
 		h.writeAllConfigurations(h.deadLine, "Dead")
 		stub := filepath.Join(t.TempDir(), "stub-checker")

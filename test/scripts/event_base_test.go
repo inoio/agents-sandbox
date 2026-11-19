@@ -11,11 +11,13 @@ import (
 // TestEventBase ports every case of the bash harness ci/test-check-event-base.sh,
 // asserting the same exit codes and stdout/stderr substrings for ci/event-base.sh.
 func TestEventBase(t *testing.T) {
+	t.Parallel()
 	// The resolver decides the base SHA from the GitHub event environment and the
 	// git repo at the current directory. The fixture is A -> B on main, with a
 	// feature branch forked at B adding C, pushed to a local bare origin so the
 	// pull_request fetch and merge base resolve offline.
 	t.Run("push with a real before", func(t *testing.T) {
+		t.Parallel()
 		f := seedEventBaseFixture(t)
 
 		result := runEventBase(t, f, "push", map[string]string{
@@ -30,6 +32,7 @@ func TestEventBase(t *testing.T) {
 	})
 
 	t.Run("push whose before is the zero SHA", func(t *testing.T) {
+		t.Parallel()
 		f := seedEventBaseFixture(t)
 
 		result := runEventBase(t, f, "push", map[string]string{
@@ -42,6 +45,7 @@ func TestEventBase(t *testing.T) {
 	})
 
 	t.Run("push whose before is absent", func(t *testing.T) {
+		t.Parallel()
 		f := seedEventBaseFixture(t)
 
 		result := runEventBase(t, f, "push", map[string]string{
@@ -53,6 +57,7 @@ func TestEventBase(t *testing.T) {
 	})
 
 	t.Run("schedule is undecidable", func(t *testing.T) {
+		t.Parallel()
 		f := seedEventBaseFixture(t)
 
 		result := runEventBase(t, f, "schedule", map[string]string{
@@ -64,6 +69,7 @@ func TestEventBase(t *testing.T) {
 	})
 
 	t.Run("workflow_dispatch is undecidable", func(t *testing.T) {
+		t.Parallel()
 		f := seedEventBaseFixture(t)
 
 		result := runEventBase(t, f, "workflow_dispatch", map[string]string{
@@ -75,6 +81,7 @@ func TestEventBase(t *testing.T) {
 	})
 
 	t.Run("merge_group uses its base_sha", func(t *testing.T) {
+		t.Parallel()
 		f := seedEventBaseFixture(t)
 
 		result := runEventBase(t, f, "merge_group", map[string]string{
@@ -88,6 +95,7 @@ func TestEventBase(t *testing.T) {
 	})
 
 	t.Run("merge_group without a base_sha", func(t *testing.T) {
+		t.Parallel()
 		f := seedEventBaseFixture(t)
 
 		result := runEventBase(t, f, "merge_group", map[string]string{
@@ -99,6 +107,7 @@ func TestEventBase(t *testing.T) {
 	})
 
 	t.Run("pull_request uses the merge base", func(t *testing.T) {
+		t.Parallel()
 		f := seedEventBaseFixture(t)
 
 		result := runEventBase(t, f, "pull_request", map[string]string{

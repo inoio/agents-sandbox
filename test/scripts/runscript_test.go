@@ -13,6 +13,7 @@ import (
 // fixture commit cannot reach a signing prompt), extraEnv is applied, and both
 // output streams plus the exit status are captured without the test failing.
 func TestRunScriptIsolatesAndCaptures(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	script := filepath.Join(dir, "s.sh")
 	testutil.WritePath(
@@ -43,6 +44,7 @@ func TestRunScriptIsolatesAndCaptures(t *testing.T) {
 // otherwise sleeps `atexit_sleep_ms` (1000 ms), so the delay would dominate the
 // package's -race run.
 func TestRunScriptDisablesRaceExitSleep(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	script := filepath.Join(dir, "gorace.sh")
 	testutil.WritePath(t, script, "#!/usr/bin/env bash\nprintf '%s\\n' \"$GORACE\"\n")
@@ -58,6 +60,7 @@ func TestRunScriptDisablesRaceExitSleep(t *testing.T) {
 // TestRunScriptKeepsAnExplicitRaceExitSleep asserts RunScript does not clobber a
 // delay the environment sets on purpose.
 func TestRunScriptKeepsAnExplicitRaceExitSleep(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	script := filepath.Join(dir, "gorace.sh")
 	testutil.WritePath(t, script, "#!/usr/bin/env bash\nprintf '%s\\n' \"$GORACE\"\n")
@@ -72,6 +75,7 @@ func TestRunScriptKeepsAnExplicitRaceExitSleep(t *testing.T) {
 // TestRunScriptPassesArguments asserts the script receives its trailing args,
 // the shape a harness uses to drive a tool with a case-specific argument.
 func TestRunScriptPassesArguments(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	script := filepath.Join(dir, "args.sh")
 	testutil.WritePath(t, script, "#!/usr/bin/env bash\nprintf '%s|' \"$@\"\n")

@@ -12,7 +12,9 @@ import (
 // GitIsolationEnvironment), and RunScript strips the ambient git settings from
 // the script's environment itself.
 func TestRebaseStatus(t *testing.T) {
+	t.Parallel()
 	t.Run("clean repository reports no rebase", func(t *testing.T) {
+		t.Parallel()
 		repo := seedRebaseStatusRepo(t)
 
 		result := runRebaseStatus(t, repo, "--repo", repo)
@@ -24,6 +26,7 @@ func TestRebaseStatus(t *testing.T) {
 	})
 
 	t.Run("conflicted rebase reports step, target, and markers", func(t *testing.T) {
+		t.Parallel()
 		repo := seedRebaseStatusRepo(t)
 		gitCheckout(t, repo, "feature")
 
@@ -47,6 +50,7 @@ func TestRebaseStatus(t *testing.T) {
 	})
 
 	t.Run("clean again after abort", func(t *testing.T) {
+		t.Parallel()
 		repo := seedRebaseStatusRepo(t)
 		gitCheckout(t, repo, "feature")
 		if err := gitRebase(t, repo, "main"); err == nil {
@@ -62,6 +66,7 @@ func TestRebaseStatus(t *testing.T) {
 	})
 
 	t.Run("missing repository is an error", func(t *testing.T) {
+		t.Parallel()
 		missing := filepath.Join(t.TempDir(), "does-not-exist")
 
 		result := runRebaseStatus(t, t.TempDir(), "--repo", missing)
@@ -71,6 +76,7 @@ func TestRebaseStatus(t *testing.T) {
 	})
 
 	t.Run("help exits zero", func(t *testing.T) {
+		t.Parallel()
 		result := runRebaseStatus(t, t.TempDir(), "--help")
 
 		assertStatus(t, result, 0)

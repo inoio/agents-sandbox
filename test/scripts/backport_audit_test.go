@@ -8,7 +8,9 @@ import (
 // TestBackportAudit ports every case of the bash harness scripts/test-backport-audit.sh,
 // asserting the same exit codes, output substrings, gh argv, and debt lines.
 func TestBackportAudit(t *testing.T) {
+	t.Parallel()
 	t.Run("no release branch", func(t *testing.T) {
+		t.Parallel()
 		h := newAuditHarness(t)
 		repo := New(t)
 		repo.Write("f", "a\n")
@@ -26,6 +28,7 @@ func TestBackportAudit(t *testing.T) {
 	})
 
 	t.Run("unported PR", func(t *testing.T) {
+		t.Parallel()
 		h := newAuditHarness(t)
 		repo, merge := seedAuditRepository(t)
 		h.writeMerged("2020-01-01T00:00:00Z", merge.String())
@@ -41,6 +44,7 @@ func TestBackportAudit(t *testing.T) {
 	})
 
 	t.Run("truncated expected set", func(t *testing.T) {
+		t.Parallel()
 		h := newAuditHarness(t)
 		repo, _ := seedAuditRepository(t)
 
@@ -57,6 +61,7 @@ func TestBackportAudit(t *testing.T) {
 	})
 
 	t.Run("one row below the cap", func(t *testing.T) {
+		t.Parallel()
 		h := newAuditHarness(t)
 		repo, _ := seedAuditRepository(t)
 
@@ -69,6 +74,7 @@ func TestBackportAudit(t *testing.T) {
 	})
 
 	t.Run("merge commit not in the local clone", func(t *testing.T) {
+		t.Parallel()
 		h := newAuditHarness(t)
 		repo, merge := seedAuditRepository(t)
 		absent := "0123456789abcdef0123456789abcdef01234567"
@@ -92,6 +98,7 @@ func TestBackportAudit(t *testing.T) {
 	})
 
 	t.Run("empty commit", func(t *testing.T) {
+		t.Parallel()
 		h := newAuditHarness(t)
 		repo, _ := seedAuditRepository(t)
 		empty := repo.Commit("empty")
@@ -104,6 +111,7 @@ func TestBackportAudit(t *testing.T) {
 	})
 
 	t.Run("ported PR", func(t *testing.T) {
+		t.Parallel()
 		h := newAuditHarness(t)
 		repo, merge := seedAuditRepository(t)
 		repo.Checkout("release/0.1")
@@ -117,6 +125,7 @@ func TestBackportAudit(t *testing.T) {
 	})
 
 	t.Run("merged within grace", func(t *testing.T) {
+		t.Parallel()
 		h := newAuditHarness(t)
 		repo, merge := seedAuditRepository(t)
 		const now = int64(1700000000)
@@ -131,6 +140,7 @@ func TestBackportAudit(t *testing.T) {
 	})
 
 	t.Run("open backport PR is not a clearance", func(t *testing.T) {
+		t.Parallel()
 		h := newAuditHarness(t)
 		repo, merge := seedAuditRepository(t)
 		h.writeOpenBackports(auditPull{Number: 8, URL: "https://github.com/o/r/pull/8", Body: "Backport of #7"})
@@ -143,6 +153,7 @@ func TestBackportAudit(t *testing.T) {
 	})
 
 	t.Run("merged backport PR clears an adapted port", func(t *testing.T) {
+		t.Parallel()
 		h := newAuditHarness(t)
 		repo, merge := seedAuditRepository(t)
 		repo.Checkout("release/0.1")
@@ -161,6 +172,7 @@ func TestBackportAudit(t *testing.T) {
 	})
 
 	t.Run("two open backport PRs", func(t *testing.T) {
+		t.Parallel()
 		h := newAuditHarness(t)
 		repo, merge := seedAuditRepository(t)
 		h.writeOpenBackports(
@@ -176,6 +188,7 @@ func TestBackportAudit(t *testing.T) {
 	})
 
 	t.Run("a reference alone on a line clears", func(t *testing.T) {
+		t.Parallel()
 		h := newAuditHarness(t)
 		repo, merge := seedAuditRepository(t)
 		h.writeMerged("2020-01-01T00:00:00Z", merge.String())
@@ -191,6 +204,7 @@ func TestBackportAudit(t *testing.T) {
 	})
 
 	t.Run("an open reference alone on a line is annotated", func(t *testing.T) {
+		t.Parallel()
 		h := newAuditHarness(t)
 		repo, merge := seedAuditRepository(t)
 		h.writeOpenBackports(auditPull{
@@ -207,6 +221,7 @@ func TestBackportAudit(t *testing.T) {
 	})
 
 	t.Run("truncated merged backports", func(t *testing.T) {
+		t.Parallel()
 		h := newAuditHarness(t)
 		repo, merge := seedAuditRepository(t)
 		h.writeMerged("2020-01-01T00:00:00Z", merge.String())
@@ -221,6 +236,7 @@ func TestBackportAudit(t *testing.T) {
 	})
 
 	t.Run("unlabeled merged PR", func(t *testing.T) {
+		t.Parallel()
 		h := newAuditHarness(t)
 		repo, _ := seedAuditRepository(t)
 		writeDoc(t, h.mergedJSONPath, "[]\n")
@@ -231,6 +247,7 @@ func TestBackportAudit(t *testing.T) {
 	})
 
 	t.Run("duplicate patch-id", func(t *testing.T) {
+		t.Parallel()
 		h := newAuditHarness(t)
 		repo, merge := seedAuditRepository(t)
 		repo.Checkout("release/0.1")
@@ -246,6 +263,7 @@ func TestBackportAudit(t *testing.T) {
 	})
 
 	t.Run("adapted port", func(t *testing.T) {
+		t.Parallel()
 		h := newAuditHarness(t)
 		repo, merge := seedAuditRepository(t)
 		repo.Checkout("release/0.1")
@@ -260,6 +278,7 @@ func TestBackportAudit(t *testing.T) {
 	})
 
 	t.Run("issue label, unlabeled PR", func(t *testing.T) {
+		t.Parallel()
 		h := newAuditHarness(t)
 		repo, merge := seedAuditRepository(t)
 		writeDoc(t, h.mergedJSONPath, "[]\n")
@@ -276,6 +295,7 @@ func TestBackportAudit(t *testing.T) {
 	})
 
 	t.Run("issue label, ported PR", func(t *testing.T) {
+		t.Parallel()
 		h := newAuditHarness(t)
 		repo, merge := seedAuditRepository(t)
 		writeDoc(t, h.mergedJSONPath, "[]\n")
@@ -291,6 +311,7 @@ func TestBackportAudit(t *testing.T) {
 	})
 
 	t.Run("issue and PR label, one record", func(t *testing.T) {
+		t.Parallel()
 		h := newAuditHarness(t)
 		repo, merge := seedAuditRepository(t)
 		h.writeMerged("2020-01-01T00:00:00Z", merge.String())
@@ -305,6 +326,7 @@ func TestBackportAudit(t *testing.T) {
 	})
 
 	t.Run("issue references an unmerged PR", func(t *testing.T) {
+		t.Parallel()
 		h := newAuditHarness(t)
 		repo, merge := seedAuditRepository(t)
 		writeDoc(t, h.mergedJSONPath, "[]\n")
@@ -317,6 +339,7 @@ func TestBackportAudit(t *testing.T) {
 	})
 
 	t.Run("usage", func(t *testing.T) {
+		t.Parallel()
 		h := newAuditHarness(t)
 		dir := t.TempDir()
 

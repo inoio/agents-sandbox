@@ -10,6 +10,7 @@ import (
 // rebase-status and cleanup-merged-branches harnesses: a worktree repo, a bare
 // clone with worktrees, branch/ref manipulation, and cherry-pick/merge.
 func TestPorcelainGitHelpers(t *testing.T) {
+	t.Parallel()
 	seed := t.TempDir()
 	gitInit(t, seed)
 	gitConfig(t, seed, "user.email", "test@example.com")

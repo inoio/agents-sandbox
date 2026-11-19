@@ -153,7 +153,9 @@ func checkLineOf(haystack, needle string) int {
 // ambient-config poison run is not meaningful: it exercises nothing a poisoned
 // git config could reach.
 func TestCheck(t *testing.T) {
+	t.Parallel()
 	t.Run("all pass", func(t *testing.T) {
+		t.Parallel()
 		h := newCheckHarness(t)
 		result := h.run(checkRun{heavy: "alpha"}, "alpha", "beta")
 
@@ -165,6 +167,7 @@ func TestCheck(t *testing.T) {
 	})
 
 	t.Run("failing light target", func(t *testing.T) {
+		t.Parallel()
 		h := newCheckHarness(t)
 		h.failTarget("beta")
 		result := h.run(checkRun{heavy: "alpha"}, "alpha", "beta")
@@ -186,6 +189,7 @@ func TestCheck(t *testing.T) {
 	})
 
 	t.Run("failing heavy target", func(t *testing.T) {
+		t.Parallel()
 		h := newCheckHarness(t)
 		h.failTarget("alpha")
 		result := h.run(checkRun{heavy: "alpha"}, "alpha", "beta")
@@ -196,6 +200,7 @@ func TestCheck(t *testing.T) {
 	})
 
 	t.Run("unknown heavy target", func(t *testing.T) {
+		t.Parallel()
 		h := newCheckHarness(t)
 		result := h.run(checkRun{heavy: "gamma"}, "alpha", "beta")
 
@@ -204,6 +209,7 @@ func TestCheck(t *testing.T) {
 	})
 
 	t.Run("help", func(t *testing.T) {
+		t.Parallel()
 		h := newCheckHarness(t)
 		result := RunScript(t, h.dir, nil, repositoryScript(t, "check.sh"), "--help")
 
@@ -212,6 +218,7 @@ func TestCheck(t *testing.T) {
 	})
 
 	t.Run("light targets overlap", func(t *testing.T) {
+		t.Parallel()
 		h := newCheckHarness(t)
 		h.clearFailures()
 		h.clearOrder()
@@ -224,6 +231,7 @@ func TestCheck(t *testing.T) {
 	})
 
 	t.Run("heavy targets run one at a time", func(t *testing.T) {
+		t.Parallel()
 		h := newCheckHarness(t)
 		h.clearFailures()
 		h.clearOrder()
@@ -240,6 +248,7 @@ func TestCheck(t *testing.T) {
 	})
 
 	t.Run("SERIAL runs one at a time", func(t *testing.T) {
+		t.Parallel()
 		h := newCheckHarness(t)
 		h.clearFailures()
 		h.clearOrder()
@@ -252,6 +261,7 @@ func TestCheck(t *testing.T) {
 	})
 
 	t.Run("VERBOSE streams without status lines", func(t *testing.T) {
+		t.Parallel()
 		h := newCheckHarness(t)
 		h.clearFailures()
 		h.clearOrder()
@@ -263,6 +273,7 @@ func TestCheck(t *testing.T) {
 	})
 
 	t.Run("per-target line reports cpu time and lane", func(t *testing.T) {
+		t.Parallel()
 		h := newCheckHarness(t)
 		result := h.run(checkRun{heavy: "alpha"}, "alpha", "beta")
 
@@ -275,6 +286,7 @@ func TestCheck(t *testing.T) {
 	})
 
 	t.Run("total time line reports the target count", func(t *testing.T) {
+		t.Parallel()
 		h := newCheckHarness(t)
 		result := h.run(checkRun{heavy: "alpha"}, "alpha", "beta")
 
@@ -283,6 +295,7 @@ func TestCheck(t *testing.T) {
 	})
 
 	t.Run("total time line is singular for one target", func(t *testing.T) {
+		t.Parallel()
 		h := newCheckHarness(t)
 		result := h.run(checkRun{heavy: "alpha"}, "alpha")
 
@@ -291,6 +304,7 @@ func TestCheck(t *testing.T) {
 	})
 
 	t.Run("progress is off without a terminal", func(t *testing.T) {
+		t.Parallel()
 		h := newCheckHarness(t)
 		result := h.run(checkRun{heavy: "alpha", jobs: "2", order: "1"}, "alpha", "beta")
 
@@ -301,6 +315,7 @@ func TestCheck(t *testing.T) {
 	})
 
 	t.Run("progress separates heavy and light targets", func(t *testing.T) {
+		t.Parallel()
 		h := newCheckHarness(t)
 		result := h.run(checkRun{heavy: "alpha", jobs: "2", order: "1", progress: "1"}, "alpha", "beta")
 
@@ -312,6 +327,7 @@ func TestCheck(t *testing.T) {
 	})
 
 	t.Run("check-selected filters the heavy set", func(t *testing.T) {
+		t.Parallel()
 		h := newCheckHarness(t)
 		got := h.runSelected(checkRunSelectedCase{
 			targets: "docs-linkcheck shellcheck",
@@ -326,6 +342,7 @@ func TestCheck(t *testing.T) {
 	})
 
 	t.Run("check-selected keeps a selected heavy target", func(t *testing.T) {
+		t.Parallel()
 		h := newCheckHarness(t)
 		got := h.runSelected(checkRunSelectedCase{
 			targets: "validate-fmt docs-linkcheck",

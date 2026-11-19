@@ -13,6 +13,7 @@ import (
 // it execs the PATH symlink and checks the handler's streams and exit status are
 // served. This is the cross-process contract the TestMain hook depends on.
 func TestDispatchServesTheRegisteredHandler(t *testing.T) {
+	t.Parallel()
 	binDir := BinDir(t, "faketool")
 	command := exec.Command(filepath.Join(binDir, "faketool"), "alpha", "beta")
 	var stdout, stderr bytes.Buffer

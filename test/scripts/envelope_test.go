@@ -19,7 +19,9 @@ import (
 // this repository: every case that copies a source passes an explicit --source
 // under a temp root (the print and help cases deliberately read the default).
 func TestEnvelope(t *testing.T) {
+	t.Parallel()
 	t.Run("scrubbed run", func(t *testing.T) {
+		t.Parallel()
 		root := t.TempDir()
 		fixture := envelopeFixture(t, filepath.Join(root, "base"))
 		work := filepath.Join(root, "work")
@@ -47,6 +49,7 @@ func TestEnvelope(t *testing.T) {
 	})
 
 	t.Run("forced -count=1 is last", func(t *testing.T) {
+		t.Parallel()
 		root := t.TempDir()
 		fixture := envelopeFixture(t, filepath.Join(root, "base"))
 
@@ -64,6 +67,7 @@ func TestEnvelope(t *testing.T) {
 	})
 
 	t.Run("print shows the plan and runs nothing", func(t *testing.T) {
+		t.Parallel()
 		root := t.TempDir()
 		fixture := envelopeFixture(t, filepath.Join(root, "base"))
 
@@ -85,6 +89,7 @@ func TestEnvelope(t *testing.T) {
 	})
 
 	t.Run("print shows the default source", func(t *testing.T) {
+		t.Parallel()
 		result := runEnvelope(t, t.TempDir(), nil, "--print")
 
 		assertStatus(t, result, 0)
@@ -92,6 +97,7 @@ func TestEnvelope(t *testing.T) {
 	})
 
 	t.Run("help", func(t *testing.T) {
+		t.Parallel()
 		result := runEnvelope(t, t.TempDir(), nil, "--help")
 
 		assertStatus(t, result, 0)
@@ -101,6 +107,7 @@ func TestEnvelope(t *testing.T) {
 	})
 
 	t.Run("keep preserves the work dir", func(t *testing.T) {
+		t.Parallel()
 		root := t.TempDir()
 		fixture := envelopeFixture(t, filepath.Join(root, "base"))
 		keepWork := filepath.Join(root, "keep-work")
@@ -115,6 +122,7 @@ func TestEnvelope(t *testing.T) {
 	})
 
 	t.Run("spaced source path", func(t *testing.T) {
+		t.Parallel()
 		root := t.TempDir()
 		fixture := envelopeFixture(t, filepath.Join(root, "with space"))
 		spacedWork := filepath.Join(root, "space work")
@@ -127,6 +135,7 @@ func TestEnvelope(t *testing.T) {
 	})
 
 	t.Run("existing work dir refused", func(t *testing.T) {
+		t.Parallel()
 		root := t.TempDir()
 		fixture := envelopeFixture(t, filepath.Join(root, "base"))
 		existing := filepath.Join(root, "existing")
@@ -148,6 +157,7 @@ func TestEnvelope(t *testing.T) {
 	})
 
 	t.Run("work dir inside source refused", func(t *testing.T) {
+		t.Parallel()
 		root := t.TempDir()
 		fixture := envelopeFixture(t, filepath.Join(root, "base"))
 
@@ -161,6 +171,7 @@ func TestEnvelope(t *testing.T) {
 	})
 
 	t.Run("symlinked work dir inside source refused", func(t *testing.T) {
+		t.Parallel()
 		root := t.TempDir()
 		fixture := envelopeFixture(t, filepath.Join(root, "base"))
 		target := filepath.Join(fixture, "inside-link-target")
@@ -182,6 +193,7 @@ func TestEnvelope(t *testing.T) {
 	})
 
 	t.Run("TMPDIR work dir inside source refused", func(t *testing.T) {
+		t.Parallel()
 		root := t.TempDir()
 		fixture := envelopeFixture(t, filepath.Join(root, "base"))
 		insideTmp := filepath.Join(fixture, "host-tmp")
@@ -210,6 +222,7 @@ func TestEnvelope(t *testing.T) {
 	})
 
 	t.Run("netns rejected off Linux", func(t *testing.T) {
+		t.Parallel()
 		root := t.TempDir()
 		fixture := envelopeFixture(t, filepath.Join(root, "base"))
 
@@ -239,6 +252,7 @@ func TestEnvelope(t *testing.T) {
 	})
 
 	t.Run("netns wraps the command", func(t *testing.T) {
+		t.Parallel()
 		if !envelopeNetnsCapable(t) {
 			t.Skip("no netns on this host")
 		}
@@ -254,6 +268,7 @@ func TestEnvelope(t *testing.T) {
 	})
 
 	t.Run("netns blocks egress", func(t *testing.T) {
+		t.Parallel()
 		egressIP := envelopeResolveEgressIP(t)
 		if !envelopeNetnsCapable(t) || !envelopeUnshareNetCapable(t) || !envelopeHasTool("timeout") ||
 			egressIP == "" || !envelopeHostReaches(t, egressIP) {
@@ -279,6 +294,7 @@ func TestEnvelope(t *testing.T) {
 	})
 
 	t.Run("loopback is up inside the namespace", func(t *testing.T) {
+		t.Parallel()
 		if !envelopeNetnsCapable(t) || !envelopeUnshareNetCapable(t) {
 			t.Skip("no netns-capable unshare/ip")
 		}

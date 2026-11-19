@@ -16,7 +16,9 @@ var goDocs = []string{"compile-all", "docs-linkcheck", "lint", "test", "validate
 
 // TestChangedTargets ports every case of the bash harness scripts/test-changed-targets.sh.
 func TestChangedTargets(t *testing.T) {
+	t.Parallel()
 	t.Run("no changes selects nothing", func(t *testing.T) {
+		t.Parallel()
 		repo := newMapRepo(t)
 		assertSorted(t, "no changes", runMap(t, repo.Dir(), "local", "", nil).Stdout)
 	})
@@ -253,6 +255,7 @@ func TestChangedTargets(t *testing.T) {
 	}
 	for _, tt := range localCases {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			repo := newMapRepo(t)
 			repo.Write(tt.path, tt.content)
 			assertSorted(t, tt.name, runMap(t, repo.Dir(), "local", "", nil).Stdout, tt.want...)
@@ -260,24 +263,28 @@ func TestChangedTargets(t *testing.T) {
 	}
 
 	t.Run("unrecognized Makefile selects all", func(t *testing.T) {
+		t.Parallel()
 		repo := newMapRepo(t)
 		repo.Write("Makefile", "all:\n")
 		assertSorted(t, "Makefile selects all", runMap(t, repo.Dir(), "local", "", nil).Stdout, fullCheckTargets(t)...)
 	})
 
 	t.Run("deleted tracked Go", func(t *testing.T) {
+		t.Parallel()
 		repo := newMapRepo(t)
 		repo.Remove("internal/foo/foo.go")
 		assertSorted(t, "deleted tracked Go", runMap(t, repo.Dir(), "local", "", nil).Stdout, goDocs...)
 	})
 
 	t.Run("untracked new Go", func(t *testing.T) {
+		t.Parallel()
 		repo := newMapRepo(t)
 		repo.Write("internal/new/new.go", "package new\n")
 		assertSorted(t, "untracked new Go", runMap(t, repo.Dir(), "local", "", nil).Stdout, goDocs...)
 	})
 
 	t.Run("failing ls-files is an error", func(t *testing.T) {
+		t.Parallel()
 		repo := newMapRepo(t)
 		shimDir := writeFailingLSFilesGitShim(t)
 		result := runMap(t, repo.Dir(), "local", "", map[string]string{
@@ -289,6 +296,7 @@ func TestChangedTargets(t *testing.T) {
 	})
 
 	t.Run("rename selects the source class", func(t *testing.T) {
+		t.Parallel()
 		repo := newMapRepo(t)
 		repo.Rename("docs/guide.md", ".operator-shared/guide.md")
 		assertSorted(
@@ -300,11 +308,13 @@ func TestChangedTargets(t *testing.T) {
 	})
 
 	t.Run("branch uses the merge base", func(t *testing.T) {
+		t.Parallel()
 		repo := newMapDivergedRepo(t)
 		assertSorted(t, "branch merge base", runMap(t, repo.Dir(), "branch", "main", nil).Stdout, "docs-linkcheck")
 	})
 
 	t.Run("branch with missing base selects all", func(t *testing.T) {
+		t.Parallel()
 		repo := newMapDivergedRepo(t)
 		assertSorted(
 			t,
@@ -314,6 +324,7 @@ func TestChangedTargets(t *testing.T) {
 	})
 
 	t.Run("usage", func(t *testing.T) {
+		t.Parallel()
 		repo := newMapRepo(t)
 		if result := runMap(t, repo.Dir(), "", "", nil); result.Status != 2 {
 			t.Errorf("no mode exit status = %d, want 2", result.Status)
