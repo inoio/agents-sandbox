@@ -21,7 +21,9 @@ import (
 // path is too long. XDG_DATA_HOME/HOME are pointed under the test root, so nothing the
 // script derives can reach the developer's real state.
 func TestSurfaceSweep(t *testing.T) {
+	t.Parallel()
 	t.Run("init refuses a root whose socket path is too long", func(t *testing.T) {
+		t.Parallel()
 		h := newSurfaceSweepHarness(t)
 		longRoot := filepath.Join(t.TempDir(), strings.Repeat("x", 120))
 
@@ -35,6 +37,7 @@ func TestSurfaceSweep(t *testing.T) {
 	})
 
 	t.Run("init creates the root tree and protects it 0700", func(t *testing.T) {
+		t.Parallel()
 		h := newSurfaceSweepHarness(t)
 
 		result := h.run(nil, "init")
@@ -58,6 +61,7 @@ func TestSurfaceSweep(t *testing.T) {
 	})
 
 	t.Run("init resolves a relative root absolute", func(t *testing.T) {
+		t.Parallel()
 		h := newSurfaceSweepHarness(t)
 		// A PID-sized name mirrors the deleted bash harness's asb-rel-$$: the
 		// MkdirTemp suffix (9-10 digits) pushes the derived socket path over the
@@ -82,6 +86,7 @@ func TestSurfaceSweep(t *testing.T) {
 	})
 
 	t.Run("env and sweep refuse a too-long root", func(t *testing.T) {
+		t.Parallel()
 		h := newSurfaceSweepHarness(t)
 		longRoot := filepath.Join(t.TempDir(), strings.Repeat("x", 120))
 
@@ -95,6 +100,7 @@ func TestSurfaceSweep(t *testing.T) {
 	})
 
 	t.Run("env creates the per-run tree and exports the isolated vars", func(t *testing.T) {
+		t.Parallel()
 		h := newSurfaceSweepHarness(t)
 
 		result := h.run(nil, "env", "foo")
@@ -115,6 +121,7 @@ func TestSurfaceSweep(t *testing.T) {
 	})
 
 	t.Run("env is idempotent and requires a name", func(t *testing.T) {
+		t.Parallel()
 		h := newSurfaceSweepHarness(t)
 
 		first := h.run(nil, "env", "foo")
@@ -136,6 +143,7 @@ func TestSurfaceSweep(t *testing.T) {
 	})
 
 	t.Run("env drops the ambient config-override namespaces", func(t *testing.T) {
+		t.Parallel()
 		h := newSurfaceSweepHarness(t)
 		leak := map[string]string{
 			"AGENTS_SANDBOX_NETWORK_PROFILE": "none",
@@ -162,6 +170,7 @@ func TestSurfaceSweep(t *testing.T) {
 	})
 
 	t.Run("sweep without the coordinator lock is refused", func(t *testing.T) {
+		t.Parallel()
 		h := newSurfaceSweepHarness(t)
 		h.run(nil, "init")
 
@@ -175,6 +184,7 @@ func TestSurfaceSweep(t *testing.T) {
 	})
 
 	t.Run("sweep removes sandboxes and volumes with --yes", func(t *testing.T) {
+		t.Parallel()
 		h := newSurfaceSweepHarness(t)
 		h.run(nil, "init")
 		h.run(nil, "lock")
@@ -201,6 +211,7 @@ func TestSurfaceSweep(t *testing.T) {
 	})
 
 	t.Run("empty sweep prints nothing and exits 0", func(t *testing.T) {
+		t.Parallel()
 		h := newSurfaceSweepHarness(t)
 		h.run(nil, "init")
 		h.run(nil, "lock")
@@ -214,7 +225,9 @@ func TestSurfaceSweep(t *testing.T) {
 	})
 
 	t.Run("sweep fails when a list command fails", func(t *testing.T) {
+		t.Parallel()
 		t.Run("sandbox list", func(t *testing.T) {
+			t.Parallel()
 			h := newSurfaceSweepHarness(t)
 			h.run(nil, "init")
 			h.run(nil, "lock")
@@ -226,6 +239,7 @@ func TestSurfaceSweep(t *testing.T) {
 		})
 
 		t.Run("volume list", func(t *testing.T) {
+			t.Parallel()
 			h := newSurfaceSweepHarness(t)
 			h.run(nil, "init")
 			h.run(nil, "lock")
@@ -238,7 +252,9 @@ func TestSurfaceSweep(t *testing.T) {
 	})
 
 	t.Run("a failed removal is reported while later removals still run", func(t *testing.T) {
+		t.Parallel()
 		t.Run("sandbox removal", func(t *testing.T) {
+			t.Parallel()
 			h := newSurfaceSweepHarness(t)
 			h.run(nil, "init")
 			h.run(nil, "lock")
@@ -257,6 +273,7 @@ func TestSurfaceSweep(t *testing.T) {
 		})
 
 		t.Run("volume removal", func(t *testing.T) {
+			t.Parallel()
 			h := newSurfaceSweepHarness(t)
 			h.run(nil, "init")
 			h.run(nil, "lock")
@@ -274,6 +291,7 @@ func TestSurfaceSweep(t *testing.T) {
 	})
 
 	t.Run("init records the runner-image baseline", func(t *testing.T) {
+		t.Parallel()
 		h := newSurfaceSweepHarness(t)
 
 		h.run(map[string]string{
@@ -288,6 +306,7 @@ func TestSurfaceSweep(t *testing.T) {
 	})
 
 	t.Run("sweep removes only the tags added since the baseline", func(t *testing.T) {
+		t.Parallel()
 		h := newSurfaceSweepHarness(t)
 		const kept = "agents-sandbox/runner-kept-aaaaaaaaaaaaaa:opencode-latest"
 		const added = "agents-sandbox/runner-new-bbbbbbbbbbbbbb:opencode-latest"
@@ -305,6 +324,7 @@ func TestSurfaceSweep(t *testing.T) {
 	})
 
 	t.Run("init warns when docker is unreachable and leaves no baseline", func(t *testing.T) {
+		t.Parallel()
 		h := newSurfaceSweepHarness(t)
 
 		result := h.run(map[string]string{"SURFACE_SWEEP_DOCKER_FAIL_ALL": "1"}, "init")
@@ -317,6 +337,7 @@ func TestSurfaceSweep(t *testing.T) {
 	})
 
 	t.Run("sweep without a baseline skips docker cleanup", func(t *testing.T) {
+		t.Parallel()
 		h := newSurfaceSweepHarness(t)
 		h.run(nil, "init")
 		h.run(nil, "lock")
@@ -330,6 +351,7 @@ func TestSurfaceSweep(t *testing.T) {
 	})
 
 	t.Run("a failed rmi is reported and fails the sweep", func(t *testing.T) {
+		t.Parallel()
 		h := newSurfaceSweepHarness(t)
 		const kept = "agents-sandbox/runner-kept-aaaaaaaaaaaaaa:opencode-latest"
 		const added = "agents-sandbox/runner-new-bbbbbbbbbbbbbb:opencode-latest"
@@ -346,6 +368,7 @@ func TestSurfaceSweep(t *testing.T) {
 	})
 
 	t.Run("the lock is a portable exclusive mkdir", func(t *testing.T) {
+		t.Parallel()
 		h := newSurfaceSweepHarness(t)
 		lockDir := h.root + ".lock"
 

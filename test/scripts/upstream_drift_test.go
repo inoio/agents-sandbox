@@ -10,7 +10,9 @@ import (
 // git-isolation head is dropped: the fixture is go-git and RunScript strips the
 // ambient git settings from the script's environment itself.
 func TestUpstreamDrift(t *testing.T) {
+	t.Parallel()
 	t.Run("counts, overlap, and names", func(t *testing.T) {
+		t.Parallel()
 		repo := seedDriftRepo(t)
 
 		result := runDrift(t, repo.Dir(), "--base", "main", "--no-fetch")
@@ -25,6 +27,7 @@ func TestUpstreamDrift(t *testing.T) {
 	})
 
 	t.Run("disjoint branch reports a clean rebase", func(t *testing.T) {
+		t.Parallel()
 		repo := seedDriftRepo(t)
 		repo.Checkout("main")
 		mainHead, err := repo.Head()
@@ -43,6 +46,7 @@ func TestUpstreamDrift(t *testing.T) {
 	})
 
 	t.Run("quiet omits the upstream commit list", func(t *testing.T) {
+		t.Parallel()
 		repo := seedDriftRepo(t)
 
 		result := runDrift(t, repo.Dir(), "--base", "main", "--no-fetch", "--quiet")
@@ -52,6 +56,7 @@ func TestUpstreamDrift(t *testing.T) {
 	})
 
 	t.Run("usage", func(t *testing.T) {
+		t.Parallel()
 		missing := filepath.Join(t.TempDir(), "does-not-exist")
 		result := RunScript(
 			t,

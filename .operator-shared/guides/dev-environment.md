@@ -1,6 +1,6 @@
 ---
-description: The development VM's installed CLI tools and the standing environment limitations (remote git over SSH, CI trigger behavior on conflicted PRs, TLS interception during image builds, and the group-writable-ancestor storage-root refusal).
-read_if: Choosing a CLI tool for a task, or hitting an environment limitation such as an unusable SSH remote, an absent CI run on a conflicted PR, a self-signed-cert docker build failure, or a "catalog ancestor ... permits path substitution" storage-root refusal on the launcher's private runtime home.
+description: The development VM's installed CLI tools, its `GOCACHE` placement, and the standing environment limitations (remote git over SSH, CI trigger behavior on conflicted PRs, TLS interception during image builds, and the group-writable-ancestor storage-root refusal).
+read_if: Choosing a CLI tool for a task, or hitting an environment limitation such as an unusable SSH remote, an absent CI run on a conflicted PR, a self-signed-cert docker build failure, or a "catalog ancestor ... permits path substitution" storage-root refusal on the launcher's private runtime home; or questioning why `GOCACHE` is not on the home volume.
 ---
 
 # Development environment
@@ -40,6 +40,17 @@ Prefer these installed CLI tools over other tools or custom solutions:
 
 `~/go/bin` (GOBIN) is on `PATH`, so a `go install`ed tool is runnable in a later
 shell.
+
+## Build cache
+
+`GOCACHE` is `/var/tmp/go-build`, set in `.agents-sandbox/env`. The home volume
+(`/home/dev`) is virtiofs, where creating small files runs ~10–35× slower than the
+VM's overlay root; the Go build cache is thousands of small object files, so a cache
+there charges every compile and link for that IO (ours had grown to 27 GB).
+`/var/tmp` is on the local root disk — ~11× faster than virtiofs on small files,
+still slower than tmpfs but not RAM-bound. It is ephemeral, so the cache rebuilds when
+the VM is recreated; Go itself only prunes entries older than five days, so the
+location is what bounds it, not a size cap.
 
 ## Current limitations
 

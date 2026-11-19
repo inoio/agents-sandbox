@@ -13,19 +13,23 @@ import (
 // it creates no git repository and the checker runs no git, so there is no poison
 // run to make.
 func TestChangelog(t *testing.T) {
+	t.Parallel()
 	t.Run("valid names", func(t *testing.T) {
+		t.Parallel()
 		dir := newChangelogFixture(t, "432.added.md", "431.fixed.md")
 		result := runChangelog(t, dir)
 		assertStatus(t, result, 0)
 	})
 
 	t.Run("valid ordinal names", func(t *testing.T) {
+		t.Parallel()
 		dir := newChangelogFixture(t, "103.added-1.md", "103.added-2.md", "103.changed-1.md")
 		result := runChangelog(t, dir)
 		assertStatus(t, result, 0)
 	})
 
 	t.Run("non-numeric ordinal", func(t *testing.T) {
+		t.Parallel()
 		dir := newChangelogFixture(t, "103.changed-x.md")
 		result := runChangelog(t, dir)
 		assertStatus(t, result, 1)
@@ -33,6 +37,7 @@ func TestChangelog(t *testing.T) {
 	})
 
 	t.Run("unknown type", func(t *testing.T) {
+		t.Parallel()
 		dir := newChangelogFixture(t, "432.feature.md")
 		result := runChangelog(t, dir)
 		assertStatus(t, result, 1)
@@ -40,6 +45,7 @@ func TestChangelog(t *testing.T) {
 	})
 
 	t.Run("missing type", func(t *testing.T) {
+		t.Parallel()
 		dir := newChangelogFixture(t, "432.md")
 		result := runChangelog(t, dir)
 		assertStatus(t, result, 1)
@@ -47,6 +53,7 @@ func TestChangelog(t *testing.T) {
 	})
 
 	t.Run("wrong suffix", func(t *testing.T) {
+		t.Parallel()
 		dir := newChangelogFixture(t, "432.added.txt")
 		result := runChangelog(t, dir)
 		assertStatus(t, result, 1)
@@ -54,24 +61,28 @@ func TestChangelog(t *testing.T) {
 	})
 
 	t.Run("empty directory", func(t *testing.T) {
+		t.Parallel()
 		dir := newChangelogFixture(t)
 		result := runChangelog(t, dir)
 		assertStatus(t, result, 0)
 	})
 
 	t.Run("absent directory", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		result := runChangelog(t, dir)
 		assertStatus(t, result, 0)
 	})
 
 	t.Run("ignored names", func(t *testing.T) {
+		t.Parallel()
 		dir := newChangelogFixture(t, "README.md", ".gitkeep")
 		result := runChangelog(t, dir)
 		assertStatus(t, result, 0)
 	})
 
 	t.Run("code, no fragment", func(t *testing.T) {
+		t.Parallel()
 		dir := newChangelogFixture(t)
 		result := runChangelog(t, dir, changelogChangedPath(t, "internal/foo/foo.go")...)
 		assertStatus(t, result, 1)
@@ -79,36 +90,42 @@ func TestChangelog(t *testing.T) {
 	})
 
 	t.Run("code, with fragment", func(t *testing.T) {
+		t.Parallel()
 		dir := newChangelogFixture(t, "432.added.md")
 		result := runChangelog(t, dir, changelogChangedPath(t, "internal/foo/foo.go", "changelog.d/432.added.md")...)
 		assertStatus(t, result, 0)
 	})
 
 	t.Run("docs only", func(t *testing.T) {
+		t.Parallel()
 		dir := newChangelogFixture(t)
 		result := runChangelog(t, dir, changelogChangedPath(t, "docs/commands.md")...)
 		assertStatus(t, result, 0)
 	})
 
 	t.Run("markdown only", func(t *testing.T) {
+		t.Parallel()
 		dir := newChangelogFixture(t)
 		result := runChangelog(t, dir, changelogChangedPath(t, "README.md")...)
 		assertStatus(t, result, 0)
 	})
 
 	t.Run("gitignore only", func(t *testing.T) {
+		t.Parallel()
 		dir := newChangelogFixture(t)
 		result := runChangelog(t, dir, changelogChangedPath(t, ".gitignore")...)
 		assertStatus(t, result, 0)
 	})
 
 	t.Run("release PR, all markdown", func(t *testing.T) {
+		t.Parallel()
 		dir := newChangelogFixture(t)
 		result := runChangelog(t, dir, changelogChangedPath(t, "CHANGELOG.md", "changelog.d/432.added.md")...)
 		assertStatus(t, result, 0)
 	})
 
 	t.Run("workflow change", func(t *testing.T) {
+		t.Parallel()
 		dir := newChangelogFixture(t)
 		result := runChangelog(t, dir, changelogChangedPath(t, ".github/workflows/ci.yml")...)
 		assertStatus(t, result, 1)
@@ -116,6 +133,7 @@ func TestChangelog(t *testing.T) {
 	})
 
 	t.Run("code, only changelog README", func(t *testing.T) {
+		t.Parallel()
 		dir := newChangelogFixture(t, "README.md")
 		result := runChangelog(t, dir, changelogChangedPath(t, "internal/foo/foo.go", "changelog.d/README.md")...)
 		assertStatus(t, result, 1)
@@ -123,6 +141,7 @@ func TestChangelog(t *testing.T) {
 	})
 
 	t.Run("code, only nested fragment", func(t *testing.T) {
+		t.Parallel()
 		dir := newChangelogFixture(t)
 		writeChangelogFile(t, filepath.Join(dir, "changelog.d", "sub", "432.added.md"))
 		result := runChangelog(
@@ -134,6 +153,7 @@ func TestChangelog(t *testing.T) {
 	})
 
 	t.Run("test-only change", func(t *testing.T) {
+		t.Parallel()
 		dir := newChangelogFixture(t)
 		result := runChangelog(
 			t,
@@ -143,6 +163,7 @@ func TestChangelog(t *testing.T) {
 	})
 
 	t.Run("code plus test", func(t *testing.T) {
+		t.Parallel()
 		dir := newChangelogFixture(t)
 		result := runChangelog(t, dir, changelogChangedPath(t, "internal/foo/foo.go", "internal/foo/foo_test.go")...)
 		assertStatus(t, result, 1)
@@ -150,6 +171,7 @@ func TestChangelog(t *testing.T) {
 	})
 
 	t.Run("code, fragment only deleted", func(t *testing.T) {
+		t.Parallel()
 		// The fragment path is listed as changed but is absent from the tree.
 		dir := newChangelogFixture(t)
 		result := runChangelog(t, dir, changelogChangedPath(t, "internal/foo/foo.go", "changelog.d/432.added.md")...)
@@ -158,6 +180,7 @@ func TestChangelog(t *testing.T) {
 	})
 
 	t.Run("slug matches the PR number", func(t *testing.T) {
+		t.Parallel()
 		dir := newChangelogFixture(t, "432.added.md")
 		result := runChangelog(
 			t,
@@ -167,6 +190,7 @@ func TestChangelog(t *testing.T) {
 	})
 
 	t.Run("slug is not the PR number", func(t *testing.T) {
+		t.Parallel()
 		dir := newChangelogFixture(t, "431.added.md")
 		result := runChangelog(
 			t,
@@ -177,6 +201,7 @@ func TestChangelog(t *testing.T) {
 	})
 
 	t.Run("release PR deleting fragments", func(t *testing.T) {
+		t.Parallel()
 		// The deleted fragment (an old PR number) must be skipped, not compared
 		// to the release PR's number.
 		dir := newChangelogFixture(t)
@@ -188,6 +213,7 @@ func TestChangelog(t *testing.T) {
 	})
 
 	t.Run("no fragment, nothing to check", func(t *testing.T) {
+		t.Parallel()
 		dir := newChangelogFixture(t)
 		result := runChangelog(t, dir, append(changelogChangedPath(t, "internal/foo/foo_test.go"), "--pr", "432")...)
 		assertStatus(t, result, 0)

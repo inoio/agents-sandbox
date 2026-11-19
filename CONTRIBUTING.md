@@ -69,7 +69,7 @@ Run these from the module root:
 | `make compile-all`   | Compile all code incl. `integration`-tagged test files      |
 | `make lint`          | Run the linter                                             |
 | `make fmt`           | Format all source files                                    |
-| `make check`         | Format, lint, and test — prints one PASS/FAIL line per target and failing logs; run before finalizing any change |
+| `make check`         | Format, lint, and test — prints one line per target (runtime, CPU seconds, heavy/light lane), a total, and failing logs (a live status line on a terminal); run before finalizing any change |
 | `make check-local-changes` | Fast inner loop: run only the checks the uncommitted working tree affects |
 | `make check-branch-changes` | Fast inner loop: run only the checks the branch (since `origin/main`) affects |
 | `make verify`        | Read-only CI-parity check: format-check, lint, test, race, vulncheck, deadcode |

@@ -11,8 +11,10 @@ import (
 // driving ci/check-docs.sh with throwaway fixture trees and asserting the same
 // exit codes and output substrings. The checker takes ROOT as $1.
 func TestCheckDocs(t *testing.T) {
+	t.Parallel()
 	for _, tc := range checkDocsCases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			root := checkDocsFixture(t)
 			if tc.mutate != nil {
 				tc.mutate(t, root)

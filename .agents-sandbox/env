@@ -1,0 +1,6 @@
+# Go build cache on the VM's local disk. The home volume (/home/dev) is virtiofs,
+# where small-file IO is ~10-35x slower than the overlay root, and the build cache
+# is thousands of small object files; /var/tmp keeps it off the home volume and
+# bounded by the VM's root disk. It is ephemeral, so the cache rebuilds after the
+# VM is recreated.
+GOCACHE=/var/tmp/go-build

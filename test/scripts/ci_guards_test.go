@@ -14,24 +14,29 @@ import (
 // and diagnostics. It creates no git fixtures, so the template's poison run is
 // skipped (the harness never runs git).
 func TestCIGuards(t *testing.T) {
+	t.Parallel()
 	t.Run("canonical fixture passes", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		ciGuardsExpect(t, f.root, 0, "")
 	})
 
 	t.Run("mutation.yml dropping an entry", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.removeLines(".github/workflows/mutation.yml", "Formula/**", false)
 		ciGuardsExpect(t, f.root, 1, "mutation.yml")
 	})
 
 	t.Run("mutation.yml dropping .agents-sandbox", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.removeLines(".github/workflows/mutation.yml", ".agents-sandbox/**", false)
 		ciGuardsExpect(t, f.root, 1, "mutation.yml")
 	})
 
 	t.Run("codeql.yml adding an entry", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replaceAll(
 			".github/workflows/codeql.yml",
@@ -42,60 +47,70 @@ func TestCIGuards(t *testing.T) {
 	})
 
 	t.Run("codeql.yml drifting one paths-ignore block", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.removeLines(".github/workflows/codeql.yml", ".gitignore", true)
 		ciGuardsExpect(t, f.root, 1, "codeql.yml")
 	})
 
 	t.Run("codeql.yml losing a whole paths-ignore block", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replace(".github/workflows/codeql.yml", ciGuardsCodeQLPullRequestBlock, "")
 		ciGuardsExpect(t, f.root, 1, "expected 2 paths-ignore block")
 	})
 
 	t.Run("classifier regex renaming an entry", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replaceAll("ci/classify-changes.sh", "Formula/", "Formulae/")
 		ciGuardsExpect(t, f.root, 1, "ci/classify-changes.sh")
 	})
 
 	t.Run("check-changelog.sh dropping the *_test.go exemption", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.removeLines("ci/check-changelog.sh", "_test", false)
 		ciGuardsExpect(t, f.root, 1, "check-changelog.sh")
 	})
 
 	t.Run("classifier regex gaining an unmodeled alternative", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replace("ci/classify-changes.sh", `^\.gitignore$`, `^Makefile$|^\.gitignore$`)
 		ciGuardsExpect(t, f.root, 1, "unrecognized alternative")
 	})
 
 	t.Run("derivation diagnostics are counted and kept out of the glob set", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replace("ci/classify-changes.sh", `^\.gitignore$`, `^\.gitignore$|^Foo$|^Bar$`)
 		ciGuardsExpect(t, f.root, 1, "2 violation(s) found")
 	})
 
 	t.Run("check-changelog.sh dropping the .gitignore clause", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replace("ci/check-changelog.sh", ` && [[ "$line" != ".gitignore" ]]`, "")
 		ciGuardsExpect(t, f.root, 1, "check-changelog.sh")
 	})
 
 	t.Run("check-changelog.sh reversing the .md exemption", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replace("ci/check-changelog.sh", `[[ ! "$line" =~ \.md$ ]]`, `[[ "$line" =~ \.md$ ]]`)
 		ciGuardsExpect(t, f.root, 1, "un-negated exempt test")
 	})
 
 	t.Run("check-changelog.sh reversing the *_test.go exemption", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replace("ci/check-changelog.sh", `[[ ! "$line" =~ _test\.go$ ]]`, `[[ "$line" =~ _test\.go$ ]]`)
 		ciGuardsExpect(t, f.root, 1, "un-negated exempt test")
 	})
 
 	t.Run("undeclared github.event_name literal", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replaceAll(
 			".github/workflows/ci.yml",
@@ -106,12 +121,14 @@ func TestCIGuards(t *testing.T) {
 	})
 
 	t.Run("declared event with a trailing comment", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replace(".github/workflows/ci.yml", "  merge_group:\n", "  merge_group:  # queue ref\n")
 		ciGuardsExpect(t, f.root, 0, "")
 	})
 
 	t.Run("pull_request.types dropping a default", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replaceAll(
 			".github/workflows/ci.yml",
@@ -122,6 +139,7 @@ func TestCIGuards(t *testing.T) {
 	})
 
 	t.Run("pull_request.types dropping labeled", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replaceAll(
 			".github/workflows/ci.yml",
@@ -132,6 +150,7 @@ func TestCIGuards(t *testing.T) {
 	})
 
 	t.Run("pull_request.types block-sequence spelling", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replace(
 			".github/workflows/ci.yml",
@@ -142,6 +161,7 @@ func TestCIGuards(t *testing.T) {
 	})
 
 	t.Run("pull_request.types block-sequence dropping a default", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replace(
 			".github/workflows/ci.yml",
@@ -152,24 +172,28 @@ func TestCIGuards(t *testing.T) {
 	})
 
 	t.Run("pull_request with no types declared", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.removeLines(".github/workflows/ci.yml", "    types: [opened", true)
 		ciGuardsExpect(t, f.root, 1, "declares no types")
 	})
 
 	t.Run("classifier exec rule losing its ^docs/ anchor", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replace("ci/classify-changes.sh", "grep -qE '^docs/'", "grep -qE 'docs/'")
 		ciGuardsExpect(t, f.root, 1, "missing the exec rule")
 	})
 
 	t.Run("classifier exec rule no longer derived from code", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replace("ci/classify-changes.sh", `[ "$code" = true ]`, `[ "$code" = false ]`)
 		ciGuardsExpect(t, f.root, 1, "does not derive exec from code")
 	})
 
 	t.Run("changes dropping the classifier invocation", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replace(
 			".github/workflows/ci.yml",
@@ -180,6 +204,7 @@ func TestCIGuards(t *testing.T) {
 	})
 
 	t.Run("classifier re-inlining a producer into grep -q", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replace(
 			"ci/classify-changes.sh",
@@ -190,6 +215,7 @@ func TestCIGuards(t *testing.T) {
 	})
 
 	t.Run("classifier piping cat into grep -vq", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replace(
 			"ci/classify-changes.sh",
@@ -200,6 +226,7 @@ func TestCIGuards(t *testing.T) {
 	})
 
 	t.Run("changes step piping a git diff into grep -q", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replace(
 			".github/workflows/ci.yml",
@@ -210,12 +237,14 @@ func TestCIGuards(t *testing.T) {
 	})
 
 	t.Run("changes dropping the forced-full-set tag rule", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.removeLines(".github/workflows/ci.yml", "== refs/tags/", false)
 		ciGuardsExpect(t, f.root, 1, "refs/tags/")
 	})
 
 	t.Run("changes hiding a failed diff behind || true", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replace(
 			".github/workflows/ci.yml",
@@ -226,12 +255,14 @@ func TestCIGuards(t *testing.T) {
 	})
 
 	t.Run("changes dropping --no-renames", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replaceAll(".github/workflows/ci.yml", "git diff --no-renames --name-only", "git diff --name-only")
 		ciGuardsExpect(t, f.root, 1, "--no-renames")
 	})
 
 	t.Run("a code consumer gating on code == 'true'", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replaceInJob(
 			"vulncheck",
@@ -243,6 +274,7 @@ func TestCIGuards(t *testing.T) {
 	})
 
 	t.Run("integration whole-block code gate reverted to == 'true'", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replaceInJob(
 			"integration",
@@ -254,12 +286,14 @@ func TestCIGuards(t *testing.T) {
 	})
 
 	t.Run("a gated job dropping needs: changes", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.removeLines(".github/workflows/ci.yml", "    needs: [changes]", true)
 		ciGuardsExpect(t, f.root, 1, "does not include 'changes'")
 	})
 
 	t.Run("a Go job job-level if: dropping !cancelled()", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replace(
 			".github/workflows/ci.yml",
@@ -270,12 +304,14 @@ func TestCIGuards(t *testing.T) {
 	})
 
 	t.Run("body-step gate dropping merge_group", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replaceAll(".github/workflows/ci.yml", "github.event_name == 'merge_group' || ", "")
 		ciGuardsExpect(t, f.root, 1, "missing merge_group")
 	})
 
 	t.Run("one gate in a multi-gate job dropping merge_group", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replace(
 			".github/workflows/ci.yml",
@@ -288,42 +324,49 @@ func TestCIGuards(t *testing.T) {
 	})
 
 	t.Run("job missing timeout-minutes", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.removeLines(".github/workflows/ci.yml", "    timeout-minutes:", true)
 		ciGuardsExpect(t, f.root, 1, "missing a job-level timeout-minutes")
 	})
 
 	t.Run("changes re-inlining the merge-base", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replace(".github/workflows/ci.yml", "ci/event-base.sh", `git merge-base origin/main "$GITHUB_SHA"`)
 		ciGuardsExpect(t, f.root, 1, "'changes' does not call ci/event-base.sh")
 	})
 
 	t.Run("changelog not calling ci/event-base.sh", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replaceNth(".github/workflows/ci.yml", "ci/event-base.sh", `git merge-base origin/main "$GITHUB_SHA"`, 2)
 		ciGuardsExpect(t, f.root, 1, "'changelog' does not call ci/event-base.sh")
 	})
 
 	t.Run("on.push.branches dropping release/*", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replaceAll(".github/workflows/ci.yml", ", 'release/*'", "")
 		ciGuardsExpect(t, f.root, 1, "release/*")
 	})
 
 	t.Run("deleting the tag-guard job", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.removeJob("tag-guard")
 		ciGuardsExpect(t, f.root, 1, "the 'tag-guard' job is missing")
 	})
 
 	t.Run("tag-guard if: dropping the tag gate", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replaceInJob("tag-guard", "if: startsWith(github.ref, 'refs/tags/')", "if: true", false)
 		ciGuardsExpect(t, f.root, 1, "startsWith(github.ref, 'refs/tags/')")
 	})
 
 	t.Run("tag-guard leaving its gate token only in a comment", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replaceInJob(
 			"tag-guard",
@@ -335,12 +378,14 @@ func TestCIGuards(t *testing.T) {
 	})
 
 	t.Run("release.needs dropping tag-guard", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replaceAll(".github/workflows/ci.yml", "needs: [tag-guard, ", "needs: [")
 		ciGuardsExpect(t, f.root, 1, "'release' needs: does not include 'tag-guard'")
 	})
 
 	t.Run("release.needs dropping integration", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replaceAll(
 			".github/workflows/ci.yml",
@@ -351,6 +396,7 @@ func TestCIGuards(t *testing.T) {
 	})
 
 	t.Run("cache writer losing the main-only guard", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replaceAll(
 			".github/workflows/ci.yml",
@@ -361,12 +407,14 @@ func TestCIGuards(t *testing.T) {
 	})
 
 	t.Run("release-push clause dropping the code gate", func(t *testing.T) {
+		t.Parallel()
 		f := newCIGuardsFixture(t)
 		f.replaceInJob("integration", " && needs.changes.outputs.code != 'false'", "", false)
 		ciGuardsExpect(t, f.root, 1, "release-push clause is missing")
 	})
 
 	t.Run("this repository", func(t *testing.T) {
+		t.Parallel()
 		ciGuardsExpect(t, repositoryRoot(t), 0, "")
 	})
 }

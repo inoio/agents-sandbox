@@ -68,7 +68,9 @@ func assertClassifyChanges(t *testing.T, result ScriptResult, wantCode, wantExec
 // `printf ... | grep -q` classification failed open on a list larger than the
 // ~64 KiB pipe buffer, silently skipping every required job.
 func TestClassifyChanges(t *testing.T) {
+	t.Parallel()
 	t.Run("large code-only list", func(t *testing.T) {
+		t.Parallel()
 		content := classifyChangesNumbered("internal/sandbox/pkg/file_", ".go")
 		if len(content) <= 65536 {
 			t.Fatalf(
@@ -82,6 +84,7 @@ func TestClassifyChanges(t *testing.T) {
 	})
 
 	t.Run("large docs-only list", func(t *testing.T) {
+		t.Parallel()
 		content := classifyChangesNumbered("docs/page_", ".md")
 		list := classifyChangesFixture(t, "docs-large.txt", content)
 
@@ -89,6 +92,7 @@ func TestClassifyChanges(t *testing.T) {
 	})
 
 	t.Run("large inert-only list", func(t *testing.T) {
+		t.Parallel()
 		content := classifyChangesNumbered("notes_", ".md")
 		list := classifyChangesFixture(t, "inert-large.txt", content)
 
@@ -96,12 +100,14 @@ func TestClassifyChanges(t *testing.T) {
 	})
 
 	t.Run("mixed code+docs list", func(t *testing.T) {
+		t.Parallel()
 		list := classifyChangesFixture(t, "mixed.txt", "src/main.go\ndocs/guide.md\n")
 
 		assertClassifyChanges(t, runClassifyChanges(t, list), true, true)
 	})
 
 	t.Run("all-.operator-shared list", func(t *testing.T) {
+		t.Parallel()
 		content := classifyChangesNumbered(".operator-shared/note_", "")
 		list := classifyChangesFixture(t, "shared.txt", content)
 
@@ -109,12 +115,14 @@ func TestClassifyChanges(t *testing.T) {
 	})
 
 	t.Run("empty list", func(t *testing.T) {
+		t.Parallel()
 		list := classifyChangesFixture(t, "empty.txt", "")
 
 		assertClassifyChanges(t, runClassifyChanges(t, list), false, false)
 	})
 
 	t.Run("missing file", func(t *testing.T) {
+		t.Parallel()
 		result := runClassifyChanges(t, filepath.Join(t.TempDir(), "does-not-exist.txt"))
 
 		assertStatus(t, result, 1)

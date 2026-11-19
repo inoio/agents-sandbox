@@ -11,7 +11,9 @@ import (
 // each structural rule. The harness never runs git: it builds Operator brain
 // fixtures in a temp dir and drives scripts/brain-check.sh against them.
 func TestBrainCheck(t *testing.T) {
+	t.Parallel()
 	t.Run("valid brain exits 0", func(t *testing.T) {
+		t.Parallel()
 		root := newBrainCheckBrain(t, "good")
 
 		result := runBrainCheck(t, root)
@@ -21,6 +23,7 @@ func TestBrainCheck(t *testing.T) {
 	})
 
 	t.Run("missing read_if fails", func(t *testing.T) {
+		t.Parallel()
 		root := newBrainCheckBrain(t, "no-frontmatter")
 		writeDoc(t, filepath.Join(root, ".operator-shared", "specs", "demo", "contract.md"), `---
 description: Demo contract.
@@ -36,6 +39,7 @@ description: Demo contract.
 	})
 
 	t.Run("index without frontmatter fails", func(t *testing.T) {
+		t.Parallel()
 		root := newBrainCheckBrain(t, "no-index-frontmatter")
 		writeDoc(t, filepath.Join(root, ".operator-shared", "index", "index.md"), "# Index\n")
 
@@ -46,6 +50,7 @@ description: Demo contract.
 	})
 
 	t.Run("broken link fails", func(t *testing.T) {
+		t.Parallel()
 		root := newBrainCheckBrain(t, "broken-link")
 		writeDoc(
 			t,
@@ -60,6 +65,7 @@ description: Demo contract.
 	})
 
 	t.Run("external and fragment links pass", func(t *testing.T) {
+		t.Parallel()
 		root := newBrainCheckBrain(t, "external-link")
 		writeDoc(t, filepath.Join(root, ".operator-shared", "guides", "demo.md"), `# Demo guide
 
@@ -74,6 +80,7 @@ description: Demo contract.
 	})
 
 	t.Run("uncatalogued guide fails", func(t *testing.T) {
+		t.Parallel()
 		root := newBrainCheckBrain(t, "uncatalogued")
 		writeDoc(t, filepath.Join(root, ".operator-shared", "guides", "orphan.md"), "# Orphan\n")
 
@@ -84,6 +91,7 @@ description: Demo contract.
 	})
 
 	t.Run("catalog of a missing path fails", func(t *testing.T) {
+		t.Parallel()
 		root := newBrainCheckBrain(t, "catalog-missing")
 		writeDoc(t, filepath.Join(root, ".operator-shared", "catalog.md"), "# Stale\n")
 		brainCheckAppendFile(
@@ -99,6 +107,7 @@ description: Demo contract.
 	})
 
 	t.Run("spec citing a plan fails", func(t *testing.T) {
+		t.Parallel()
 		root := newBrainCheckBrain(t, "cites-plan")
 		brainCheckAppendFile(
 			t,
@@ -113,6 +122,7 @@ description: Demo contract.
 	})
 
 	t.Run("Read If prefix fails", func(t *testing.T) {
+		t.Parallel()
 		root := newBrainCheckBrain(t, "read-if-prefix")
 		writeDoc(t, filepath.Join(root, ".operator-shared", "catalog.md"), "# Stale\n")
 		brainCheckAppendFile(
@@ -128,6 +138,7 @@ description: Demo contract.
 	})
 
 	t.Run("private partition reference fails", func(t *testing.T) {
+		t.Parallel()
 		root := newBrainCheckBrain(t, "private-ref")
 		brainCheckAppendFile(
 			t,
@@ -142,6 +153,7 @@ description: Demo contract.
 	})
 
 	t.Run("illustrative catalog path passes", func(t *testing.T) {
+		t.Parallel()
 		root := newBrainCheckBrain(t, "illustrative-path")
 		brainCheckAppendFile(
 			t,
@@ -156,6 +168,7 @@ description: Demo contract.
 	})
 
 	t.Run("operator.md private reference passes", func(t *testing.T) {
+		t.Parallel()
 		root := newBrainCheckBrain(t, "operator-private")
 		brainCheckAppendFile(
 			t,

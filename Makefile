@@ -383,6 +383,12 @@ check-test:
 # dumps the failing targets' logs last. The CPU-heavy targets
 # (CHECK_HEAVY_TARGETS) run one at a time; the rest run in a pool of JOBS.
 #
+# The `go test ./test/scripts -run X` harness targets (`*-test`) are NOT in
+# CHECK_TARGETS: `test` already runs that whole package, so listing them would
+# execute it twice. They stay defined as selectable targets for the fast loop
+# (scripts/changed-targets.sh); CI names a subset in its `lint` job and covers
+# the rest through the `test` job's package run.
+#
 # Each heavy target parallelizes internally (~GOMAXPROCS workers), so overlapping
 # them oversubscribes the box: on 16 cores a one-leaf edit took 33s at -j16, 26s
 # at -j8, and 20s at -j4. Default the light pool to a quarter of the cores
@@ -390,8 +396,8 @@ check-test:
 # JOBS=<n> overrides the pool width.
 JOBS ?= $(shell n=$$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2); q=$$((n / 4)); [ "$$q" -lt 2 ] && q=2; echo "$$q")
 
-CHECK_HEAVY_TARGETS = validate-fmt lint test compile-all
-CHECK_LIGHT_TARGETS = actionlint shellcheck docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test event-base-test classify-changes-test changelog-check changelog-check-test deadcode-test changed-files-test changed-targets-test cleanup-branches-test surface-sweep-test envelope-test upstream-drift-test rebase-status-test enqueue-pr-test backport-audit-test open-backport-pr-test brain-check-test check-test
+CHECK_HEAVY_TARGETS = lint test compile-all
+CHECK_LIGHT_TARGETS = validate-fmt actionlint shellcheck docs-linkcheck ci-guards-check changelog-check
 CHECK_TARGETS = $(CHECK_HEAVY_TARGETS) $(CHECK_LIGHT_TARGETS)
 VERIFY_HEAVY_TARGETS = $(CHECK_HEAVY_TARGETS) test-race vulncheck deadcode
 VERIFY_TARGETS = $(CHECK_TARGETS) test-race vulncheck deadcode

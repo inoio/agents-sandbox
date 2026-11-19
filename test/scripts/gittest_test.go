@@ -11,6 +11,7 @@ import (
 )
 
 func TestCommitExposesFileContent(t *testing.T) {
+	t.Parallel()
 	repo := New(t)
 	repo.Write("f", "a\n")
 	repo.Commit("base")
@@ -25,6 +26,7 @@ func TestCommitExposesFileContent(t *testing.T) {
 }
 
 func TestSetBranchAndCheckoutMoveTheWorktree(t *testing.T) {
+	t.Parallel()
 	repo := New(t)
 	repo.Write("f", "a\n")
 	base := repo.Commit("base")
@@ -44,6 +46,7 @@ func TestSetBranchAndCheckoutMoveTheWorktree(t *testing.T) {
 }
 
 func TestMergeCommitHasTwoParentsAndSourceTree(t *testing.T) {
+	t.Parallel()
 	repo := New(t)
 	repo.Write("f", "a\n")
 	base := repo.Commit("base")
@@ -73,6 +76,7 @@ func TestMergeCommitHasTwoParentsAndSourceTree(t *testing.T) {
 }
 
 func TestPushPublishesEveryBranch(t *testing.T) {
+	t.Parallel()
 	repo := New(t)
 	repo.Write("f", "a\n")
 	base := repo.Commit("base")
@@ -89,6 +93,7 @@ func TestPushPublishesEveryBranch(t *testing.T) {
 }
 
 func TestOriginRangeReflectsTheMergedTopic(t *testing.T) {
+	t.Parallel()
 	repo := New(t)
 	repo.Write("f", "a\n")
 	base := repo.Commit("base")
@@ -118,6 +123,7 @@ func TestOriginRangeReflectsTheMergedTopic(t *testing.T) {
 }
 
 func TestRenameStagesBothEndpoints(t *testing.T) {
+	t.Parallel()
 	repo := New(t)
 	repo.Write("docs/guide.md", "# d\n")
 	repo.Commit("base")
@@ -138,6 +144,7 @@ func TestRenameStagesBothEndpoints(t *testing.T) {
 }
 
 func TestHeadReturnsTheCurrentCommit(t *testing.T) {
+	t.Parallel()
 	repo := New(t)
 	repo.Write("f", "a\n")
 	hash := repo.Commit("base")
@@ -152,6 +159,7 @@ func TestHeadReturnsTheCurrentCommit(t *testing.T) {
 }
 
 func TestRemoveStagesADeletion(t *testing.T) {
+	t.Parallel()
 	repo := New(t)
 	repo.Write("f", "a\n")
 	repo.Commit("base")
@@ -165,6 +173,7 @@ func TestRemoveStagesADeletion(t *testing.T) {
 }
 
 func TestOriginFileReadsAPushedBlob(t *testing.T) {
+	t.Parallel()
 	repo := New(t)
 	repo.Write("changelog.d/7.fixed.md", "The fix.\n")
 	repo.Commit("base")

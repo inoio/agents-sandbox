@@ -88,12 +88,13 @@ git --git-dir=.git worktree add config agents-sandbox-config
 git -C config sparse-checkout set --no-cone '/.agents-sandbox/'
 
 mkdir -p .agents-sandbox
-ln -s ../config/.agents-sandbox/Dockerfile      .agents-sandbox/Dockerfile
-ln -s ../config/.agents-sandbox/config.yaml     .agents-sandbox/config.yaml
-ln -s ../config/.agents-sandbox/github-auth.sh  .agents-sandbox/github-auth.sh
-ln -s ../config/.agents-sandbox/opencode2       .agents-sandbox/opencode2
+for source in config/.agents-sandbox/*; do
+  ln -s "../$source" ".agents-sandbox/$(basename "$source")"
+done
 ```
 
+- The loop links **every** entry the config worktree carries, so a new `.agents-sandbox/` file needs no recipe
+  change.
 - The symlinks are **relative**, so they resolve both on the host and at `/workspace` inside the VM, and
   **file-level**, so you can drop untracked files (a personal `env.secret`) in the same directory.
 - `agents-sandbox-config` is a **mirror** of `main`: it takes no commits of its own. Keep it at main's HEAD by
