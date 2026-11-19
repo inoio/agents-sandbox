@@ -3,6 +3,7 @@ package viperconfig
 import (
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
@@ -138,6 +139,19 @@ func TestWalkConfigKeysSkipsUntaggedAndUnexportedFields(t *testing.T) {
 	want := []string{"tagged", "nested.inner"}
 	if !slices.Equal(got, want) {
 		t.Errorf("walkConfigKeys = %v, want %v", got, want)
+	}
+}
+
+// The learn-mode observation overlay carries its upstream CA bundles on the
+// network.Policy value in memory; it must never be a config key. Policy's
+// upstreamCACerts field is unexported and untagged, and walkConfigKeys skips
+// unexported fields, so no network.upstream-ca* key is derived (and therefore
+// no env var and no CLI flag exist for it).
+func TestUpstreamCACertsIsNotAConfigKey(t *testing.T) {
+	for _, key := range configKeyNames(configKeysDerived) {
+		if strings.HasPrefix(key, "network.upstream-ca") {
+			t.Errorf("configKeysDerived contains %q, want no network.upstream-ca* key", key)
+		}
 	}
 }
 

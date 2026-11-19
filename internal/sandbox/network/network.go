@@ -96,13 +96,19 @@ type Policy struct {
 	// registry recurses into the network.proxy.* keys; the zero value means no
 	// proxy. It is creation-only, like the TLS-interception fields.
 	Proxy Proxy `mapstructure:"proxy"`
+	// upstreamCACerts holds paths to the CA bundles the runtime must trust
+	// upstream. It is in-memory only: unexported and untagged, so the derived
+	// config-key registry never sees it and no network.upstream-ca* key, env
+	// var, or flag exists for it. It is set by WithUpstreamCACerts for the
+	// learn-mode observation and copied by Spec.
+	upstreamCACerts []string
 }
 
 // Empty reports whether the policy is unset (zero value).
 func (p Policy) Empty() bool {
 	return len(p.Profiles) == 0 && len(p.EgressAllow) == 0 && len(p.EgressDeny) == 0 &&
 		len(p.DNSServers) == 0 && p.InterceptTLS == "" && len(p.TLSBypass) == 0 && !p.DisableStrict &&
-		p.Proxy.Empty()
+		p.Proxy.Empty() && len(p.upstreamCACerts) == 0
 }
 
 // Effective applies the default profile when no profile was selected.
@@ -175,6 +181,16 @@ func (p Policy) Fingerprint() string {
 	}
 	if p.DisableStrict {
 		lines = append(lines, "disable-strict=true")
+	}
+	if len(p.upstreamCACerts) > 0 {
+		// The overlay's paths are not policy content read from disk: the line
+		// hashes the joined path strings so changing the CA bundle path (or the
+		// set of them) recreates the VM, without reading any file. Sort a clone
+		// first, so the digest is order-independent like every other list field.
+		sortedCerts := slices.Clone(p.upstreamCACerts)
+		slices.Sort(sortedCerts)
+		sum := sha256.Sum256([]byte(strings.Join(sortedCerts, "\n")))
+		lines = append(lines, "upstream-ca="+hex.EncodeToString(sum[:]))
 	}
 	lines = append(lines, p.proxyLines("=")...)
 	if p.denyPrecedesProfileAllow() {
@@ -430,14 +446,15 @@ func (p Policy) Spec() (msb.NetworkSpec, error) {
 		return msb.NetworkSpec{}, err
 	}
 	return msb.NetworkSpec{
-		Profiles:      msbProfiles,
-		EgressAllow:   dedupe(p.EgressAllow),
-		EgressDeny:    dedupe(p.EgressDeny),
-		DNSServers:    nameservers,
-		InterceptTLS:  msb.InterceptMode(interceptMode),
-		TLSBypass:     tlsBypass,
-		DisableStrict: p.DisableStrict,
-		Proxy:         proxy,
+		Profiles:        msbProfiles,
+		EgressAllow:     dedupe(p.EgressAllow),
+		EgressDeny:      dedupe(p.EgressDeny),
+		DNSServers:      nameservers,
+		InterceptTLS:    msb.InterceptMode(interceptMode),
+		TLSBypass:       tlsBypass,
+		UpstreamCACerts: slices.Clone(p.upstreamCACerts),
+		DisableStrict:   p.DisableStrict,
+		Proxy:           proxy,
 	}, nil
 }
 

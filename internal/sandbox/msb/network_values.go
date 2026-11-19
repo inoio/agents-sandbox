@@ -56,20 +56,23 @@ func (p ProxySpec) Empty() bool {
 // therefore no gateway-DNS rule.
 //
 // InterceptTLS selects the sandbox's TLS-interception mode, TLSBypass lists
-// hosts microsandbox must not intercept, and DisableStrict drops strict
-// hostname enforcement.
+// hosts microsandbox must not intercept, UpstreamCACerts lists paths to CA
+// bundles the runtime must trust when verifying intercepted upstreams (the
+// learn-mode channel's CA), and DisableStrict drops strict hostname
+// enforcement.
 //
 // Proxy is the outbound proxy the runtime dials host-side; the zero value means
 // no proxy.
 //
 //exhaustruct:ignore
 type NetworkSpec struct {
-	Profiles      []NetworkProfile
-	EgressAllow   []string
-	EgressDeny    []string
-	DNSServers    []string // normalized
-	InterceptTLS  InterceptMode
-	TLSBypass     []string
-	DisableStrict bool
-	Proxy         ProxySpec
+	Profiles        []NetworkProfile
+	EgressAllow     []string
+	EgressDeny      []string
+	DNSServers      []string // normalized
+	InterceptTLS    InterceptMode
+	TLSBypass       []string
+	UpstreamCACerts []string // paths to CA bundles the runtime trusts upstream
+	DisableStrict   bool
+	Proxy           ProxySpec
 }

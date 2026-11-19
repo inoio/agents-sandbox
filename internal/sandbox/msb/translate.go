@@ -1222,9 +1222,9 @@ func secretEntry(e SecretEntry) msbSdk.SecretEntry {
 // a composable profile is present, then the egress-deny carve-outs, then the
 // profile allow rules, then the explicit egress-allow rules (first match wins).
 // It also projects the TLS-interception policy: disable-strict passes through,
-// and the TLS config is emitted when interception is on or a bypass host is
-// configured (which under auto is what makes interception active), and left
-// nil otherwise.
+// and the TLS config is emitted when interception is on, or under auto when a
+// bypass host or an upstream CA bundle is configured (either is what makes
+// interception active), and left nil otherwise.
 func networkConfig(spec NetworkSpec) (*msbSdk.NetworkConfig, error) {
 	profiles := make([]msbSdk.NetworkProfile, 0, len(spec.Profiles))
 	for _, profile := range spec.Profiles {
@@ -1260,10 +1260,10 @@ func networkConfig(spec NetworkSpec) (*msbSdk.NetworkConfig, error) {
 	cfg.DisableStrict = spec.DisableStrict
 	switch spec.InterceptTLS {
 	case InterceptOn:
-		cfg.TLS = tlsConfig(spec.TLSBypass)
+		cfg.TLS = tlsConfig(spec.TLSBypass, spec.UpstreamCACerts)
 	case InterceptAuto, "":
-		if len(spec.TLSBypass) > 0 {
-			cfg.TLS = tlsConfig(spec.TLSBypass)
+		if len(spec.TLSBypass) > 0 || len(spec.UpstreamCACerts) > 0 {
+			cfg.TLS = tlsConfig(spec.TLSBypass, spec.UpstreamCACerts)
 		}
 	case InterceptOff:
 		// off leaves TLS nil: no interception config means microsandbox does
@@ -1272,12 +1272,14 @@ func networkConfig(spec NetworkSpec) (*msbSdk.NetworkConfig, error) {
 	return cfg, nil
 }
 
-// tlsConfig builds the SDK TLS-interception config. Only Bypass is modeled; the
+// tlsConfig builds the SDK TLS-interception config. It models the bypass hosts
+// and the upstream CA bundle paths (the learn-mode channel's CA, which the
+// runtime trusts when verifying re-originated upstream connections); the
 // remaining SDK TLS fields keep their defaults.
 //
-//nolint:exhaustruct_v5 // the launcher sets only bypass; the rest keep SDK defaults
-func tlsConfig(bypass []string) *msbSdk.TLSConfig {
-	return &msbSdk.TLSConfig{Bypass: bypass}
+//nolint:exhaustruct_v5 // the launcher sets only bypass and upstream CAs; the rest keep SDK defaults
+func tlsConfig(bypass, upstreamCACerts []string) *msbSdk.TLSConfig {
+	return &msbSdk.TLSConfig{Bypass: bypass, UpstreamCACerts: upstreamCACerts}
 }
 
 // networkEgressRule builds one explicit egress policy rule.

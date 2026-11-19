@@ -104,9 +104,10 @@ not plant its CA in the guest; facts 4–7 hold under T2.
 
 The terminating proxy generates its own CA. Under the settled T2 topology the **guest never sees it**: the runtime
 terminates the guest's connection and re-originates to our proxy, so **the runtime must trust our CA as an upstream
-CA**. That is the SDK's `TLSConfig.UpstreamCACerts`. The launcher does not expose it today, so the channel adds a
-projection for it (`msb.NetworkSpec` → `cfg.TLS.UpstreamCACerts`), in the network fingerprint and therefore
-creation-only like every other field that reaches the VM.
+CA**. That is the SDK's `TLSConfig.UpstreamCACerts`, which takes CA bundle **file paths**, not PEM contents: the
+channel writes its CA to a 0600 host file and projects that path. The launcher does not expose the field today, so the
+channel adds a projection for it (`msb.NetworkSpec` → `cfg.TLS.UpstreamCACerts`), in the network fingerprint and
+therefore creation-only like every other field that reaches the VM.
 
 The T1 placement — planting our CA in the guest (joining `/.msb/tls/ca.pem`, whose path agentd exports through
 `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, and `NODE_EXTRA_CA_CERTS`, plus the Alpine bundle append,
@@ -120,9 +121,25 @@ re-establishes it with that session's fresh CA.
 
 ## The capture artefact
 
-The channel records, per observed request: the destination (IP and `Host`), the port and protocol, whether the
+The channel records, per observed request: the destination (`Host` and IP), the port and protocol, whether the
 request succeeded or was denied, the request path, and the credential-bearing header **names**. It never records
-request bodies or header **values**. A raw flow capture is scrubbed of values before it is kept.
+request bodies or header **values**. A raw flow capture is scrubbed of values before it is kept. `IP` is empty for a
+hostname target (the analyser treats it as unknown, not as a resolved address).
+
+A destination is identified by host, IP, port, path, and protocol, so the same host reached on two ports — two
+CONNECT tunnels, say — is two entries, each with its own port and count, rather than one entry whose port is
+whichever request arrived last.
+
+A CONNECT tunnel is recorded as its own `connect` destination, accepted-successful, alongside any terminated `https`
+entry for the same host. The tunnel is the floor: a client that pins certificates or speaks a non-HTTP protocol never
+produces an inner request, so its destination would otherwise be invisible; the `connect` entry keeps it visible, and
+its absence of attribution is what tells the analyser the request inside was never seen. A `connect` entry's `Success`
+means the proxy accepted the tunnel, not that the upstream answered. A `deny` entry recorded before any request was
+seen carries `Port: 0`, since no port was observed.
+
+The recorded `Attribution` carries the credential-bearing header **names** only. In S4 it carries no credential
+identity — the placeholder-versus-real distinction the topology establishes is not threaded into the artefact yet —
+so the analyser attributes a header to a configured secret by falling back to `readback.Credential.Hosts`.
 
 The artefact stays on the host, is deleted after analysis by default, and is never uploaded. It is secret material
 (invariant 3).
@@ -135,9 +152,8 @@ The pinned SDK (v0.7.16) exposes the outbound proxy (SOCKS4/5, HTTP CONNECT) and
 - `#149` (landed) — the first-class outbound proxy surface; the channel points the sandbox at its proxy through it.
 - `#151` (landed) — explicit interception control. Needed only to turn the runtime's own interception off; with it
   left on, the two layers chain and attribution still holds.
-- The one launcher surface still missing is the projection of our CA into the runtime's upstream-CA list
-  (`TLSConfig.UpstreamCACerts`); the channel adds it. See
-  [CA generation and trust placement](#ca-generation-and-trust-placement).
+- The projection of our CA into the runtime's upstream-CA list (`TLSConfig.UpstreamCACerts`) is landed with the
+  channel. See [CA generation and trust placement](#ca-generation-and-trust-placement).
 - superradcompany/microsandbox#2080 — asks the runtime to log successful substitutions with destination and header
   field. If it lands, the channel work shrinks and the T1/T2 question is moot.
 
@@ -150,9 +166,14 @@ facts 1–3 and proposes no network or secret-substitution change.
 
 ## Open validation
 
-The spike settled the channel but left four checks unrun; none blocks the design, and each is a known limitation of
+The spike settled the channel but left five checks unrun; none blocks the design, and each is a known limitation of
 what the proposal may claim until it is closed:
 
+- **Policy-denied destinations are invisible under T2** — the runtime enforces the guest's egress before the proxy is
+  consulted, so a destination the sandbox policy denies never reaches the proxy and the channel records no `deny` for
+  it; a recorded `deny` is the proxy's own dial failure, not a policy denial. The proxy's own dial originates host-side
+  and bypasses the sandbox egress policy — a temporary widening, so S7 must either compose the base policy onto the
+  proxy's dial or explicitly announce and accept it.
 - **QUIC/HTTP3 bypass** — with the proxy active, only TCP consumers were tested; a QUIC client may reach the network
   directly, so the learned destination set is authoritative for TCP, not exhaustive.
 - **Certificate pinning** — no pinning client was available to test, so the fallback to config-derived attribution

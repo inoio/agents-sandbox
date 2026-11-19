@@ -1114,6 +1114,32 @@ func TestNetworkConfigSetsTLSForBypassUnderAuto(t *testing.T) {
 	}
 }
 
+func TestNetworkConfigSetsUpstreamCACerts(t *testing.T) {
+	cfg, err := networkConfig(NetworkSpec{UpstreamCACerts: []string{"PEM"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TLS == nil || len(cfg.TLS.UpstreamCACerts) != 1 {
+		t.Fatalf("want upstream CA, got %+v", cfg.TLS)
+	}
+}
+
+func TestNetworkConfigSetsTLSForUpstreamCACertsWithoutBypass(t *testing.T) {
+	cfg, err := networkConfig(NetworkSpec{UpstreamCACerts: []string{"/ca.pem"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TLS == nil {
+		t.Fatal("a non-empty upstream CA list must emit TLS even with no bypass")
+	}
+	if len(cfg.TLS.Bypass) != 0 {
+		t.Fatalf("bypass = %v, want none", cfg.TLS.Bypass)
+	}
+	if len(cfg.TLS.UpstreamCACerts) != 1 {
+		t.Fatalf("upstream CA = %v, want one entry", cfg.TLS.UpstreamCACerts)
+	}
+}
+
 func TestNetworkConfigSetsDisableStrict(t *testing.T) {
 	cfg, err := networkConfig(NetworkSpec{DisableStrict: true})
 	if err != nil {
