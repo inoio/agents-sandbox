@@ -111,15 +111,26 @@ Credential handling remains a **flow**, not a config question, and runs after th
 
 ## `config harden`
 
-A standalone, re-runnable audit over the *effective* configuration; separate from the wizard but sharing the comment-preserving config writer and validation. Each finding carries an optional remediation, applied step-by-step and interactively; declines are remembered. Representative findings:
+A standalone, re-runnable audit over the *effective* configuration; separate from the wizard but sharing the
+comment-preserving config writer and validation. It writes nothing non-interactively or under `--dry-run`. Each
+finding carries an optional remediation, applied step-by-step and interactively; declines are remembered, keyed on a
+hash of the evidence. The shipped finding set is C1–C7 in
+[learn mode findings and apply](learn-mode/findings-and-apply.md#config-harden); representative findings:
 
-- `network.profile: public` or over-broad `egress-allow` → offer to reduce to the required hosts.
-- `provision-host-config: true` → offer the safe `config migrate` path.
-- Native host config present with managed config absent → offer migration.
-- Secret with `AllowAnyHostDangerous` or over-broad `hosts` → offer narrowing.
-- `env.secret.yaml` mode not `0600` → offer fix.
+- a network profile that is not the terminal `none`, or an over-broad `egress-allow` list → narrow the posture,
+  keeping the current allow list (a broad profile with an empty allow list is reported, not written).
+- `provision-host-config: true` → turn it off, after deriving a managed config with `run --learn`
+  ([learn mode](learn-mode.md) supersedes the old host-first `config migrate` path).
+- a static secret committed in the project scope → move it to the per-slug user scope (a project removal plus a
+  per-slug addition).
+- a secret with `allow_any_host_dangerous` → drop the flag, keeping its declared hosts.
+- an `env.secret.yaml` mode not `0600` → tighten it (the generic user scope is skipped).
+- a static secret left inline in a managed agent config → move it to `env.secret.yaml`, leaving a reference in the
+  config.
 
-`config harden` is also the home for "reduce egress later", so the public posture is always reversible through a one-time, non-nagging prompt rather than automatic.
+`config harden` is also the home for "reduce egress later", so the public posture is always reversible through a
+one-time, non-nagging prompt rather than automatic. Its network findings are structural only for now; deriving the
+allow set from a real session's traffic is deferred to learn mode's observation evidence.
 
 ## Doctor remediation and Get started docs
 

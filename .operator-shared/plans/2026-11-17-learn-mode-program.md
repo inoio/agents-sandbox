@@ -37,10 +37,14 @@ What is on `main` now:
   the `--learn` flag, the `state.LearnSession` record (a `HomeState` schema bump), and the 30-day artefact sweep. It
   removed the S4/S5/S6 `//deadcode:ignore` markers as it wired each package's consumer. Its host-only steps (a real
   turn through the proxy, a killed-session replay) are a human accept the PR carries.
+- **S8 landed**: `config harden` — the config-only finder (`analyser.ConfigFindings`, findings C1–C7), the
+  `analyser.FileModeWrite`, and the `config harden` command. It runs no sandbox, so the whole subplan is verified in
+  the dev VM. The settled finding set and the owner-scope rule live in
+  `specs/onboarding/learn-mode/findings-and-apply.md` §`config harden`.
 
-**S7 has landed; the frontier is S8 (`config harden`) and S10 (`agent-config-writeback`).**
-**S8 and S10 are now written** (branch `docs/697-learn-mode-s7-s8-s10-plans`):
-`2026-11-17-config-harden.md`, `2026-11-17-agent-config-writeback.md`.
+**S7 and S8 have landed; the frontier is S10 (`agent-config-writeback`) and S9 (`firstrun`).**
+**S10 is written** (`2026-11-17-agent-config-writeback.md`), and it consumes S8's C7: its managed-config write-back is
+where C7's declarative reference write becomes a real agent-config edit (`api_key_env` for kimi).
 **S9 is not yet written** — write it when its predecessors land, never in advance.
 
 **#749 splits across three subplans.** Issue #749 ("read back inline config secrets and directory login stores") is the
@@ -298,8 +302,9 @@ CHANNEL TRACK                                          LEARN TRACK
 
 S2, S3, S4, and S6 landed (S2/S3 shared `network.Policy`, `msb.NetworkSpec`, `msb/translate.go`,
 `viperconfig/config.go`); S6 landed on top of S5; S7 then landed on top of S4 and S6. **S4 and S6 share no file**,
-so S7 was the join; the frontier is now S8, S10, and S11 (S10 follows S7, which it extends; S11 extends S5 and feeds
-S8's C7 and S10's native form). Within each subplan, follow its own serialization. A subplan's plan is written when its
+so S7 was the join; S8 then landed on top of S6. The frontier is now S10 and S9 (S10 follows S7, which it extends, and
+consumes S8's C7; S11 extends S5 and feeds S8's C7 and S10's native form, and landed as PR #754). Within each subplan,
+follow its own serialization. A subplan's plan is written when its
 predecessors land, never in advance — S11 was written ahead of PR #752 at the maintainer's call because #749's read-back
 half depends only on the landed S5.
 

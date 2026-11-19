@@ -31,7 +31,7 @@ read_if: Navigating the codebase.
 ### `cmd/agents-sandbox/` — Cobra CLI entry and commands
 
 - `main.go`, `cli.go`, `commands.go` — entry point, Cobra root, injection seams (msb/docker mocks), and root/tree/version/upgrade wiring.
-- `commands_*.go` — one file per command area (run/shell, system, config incl. `config paths`, inspect, storage/`df`); `<area>_output.go` — renderers; `constants.go`/`tree.go` — command and flag names plus `tree`.
+- `commands_*.go` — one file per command area (run/shell, system, config incl. `config paths`, `config learn`, and `config harden`, inspect, storage/`df`); `<area>_output.go` — renderers; `constants.go`/`tree.go` — command and flag names plus `tree`.
 - `cli_*_test.go` — CLI integration tests, one per command/area.
 
 ### `internal/` — Core packages (non-sandbox)

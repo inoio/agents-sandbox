@@ -21,6 +21,7 @@ session needed.
 | --- | --- |
 | Learn from a session | `agents-sandbox run --learn` |
 | Review a session whose process is gone | `agents-sandbox config learn` |
+| Audit your configuration without a session | `agents-sandbox config harden` |
 
 ## Learn from a session
 
@@ -69,6 +70,21 @@ agents-sandbox config learn
 
 If the sandbox home has been recreated since, agents-sandbox reports that and discards the record rather than analysing
 the new home against stale facts.
+
+## Audit your configuration without a session
+
+A learning session watches what your agent used; an audit needs no session at all. `config harden` reads the
+configuration your next run would use and proposes the risky parts to tighten:
+
+```console
+agents-sandbox config harden
+```
+
+Use it when you want to check the configuration you already have — for example after copying a setup between
+machines, or when you are not sure a secret or a network setting is scoped the way you intended. It reports what it
+would change and asks about each change in turn, and it remembers a change you decline. It writes nothing
+non-interactively or under `--dry-run`. See [Commands]({% link commands.md %}#config-harden) for exactly what it
+audits.
 
 ## Non-interactive runs
 
