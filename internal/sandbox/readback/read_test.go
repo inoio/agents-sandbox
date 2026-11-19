@@ -453,3 +453,30 @@ func TestReadCappedFileBoundary(t *testing.T) {
 	_, ok = readCappedFile(overCap, 16)
 	require.False(t, ok, "a file over the cap is refused")
 }
+
+// TestReadStaticCredentialCarriesDotenvKeyAsEnvVar: the dotenv key is the
+// configured secret's env-var name, carried on the credential so a learn-mode
+// finding can scope the secret write to the variable it replaces.
+func TestReadStaticCredentialCarriesDotenvKeyAsEnvVar(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/.env", "OPENAI_API_KEY=sk-secret\n")
+
+	rb, err := Read(home, "hermes", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Static, 1)
+	require.Equal(t, "OPENAI_API_KEY", rb.Static[0].EnvVar)
+}
+
+// TestReadLoginCredentialHasNoEnvVar: the env-var name is a static-secret fact;
+// a login credential, whose value is never read, carries none.
+func TestReadLoginCredentialHasNoEnvVar(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".codex/auth.json", `{"tokens":{"access_token":"super-secret"}}`)
+
+	rb, err := Read(home, "codex", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Login, 1)
+	require.Empty(t, rb.Login[0].EnvVar)
+}

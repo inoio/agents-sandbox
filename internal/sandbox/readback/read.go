@@ -35,9 +35,13 @@ type Credential struct {
 	Kind     CredentialKind
 	Source   string // sandbox-home-relative path, or "<agent>:<probe>"
 	Provider string
-	Field    string   // header-field hint, optional
-	Hosts    []string // endpoints named for the entry, optional
-	Value    string   // static only; never in a Manifest
+	// EnvVar is the configured secret's env-var name (the dotenv key), set for
+	// a static credential only. It scopes a proposed secret write; empty means
+	// the credential cannot be scoped.
+	EnvVar string
+	Field  string   // header-field hint, optional
+	Hosts  []string // endpoints named for the entry, optional
+	Value  string   // static only; never in a Manifest
 }
 
 // ReadBack is the result of reading one agent's home back: the declared config
@@ -421,6 +425,7 @@ func staticCredentials(source string, content []byte) []Credential {
 			Kind:     CredentialStatic,
 			Source:   source,
 			Provider: provider,
+			EnvVar:   key,
 			Field:    field,
 			Value:    strings.TrimSpace(value),
 		})
