@@ -79,7 +79,10 @@ need a real-git porcelain go-git does not implement stays in bash: `rebase-statu
 A harness fakes an external CLI the script calls (`gh`, `docker`, `msb`) without a shell stub: it puts a symlink
 to the test binary on `PATH`, and `TestMain` registers the canned response. When the test binary is invoked under
 the fake's name, `Dispatch` — keyed on `filepath.Base(os.Args[0])` — serves it, argv-logged. This removes
-the fake-`gh` shell script the bash harnesses each carry.
+the fake-`gh` shell script the bash harnesses each carry. A served fake exits through `syscall.Exit`, not
+`os.Exit`: `test/scripts` has only `_test.go` files, so under `go test -cover` (the codecov and mutation runs) the
+coverage runtime's exit hook would print `program not built with -cover` onto the fake's stderr, which the
+caller reads as the command's output. The raw exit skips the hook.
 
 ### Ambient-command contract
 
