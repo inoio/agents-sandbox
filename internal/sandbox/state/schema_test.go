@@ -177,6 +177,8 @@ var (
 		"adopted_home_volumes[].checkout_slug",
 		"adopted_home_volumes[].volume",
 		"learn_declines",
+		"learn_declines[].at",
+		"learn_declines[].evidence_hash",
 		"migrations",
 		"migrations[].copied",
 		"migrations[].excluded",
@@ -185,6 +187,10 @@ var (
 		"project_trust",
 		"project_trust[].digest",
 		"project_trust[].inputs",
+		"project_trust[].inputs.digest",
+		"project_trust[].inputs.entries",
+		"project_trust[].inputs.kind",
+		"project_trust[].inputs.path",
 		"schema",
 		"updates",
 		"updates.agents",
@@ -241,6 +247,11 @@ func nestedYAMLFieldPaths(fieldType reflect.Type, path string) []string {
 	switch {
 	case fieldType.Kind() == reflect.Map:
 		return nestedYAMLFieldPaths(fieldType.Elem(), path+"[]")
+	case fieldType.Kind() == reflect.Slice:
+		// A slice element shares the [] path its container established: a
+		// map[string][]T is a list of T, and the map already contributed the
+		// marker, so recursing without another keeps one [] per collection.
+		return nestedYAMLFieldPaths(fieldType.Elem(), path)
 	case fieldType.Kind() == reflect.Pointer:
 		return nestedYAMLFieldPaths(fieldType.Elem(), path)
 	case fieldType.Kind() == reflect.Struct && fieldType != reflect.TypeFor[time.Time]():

@@ -132,6 +132,66 @@ func TestObservationDeniedIsReportedNotAllowed(t *testing.T) {
 	}
 }
 
+// TestObservationDeniedHostConnectTunnelIsNotUse: the channel records an
+// accepted CONNECT tunnel as its own successful destination, separately from the
+// request that travelled through it. The tunnel's acceptance is not evidence the
+// host is safe to allow, so a host whose only request was denied never enters the
+// proposed allow set even though its connect entry succeeded.
+func TestObservationDeniedHostConnectTunnelIsNotUse(t *testing.T) {
+	deniedHostConnect := SessionFacts{
+		Current: network.Policy{Profiles: []network.Profile{network.ProfilePublic}},
+		Observation: channel.Observation{Destinations: []channel.Destination{
+			{Host: "dead.example", Protocol: connectProtocol, Success: true},
+			{Host: "dead.example", Protocol: "https", Path: "/", Success: false, Denied: true},
+		}},
+	}
+
+	findings := ObservationFindings(deniedHostConnect)
+
+	require.Len(t, findings, 1)
+	require.Contains(t, findings[0].Evidence.Denied, "dead.example")
+	allow := egressAllowWrite(t, findings[0])
+	allowed, ok := allow.ConfigValue.([]string)
+	require.True(t, ok, "an egress-allow value is a host list")
+	require.NotContains(t, allowed, "dead.example",
+		"a host whose only request was denied must never be auto-allowed via its connect tunnel")
+
+	t.Run("a connect tunnel with no denial is real use", func(t *testing.T) {
+		connectOnly := SessionFacts{
+			Current: network.Policy{Profiles: []network.Profile{network.ProfilePublic}},
+			Observation: channel.Observation{Destinations: []channel.Destination{
+				{Host: "live.example", Protocol: connectProtocol, Success: true},
+			}},
+		}
+
+		findings := ObservationFindings(connectOnly)
+
+		require.Len(t, findings, 1)
+		allowed, ok := egressAllowWrite(t, findings[0]).ConfigValue.([]string)
+		require.True(t, ok, "an egress-allow value is a host list")
+		require.Contains(t, allowed, "live.example",
+			"a successful non-intercepted tunnel is real use")
+	})
+
+	t.Run("a successful request still allows a host that also has a denial", func(t *testing.T) {
+		mixed := SessionFacts{
+			Current: network.Policy{Profiles: []network.Profile{network.ProfilePublic}},
+			Observation: channel.Observation{Destinations: []channel.Destination{
+				{Host: "mixed.example", Protocol: "https", Path: "/", Success: true},
+				{Host: "mixed.example", Protocol: "https", Path: "/admin", Success: false, Denied: true},
+			}},
+		}
+
+		findings := ObservationFindings(mixed)
+
+		require.Len(t, findings, 1)
+		allowed, ok := egressAllowWrite(t, findings[0]).ConfigValue.([]string)
+		require.True(t, ok, "an egress-allow value is a host list")
+		require.Contains(t, allowed, "mixed.example",
+			"a successful request is real use even when another request to the host was denied")
+	})
+}
+
 // TestObservationSecretUsesChannelAttributionThenConfigEntryHosts: the host set
 // for a learned static secret comes from the destinations the channel observed
 // the credential sent to, and falls back to the endpoint the read-back found in

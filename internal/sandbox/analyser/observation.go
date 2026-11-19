@@ -18,6 +18,11 @@ const (
 	evidenceChannelReadback = "readback"
 )
 
+// connectProtocol is the channel's protocol marker for an accepted CONNECT
+// tunnel. The tunnel is recorded as its own successful destination, separately
+// from the request that travelled through it.
+const connectProtocol = "connect"
+
 // SessionFacts is everything the after-run analysis needs from one finished
 // session: the home read-back, the observation channel's scrubbed capture, and
 // the network policy in effect while the session ran, for the never-widen diff.
@@ -112,15 +117,23 @@ func policyIsNarrowNone(policy network.Policy, allow []string) bool {
 	return slices.Equal(sortedUnique(policy.EgressAllow), allow)
 }
 
-// observedUsedHosts returns the sorted, de-duplicated hosts of the destinations
-// the session reached successfully and that were not denied. A denied
-// destination is never a used one.
+// observedUsedHosts returns the sorted, de-duplicated hosts the session used. A
+// successful non-connect destination is use. An accepted connect tunnel is use
+// only when its host has no denied destination: the channel records the tunnel's
+// acceptance separately from a request denied through it, so a host whose only
+// request was denied still carries a successful connect entry, and that tunnel
+// is not evidence the host is safe to allow. A denied destination is never a used
+// one.
 //
 //deadcode:ignore reason="observation findings engine; pending S7 run --learn caller wires the analyser"
 func observedUsedHosts(destinations []channel.Destination) []string {
+	denied := deniedHosts(destinations)
 	var hosts []string
 	for _, destination := range destinations {
 		if destination.Denied || !destination.Success || destination.Host == "" {
+			continue
+		}
+		if destination.Protocol == connectProtocol && slices.Contains(denied, destination.Host) {
 			continue
 		}
 		hosts = append(hosts, destination.Host)
