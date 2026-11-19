@@ -183,6 +183,12 @@ type refusal struct {
 func planWrites(finding Finding, opts ApplyOptions) ([]plannedWrite, *refusal) {
 	plans := make([]plannedWrite, 0, len(finding.Writes))
 	for _, write := range finding.Writes {
+		if writeOnlyRendersText(write) {
+			// A write that names no key, secret, or mode makes no machine
+			// change: it exists so the prompt renders its Text (the inline
+			// config's reference form, until a managed-config write lands).
+			continue
+		}
 		dir, refusal := planTarget(write, opts)
 		if refusal != nil {
 			return nil, refusal
@@ -208,6 +214,13 @@ func planWrites(finding Finding, opts ApplyOptions) ([]plannedWrite, *refusal) {
 		plans = append(plans, plannedWrite{write: write, dir: dir, secretValue: ""})
 	}
 	return plans, nil
+}
+
+// writeOnlyRendersText reports whether a write is declarative: it names no
+// config key, secret, or file mode, so it makes no machine change and only its
+// Text is meaningful.
+func writeOnlyRendersText(write Write) bool {
+	return write.ConfigKey == "" && write.Secret == nil && write.FileMode == nil
 }
 
 // planTarget resolves a write's directory and refuses a per-slug config write
@@ -283,7 +296,7 @@ func resolveSecretValue(secret *SecretWrite, opts ApplyOptions) (string, bool) {
 // means to tighten. A project-scope file is verified through the guard, so an
 // unapproved project scope is refused here.
 func planFileMode(dir string) *refusal {
-	path := filepath.Join(dir, configpaths.EnvSecretFileName+".yaml")
+	path := secretFilePath(dir)
 	if _, err := os.Stat(path); err != nil {
 		return &refusal{
 			note: fmt.Sprintf("%s has no secret file to tighten", dir),
@@ -406,8 +419,14 @@ func executeWrite(plan plannedWrite, opts ApplyOptions) (string, error) {
 // file's existence and editability were verified at plan time, so a chmod
 // failure here is an unexpected one and is surfaced as-is.
 func executeFileMode(plan plannedWrite) error {
-	path := filepath.Join(plan.dir, configpaths.EnvSecretFileName+".yaml")
+	path := secretFilePath(plan.dir)
 	return os.Chmod(path, plan.write.FileMode.Mode)
+}
+
+// secretFilePath returns the env.secret.yaml path a file-mode write targets in
+// dir.
+func secretFilePath(dir string) string {
+	return filepath.Join(dir, configpaths.EnvSecretFileName+".yaml")
 }
 
 // executeSecret writes or removes one static secret of a planned write.

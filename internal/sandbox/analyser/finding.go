@@ -104,7 +104,9 @@ type Write struct {
 }
 
 // FileModeWrite changes the mode of one of the scope's known files. It targets
-// the scope's env.secret.yaml and carries no content.
+// the scope's env.secret.yaml and carries no content. The finder only ever
+// proposes a tightening (secretFileMode, 0600); the applier does not itself
+// enforce narrow-only, so a caller must not propose a broader mode here.
 type FileModeWrite struct {
 	Mode fs.FileMode
 }

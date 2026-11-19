@@ -999,6 +999,25 @@ func TestReadInlineSecretKeepsItsOwnEntryHost(t *testing.T) {
 		"the credential's own entry host, not the provider-keyed union")
 }
 
+// TestInlineCredentialsInClassifiesAProviderKey pins the exported entry point
+// the config harden finder reuses: a provider entry's inline key is classified
+// with the entry's own host and derived env-var name, and an unknown format
+// yields nothing.
+func TestInlineCredentialsInClassifiesAProviderKey(t *testing.T) {
+	credentials := InlineCredentialsIn(
+		"opencode.jsonc",
+		[]byte(`{"provider":{"openai":{"options":{"apiKey":"sk-inline","baseURL":"https://api.openai.com/v1"}}}}`),
+	)
+
+	require.Len(t, credentials, 1)
+	require.Equal(t, "openai", credentials[0].Provider)
+	require.Equal(t, "OPENAI_API_KEY", credentials[0].EnvVar)
+	require.Equal(t, []string{"api.openai.com"}, credentials[0].Hosts)
+	require.Equal(t, "sk-inline", credentials[0].Value)
+
+	require.Empty(t, InlineCredentialsIn("notes.txt", []byte("provider: openai\napi_key: sk\n")))
+}
+
 // TestConfigInlineCredentialsSkipsAnUnknownExtension: only a config format the
 // decoder knows is walked, so an unrecognised file yields no credential.
 func TestConfigInlineCredentialsSkipsAnUnknownExtension(t *testing.T) {

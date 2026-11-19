@@ -434,11 +434,33 @@ func isSecretKeySeparator(r rune) bool {
 // entry is that provider's own static credential.
 var inlineCredentialKeys = []string{"apikey", "key", "token"}
 
+// InlineCredentialsIn returns each inline static credential the config document
+// in data holds: a credential-bearing key inside a provider entry, with the
+// provider, host, and env-var name taken from that entry. source names the
+// document so its format is chosen and the credential's Source records it. A
+// format the decoder does not know, or a document it cannot decode, yields
+// nothing, never a guess. The value stays in memory on Credential.Value; it is
+// never persisted.
+func InlineCredentialsIn(source string, data []byte) []Credential {
+	format, ok := configdecode.FormatFor(source)
+	if !ok {
+		return nil
+	}
+	document, err := configdecode.Decode(format, data)
+	if err != nil {
+		return nil
+	}
+	var credentials []Credential
+	walkProviderEntries(document, func(providerEntry map[string]any, provider string) {
+		credentials = append(credentials, entryCredentials(providerEntry, provider, source)...)
+	})
+	return credentials
+}
+
 // configInlineCredentials returns each inline static credential a declared
-// config file holds: a credential-bearing key inside a provider entry, with the
-// provider, host, and env-var name taken from that entry. A probe, the dotenv,
-// and a login store are skipped (the login store's value is never read); a file
-// the reader cannot decode yields nothing, never a guess.
+// config file holds, via InlineCredentialsIn. A probe, the dotenv, and a login
+// store are skipped (the login store's value is never read); a file the reader
+// cannot decode yields nothing, never a guess.
 func configInlineCredentials(home string, manifest Manifest) []Credential {
 	var credentials []Credential
 	for _, entry := range manifest.Entries {
@@ -448,20 +470,13 @@ func configInlineCredentials(home string, manifest Manifest) []Credential {
 		if _, isLogin := loginStoreFor(entry.Key); isLogin {
 			continue
 		}
-		format, ok := configdecode.FormatFor(entry.Key)
-		if !ok {
+		if _, ok := configdecode.FormatFor(entry.Key); !ok {
 			continue
 		}
 		// A failed read yields nil content, which decodes to an empty
 		// document, so it needs no separate skip.
 		content, _ := readCappedFile(filepath.Join(home, entry.Key), maxHashedBytes)
-		document, err := configdecode.Decode(format, content)
-		if err != nil {
-			continue
-		}
-		walkProviderEntries(document, func(providerEntry map[string]any, provider string) {
-			credentials = append(credentials, entryCredentials(providerEntry, provider, entry.Key)...)
-		})
+		credentials = append(credentials, InlineCredentialsIn(entry.Key, content)...)
 	}
 	return credentials
 }

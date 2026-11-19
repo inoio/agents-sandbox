@@ -1218,3 +1218,46 @@ func TestApplyProjectRemovalFailureRestoresTheApproval(t *testing.T) {
 		t.Error("a failed project removal left the extended approval in place; restore() was not called")
 	}
 }
+
+// TestApplySkipsATextOnlyWrite pins that a write naming no config key, secret,
+// or file mode makes no machine change: it is rendered in the prompt but never
+// planned or executed, so it cannot create a stray config file. The finding's
+// actionable write still applies.
+func TestApplySkipsATextOnlyWrite(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	finding := Finding{
+		Evidence: Evidence{Summary: "an inline secret is in the managed agent config"},
+		Writes: []Write{
+			{
+				Scope:  ScopePerSlugUser,
+				Secret: &SecretWrite{EnvVar: "OPENAI_API_KEY", Provider: "openai", Hosts: []string{"api.openai.com"}},
+				Text:   "move the value to env.secret.yaml",
+			},
+			{Scope: ScopePerSlugUser, Text: "replace the literal with ${OPENAI_API_KEY}"},
+		},
+	}
+
+	ui, answered := interactiveUI()
+	results := Apply([]Finding{finding}, ApplyOptions{
+		Paths: cp, Slug: testSlug, UI: ui, Mode: options.ModeRun,
+		SecretValue: func(SecretWrite) (string, bool) { return "sk-inline", true },
+	})
+
+	if results[0].Outcome != OutcomeApplied {
+		t.Fatalf("outcome = %q (%s); want applied", results[0].Outcome, results[0].Err)
+	}
+	if *answered != 1 {
+		t.Errorf("the finding asked %d prompts; want exactly one", *answered)
+	}
+	if got := readFile(
+		t,
+		filepath.Join(cp.UserSlugConfigDir(testSlug), "env.secret.yaml"),
+	); !strings.Contains(
+		got,
+		"OPENAI_API_KEY",
+	) {
+		t.Errorf("env.secret.yaml = %q; want the moved secret", got)
+	}
+	assertNoFile(t, filepath.Join(cp.UserSlugConfigDir(testSlug), "config.yaml"))
+}
