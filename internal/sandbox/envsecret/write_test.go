@@ -220,6 +220,57 @@ func TestWriteSecretSpecWritesThroughSymlink(t *testing.T) {
 	assert.Contains(t, string(data), "new")
 }
 
+// TestWriteSecretSpecRefusesUnapprovedSymlinkedProjectFile pins that a symlinked
+// project secret file is verified at its link path, where the guard keys the
+// approval: a link whose resolved bytes differ from the approved bytes is
+// refused. Reading the resolved target instead would let a link pointing outside
+// the guarded project dir fall through to an unverified read, so a planted
+// symlink could bypass the trust gate and rewrite its target.
+func TestWriteSecretSpecRefusesUnapprovedSymlinkedProjectFile(t *testing.T) {
+	projectDir := t.TempDir()
+	outsideDir := t.TempDir()
+	target := filepath.Join(outsideDir, "secrets.yaml")
+	content := []byte("FOO:\n  value: planted\n  host: a.example\n")
+	require.NoError(t, os.WriteFile(target, content, 0o600))
+	link := filepath.Join(projectDir, "env.secret.yaml")
+	require.NoError(t, os.Symlink(target, link))
+	t.Cleanup(projectguard.Install(
+		[]string{projectDir},
+		map[string]projectguard.Approval{link: projectguard.ApprovalOf([]byte("different bytes"))},
+	))
+	before := readFile(t, target)
+
+	err := WriteSecretSpec(projectDir, "FOO", SecretSpec{Value: "new", Host: "b.example"})
+
+	require.ErrorIs(t, err, projectguard.ErrNotApproved)
+	assert.Equal(t, before, readFile(t, target), "the refused write must not rewrite the symlink's target")
+}
+
+// TestWriteSecretSpecVerifiesApprovedIntraProjectSymlink pins the other side of
+// the same key: a symlink to another file in the same guarded project dir whose
+// resolved bytes are the approved bytes is verified, not spuriously refused.
+// Resolving the target for the read would refuse it, since the target itself is
+// under the guarded root but not an approved input.
+func TestWriteSecretSpecVerifiesApprovedIntraProjectSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "secrets.yaml")
+	content := []byte("FOO:\n  value: old\n  host: a.example\n")
+	require.NoError(t, os.WriteFile(target, content, 0o600))
+	link := filepath.Join(dir, "env.secret.yaml")
+	require.NoError(t, os.Symlink(target, link))
+	t.Cleanup(projectguard.Install(
+		[]string{dir},
+		map[string]projectguard.Approval{link: projectguard.ApprovalOf(content)},
+	))
+
+	require.NoError(t, WriteSecretSpec(dir, "FOO", SecretSpec{Value: "new", Host: "b.example"}))
+
+	info, err := os.Lstat(link)
+	require.NoError(t, err)
+	assert.NotZero(t, info.Mode()&os.ModeSymlink, "the link must survive the write")
+	assert.Contains(t, readFile(t, target), "new")
+}
+
 // TestWriteSecretSpecRefusesUnapprovedProjectFile pins the trust contract: a
 // project secret file the approval does not cover (or whose bytes changed since
 // it was approved) is refused, so a learn-mode write can never launder a

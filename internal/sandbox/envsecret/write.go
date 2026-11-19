@@ -121,7 +121,7 @@ func secretPath(dir string) string {
 //deadcode:ignore reason="secret store reader; reached through WriteSecretSpec/RemoveSecretSpec from the analyser applier (executeSecret), pending the S7 run --learn caller"
 func parseSecretDocument(dir string) (*oneyaml.Document, bool, error) {
 	path := secretPath(dir)
-	data, err := readSecretFileAt(resolvedSecretTarget(path), path)
+	data, err := readSecretFileAt(path)
 	switch {
 	// A refusal wraps fs.ErrNotExist when the approved file has been deleted, so
 	// it must be checked before the absent-file branch.
@@ -140,18 +140,30 @@ func parseSecretDocument(dir string) (*oneyaml.Document, bool, error) {
 	return document, true, nil
 }
 
-// readSecretFileAt reads target through the project guard and reports the read
-// against path, so a non-refusal read error names the file the caller asked
-// for. The resolved target is read because a symlinked secret file is edited at
-// its target. A guard refusal and an absent file are both returned unwrapped and
-// unmodified: parseSecretDocument tells them apart by errors.Is, and a refusal
-// also wraps fs.ErrNotExist when the approved file has been deleted.
+// ValidateSecretFile reports whether dir's env.secret.yaml can be edited: it is
+// absent, or it parses. It returns the parse or trust-gate error otherwise and
+// writes nothing, so a caller that plans several writes can refuse a finding
+// whose secret file cannot be edited before the first write runs.
+//
+//deadcode:ignore reason="secret store validator; the analyser applier (planSecret) refuses an uneditable secret file through it, pending the S7 run --learn caller"
+func ValidateSecretFile(dir string) error {
+	_, _, err := parseSecretDocument(dir)
+	return err
+}
+
+// readSecretFileAt reads path through the project guard, verifying the approved
+// bytes at the link path the guard keys its approval on; the read itself follows
+// a symlink to its target, so a symlinked file is read at its target while
+// verified as the approved link. A guard refusal and an absent file are both
+// returned unwrapped and unmodified: parseSecretDocument tells them apart by
+// errors.Is, and a refusal also wraps fs.ErrNotExist when the approved file has
+// been deleted.
 //
 //deadcode:ignore reason="secret store reader; reached through parseSecretDocument from the analyser applier (executeSecret), pending the S7 run --learn caller"
-func readSecretFileAt(target, path string) ([]byte, error) {
+func readSecretFileAt(path string) ([]byte, error) {
 	// The file is a project secret file, so the read is verified against the
 	// approved content the trust gate installed.
-	data, err := projectguard.ReadFile(target, configread.ReadFile)
+	data, err := projectguard.ReadFile(path, configread.ReadFile)
 	switch {
 	case errors.Is(err, projectguard.ErrNotApproved), errors.Is(err, os.ErrNotExist):
 		return data, err
