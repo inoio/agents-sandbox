@@ -1219,3 +1219,24 @@ func TestIsModelCatalog(t *testing.T) {
 	require.False(t, isModelCatalog("provider", map[string]any{"gpt-4o": map[string]any{}}),
 		"a non-models key is never a catalog")
 }
+
+// TestInlineCredentialsInIgnoresAnUndecodableDocument pins that a document in a
+// known format that does not decode yields nothing, never a guess.
+func TestInlineCredentialsInIgnoresAnUndecodableDocument(t *testing.T) {
+	require.Empty(t, InlineCredentialsIn("config.json", []byte("{not json")))
+}
+
+// TestConfigInlineCredentialsSkipsAProbeEntry pins that an entry carrying no
+// size and no mtime is a credential probe, not a file, so it is never read as
+// one even when its key names a readable provider config.
+func TestConfigInlineCredentialsSkipsAProbeEntry(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, "scope/opencode.jsonc",
+		`{"provider":{"openai":{"options":{"apiKey":"sk-inline","baseURL":"https://api.openai.com/v1"}}}}`)
+
+	credentials := configInlineCredentials(home, Manifest{Entries: []ManifestEntry{
+		{Key: "scope/opencode.jsonc", Size: 0, Hash: "probe-digest"},
+	}})
+
+	require.Empty(t, credentials, "an entry with no size or mtime is a probe, not a file")
+}

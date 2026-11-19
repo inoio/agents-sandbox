@@ -115,10 +115,12 @@ git history — harden says so and points at rotating the credential.
 - **C1 — a static secret in the project scope.** One finding per committed key, with two writes: a project-scope
   removal and a per-slug addition carrying the same hosts and header fields. A project secret is moved whole; it is
   never also narrowed in place, which would let the narrowing rewrite re-create the entry the move removed.
-- **C2 — an over-broad secret scope.** A secret with `allow_any_host_dangerous` and at least one host is rewritten
-  without the flag. The applier's secret writer always writes `AllowAnyHostDangerous: false`, so the rewrite is the
-  drop. A dangerous secret with **no** host has nothing to narrow to and is reported, not written. C2 fires outside
-  the project scope, where C1 moves the secret whole.
+- **C2 — an over-broad secret scope.** A secret with `allow_any_host_dangerous` and at least one host is rewritten in
+  place without the flag. The applier's secret writer always writes `AllowAnyHostDangerous: false`, so the rewrite is
+  the drop. C2 fires in the per-slug user scope, outside the project scope where C1 moves the secret whole. Two cases
+  are reported, not written: a dangerous secret with **no** host has nothing to narrow to, and a dangerous secret in
+  the **generic** user scope has no in-place target — its only write target is the per-slug scope, and moving a
+  lower-precedence value up could overwrite the per-slug entry the user set for that repo.
 - **C3 — an over-broad egress profile.** A policy that is not the terminal `none` profile is narrowed to `none`,
   keeping the current allow list. An **empty** allow list is reported, not written: narrowing to `none` with nothing
   to keep would deny all egress. An allow list whose only entries are wildcards C4 would drop is reported too, for the

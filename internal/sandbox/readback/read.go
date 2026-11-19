@@ -516,6 +516,7 @@ func configInlineCredentials(home string, manifest Manifest) []Credential {
 		if isProbe(entry) || entry.Hash == "" || SkipsInlineCredentials(entry.Key) {
 			continue
 		}
+		// gomutants:disable-next-line BRANCH_IF reason="InlineCredentialsIn refuses an unknown format itself, so this guard duplicates the callee and its removal changes nothing"
 		if _, ok := configdecode.FormatFor(entry.Key); !ok {
 			continue
 		}

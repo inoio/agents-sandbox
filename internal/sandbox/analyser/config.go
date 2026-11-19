@@ -130,7 +130,10 @@ func projectSecretMoveFinding(scope configpaths.ConfigScope, envVar string, spec
 // declared hosts, dropping the dangerous flag. The applier's secret writer
 // always writes AllowAnyHostDangerous false, so the rewrite is the drop. A
 // dangerous secret with no host has nothing to narrow to and is reported, not
-// written.
+// written. A generic-scope secret is reported too: the applier's only secret
+// targets are the per-slug and project scopes, so narrowing a generic-scope
+// secret would move it up in precedence and could overwrite a higher-precedence
+// entry the user set for that repo.
 func dangerousSecretFinding(scope configpaths.ConfigScope, envVar string, spec envsecret.SecretSpec) Finding {
 	hosts := specHosts(spec)
 	headerFields := sortedUnique(spec.HeaderFields)
@@ -142,6 +145,11 @@ func dangerousSecretFinding(scope configpaths.ConfigScope, envVar string, spec e
 		Channel:      evidenceChannelConfig,
 	}
 	if len(hosts) == 0 {
+		//exhaustruct:ignore // a reported-only finding proposes no write
+		return Finding{Evidence: evidence, Kind: KindConfig}
+	}
+	if scope.Kind == configpaths.ScopeGenericUser {
+		evidence.Summary += " in the generic user scope, which has no in-place narrowing target"
 		//exhaustruct:ignore // a reported-only finding proposes no write
 		return Finding{Evidence: evidence, Kind: KindConfig}
 	}
@@ -506,6 +514,7 @@ func profileList(profiles []network.Profile) string {
 // configuration emits the same sequence.
 func sortFindings(findings []Finding) {
 	sort.SliceStable(findings, func(i, j int) bool {
+		// gomutants:disable-next-line CONDITIONALS_BOUNDARY reason="a stable sort orders equal keys by input position, so < and <= produce the same sequence"
 		return findingSortKey(findings[i]) < findingSortKey(findings[j])
 	})
 }
@@ -515,11 +524,14 @@ func sortFindings(findings []Finding) {
 func findingSortKey(f Finding) string {
 	var key strings.Builder
 	key.WriteString(string(f.Kind))
+	// gomutants:disable-next-line STATEMENT_REMOVE,INTEGER_INCREMENT reason="the separator byte only has to be present; its exact value and the collision-freedom of two concatenated components do not change the deterministic order the stable sort produces"
 	key.WriteByte(0)
 	key.WriteString(f.Evidence.Summary)
 	for _, write := range f.Writes {
+		// gomutants:disable-next-line STATEMENT_REMOVE,INTEGER_INCREMENT reason="the separator byte only has to be present; its exact value and the collision-freedom of two concatenated components do not change the deterministic order the stable sort produces"
 		key.WriteByte(0)
 		key.WriteString(string(write.Scope))
+		// gomutants:disable-next-line STATEMENT_REMOVE,INTEGER_INCREMENT reason="the separator byte only has to be present; its exact value and the collision-freedom of two concatenated components do not change the deterministic order the stable sort produces"
 		key.WriteByte(0)
 		key.WriteString(write.ConfigKey)
 		if write.Secret != nil {

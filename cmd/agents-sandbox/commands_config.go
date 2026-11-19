@@ -553,9 +553,6 @@ func hardenSecretValue(
 // credential. Resolving from the source rather than by precedence keeps a move's
 // value with its own entry when the same env var is declared in another scope.
 func secretValueFromSource(source, envVar string, ui termio.Logger) (string, bool) {
-	if source == "" {
-		return "", false
-	}
 	info, err := os.Stat(source)
 	if err != nil {
 		return "", false
@@ -564,8 +561,10 @@ func secretValueFromSource(source, envVar string, ui termio.Logger) (string, boo
 		return inlineCredentialValueInFile(source, envVar)
 	}
 	specs := envsecret.ParseSecretSpecYAML(filepath.Join(source, configpaths.EnvSecretFileName+".yaml"), ui)
-	spec, ok := specs[envVar]
-	if !ok || spec.Value == "" {
+	// An absent env var yields the zero spec, whose value is empty, so the
+	// value check alone covers it.
+	spec := specs[envVar]
+	if spec.Value == "" {
 		return "", false
 	}
 	return spec.Value, true
@@ -585,7 +584,8 @@ func secretValueFromScopes(
 ) (string, bool) {
 	for _, scope := range slices.Backward(scopes) {
 		specs := envsecret.ParseSecretSpecYAML(scope.EnvSecretYAMLFile(), ui)
-		if spec, ok := specs[envVar]; ok && spec.Value != "" {
+		// An absent env var yields the zero spec, whose value is empty.
+		if spec := specs[envVar]; spec.Value != "" {
 			return spec.Value, true
 		}
 	}
@@ -638,6 +638,7 @@ func inlineCredentialValueInFile(path, envVar string) (string, bool) {
 		return "", false
 	}
 	data, err := projectguard.ReadFile(path, configread.ReadFile)
+	// gomutants:disable-next-line BRANCH_IF reason="a read failure leaves data nil, which decodes to no credentials through the same path, so the early return changes nothing"
 	if err != nil {
 		return "", false
 	}

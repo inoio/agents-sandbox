@@ -240,6 +240,7 @@ func planTarget(write Write, opts ApplyOptions) (string, *refusal) {
 		}
 		return opts.Paths.ProjectConfigDir(), nil
 	}
+	// gomutants:disable-next-line EXPRESSION_REMOVE reason="a file-mode write carries no config key, and an empty key resolves no owner, so it reaches the same per-slug target through the fall-through"
 	if write.Secret != nil || write.FileMode != nil {
 		return opts.Paths.UserSlugConfigDir(opts.Slug), nil
 	}

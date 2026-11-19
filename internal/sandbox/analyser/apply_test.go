@@ -1360,6 +1360,9 @@ func TestApplyReportsAWriteLessFindingWithoutPrompting(t *testing.T) {
 	if results[0].Outcome != OutcomeNotApplicable {
 		t.Fatalf("outcome = %q (%s); want not-applicable", results[0].Outcome, results[0].Err)
 	}
+	if !strings.Contains(results[0].Note, "reported only") {
+		t.Errorf("note = %q; want it to say the finding is reported only", results[0].Note)
+	}
 	if *answered != 0 {
 		t.Errorf("a write-less finding asked %d prompts; want none", *answered)
 	}
@@ -1428,4 +1431,58 @@ func TestApplyRestoresTheSecretApprovalWhenTheRemovalFails(t *testing.T) {
 	after, _, err := projecttrust.LoadApproval(testCheckoutSlug)
 	require.NoError(t, err)
 	require.Equal(t, before, after, "a failed removal must restore the approval it extended")
+}
+
+// TestApplyFailsWhenAProjectSecretRemovalCannotBeRecorded pins that a failing
+// project-scope secret removal surfaced through the applier fails the finding:
+// executeWrite must carry executeProjectSecret's error, not swallow it.
+func TestApplyFailsWhenAProjectSecretRemovalCannotBeRecorded(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "network:\n  profile: none\n")
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "env.secret.yaml",
+		"WIDGET_TOKEN:\n  value: sk\n  host: api.widget.example\n")
+	approveProjectLayer(t, cp)
+	restore := state.OverrideStateWriteForTest(func(string, []byte) error { return errors.New("boom") })
+	t.Cleanup(restore)
+
+	ui, _ := interactiveUI()
+	finding := Finding{
+		Evidence: Evidence{Summary: "WIDGET_TOKEN is committed in the project scope"},
+		Writes:   []Write{{Scope: ScopeProject, Secret: &SecretWrite{EnvVar: "WIDGET_TOKEN", Remove: true}}},
+	}
+	results := Apply([]Finding{finding}, ApplyOptions{
+		Paths: cp, Slug: testSlug, CheckoutSlug: testCheckoutSlug, UI: ui, Mode: options.ModeRun,
+	})
+
+	if results[0].Outcome != OutcomeFailed || results[0].Err == "" {
+		t.Fatalf("result = %+v; want a failed removal carrying the error", results[0])
+	}
+}
+
+// TestPlanWritesKeepsWritesAfterASkippedOrFileModeWrite pins that a declarative
+// (text-only) write and a file-mode write are each passed over without stopping
+// the planning of the writes that follow them.
+func TestPlanWritesKeepsWritesAfterASkippedOrFileModeWrite(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	dir := cp.UserSlugConfigDir(testSlug)
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	testutil.WriteFile(t, dir, "env.secret.yaml", "TOKEN:\n  value: sk\n  host: api.example\n")
+	finding := Finding{
+		Evidence: Evidence{Summary: "several writes"},
+		Writes: []Write{
+			{Scope: ScopePerSlugUser, Text: "declarative only"},
+			{Scope: ScopePerSlugUser, FileMode: &FileModeWrite{Mode: 0o600}},
+			{Scope: ScopePerSlugUser, Secret: &SecretWrite{EnvVar: "SECOND", Hosts: []string{"api.example"}}},
+		},
+	}
+
+	plans, refusal := planWrites(finding, ApplyOptions{
+		Paths: cp, Slug: testSlug, Mode: options.ModeRun,
+		SecretValue: func(SecretWrite) (string, bool) { return "sk-second", true },
+	})
+
+	require.Nil(t, refusal)
+	require.Len(t, plans, 2, "the file-mode and secret writes are planned past the text-only one")
 }

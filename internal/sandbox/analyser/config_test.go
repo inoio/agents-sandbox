@@ -12,6 +12,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/projectguard"
+	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/readback"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
@@ -42,6 +43,13 @@ func writeSecretFile(t *testing.T, dir, content string) {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(dir, 0o750))
 	testutil.WriteFile(t, dir, configpaths.EnvSecretFileName+".yaml", content)
+}
+
+// tightFile restricts a scope's env.secret.yaml to 0600, so a finding test that
+// only cares about secrets or the network posture is not also reporting C5.
+func tightFile(t *testing.T, dir string) {
+	t.Helper()
+	require.NoError(t, os.Chmod(filepath.Join(dir, configpaths.EnvSecretFileName+".yaml"), 0o600))
 }
 
 // findingWithSecretFor returns the finding carrying a secret write for envVar.
@@ -252,13 +260,11 @@ func TestConfigFindingsEmptyAllowIsReportedNotWritten(t *testing.T) {
 
 	findings := ConfigFindings(f)
 
-	require.NotEmpty(t, findings, "a broad profile with no allow list is reported")
-	for _, finding := range findings {
-		for _, write := range finding.Writes {
-			require.NotEqual(t, "network.profile", write.ConfigKey,
-				"narrowing to none with no allow entries would deny all egress")
-		}
-	}
+	require.Len(t, findings, 1, "a broad profile with no allow list is reported once")
+	require.Equal(t, KindConfig, findings[0].Kind)
+	require.Contains(t, findings[0].Evidence.Summary, "no egress-allow entries",
+		"the reported-only finding names why narrowing would deny all egress")
+	require.Empty(t, findings[0].Writes)
 }
 
 // TestConfigFindingsRemovesWildcardEntry pins C4: a wildcard egress entry is
@@ -288,14 +294,12 @@ func TestConfigFindingsAllWildcardEgressIsReportedNotWritten(t *testing.T) {
 
 	findings := ConfigFindings(f)
 
-	require.NotEmpty(t, findings, "an all-wildcard allow list is reported")
+	require.Len(t, findings, 2, "the profile and the egress finding are both reported")
 	for _, finding := range findings {
-		for _, write := range finding.Writes {
-			require.NotEqual(t, "network.profile", write.ConfigKey,
-				"narrowing to none while dropping the last wildcards would deny all egress")
-			require.NotEqual(t, "network.egress-allow", write.ConfigKey,
-				"dropping the last wildcards would deny all egress")
-		}
+		require.Equal(t, KindConfig, finding.Kind)
+		require.Contains(t, finding.Evidence.Summary, "only wildcard entries",
+			"the reported-only finding names why dropping the last wildcards would deny all egress")
+		require.Empty(t, finding.Writes)
 	}
 }
 
@@ -475,6 +479,8 @@ func TestConfigFindingsReadsAProjectAgentConfigThroughTheGuard(t *testing.T) {
 
 		require.Len(t, findings, 1)
 		require.Contains(t, findings[0].Evidence.Summary, "OPENAI_API_KEY")
+		require.Equal(t, ScopeProject, referenceWrite(t, findings[0]).Scope,
+			"the reference write targets the scope the config lives in")
 	})
 
 	t.Run("an unapproved project file is refused", func(t *testing.T) {
@@ -566,5 +572,319 @@ func TestScopeLabelNamesEveryScope(t *testing.T) {
 	}
 	for kind, want := range labels {
 		require.Equal(t, want, scopeLabel(kind))
+	}
+}
+
+// TestConfigFindingsOrderBySummaryNotGenerationOrder pins that ConfigFindings
+// orders the emitted findings by their key rather than leaving them in the order
+// the finder built them: the policy finding is appended after the project-secret
+// finding, but its summary sorts first.
+func TestConfigFindingsOrderBySummaryNotGenerationOrder(t *testing.T) {
+	f := configFacts(t, &viperconfig.Config{
+		ProvisionHostConfig: true,
+		Network:             network.Policy{Profiles: []network.Profile{network.ProfileNone}},
+	})
+	writeSecretFile(t, f.Paths.ProjectConfigDir(), "PROJECT_KEY:\n  value: sk\n  host: api.example\n")
+	tightFile(t, f.Paths.ProjectConfigDir())
+
+	findings := ConfigFindings(f)
+
+	require.Len(t, findings, 2)
+	require.Contains(t, findings[0].Evidence.Summary, "host-config provisioning")
+	require.Contains(t, findings[1].Evidence.Summary, "PROJECT_KEY")
+}
+
+// TestConfigFindingsReportsAGenericDangerousSecretWithoutWriting pins that a
+// dangerous secret in the generic user scope is reported, not written: the
+// applier's only secret target is the per-slug scope, so writing it would move a
+// lower-precedence value up and could overwrite a per-slug entry.
+func TestConfigFindingsReportsAGenericDangerousSecretWithoutWriting(t *testing.T) {
+	f := configFacts(t, &viperconfig.Config{Network: network.Policy{Profiles: []network.Profile{network.ProfileNone}}})
+	writeSecretFile(t, f.Paths.UserConfigDir(),
+		"WIDGET_TOKEN:\n  value: sk-generic\n  host: a.example\n  allow_any_host_dangerous: true\n")
+	writeSecretFile(t, f.Paths.UserSlugConfigDir(testSlug),
+		"WIDGET_TOKEN:\n  value: sk-perslug\n  host: b.example\n")
+	tightFile(t, f.Paths.UserSlugConfigDir(testSlug))
+
+	findings := ConfigFindings(f)
+
+	require.Len(t, findings, 1)
+	require.Contains(t, findings[0].Evidence.Summary, "WIDGET_TOKEN")
+	require.Contains(t, findings[0].Evidence.Summary, "generic user scope")
+	require.Empty(t, findings[0].Writes,
+		"a generic-scope dangerous secret has no in-place narrowing target")
+}
+
+// TestConfigFindingsMovesEveryProjectSecret pins that each secret in the project
+// scope yields its own C1 move, not only the first.
+func TestConfigFindingsMovesEveryProjectSecret(t *testing.T) {
+	f := configFacts(t, &viperconfig.Config{Network: network.Policy{Profiles: []network.Profile{network.ProfileNone}}})
+	writeSecretFile(t, f.Paths.ProjectConfigDir(),
+		"ALPHA_KEY:\n  value: sk-a\n  host: api.example\n"+
+			"BETA_KEY:\n  value: sk-b\n  host: api.example\n")
+	tightFile(t, f.Paths.ProjectConfigDir())
+
+	findings := ConfigFindings(f)
+
+	for _, envVar := range []string{"ALPHA_KEY", "BETA_KEY"} {
+		finding := findingWithSecretFor(t, findings, envVar)
+		require.Len(t, finding.Writes, 2, "%s is removed and re-added", envVar)
+	}
+}
+
+// TestConfigFindingsSecretFileModeSkipsATightFile pins that a secret file
+// already at 0600 yields no C5 finding.
+func TestConfigFindingsSecretFileModeSkipsATightFile(t *testing.T) {
+	f := configFacts(t, &viperconfig.Config{Network: network.Policy{Profiles: []network.Profile{network.ProfileNone}}})
+	dir := f.Paths.UserSlugConfigDir(testSlug)
+	writeSecretFile(t, dir, "OPENAI_API_KEY:\n  value: sk\n  host: api.example\n")
+	tightFile(t, dir)
+
+	require.Empty(t, ConfigFindings(f), "a 0600 secret file needs no tightening")
+}
+
+// TestConfigFindingsSecretFileModeSkipsANonRegularFile pins that the secret
+// file's mode is only reportable for a regular file.
+func TestConfigFindingsSecretFileModeSkipsANonRegularFile(t *testing.T) {
+	f := configFacts(t, &viperconfig.Config{Network: network.Policy{Profiles: []network.Profile{network.ProfileNone}}})
+	dir := f.Paths.UserSlugConfigDir(testSlug)
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, configpaths.EnvSecretFileName+".yaml"), 0o750))
+
+	require.Empty(t, ConfigFindings(f), "a directory named like the secret file has no mode to tighten")
+}
+
+// TestConfigFindingsAllWildcardEgressAloneIsReported pins C4's foot-gun on its
+// own: with no broad profile to narrow, an all-wildcard allow list is still
+// reported rather than written empty.
+func TestConfigFindingsAllWildcardEgressAloneIsReported(t *testing.T) {
+	f := configFacts(t, &viperconfig.Config{Network: network.Policy{
+		Profiles:    []network.Profile{network.ProfileNone},
+		EgressAllow: []string{"*"},
+	}})
+
+	findings := ConfigFindings(f)
+
+	require.Len(t, findings, 1)
+	require.Equal(t, KindConfig, findings[0].Kind)
+	require.Contains(t, findings[0].Evidence.Summary, "only wildcard entries")
+	require.Empty(t, findings[0].Writes)
+}
+
+// TestInlineConfigFindingsInScopeReturnsNothingWhenTheDirCannotBeRead pins that
+// an absent agent config dir yields no findings.
+func TestInlineConfigFindingsInScopeReturnsNothingWhenTheDirCannotBeRead(t *testing.T) {
+	f := configFacts(t, &viperconfig.Config{Network: network.Policy{Profiles: []network.Profile{network.ProfileNone}}})
+	scope := f.Scopes[len(f.Scopes)-1]
+
+	require.Empty(t, inlineConfigFindingsInScope(scope, filepath.Join(t.TempDir(), "missing")))
+}
+
+// TestInlineConfigFindingsInScopeProcessesEveryEntry pins that a directory, a
+// skipped login store, and an unreadable file each pass by without stopping the
+// scan, so a later valid file still yields its finding.
+func TestInlineConfigFindingsInScopeProcessesEveryEntry(t *testing.T) {
+	f := configFacts(t, &viperconfig.Config{Network: network.Policy{Profiles: []network.Profile{network.ProfileNone}}})
+	scope := f.Scopes[len(f.Scopes)-1]
+	dir := t.TempDir()
+	testutil.WriteFile(t, dir, ".env", "OPENAI_API_KEY=sk-dotenv\n")
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "a-nested"), 0o750))
+	require.NoError(t, os.Symlink(filepath.Join(dir, "missing"), filepath.Join(dir, "b-unreadable")))
+	testutil.WriteFile(t, dir, "c-opencode.jsonc",
+		`{"provider":{"openai":{"options":{"apiKey":"sk-inline","baseURL":"https://api.openai.com/v1"}}}}`)
+
+	findings := inlineConfigFindingsInScope(scope, dir)
+
+	require.Len(t, findings, 1)
+	require.Contains(t, findings[0].Evidence.Summary, "OPENAI_API_KEY")
+}
+
+// TestInlineConfigFindingRequiresEachField pins that a credential missing any
+// one of its env-var name, a host, or a literal value yields no finding.
+func TestInlineConfigFindingRequiresEachField(t *testing.T) {
+	f := configFacts(t, &viperconfig.Config{Network: network.Policy{Profiles: []network.Profile{network.ProfileNone}}})
+	scope := f.Scopes[len(f.Scopes)-1]
+	complete := readback.Credential{
+		EnvVar:   "OPENAI_API_KEY",
+		Provider: "openai",
+		Hosts:    []string{"api.openai.com"},
+		Value:    "sk",
+	}
+	without := func(edit func(*readback.Credential)) readback.Credential {
+		credential := complete
+		edit(&credential)
+		return credential
+	}
+
+	for _, tc := range []struct {
+		name       string
+		credential readback.Credential
+		wantOK     bool
+	}{
+		{name: "complete", credential: complete, wantOK: true},
+		{name: "no env var", credential: without(func(c *readback.Credential) { c.EnvVar = "" })},
+		{name: "no host", credential: without(func(c *readback.Credential) { c.Hosts = nil })},
+		{name: "no value", credential: without(func(c *readback.Credential) { c.Value = "" })},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, ok := inlineConfigFinding(scope, tc.credential)
+			require.Equal(t, tc.wantOK, ok)
+		})
+	}
+}
+
+// TestOwnerScopePicksTheOwningLayer pins that a key the project layer owns maps
+// to the project scope and every other key to the per-slug scope.
+func TestOwnerScopePicksTheOwningLayer(t *testing.T) {
+	f := configFacts(t, &viperconfig.Config{Network: network.Policy{Profiles: []network.Profile{network.ProfileNone}}})
+	testutil.WriteFile(t, f.Paths.ProjectConfigDir(), "config.yaml", "memory: 8G\n")
+	testutil.WriteFile(t, f.Paths.UserSlugConfigDir(testSlug), "config.yaml", "disk-size: 10G\n")
+
+	require.Equal(t, ScopeProject, f.ownerScope("memory"), "the project layer owns memory")
+	require.Equal(t, ScopePerSlugUser, f.ownerScope("disk-size"), "a lower layer owns disk-size")
+	require.Equal(t, ScopePerSlugUser, f.ownerScope("no-such-key"))
+}
+
+// noProjectConfigPaths is a ConfigPaths whose project config dir does not
+// resolve, as it does not for a bare command outside a checkout.
+type noProjectConfigPaths struct{}
+
+func (noProjectConfigPaths) UserConfigDir() string            { return "" }
+func (noProjectConfigPaths) UserSlugConfigDir(string) string  { return "" }
+func (noProjectConfigPaths) UserCacheDir() string             { return "" }
+func (noProjectConfigPaths) UserStateDir() string             { return "" }
+func (noProjectConfigPaths) UserDataDir() string              { return "" }
+func (noProjectConfigPaths) UserHomeDir() (string, error)     { return "", nil }
+func (noProjectConfigPaths) ProjectConfigDir() string         { return "" }
+func (noProjectConfigPaths) ProjectConfigDirAbs() string      { return "" }
+func (noProjectConfigPaths) ProjectDockerfile() string        { return "" }
+func (noProjectConfigPaths) IgnoredWorktreeConfigDir() string { return "" }
+
+// TestOwnerScopeWithoutAProjectConfigDirIsPerSlug pins that an unowned key maps
+// to the per-slug scope even when the project config dir does not resolve, so
+// the ownership check is what decides, not a degenerate empty-path comparison.
+func TestOwnerScopeWithoutAProjectConfigDirIsPerSlug(t *testing.T) {
+	f := ConfigFacts{Paths: noProjectConfigPaths{}, Slug: testSlug}
+
+	require.Equal(t, ScopePerSlugUser, f.ownerScope("no-such-key"))
+}
+
+// TestScopeWriteScopeMapsProjectAndOthers pins the write-scope mapping: only the
+// project layer maps to the project write scope.
+func TestScopeWriteScopeMapsProjectAndOthers(t *testing.T) {
+	require.Equal(t, ScopeProject, scopeWriteScope(configpaths.ScopeProject))
+	require.Equal(t, ScopePerSlugUser, scopeWriteScope(configpaths.ScopePerSlugUser))
+	require.Equal(t, ScopePerSlugUser, scopeWriteScope(configpaths.ScopeGenericUser))
+	require.Equal(t, ScopePerSlugUser, scopeWriteScope(configpaths.ScopeKind(99)))
+}
+
+// TestSortedSpecKeysReturnsAStableSortedOrder pins that a secret-spec map's keys
+// are returned sorted, so findings do not depend on map iteration order.
+func TestSortedSpecKeysReturnsAStableSortedOrder(t *testing.T) {
+	specs := make(map[string]envsecret.SecretSpec)
+	for _, key := range []string{"ECHO", "DELTA", "CHARLIE", "BRAVO", "ALPHA"} {
+		specs[key] = envsecret.SecretSpec{Value: "sk"}
+	}
+
+	require.Equal(t, []string{"ALPHA", "BRAVO", "CHARLIE", "DELTA", "ECHO"}, sortedSpecKeys(specs))
+}
+
+// TestProfileListJoinsEveryProfile pins that every profile in a policy is
+// rendered, not just the first.
+func TestProfileListJoinsEveryProfile(t *testing.T) {
+	require.Equal(t, "public, host", profileList([]network.Profile{network.ProfilePublic, network.ProfileHost}))
+}
+
+// TestSortFindingsOrdersByItsKey pins that sortFindings reorders by the key, not
+// by input order, and leaves an already-ordered input unchanged.
+func TestSortFindingsOrdersByItsKey(t *testing.T) {
+	early := Finding{Kind: KindConfig, Evidence: Evidence{Summary: "a"}}
+	middle := Finding{Kind: KindConfig, Evidence: Evidence{Summary: "b"}}
+	late := Finding{Kind: KindConfig, Evidence: Evidence{Summary: "c"}}
+
+	got := []Finding{late, middle, early}
+	sortFindings(got)
+	require.Equal(t, []Finding{early, middle, late}, got)
+
+	already := []Finding{early, middle, late}
+	sortFindings(already)
+	require.Equal(t, []Finding{early, middle, late}, already)
+}
+
+// TestSortFindingsDiscriminatesEveryKeyComponent pins that each component of the
+// ordering key takes part in the order: two findings that differ only in that
+// component are still ordered by it rather than left in input order.
+func TestSortFindingsDiscriminatesEveryKeyComponent(t *testing.T) {
+	base := Finding{Kind: KindConfig, Evidence: Evidence{Summary: "summary"}}
+	withKind := func(k Kind) Finding { finding := base; finding.Kind = k; return finding }
+	withSummary := func(s string) Finding { finding := base; finding.Evidence.Summary = s; return finding }
+	withWrite := func(w Write) Finding { finding := base; finding.Writes = []Write{w}; return finding }
+	withWrites := func(writes []Write) Finding { finding := base; finding.Writes = writes; return finding }
+
+	perSlug := Write{Scope: ScopePerSlugUser}
+	secret := func(envVar string) Write {
+		return Write{Scope: ScopePerSlugUser, Secret: &SecretWrite{EnvVar: envVar}}
+	}
+
+	for _, tc := range []struct {
+		name    string
+		low     Finding
+		high    Finding
+		lowKey  string
+		highKey string
+		probe   func(Finding) string
+	}{
+		{
+			name: "kind", low: withKind(KindConfig), high: withKind(KindObservation),
+			lowKey: "config", highKey: "observation",
+			probe: func(f Finding) string { return string(f.Kind) },
+		},
+		{
+			name: "summary", low: withSummary("a"), high: withSummary("b"),
+			lowKey: "a", highKey: "b",
+			probe: func(f Finding) string { return f.Evidence.Summary },
+		},
+		{
+			name: "write scope", low: withWrite(perSlug), high: withWrite(Write{Scope: ScopeProject}),
+			lowKey: string(ScopePerSlugUser), highKey: string(ScopeProject),
+			probe: func(f Finding) string { return string(f.Writes[0].Scope) },
+		},
+		{
+			name:   "config key",
+			low:    withWrite(Write{Scope: ScopePerSlugUser, ConfigKey: "a"}),
+			high:   withWrite(Write{Scope: ScopePerSlugUser, ConfigKey: "b"}),
+			lowKey: "a", highKey: "b",
+			probe: func(f Finding) string { return f.Writes[0].ConfigKey },
+		},
+		{
+			name: "secret env var", low: withWrite(secret("A")), high: withWrite(secret("B")),
+			lowKey: "A", highKey: "B",
+			probe: func(f Finding) string { return f.Writes[0].Secret.EnvVar },
+		},
+		{
+			name:   "file mode",
+			low:    withWrite(perSlug),
+			high:   withWrite(Write{Scope: ScopePerSlugUser, FileMode: &FileModeWrite{Mode: 0o600}}),
+			lowKey: "plain", highKey: "file-mode",
+			probe: func(f Finding) string {
+				if f.Writes[0].FileMode != nil {
+					return "file-mode"
+				}
+				return "plain"
+			},
+		},
+		{
+			name:   "second write",
+			low:    withWrites([]Write{perSlug, {Scope: ScopePerSlugUser, ConfigKey: "a"}}),
+			high:   withWrites([]Write{perSlug, {Scope: ScopePerSlugUser, ConfigKey: "b"}}),
+			lowKey: "a", highKey: "b",
+			probe: func(f Finding) string { return f.Writes[1].ConfigKey },
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := []Finding{tc.high, tc.low}
+			sortFindings(got)
+			require.Equal(t, tc.lowKey, tc.probe(got[0]), "the lower-keyed finding sorts first")
+			require.Equal(t, tc.highKey, tc.probe(got[1]))
+		})
 	}
 }

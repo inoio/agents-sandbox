@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -392,4 +394,43 @@ func TestApprovalStateFailuresAreReported(t *testing.T) {
 	) {
 		t.Errorf("ApproveSettingWrite = %v, want the state error", err)
 	}
+}
+
+// TestApproveSecretWriteReportsAStateFailure pins that a failure to extend the
+// approval for a removed secret is reported rather than silently treated as
+// recorded.
+func TestApproveSecretWriteReportsAStateFailure(t *testing.T) {
+	f := newProjectFixture(t)
+	f.write(t, "config.yaml", "memory: 4G\n")
+	f.write(t, "env.secret.yaml", "WIDGET_TOKEN:\n  value: sk\n  host: api.widget.example\n")
+	if err := RecordApproval("checkout-a", f.compute(t)); err != nil {
+		t.Fatal(err)
+	}
+	restore := state.OverrideStateWriteForTest(func(string, []byte) error { return errors.New("boom") })
+	t.Cleanup(restore)
+
+	if _, err := ApproveSecretWrite("checkout-a", "WIDGET_TOKEN"); err == nil {
+		t.Fatal("ApproveSecretWrite with an unrecordable approval = nil, want the state error")
+	}
+}
+
+// TestWithoutSecretEntryKeepsUnrelatedInputsAndDropsAnEmptiedOne pins that only
+// env.secret.yaml's named entry is dropped: another input, a secret file at
+// another path, and the remaining entries all survive, and an input left with no
+// entries is dropped.
+func TestWithoutSecretEntryKeepsUnrelatedInputsAndDropsAnEmptiedOne(t *testing.T) {
+	secretFile := configpaths.EnvSecretFileName + ".yaml"
+	inputs := []Input{
+		{Path: "/p/config.yaml", Kind: KindLauncherConfig, Entries: []string{"memory: 8G"}},
+		{Path: "/p/" + secretFile, Kind: KindSecrets, Entries: []string{"TOKEN", "OTHER: api.x"}},
+		{Path: "/p/" + secretFile, Kind: KindSecrets, Entries: []string{"TOKEN: api.y"}},
+		{Path: "/p/legacy.yaml", Kind: KindSecrets, Entries: []string{"TOKEN: api.z"}},
+	}
+	want := []Input{
+		{Path: "/p/config.yaml", Kind: KindLauncherConfig, Entries: []string{"memory: 8G"}},
+		{Path: "/p/" + secretFile, Kind: KindSecrets, Entries: []string{"OTHER: api.x"}},
+		{Path: "/p/legacy.yaml", Kind: KindSecrets, Entries: []string{"TOKEN: api.z"}},
+	}
+
+	require.Equal(t, want, withoutSecretEntry(inputs, "TOKEN"))
 }

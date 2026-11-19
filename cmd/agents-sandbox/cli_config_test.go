@@ -1371,8 +1371,166 @@ func TestAgentNameForHardenUsesResolverAgent(t *testing.T) {
 	if got := agentNameForHarden(learnCmdWithResolver(launcherconfig.Config{Agent: "pi"})); got != "pi" {
 		t.Errorf("agentNameForHarden = %q, want pi", got)
 	}
+	if got := agentNameForHarden(learnCmdWithResolver(launcherconfig.Config{})); got != defaultAgentName {
+		t.Errorf("agentNameForHarden(empty resolver agent) = %q, want %q", got, defaultAgentName)
+	}
 	if got := agentNameForHarden(learnBareCmd()); got != defaultAgentName {
 		t.Errorf("agentNameForHarden(bare) = %q, want %q", got, defaultAgentName)
+	}
+}
+
+// TestAgentConfigDirNamesReturnsTheProfilesDirs pins that a resolved profile
+// yields its config dir names for the value scan.
+func TestAgentConfigDirNamesReturnsTheProfilesDirs(t *testing.T) {
+	if names := agentConfigDirNames("opencode"); len(names) == 0 {
+		t.Error("agentConfigDirNames(opencode) = nil, want the profile's dir names")
+	}
+}
+
+// TestConfigHardenBareCommandUsesTheIdentitySlug pins the no-resolver fallback:
+// with no context slug, harden derives the slug from the project identity, so a
+// per-slug secret for that slug is found.
+func TestConfigHardenBareCommandUsesTheIdentitySlug(t *testing.T) {
+	initTestProjectDir(t)
+	configpathstest.WithMockConfigPaths(t)
+	identity, err := git.ResolveIdentity(".")
+	if err != nil {
+		t.Fatalf("ResolveIdentity: %v", err)
+	}
+	dir := configpaths.Get().UserSlugConfigDir(effectiveConfigSlug(identity))
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, dir, configpaths.EnvSecretFileName+".yaml",
+		"CUSTOM_TOKEN:\n  value: sk\n  host: api.example\n  allow_any_host_dangerous: true\n")
+	ui := &termiotest.Mock{}
+
+	if err := runConfigHarden(learnBareCmd(), ui); err != nil {
+		t.Fatalf("config harden: %v", err)
+	}
+	if len(ui.AcknowledgeCalls) == 0 {
+		t.Fatalf("harden found nothing at the identity slug; output = %v/%v", ui.InfoCalls, ui.OutCalls)
+	}
+}
+
+// TestSecretValueFromScopesSkipsAnEmptyValue pins that a scope declaring the env
+// var with no value yields no value, not an empty one.
+func TestSecretValueFromScopesSkipsAnEmptyValue(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	testutil.WriteFile(t, paths.UserSlugConfigDir("widget-abc"), configpaths.EnvSecretFileName+".yaml",
+		"CUSTOM_TOKEN:\n  host: api.example\n")
+
+	value, ok := secretValueFromScopes(
+		configpaths.ConfigScopes(paths, "widget-abc"),
+		"CUSTOM_TOKEN",
+		&termiotest.Mock{},
+	)
+	if ok || value != "" {
+		t.Fatalf("secretValueFromScopes over an empty value = %q, %v; want no value", value, ok)
+	}
+}
+
+// TestSecretValueFromSourceSkipsAnEmptyValue pins that a scope directory whose
+// env var carries no value yields no value.
+func TestSecretValueFromSourceSkipsAnEmptyValue(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	dir := t.TempDir()
+	testutil.WriteFile(t, dir, configpaths.EnvSecretFileName+".yaml", "CUSTOM_TOKEN:\n  host: api.example\n")
+
+	value, ok := secretValueFromSource(dir, "CUSTOM_TOKEN", &termiotest.Mock{})
+	if ok || value != "" {
+		t.Fatalf("secretValueFromSource over an empty value = %q, %v; want no value", value, ok)
+	}
+}
+
+// TestSecretValueFromAgentConfigsFindsAValueAcrossScopesAndDirs pins that the
+// scan walks every scope and every dir name until it finds the credential, so a
+// value in the lowest-precedence scope's second dir name is still resolved.
+func TestSecretValueFromAgentConfigsFindsAValueAcrossScopesAndDirs(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	dir := filepath.Join(paths.UserConfigDir(), "opencode")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, dir, "opencode.jsonc",
+		`{"provider":{"openai":{"options":{"apiKey":"sk-generic","baseURL":"https://api.openai.com/v1"}}}}`)
+
+	value, ok := secretValueFromAgentConfigs(
+		configpaths.ConfigScopes(paths, "widget-abc"),
+		[]string{"absent", "opencode"},
+		"OPENAI_API_KEY",
+	)
+	if !ok || value != "sk-generic" {
+		t.Fatalf("secretValueFromAgentConfigs = %q, %v; want the generic-scope value", value, ok)
+	}
+}
+
+// TestInlineCredentialValueFindsAValueAfterASkippedDirectory pins that the scan
+// passes a directory entry and reads the files that follow it.
+func TestInlineCredentialValueFindsAValueAfterASkippedDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "0-nested"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, dir, "opencode.jsonc",
+		`{"provider":{"openai":{"options":{"apiKey":"sk-inline","baseURL":"https://api.openai.com/v1"}}}}`)
+
+	value, ok := inlineCredentialValue(dir, "OPENAI_API_KEY")
+	if !ok || value != "sk-inline" {
+		t.Fatalf("inlineCredentialValue = %q, %v; want sk-inline", value, ok)
+	}
+}
+
+// TestInlineCredentialValueReturnsNothingForAMissingDir pins that an unreadable
+// directory yields no value.
+func TestInlineCredentialValueReturnsNothingForAMissingDir(t *testing.T) {
+	value, ok := inlineCredentialValue(filepath.Join(t.TempDir(), "missing"), "OPENAI_API_KEY")
+	if ok || value != "" {
+		t.Fatalf("inlineCredentialValue over a missing dir = %q, %v; want no value", value, ok)
+	}
+}
+
+// TestInlineCredentialValueInFileSkipsALoginStore pins that a path the shared
+// exclusion rejects is never read, even when its content would classify.
+func TestInlineCredentialValueInFileSkipsALoginStore(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".codex", "auth.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WritePath(t, path, `{"provider":"codex","token":"super-secret"}`)
+
+	value, ok := inlineCredentialValueInFile(path, "TOKEN")
+	if ok || value != "" {
+		t.Fatalf("inlineCredentialValueInFile over a login store = %q, %v; want no value", value, ok)
+	}
+}
+
+// TestInlineCredentialValueInFileIgnoresAnotherEnvVar pins that a file whose
+// credential names a different env var yields no value for the requested one.
+func TestInlineCredentialValueInFileIgnoresAnotherEnvVar(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "opencode.jsonc")
+	testutil.WritePath(t, path,
+		`{"provider":{"openai":{"options":{"apiKey":"sk-inline","baseURL":"https://api.openai.com/v1"}}}}`)
+
+	value, ok := inlineCredentialValueInFile(path, "OTHER_TOKEN")
+	if ok || value != "" {
+		t.Fatalf("inlineCredentialValueInFile for another env var = %q, %v; want no value", value, ok)
+	}
+}
+
+// TestInlineCredentialValueInFileIgnoresAnEmptyValue pins that an inline key
+// whose value is empty yields no value, so an empty credential is never written
+// as a secret.
+func TestInlineCredentialValueInFileIgnoresAnEmptyValue(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "opencode.jsonc")
+	testutil.WritePath(t, path,
+		`{"provider":{"openai":{"options":{"apiKey":"","baseURL":"https://api.openai.com/v1"}}}}`)
+
+	value, ok := inlineCredentialValueInFile(path, "OPENAI_API_KEY")
+	if ok || value != "" {
+		t.Fatalf("inlineCredentialValueInFile over an empty value = %q, %v; want no value", value, ok)
 	}
 }
 
