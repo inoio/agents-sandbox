@@ -1,12 +1,18 @@
 package scripts
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -30,6 +36,13 @@ func fakeGhHandler(args []string) (string, string, int) {
 			return "", "fake gh: record argv: " + err.Error() + "\n", 1
 		}
 	}
+	doc, served, err := ghDocument(args)
+	if err != nil {
+		return "", "fake gh: " + err.Error() + "\n", 1
+	}
+	if served {
+		return serveDocument(args, doc)
+	}
 	if len(args) >= 2 && args[0] == "pr" && args[1] == "view" {
 		return envOption("GH_MERGE_OID") + "\n", "", 0
 	}
@@ -42,6 +55,123 @@ func fakeGhHandler(args []string) (string, string, int) {
 		return envOption("GH_PR_URL"), "", 0
 	}
 	return "", "fake gh: unexpected call: " + strings.Join(args, " ") + "\n", 1
+}
+
+// ghDocument selects the canned JSON document a query reads, reporting whether
+// the call serves one. `pr view` serves the per-PR file only when GH_PR_VIEW_DIR
+// is set (backport-audit); open-backport-pr's simpler `pr view` returns
+// GH_MERGE_OID instead.
+func ghDocument(args []string) (string, bool, error) {
+	if len(args) < 2 {
+		return "", false, nil
+	}
+	switch {
+	case args[0] == "issue" && args[1] == "list":
+		return readDocument(envOption("GH_ISSUES_JSON"))
+	case args[0] == "pr" && args[1] == "view" && envOption("GH_PR_VIEW_DIR") != "" && len(args) >= 3:
+		return prViewDocument(envOption("GH_PR_VIEW_DIR"), args[2])
+	case args[0] == "pr" && args[1] == "list":
+		return prListDocument(args)
+	}
+	return "", false, nil
+}
+
+// prViewDocument returns the per-PR view document, or an empty object when the
+// fixture wrote none.
+func prViewDocument(dir, number string) (string, bool, error) {
+	data, err := os.ReadFile(filepath.Join(dir, "pr-"+number+".json"))
+	if err == nil {
+		return string(data), true, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return "{}\n", true, nil
+	}
+	return "", false, err
+}
+
+// prListDocument picks the document for a `pr list` call from its flags, the way
+// the bash fake's case did.
+func prListDocument(args []string) (string, bool, error) {
+	joined := " " + strings.Join(args, " ") + " "
+	switch {
+	case strings.Contains(joined, " --state open "):
+		return readDocument(envOption("GH_OPEN_JSON"))
+	case strings.Contains(joined, " --label "):
+		if rows := envOption("GH_MERGED_ROWS"); rows != "" {
+			return manyRows(rows)
+		}
+		return readDocument(envOption("GH_MERGED_JSON"))
+	case strings.Contains(joined, " --state merged "):
+		if rows := envOption("GH_MERGED_BACKPORTS_ROWS"); rows != "" {
+			return manyRows(rows)
+		}
+		return readDocument(envOption("GH_MERGED_BACKPORTS_JSON"))
+	}
+	return readDocument(envOption("GH_MERGED_BACKPORTS_JSON"))
+}
+
+// readDocument returns the content of a document file.
+func readDocument(path string) (string, bool, error) {
+	if path == "" {
+		return "", false, fmt.Errorf("no document path configured")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", false, err
+	}
+	return string(data), true, nil
+}
+
+// manyRows builds a page of rows with no merge commit, to model a truncated
+// (full) page.
+func manyRows(rows string) (string, bool, error) {
+	count, err := strconv.Atoi(rows)
+	if err != nil {
+		return "", false, err
+	}
+	records := make([]map[string]any, 0, count)
+	for i := range count {
+		records = append(records, map[string]any{
+			"number":      1000 + i,
+			"title":       "t",
+			"url":         "u",
+			"mergedAt":    "2020-01-01T00:00:00Z",
+			"mergeCommit": map[string]any{"oid": ""},
+		})
+	}
+	data, err := json.Marshal(records)
+	if err != nil {
+		return "", false, err
+	}
+	return string(data), true, nil
+}
+
+// serveDocument applies the query gh was given through its real jq, matching
+// gh's --jq/-q.
+func serveDocument(args []string, doc string) (string, string, int) {
+	query := jqQuery(args)
+	if query == "" {
+		return doc, "", 0
+	}
+	command := exec.Command("jq", "-r", query)
+	command.Stdin = strings.NewReader(doc)
+	var stdout, stderr bytes.Buffer
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+	if err := command.Run(); err != nil {
+		return "", "fake gh: jq " + query + ": " + err.Error() + " " + stderr.String(), 1
+	}
+	return stdout.String(), "", 0
+}
+
+// jqQuery returns the expression following -q or --jq, or "".
+func jqQuery(args []string) string {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "-q" || args[i] == "--jq" {
+			return args[i+1]
+		}
+	}
+	return ""
 }
 
 // envOption reads a value the harness set for the script and its fakes. The
@@ -296,4 +426,152 @@ func assertNotContains(t *testing.T, label, haystack, needle string) {
 	if strings.Contains(haystack, needle) {
 		t.Errorf("%s: %q unexpectedly contains %q", label, haystack, needle)
 	}
+}
+
+// auditHarness drives backport-audit.sh with a fake gh and the canned gh
+// documents the audit reads.
+type auditHarness struct {
+	t                   *testing.T
+	binDir              string
+	argvPath            string
+	mergedJSONPath      string
+	openJSONPath        string
+	mergedBackportsPath string
+	issuesJSONPath      string
+	prViewDir           string
+}
+
+func newAuditHarness(t *testing.T) *auditHarness {
+	t.Helper()
+	root := t.TempDir()
+	h := &auditHarness{
+		t:                   t,
+		binDir:              fakecmd.BinDir(t, "gh"),
+		argvPath:            filepath.Join(root, "argv.txt"),
+		mergedJSONPath:      filepath.Join(root, "merged.json"),
+		openJSONPath:        filepath.Join(root, "open.json"),
+		mergedBackportsPath: filepath.Join(root, "merged-backports.json"),
+		issuesJSONPath:      filepath.Join(root, "issues.json"),
+		prViewDir:           filepath.Join(root, "pr-view"),
+	}
+	if err := os.MkdirAll(h.prViewDir, 0o750); err != nil {
+		t.Fatalf("create pr-view dir: %v", err)
+	}
+	writeDoc(t, h.openJSONPath, "[]\n")
+	writeDoc(t, h.mergedBackportsPath, "[]\n")
+	writeDoc(t, h.issuesJSONPath, "[]\n")
+	return h
+}
+
+func (h *auditHarness) run(repoDir string, extra map[string]string, args ...string) testutil.ScriptResult {
+	h.t.Helper()
+	_ = os.Remove(h.argvPath)
+	env := map[string]string{
+		"BACKPORT_AUDIT_REPO":      repoDir,
+		"GH_ARGV":                  h.argvPath,
+		"GH_MERGED_JSON":           h.mergedJSONPath,
+		"GH_OPEN_JSON":             h.openJSONPath,
+		"GH_MERGED_BACKPORTS_JSON": h.mergedBackportsPath,
+		"GH_ISSUES_JSON":           h.issuesJSONPath,
+		"GH_PR_VIEW_DIR":           h.prViewDir,
+		"PATH":                     h.binDir + string(os.PathListSeparator) + envOption("PATH"),
+	}
+	maps.Copy(env, extra)
+	return testutil.RunScript(h.t, repoDir, env, repositoryScript(h.t, "backport-audit.sh"), args...)
+}
+
+func (h *auditHarness) argv() string {
+	return readText(h.t, h.argvPath)
+}
+
+// auditPull is one row of a gh pull document.
+type auditPull struct {
+	Number      int    `json:"number"`
+	Title       string `json:"title"`
+	URL         string `json:"url"`
+	MergedAt    string `json:"mergedAt"`
+	Body        string `json:"body,omitempty"`
+	State       string `json:"state,omitempty"`
+	MergeCommit struct {
+		OID string `json:"oid"`
+	} `json:"mergeCommit"`
+}
+
+// auditReference is one closedByPullRequestsReferences entry.
+type auditReference struct {
+	Number int `json:"number"`
+}
+
+// auditIssue is one row of a gh issue document.
+type auditIssue struct {
+	Number   int              `json:"number"`
+	ClosedBy []auditReference `json:"closedByPullRequestsReferences"`
+}
+
+func writeDoc(tb testing.TB, path, content string) {
+	tb.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		tb.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func writeJSON(tb testing.TB, path string, value any) {
+	tb.Helper()
+	data, err := json.Marshal(value)
+	if err != nil {
+		tb.Fatalf("marshal %s: %v", path, err)
+	}
+	writeDoc(tb, path, string(data)+"\n")
+}
+
+func (h *auditHarness) writeMerged(mergedAt, oid string) {
+	pull := auditPull{Number: 7, Title: "Fix the bug", URL: "https://github.com/o/r/pull/7", MergedAt: mergedAt}
+	pull.MergeCommit.OID = oid
+	writeJSON(h.t, h.mergedJSONPath, []auditPull{pull})
+}
+
+func (h *auditHarness) writeOpenBackports(pulls ...auditPull) {
+	writeJSON(h.t, h.openJSONPath, pulls)
+}
+
+func (h *auditHarness) writeMergedBackports(pulls ...auditPull) {
+	writeJSON(h.t, h.mergedBackportsPath, pulls)
+}
+
+func (h *auditHarness) writePRView(state, oid string) {
+	pull := auditPull{
+		Number:   7,
+		Title:    "Fix the bug",
+		URL:      "https://github.com/o/r/pull/7",
+		MergedAt: "2020-01-01T00:00:00Z",
+		State:    state,
+	}
+	pull.MergeCommit.OID = oid
+	writeJSON(h.t, filepath.Join(h.prViewDir, "pr-7.json"), pull)
+}
+
+func (h *auditHarness) writeIssueLinks(numbers ...int) {
+	issue := auditIssue{Number: 5}
+	for _, number := range numbers {
+		issue.ClosedBy = append(issue.ClosedBy, auditReference{Number: number})
+	}
+	writeJSON(h.t, h.issuesJSONPath, []auditIssue{issue})
+}
+
+// seedAuditRepository builds a repo with a base on main, a release/0.1 branch on
+// the base, and one fix commit on main, returning the fix commit.
+func seedAuditRepository(tb testing.TB) (*gittest.Repo, plumbing.Hash) {
+	tb.Helper()
+	repo := gittest.New(tb)
+	repo.Write("f", "a\n")
+	base := repo.Commit("base")
+	repo.SetBranch("release/0.1", base)
+	repo.Write("g", "b\n")
+	merge := repo.Commit("fix")
+	return repo, merge
+}
+
+// isoFromEpoch formats an epoch as the UTC ISO-8601 mergedAt gh reports.
+func isoFromEpoch(epoch int64) string {
+	return time.Unix(epoch, 0).UTC().Format("2006-01-02T15:04:05Z")
 }

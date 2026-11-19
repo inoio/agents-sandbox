@@ -69,6 +69,15 @@ func (r *Repo) Write(name, content string) {
 	}
 }
 
+// Remove deletes name from the working tree; the next Commit stages the
+// deletion.
+func (r *Repo) Remove(name string) {
+	r.tb.Helper()
+	if err := os.Remove(filepath.Join(r.dir, name)); err != nil {
+		r.tb.Fatalf("remove %s: %v", name, err)
+	}
+}
+
 // Commit stages every change and commits it on the current branch, returning the
 // new commit's hash. An empty commit is allowed, so a fixture can build one.
 func (r *Repo) Commit(message string) plumbing.Hash {
@@ -87,6 +96,15 @@ func (r *Repo) Commit(message string) plumbing.Hash {
 		r.tb.Fatalf("commit %q: %v", message, err)
 	}
 	return hash
+}
+
+// Head returns the commit the current branch points at.
+func (r *Repo) Head() (plumbing.Hash, error) {
+	ref, err := r.repo.Head()
+	if err != nil {
+		return plumbing.ZeroHash, err
+	}
+	return ref.Hash(), nil
 }
 
 // SetBranch points branch name (e.g. "release/0.1") at the given commit,

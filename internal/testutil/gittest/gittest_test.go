@@ -115,6 +115,33 @@ func TestOriginRangeReflectsTheMergedTopic(t *testing.T) {
 	}
 }
 
+func TestHeadReturnsTheCurrentCommit(t *testing.T) {
+	repo := New(t)
+	repo.Write("f", "a\n")
+	hash := repo.Commit("base")
+
+	head, err := repo.Head()
+	if err != nil {
+		t.Fatalf("Head: %v", err)
+	}
+	if head != hash {
+		t.Errorf("Head() = %s, want %s", head, hash)
+	}
+}
+
+func TestRemoveStagesADeletion(t *testing.T) {
+	repo := New(t)
+	repo.Write("f", "a\n")
+	repo.Commit("base")
+
+	repo.Remove("f")
+	repo.Commit("remove f")
+
+	if _, ok := repo.FileAt("main", "f"); ok {
+		t.Error("f still present after removal commit")
+	}
+}
+
 func TestOriginFileReadsAPushedBlob(t *testing.T) {
 	repo := New(t)
 	repo.Write("changelog.d/7.fixed.md", "The fix.\n")

@@ -85,7 +85,14 @@ See [test isolation](test-isolation.md) for the Go-side seam contract this sits 
 
 ## Current state
 
-The isolation head is duplicated across the bash fixture harnesses, and `scripts/test-backport-audit.sh` and
-`scripts/test-open-backport-pr.sh` lack it and fail under commit signing. The Go helper additions
-(`GitIsolationEnvironment`, `RunScript`, `internal/testutil/gittest`) and the `test/scripts` package are the
-decided target; only the unexported `gitIsolationEnvironment` exists today, and no harness has moved.
+Several harnesses have landed. `scripts/test-open-backport-pr.sh`,
+`scripts/test-backport-audit.sh`, `scripts/test-changed-files.sh`, and
+`scripts/test-changed-targets.sh` are gone; their cases live in the Go `test/scripts` package,
+driving `scripts/open-backport-pr.sh`, `scripts/backport-audit.sh`, `scripts/changed-files.sh`, and
+`scripts/changed-targets.sh` through `testutil.RunScript` with `gittest` go-git fixtures and a re-exec
+fake `gh`. The helpers exist — `GitIsolationEnvironment`, `RunScript`, `internal/testutil/gittest`,
+and `internal/testutil/fakecmd` — and each migrated Make target runs
+`go test ./test/scripts/ -run <Tool>`.
+
+The remaining bash fixture harnesses still hand-copy the isolation head; a new one must include it
+until it migrates.

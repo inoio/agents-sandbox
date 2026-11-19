@@ -126,7 +126,8 @@ if [[ -z "$selected" ]]; then
       ci/classify-changes.sh|ci/test-check-classify-changes.sh) add_targets classify-changes-test ci-guards-check; known=1 ;;
       ci/check-deadcode.sh|ci/test-check-deadcode.sh|ci/deadcodecheck/*) add_targets deadcode-test; known=1 ;;
       .github/workflows/*) add_targets actionlint ci-guards-check; known=1 ;;
-      scripts/changed-files.sh|scripts/test-changed-files.sh) add_targets changed-files-test; known=1 ;;
+      scripts/changed-files.sh|test/scripts/changed_files_test.go) add_targets changed-files-test; known=1 ;;
+      scripts/changed-targets.sh|test/scripts/changed_targets_test.go) add_targets changed-targets-test; known=1 ;;
       scripts/check.sh|scripts/test-check.sh) add_targets check-test; known=1 ;;
       scripts/cleanup-merged-branches.sh|scripts/test-cleanup-merged-branches.sh) add_targets cleanup-branches-test; known=1 ;;
       scripts/surface-sweep.sh|scripts/test-surface-sweep.sh) add_targets surface-sweep-test; known=1 ;;
@@ -134,15 +135,15 @@ if [[ -z "$selected" ]]; then
       scripts/upstream-drift.sh|scripts/test-upstream-drift.sh) add_targets upstream-drift-test; known=1 ;;
       scripts/rebase-status.sh|scripts/test-rebase-status.sh) add_targets rebase-status-test; known=1 ;;
       scripts/enqueue-pr.sh|scripts/test-enqueue-pr.sh) add_targets enqueue-pr-test; known=1 ;;
-      scripts/backport-audit.sh|scripts/test-backport-audit.sh) add_targets backport-audit-test; known=1 ;;
-      scripts/open-backport-pr.sh|scripts/test-open-backport-pr.sh) add_targets open-backport-pr-test; known=1 ;;
+      scripts/backport-audit.sh|test/scripts/backport_audit_test.go) add_targets backport-audit-test; known=1 ;;
+      scripts/open-backport-pr.sh|test/scripts/open_backport_pr_test.go) add_targets open-backport-pr-test; known=1 ;;
     esac
     # A changed shell script selects the lint gate. Two trees used to fall
     # through to the full-set fail-safe and would otherwise lose coverage: the
     # map script's own test, and the image-data shims, which are embedded and
     # asserted by `make test`.
     case "$path" in
-      scripts/changed-targets.sh|scripts/test-changed-targets.sh) add_targets changed-targets-test shellcheck; known=1 ;;
+      scripts/changed-targets.sh) add_targets changed-targets-test shellcheck; known=1 ;;
       internal/sandbox/image/data/*.sh) add_targets validate-fmt lint test compile-all shellcheck; known=1 ;;
       *.sh) add_targets shellcheck; known=1 ;;
     esac

@@ -2,6 +2,7 @@
 package testutil
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -24,7 +25,8 @@ type ScriptResult struct {
 // fatal; a non-zero exit status is returned in ScriptResult, not raised.
 func RunScript(tb testing.TB, dir string, extraEnv map[string]string, script string, args ...string) ScriptResult {
 	tb.Helper() // gomutants:disable STATEMENT_REMOVE reason="t.Helper only adjusts reported stack frames"
-	cmd := exec.Command("bash", append([]string{script}, args...)...)
+	//nolint:gosec // the script path is a trusted test fixture, never user input
+	cmd := exec.CommandContext(context.Background(), "bash", append([]string{script}, args...)...)
 	cmd.Dir = dir
 	cmd.Env = overlayEnvironment(GitIsolationEnvironment(os.Environ()), extraEnv)
 	var stdout, stderr strings.Builder
@@ -33,9 +35,8 @@ func RunScript(tb testing.TB, dir string, extraEnv map[string]string, script str
 
 	err := cmd.Run()
 	result := ScriptResult{Stdout: stdout.String(), Stderr: stderr.String(), Status: 0}
-	var exitErr *exec.ExitError
 	// gomutants:disable-next-line BRANCH_IF reason="a start failure must stay fatal"
-	if errors.As(err, &exitErr) {
+	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 		result.Status = exitErr.ExitCode()
 		return result
 	}
