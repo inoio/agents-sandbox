@@ -10,8 +10,6 @@ import (
 // TestBackportAudit ports every case of the bash harness scripts/test-backport-audit.sh,
 // asserting the same exit codes, output substrings, gh argv, and debt lines.
 func TestBackportAudit(t *testing.T) {
-	var truncationArgv string
-
 	t.Run("no release branch", func(t *testing.T) {
 		h := newAuditHarness(t)
 		repo := gittest.New(t)
@@ -55,10 +53,10 @@ func TestBackportAudit(t *testing.T) {
 		assertContains(t, "stderr", result.Stderr, "truncated")
 		assertContains(t, "stderr", result.Stderr, "--limit 5 cap")
 		assertContains(t, "argv", h.argv(), "--limit 5")
+		assertNotContains(t, "argv", h.argv(), "--json commits")
 		if result.Stdout != "" {
 			t.Errorf("printed a clean result: %q", result.Stdout)
 		}
-		truncationArgv = h.argv()
 	})
 
 	t.Run("one row below the cap", func(t *testing.T) {
@@ -71,10 +69,6 @@ func TestBackportAudit(t *testing.T) {
 		assertContains(t, "argv", h.argv(), "--state open")
 		assertContains(t, "argv", h.argv(), "--limit 5")
 		assertNotContains(t, "stderr", result.Stderr, "truncated")
-	})
-
-	t.Run("commits read from the merged range", func(t *testing.T) {
-		assertNotContains(t, "argv", truncationArgv, "--json commits")
 	})
 
 	t.Run("merge commit not in the local clone", func(t *testing.T) {

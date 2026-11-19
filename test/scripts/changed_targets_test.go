@@ -165,7 +165,7 @@ func TestChangedTargets(t *testing.T) {
 	t.Run("unrecognized Makefile selects all", func(t *testing.T) {
 		repo := newMapRepo(t)
 		repo.Write("Makefile", "all:\n")
-		assertSorted(t, "Makefile selects all", runMap(t, repo.Dir(), "local", "", nil).Stdout, allCheckTargets(t)...)
+		assertSorted(t, "Makefile selects all", runMap(t, repo.Dir(), "local", "", nil).Stdout, fullCheckTargets(t)...)
 	})
 
 	t.Run("deleted tracked Go", func(t *testing.T) {
@@ -193,12 +193,7 @@ func TestChangedTargets(t *testing.T) {
 
 	t.Run("rename selects the source class", func(t *testing.T) {
 		repo := newMapRepo(t)
-		if err := os.Rename(
-			filepath.Join(repo.Dir(), "docs", "guide.md"),
-			filepath.Join(repo.Dir(), ".operator-shared", "guide.md"),
-		); err != nil {
-			t.Fatalf("rename: %v", err)
-		}
+		repo.Rename("docs/guide.md", ".operator-shared/guide.md")
 		assertSorted(
 			t,
 			"rename selects the source class",
@@ -218,7 +213,7 @@ func TestChangedTargets(t *testing.T) {
 			t,
 			"branch missing base",
 			runMap(t, repo.Dir(), "branch", "no-such-ref", nil).Stdout,
-			allCheckTargets(t)...)
+			fullCheckTargets(t)...)
 	})
 
 	t.Run("usage", func(t *testing.T) {
@@ -254,13 +249,23 @@ func TestChangedTargets(t *testing.T) {
 	})
 }
 
-// allCheckTargets returns the full `make check` target set, read from the map's
-// fail-safe selection for an unrecognized path.
-func allCheckTargets(t *testing.T) []string {
+// fullCheckTargets reads the full `make check` target set the map falls back to,
+// independently of the map: the fail-safe selection must equal what make
+// actually runs, so it cannot be validated against the map's own output.
+func fullCheckTargets(t *testing.T) []string {
 	t.Helper()
-	repo := newMapRepo(t)
-	repo.Write("Makefile", "all:\n")
-	return splitSortedLines(runMap(t, repo.Dir(), "local", "", nil).Stdout)
+	root := repositoryRoot(t)
+	// Read the Makefile so a change to it busts the test cache.
+	if _, err := os.ReadFile(filepath.Join(root, "Makefile")); err != nil {
+		t.Fatalf("read Makefile: %v", err)
+	}
+	out, err := exec.Command("make", "-s", "--no-print-directory", "-C", root, "print-check-targets").Output()
+	if err != nil {
+		t.Fatalf("make print-check-targets: %v", err)
+	}
+	targets := strings.Fields(string(out))
+	slices.Sort(targets)
+	return targets
 }
 
 // newMapRepo builds the baseline repo layout the map's cases modify.

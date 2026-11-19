@@ -1,7 +1,6 @@
 package scripts
 
 import (
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -43,7 +42,7 @@ func TestChangedFiles(t *testing.T) {
 
 	t.Run("rename lists both endpoints", func(t *testing.T) {
 		repo := newChangedFilesRepo(t)
-		renameFile(t, filepath.Join(repo.Dir(), "docs", "guide.md"), filepath.Join(repo.Dir(), "internal", "guide.md"))
+		repo.Rename("docs/guide.md", "internal/guide.md")
 		result := runChangedFiles(t, repo.Dir(), "local", "")
 		assertFileList(t, result, "docs/guide.md", "internal/guide.md")
 	})
@@ -147,16 +146,6 @@ func runChangedFiles(t *testing.T, repoDir, mode, base string) testutil.ScriptRe
 	}
 	args = append(args, mode)
 	return testutil.RunScript(t, repoDir, nil, repositoryScript(t, "changed-files.sh"), args...)
-}
-
-// renameFile moves a file on disk, leaving the source deleted and the
-// destination untracked, the working-tree shape a rename reports both endpoints
-// for.
-func renameFile(tb testing.TB, from, to string) {
-	tb.Helper()
-	if err := os.Rename(from, to); err != nil {
-		tb.Fatalf("rename %s -> %s: %v", from, to, err)
-	}
 }
 
 // assertFileList compares the script's newline-separated paths, sorted, to want,

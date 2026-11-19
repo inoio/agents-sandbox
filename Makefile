@@ -368,11 +368,11 @@ brain-check-test:
 
 # Test the outstanding-backport detector itself (fixtures only: never touches this repo).
 backport-audit-test:
-	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) ./test/scripts/ -run BackportAudit
+	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -count=1 ./test/scripts/ -run BackportAudit
 
 # Test the backport-PR opener itself (fixtures only: never touches this repo).
 open-backport-pr-test:
-	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) ./test/scripts/ -run OpenBackport
+	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -count=1 ./test/scripts/ -run OpenBackport
 
 # Test the check runner itself (fixtures only: never runs the real targets).
 check-test:
@@ -472,11 +472,11 @@ changelog-presence:
 
 # Test the changed-file enumerator itself (fixtures only: never touches this repo).
 changed-files-test:
-	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) ./test/scripts/ -run ChangedFiles
+	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -count=1 ./test/scripts/ -run ChangedFiles
 
 # Test the changed-file map script itself (fixtures only: never touches this repo).
 changed-targets-test:
-	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) ./test/scripts/ -run ChangedTargets
+	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -count=1 ./test/scripts/ -run ChangedTargets
 
 all: fmt lint shellcheck test docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test build cleanup-branches-test changed-files-test upstream-drift-test rebase-status-test enqueue-pr-test backport-audit-test open-backport-pr-test
 

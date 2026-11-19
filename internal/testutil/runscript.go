@@ -25,6 +25,12 @@ type ScriptResult struct {
 // fatal; a non-zero exit status is returned in ScriptResult, not raised.
 func RunScript(tb testing.TB, dir string, extraEnv map[string]string, script string, args ...string) ScriptResult {
 	tb.Helper() // gomutants:disable STATEMENT_REMOVE reason="t.Helper only adjusts reported stack frames"
+	// Read the script so cmd/go records it as a test-cache input: the child bash
+	// opens it, which the test process cannot see, so without this a changed
+	// script would be replayed from a stale cached test result.
+	if _, err := os.ReadFile(script); err != nil {
+		tb.Fatalf("read script %s: %v", script, err)
+	}
 	//nolint:gosec // the script path is a trusted test fixture, never user input
 	cmd := exec.CommandContext(context.Background(), "bash", append([]string{script}, args...)...)
 	cmd.Dir = dir

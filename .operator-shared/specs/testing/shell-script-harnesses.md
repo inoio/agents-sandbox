@@ -16,8 +16,8 @@ and the harness aborts under `set -euo pipefail`. The same inheritance reaches a
 program.
 
 The isolation that prevents this is a head written out by hand in each fixture harness. It was omitted from the
-two newest harnesses, `scripts/test-backport-audit.sh` and `scripts/test-open-backport-pr.sh`, which fail under
-commit signing. Hand-copying cannot fail closed: nothing makes a new harness include the head.
+two newest harnesses, which then failed under commit signing; those two are now migrated (see Current state).
+Hand-copying cannot fail closed: nothing makes a new bash harness include the head.
 
 ## Contract
 
@@ -43,7 +43,9 @@ fixtures. A Go harness reuses these instead of re-deriving the environment. Thre
 - `RunScript(tb testing.TB, dir string, extraEnv map[string]string, script string, args ...string) ScriptResult`
   — runs `bash <script> <args...>` in `dir` with an environment rooted in
   `GitIsolationEnvironment(os.Environ())` and `extraEnv` overlaid, returning captured stdout, stderr, and exit
-  status. Isolation is internal, so a harness that drives a script cannot forget it.
+  status. Isolation is internal, so a harness that drives a script cannot forget it. It also reads the script
+  file itself, so `cmd/go` records it as a test-cache input: the child `bash` reads the script, which the test
+  process cannot see, and without this a changed script would replay a stale cached test result.
 - A fixture builder in `internal/testutil/gittest`, a leaf package so a test-support package can import it
   without a cycle. It returns a repo handle with commit, branch, checkout, a two-parent merge commit, a bare
   origin, and push, all through go-git — `InitRepo` is too minimal (one commit, a path, no handle), and a
@@ -57,15 +59,16 @@ file from a checkout with no build step.
 
 A harness moves to Go — the test-only package `test/scripts`, beside `test/harness`, whose `TestMain` installs
 the fail-fast mocks — when it drives a script and can build its fixtures with go-git. The porcelain-shaped
-harnesses (`open-backport-pr`, `backport-audit`, `upstream-drift`, `rebase-status`, `enqueue-pr`) fit. A harness
-whose fixtures need `git worktree` or `git clone`, which go-git does not implement (`cleanup-merged-branches`),
-stays in bash.
+harnesses (`open-backport-pr`, `backport-audit`, `upstream-drift`, `enqueue-pr`) fit. A harness whose fixtures
+need a real-git porcelain go-git does not implement stays in bash: `rebase-status` (an in-progress rebase) and
+`cleanup-merged-branches` (`git worktree`, `clone`, `push --force-with-lease`).
 
 ### Fake commands
 
 A harness fakes an external CLI the script calls (`gh`, `docker`, `msb`) without a shell stub: it puts a symlink
-to the test binary on `PATH`, and `TestMain` serves the canned response (argv-logged) when a marker environment
-variable is set. This removes the fake-`gh` shell script the bash harnesses each carry.
+to the test binary on `PATH`, and `TestMain` registers the canned response. When the test binary is invoked under
+the fake's name, `fakecmd.Dispatch` — keyed on `filepath.Base(os.Args[0])` — serves it, argv-logged. This removes
+the fake-`gh` shell script the bash harnesses each carry.
 
 ### Ambient-command contract
 

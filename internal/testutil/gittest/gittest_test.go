@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	git "github.com/go-git/go-git/v5"
 )
 
 func TestCommitExposesFileContent(t *testing.T) {
@@ -112,6 +114,26 @@ func TestOriginRangeReflectsTheMergedTopic(t *testing.T) {
 		if !strings.Contains(messages, want) {
 			t.Errorf("OriginMessages = %q, missing %q", messages, want)
 		}
+	}
+}
+
+func TestRenameStagesBothEndpoints(t *testing.T) {
+	repo := New(t)
+	repo.Write("docs/guide.md", "# d\n")
+	repo.Commit("base")
+
+	repo.Rename("docs/guide.md", "internal/guide.md")
+
+	worktree := repo.worktree()
+	status, err := worktree.Status()
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if got := status.File("internal/guide.md").Staging; got != git.Added {
+		t.Errorf("destination staging = %v, want Added", got)
+	}
+	if got := status.File("docs/guide.md").Staging; got != git.Deleted {
+		t.Errorf("source staging = %v, want Deleted", got)
 	}
 }
 

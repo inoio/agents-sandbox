@@ -7,6 +7,8 @@
 // than cherry-picking: it checks out the target branch, writes the source
 // commit's changed file contents, and commits. The resulting diff is identical,
 // so `git patch-id` matches without a cherry-pick.
+//
+//deadcode:ignore reason="test support: referenced only by _test.go files"
 package gittest
 
 import (
@@ -51,11 +53,6 @@ func (r *Repo) Dir() string {
 	return r.dir
 }
 
-// Origin returns the bare origin's path, or "" before AddBareOrigin.
-func (r *Repo) Origin() string {
-	return r.origin
-}
-
 // Write writes content to name (relative to the repo root), creating parent
 // directories as needed. The change is not staged until the next Commit.
 func (r *Repo) Write(name, content string) {
@@ -75,6 +72,20 @@ func (r *Repo) Remove(name string) {
 	r.tb.Helper()
 	if err := os.Remove(filepath.Join(r.dir, name)); err != nil {
 		r.tb.Fatalf("remove %s: %v", name, err)
+	}
+}
+
+// Rename moves from to to in the worktree and stages both endpoints, the shape
+// `git mv` leaves: a rename git's diff collapses to the destination unless
+// --no-renames is given.
+func (r *Repo) Rename(from, to string) {
+	r.tb.Helper()
+	destination := filepath.Join(r.dir, to)
+	if err := os.MkdirAll(filepath.Dir(destination), 0o750); err != nil {
+		r.tb.Fatalf("create %s: %v", filepath.Dir(destination), err)
+	}
+	if _, err := r.worktree().Move(from, to); err != nil {
+		r.tb.Fatalf("rename %s -> %s: %v", from, to, err)
 	}
 }
 
@@ -378,12 +389,6 @@ func OriginRefs(tb testing.TB, origin string) []string {
 	}
 	sort.Strings(refs)
 	return refs
-}
-
-// OriginHash resolves a branch in a bare origin, reporting whether it exists.
-func OriginHash(tb testing.TB, origin, branch string) (plumbing.Hash, bool) {
-	tb.Helper()
-	return resolveBranch(tb, openRepository(tb, origin), branch)
 }
 
 // OriginFile returns the content of path in the commit a branch points at in a
