@@ -460,6 +460,27 @@ would re-derive is not redundant code either: dropping it would ignore an error,
 - **An accumulator's `+=`→`=` (`REMOVE_SELF_ASSIGNMENTS`) survivor needs two accumulations in one call.** `Prune`'s
   `removed += count` looked covered by the single-slug tests, but only a two-slug fixture — one old artefact per slug
   directory — makes `removed = count` change the result from 2 to 1. The single-slug cases pass under both.
+- **A `continue` that follows every element the test counts cannot be told from `break`; put a skipped element first.**
+  `usedRequestCount`'s guard looked covered, but the test's skippable destinations were after the counted ones, so a
+  `break` still summed them. A loop with two `continue` guards (`secretFindings`: a missing env-var and an underivable
+  host) needs a skipped-first row for each.
+- **A resolved-pointer replacement is subsumed by a pointer-set fallback; verify byte-equality across escaping and delete
+  the lookup.** `envsecret.setEntry` looked up the existing entry's node pointer before `Document.Set`, but
+  `Set(oneyaml.Pointer(key), value)` resolves the same node — output was byte-identical for keys needing `~`/`/` escaping
+  and for empty, pre-existing, and multi-entry documents — so the lookup and its `else if found` return were redundant.
+  The lookup survives only for `RemoveSecretSpec`, whose escaping test covers it.
+- **A `!found` guard before a format check is redundant when the format's zero value passes the check.** `configDirEditable`
+  returned true for "no config file", but `FormatFor("")` yields `FormatYAML` (the zero value), so the fall-through
+  returned true too; delete the guard rather than record it.
+- **`if x, ok := v.(string); ok && x != ""` has a redundant `ok`: a failed assertion zeroes `x`.** Delete `ok` (and the
+  `&&` family). The same shape removes `key != "" && Contains(keys, normalize(key))` (the empty token matches no key) and
+  `if err != nil || n.Hostname() == "" { return "" }; return n.Hostname()` (the fall-through returns the empty host).
+- **A tuple element the caller discards on the error path needs a direct unit test.** `parseSecretDocument`'s `existed`
+  flag is read only on success, yet every error return carries it; a test through `WriteSecretSpec`/`RemoveSecretSpec`
+  cannot see a flipped `existed`, so call the reader directly.
+- **An error re-wrapped with `%w` still satisfies `errors.Is` to its inner sentinel, so an "unwrapped return" contract
+  needs a different assertion.** `readSecretFileAt` promises a guard refusal and an absent file are returned unwrapped;
+  `errors.Is` accepts the re-wrapped form too, so pin the wrapper's absence (the message no longer starts with `read `).
 
 ### Operational
 

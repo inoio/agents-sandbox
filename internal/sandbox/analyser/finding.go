@@ -86,9 +86,6 @@ func (e Evidence) hash() string {
 //
 //deadcode:ignore reason="evidence-hash helper; reached only through the marked Evidence.hash until S7 wires run --learn"
 func sortedCopy(values []string) []string {
-	if values == nil {
-		return nil
-	}
 	copied := append([]string(nil), values...)
 	sort.Strings(copied)
 	return copied

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -524,4 +525,140 @@ func TestReadLoginCredentialHasNoEnvVar(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rb.Login, 1)
 	require.Empty(t, rb.Login[0].EnvVar)
+}
+
+// configEntry is a readable provider entry that declares an endpoint host.
+func configEntry(key string) ManifestEntry {
+	return ManifestEntry{Key: key, Size: 1, ModTime: time.Now(), Hash: "abc"}
+}
+
+// TestConfigEndpointHostsFiltersProbeAndOpaqueEntries pins that a probe entry
+// and an opaque (hashless) entry contribute no endpoint even when a readable
+// provider config stands behind them: only a real, hashed config file is
+// considered.
+func TestConfigEndpointHostsFiltersProbeAndOpaqueEntries(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/config.yaml", "model:\n  provider: openai\n  base_url: https://api.example/v1\n")
+
+	probe := Manifest{Entries: []ManifestEntry{{Key: ".hermes/config.yaml", Hash: "abc"}}}
+	require.Empty(t, configEndpointHosts(home, probe), "a probe entry is not a config file")
+
+	opaque := Manifest{Entries: []ManifestEntry{{Key: ".hermes/config.yaml", Size: 1, Hash: ""}}}
+	require.Empty(t, configEndpointHosts(home, opaque), "an opaque entry carries no endpoint")
+}
+
+// TestConfigEndpointHostsProcessesEntriesAfterSkippedOnes pins that an entry
+// skipped for an unknown extension, an undecodable file, or a parse error does
+// not stop the scan: a later readable provider config still supplies its host.
+// The undecodable file is crafted to leave a partial, host-bearing map behind
+// its error, so the parse error must discard it rather than trusting it.
+func TestConfigEndpointHostsProcessesEntriesAfterSkippedOnes(t *testing.T) {
+	home := t.TempDir()
+	// The error is a sibling of the provider entry, so the decoder leaves the
+	// provider entry populated in the partial map its error returns.
+	writeFile(t, home, ".hermes/broken.yaml",
+		"model:\n  provider: openai\n  base_url: https://leak.example\nbad: !!int notanint\n")
+	writeFile(t, home, ".hermes/notes.txt", "provider: openai\nbase_url: https://notes.example\n")
+	writeFile(t, home, ".hermes/config.yaml", "model:\n  provider: openai\n  base_url: https://api.example/v1\n")
+
+	manifest := Manifest{Entries: []ManifestEntry{
+		// A probe entry first: skipping it must not stop the scan.
+		{Key: ".hermes:probe", Hash: "abc"},
+		configEntry(".hermes/broken.yaml"),
+		configEntry(".hermes/notes.txt"),
+		configEntry(".hermes/config.yaml"),
+	}}
+
+	hosts := configEndpointHosts(home, manifest)
+
+	require.Equal(t, []string{"api.example"}, hosts["openai"])
+	require.Len(t, hosts, 1, "only the readable, parseable provider config contributes")
+}
+
+// TestConfigEndpointHostsCompactsEveryProvider pins that every provider's hosts
+// are sorted and de-duplicated, so adding an endpoint in another config file
+// does not leave an unsorted or duplicated host list.
+func TestConfigEndpointHostsCompactsEveryProvider(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/config.yaml", strings.Join([]string{
+		"first:",
+		"  provider: openai",
+		"  base_url: https://b.example",
+		"second:",
+		"  provider: openai",
+		"  base_url: https://b.example",
+		"third:",
+		"  provider: openai",
+		"  base_url: https://a.example",
+		"fourth:",
+		"  provider: anthropic",
+		"  base_url: https://d.example",
+		"fifth:",
+		"  provider: anthropic",
+		"  base_url: https://c.example",
+		"",
+	}, "\n"))
+
+	hosts := configEndpointHosts(home, Manifest{Entries: []ManifestEntry{configEntry(".hermes/config.yaml")}})
+
+	require.Equal(t, []string{"a.example", "b.example"}, hosts["openai"])
+	require.Equal(t, []string{"c.example", "d.example"}, hosts["anthropic"])
+}
+
+// TestConfigEndpointHostsHasNoEntryWithoutAnEndpoint pins that a provider entry
+// with no endpoint contributes no map entry at all: the hosts map must not
+// carry empty provider keys.
+func TestConfigEndpointHostsHasNoEntryWithoutAnEndpoint(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/config.yaml", "model:\n  provider: openai\n")
+
+	hosts := configEndpointHosts(home, Manifest{Entries: []ManifestEntry{configEntry(".hermes/config.yaml")}})
+
+	require.Empty(t, hosts)
+}
+
+// TestProviderNamedByEntryNeedsAProvider pins that only an explicit non-empty
+// provider field or a container key names a provider; an empty field or a
+// providerless entry names none.
+func TestProviderNamedByEntryNeedsAProvider(t *testing.T) {
+	provider, ok := providerNamedByEntry(map[string]any{"url": "https://x.example"}, "")
+	require.False(t, ok, "a providerless entry names no provider")
+	require.Empty(t, provider)
+
+	provider, ok = providerNamedByEntry(map[string]any{"provider": ""}, "")
+	require.False(t, ok, "an empty provider field names no provider")
+	require.Empty(t, provider)
+
+	provider, ok = providerNamedByEntry(map[string]any{"provider": "OpenAI"}, "")
+	require.True(t, ok)
+	require.Equal(t, "openai", provider)
+
+	provider, ok = providerNamedByEntry(map[string]any{}, "OpenAI")
+	require.True(t, ok, "a provider-container key names the provider")
+	require.Equal(t, "openai", provider)
+}
+
+// TestEndpointHostsIgnoresNonEndpointKeys pins that only a value under an
+// endpoint key yields a host: a URL under an unrelated key is not an endpoint.
+func TestEndpointHostsIgnoresNonEndpointKeys(t *testing.T) {
+	require.Empty(t, endpointHosts(map[string]any{"name": "https://not-an-endpoint.example"}))
+	require.Equal(t, []string{"api.example"}, endpointHosts(map[string]any{"url": "https://api.example"}))
+}
+
+// TestIsEndpointKeyMatchesEndpointNames pins the endpoint-key vocabulary.
+func TestIsEndpointKeyMatchesEndpointNames(t *testing.T) {
+	require.True(t, isEndpointKey("baseURL"))
+	require.True(t, isEndpointKey("endpoint"))
+	require.True(t, isEndpointKey("url"))
+	require.False(t, isEndpointKey("name"), "a non-endpoint key is not an endpoint")
+	require.False(t, isEndpointKey(""), "an empty key is not an endpoint")
+}
+
+// TestIsProviderContainerRecognizesOnlyProviderKeys pins the container
+// vocabulary; a non-provider key is not a container.
+func TestIsProviderContainerRecognizesOnlyProviderKeys(t *testing.T) {
+	require.True(t, isProviderContainer("provider"))
+	require.True(t, isProviderContainer("Providers"))
+	require.False(t, isProviderContainer("mcp"))
+	require.False(t, isProviderContainer(""))
 }

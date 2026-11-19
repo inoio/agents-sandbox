@@ -220,6 +220,8 @@ func TestObservationSecretUsesChannelAttributionThenConfigEntryHosts(t *testing.
 		"the channel attribution supersedes the config entry")
 	require.Equal(t, []string{"x-goog-api-key"}, secret.HeaderFields,
 		"the write scopes substitution to the attributed header name, not the credential's hint")
+	require.True(t, findings[0].Evidence.Succeeded,
+		"a channel attribution is a positive observation")
 
 	configEntry := attributed
 	configEntry.Observation = channel.Observation{}
@@ -229,6 +231,8 @@ func TestObservationSecretUsesChannelAttributionThenConfigEntryHosts(t *testing.
 		"with no channel attribution the config-entry host is used")
 	require.Equal(t, []string{"authorization"}, findings[0].Writes[0].Secret.HeaderFields,
 		"with no channel attribution the credential's header-field hint is used")
+	require.False(t, findings[0].Evidence.Succeeded,
+		"the config-entry fallback is not an observed use")
 }
 
 // TestObservationAttributionSkipsUnmatchedEntries: an attribution entry for
@@ -409,4 +413,121 @@ func configWrite(t *testing.T, finding Finding, key string) Write {
 	}
 	t.Fatalf("finding proposes no %s write: %+v", key, finding)
 	return Write{}
+}
+
+// TestObservationEmptySessionYieldsNoFinding pins that a session with no
+// observed destination and no credential is silent: the network finding needs
+// something to act on, so nothing is proposed.
+func TestObservationEmptySessionYieldsNoFinding(t *testing.T) {
+	require.Empty(t, ObservationFindings(SessionFacts{}))
+}
+
+// TestObservationEvidenceSucceededReflectsUsedHosts pins that the evidence's
+// Succeeded is true exactly when the session used at least one host, so a
+// finding built only from a denial reports that it did not succeed.
+func TestObservationEvidenceSucceededReflectsUsedHosts(t *testing.T) {
+	used := SessionFacts{
+		Current: network.Policy{Profiles: []network.Profile{network.ProfilePublic}},
+		Observation: channel.Observation{Destinations: []channel.Destination{
+			{Host: "api.example", Success: true, Count: 1},
+		}},
+	}
+	findings := ObservationFindings(used)
+	require.Len(t, findings, 1)
+	require.True(t, findings[0].Evidence.Succeeded, "a used host means the session succeeded")
+
+	deniedOnly := SessionFacts{
+		Current: network.Policy{Profiles: []network.Profile{network.ProfilePublic}},
+		Observation: channel.Observation{Destinations: []channel.Destination{
+			{Host: "blocked.example", Denied: true},
+		}},
+	}
+	findings = ObservationFindings(deniedOnly)
+	require.Len(t, findings, 1)
+	require.False(t, findings[0].Evidence.Succeeded, "no used host means it did not succeed")
+}
+
+// TestObservedUsedHostsFiltersNonUseAndKeepsLaterDestinations pins which
+// destinations count as use: a hostless one, a failed one, and a denied one are
+// excluded, a later successful destination is still reached, and a denied host
+// is never allowed by its connect tunnel.
+func TestObservedUsedHostsFiltersNonUseAndKeepsLaterDestinations(t *testing.T) {
+	hosts := observedUsedHosts([]channel.Destination{
+		{Host: "", Success: true},                             // hostless: not a host
+		{Host: "failed.example", Success: false},              // a failed request
+		{Host: "denied.example", Denied: true, Success: true}, // a denial outranks a success
+		{Host: "used.example", Protocol: "https", Success: true, Count: 2},
+	})
+	require.Equal(t, []string{"used.example"}, hosts)
+
+	connectThenUse := observedUsedHosts([]channel.Destination{
+		{Host: "dead.example", Protocol: connectProtocol, Success: true},
+		{Host: "dead.example", Protocol: "https", Success: false, Denied: true},
+		{Host: "live.example", Success: true},
+	})
+	require.Equal(t, []string{"live.example"}, connectThenUse,
+		"a denied host's connect tunnel is not use and must not stop the loop")
+}
+
+// TestDeniedHostsExcludeHostlessAndKeepLaterDenials pins that a hostless denied
+// destination contributes no host, and a later denied host is still recorded.
+func TestDeniedHostsExcludeHostlessAndKeepLaterDenials(t *testing.T) {
+	hosts := deniedHosts([]channel.Destination{
+		{Host: "", Denied: true},
+		{Host: "b.example", Denied: true},
+		{Host: "a.example", Denied: true},
+		{Host: "used.example", Success: true},
+	})
+	require.Equal(t, []string{"a.example", "b.example"}, hosts)
+}
+
+// TestUsedRequestCountSumsOnlyUsedDestinations pins that the count adds up the
+// request counts of exactly the used destinations: a failed one, a denied one,
+// and a denied-but-successful one contribute nothing, and skipping one does not
+// stop the scan.
+func TestUsedRequestCountSumsOnlyUsedDestinations(t *testing.T) {
+	total := usedRequestCount([]channel.Destination{
+		{Host: "failed.example", Success: false, Count: 9},
+		{Host: "denied.example", Denied: true, Success: true, Count: 7},
+		{Host: "used.example", Success: true, Count: 2},
+		{Host: "used2.example", Success: true, Count: 3},
+	})
+	require.Equal(t, 5, total)
+}
+
+// TestSecretFindingsSkipUnscopableCredentialsWithoutStopping pins that a
+// credential the read-back could not name and one whose host set could not be
+// derived are each skipped without stopping the loop, so a later scoped
+// credential still yields a finding.
+func TestSecretFindingsSkipUnscopableCredentialsWithoutStopping(t *testing.T) {
+	s := SessionFacts{
+		Current: narrowNone(),
+		ReadBack: readback.ReadBack{Static: []readback.Credential{
+			{Provider: "openai", Hosts: []string{"skip.example"}},                      // no EnvVar
+			{Kind: readback.CredentialStatic, EnvVar: "HOSTLESS_TOKEN", Provider: "x"}, // no host
+			{
+				Kind:     readback.CredentialStatic,
+				EnvVar:   "OPENAI_API_KEY",
+				Provider: "openai",
+				Hosts:    []string{"api.example"},
+			},
+		}},
+	}
+
+	findings := ObservationFindings(s)
+
+	require.Len(t, findings, 1)
+	require.Equal(t, "OPENAI_API_KEY", findings[0].Writes[0].Secret.EnvVar)
+}
+
+// TestSortedUniqueSortsDedupesAndReportsEmptyAsNil pins that sortedUnique returns
+// a sorted, de-duplicated copy, and reports an empty input as nil.
+func TestSortedUniqueSortsDedupesAndReportsEmptyAsNil(t *testing.T) {
+	require.Nil(t, sortedUnique(nil))
+	require.Nil(t, sortedUnique([]string{}))
+	require.Equal(
+		t,
+		[]string{"a.example", "b.example"},
+		sortedUnique([]string{"b.example", "a.example", "b.example"}),
+	)
 }

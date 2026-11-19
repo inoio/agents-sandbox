@@ -4,10 +4,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	oneyaml "oneyaml.dev/go"
 
 	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
@@ -100,7 +102,7 @@ func TestWriteSecretSpecRefusesEmptyValue(t *testing.T) {
 
 	err := WriteSecretSpec(dir, "BAR", SecretSpec{Value: "", Host: "b.example"})
 
-	require.Error(t, err)
+	require.ErrorContains(t, err, "value is empty")
 	assert.Equal(t, before, readFile(t, filepath.Join(dir, "env.secret.yaml")))
 }
 
@@ -114,7 +116,7 @@ func TestWriteSecretSpecRefusesHostlessSpec(t *testing.T) {
 
 	err := WriteSecretSpec(dir, "BAR", SecretSpec{Value: "orphan"})
 
-	require.Error(t, err)
+	require.ErrorContains(t, err, "no hosts and no allow_any_host_dangerous")
 	assert.Equal(t, before, readFile(t, filepath.Join(dir, "env.secret.yaml")))
 }
 
@@ -168,7 +170,7 @@ func TestWriteSecretSpecRejectsEmptyKey(t *testing.T) {
 
 	err := WriteSecretSpec(dir, "", SecretSpec{Value: "v", Host: "a.example"})
 
-	require.Error(t, err)
+	require.ErrorContains(t, err, "environment variable name is empty")
 	assert.Equal(t, before, readFile(t, filepath.Join(dir, "env.secret.yaml")))
 }
 
@@ -212,6 +214,7 @@ func TestWriteSecretSpecSurfacesAnAmbiguousDuplicateKey(t *testing.T) {
 	err := WriteSecretSpec(dir, "FOO", SecretSpec{Value: "v2", Host: "h.example"})
 
 	require.Error(t, err)
+	require.Error(t, errors.Unwrap(err), "the pointer error must be preserved with %w")
 	assert.Equal(t, content, readFile(t, path))
 }
 
@@ -226,6 +229,7 @@ func TestRemoveSecretSpecSurfacesAnAmbiguousDuplicateKey(t *testing.T) {
 	err := RemoveSecretSpec(dir, "FOO")
 
 	require.Error(t, err)
+	require.Error(t, errors.Unwrap(err), "the pointer error must be preserved with %w")
 	assert.Equal(t, content, readFile(t, path))
 }
 
@@ -240,6 +244,7 @@ func TestRemoveSecretSpecRefusesAnAnchorInUse(t *testing.T) {
 	err := RemoveSecretSpec(dir, "FOO")
 
 	require.Error(t, err)
+	require.Error(t, errors.Unwrap(err), "the removal error must be preserved with %w")
 	assert.Equal(t, content, readFile(t, path))
 }
 
@@ -366,6 +371,10 @@ func TestWriteSecretSpecVerifiesApprovedIntraProjectSymlink(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotZero(t, info.Mode()&os.ModeSymlink, "the link must survive the write")
 	assert.Contains(t, readFile(t, target), "new")
+
+	approved, err := projectguard.ReadFile(link, os.ReadFile)
+	require.NoError(t, err, "the launcher's own write must become the approved bytes")
+	assert.Contains(t, string(approved), "new")
 }
 
 // TestWriteSecretSpecRefusesUnapprovedProjectFile pins the trust contract: a
@@ -515,6 +524,138 @@ func TestRemoveSecretSpecRoundTripsWithWrite(t *testing.T) {
 	require.NoError(t, RemoveSecretSpec(dir, "K"))
 
 	assert.Empty(t, readBackSpecs(t, dir))
+}
+
+// TestParseSecretDocumentReportsExistence pins the reader's three outcomes: an
+// absent file is an empty document that did not exist, a present file exists,
+// and an unreadable or unparseable one is an error reporting no existence.
+func TestParseSecretDocumentReportsExistence(t *testing.T) {
+	absent := t.TempDir()
+	_, existed, err := parseSecretDocument(absent)
+	require.NoError(t, err)
+	assert.False(t, existed, "an absent file did not exist")
+
+	present := t.TempDir()
+	require.NoError(t, WriteSecretSpec(present, "FOO", SecretSpec{Value: "v", Host: "h.example"}))
+	_, existed, err = parseSecretDocument(present)
+	require.NoError(t, err)
+	assert.True(t, existed, "a present file exists")
+
+	malformed := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(malformed, "env.secret.yaml"), []byte("{ not yaml\n"), 0o600))
+	_, existed, err = parseSecretDocument(malformed)
+	require.Error(t, err)
+	assert.False(t, existed, "an unparseable file reports no existence")
+
+	unreadable := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(unreadable, "env.secret.yaml"), 0o700))
+	_, existed, err = parseSecretDocument(unreadable)
+	require.Error(t, err)
+	assert.False(t, existed, "an unreadable file reports no existence")
+}
+
+// TestParseSecretDocumentRefusesAnUnapprovedFile pins that a trust refusal is
+// returned as itself and does not report the file as an existing one.
+func TestParseSecretDocumentRefusesAnUnapprovedFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "env.secret.yaml")
+	t.Cleanup(projectguard.Install(
+		[]string{dir},
+		map[string]projectguard.Approval{
+			path: projectguard.ApprovalOf([]byte("FOO:\n  value: v\n  host: h.example\n")),
+		},
+	))
+
+	_, existed, err := parseSecretDocument(dir)
+
+	require.ErrorIs(t, err, projectguard.ErrNotApproved)
+	assert.False(t, existed, "a refused read reports no existence")
+}
+
+// TestReadSecretFileAtSurfacesAReadError pins that a genuine read failure (a
+// directory where the file should be) is returned as an error that preserves
+// its cause.
+func TestReadSecretFileAtSurfacesAReadError(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "env.secret.yaml")
+	require.NoError(t, os.MkdirAll(path, 0o700))
+
+	_, err := readSecretFileAt(path)
+
+	require.Error(t, err)
+	require.Error(t, errors.Unwrap(err), "the read error must be preserved with %w")
+}
+
+// TestReadSecretFileAtReportsTrustErrorsUnwrapped pins the reader's contract
+// that a guard refusal and an absent file are returned unwrapped and
+// unmodified, so the caller distinguishes them by errors.Is rather than an
+// extra wrapper.
+func TestReadSecretFileAtReportsTrustErrorsUnwrapped(t *testing.T) {
+	absent := t.TempDir()
+	_, err := readSecretFileAt(filepath.Join(absent, "env.secret.yaml"))
+	require.ErrorIs(t, err, os.ErrNotExist)
+	assert.False(t, strings.HasPrefix(err.Error(), "read "),
+		"an absent file must be returned unwrapped, not re-labelled")
+
+	guarded := t.TempDir()
+	path := filepath.Join(guarded, "env.secret.yaml")
+	t.Cleanup(projectguard.Install([]string{guarded}, map[string]projectguard.Approval{
+		path: projectguard.ApprovalOf([]byte("FOO:\n  value: v\n  host: h.example\n")),
+	}))
+	_, err = readSecretFileAt(path)
+	require.ErrorIs(t, err, projectguard.ErrNotApproved)
+	assert.False(t, strings.HasPrefix(err.Error(), "read "),
+		"a trust refusal must be returned unwrapped, not re-labelled")
+}
+
+// TestEntryValuePointerReportsAnAmbiguousKey pins that a key occurring twice has
+// no pointer and is reported as not found, so the caller refuses rather than
+// editing an arbitrary entry.
+func TestEntryValuePointerReportsAnAmbiguousKey(t *testing.T) {
+	document, err := oneyaml.Parse(
+		[]byte("FOO:\n  value: v\n  host: a.example\nFOO:\n  value: w\n  host: b.example\n"),
+		oneyaml.Untrusted(),
+	)
+	require.NoError(t, err)
+
+	pointer, found, err := entryValuePointer(document, "FOO")
+
+	require.Error(t, err)
+	assert.False(t, found)
+	assert.Empty(t, pointer)
+}
+
+// TestRemoveSecretSpecRemovesAKeyAfterAnother pins that the lookup scans past a
+// non-matching entry rather than stopping at it: removing a key that is not the
+// first entry still removes it.
+func TestRemoveSecretSpecRemovesAKeyAfterAnother(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "env.secret.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(
+		"BAR:\n  value: b\n  host: b.example\n"+
+			"FOO:\n  value: v\n  host: a.example\n",
+	), 0o600))
+
+	require.NoError(t, RemoveSecretSpec(dir, "FOO"))
+
+	got := readFile(t, path)
+	assert.NotContains(t, got, "FOO", "the addressed key must be removed")
+	assert.Contains(t, got, "BAR", "the other key must survive")
+}
+
+// TestWriteSecretSpecKeepsAnExistingFileMode pins that an edit keeps the secret
+// file's permissions, so a shared secret file does not turn private.
+func TestWriteSecretSpecKeepsAnExistingFileMode(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "env.secret.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("FOO:\n  value: old\n  host: a.example\n"), 0o644))
+	require.NoError(t, os.Chmod(path, 0o644))
+
+	require.NoError(t, WriteSecretSpec(dir, "FOO", SecretSpec{Value: "new", Host: "a.example"}))
+
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o644), info.Mode().Perm())
 }
 
 func readFile(t *testing.T, path string) string {
