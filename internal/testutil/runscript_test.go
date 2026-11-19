@@ -35,6 +35,38 @@ func TestRunScriptIsolatesAndCaptures(t *testing.T) {
 	}
 }
 
+// TestRunScriptDisablesRaceExitSleep pins that the child disables the race
+// runtime's exit delay while keeping the options the environment already sets.
+// A fake command re-execs the race-instrumented test binary, whose clean exit
+// otherwise sleeps `atexit_sleep_ms` (1000 ms), so the delay would dominate the
+// package's -race run.
+func TestRunScriptDisablesRaceExitSleep(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "gorace.sh")
+	WritePath(t, script, "#!/usr/bin/env bash\nprintf '%s\\n' \"$GORACE\"\n")
+
+	got := RunScript(t, dir, map[string]string{"GORACE": "suppress_equal_stacks=1"}, script)
+
+	want := "suppress_equal_stacks=1 atexit_sleep_ms=0\n"
+	if got.Stdout != want {
+		t.Errorf("GORACE = %q, want %q", got.Stdout, want)
+	}
+}
+
+// TestRunScriptKeepsAnExplicitRaceExitSleep asserts RunScript does not clobber a
+// delay the environment sets on purpose.
+func TestRunScriptKeepsAnExplicitRaceExitSleep(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "gorace.sh")
+	WritePath(t, script, "#!/usr/bin/env bash\nprintf '%s\\n' \"$GORACE\"\n")
+
+	got := RunScript(t, dir, map[string]string{"GORACE": "atexit_sleep_ms=500"}, script)
+
+	if got.Stdout != "atexit_sleep_ms=500\n" {
+		t.Errorf("GORACE = %q, want %q", got.Stdout, "atexit_sleep_ms=500\n")
+	}
+}
+
 // TestRunScriptPassesArguments asserts the script receives its trailing args,
 // the shape a harness uses to drive a tool with a case-specific argument.
 func TestRunScriptPassesArguments(t *testing.T) {

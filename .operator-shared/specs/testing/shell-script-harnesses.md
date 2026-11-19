@@ -45,7 +45,10 @@ fixtures. A Go harness reuses these instead of re-deriving the environment. Thre
   `GitIsolationEnvironment(os.Environ())` and `extraEnv` overlaid, returning captured stdout, stderr, and exit
   status. Isolation is internal, so a harness that drives a script cannot forget it. It also reads the script
   file itself, so `cmd/go` records it as a test-cache input: the child `bash` reads the script, which the test
-  process cannot see, and without this a changed script would replay a stale cached test result.
+  process cannot see, and without this a changed script would replay a stale cached test result. Finally it
+  disables the race runtime's exit delay for the child (`GORACE=atexit_sleep_ms=0`, preserving any `GORACE`
+  options the environment already sets), because a fake command re-execs the race-instrumented test binary and
+  every clean exit of one would otherwise sleep a second (see Current state).
 - A fixture builder in `internal/testutil/gittest`, a leaf package so a test-support package can import it
   without a cycle. It returns a repo handle with commit, branch, checkout, a two-parent merge commit, a bare
   origin, and push, all through go-git — `InitRepo` is too minimal (one commit, a path, no handle), and a
@@ -100,6 +103,12 @@ and `internal/testutil/fakecmd` — and each migrated Make target runs
 The remaining bash fixture harnesses still hand-copy the isolation head; a new one must include it
 until it migrates.
 
-Every fake command re-execs the race-instrumented test binary, so the migrated harnesses add roughly
-two minutes to the required `test-race` job; a candidate fix is a `//go:build !race` exclusion for
-`test/scripts`, not yet taken.
+A fake command re-execs the race-instrumented test binary, and a race-instrumented process sleeps
+`atexit_sleep_ms` (1000 ms by default) on a clean exit — to give other threads time to report a
+race. Since a successful fake invocation exits 0, every one of them slept a second under `-race`:
+`backport-audit` alone re-execs `gh` ~85 times, so the migrated harnesses added roughly two minutes to
+the required `test-race` job. `RunScript` now disables that exit delay for the child
+(`GORACE=atexit_sleep_ms=0`, merged with any `GORACE` the environment already sets); race detection
+stays on, only the exit delay goes. The `test/scripts` package's `-race` time fell from ~115 s to
+~13 s, close to its plain ~9 s. A `//go:build !race` exclusion was the earlier candidate and was not
+taken: it would have removed the re-execs (and the fixture coverage) wholesale rather than the delay.

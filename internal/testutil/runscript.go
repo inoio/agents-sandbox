@@ -21,8 +21,10 @@ type ScriptResult struct {
 // output and exit status. The child environment roots at
 // GitIsolationEnvironment(os.Environ()) with extraEnv overlaid, so a script that
 // drives git cannot read or prompt through the developer's configuration even
-// if the script itself forgets to isolate. A failure to start bash at all is
-// fatal; a non-zero exit status is returned in ScriptResult, not raised.
+// if the script itself forgets to isolate. It also disables the race runtime's
+// exit delay for the child (see withRaceExitSleepDisabled). A failure to start
+// bash at all is fatal; a non-zero exit status is returned in ScriptResult, not
+// raised.
 func RunScript(tb testing.TB, dir string, extraEnv map[string]string, script string, args ...string) ScriptResult {
 	tb.Helper() // gomutants:disable STATEMENT_REMOVE reason="t.Helper only adjusts reported stack frames"
 	// Read the script so cmd/go records it as a test-cache input: the child bash
@@ -34,7 +36,7 @@ func RunScript(tb testing.TB, dir string, extraEnv map[string]string, script str
 	//nolint:gosec // the script path is a trusted test fixture, never user input
 	cmd := exec.CommandContext(context.Background(), "bash", append([]string{script}, args...)...)
 	cmd.Dir = dir
-	cmd.Env = overlayEnvironment(GitIsolationEnvironment(os.Environ()), extraEnv)
+	cmd.Env = withRaceExitSleepDisabled(overlayEnvironment(GitIsolationEnvironment(os.Environ()), extraEnv))
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -50,6 +52,32 @@ func RunScript(tb testing.TB, dir string, extraEnv map[string]string, script str
 		tb.Fatalf("run %s: %v", script, err)
 	}
 	return result
+}
+
+// withRaceExitSleepDisabled ensures environ's GORACE disables the race runtime's
+// exit delay (`atexit_sleep_ms`, 1000 ms by default). A fake command is a
+// re-exec of the race-instrumented test binary, and every clean exit of one
+// sleeps that long, so without this the migrated harnesses pay a second per fake
+// invocation — minutes across a package under `-race`. Only the exit delay is
+// dropped; race detection itself stays on. Other GORACE options are preserved,
+// and an explicit atexit_sleep_ms is left alone.
+func withRaceExitSleepDisabled(environ []string) []string {
+	const (
+		gorace      = "GORACE"
+		atexitSleep = "atexit_sleep_ms"
+	)
+	for i, entry := range environ {
+		name, value, ok := strings.Cut(entry, "=")
+		if !ok || name != gorace {
+			continue
+		}
+		if strings.Contains(value, atexitSleep) {
+			return environ
+		}
+		environ[i] = entry + " " + atexitSleep + "=0"
+		return environ
+	}
+	return append(environ, gorace+"="+atexitSleep+"=0")
 }
 
 // overlayEnvironment returns base with overlay applied: an entry whose key
