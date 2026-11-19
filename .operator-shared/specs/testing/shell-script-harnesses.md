@@ -99,3 +99,7 @@ and `internal/testutil/fakecmd` — and each migrated Make target runs
 
 The remaining bash fixture harnesses still hand-copy the isolation head; a new one must include it
 until it migrates.
+
+Every fake command re-execs the race-instrumented test binary, so the migrated harnesses add roughly
+two minutes to the required `test-race` job; a candidate fix is a `//go:build !race` exclusion for
+`test/scripts`, not yet taken.

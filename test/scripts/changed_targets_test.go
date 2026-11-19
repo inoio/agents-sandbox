@@ -1,6 +1,7 @@
 package scripts
 
 import (
+	"fmt"
 	"maps"
 	"os"
 	"os/exec"
@@ -259,13 +260,35 @@ func fullCheckTargets(t *testing.T) []string {
 	if _, err := os.ReadFile(filepath.Join(root, "Makefile")); err != nil {
 		t.Fatalf("read Makefile: %v", err)
 	}
-	out, err := exec.Command("make", "-s", "--no-print-directory", "-C", root, "print-check-targets").Output()
+	out, err := makePrintCheckTargets(root)
 	if err != nil {
 		t.Fatalf("make print-check-targets: %v", err)
 	}
-	targets := strings.Fields(string(out))
+	targets := strings.Fields(out)
 	slices.Sort(targets)
 	return targets
+}
+
+// makePrintCheckTargets runs the Makefile's print-check-targets with MAKEFLAGS
+// cleared, the way scripts/changed-targets.sh does, so a parent make cannot leak
+// a jobserver or nested-make flag into the read.
+func makePrintCheckTargets(root string) (string, error) {
+	//testenv:allow the helper forwards the parent environment to make, minus MAKEFLAGS
+	environ := os.Environ()
+	env := make([]string, 0, len(environ))
+	for _, entry := range environ {
+		if !strings.HasPrefix(entry, "MAKEFLAGS=") {
+			env = append(env, entry)
+		}
+	}
+	command := exec.Command("make", "-s", "--no-print-directory", "-C", root, "print-check-targets")
+	env = append(env, "MAKEFLAGS=")
+	command.Env = env
+	out, err := command.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("%w: %s", err, out)
+	}
+	return string(out), nil
 }
 
 // newMapRepo builds the baseline repo layout the map's cases modify.

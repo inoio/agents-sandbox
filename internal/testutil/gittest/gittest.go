@@ -34,10 +34,9 @@ const (
 
 // Repo is a throwaway worktree repository with an optional bare origin.
 type Repo struct {
-	tb     testing.TB
-	dir    string
-	repo   *git.Repository
-	origin string
+	tb   testing.TB
+	dir  string
+	repo *git.Repository
 }
 
 // New creates a worktree repository in a temp dir, configured with a user and
@@ -45,7 +44,7 @@ type Repo struct {
 func New(tb testing.TB) *Repo {
 	tb.Helper()
 	dir := tb.TempDir()
-	return &Repo{tb: tb, dir: dir, repo: initRepository(tb, dir, false), origin: ""}
+	return &Repo{tb: tb, dir: dir, repo: initRepository(tb, dir, false)}
 }
 
 // Dir returns the working-tree directory.
@@ -197,7 +196,6 @@ func (r *Repo) AddBareOrigin() string {
 	}); err != nil {
 		r.tb.Fatalf("create origin remote: %v", err)
 	}
-	r.origin = origin
 	return origin
 }
 
