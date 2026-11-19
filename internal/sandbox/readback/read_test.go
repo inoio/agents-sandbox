@@ -853,6 +853,66 @@ func TestReadClassifiesInlineSecretFromJSON(t *testing.T) {
 	require.Equal(t, "sk-json-inline", credential.Value)
 }
 
+// TestReadInlineSecretSkipsAProvidersModelCatalog: a provider's own "models"
+// map is a model catalog, not provider-keyed entries, so a credential at that
+// depth is not classified. opencode's provider.<id>.models.<model> shape would
+// otherwise read gpt-4o as a provider and derive GPT_4O_API_KEY.
+func TestReadInlineSecretSkipsAProvidersModelCatalog(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".config/opencode/opencode.jsonc", `{"provider":{"openai":{
+		"options":{"apiKey":"sk-provider","baseURL":"https://api.openai.com/v1"},
+		"models":{"gpt-4o":{"options":{"apiKey":"sk-per-model","baseURL":"https://gateway.example/v1"}}}
+	}}}`)
+
+	rb, err := Read(home, "opencode", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Static, 1, "only the provider entry is a credential")
+	credential := rb.Static[0]
+	require.Equal(t, "OPENAI_API_KEY", credential.EnvVar)
+	require.Equal(t, "openai", credential.Provider)
+	require.Equal(t, []string{"api.openai.com"}, credential.Hosts)
+	require.Equal(t, "sk-provider", credential.Value)
+	for _, c := range rb.Static {
+		require.NotEqual(t, "GPT_4O_API_KEY", c.EnvVar, "a model id is not a provider")
+		require.NotEqual(t, "gpt4o", c.Provider)
+	}
+}
+
+// TestReadInlineSecretReadsTheModelsProvidersWrapper: the documented
+// models.providers.<id> wrapper is a provider container, so its entry is still
+// classified with its own endpoint host and inline key.
+func TestReadInlineSecretReadsTheModelsProvidersWrapper(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".config/opencode/opencode.jsonc",
+		`{"models":{"providers":{"openai":{"options":{"apiKey":"sk-wrapper","baseURL":"https://api.openai.com/v1"}}}}}`)
+
+	rb, err := Read(home, "opencode", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Static, 1)
+	credential := rb.Static[0]
+	require.Equal(t, "openai", credential.Provider)
+	require.Equal(t, "OPENAI_API_KEY", credential.EnvVar)
+	require.Equal(t, []string{"api.openai.com"}, credential.Hosts,
+		"the wrapper entry's own endpoint is attributed")
+	require.Equal(t, "sk-wrapper", credential.Value, "an inline key in the wrapper entry is found")
+}
+
+// TestReadInlineSecretSkipsATopLevelModelCatalogEntry: a models catalog is not
+// provider-keyed even when a catalog entry carries an explicit provider field
+// and a credential key; the catalog rule covers the entry regardless.
+func TestReadInlineSecretSkipsATopLevelModelCatalogEntry(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".config/opencode/opencode.jsonc",
+		`{"models":{"gpt-4o":{"provider":"openai","key":"sk-model"}}}`)
+
+	rb, err := Read(home, "opencode", Manifest{})
+
+	require.NoError(t, err)
+	require.Empty(t, rb.Static, "a models catalog's entries are not provider entries")
+}
+
 // TestReadInlineSecretSkipsAnEmptyNormalizedProvider: a provider name that
 // normalizes to empty (e.g. "___") names no provider, so no credential is
 // reported with an empty Provider and a bogus derived env-var name.
@@ -1094,4 +1154,17 @@ func TestIsProviderContainerRecognizesOnlyProviderKeys(t *testing.T) {
 	require.True(t, isProviderContainer("Providers"))
 	require.False(t, isProviderContainer("mcp"))
 	require.False(t, isProviderContainer(""))
+}
+
+// TestIsModelCatalog pins the catalog predicate: a "models" key is a catalog
+// unless its value is the documented models.providers wrapper, and a non-models
+// key is never a catalog.
+func TestIsModelCatalog(t *testing.T) {
+	require.True(t, isModelCatalog("models", map[string]any{"gpt-4o": map[string]any{}}))
+	require.True(t, isModelCatalog("Models", map[string]any{}), "the key is normalized")
+	require.True(t, isModelCatalog("models", []any{"gpt-4o"}), "a non-map value is a catalog")
+	require.False(t, isModelCatalog("models", map[string]any{"providers": map[string]any{}}),
+		"the models.providers wrapper is a provider container")
+	require.False(t, isModelCatalog("provider", map[string]any{"gpt-4o": map[string]any{}}),
+		"a non-models key is never a catalog")
 }

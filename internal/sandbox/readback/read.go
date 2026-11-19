@@ -200,31 +200,42 @@ func configEndpointHosts(home string, manifest Manifest) map[string][]string {
 // unrecognised shape is never a guess. It factors the traversal the endpoint
 // walk uses, so both walks agree on what a provider entry is.
 func walkProviderEntries(node any, visit func(entry map[string]any, provider string)) {
-	walkProviderNode(node, "", "", visit)
+	walkProviderNode(node, "", "", false, visit)
 }
 
 // walkProviderNode is walkProviderEntries' recursion. key is the node's key in
 // its parent; entryKey is the provider id the node's enclosing provider
-// container gives it, or "" outside a container. The child keys are visited in
-// sorted order, so the whole traversal — and therefore the credentials it yields
-// — does not depend on map iteration order.
-func walkProviderNode(node any, key, entryKey string, visit func(entry map[string]any, provider string)) {
+// container gives it, or "" outside a container. inModelCatalog is set once the
+// walk enters a model catalog (see isModelCatalog): such a node is never a
+// provider entry, even when it names a provider explicitly, and its keys are
+// never a provider container. The child keys are visited in sorted order, so the
+// whole traversal — and therefore the credentials it yields — does not depend on
+// map iteration order.
+func walkProviderNode(
+	node any,
+	key, entryKey string,
+	inModelCatalog bool,
+	visit func(entry map[string]any, provider string),
+) {
 	switch typed := node.(type) {
 	case map[string]any:
-		if provider, ok := providerNamedByEntry(typed, entryKey); ok {
-			visit(typed, provider)
+		if !inModelCatalog {
+			if provider, ok := providerNamedByEntry(typed, entryKey); ok {
+				visit(typed, provider)
+			}
 		}
-		container := isProviderContainer(key)
+		container := !inModelCatalog && isProviderContainer(key)
 		for _, childKey := range slices.Sorted(maps.Keys(typed)) {
+			child := typed[childKey]
 			childEntryKey := ""
 			if container {
 				childEntryKey = childKey
 			}
-			walkProviderNode(typed[childKey], childKey, childEntryKey, visit)
+			walkProviderNode(child, childKey, childEntryKey, inModelCatalog || isModelCatalog(childKey, child), visit)
 		}
 	case []any:
 		for _, child := range typed {
-			walkProviderNode(child, "", "", visit)
+			walkProviderNode(child, "", "", inModelCatalog, visit)
 		}
 	}
 }
@@ -265,12 +276,31 @@ func providerNamedByEntry(entry map[string]any, entryKey string) (string, bool) 
 
 // providerContainers are the config keys whose value is keyed by provider id, so
 // a child entry names its provider through its container-relative key
-// (opencode's "provider.<id>" and "models.providers.<id>" shapes).
+// (opencode's "provider.<id>" shape, and the "models.providers.<id>" wrapper).
+// A bare "models" map is a model catalog, not a container: only the
+// "models.providers.<id>" wrapper is one (see isModelCatalog).
 var providerContainers = []string{"provider", "providers", "models"}
 
 // isProviderContainer reports whether a config key holds provider-keyed entries.
 func isProviderContainer(key string) bool {
 	return slices.Contains(providerContainers, normalizeToken(key))
+}
+
+// isModelCatalog reports whether the child under key is a model catalog rather
+// than provider-keyed entries. A "models" key holds models — opencode's
+// provider.<id>.models.<model> — except the documented models.providers.<id>
+// wrapper, whose value holds a "providers" key. A catalog's descendants are
+// never provider entries.
+func isModelCatalog(key string, child any) bool {
+	if normalizeToken(key) != "models" {
+		return false
+	}
+	entry, ok := child.(map[string]any)
+	if !ok {
+		return true
+	}
+	_, isWrapper := entry["providers"]
+	return !isWrapper
 }
 
 // entryEndpointHosts returns the hosts an entry's endpoint fields name, looking
