@@ -47,13 +47,33 @@ The after-run copies an agent config file the session authored into the per-slug
 directory as a managed snippet, so the launcher owns it on the next run. Each **static secret value** in the copied
 content is replaced by its **placeholder**, which is also recorded on the secret's `env.secret.yaml` entry, so the
 runtime substitutes it in flight for the allowed hosts; the value never appears in the finding, the artefact, or a
-log. Only a config file the agent authored is copied — never a login store or a credential probe's database.
+log. A placeholder never appears without its entry: a credential the analysis will not propose as a secret (no host,
+no env-var name) leaves the whole file uncopied rather than copied with an orphan `${ENVVAR}` or a raw sibling value.
+Only a file the agent's **snippet pattern** matches is proposed — a candidate the merge never reads (a reserved
+config-family name such as opencode's `config.json`, or any name outside the pattern) would be a managed write that
+takes no effect.
+
+A candidate whose path matches a **declared credential-store pattern** is excluded by the pattern alone, independently
+of whether that store is a login for the current agent: `readback.IsCredentialStorePath` tests the pattern
+agent-independently, so opencode2 — which declares and provisions opencode's `auth.json` — refuses that path even
+where its own login classification filters the store out for the agent. Only a config file the agent authored is
+copied — never a login store or a credential probe's database. A candidate the read-back cannot read — over the
+`readback.MaxHashedBytes` cap, unreadable, or of a known format that does not parse (so an escaped value cannot be
+ruled out) — is reported, never written truncated: the write-back writes the file whole or not at all.
+
+The write's target is `<per-slug user scope>/<agent's primary config-dir name>/<file name>` — the directory whose
+snippets `reprovision` merges — written atomically with mode `0o644` (it is configuration, not a credential: the
+values in it are placeholders). A project-scope managed-config write is **skipped, never written**: the applier has
+no per-file project approval (only `ApproveSettingWrite`, keyed by a launcher config key), and the learn proposal
+never targets that scope. An unknown agent resolves to no target directory and is likewise skipped.
 
 The placeholder convention is `${<ENVVAR>}` **where the harness passes a config value through verbatim**: a literal
 config string is not shell-expanded, so the placeholder reaches the request. A harness that does not expand `${VAR}`
 in its config needs its **native env indirection** instead — kimi reads no key from the process environment and only
 accepts `api_key_env = "<ENVVAR>"`, so the write-back emits that form, and msb puts the placeholder into the named
-env var. Which form a harness needs is a per-harness property of the write-back, not of the finding.
+env var. An assignment whose key is already the env-var name — an env-table entry such as `KIMI_API_KEY = "…"` —
+keeps its key and takes `${ENVVAR}` instead: that name is what the harness reads. Which form a harness needs is a
+per-harness property of the write-back, not of the finding.
 
 ## Attribution and the network diff
 

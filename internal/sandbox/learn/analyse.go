@@ -38,15 +38,40 @@ type Analysis struct {
 	ReadBack readback.ReadBack
 }
 
-// Findings derives every finding the analysis supports (network + secrets).
-func (a Analysis) Findings() []analyser.Finding {
-	return analyser.ObservationFindings(analyser.SessionFacts{
+// Findings derives every finding the analysis supports (network, secrets, and
+// the session's managed agent config).
+func (a Analysis) Findings(logger termio.Logger) []analyser.Finding {
+	findings := analyser.ObservationFindings(analyser.SessionFacts{
 		Paths:       a.Paths,
 		Slug:        a.Slug,
 		ReadBack:    a.ReadBack,
 		Observation: a.Observation,
 		Current:     a.Current,
 	})
+	return append(findings, analyser.ManagedConfigFindings(analyser.ManagedConfigFacts{
+		Paths:         a.Paths,
+		Slug:          a.Slug,
+		Home:          a.Home,
+		Agent:         a.Agent,
+		ReadBack:      a.ReadBack,
+		SecretEnvVars: proposedSecretEnvVars(findings),
+		Logger:        logger,
+	})...)
+}
+
+// proposedSecretEnvVars returns the env-var names the observation findings
+// propose as static secrets, so the managed-config write-back substitutes a
+// credential only when a matching env.secret.yaml entry is proposed.
+func proposedSecretEnvVars(findings []analyser.Finding) []string {
+	var names []string
+	for _, finding := range findings {
+		for _, write := range finding.Writes {
+			if write.Secret != nil && !write.Secret.Remove {
+				names = append(names, write.Secret.EnvVar)
+			}
+		}
+	}
+	return names
 }
 
 // SecretValue resolves a proposed static secret's value in memory, matched by
@@ -100,10 +125,11 @@ func analyse(
 	}
 	a.ReadBack = readBackState
 
-	results := applyFindings(a.Findings(), analyser.ApplyOptions{
+	results := applyFindings(a.Findings(ui), analyser.ApplyOptions{
 		Paths:        a.Paths,
 		Slug:         a.Slug,
 		CheckoutSlug: a.CheckoutSlug,
+		Agent:        a.Agent,
 		UI:           ui,
 		Mode:         mode,
 		SetByFlag:    setByFlag,

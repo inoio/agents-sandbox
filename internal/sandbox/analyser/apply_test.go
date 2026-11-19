@@ -5,13 +5,16 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/projecttrust"
+	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -76,6 +79,283 @@ func assertNoFile(t *testing.T, path string) {
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("%s exists; want nothing written", path)
 	}
+}
+
+// testManagedConfigAgent is the agent whose config-dir name a managed-config
+// write targets: opencode2's primary config-dir name is "opencode2".
+const testManagedConfigAgent = "opencode2"
+
+// managedConfigFinding builds one per-slug managed-config finding.
+func managedConfigFinding(name, content string) Finding {
+	return Finding{
+		Evidence: Evidence{Summary: "the session authored " + name},
+		Writes: []Write{{
+			Scope:         ScopePerSlugUser,
+			ManagedConfig: &ManagedConfigWrite{Name: name, Content: []byte(content)},
+		}},
+	}
+}
+
+// TestApplyManagedConfigWritesTheFile pins the managed-config write: the
+// finding's content lands at <UserSlugConfigDir>/<agent dir name>/<Name>, the
+// managed snippet path the next run's provisioning merges.
+func TestApplyManagedConfigWritesTheFile(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	ui, answered := interactiveUI()
+
+	const content = "{\n  // the session's config\n  \"model\": \"sonnet\"\n}\n"
+	results := Apply(
+		[]Finding{managedConfigFinding("opencode.jsonc", content)},
+		ApplyOptions{
+			Paths: cp, Slug: testSlug, Agent: testManagedConfigAgent, UI: ui, Mode: options.ModeRun,
+		},
+	)
+
+	if results[0].Outcome != OutcomeApplied {
+		t.Fatalf("outcome = %q (%s); want applied", results[0].Outcome, results[0].Err)
+	}
+	if *answered != 1 {
+		t.Errorf("the write asked %d prompts; want one", *answered)
+	}
+	against := filepath.Join(cp.UserSlugConfigDir(testSlug), "opencode2")
+	if dirs := results[0].WroteDirs; len(dirs) != 1 || dirs[0] != against {
+		t.Errorf("WroteDirs = %v; want the agent config dir %q", dirs, against)
+	}
+	if got := readFile(t, filepath.Join(against, "opencode.jsonc")); got != content {
+		t.Errorf("opencode.jsonc = %q; want the finding's content %q", got, content)
+	}
+	// The managed file is configuration, not a credential (its values are
+	// placeholders), so it is created world-readable at 0o644.
+	info, err := os.Stat(filepath.Join(against, "opencode.jsonc"))
+	if err != nil {
+		t.Fatalf("stat opencode.jsonc: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o644 {
+		t.Errorf("opencode.jsonc mode = %#o; want 0o644", got)
+	}
+}
+
+// TestApplyManagedConfigWritesEveryWrite pins that every managed-config write of
+// a finding is written: the plan loop must continue past a managed-config write
+// rather than stop at it, so a finding carrying more than one managed file lands
+// all of them.
+func TestApplyManagedConfigWritesEveryWrite(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	ui, _ := interactiveUI()
+
+	against := filepath.Join(cp.UserSlugConfigDir(testSlug), "opencode2")
+	finding := Finding{
+		Evidence: Evidence{Summary: "the session authored two config files"},
+		Writes: []Write{
+			{
+				Scope:         ScopePerSlugUser,
+				ManagedConfig: &ManagedConfigWrite{Name: "opencode.jsonc", Content: []byte("model: sonnet\n")},
+			},
+			{
+				Scope:         ScopePerSlugUser,
+				ManagedConfig: &ManagedConfigWrite{Name: "opencode.extra.jsonc", Content: []byte("theme: dark\n")},
+			},
+		},
+	}
+
+	results := Apply([]Finding{finding}, ApplyOptions{
+		Paths: cp, Slug: testSlug, Agent: testManagedConfigAgent, UI: ui, Mode: options.ModeRun,
+	})
+
+	if results[0].Outcome != OutcomeApplied {
+		t.Fatalf("outcome = %q (%s); want applied", results[0].Outcome, results[0].Err)
+	}
+	if got := readFile(t, filepath.Join(against, "opencode.jsonc")); got != "model: sonnet\n" {
+		t.Errorf("opencode.jsonc = %q; want the first write's content", got)
+	}
+	if got := readFile(t, filepath.Join(against, "opencode.extra.jsonc")); got != "theme: dark\n" {
+		t.Errorf("opencode.extra.jsonc = %q; want the second write's content", got)
+	}
+}
+
+// TestApplyManagedConfigCreatesTheDir pins that the managed-config write creates
+// the agent config directory it targets, so a session's first changed config
+// file has somewhere to land.
+func TestApplyManagedConfigCreatesTheDir(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	ui, _ := interactiveUI()
+
+	against := filepath.Join(cp.UserSlugConfigDir(testSlug), "opencode2")
+	if _, err := os.Stat(against); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("%s exists before the write; want the agent config dir absent", against)
+	}
+	const content = "model: sonnet\n"
+
+	results := Apply(
+		[]Finding{managedConfigFinding("opencode.jsonc", content)},
+		ApplyOptions{
+			Paths: cp, Slug: testSlug, Agent: testManagedConfigAgent, UI: ui, Mode: options.ModeRun,
+		},
+	)
+
+	if results[0].Outcome != OutcomeApplied {
+		t.Fatalf("outcome = %q (%s); want applied", results[0].Outcome, results[0].Err)
+	}
+	info, err := os.Stat(against)
+	if err != nil {
+		t.Fatalf("stat %s: %v; want the agent config dir created", against, err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("%s is not a directory; want one", against)
+	}
+	if got := readFile(t, filepath.Join(against, "opencode.jsonc")); got != content {
+		t.Errorf("opencode.jsonc = %q; want the finding's content %q", got, content)
+	}
+}
+
+// TestApplyManagedConfigProjectScopeIsGated pins that a project-scope
+// managed-config write is skipped, not written: the applier has no per-file
+// project-trust approval (only ApproveSettingWrite, keyed by a launcher config
+// key), so the finding is refused before any prompt or write.
+func TestApplyManagedConfigProjectScopeIsGated(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	ui, answered := interactiveUI()
+
+	finding := managedConfigFinding("opencode.jsonc", "model: sonnet\n")
+	finding.Writes[0].Scope = ScopeProject
+
+	results := Apply([]Finding{finding}, ApplyOptions{
+		Paths: cp, Slug: testSlug, CheckoutSlug: testCheckoutSlug,
+		Agent: testManagedConfigAgent, UI: ui, Mode: options.ModeRun,
+	})
+
+	if results[0].Outcome != OutcomeSkipped || results[0].Note == "" {
+		t.Fatalf("result = %+v; want a skipped outcome with a note", results[0])
+	}
+	if *answered != 0 {
+		t.Errorf("a project-scope managed write asked %d prompts; want none", *answered)
+	}
+	assertNoFile(t, filepath.Join(cp.ProjectConfigDir(), "opencode2", "opencode.jsonc"))
+	assertNoFile(t, filepath.Join(cp.UserSlugConfigDir(testSlug), "opencode2", "opencode.jsonc"))
+}
+
+// TestApplyManagedConfigRefusesANonPathElementName pins the single-path-element
+// guard: the applier joins ManagedConfigWrite.Name under the scope directory, so
+// a name that is empty, a dot-segment, or carries a separator is refused before
+// any write — nothing may escape the target directory or name a directory.
+func TestApplyManagedConfigRefusesANonPathElementName(t *testing.T) {
+	for _, name := range []string{"", ".", "..", "../escape.jsonc", "nested/escape.jsonc"} {
+		t.Run("name "+strconv.Quote(name), func(t *testing.T) {
+			configpathstest.WithMockConfigPaths(t)
+			cp := configpaths.Get()
+			ui, answered := interactiveUI()
+
+			results := Apply(
+				[]Finding{managedConfigFinding(name, "model: sonnet\n")},
+				ApplyOptions{Paths: cp, Slug: testSlug, Agent: testManagedConfigAgent, UI: ui, Mode: options.ModeRun},
+			)
+
+			if results[0].Outcome != OutcomeSkipped || results[0].Note == "" {
+				t.Fatalf("result = %+v; want a skipped outcome with a note", results[0])
+			}
+			if *answered != 0 {
+				t.Errorf("an invalid managed name asked %d prompts; want none", *answered)
+			}
+			if strings.ContainsRune(name, filepath.Separator) {
+				assertNoFile(t, filepath.Join(cp.UserSlugConfigDir(testSlug), "opencode2", name))
+			}
+		})
+	}
+}
+
+// TestApplyManagedConfigRefusesAnEmptyAgent pins that an unset Agent is refused
+// rather than silently resolving to the default agent's config dir: the write
+// must name the agent it targets.
+func TestApplyManagedConfigRefusesAnEmptyAgent(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	ui, answered := interactiveUI()
+
+	results := Apply(
+		[]Finding{managedConfigFinding("opencode.jsonc", "model: sonnet\n")},
+		ApplyOptions{Paths: cp, Slug: testSlug, UI: ui, Mode: options.ModeRun},
+	)
+
+	if results[0].Outcome != OutcomeSkipped || results[0].Note == "" {
+		t.Fatalf("result = %+v; want a skipped outcome with a note", results[0])
+	}
+	if *answered != 0 {
+		t.Errorf("an empty agent asked %d prompts; want none", *answered)
+	}
+	// The default agent is opencode2; its dir must not be touched.
+	assertNoFile(t, filepath.Join(cp.UserSlugConfigDir(testSlug), "opencode2", "opencode.jsonc"))
+}
+
+// TestApplyManagedConfigRefusesAnUnknownAgent pins that an Agent naming no
+// registered profile is refused rather than writing into a directory no scope
+// reads: the target dir is derived from a real agent's config-dir name.
+func TestApplyManagedConfigRefusesAnUnknownAgent(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	ui, answered := interactiveUI()
+
+	results := Apply(
+		[]Finding{managedConfigFinding("opencode.jsonc", "model: sonnet\n")},
+		ApplyOptions{Paths: cp, Slug: testSlug, Agent: "no-such-agent", UI: ui, Mode: options.ModeRun},
+	)
+
+	if results[0].Outcome != OutcomeSkipped || results[0].Note == "" {
+		t.Fatalf("result = %+v; want a skipped outcome with a note", results[0])
+	}
+	if *answered != 0 {
+		t.Errorf("an unknown agent asked %d prompts; want none", *answered)
+	}
+	assertNoFile(t, filepath.Join(cp.UserSlugConfigDir(testSlug), "no-such-agent", "opencode.jsonc"))
+}
+
+// unusableConfigDirAgent is a registered stub whose config-dir name is not a
+// single path element, so agent.ConfigDirNames rejects it. It drives the
+// managed-config write's "no usable config-dir name" refusal, which no built-in
+// profile reaches.
+type unusableConfigDirAgent struct{ name string }
+
+func (a unusableConfigDirAgent) Name() string             { return a.name }
+func (unusableConfigDirAgent) ConfigDirName() string      { return "bad/name" }
+func (unusableConfigDirAgent) Experimental() bool         { return false }
+func (unusableConfigDirAgent) ImageSpec() agent.ImageSpec { return agent.ImageSpec{} }
+
+// withUnusableConfigDirAgent registers the stub under name for the test,
+// restoring the built-in afterward.
+func withUnusableConfigDirAgent(t *testing.T, name string) {
+	t.Helper()
+	original, ok := agent.Lookup(name)
+	if !ok {
+		t.Fatalf("%s must be a registered agent", name)
+	}
+	agent.Register(unusableConfigDirAgent{name: name})
+	t.Cleanup(func() { agent.Register(original) })
+}
+
+// TestApplyManagedConfigRefusesAnUnusableConfigDir pins that a profile declaring
+// a config-dir name that is not a single path element is refused: "bad/name"
+// would escape the scope directory, so no file is written.
+func TestApplyManagedConfigRefusesAnUnusableConfigDir(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	ui, answered := interactiveUI()
+	withUnusableConfigDirAgent(t, "codex")
+
+	results := Apply(
+		[]Finding{managedConfigFinding("config.toml", "model = \"x\"\n")},
+		ApplyOptions{Paths: cp, Slug: testSlug, Agent: "codex", UI: ui, Mode: options.ModeRun},
+	)
+
+	if results[0].Outcome != OutcomeSkipped || results[0].Note == "" {
+		t.Fatalf("result = %+v; want a skipped outcome with a note", results[0])
+	}
+	if *answered != 0 {
+		t.Errorf("an unusable config dir asked %d prompts; want none", *answered)
+	}
+	assertNoFile(t, filepath.Join(cp.UserSlugConfigDir(testSlug), "bad", "name", "config.toml"))
 }
 
 func TestApplyDryRunWritesNothing(t *testing.T) {
@@ -359,6 +639,37 @@ func TestApplySecretMigratesStaticOnly(t *testing.T) {
 	}
 	if strings.Contains(content, "allow_any_host_dangerous") {
 		t.Errorf("env.secret.yaml = %q; want no allow_any_host_dangerous", content)
+	}
+}
+
+// TestApplySecretSetsThePlaceholder pins that an applied static secret carries
+// the guest-visible placeholder for its env var, so the managed config's
+// ${ENVVAR} is the placeholder the runtime substitutes rather than an undefined
+// reference.
+func TestApplySecretSetsThePlaceholder(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	ui, _ := interactiveUI()
+
+	finding := Finding{
+		Evidence: Evidence{Summary: "the session sent OPENAI_API_KEY"},
+		Writes: []Write{{
+			Scope:  ScopePerSlugUser,
+			Secret: &SecretWrite{EnvVar: "OPENAI_API_KEY", Provider: "openai", Hosts: []string{"api.openai.com"}},
+		}},
+	}
+	results := Apply([]Finding{finding}, ApplyOptions{
+		Paths: cp, Slug: testSlug, UI: ui, Mode: options.ModeRun,
+		SecretValue: func(SecretWrite) (string, bool) { return "sk-secret", true },
+	})
+	if results[0].Outcome != OutcomeApplied {
+		t.Fatalf("outcome = %q (%s); want applied", results[0].Outcome, results[0].Err)
+	}
+
+	content := readFile(t, filepath.Join(cp.UserSlugConfigDir(testSlug), "env.secret.yaml"))
+	placeholder := envsecret.PlaceholderFor("OPENAI_API_KEY")
+	if !strings.Contains(content, "placeholder: "+placeholder) {
+		t.Errorf("env.secret.yaml = %q; want placeholder %s", content, placeholder)
 	}
 }
 

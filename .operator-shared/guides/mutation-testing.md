@@ -7,6 +7,13 @@ read_if: Evaluating or changing a Go mutation-testing tool or the `make mutation
 
 Three concerns, one guide: the tool survey, survivor triage, and the multi-turn sweep runbook.
 
+> **Standing rule: do not run a mutation sweep inside the agents-sandbox VM.** A gomutants sweep is
+> memory-heavy and reliably OOMs the VM (the same virtio-mem cap that has no swap; see
+> `guides/vm-oom-crash-resilience.md`). Run it on the host, or rely on the advisory `mutation` CI
+> workflow, which runs on every code-changing PR and posts its survivors as a sticky comment. A
+> session working in the VM reads the CI report rather than invoking `make mutation`/`go run
+> gomutants` locally.
+
 
 ## Mutation testing for Go — tool survey
 

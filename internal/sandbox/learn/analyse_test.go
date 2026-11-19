@@ -2,16 +2,23 @@ package learn
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/analyser"
 	"github.com/inoio/agents-sandbox/internal/sandbox/channel"
+	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/readback"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
+	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 // networkFinding returns the network finding from findings, or nil.
@@ -53,7 +60,7 @@ func TestFindingsNetworkDiffUsesCurrentNotOverlay(t *testing.T) {
 		}},
 	}
 
-	finding := networkFinding(analysis.Findings())
+	finding := networkFinding(analysis.Findings(nil))
 	if finding == nil {
 		t.Fatal("no network finding, want one")
 	}
@@ -79,7 +86,7 @@ func TestFindingsSecretFromConfigEntryFallback(t *testing.T) {
 		}},
 	}
 
-	findings := analysis.Findings()
+	findings := analysis.Findings(nil)
 	if len(findings) != 1 {
 		t.Fatalf("findings = %+v, want one secret finding", findings)
 	}
@@ -101,7 +108,7 @@ func TestFindingsNoHostNoSecret(t *testing.T) {
 		}},
 	}
 
-	if findings := analysis.Findings(); len(findings) != 0 {
+	if findings := analysis.Findings(nil); len(findings) != 0 {
 		t.Errorf("findings = %+v, want none for an unattributable credential", findings)
 	}
 }
@@ -119,6 +126,64 @@ func TestSecretValueResolvesByEnvVar(t *testing.T) {
 	}
 	if _, ok := analysis.SecretValue()(analyser.SecretWrite{EnvVar: "ABSENT_KEY"}); ok {
 		t.Error("an unknown env var must not resolve")
+	}
+}
+
+// TestAnalysisFindingsIncludeManagedConfig pins that Findings appends the
+// managed-config findings for the session's read-back: a changed, non-credential
+// config file the agent authored yields a finding whose sanitized write is the
+// agent config, so the after-run proposes copying it back.
+func TestAnalysisFindingsIncludeManagedConfig(t *testing.T) {
+	const configPath = ".config/opencode/opencode.jsonc"
+	const secret = "sk-live-secret"
+	home := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(home, configPath)), 0o750))
+	testutil.WriteFile(t, home, configPath, `{
+  "provider": { "openai": { "apiKey": "`+secret+`" } }
+}
+`)
+
+	analysis := Analysis{
+		Agent: "opencode2",
+		Home:  home,
+		ReadBack: readback.ReadBack{
+			ConfigPaths: []string{configPath},
+			Changed:     []string{configPath},
+			Static: []readback.Credential{{
+				Kind:     readback.CredentialStatic,
+				Source:   configPath,
+				Provider: "openai",
+				EnvVar:   "OPENAI_API_KEY",
+				Hosts:    []string{"api.openai.com"},
+				Value:    secret,
+			}},
+		},
+	}
+
+	findings := analysis.Findings(nil)
+
+	var managed *analyser.Finding
+	for i := range findings {
+		if len(findings[i].Writes) == 0 {
+			continue
+		}
+		if findings[i].Writes[0].ManagedConfig != nil {
+			managed = &findings[i]
+		}
+	}
+	if managed == nil {
+		t.Fatalf("findings = %+v, want a managed-config finding", findings)
+	}
+	written := managed.Writes[0].ManagedConfig
+	if written.Name != "opencode.jsonc" {
+		t.Errorf("managed config name = %q, want opencode.jsonc", written.Name)
+	}
+	placeholder := envsecret.PlaceholderFor("OPENAI_API_KEY")
+	if !strings.Contains(string(written.Content), placeholder) {
+		t.Errorf("managed config = %q, want the %s placeholder", written.Content, placeholder)
+	}
+	if strings.Contains(string(written.Content), secret) {
+		t.Errorf("managed config = %q, want no secret value", written.Content)
 	}
 }
 
