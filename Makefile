@@ -390,8 +390,8 @@ check-test:
 # JOBS=<n> overrides the pool width.
 JOBS ?= $(shell n=$$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2); q=$$((n / 4)); [ "$$q" -lt 2 ] && q=2; echo "$$q")
 
-CHECK_HEAVY_TARGETS = validate-fmt lint test compile-all
-CHECK_LIGHT_TARGETS = actionlint shellcheck docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test event-base-test classify-changes-test changelog-check changelog-check-test deadcode-test changed-files-test changed-targets-test cleanup-branches-test surface-sweep-test envelope-test upstream-drift-test rebase-status-test enqueue-pr-test backport-audit-test open-backport-pr-test brain-check-test check-test
+CHECK_HEAVY_TARGETS = lint test compile-all
+CHECK_LIGHT_TARGETS = validate-fmt actionlint shellcheck docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test event-base-test classify-changes-test changelog-check changelog-check-test deadcode-test changed-files-test changed-targets-test cleanup-branches-test surface-sweep-test envelope-test upstream-drift-test rebase-status-test enqueue-pr-test backport-audit-test open-backport-pr-test brain-check-test check-test
 CHECK_TARGETS = $(CHECK_HEAVY_TARGETS) $(CHECK_LIGHT_TARGETS)
 VERIFY_HEAVY_TARGETS = $(CHECK_HEAVY_TARGETS) test-race vulncheck deadcode
 VERIFY_TARGETS = $(CHECK_TARGETS) test-race vulncheck deadcode
