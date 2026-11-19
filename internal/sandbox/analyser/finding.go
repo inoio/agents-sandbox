@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"io/fs"
 	"sort"
 )
 
@@ -88,16 +89,24 @@ func sortedCopy(values []string) []string {
 }
 
 // Write is one proposed edit, in its own scope. Remove true deletes ConfigKey
-// from that scope's launcher config; Secret targets env.secret.yaml instead.
+// from that scope's launcher config; Secret targets env.secret.yaml instead;
+// FileMode changes that scope's secret file's mode.
 type Write struct {
 	Scope       Scope
 	ConfigKey   string
 	ConfigValue any // ignored when Remove
 	Remove      bool
-	Secret      *SecretWrite // nil unless a static secret is proposed
+	Secret      *SecretWrite   // nil unless a static secret is proposed
+	FileMode    *FileModeWrite // nil unless a secret-file mode change is proposed
 	// Text is the user-facing sentence the applier renders in the accept
 	// prompt, beside the finding's evidence. It never carries a secret value.
 	Text string
+}
+
+// FileModeWrite changes the mode of one of the scope's known files. It targets
+// the scope's env.secret.yaml and carries no content.
+type FileModeWrite struct {
+	Mode fs.FileMode
 }
 
 // SecretWrite carries no Value field — the value is threaded in memory from

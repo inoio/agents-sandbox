@@ -3,6 +3,8 @@ package analyser
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/inoio/agents-sandbox/internal/configdecode"
@@ -193,6 +195,13 @@ func planWrites(finding Finding, opts ApplyOptions) ([]plannedWrite, *refusal) {
 			plans = append(plans, plan)
 			continue
 		}
+		if write.FileMode != nil {
+			if refusal := planFileMode(dir); refusal != nil {
+				return nil, refusal
+			}
+			plans = append(plans, plannedWrite{write: write, dir: dir, secretValue: ""})
+			continue
+		}
 		if refusal := planConfigKey(write, dir, opts); refusal != nil {
 			return nil, refusal
 		}
@@ -211,7 +220,7 @@ func planTarget(write Write, opts ApplyOptions) (string, *refusal) {
 		}
 		return opts.Paths.ProjectConfigDir(), nil
 	}
-	if write.Secret != nil {
+	if write.Secret != nil || write.FileMode != nil {
 		return opts.Paths.UserSlugConfigDir(opts.Slug), nil
 	}
 	owner, owned := viperconfig.LayerSettingOwner(opts.Paths, opts.Slug, write.ConfigKey)
@@ -266,6 +275,28 @@ func resolveSecretValue(secret *SecretWrite, opts ApplyOptions) (string, bool) {
 		return "", false
 	}
 	return opts.SecretValue(*secret)
+}
+
+// planFileMode refuses a file-mode write when the scope's env.secret.yaml is
+// absent or cannot be edited. Nothing to chmod is a skip, not a creation; an
+// unparseable file (or one the project guard refuses) is not the file harden
+// means to tighten. A project-scope file is verified through the guard, so an
+// unapproved project scope is refused here.
+func planFileMode(dir string) *refusal {
+	path := filepath.Join(dir, configpaths.EnvSecretFileName+".yaml")
+	if _, err := os.Stat(path); err != nil {
+		return &refusal{
+			note: fmt.Sprintf("%s has no secret file to tighten", dir),
+			err:  "",
+		}
+	}
+	if err := envsecret.ValidateSecretFile(dir); err != nil {
+		return &refusal{
+			note: fmt.Sprintf("secret file %s cannot be edited: %v", path, err),
+			err:  err.Error(),
+		}
+	}
+	return nil
 }
 
 // planConfigKey refuses a config-key write that a flag or environment variable
@@ -359,6 +390,9 @@ func executeWrite(plan plannedWrite, opts ApplyOptions) (string, error) {
 	if write.Secret != nil {
 		return plan.dir, executeSecret(plan)
 	}
+	if write.FileMode != nil {
+		return plan.dir, executeFileMode(plan)
+	}
 	if write.Scope == ScopeProject {
 		return plan.dir, executeProjectSetting(plan, opts)
 	}
@@ -366,6 +400,14 @@ func executeWrite(plan plannedWrite, opts ApplyOptions) (string, error) {
 		return plan.dir, viperconfig.RemoveSetting(plan.dir, write.ConfigKey)
 	}
 	return plan.dir, viperconfig.WriteSetting(plan.dir, write.ConfigKey, write.ConfigValue)
+}
+
+// executeFileMode chmods the scope's env.secret.yaml to the write's mode. The
+// file's existence and editability were verified at plan time, so a chmod
+// failure here is an unexpected one and is surfaced as-is.
+func executeFileMode(plan plannedWrite) error {
+	path := filepath.Join(plan.dir, configpaths.EnvSecretFileName+".yaml")
+	return os.Chmod(path, plan.write.FileMode.Mode)
 }
 
 // executeSecret writes or removes one static secret of a planned write.

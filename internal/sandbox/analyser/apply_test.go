@@ -1080,6 +1080,115 @@ func TestAskApplyReportsThePromptError(t *testing.T) {
 	}
 }
 
+// fileModeWriteFor builds a one-write finding proposing a mode change on a
+// scope's env.secret.yaml.
+func fileModeWriteFor(scope Scope) Finding {
+	return Finding{
+		Evidence: Evidence{Summary: "the secret file is group- or world-readable"},
+		Writes: []Write{{
+			Scope:    scope,
+			FileMode: &FileModeWrite{Mode: 0o600},
+			Text:     "Tighten env.secret.yaml to 0600.",
+		}},
+	}
+}
+
+// fileMode returns the permission bits of path.
+func fileMode(t *testing.T, path string) os.FileMode {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	return info.Mode().Perm()
+}
+
+// TestApplyFileModeChmodsTheSecretFile pins the file-mode write: a per-slug
+// env.secret.yaml with a broad mode is chmodded to the write's mode, and no
+// content is touched.
+func TestApplyFileModeChmodsTheSecretFile(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	dir := cp.UserSlugConfigDir(testSlug)
+	const content = "OPENAI_API_KEY:\n  value: v\n  host: api.openai.com\n"
+	testutil.WriteFile(t, dir, "env.secret.yaml", content)
+	secretPath := filepath.Join(dir, "env.secret.yaml")
+	if err := os.Chmod(secretPath, 0o644); err != nil {
+		t.Fatalf("chmod the seed to 0644: %v", err)
+	}
+
+	ui, _ := interactiveUI()
+	results := Apply([]Finding{fileModeWriteFor(ScopePerSlugUser)}, ApplyOptions{
+		Paths: cp, Slug: testSlug, UI: ui, Mode: options.ModeRun,
+	})
+
+	if results[0].Outcome != OutcomeApplied {
+		t.Fatalf("outcome = %q (%s); want applied", results[0].Outcome, results[0].Err)
+	}
+	if dirs := results[0].WroteDirs; len(dirs) != 1 || dirs[0] != dir {
+		t.Errorf("WroteDirs = %v; want the per-slug dir %q", dirs, dir)
+	}
+	if mode := fileMode(t, secretPath); mode != 0o600 {
+		t.Errorf("env.secret.yaml mode = %o; want %o", mode, 0o600)
+	}
+	if got := readFile(t, secretPath); got != content {
+		t.Errorf("env.secret.yaml = %q; want its content untouched %q", got, content)
+	}
+}
+
+// TestApplyFileModeSkipsAnAbsentFile pins that the file-mode write never creates
+// a file to chmod: an absent env.secret.yaml is skipped and nothing is written.
+func TestApplyFileModeSkipsAnAbsentFile(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	secretPath := filepath.Join(cp.UserSlugConfigDir(testSlug), "env.secret.yaml")
+
+	ui, answered := interactiveUI()
+	results := Apply([]Finding{fileModeWriteFor(ScopePerSlugUser)}, ApplyOptions{
+		Paths: cp, Slug: testSlug, UI: ui, Mode: options.ModeRun,
+	})
+
+	if results[0].Outcome != OutcomeSkipped || results[0].Note == "" {
+		t.Fatalf("result = %+v; want a skipped outcome with a note", results[0])
+	}
+	if *answered != 0 {
+		t.Errorf("an absent secret file asked %d prompts; want none", *answered)
+	}
+	assertNoFile(t, secretPath)
+}
+
+// TestApplyFileModeProjectScopeIsGated pins that a project-scope file-mode write
+// goes through the project trust gate: an unapproved project env.secret.yaml is
+// refused (the guard blocks its read) and its mode is left unchanged.
+func TestApplyFileModeProjectScopeIsGated(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	projectDir := cp.ProjectConfigDir()
+	testutil.WriteFile(t, projectDir, "env.secret.yaml", "OPENAI_API_KEY:\n  value: v\n  host: api.openai.com\n")
+	secretPath := filepath.Join(projectDir, "env.secret.yaml")
+	if err := os.Chmod(secretPath, 0o644); err != nil {
+		t.Fatalf("chmod the seed to 0644: %v", err)
+	}
+	// The project scope is guarded but not approved, so the guard refuses the
+	// secret file's read and the write is a refusal, not a chmod.
+	t.Cleanup(projectguard.Install([]string{projectDir}, nil))
+
+	ui, answered := interactiveUI()
+	results := Apply([]Finding{fileModeWriteFor(ScopeProject)}, ApplyOptions{
+		Paths: cp, Slug: testSlug, CheckoutSlug: testCheckoutSlug, UI: ui, Mode: options.ModeRun,
+	})
+
+	if results[0].Outcome != OutcomeSkipped {
+		t.Fatalf("outcome = %q (%s); want skipped for the unapproved project scope", results[0].Outcome, results[0].Err)
+	}
+	if *answered != 0 {
+		t.Errorf("an unapproved project secret asked %d prompts; want none", *answered)
+	}
+	if mode := fileMode(t, secretPath); mode != 0o644 {
+		t.Errorf("env.secret.yaml mode = %o; want it unchanged %o", mode, 0o644)
+	}
+}
+
 // TestApplyProjectRemovalFailureRestoresTheApproval pins that a project-scope
 // removal that fails after its approval was extended reports the failure and
 // restores the previous approval, so the failed change never leaves the project
