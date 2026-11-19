@@ -50,7 +50,7 @@ func TestManifestChangedDetectsContentAndPresence(t *testing.T) {
 
 func TestManifestOpaqueOverCap(t *testing.T) {
 	home := t.TempDir()
-	writeFileSized(t, home, ".config/opencode/opencode.jsonc", maxHashedBytes+1)
+	writeFileSized(t, home, ".config/opencode/opencode.jsonc", MaxHashedBytes+1)
 	m, _ := TakeManifest(home, "opencode")
 	found := false
 	for _, e := range m.Entries {
@@ -172,10 +172,10 @@ func TestManifestChangedReportsAddedAndRemovedKeys(t *testing.T) {
 
 func TestManifestChangedDetectsOpaqueSizeChange(t *testing.T) {
 	home := t.TempDir()
-	writeFileSized(t, home, ".config/opencode/opencode.jsonc", maxHashedBytes+1)
+	writeFileSized(t, home, ".config/opencode/opencode.jsonc", MaxHashedBytes+1)
 	base := mustOpencodeManifest(t, home)
 
-	writeFileSized(t, home, ".config/opencode/opencode.jsonc", maxHashedBytes+2)
+	writeFileSized(t, home, ".config/opencode/opencode.jsonc", MaxHashedBytes+2)
 	next := mustOpencodeManifest(t, home)
 
 	require.Equal(t, []string{".config/opencode/opencode.jsonc"}, next.Changed(base))
