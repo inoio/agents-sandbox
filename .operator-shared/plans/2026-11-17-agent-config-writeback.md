@@ -27,7 +27,7 @@ See `2026-11-17-learn-mode-program.md` → Global Constraints. Specifically:
 ## Design decisions (calls made; correct if wrong)
 
 1. **The managed layer is a scope's agent config directory.** `reprovision` merges the snippets under `ConfigScope.AgentConfigDir(<config-dir-name>)` and copies mirror files verbatim; writing the sanitized config there is what makes the launcher own it. The write target is the per-slug user scope's agent config dir (trusted, needs no gate).
-2. **The placeholder convention is `${<ENVVAR>}`.** The runtime's default placeholder is generated (not referenceable from a config file), so the managed config must carry an explicit one (`msb.SecretEntry.Placeholder`, already projected). `envsecret.PlaceholderFor(envVar) = "${" + envVar + "}"`: a literal JSON/YAML string is not shell-expanded, and if an agent happens to expand `${VAR}` it reads the guest env, which holds the placeholder, so the request carries the placeholder either way. **This is the one decision a host run must confirm across harnesses (Task 6); if a harness transforms it, the convention moves to a per-harness escape.**
+2. **The placeholder convention is `${<ENVVAR>}` — where the harness passes a config value through verbatim.** The runtime's default placeholder is generated (not referenceable from a config file), so the managed config must carry an explicit one (`msb.SecretEntry.Placeholder`, already projected). `envsecret.PlaceholderFor(envVar) = "${" + envVar + "}"`: a literal JSON/YAML string is not shell-expanded, and if an agent happens to expand `${VAR}` it reads the guest env, which holds the placeholder, so the request carries the placeholder either way. **A harness that does not expand `${VAR}` in its config needs the per-harness escape, and kimi is one (#749):** it reads no key from the process environment and accepts only `api_key_env = "<ENVVAR>"` (`api_key = "${VAR}"` would send the literal). The write-back therefore emits the harness's **native env indirection** where it has one: replace `api_key = "<value>"` with `api_key_env = "<ENVVAR>"` and let msb put the placeholder into that env var. The escape is a property of the write-back (which form the target harness reads), and every other harness keeps `${<ENVVAR>}`. **Task 6 confirms the form per harness.**
 3. **Only changed, non-credential files are written back.** The candidates are `readback.ReadBack.ConfigPaths` ∩ `Changed`, minus the login credential-store sources and the `<agent>:<probe>` sources. A file over `readback`'s size cap is reported, not written.
 4. **The secret entries are S6's findings, made referenceable.** S10 does not emit secret findings; it makes every applied static secret carry `PlaceholderFor(envVar)` (a change to the applier's secret path), so the managed config's `${ENVVAR}` matches the entry.
 5. **The write-back is a finding, accepted like any other.** It appears in the after-run's exit prompt and its writes are applied through `analyser.Apply`, so invariant 1 holds and a decline is remembered by evidence hash.
@@ -161,11 +161,12 @@ func TestManagedConfigSkipsLoginStores(t *testing.T)          // a changed login
 func TestManagedConfigSkipsUnreadable(t *testing.T)           // an over-cap or missing file -> reported (returns no finding for it)
 func TestManagedConfigOnlyChangedFiles(t *testing.T)          // a config path not in Changed -> no finding
 func TestManagedConfigNeverCarriesAValue(t *testing.T)        // no field of the finding holds the raw value
+func TestManagedConfigUsesNativeEnvIndirection(t *testing.T)  // kimi: api_key = "<value>" -> api_key_env = "<ENVVAR>" (not a ${VAR} literal) (#749)
 ```
 
 - [ ] **Step 2: Run to verify it fails** — `go test ./internal/sandbox/analyser/ -run TestManagedConfig`.
 
-- [ ] **Step 3: Implement** the candidate selection (`ConfigPaths` ∩ `Changed`, minus login/probe sources), the bounded read, the value→placeholder substitution (every occurrence of each `CredentialStatic.Value`), the `ManagedConfig` write, and `withEvidenceHash`. Report skipped candidates through `Findings`' caller (a returned `[]string` or the logger — pick one and pin it in the test).
+- [ ] **Step 3: Implement** the candidate selection (`ConfigPaths` ∩ `Changed`, minus login/probe sources), the bounded read, the value→placeholder substitution (every occurrence of each `CredentialStatic.Value`), the `ManagedConfig` write, and `withEvidenceHash`. The substitution has two forms (Design decision 2): the default replaces the value with `${<ENVVAR>}`; a harness that does not expand `${VAR}` replaces its credential key with the harness's **native env-indirection key** carrying the env-var name (kimi's `api_key` → `api_key_env = "<ENVVAR>"`). Resolve the form from the agent through a small capability the profile implements (the name is the implementer's call; it returns the indirection key, e.g. `"api_key_env"`, or nothing for the default form). The kimi profile (PR #752) implements it when that profile lands. Report skipped candidates through `Findings`' caller (a returned `[]string` or the logger — pick one and pin it in the test).
 
 - [ ] **Step 4: Run** — `go test ./internal/sandbox/analyser/`. Expected: PASS.
 
@@ -214,7 +215,7 @@ git commit -m "feat(learn): propose the managed agent config in the after-run"
 
 **Files:**
 - Create: `changelog.d/<PR>.added.md`
-- Modify: `.operator-shared/specs/onboarding/learn-mode/findings-and-apply.md` (record the managed-config write, the `${ENVVAR}` placeholder convention, and the credential-store exclusion), `.operator-shared/specs/onboarding/learn-mode/home-read-back.md` (the changed-config consumer), `.operator-shared/specs/onboarding/learn-mode.md` if the hub's UC1 row needs its "config back-copy" named, `.operator-shared/index/sandbox.md`, `.operator-shared/catalog.md`, `.operator-shared/plans/2026-11-17-learn-mode-program.md` (flip S10 to landed on merge; S9's dependency now includes S10)
+- Modify: `.operator-shared/specs/onboarding/learn-mode/findings-and-apply.md` (§The agent-config write-back exists from #749; extend it with the managed-config write, the credential-store exclusion, and the per-harness native form if the implementation named the capability differently), `.operator-shared/specs/onboarding/learn-mode/home-read-back.md` (the changed-config consumer), `.operator-shared/specs/onboarding/learn-mode.md` if the hub's UC1 row needs its "config back-copy" named, `.operator-shared/index/sandbox.md`, `.operator-shared/catalog.md`, `.operator-shared/plans/2026-11-17-learn-mode-program.md` (flip S10 to landed on merge; S9's dependency now includes S10)
 - Modify: `docs/` (the learn-mode page: the exit prompt's `opencode.jsonc created` line)
 
 - [ ] **Step 1:** Write the changelog fragment.
@@ -232,7 +233,7 @@ git commit -m "docs(operator): record the agent-config write-back and its placeh
 ### Task 6: Host accept (human, not an agent)
 
 - [ ] On a KVM host: run a learning session (`run --learn`), let a harness write its config with a pasted API key, and confirm the after-run proposes the managed config with `${<ENVVAR>}` in place of the key and the key only in `env.secret.yaml`.
-- [ ] Re-run normally and confirm the agent reaches its provider through the placeholder (the request carries the placeholder; the runtime substitutes for the allowed host) for opencode/opencode2 at least. Record which harnesses transform or reject `${VAR}`.
+- [ ] Re-run normally and confirm the agent reaches its provider through the placeholder (the request carries the placeholder; the runtime substitutes for the allowed host) for opencode/opencode2 at least, and for kimi through its native `api_key_env` form (#749). Record which harnesses transform or reject `${VAR}`.
 - [ ] Confirm no credential-store file (a login store, a credential DB) was copied host-side.
 
 The subplan is not done until these are checked; they cannot run in the dev VM (`/dev/kvm` absent). If a harness transforms `$VAR`, record it and adjust the convention (Design decision 2) before closing.

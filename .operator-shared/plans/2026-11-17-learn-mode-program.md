@@ -43,6 +43,14 @@ What is on `main` now:
 `2026-11-17-config-harden.md`, `2026-11-17-agent-config-writeback.md`.
 **S9 is not yet written** — write it when its predecessors land, never in advance.
 
+**#749 splits across three subplans.** Issue #749 ("read back inline config secrets and directory login stores") is the
+follow-up to the kimi-code profile (#748 / PR #752): its read-back classification was deferred by that profile. Its
+read-back half is **S11** (`2026-11-19-learn-mode-inline-readback.md`, written alongside this note): the inline
+config-file key and the glob directory login store. Its `config harden` half is S8's finding **C7**, and its
+write-back half is S10's per-harness native form (`api_key_env` for kimi). The specs carry the whole contract from
+S11's PR: `learn-mode/home-read-back.md` facts 2–3 and `learn-mode/findings-and-apply.md` §The agent-config write-back.
+S11 depends on S5 (landed); its kimi end-to-end path is exercised when PR #752 lands.
+
 **The S4/S5/S6 markers are gone.** S7 removed every temporary declaration-scope `//deadcode:ignore` marker as it
 wired each package's consumer. A marker left on a now-reachable declaration is a stale marker, which the `deadcode`
 gate fails (its self-defence against markers-as-decoration; see `../specs/ci/quality-gates.md` §Dead-code gate).
@@ -267,8 +275,9 @@ CHANNEL TRACK                                          LEARN TRACK
  S2 tls-interception    SDD  ─┐                          S5  readback    SDD ─┐
  S3 outbound-proxy      SDD  ←┘ serialize after S2        S6  analyser    SDD ←┘
  S4 observation-channel SDD  ← after S1,S2,S3              ├─ S7 run       SDD
-                                                           ├─ S8 harden    SDD
-                                                           └─ S10 writeback SDD ← S7
+                                                           ├─ S8 harden    SDD (C7 ← #749/S11)
+                                                           └─ S10 writeback SDD ← S7 (native form ← #749/S11)
+                                                          S11 inline-readback SDD ← S5 (S8/S10 consume)
                                                           S9  firstrun    SDD ← S4,S5,S7,S10,E2,E3
 ```
 
@@ -283,13 +292,16 @@ CHANNEL TRACK                                          LEARN TRACK
 | S6 analyser | `2026-11-17-learn-mode-analyser.md` | findings engine + applier | yes | S5 | S4 |
 | S7 run-learn | `2026-11-17-learn-mode-run.md` | `run --learn` + after-run + session boundary | yes | S4, S6 | S8 |
 | S8 config-harden | `2026-11-17-config-harden.md` | `config harden` | yes | S6 | S7 |
-| S10 agent-config-writeback | `2026-11-17-agent-config-writeback.md` | managed agent config from a session + placeholders | yes | S5, S6, S7 | S8 |
+| S10 agent-config-writeback | `2026-11-17-agent-config-writeback.md` | managed agent config from a session + placeholders (+ #749 native form) | yes | S5, S6, S7 | S8, S11 |
+| S11 inline-readback | `2026-11-19-learn-mode-inline-readback.md` | inline config secrets + directory login stores (#749) | yes | S5 | S8, S10 |
 | S9 firstrun | `2026-11-17-learn-mode-firstrun.md` (stub) | first-run `Guide` choices + UC4 seed | yes | S4, S5, S7, S10, E2, E3 | — |
 
 S2, S3, S4, and S6 landed (S2/S3 shared `network.Policy`, `msb.NetworkSpec`, `msb/translate.go`,
 `viperconfig/config.go`); S6 landed on top of S5; S7 then landed on top of S4 and S6. **S4 and S6 share no file**,
-so S7 was the join; the frontier is now S8 and S10 (S10 follows S7, which it extends). Within each subplan, follow
-its own serialization. A subplan's plan is written when its predecessors land, never in advance.
+so S7 was the join; the frontier is now S8, S10, and S11 (S10 follows S7, which it extends; S11 extends S5 and feeds
+S8's C7 and S10's native form). Within each subplan, follow its own serialization. A subplan's plan is written when its
+predecessors land, never in advance — S11 was written ahead of PR #752 at the maintainer's call because #749's read-back
+half depends only on the landed S5.
 
 **S2 re-scope.** S2 ships the TLS-interception **controls only** (`intercept-tls`/`tls-bypass`/`disable-strict`). It does
 no registry handling — no auto-bypass, no allowlist derivation — and the in-VM `docker build` CA case stays a documented

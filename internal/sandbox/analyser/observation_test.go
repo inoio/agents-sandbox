@@ -203,6 +203,7 @@ func TestObservationSecretUsesChannelAttributionThenConfigEntryHosts(t *testing.
 		Provider: "openai",
 		Field:    "authorization",
 		Hosts:    []string{"config.example"},
+		Value:    "sk-dotenv",
 	}
 
 	attributed := SessionFacts{
@@ -246,6 +247,7 @@ func TestObservationAttributionSkipsUnmatchedEntries(t *testing.T) {
 			EnvVar:   "OPENAI_API_KEY",
 			Provider: "openai",
 			Hosts:    []string{"config.example"},
+			Value:    "sk-secret",
 		}}},
 		Observation: channel.Observation{Attribution: []channel.Attribution{
 			{Credential: "OTHER_TOKEN", Host: "other.example"},
@@ -271,6 +273,7 @@ func TestObservationSecretWithoutAHeaderHintHasNoHeaderFields(t *testing.T) {
 			EnvVar:   "CUSTOM_TOKEN",
 			Provider: "custom",
 			Hosts:    []string{"api.example"},
+			Value:    "sk-custom",
 		}}},
 	}
 
@@ -323,10 +326,98 @@ func TestObservationSecretWithoutHostsYieldsNoFinding(t *testing.T) {
 			EnvVar:   "OPENAI_API_KEY",
 			Provider: "openai",
 			Field:    "authorization",
+			Value:    "sk-secret",
 		}}},
 	}
 
 	require.Empty(t, ObservationFindings(s))
+}
+
+// TestObservationSecretFindingsMergeSameEnvVar: two static credentials that
+// share an env-var name yield exactly one finding. Two writes for the same
+// literal key would make the second replace the first's entry and silently drop
+// its host set, so the finding merges every source's hosts and header names.
+func TestObservationSecretFindingsMergeSameEnvVar(t *testing.T) {
+	s := SessionFacts{
+		Current: narrowNone(),
+		ReadBack: readback.ReadBack{Static: []readback.Credential{
+			{
+				Kind:     readback.CredentialStatic,
+				EnvVar:   "OPENAI_API_KEY",
+				Provider: "openai",
+				Field:    "authorization",
+				Hosts:    []string{"config.example"},
+				Value:    "sk-dotenv",
+			},
+			{
+				Kind:     readback.CredentialStatic,
+				EnvVar:   "OPENAI_API_KEY",
+				Provider: "openai",
+				Field:    "x-api-key",
+				Hosts:    []string{"inline.example"},
+				Value:    "sk-inline",
+			},
+		}},
+	}
+
+	findings := ObservationFindings(s)
+
+	require.Len(t, findings, 1, "one finding per env-var name")
+	require.Equal(t, []string{"config.example", "inline.example"},
+		findings[0].Writes[0].Secret.Hosts, "the host sets are merged")
+	require.Equal(t, []string{"authorization", "x-api-key"},
+		findings[0].Writes[0].Secret.HeaderFields, "the header-field sets are merged")
+	require.Equal(t, []string{"config.example", "inline.example"},
+		findings[0].Evidence.Destinations, "the evidence reflects the merged host set")
+	require.Equal(t, []string{"authorization", "x-api-key"},
+		findings[0].Evidence.HeaderFields, "the evidence reflects the merged header-field set")
+}
+
+// TestObservationSecretEmptyValueYieldsNoFinding: an empty static value is not
+// a secret, so a source with an empty value yields no finding alone and
+// contributes nothing to a merge — the non-empty source's hosts alone scope the
+// merged finding.
+func TestObservationSecretEmptyValueYieldsNoFinding(t *testing.T) {
+	emptyOnly := SessionFacts{
+		Current: narrowNone(),
+		ReadBack: readback.ReadBack{Static: []readback.Credential{{
+			Kind:     readback.CredentialStatic,
+			EnvVar:   "OPENAI_API_KEY",
+			Provider: "openai",
+			Field:    "authorization",
+			Hosts:    []string{"api.example"},
+			Value:    "",
+		}}},
+	}
+	require.Empty(t, ObservationFindings(emptyOnly), "an empty value is not a secret")
+
+	merged := SessionFacts{
+		Current: narrowNone(),
+		ReadBack: readback.ReadBack{Static: []readback.Credential{
+			{
+				Kind:     readback.CredentialStatic,
+				EnvVar:   "OPENAI_API_KEY",
+				Provider: "openai",
+				Field:    "authorization",
+				Hosts:    []string{"empty.example"},
+				Value:    "",
+			},
+			{
+				Kind:     readback.CredentialStatic,
+				EnvVar:   "OPENAI_API_KEY",
+				Provider: "openai",
+				Field:    "x-api-key",
+				Hosts:    []string{"real.example"},
+				Value:    "sk-real",
+			},
+		}},
+	}
+	findings := ObservationFindings(merged)
+	require.Len(t, findings, 1, "one finding for the non-empty credential")
+	require.Equal(t, []string{"real.example"}, findings[0].Writes[0].Secret.Hosts,
+		"the empty source contributes no hosts")
+	require.Equal(t, []string{"x-api-key"}, findings[0].Writes[0].Secret.HeaderFields,
+		"the empty source contributes no header names")
 }
 
 // TestObservationSecretWithoutEnvVarYieldsNoFinding: a static credential whose
@@ -339,6 +430,7 @@ func TestObservationSecretWithoutEnvVarYieldsNoFinding(t *testing.T) {
 			Kind:     readback.CredentialStatic,
 			Provider: "openai",
 			Hosts:    []string{"api.example"},
+			Value:    "sk-secret",
 		}}},
 	}
 
@@ -356,6 +448,7 @@ func TestObservationFindingsStampEvidenceHash(t *testing.T) {
 			Provider: "openai",
 			Field:    "authorization",
 			Hosts:    []string{"api.example"},
+			Value:    "sk-secret",
 		}}},
 		Observation: channel.Observation{Destinations: []channel.Destination{
 			{Host: "api.example", Success: true, Count: 1},
@@ -503,13 +596,18 @@ func TestSecretFindingsSkipUnscopableCredentialsWithoutStopping(t *testing.T) {
 	s := SessionFacts{
 		Current: narrowNone(),
 		ReadBack: readback.ReadBack{Static: []readback.Credential{
-			{Provider: "openai", Hosts: []string{"skip.example"}},                      // no EnvVar
-			{Kind: readback.CredentialStatic, EnvVar: "HOSTLESS_TOKEN", Provider: "x"}, // no host
+			{
+				Provider: "openai",
+				Hosts:    []string{"skip.example"},
+				Value:    "sk-unscoped",
+			}, // no EnvVar
+			{Kind: readback.CredentialStatic, EnvVar: "HOSTLESS_TOKEN", Provider: "x", Value: "sk-hostless"}, // no host
 			{
 				Kind:     readback.CredentialStatic,
 				EnvVar:   "OPENAI_API_KEY",
 				Provider: "openai",
 				Hosts:    []string{"api.example"},
+				Value:    "sk-scoped",
 			},
 		}},
 	}

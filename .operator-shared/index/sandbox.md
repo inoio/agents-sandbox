@@ -113,7 +113,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 ### `readback/` — Host-side home-volume read-back for learn mode
 
-- `readback.go` (`HomeVolumePath`: state → home volume → host path, with `ErrNoHomeVolume` distinct from `state.ErrStateNotFound`), `manifest.go` (`TakeManifest`/`Manifest.Changed`, the baseline change-detection manifest), `read.go` (`Read`: config paths, static secrets with their dotenv `EnvVar` key and provider-endpoint `Hosts`, recorded logins), `probe_opencode2.go` (bounded read of opencode2's SQLite `credential` table) — the fact source for the after-run analyser of `specs/onboarding/learn-mode/home-read-back.md`; read by `learn`'s after-run and `config learn`.
+- `readback.go` (`HomeVolumePath`: state → home volume → host path, with `ErrNoHomeVolume` distinct from `state.ErrStateNotFound`), `manifest.go` (`TakeManifest`/`Manifest.Changed`, the baseline change-detection manifest), `read.go` (`Read`: config paths, static secrets with their `EnvVar` key — a dotenv key or the derived `<PROVIDER>_API_KEY` for an inline provider key — and provider-endpoint `Hosts`, recorded logins), `probe_opencode2.go` (bounded read of opencode2's SQLite `credential` table) — the fact source for the after-run analyser of `specs/onboarding/learn-mode/home-read-back.md`; read by `learn`'s after-run and `config learn`.
 
 ### `reconfig/` — Reconfiguration planning
 

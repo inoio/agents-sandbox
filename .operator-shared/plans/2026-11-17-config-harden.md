@@ -36,6 +36,7 @@ See `2026-11-17-learn-mode-program.md` → Global Constraints. Specifically:
    - **C4 — a wildcard egress entry.** An `egress-allow` entry `*` (or `0.0.0.0/0`, `::/0`) becomes a finding proposing `network.egress-allow` with that entry removed.
    - **C5 — a secret file mode.** Each scope's `env.secret.yaml` whose mode is not `0600` becomes a finding whose single write is a `FileModeWrite{Mode: 0o600}` (Task 1).
    - **C6 — host-config provisioning on.** `provision-host-config: true` becomes a finding proposing `provision-host-config: false`, its Text pointing at `run --learn` to derive managed config first. This is the one finding whose "safe path" (onboarding.md's `config migrate`) learn mode supersedes; recorded here because the onboarding text predates that.
+   - **C7 — a static secret inline in a managed agent config** (#749). A credential-bearing key (`api_key`/`apiKey`/`key`/`token`) inside a provider entry of a scope's agent config files becomes a finding that moves the value to `env.secret.yaml` and leaves the harness's reference form in the config — a `${ENVVAR}` placeholder, or the harness's native `api_key_env = "<ENVVAR>"` where it does not expand `${VAR}` (kimi; S10). Its provider, host, and env-var name come from the same entry, using the read-back classification S11 adds (the entry's declared name wins; else `<PROVIDER>_API_KEY`). It removes a literal value and adds a reference — never a host, never a new allow entry.
 3. **A write targets the key's owner.** `viperconfig.LayerSettingOwner(paths, slug, key)` names the highest-precedence file layer that sets a key. Harden writes the project scope when the project owns the key (through the gate) and the per-slug user scope otherwise. This is what makes a narrowing *take effect* where the proposal's per-slug write would be shadowed.
 4. **Harden reads the project scope through the approval.** `envsecret.ParseSecretSpecYAML` already refuses an unapproved project file (`projectguard`); a project scope the user has not approved contributes no finding, and the command says so once.
 5. **No session evidence.** The evidence-driven reduction ("offer to reduce to the hosts a session used") is deferred: it couples harden to the S7 artefact store. The catalogue's `config harden` §network finding is structural only in S8.
@@ -53,6 +54,7 @@ See `2026-11-17-learn-mode-program.md` → Global Constraints. Specifically:
 6. **A non-interactive run / `--dry-run`** — writes nothing, prompts nothing, never hangs. (Task 3.)
 7. **A finding whose evidence changed** — a recorded decline stops matching and the finding re-arms. (Tasks 2, 3.)
 8. **C3/C6 foot-guns** — narrowing to `none` with an empty allow list, or disabling host-config provisioning, must be surfaced in the Text, not applied silently. (Task 2.)
+9. **C7 losing the entry's own host or name** — the inline-config finding must keep the host and env-var name the entry declares (or derives), never add a host and never guess a curated one. (Task 2.)
 
 ---
 
@@ -132,12 +134,13 @@ func TestConfigFindingsEmptyAllowIsReportedNotWritten(t *testing.T) // public + 
 func TestConfigFindingsRemovesWildcardEntry(t *testing.T)     // egress-allow ["*","api.example"] -> proposal drops "*"
 func TestConfigFindingsSecretFileMode(t *testing.T)          // a 0644 env.secret.yaml -> a FileMode finding
 func TestConfigFindingsProvisionHostConfig(t *testing.T)      // true -> proposal sets false, Text names run --learn
+func TestConfigFindingsMovesAnInlineConfigSecret(t *testing.T) // an inline api_key in a managed agent config -> move to env.secret.yaml + a reference write (C7)
 func TestConfigFindingsNeverWidens(t *testing.T)              // every emitted write either removes or narrows
 ```
 
 - [ ] **Step 2: Run to verify it fails** — `go test ./internal/sandbox/analyser/ -run TestConfigFindings`. Expected: FAIL.
 
-- [ ] **Step 3: Implement** `ConfigFindings`: iterate the scopes and parse each `EnvSecretYAMLFile`; build C1/C2/C5 from the secret files and C3/C4/C6 from `f.Config`; choose each write's scope via `LayerSettingOwner` (Design decision 3); stamp the evidence hash through `withEvidenceHash` (same package). Sort findings deterministically.
+- [ ] **Step 3: Implement** `ConfigFindings`: iterate the scopes and parse each `EnvSecretYAMLFile`; build C1/C2/C5 from the secret files, C3/C4/C6 from `f.Config`, and C7 from each scope's agent config files (the read-back classification of S11, with the entry's host and env-var name); choose each write's scope via `LayerSettingOwner` (Design decision 3); stamp the evidence hash through `withEvidenceHash` (same package). Sort findings deterministically.
 
 - [ ] **Step 4: Run** — `go test ./internal/sandbox/analyser/`. Expected: PASS.
 
@@ -204,7 +207,7 @@ git commit -m "docs(operator): record the config harden finding set"
 
 ## Self-review
 
-**Coverage.** Scopes and the owner rule are Design decision 3 (Tasks 2–3); the credential-store rule is C1 (Tasks 2–3); the never-widen rule is C3/C4 (Task 2, Review Focus 1); the project trust gate is Tasks 2–3; the file-mode audit is Task 1 + C5; `provision-host-config` is C6; the non-interactive/dry-run contract is Task 3; decline re-arming is Task 2 + `analyser.Apply`. The **session-evidenced network reduction** and the **agent-config** concern are deliberately out (Design decision 5; S10).
+**Coverage.** Scopes and the owner rule are Design decision 3 (Tasks 2–3); the credential-store rule is C1 (Tasks 2–3); the never-widen rule is C3/C4 (Task 2, Review Focus 1); the project trust gate is Tasks 2–3; the file-mode audit is Task 1 + C5; `provision-host-config` is C6; the inline config secret is C7 (#749); the non-interactive/dry-run contract is Task 3; decline re-arming is Task 2 + `analyser.Apply`. The **session-evidenced network reduction** is deliberately out (Design decision 5); the **sandbox agent-config write-back** remains S10's, while C7 audits the host-side managed config only.
 
 **Proportion.** Signatures, test names, and assertions; the only new model shape is one write kind.
 

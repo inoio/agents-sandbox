@@ -1,6 +1,6 @@
 ---
-description: The learn-mode proposal and applier - the finding shape (evidence, proposed write, scope), the per-slug user scope and the project scope behind the trust gate, why the managed layer never owns the credential store, how a learned static secret is attributed before it is scoped, the network diff that never widens, the interactive per-finding apply and its decline memory, non-interactive behavior, `config harden` as the config-only subset, and how the after-run is owned.
-read_if: Working on the learn-mode proposal, findings, or applier - the finding shape or evidence, the per-slug user scope or the project scope and its trust gate, the credential-store copy-back rule, static-secret attribution or the network diff, per-finding apply and decline memory, non-interactive or dry-run behavior, `config harden`, or which process owns the after-run.
+description: The learn-mode proposal and applier - the finding shape (evidence, proposed write, scope), the per-slug user scope and the project scope behind the trust gate, why the managed layer never owns the credential store, the agent-config write-back and its `${ENVVAR}` (or per-harness native) placeholder convention, how a learned static secret is attributed before it is scoped, the network diff that never widens, the interactive per-finding apply and its decline memory, non-interactive behavior, `config harden` as the config-only subset (including its inline-config-secret finding), and how the after-run is owned.
+read_if: Working on the learn-mode proposal, findings, or applier - the finding shape or evidence, the per-slug user scope or the project scope and its trust gate, the credential-store copy-back rule, the agent-config write-back or its placeholder convention, static-secret attribution or the network diff, per-finding apply and decline memory, non-interactive or dry-run behavior, `config harden` or its inline-config-secret finding, or which process owns the after-run.
 ---
 
 # Learn mode — findings and apply
@@ -41,15 +41,30 @@ would destroy it. The copy-back therefore never targets a file the agent refresh
 provision rule for the credential store. Static secrets go to `env.secret.yaml` and appear as placeholders in the
 managed agent config; login entries stay only in the persistent sandbox home.
 
+## The agent-config write-back
+
+The after-run copies an agent config file the session authored into the per-slug user scope's agent config
+directory as a managed snippet, so the launcher owns it on the next run. Each **static secret value** in the copied
+content is replaced by its **placeholder**, which is also recorded on the secret's `env.secret.yaml` entry, so the
+runtime substitutes it in flight for the allowed hosts; the value never appears in the finding, the artefact, or a
+log. Only a config file the agent authored is copied — never a login store or a credential probe's database.
+
+The placeholder convention is `${<ENVVAR>}` **where the harness passes a config value through verbatim**: a literal
+config string is not shell-expanded, so the placeholder reaches the request. A harness that does not expand `${VAR}`
+in its config needs its **native env indirection** instead — kimi reads no key from the process environment and only
+accepts `api_key_env = "<ENVVAR>"`, so the write-back emits that form, and msb puts the placeholder into the named
+env var. Which form a harness needs is a per-harness property of the write-back, not of the finding.
+
 ## Attribution and the network diff
 
 - **A learned static secret is attributed before it is scoped, and a secret that cannot be attributed is not
   proposed at all.** Its host set comes from the destinations the session was observed sending that credential to
   (channel attribution, matched to the credential's configured env-var name); with no channel attribution (a client
   pins certificates, a non-HTTP protocol) it falls back to the endpoint the same config entry names (the read-back
-  `Credential.Hosts`). When neither yields a host the secret is not migrated — no finding is emitted, and the
-  proposal asks nothing at apply time. A static credential with no configured env-var name cannot be scoped and is
-  likewise not proposed. A learned value never produces `allow_any_host_dangerous`.
+  `Credential.Hosts`). It is proposed once per env-var name: when the read-back finds the same name in more than one
+  source, the proposal scopes it to the union of their hosts. When neither yields a host the secret is not migrated —
+  no finding is emitted, and the proposal asks nothing at apply time. A static credential with no configured env-var
+  name cannot be scoped and is likewise not proposed. A learned value never produces `allow_any_host_dangerous`.
 - **Network changes are proposed as a diff**: `network.profile = none` plus `network.egress-allow` set to the
   current allow set **∪** the observed-and-used destinations, where observed-and-used means a destination the
   session reached successfully and that was not denied. It never widens: no current allow entry is removed and no
@@ -89,7 +104,12 @@ that is gone.
 
 Harden is the analyser with no session: the same findings engine, the same applier, the config-only subset of
 findings. It is re-runnable and audits the effective configuration (file modes, `provision-host-config: true`, an
-over-broad posture, an over-broad secret scope), and it is the home of "reduce egress later". It runs the findings
+over-broad posture, an over-broad secret scope, a static secret left inline in a managed agent config), and it is
+the home of "reduce egress later". The inline-secret finding uses the read-back classification ([home
+read-back](home-read-back.md) fact 2): the provider, host, and env-var name come from the entry that holds the key,
+and the finding moves the value to `env.secret.yaml` and, in the config, leaves a placeholder or — for a harness
+that does not expand `${VAR}` (kimi) — an `api_key_env = "<ENVVAR>"` reference
+([the agent-config write-back](#the-agent-config-write-back)). It runs the findings
 that need configuration; the after-run analyser runs both configuration and observation findings. It is the only
 writer of the project scope, and the only home of a removal: moving a static secret committed there to the per-slug
 user secret is a harden finding (a project removal plus a per-slug addition). Removing a secret from a file does not
