@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -52,14 +53,15 @@ func newCheckHarness(t *testing.T) *checkHarness {
 }
 
 // checkRun controls one check.sh invocation. heavy is the space-separated
-// CHECK_HEAVY_TARGETS; jobs, serial, verbose and order overlay the runner's
-// environment, each defaulting to the bash harness's default.
+// CHECK_HEAVY_TARGETS; jobs, serial, verbose, progress and order overlay the
+// runner's environment, each defaulting to the bash harness's default.
 type checkRun struct {
-	heavy   string
-	jobs    string
-	serial  string
-	verbose string
-	order   string
+	heavy    string
+	jobs     string
+	serial   string
+	verbose  string
+	progress string
+	order    string
 }
 
 // checkRun drives check.sh with the targets and environment, returning its
@@ -73,6 +75,7 @@ func (h *checkHarness) run(run checkRun, targets ...string) ScriptResult {
 		"JOBS":                checkDefaultString(run.jobs, "2"),
 		"SERIAL":              checkDefaultString(run.serial, "0"),
 		"VERBOSE":             checkDefaultString(run.verbose, "0"),
+		"CHECK_PROGRESS":      run.progress,
 		"STUB_ORDER":          checkDefaultString(run.order, "0"),
 	}
 	return RunScript(h.t, h.dir, env, repositoryScript(h.t, "check.sh"), targets...)
@@ -257,6 +260,55 @@ func TestCheck(t *testing.T) {
 		assertStatus(t, result, 0)
 		assertContains(t, "stdout", result.Stdout, "stdout alpha")
 		assertNotContains(t, "stdout", result.Stdout, "PASS ")
+	})
+
+	t.Run("per-target line reports cpu time and lane", func(t *testing.T) {
+		h := newCheckHarness(t)
+		result := h.run(checkRun{heavy: "alpha"}, "alpha", "beta")
+
+		assertStatus(t, result, 0)
+		heavy := regexp.MustCompile(`(?m)^PASS alpha \d+s \(cpu \d+s\) \[heavy\]$`)
+		light := regexp.MustCompile(`(?m)^PASS beta \d+s \(cpu \d+s\) \[light\]$`)
+		if !heavy.MatchString(result.Stdout) || !light.MatchString(result.Stdout) {
+			t.Errorf("PASS lines lack a cpu time or lane:\n%s", result.Stdout)
+		}
+	})
+
+	t.Run("total time line reports the target count", func(t *testing.T) {
+		h := newCheckHarness(t)
+		result := h.run(checkRun{heavy: "alpha"}, "alpha", "beta")
+
+		assertStatus(t, result, 0)
+		assertContains(t, "stdout", result.Stdout, "check: 2 targets in ")
+	})
+
+	t.Run("total time line is singular for one target", func(t *testing.T) {
+		h := newCheckHarness(t)
+		result := h.run(checkRun{heavy: "alpha"}, "alpha")
+
+		assertStatus(t, result, 0)
+		assertContains(t, "stdout", result.Stdout, "check: 1 target in ")
+	})
+
+	t.Run("progress is off without a terminal", func(t *testing.T) {
+		h := newCheckHarness(t)
+		result := h.run(checkRun{heavy: "alpha", jobs: "2", order: "1"}, "alpha", "beta")
+
+		assertStatus(t, result, 0)
+		assertNotContains(t, "stdout", result.Stdout, "\x1b[")
+		assertNotContains(t, "stdout", result.Stdout, "heavy alpha")
+		assertNotContains(t, "stdout", result.Stdout, "light beta")
+	})
+
+	t.Run("progress separates heavy and light targets", func(t *testing.T) {
+		h := newCheckHarness(t)
+		result := h.run(checkRun{heavy: "alpha", jobs: "2", order: "1", progress: "1"}, "alpha", "beta")
+
+		assertStatus(t, result, 0)
+		assertContains(t, "stdout", result.Stdout, "\x1b[")
+		assertContains(t, "stdout", result.Stdout, "heavy alpha")
+		assertContains(t, "stdout", result.Stdout, "light beta")
+		assertContains(t, "stdout", result.Stdout, "check: 2 targets in ")
 	})
 
 	t.Run("check-selected filters the heavy set", func(t *testing.T) {

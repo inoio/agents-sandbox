@@ -64,10 +64,13 @@ Common development commands (run from the Go module root):
 
 - `make check` — run `validate-fmt`, lint, and test targets, read-only (the same formatting gate CI
   runs). It delegates to `scripts/check.sh`, which captures each target and prints a one-line
-  `PASS`/`FAIL` summary, dumping every failing target's log last; the CPU-heavy targets run one at a
-  time and the rest in a `JOBS=<n>` pool (`VERBOSE=1` streams raw output, `SERIAL=1` runs one target at
-  a time). Execute `make check` when finalizing work; if it reports unformatted files, run `make fmt` to
-  fix them. `make verify` adds `test-race`, `vulncheck`, and `deadcode` to the heavy set.
+  `PASS`/`FAIL` summary — the target's runtime, the CPU seconds its process tree consumed, and its
+  `[heavy]`/`[light]` lane — plus a `check: <n> targets in <t>s` total, dumping every failing target's log
+  last; the CPU-heavy targets run one at a time and the rest in a `JOBS=<n>` pool, and on a terminal a
+  live status line names the running targets (`VERBOSE=1` streams raw output, `SERIAL=1` runs one target
+  at a time, `CHECK_PROGRESS=1`/`0` forces the status line). Execute `make check` when finalizing work; if
+  it reports unformatted files, run `make fmt` to fix them. `make verify` adds `test-race`, `vulncheck`,
+  and `deadcode` to the heavy set.
 - `make check-local-changes` / `make check-branch-changes` — a fast inner loop while iterating:
   run only the `check` targets a change can affect (the map lives in `scripts/changed-targets.sh`).
   Use `make check` before finalizing.
