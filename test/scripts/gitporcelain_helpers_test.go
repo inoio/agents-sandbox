@@ -23,7 +23,9 @@ import (
 // environment is isolated from the developer's git and ssh configuration.
 func porcelainGit(tb testing.TB, dir string, args ...string) (string, error) {
 	tb.Helper()
-	command := exec.Command("git", args...) //testenv:allow the two porcelain fixtures need the real git the tools under test drive
+	command := exec.Command(
+		"git",
+		args...) //testenv:allow the two porcelain fixtures need the real git the tools under test drive
 	command.Dir = dir
 	command.Env = testutil.GitIsolationEnvironment(os.Environ())
 	out, err := command.CombinedOutput()

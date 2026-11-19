@@ -39,6 +39,19 @@ func TestChangedTargets(t *testing.T) {
 			[]string{"docs-linkcheck", "docs-linkcheck-test", "shellcheck"},
 		},
 		{
+			"modified docs-linkcheck Go harness",
+			"test/scripts/check_docs_test.go",
+			"# x",
+			[]string{
+				"compile-all",
+				"docs-linkcheck",
+				"docs-linkcheck-test",
+				"lint",
+				"test",
+				"validate-fmt",
+			},
+		},
+		{
 			"modified changelog checker",
 			"ci/check-changelog.sh",
 			"# x",
@@ -109,6 +122,12 @@ func TestChangedTargets(t *testing.T) {
 			"# x",
 			[]string{"rebase-status-test", "shellcheck"},
 		},
+		{
+			"modified rebase-status Go harness",
+			"test/scripts/rebase_status_test.go",
+			"# x",
+			[]string{"rebase-status-test", "compile-all", "lint", "test", "validate-fmt"},
+		},
 		{"modified enqueue-pr script", "scripts/enqueue-pr.sh", "# x", []string{"enqueue-pr-test", "shellcheck"}},
 		{
 			"modified enqueue-pr Go harness",
@@ -140,7 +159,7 @@ func TestChangedTargets(t *testing.T) {
 			"# x",
 			[]string{"open-backport-pr-test", "compile-all", "lint", "test", "validate-fmt"},
 		},
-		{"modified envelope driver", "scripts/test-envelope.sh", "# x", []string{"envelope-test", "shellcheck"}},
+		{"modified envelope driver", "scripts/hermetic-envelope.sh", "# x", []string{"envelope-test", "shellcheck"}},
 		{
 			"modified envelope Go harness",
 			"test/scripts/envelope_test.go",
@@ -152,6 +171,12 @@ func TestChangedTargets(t *testing.T) {
 			"scripts/cleanup-merged-branches.sh",
 			"# x",
 			[]string{"cleanup-branches-test", "shellcheck"},
+		},
+		{
+			"modified cleanup Go harness",
+			"test/scripts/cleanup_merged_branches_test.go",
+			"# x",
+			[]string{"cleanup-branches-test", "compile-all", "lint", "test", "validate-fmt"},
 		},
 		{
 			"modified ci-guards checker",

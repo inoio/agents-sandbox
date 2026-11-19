@@ -322,7 +322,7 @@ cleanup-branches:
 
 # Test the branch/worktree cleanup script itself (fixtures only: never touches this repo).
 cleanup-branches-test:
-	./scripts/test-cleanup-merged-branches.sh
+	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -count=1 ./test/scripts/ -run CleanupMergedBranches
 
 # Test the release-surface sweep isolation helper itself (fixtures only: no VM, no real state).
 surface-sweep-test:
@@ -331,14 +331,14 @@ surface-sweep-test:
 # Run the default suite in a hermetic envelope: a module copy outside any git
 # checkout and a scrubbed environment. See specs/testing/test-isolation.md.
 test-scrubbed:
-	./scripts/test-envelope.sh -- make test
+	./scripts/hermetic-envelope.sh -- make test
 
 # Strict envelope: adds a network namespace with only loopback (Linux).
 # Currently red: the six uid/permission fixtures still assume an unprivileged
 # uid and the strict run is uid 0. See
 # .operator-shared/plans/2026-11-07-hermetic-uid-permission-surface.md.
 test-hermetic:
-	./scripts/test-envelope.sh --netns -- make test
+	./scripts/hermetic-envelope.sh --netns -- make test
 
 # Test the hermetic envelope driver itself (fixtures only: never touches this repo).
 envelope-test:
@@ -350,7 +350,7 @@ upstream-drift-test:
 
 # Test the rebase-status reporter itself (fixtures only: never touches this repo).
 rebase-status-test:
-	./scripts/test-rebase-status.sh
+	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -count=1 ./test/scripts/ -run RebaseStatus
 
 # Test the merge-queue enqueue helper itself (fixtures only: never touches this repo).
 enqueue-pr-test:
@@ -512,7 +512,7 @@ ci-guards-check-test:
 
 # Test the documentation link checker itself.
 docs-linkcheck-test:
-	ci/test-check-docs.sh
+	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -count=1 ./test/scripts/ -run CheckDocs
 
 # Validate the changelog fragment convention (shape). See specs/ci/ci-pipeline.md.
 changelog-check:

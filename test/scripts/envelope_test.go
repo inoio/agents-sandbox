@@ -14,7 +14,7 @@ import (
 )
 
 // TestEnvelope ports every case of the bash harness scripts/test-envelope_test.sh,
-// driving scripts/test-envelope.sh with throwaway fixture modules and asserting
+// driving scripts/hermetic-envelope.sh with throwaway fixture modules and asserting
 // the same exit codes and stdout/stderr substrings. The envelope never touches
 // this repository: every case that copies a source passes an explicit --source
 // under a temp root (the print and help cases deliberately read the default).
@@ -325,11 +325,11 @@ func writeEnvelopeCheck(tb testing.TB, dir, content string) {
 	testutil.WriteFile(tb, dir, "check.sh", content)
 }
 
-// runEnvelope runs scripts/test-envelope.sh from dir with extraEnv overlaid on
+// runEnvelope runs scripts/hermetic-envelope.sh from dir with extraEnv overlaid on
 // the harness environment.
 func runEnvelope(t *testing.T, dir string, extraEnv map[string]string, args ...string) ScriptResult {
 	t.Helper()
-	return RunScript(t, dir, extraEnv, repositoryScript(t, "test-envelope.sh"), args...)
+	return RunScript(t, dir, extraEnv, repositoryScript(t, "hermetic-envelope.sh"), args...)
 }
 
 // assertEnvelopeFixtureIntact fails when the fixture directory holds anything
