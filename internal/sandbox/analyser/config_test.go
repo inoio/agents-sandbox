@@ -11,6 +11,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
@@ -407,4 +408,90 @@ func TestConfigFindingsNeverWidens(t *testing.T) {
 				"finding %q proposes a widening write: %+v", finding.Evidence.Summary, write)
 		}
 	}
+}
+
+// TestConfigFindingsSkipsALoginStoreInAScope pins invariant 2: a login store
+// provisioned from a scope's agent config dir is never classified as a static
+// secret, even when it is shaped like a provider entry the inline walk would
+// otherwise classify (codex's auth.json carries a "token").
+func TestConfigFindingsSkipsALoginStoreInAScope(t *testing.T) {
+	f := configFacts(t, &viperconfig.Config{
+		Agent:   "codex",
+		Network: network.Policy{Profiles: []network.Profile{network.ProfileNone}},
+	})
+	dir := filepath.Join(f.Paths.UserSlugConfigDir(testSlug), "codex")
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	testutil.WriteFile(t, dir, "auth.json", `{"provider":"codex","token":"super-secret"}`)
+
+	require.Empty(t, ConfigFindings(f), "a login store is not a static secret")
+}
+
+// TestConfigFindingsReadsAProjectAgentConfigThroughTheGuard pins that C7 reads a
+// project-scope agent config through the project guard: an approved file yields
+// a finding, and a file that is not approved is refused.
+func TestConfigFindingsReadsAProjectAgentConfigThroughTheGuard(t *testing.T) {
+	f := configFacts(t, &viperconfig.Config{
+		Agent:   "opencode",
+		Network: network.Policy{Profiles: []network.Profile{network.ProfileNone}},
+	})
+	dir := filepath.Join(f.Paths.ProjectConfigDir(), "opencode")
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	const content = `{"provider":{"openai":{"options":{"apiKey":"sk-project","baseURL":"https://api.openai.com/v1"}}}}`
+	testutil.WriteFile(t, dir, "opencode.jsonc", content)
+	path := filepath.Join(dir, "opencode.jsonc")
+
+	t.Run("an approved project file yields a finding", func(t *testing.T) {
+		restore := projectguard.Install(
+			[]string{f.Paths.ProjectConfigDir()},
+			map[string]projectguard.Approval{path: projectguard.ApprovalOf([]byte(content))},
+		)
+		t.Cleanup(restore)
+
+		findings := ConfigFindings(f)
+
+		require.Len(t, findings, 1)
+		require.Contains(t, findings[0].Evidence.Summary, "OPENAI_API_KEY")
+	})
+
+	t.Run("an unapproved project file is refused", func(t *testing.T) {
+		restore := projectguard.Install([]string{f.Paths.ProjectConfigDir()}, nil)
+		t.Cleanup(restore)
+
+		require.Empty(t, ConfigFindings(f))
+	})
+}
+
+// TestConfigFindingsSecretFileModeSkipsTheGenericScope pins R8: the generic user
+// scope's env.secret.yaml yields no C5 finding, since the applier has no
+// generic-scope file-mode target and a file mode cannot be shadowed.
+func TestConfigFindingsSecretFileModeSkipsTheGenericScope(t *testing.T) {
+	f := configFacts(t, &viperconfig.Config{Network: network.Policy{Profiles: []network.Profile{network.ProfileNone}}})
+	dir := f.Paths.UserConfigDir()
+	writeSecretFile(t, dir, "OPENAI_API_KEY:\n  value: sk\n  host: api.example\n")
+	secretPath := filepath.Join(dir, configpaths.EnvSecretFileName+".yaml")
+	require.NoError(t, os.Chmod(secretPath, 0o644))
+
+	require.Empty(t, ConfigFindings(f), "the generic scope has no file-mode target")
+}
+
+// TestConfigFindingsInlineSourcesHashDistinctly pins that two inline copies of
+// the same secret (opencode2's primary and alias dirs) yield two findings whose
+// evidence hashes differ, so a decline for one does not skip the other.
+func TestConfigFindingsInlineSourcesHashDistinctly(t *testing.T) {
+	f := configFacts(t, &viperconfig.Config{
+		Agent:   "opencode2",
+		Network: network.Policy{Profiles: []network.Profile{network.ProfileNone}},
+	})
+	const content = `{"provider":{"openai":{"options":{"apiKey":"sk-inline","baseURL":"https://api.openai.com/v1"}}}}`
+	for _, name := range []string{"opencode2", "opencode"} {
+		dir := filepath.Join(f.Paths.UserSlugConfigDir(testSlug), name)
+		require.NoError(t, os.MkdirAll(dir, 0o750))
+		testutil.WriteFile(t, dir, "opencode.jsonc", content)
+	}
+
+	findings := ConfigFindings(f)
+
+	require.Len(t, findings, 2)
+	require.NotEqual(t, findings[0].EvidenceHash, findings[1].EvidenceHash,
+		"two inline sources of the same secret hash distinctly")
 }

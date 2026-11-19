@@ -406,6 +406,55 @@ func loginStoreFor(key string) (loginCredentialStore, bool) {
 	return loginCredentialStore{}, false
 }
 
+// SkipsInlineCredentials reports whether the declared config file at path is
+// excluded from the inline-credential walk: it is the dotenv (a value store,
+// not a provider config), or it is a declared login credential store, whose
+// value is never read even when the store is shaped like a provider entry and
+// would otherwise be classified. path is matched as either a
+// sandbox-home-relative key (the read-back's spelling) or a host path under a
+// launcher config scope: a login store is recognized by its trailing elements,
+// with a leading dot on the pattern's first element (and on the matched path
+// element) ignored, so `.codex/auth.json` and a scope's `.../codex/auth.json`
+// both match. It is the one exclusion both the read-back and the config finder
+// consult.
+func SkipsInlineCredentials(path string) bool {
+	if filepath.Base(path) == dotenvFileName {
+		return true
+	}
+	segments := strings.Split(filepath.ToSlash(path), "/")
+	for _, store := range loginCredentialStores {
+		pattern := strings.Split(strings.TrimPrefix(store.pattern, "."), "/")
+		if matchesStoreTail(pattern, segments) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesStoreTail reports whether pathSegments' trailing elements match pattern.
+// The pattern's leading dot is already stripped and a literal '.' separator
+// never appears, so a store dir (.codex) matches the launcher config dir it is
+// provisioned from (codex); the matched path element's own leading dot is
+// ignored for the same reason. A pattern's final element may be a glob.
+func matchesStoreTail(pattern, pathSegments []string) bool {
+	if len(pattern) > len(pathSegments) {
+		return false
+	}
+	tail := pathSegments[len(pathSegments)-len(pattern):]
+	for i, element := range pattern {
+		candidate := tail[i]
+		if i == 0 {
+			candidate = strings.TrimPrefix(candidate, ".")
+		}
+		// A malformed pattern cannot match, so its error needs no separate
+		// branch: it is a non-match.
+		if matched, _ := filepath.Match(element, candidate); !matched {
+			return false
+		}
+	}
+	return true
+}
+
 // secretKeyMarkers are the whole key segments that mark a dotenv key as a
 // secret. A key without one is ordinary configuration, not a credential.
 var secretKeyMarkers = []string{"KEY", "TOKEN", "SECRET", "PASSWORD"}
@@ -464,10 +513,7 @@ func InlineCredentialsIn(source string, data []byte) []Credential {
 func configInlineCredentials(home string, manifest Manifest) []Credential {
 	var credentials []Credential
 	for _, entry := range manifest.Entries {
-		if isProbe(entry) || entry.Hash == "" || filepath.Base(entry.Key) == dotenvFileName {
-			continue
-		}
-		if _, isLogin := loginStoreFor(entry.Key); isLogin {
+		if isProbe(entry) || entry.Hash == "" || SkipsInlineCredentials(entry.Key) {
 			continue
 		}
 		if _, ok := configdecode.FormatFor(entry.Key); !ok {

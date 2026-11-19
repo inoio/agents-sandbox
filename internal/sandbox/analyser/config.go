@@ -10,6 +10,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configread"
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/readback"
@@ -39,9 +40,9 @@ type ConfigFacts struct {
 
 // ConfigFindings returns the config-only (KindConfig) findings the effective
 // configuration supports (Design decision 2). It never widens and never removes
-// a user-set allow entry: every write narrows a posture, drops a wildcard or a
-// dangerous flag, tightens a mode, or moves a secret to a lower-precedence
-// scope.
+// a non-wildcard user-set allow entry: every write narrows a posture, drops a
+// wildcard or a dangerous flag, tightens a mode, or moves a secret to a
+// lower-precedence scope.
 func ConfigFindings(f ConfigFacts) []Finding {
 	var findings []Finding
 	for _, scope := range f.Scopes {
@@ -159,8 +160,14 @@ func dangerousSecretFinding(scope configpaths.ConfigScope, envVar string, spec e
 
 // secretFileModeFinding is C5: a scope's env.secret.yaml that is readable beyond
 // its owner is tightened to secretFileMode. A scope with no secret file has
-// nothing to tighten, so it yields no finding.
+// nothing to tighten, so it yields no finding. The generic user scope is
+// skipped: the applier's file-mode target is only the per-slug or project scope,
+// and a file mode cannot be shadowed, so a generic-scope finding would tighten
+// the wrong file (or be skipped forever).
 func secretFileModeFinding(scope configpaths.ConfigScope) (Finding, bool) {
+	if scope.Kind == configpaths.ScopeGenericUser {
+		return Finding{}, false
+	}
 	path := scope.EnvSecretYAMLFile()
 	info, err := os.Stat(path)
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() == secretFileMode {
@@ -313,7 +320,11 @@ func (f ConfigFacts) inlineConfigFindings() []Finding {
 
 // inlineConfigFindingsInScope classifies every regular file under the scope's
 // agent config dir and returns a finding per inline static credential. A file
-// the reader cannot read, or that names no credential, contributes nothing.
+// that is a login store or the dotenv (SkipsInlineCredentials) is never read as
+// a static secret — invariant 2 keeps the credential store out of the managed
+// layer — and the read goes through the project guard, so a project-scope file
+// changed since it was approved is refused. A file that names no credential
+// contributes nothing.
 func inlineConfigFindingsInScope(scope configpaths.ConfigScope, dir string) []Finding {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -325,7 +336,10 @@ func inlineConfigFindingsInScope(scope configpaths.ConfigScope, dir string) []Fi
 			continue
 		}
 		path := filepath.Join(dir, entry.Name())
-		data, err := configread.ReadFile(path)
+		if readback.SkipsInlineCredentials(path) {
+			continue
+		}
+		data, err := projectguard.ReadFile(path, configread.ReadFile)
 		if err != nil {
 			continue
 		}
@@ -342,7 +356,10 @@ func inlineConfigFindingsInScope(scope configpaths.ConfigScope, dir string) []Fi
 // a secret write adding the value at the per-slug user scope, plus a
 // declarative reference write that names the env-var placeholder the config
 // keeps. A credential without an env-var name, without a host, or without a
-// literal value cannot be moved, so it yields no finding.
+// literal value cannot be moved, so it yields no finding. The evidence names the
+// credential's Source, so two inline copies of the same secret (e.g. opencode2's
+// primary and alias dirs) hash distinctly and a decline for one does not skip
+// the other.
 func inlineConfigFinding(scope configpaths.ConfigScope, credential readback.Credential) (Finding, bool) {
 	hosts := sortedUnique(credential.Hosts)
 	if credential.EnvVar == "" || len(hosts) == 0 || credential.Value == "" {
@@ -350,7 +367,8 @@ func inlineConfigFinding(scope configpaths.ConfigScope, credential readback.Cred
 	}
 	//exhaustruct:ignore // a config finding reports no denial and no count
 	evidence := Evidence{
-		Summary:      "static secret " + credential.EnvVar + " is inline in the managed agent config",
+		Summary: "static secret " + credential.EnvVar + " is inline in the managed agent config " +
+			credential.Source,
 		Destinations: hosts,
 		Channel:      evidenceChannelConfig,
 	}

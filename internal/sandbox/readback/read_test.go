@@ -1018,6 +1018,36 @@ func TestInlineCredentialsInClassifiesAProviderKey(t *testing.T) {
 	require.Empty(t, InlineCredentialsIn("notes.txt", []byte("provider: openai\napi_key: sk\n")))
 }
 
+// TestSkipsInlineCredentialsMatchesLoginStoresByPathTail pins the shared
+// exclusion the read-back and the config finder both consult: the dotenv and a
+// login store are skipped, and a login store is recognized whether it is spelled
+// home-relative (.codex/auth.json) or reached under a launcher config scope
+// (.../codex/auth.json).
+func TestSkipsInlineCredentialsMatchesLoginStoresByPathTail(t *testing.T) {
+	skipped := []string{
+		".codex/auth.json",
+		"/scope/projectconfig/codex/auth.json",
+		".claude/settings.json",
+		"/x/.claude/settings.json",
+		".pi/agent/settings.json",
+		"/x/kimi-code/credentials/foo.json",
+		"/x/opencode/.env",
+	}
+	for _, path := range skipped {
+		require.Truef(t, SkipsInlineCredentials(path), "%q is skipped from the inline walk", path)
+	}
+
+	kept := []string{
+		"/x/opencode/opencode.jsonc",
+		"/x/codex/config.toml",
+		"/x/myclaude/settings.json",
+		"/x/opencode/auth.json",
+	}
+	for _, path := range kept {
+		require.Falsef(t, SkipsInlineCredentials(path), "%q is walked for inline credentials", path)
+	}
+}
+
 // TestConfigInlineCredentialsSkipsAnUnknownExtension: only a config format the
 // decoder knows is walked, so an unrecognised file yields no credential.
 func TestConfigInlineCredentialsSkipsAnUnknownExtension(t *testing.T) {
