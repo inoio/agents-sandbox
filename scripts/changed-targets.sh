@@ -2,12 +2,14 @@
 #
 # changed-targets.sh - map the changed files to the `make check` targets to run.
 #
-# Prints, one per line and sorted, the subset of `make check` targets a change
-# can affect. Whole targets are selected or skipped; nothing is scoped inside a
-# target. An unrecognized path selects the full set (fail safe), as does an
-# unresolvable base ref; the full set is printed by make's `print-check-targets`
-# (the accumulated `CHECK_TARGETS`) so the fail-safe cannot drift from what
-# `make check` actually runs.
+# Prints, one per line and sorted, the targets a change can affect: the
+# `make check` gate targets plus the selectable-only `*-test` harnesses (a full
+# `make check` covers those through `test`, but a scripting change selects one on
+# its own). Whole targets are selected or skipped; nothing is scoped inside a
+# target. An unrecognized path selects the full `make check` set (fail safe), as
+# does an unresolvable base ref; that set is printed by make's
+# `print-check-targets` (the accumulated `CHECK_TARGETS`) so the fail-safe cannot
+# drift from what `make check` actually runs.
 #
 # This backs `make check-local-changes` and `make check-branch-changes`, the
 # fast inner loop while iterating. It is not a gate: run `make check` before
