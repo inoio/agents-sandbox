@@ -30,8 +30,6 @@ const artefactDirMode = 0o700
 // The write is atomic and replaces any artefact a previous save of the same
 // session left at that path. A user state dir that is not absolute is refused,
 // so a capture is never written relative to the process's working directory.
-//
-//deadcode:ignore reason="the artefact store's write path; S7 persists the observer's artefact after teardown"
 func Save(checkoutSlug string, startedUnix int64, obs Observation) (string, error) {
 	stateDir := configpaths.Get().UserStateDir()
 	if !filepath.IsAbs(stateDir) {
@@ -56,8 +54,6 @@ func Save(checkoutSlug string, startedUnix int64, obs Observation) (string, erro
 
 // Load reads a saved artefact back. A missing or malformed file returns an
 // error, so a caller cannot mistake an absent capture for an empty session.
-//
-//deadcode:ignore reason="the artefact store's read path; S6's after-run analyser loads the artefact"
 func Load(path string) (Observation, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -86,8 +82,6 @@ func Delete(path string) error {
 // yet is not an error: nothing to prune is the same outcome as having pruned
 // everything. The after-run deletes its own artefact by default; this sweep
 // catches what a crashed or abandoned run left behind.
-//
-//deadcode:ignore reason="the artefact store's sweep; the learn-mode cleanup path (S6/S7) prunes expired artefacts"
 func Prune(cutoff time.Time) (int, error) {
 	stateDir := configpaths.Get().UserStateDir()
 	if !filepath.IsAbs(stateDir) {
@@ -121,8 +115,6 @@ func Prune(cutoff time.Time) (int, error) {
 
 // pruneSlugDir removes the artefact files in one slug directory modified before
 // cutoff and returns how many it removed.
-//
-//deadcode:ignore reason="reached through Prune, whose production caller is the learn-mode cleanup path (S6/S7)"
 func pruneSlugDir(dir string, cutoff time.Time) (int, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -155,8 +147,6 @@ func pruneSlugDir(dir string, cutoff time.Time) (int, error) {
 // completed sweep leaves no empty tree behind. The directory may hold a file a
 // concurrent run is writing, in which case the removal fails and the tree stays;
 // that is not an error worth reporting to the sweep's caller.
-//
-//deadcode:ignore reason="reached through Prune, whose production caller is the learn-mode cleanup path (S6/S7)"
 func removeEmptyDir(dir string) {
 	// ENOTEMPTY (a concurrent save) and EACCES both mean "leave it alone".
 	_ = os.Remove(dir)

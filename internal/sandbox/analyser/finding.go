@@ -62,8 +62,6 @@ type canonicalEvidence struct {
 // hash returns a stable sha256 hex digest of the evidence alone. It is
 // insensitive to the order of the list fields, so two renderings of the same
 // observation key the same decline.
-//
-//deadcode:ignore reason="findings engine; pending S7 run --learn caller wires the analyser"
 func (e Evidence) hash() string {
 	canonical := canonicalEvidence{
 		Summary:      e.Summary,
@@ -83,8 +81,6 @@ func (e Evidence) hash() string {
 
 // sortedCopy returns a sorted copy of values, leaving the caller's slice (and
 // its order) untouched.
-//
-//deadcode:ignore reason="evidence-hash helper; reached only through the marked Evidence.hash until S7 wires run --learn"
 func sortedCopy(values []string) []string {
 	if values == nil {
 		return nil
@@ -130,8 +126,6 @@ type Finding struct {
 // withEvidenceHash returns the finding stamped with its evidence digest, so a
 // decline recorded against it can be recognized while the evidence holds and
 // re-armed once the evidence changes.
-//
-//deadcode:ignore reason="findings engine; pending S7 run --learn caller wires the analyser"
 func (f Finding) withEvidenceHash() Finding {
 	f.EvidenceHash = f.Evidence.hash()
 	return f

@@ -70,8 +70,6 @@ type recorder struct {
 // carrying none stays unattributed. The pointer stays valid for the recorder's
 // lifetime — until result or teardown tears it down — so a caller may hold it
 // across later observe calls.
-//
-//deadcode:ignore reason="the channel's capture entry point; the terminating proxy (next step in S4) calls observe from its request hook"
 func (r *recorder) observe(host, ip, path, protocol string, port uint16, headerNames []string) *Destination {
 	destination := r.destination(host, ip, path, protocol, port)
 	destination.Count++
@@ -91,8 +89,6 @@ func (r *recorder) observe(host, ip, path, protocol string, port uint16, headerN
 // keeps a denial from matching — and clearing the `Success` of — an entry on a
 // different port or a `connect` (or `https`) entry. A denial never changes the
 // request count.
-//
-//deadcode:ignore reason="records a denial; the terminating proxy's RoundTrip error hook (next step in S4) calls deny"
 func (r *recorder) deny(host, ip, path, protocol string, port uint16) {
 	matched := false
 	for _, destination := range r.destinations {
@@ -124,8 +120,6 @@ func (r *recorder) deny(host, ip, path, protocol string, port uint16) {
 // sorted so the same observations always produce the same artefact. The
 // recorder's own entries win for a destination or attribution both sides record,
 // which makes result(Observation{}) the recorder's own sorted artefact.
-//
-//deadcode:ignore reason="finalises the artefact; the terminating proxy's Stop (next step in S4) returns result"
 func (r *recorder) result(obs Observation) Observation {
 	combined := Observation{
 		Destinations: append(make([]Destination, 0, len(obs.Destinations)+len(r.destinations)), obs.Destinations...),
@@ -146,8 +140,6 @@ func (r *recorder) result(obs Observation) Observation {
 // destination returns the entry for a destination, appending a new one when the
 // destination was not yet seen. The first observation fixes the channel; the
 // entry is heap-allocated, so the returned pointer outlives later appends.
-//
-//deadcode:ignore reason="reached through observe, whose pending production caller is the terminating proxy (next step in S4)"
 func (r *recorder) destination(host, ip, path, protocol string, port uint16) *Destination {
 	for _, candidate := range r.destinations {
 		if candidate.Host == host && candidate.IP == ip && candidate.Path == path &&
@@ -176,8 +168,6 @@ func (r *recorder) destination(host, ip, path, protocol string, port uint16) *De
 // destination's attribution, creating the attribution on first sight. A request
 // with no credential-bearing header records nothing, so an unattributed
 // destination stays unattributed rather than gaining an empty entry.
-//
-//deadcode:ignore reason="reached through observe, whose pending production caller is the terminating proxy (next step in S4)"
 func (r *recorder) attribute(host, path string, headerNames []string) {
 	if len(headerNames) == 0 {
 		return
@@ -203,8 +193,6 @@ func (r *recorder) attribute(host, path string, headerNames []string) {
 // mergeHeaderNames returns the union of the recorded and incoming header names,
 // deduplicated and sorted, so the artefact does not depend on the order the
 // header names arrived in.
-//
-//deadcode:ignore reason="reached through observe and attribute, whose pending production caller is the terminating proxy (next step in S4)"
 func mergeHeaderNames(recorded, incoming []string) []string {
 	seen := make(map[string]bool)
 	var merged []string
@@ -222,8 +210,6 @@ func mergeHeaderNames(recorded, incoming []string) []string {
 // dedupeDestinations keeps one entry per destination identity, the last one
 // winning, so the recorder's own entry (appended second) supersedes an equal
 // destination in the given artefact.
-//
-//deadcode:ignore reason="reached through recorder.result, whose pending production caller is the terminating proxy's Stop (next step in S4)"
 func dedupeDestinations(destinations []Destination) []Destination {
 	kept := make([]Destination, 0, len(destinations))
 	for _, destination := range slices.Backward(destinations) {
@@ -240,8 +226,6 @@ func dedupeDestinations(destinations []Destination) []Destination {
 
 // dedupeAttributions keeps one entry per attributed destination, the last one
 // winning.
-//
-//deadcode:ignore reason="reached through recorder.result, whose pending production caller is the terminating proxy's Stop (next step in S4)"
 func dedupeAttributions(attributions []Attribution) []Attribution {
 	kept := make([]Attribution, 0, len(attributions))
 	for _, attribution := range slices.Backward(attributions) {
@@ -258,16 +242,12 @@ func dedupeAttributions(attributions []Attribution) []Attribution {
 
 // sameDestinationIdentity reports whether two entries name the same destination:
 // every field the recorder keys on — host, IP, port, path, and protocol.
-//
-//deadcode:ignore reason="keys destination identity for dedupeDestinations, reached through the terminating proxy's Stop (next step in S4)"
 func sameDestinationIdentity(a, b Destination) bool {
 	return a.Host == b.Host && a.IP == b.IP && a.Port == b.Port && a.Path == b.Path && a.Protocol == b.Protocol
 }
 
 // compareDestination orders destinations by their identity, so the artefact is
 // deterministic regardless of the order requests arrived in.
-//
-//deadcode:ignore reason="orders the artefact for deterministic capture, reached through the terminating proxy's Stop (next step in S4)"
 func compareDestination(a, b Destination) int {
 	if order := strings.Compare(a.Host, b.Host); order != 0 {
 		return order
@@ -285,8 +265,6 @@ func compareDestination(a, b Destination) int {
 }
 
 // compareAttribution orders attributions by their destination.
-//
-//deadcode:ignore reason="orders the artefact for deterministic capture, reached through the terminating proxy's Stop (next step in S4)"
 func compareAttribution(a, b Attribution) int {
 	if order := strings.Compare(a.Host, b.Host); order != 0 {
 		return order
