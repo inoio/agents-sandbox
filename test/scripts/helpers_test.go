@@ -36,6 +36,12 @@ func fakeGhHandler(args []string) (string, string, int) {
 			return "", "fake gh: record argv: " + err.Error() + "\n", 1
 		}
 	}
+	// The audit derives a PR's commits from the local clone, never the API: fail
+	// any request whose --json field list names `commits`, so a regression to an
+	// API commit fetch is caught in every case instead of passing silently.
+	if requestsJSONField(args, "commits") {
+		return "", "fake gh: the audit must not request commits: " + strings.Join(args, " ") + "\n", 1
+	}
 	doc, served, err := ghDocument(args)
 	if err != nil {
 		return "", "fake gh: " + err.Error() + "\n", 1
@@ -162,6 +168,23 @@ func serveDocument(args []string, doc string) (string, string, int) {
 		return "", "fake gh: jq " + query + ": " + err.Error() + " " + stderr.String(), 1
 	}
 	return stdout.String(), "", 0
+}
+
+// requestsJSONField reports whether a gh call asks for name in its --json field
+// list (a comma-separated value), so the fake can reject a request for a field
+// the audit must never fetch.
+func requestsJSONField(args []string, name string) bool {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] != "--json" {
+			continue
+		}
+		for _, field := range strings.Split(args[i+1], ",") {
+			if strings.TrimSpace(field) == name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // jqQuery returns the expression following -q or --jq, or "".

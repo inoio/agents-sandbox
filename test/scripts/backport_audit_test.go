@@ -53,7 +53,6 @@ func TestBackportAudit(t *testing.T) {
 		assertContains(t, "stderr", result.Stderr, "truncated")
 		assertContains(t, "stderr", result.Stderr, "--limit 5 cap")
 		assertContains(t, "argv", h.argv(), "--limit 5")
-		assertNotContains(t, "argv", h.argv(), "--json commits")
 		if result.Stdout != "" {
 			t.Errorf("printed a clean result: %q", result.Stdout)
 		}
@@ -273,6 +272,7 @@ func TestBackportAudit(t *testing.T) {
 
 		assertStatus(t, result, 1)
 		assertContains(t, "stdout", result.Stdout, "#7")
+		assertContains(t, "stdout", result.Stdout, "missing:1")
 		assertContains(t, "argv", h.argv(), "issue list")
 		assertContains(t, "argv", h.argv(), "pr view 7")
 	})
