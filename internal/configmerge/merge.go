@@ -25,9 +25,11 @@ import (
 	"github.com/inoio/agents-sandbox/internal/projectguard"
 )
 
-// snippetFileMatches reports whether name matches the agent's snippet pattern
-// glob (e.g. "opencode*.json*", "pi-*.{json,yaml}" or "settings*.json*").
-func snippetFileMatches(pattern, name string) bool {
+// SnippetNameMatches reports whether a file named name is a snippet the agent's
+// pattern merges — the file provisioning actually reads (e.g. "opencode*.json*",
+// "pi-*.{json,yaml}" or "settings*.json*"). A caller that proposes a managed
+// snippet uses it to avoid naming a file the merge never reads.
+func SnippetNameMatches(pattern, name string) bool {
 	return matchesGlob(pattern, name)
 }
 
@@ -104,7 +106,7 @@ func checkSnippetListing(dir, pattern string, entries []os.DirEntry) {
 		listed = append(listed, filepath.Join(dir, entry.Name()))
 	}
 	_ = projectguard.CheckListing(dir, listed, func(rel string) bool {
-		return !strings.ContainsRune(rel, filepath.Separator) && snippetFileMatches(pattern, rel)
+		return !strings.ContainsRune(rel, filepath.Separator) && SnippetNameMatches(pattern, rel)
 	})
 }
 
@@ -134,7 +136,7 @@ func scanSnippets(dirs []string, pattern string) (map[string]any, []string, []Sk
 		})
 		for _, entry := range entries {
 			// gomutants:disable-next-line EXPRESSION_REMOVE reason="a directory that slips past reaches os.ReadFile, which errors and the guard below continues, so IsDir is redundant"
-			if entry.IsDir() || !snippetFileMatches(pattern, entry.Name()) {
+			if entry.IsDir() || !SnippetNameMatches(pattern, entry.Name()) {
 				continue
 			}
 			snippetPath := filepath.Join(dir, entry.Name())
@@ -296,7 +298,7 @@ func scanMirrorDir(pattern string, family []string, dir, destDir string, byDest 
 				return true
 			}
 			name := filepath.Base(rel)
-			return !snippetFileMatches(pattern, name) && !inFamily(family, name)
+			return !SnippetNameMatches(pattern, name) && !inFamily(family, name)
 		},
 		func(entry filewalk.Entry) error {
 			dest := filepath.Join(destDir, entry.Rel)

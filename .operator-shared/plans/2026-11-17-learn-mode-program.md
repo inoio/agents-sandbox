@@ -260,7 +260,7 @@ type ApplyResult struct { Finding Finding; Outcome Outcome; WroteDirs []string; 
 //       Write gains: ManagedConfig *ManagedConfigWrite
 //       ApplyOptions gains: Agent string // the agent whose config-dir name the write targets
 //       func ManagedConfigFindings(f ManagedConfigFacts) []Finding
-//       type ManagedConfigFacts struct { Paths configpaths.ConfigPaths; Slug, Home, Agent string; ReadBack readback.ReadBack; Logger termio.Logger }
+//       type ManagedConfigFacts struct { Paths configpaths.ConfigPaths; Slug, Home, Agent string; ReadBack readback.ReadBack; SecretEnvVars []string; Logger termio.Logger }
 //
 // internal/agent — S10
 //   type EnvIndirectionDescriber interface { EnvIndirectionKey() string } // the config key a harness reads an env-var name from (kimi's "api_key_env"); "" when it takes ${VAR} verbatim

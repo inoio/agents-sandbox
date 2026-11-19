@@ -154,6 +154,7 @@ func TestAnalysisFindingsIncludeManagedConfig(t *testing.T) {
 				Source:   configPath,
 				Provider: "openai",
 				EnvVar:   "OPENAI_API_KEY",
+				Hosts:    []string{"api.openai.com"},
 				Value:    secret,
 			}},
 		},

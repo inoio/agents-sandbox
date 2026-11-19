@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/sandbox/readback"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
@@ -58,8 +59,9 @@ func TestManagedConfigReplacesStaticSecretValues(t *testing.T) {
 `)
 
 	findings := ManagedConfigFindings(ManagedConfigFacts{
-		Home:  home,
-		Agent: "opencode2",
+		Home:          home,
+		Agent:         "opencode2",
+		SecretEnvVars: []string{"OPENAI_API_KEY"},
 		ReadBack: changedConfigBack(
 			managedConfigTestPath,
 			testStaticCredential(managedConfigTestPath, "OPENAI_API_KEY", secret),
@@ -164,8 +166,9 @@ func TestManagedConfigNeverCarriesAValue(t *testing.T) {
 	writeManagedConfig(t, home, managedConfigTestPath, "{\n  \"apiKey\": \""+secret+"\"\n}\n")
 
 	findings := ManagedConfigFindings(ManagedConfigFacts{
-		Home:  home,
-		Agent: "opencode2",
+		Home:          home,
+		Agent:         "opencode2",
+		SecretEnvVars: []string{"OPENAI_API_KEY"},
 		ReadBack: changedConfigBack(
 			managedConfigTestPath,
 			testStaticCredential(managedConfigTestPath, "OPENAI_API_KEY", secret),
@@ -208,7 +211,8 @@ func TestManagedConfigSkipsAValueItCannotReplace(t *testing.T) {
 			configPath,
 			testStaticCredential(configPath, "MOONSHOT_API_KEY", secret),
 		),
-		Logger: logger,
+		SecretEnvVars: []string{"MOONSHOT_API_KEY"},
+		Logger:        logger,
 	})
 
 	require.Empty(t, findings)
@@ -272,9 +276,9 @@ func TestManagedConfigSkipsAnEscapedStaticValue(t *testing.T) {
 func TestManagedConfigRefusesAValueFromAnotherSource(t *testing.T) {
 	home := t.TempDir()
 	const sourcePath = ".config/opencode/opencode.jsonc"
-	const candidatePath = ".config/opencode/AGENTS.md"
+	const candidatePath = ".config/opencode/opencode.json5"
 	const secret = "sk-cross-source"
-	writeManagedConfig(t, home, candidatePath, "Example: pass the key "+secret+" to the tool.\n")
+	writeManagedConfig(t, home, candidatePath, "{\n  \"note\": \""+secret+"\"\n}\n")
 	logger := &termiotest.Mock{}
 
 	findings := ManagedConfigFindings(ManagedConfigFacts{
@@ -329,6 +333,7 @@ func TestManagedConfigUsesNativeEnvIndirection(t *testing.T) {
 			configPath,
 			testStaticCredential(configPath, "MOONSHOT_API_KEY", secret),
 		),
+		SecretEnvVars: []string{"MOONSHOT_API_KEY"},
 	})
 
 	require.Len(t, findings, 1)
@@ -380,6 +385,7 @@ func TestManagedConfigNativeIndirectionRewritesKeyForms(t *testing.T) {
 					configPath,
 					testStaticCredential(configPath, "MOONSHOT_API_KEY", secret),
 				),
+				SecretEnvVars: []string{"MOONSHOT_API_KEY"},
 			})
 
 			require.Len(t, findings, 1)
@@ -419,8 +425,9 @@ func TestManagedConfigUnknownAgentUsesTheDefaultPlaceholder(t *testing.T) {
 	writeManagedConfig(t, home, managedConfigTestPath, "{\n  \"apiKey\": \""+secret+"\"\n}\n")
 
 	findings := ManagedConfigFindings(ManagedConfigFacts{
-		Home:  home,
-		Agent: "no-such-agent",
+		Home:          home,
+		Agent:         "no-such-agent",
+		SecretEnvVars: []string{"OPENAI_API_KEY"},
 		ReadBack: changedConfigBack(
 			managedConfigTestPath,
 			testStaticCredential(managedConfigTestPath, "OPENAI_API_KEY", secret),
@@ -431,38 +438,143 @@ func TestManagedConfigUnknownAgentUsesTheDefaultPlaceholder(t *testing.T) {
 	require.Contains(t, string(findings[0].Writes[0].ManagedConfig.Content), "${OPENAI_API_KEY}")
 }
 
-// TestManagedConfigWritesAFormatItCannotDecode pins the fallback for a candidate
-// whose extension configdecode does not know (an agent-authored markdown file):
-// only the literal value check runs, so a value-free file is written back.
-func TestManagedConfigWritesAFormatItCannotDecode(t *testing.T) {
+// TestManagedConfigSkipsANonSnippetName pins that a candidate the agent's
+// snippet pattern does not match is not proposed: provisioning merges only
+// snippet-matching files, so opencode's config-family "config.json" (a mirror
+// name, not a snippet) would be a managed write the next run never reads. The
+// snippet-matching sibling is still proposed.
+func TestManagedConfigSkipsANonSnippetName(t *testing.T) {
 	home := t.TempDir()
-	const configPath = ".config/opencode/AGENTS.md"
-	writeManagedConfig(t, home, configPath, "# house rules\n")
+	const mirrorPath = ".config/opencode/config.json"
+	const snippetPath = ".config/opencode/opencode.jsonc"
+	writeManagedConfig(t, home, mirrorPath, "{\n  \"model\": \"sonnet\"\n}\n")
+	writeManagedConfig(t, home, snippetPath, "{\n  \"model\": \"sonnet\"\n}\n")
+	logger := &termiotest.Mock{}
 
 	findings := ManagedConfigFindings(ManagedConfigFacts{
-		Home:     home,
-		Agent:    "opencode2",
-		ReadBack: changedConfigBack(configPath),
+		Home:  home,
+		Agent: "opencode2",
+		ReadBack: readback.ReadBack{
+			ConfigPaths: []string{mirrorPath, snippetPath},
+			Changed:     []string{mirrorPath, snippetPath},
+		},
+		Logger: logger,
 	})
 
 	require.Len(t, findings, 1)
-	require.Equal(t, "AGENTS.md", findings[0].Writes[0].ManagedConfig.Name)
+	require.Equal(t, "opencode.jsonc", findings[0].Writes[0].ManagedConfig.Name)
+	require.NotEmpty(t, logger.WarnCalls, "a non-snippet candidate must be reported")
 }
 
-// TestManagedConfigWritesAFileThatDoesNotDecode pins the decode-error fallback: a
-// candidate with a known format whose content does not parse is judged on the
-// literal check alone, so a value-free malformed file is still written back.
-func TestManagedConfigWritesAFileThatDoesNotDecode(t *testing.T) {
+// TestManagedConfigRefusesAFileThatDoesNotDecode pins the decode-error safety
+// net: a candidate with a known format whose content does not parse cannot be
+// walked for an escaped value, so it is reported and no finding is emitted — a
+// value must never reach the managed config by omission.
+func TestManagedConfigRefusesAFileThatDoesNotDecode(t *testing.T) {
 	home := t.TempDir()
 	writeManagedConfig(t, home, managedConfigTestPath, "[1, 2\n")
+	logger := &termiotest.Mock{}
 
 	findings := ManagedConfigFindings(ManagedConfigFacts{
 		Home:     home,
 		Agent:    "opencode2",
 		ReadBack: changedConfigBack(managedConfigTestPath),
+		Logger:   logger,
+	})
+
+	require.Empty(t, findings)
+	require.NotEmpty(t, logger.WarnCalls, "an undecodable candidate must be reported")
+}
+
+// TestContentRetainsStaticValueUnknownFormat pins the fallback for a path whose
+// extension configdecode does not know: only the literal check runs, so a
+// value-free file is reported as retaining nothing.
+func TestContentRetainsStaticValueUnknownFormat(t *testing.T) {
+	credentials := []readback.Credential{testStaticCredential(".config/opencode/notes.txt", "OPENAI_API_KEY", "sk-x")}
+
+	require.False(t, contentRetainsStaticValue(".config/opencode/notes.txt", "no secret here\n", credentials))
+}
+
+// TestManagedConfigRefusesACredentialThatWillNotBeASecret pins the placeholder
+// invariant: the write-back substitutes a credential only when the analysis will
+// propose it as an env.secret.yaml entry. A credential that will not become a
+// secret leaves the file refused, so it never carries an orphan ${ENVVAR}
+// placeholder (the harness would send the literal) or a raw sibling value.
+func TestManagedConfigRefusesACredentialThatWillNotBeASecret(t *testing.T) {
+	home := t.TempDir()
+	const secret = "sk-unscoped"
+	writeManagedConfig(t, home, managedConfigTestPath, "{\n  \"apiKey\": \""+secret+"\"\n}\n")
+	logger := &termiotest.Mock{}
+
+	findings := ManagedConfigFindings(ManagedConfigFacts{
+		Home:  home,
+		Agent: "opencode2",
+		ReadBack: changedConfigBack(
+			managedConfigTestPath,
+			testStaticCredential(managedConfigTestPath, "OPENAI_API_KEY", secret),
+		),
+		// No SecretEnvVars: the credential has no host, so no secret is proposed.
+		Logger: logger,
+	})
+
+	require.Empty(t, findings)
+	require.NotEmpty(t, logger.WarnCalls, "a credential that will not be a secret must be reported")
+}
+
+// TestManagedConfigNativeIndirectionLeavesAnEnvTableKey pins that the native
+// rewrite does not rename an assignment whose key is already the env-var name.
+// kimi's env-table entry KIMI_API_KEY = "<value>" must keep its key and take the
+// ${ENVVAR} placeholder; renaming it to api_key_env would drop the credential.
+func TestManagedConfigNativeIndirectionLeavesAnEnvTableKey(t *testing.T) {
+	home := t.TempDir()
+	const configPath = ".kimi-code/config.toml"
+	const secret = "sk-declared"
+	writeManagedConfig(t, home, configPath, "[providers.x.env]\nKIMI_API_KEY = \""+secret+"\"\n")
+
+	findings := ManagedConfigFindings(ManagedConfigFacts{
+		Home:  home,
+		Agent: "kimi-code",
+		ReadBack: changedConfigBack(
+			configPath,
+			testStaticCredential(configPath, "KIMI_API_KEY", secret),
+		),
+		SecretEnvVars: []string{"KIMI_API_KEY"},
 	})
 
 	require.Len(t, findings, 1)
+	content := string(findings[0].Writes[0].ManagedConfig.Content)
+	require.Contains(t, content, `KIMI_API_KEY = "${KIMI_API_KEY}"`)
+	require.NotContains(t, content, "api_key_env", "the env-var key is not renamed to the indirection key")
+	require.NotContains(t, content, secret)
+}
+
+// TestManagedConfigReplacesPrefixValuesLongestFirst pins the substitution order:
+// when one value is a prefix of another in the same file, the longer value is
+// replaced first, so the shorter one cannot corrupt it into a placeholder
+// followed by the longer value's tail.
+func TestManagedConfigReplacesPrefixValuesLongestFirst(t *testing.T) {
+	home := t.TempDir()
+	const short = "sk-abc"
+	const long = "sk-abcdef"
+	writeManagedConfig(t, home, managedConfigTestPath, "{\n  \"a\": \""+short+"\",\n  \"b\": \""+long+"\"\n}\n")
+
+	findings := ManagedConfigFindings(ManagedConfigFacts{
+		Home:          home,
+		Agent:         "opencode2",
+		SecretEnvVars: []string{"A_API_KEY", "B_API_KEY"},
+		ReadBack: changedConfigBack(
+			managedConfigTestPath,
+			testStaticCredential(managedConfigTestPath, "A_API_KEY", short),
+			testStaticCredential(managedConfigTestPath, "B_API_KEY", long),
+		),
+	})
+
+	require.Len(t, findings, 1)
+	content := string(findings[0].Writes[0].ManagedConfig.Content)
+	require.Contains(t, content, "${B_API_KEY}", "the longer value keeps its own placeholder")
+	require.NotContains(t, content, "${A_API_KEY}def", "the shorter value must not corrupt the longer one")
+	require.NotContains(t, content, short)
+	require.NotContains(t, content, long)
 }
 
 // TestManagedConfigRefusesAnEscapedValueInAnArray pins the decoded check's array
@@ -483,7 +595,8 @@ func TestManagedConfigRefusesAnEscapedValueInAnArray(t *testing.T) {
 			managedConfigTestPath,
 			testStaticCredential(managedConfigTestPath, "OPENAI_API_KEY", secret),
 		),
-		Logger: logger,
+		SecretEnvVars: []string{"OPENAI_API_KEY"},
+		Logger:        logger,
 	})
 
 	require.Empty(t, findings)
@@ -509,4 +622,34 @@ func TestAssignmentKeyRangeRejectsASeparatorWithoutAKey(t *testing.T) {
 	_, _, ok := assignmentKeyRange(content, strings.Index(content, "value"))
 
 	require.False(t, ok)
+}
+
+// snippetlessAgent is a registered stub that does not implement
+// agent.ConfigMerger, so tests can drive the "no snippet pattern" branch.
+type snippetlessAgent struct{ name string }
+
+func (a snippetlessAgent) Name() string             { return a.name }
+func (snippetlessAgent) ConfigDirName() string      { return "snippetless" }
+func (snippetlessAgent) Experimental() bool         { return false }
+func (snippetlessAgent) ImageSpec() agent.ImageSpec { return agent.ImageSpec{} }
+
+// withSnippetlessAgent registers the stub under name for the test, restoring the
+// built-in afterward.
+func withSnippetlessAgent(t *testing.T, name string) {
+	t.Helper()
+	original, ok := agent.Lookup(name)
+	if !ok {
+		t.Fatalf("%s must be a registered agent", name)
+	}
+	agent.Register(snippetlessAgent{name: name})
+	t.Cleanup(func() { agent.Register(original) })
+}
+
+// TestSnippetNameMatchesIsPermissiveWithoutASnippetPattern pins the guard: an
+// agent that declares no snippet pattern is not second-guessed, so a candidate
+// is not dropped on a pattern the agent never stated.
+func TestSnippetNameMatchesIsPermissiveWithoutASnippetPattern(t *testing.T) {
+	withSnippetlessAgent(t, "codex")
+
+	require.True(t, snippetNameMatches("codex", ".config/codex/anything.txt"))
 }

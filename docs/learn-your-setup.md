@@ -50,9 +50,10 @@ so every clone of it shares the same settings. It proposes:
 
 - a `network.egress-allow` set — the destinations the session used, added to the ones you already allow;
 - a static secret for each credential it can attribute to a destination;
-- a managed copy of each agent config file the session created or changed, written to the same per-slug user config with
-  each static secret value replaced by a placeholder. The value itself goes to `env.secret.yaml`, and a file that holds
-  only a sign-in stays in the sandbox.
+- a managed copy of each agent config file the session created or changed that the launcher merges, written to the same
+  per-slug user config with each static secret value replaced by a placeholder. The value itself goes to
+  `env.secret.yaml`; a file that holds only a sign-in, or a credential the launcher cannot attribute to a destination,
+  stays in the sandbox.
 
 It never removes a setting you wrote and never widens your network policy: the proposed allow set is your current set
 plus only what the session reached, and a denied destination is reported but never allowed. The network policy applies

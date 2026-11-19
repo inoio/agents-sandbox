@@ -49,13 +49,29 @@ func (a Analysis) Findings(logger termio.Logger) []analyser.Finding {
 		Current:     a.Current,
 	})
 	return append(findings, analyser.ManagedConfigFindings(analyser.ManagedConfigFacts{
-		Paths:    a.Paths,
-		Slug:     a.Slug,
-		Home:     a.Home,
-		Agent:    a.Agent,
-		ReadBack: a.ReadBack,
-		Logger:   logger,
+		Paths:         a.Paths,
+		Slug:          a.Slug,
+		Home:          a.Home,
+		Agent:         a.Agent,
+		ReadBack:      a.ReadBack,
+		SecretEnvVars: proposedSecretEnvVars(findings),
+		Logger:        logger,
 	})...)
+}
+
+// proposedSecretEnvVars returns the env-var names the observation findings
+// propose as static secrets, so the managed-config write-back substitutes a
+// credential only when a matching env.secret.yaml entry is proposed.
+func proposedSecretEnvVars(findings []analyser.Finding) []string {
+	var names []string
+	for _, finding := range findings {
+		for _, write := range finding.Writes {
+			if write.Secret != nil && !write.Secret.Remove {
+				names = append(names, write.Secret.EnvVar)
+			}
+		}
+	}
+	return names
 }
 
 // SecretValue resolves a proposed static secret's value in memory, matched by
