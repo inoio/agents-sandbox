@@ -15,12 +15,16 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
-// gitIsolationEnvironment returns environ with the developer's git and ssh
+// GitIsolationEnvironment returns environ with the developer's git and ssh
 // configuration neutralized, so a test that shells out to git can neither read
 // nor prompt through the host's global or system config — commit signing
 // (which pops a GUI askpass such as ksshaskpass), a credential helper, or an
 // askpass program. The fixtures pin any git setting they depend on themselves.
-func gitIsolationEnvironment(environ []string) []string {
+//
+// It is the exported entry point for a caller outside testutil that builds a
+// child process environment; isAmbientGitSetting stays unexported so a caller
+// cannot filter by hand and miss a channel.
+func GitIsolationEnvironment(environ []string) []string {
 	var isolated []string
 	for _, entry := range environ {
 		name, _, _ := strings.Cut(entry, "=")
@@ -56,7 +60,7 @@ func RunGit(tb testing.TB, dir string, args ...string) string {
 	tb.Helper() // gomutants:disable STATEMENT_REMOVE reason="t.Helper only adjusts reported stack frames"
 	cmd := exec.CommandContext(context.Background(), "git", args...)
 	cmd.Dir = dir
-	cmd.Env = gitIsolationEnvironment(os.Environ())
+	cmd.Env = GitIsolationEnvironment(os.Environ())
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		tb.Fatalf("git %v in %s failed: %v\n%s", args, dir, err, out)

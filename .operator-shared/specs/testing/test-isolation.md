@@ -322,7 +322,7 @@ seam family is reached without its injectable factory. The remaining ambient pat
   absolute only while `worktree.useRelativePaths` is false, and CI on a plain clone never exercises a developer's global
   setting (`TestResolveIdentityOutsideWorktreeReportsSharedGitDir`). Because those tests are `integration`-tagged they are
   outside the default coverage profile, so the test-support file `testgit.go` is excluded from the Codecov gate
-  (`.codecov.yml`); its pure `gitIsolationEnvironment` is unit-tested in `testgit_test.go`.
+  (`.codecov.yml`); its pure `GitIsolationEnvironment` is unit-tested in `testgit_test.go`.
 
 A 2026-11-06 re-sweep of `internal/**` and `cmd/**` confirmed the model and closed the ambient-OS half with the
 gate above. Every sanctioned use now carries a `//testenv:allow <reason>` marker. Three residuals remain:

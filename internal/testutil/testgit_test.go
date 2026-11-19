@@ -12,7 +12,7 @@ import (
 // defaults, so a fixture commit can never reach a signing or credential prompt.
 // The real-git behaviour is pinned separately in testgit_integration_test.go.
 func TestGitIsolationEnvironmentNeutralizesAmbientGitConfig(t *testing.T) {
-	isolated := gitIsolationEnvironment([]string{
+	isolated := GitIsolationEnvironment([]string{
 		"GIT_CONFIG_GLOBAL=/home/dev/.gitconfig",
 		"GIT_CONFIG_SYSTEM=/etc/gitconfig",
 		"GIT_CONFIG_PARAMETERS='commit.gpgsign=true'",
@@ -32,7 +32,7 @@ func TestGitIsolationEnvironmentNeutralizesAmbientGitConfig(t *testing.T) {
 		"GIT_TERMINAL_PROMPT=0",
 	}
 	if !slices.Equal(isolated, want) {
-		t.Errorf("gitIsolationEnvironment() = %q, want %q", isolated, want)
+		t.Errorf("GitIsolationEnvironment() = %q, want %q", isolated, want)
 	}
 }
 
