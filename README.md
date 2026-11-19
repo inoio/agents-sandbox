@@ -9,7 +9,7 @@
 [![Docs](https://img.shields.io/badge/docs-github--pages-blue)](https://inoio.github.io/agents-sandbox/)
 
 agents-sandbox allows you to isolate your coding agents from the rest of your dev environment. You are put in control over what parts of your host machine and network environment are available to each agent. agents-sandbox acts as a launcher for [opencode](https://opencode.ai), [opencode2](https://opencode.ai),
-[pi](https://pi.dev), [Claude Code](https://claude.com/product/claude-code), [Codex](https://github.com/openai/codex), [Hermes Agent](https://hermes-agent.nousresearch.com/), and [Oh My Pi](https://github.com/can1357/oh-my-pi). It builds or reuses a dedicated [microsandbox](https://microsandbox.dev/) VM per
+[pi](https://pi.dev), [Claude Code](https://claude.com/product/claude-code), [Codex](https://github.com/openai/codex), [Hermes Agent](https://hermes-agent.nousresearch.com/), [Oh My Pi](https://github.com/can1357/oh-my-pi), and [Kimi Code](https://github.com/MoonshotAI/kimi-code). It builds or reuses a dedicated [microsandbox](https://microsandbox.dev/) VM per
 project and agent, then attaches the selected agent inside that VM. A system-wide microsandbox installation is not
 required: agents-sandbox provisions its own isolated runtime under its data directory, never uses `~/.microsandbox` as
 its runtime, and never writes to it (the one-time migration reads it only to copy your old volumes).
@@ -106,8 +106,10 @@ Seven agents ship as built-in profiles:
   pinned release tag, run interactively, with upgrade checks via its GitHub releases.
 - **`oh-my-pi`** — [Oh My Pi](https://github.com/can1357/oh-my-pi) (binary `omp`), installed from its checksum-verified
   GitHub release binary (about 275 MB), run interactively, with upgrade checks via its GitHub releases.
+- **`kimi-code`** — [Kimi Code CLI](https://github.com/MoonshotAI/kimi-code) (binary `kimi`), installed from its
+  checksum-verified GitHub release binary (about 194 MB), run interactively, with upgrade checks via the npm registry.
 
-`opencode` and `opencode2` are the tested default agents; the other five are experimental — not well tested with
+`opencode` and `opencode2` are the tested default agents; the other six are experimental — not well tested with
 agents-sandbox.
 
 ## Documentation
