@@ -165,3 +165,107 @@ func TestAnalyseReadsBackAndApplies(t *testing.T) {
 		t.Errorf("Results = %+v, want one result", summary.Results)
 	}
 }
+
+// TestSummarizeCountsServicesDeniedAndKeys pins summarize's counting: a blank
+// host is skipped even when denied (it must not reach the Denied note), a denied
+// destination lands in Denied (never ServicesReached), a successful one in
+// ServicesReached, and KeysUsed counts only applied, non-removing static-secret
+// writes — a skipped finding and a removal do not count, and a non-secret write
+// never does.
+func TestSummarizeCountsServicesDeniedAndKeys(t *testing.T) {
+	analysis := Analysis{Observation: channel.Observation{Destinations: []channel.Destination{
+		{Host: "", Denied: true},
+		{Host: "denied.example", Denied: true},
+		{Host: "blocked.example", Denied: true},
+		{Host: "ok.example", Success: true},
+	}}}
+	results := []analyser.ApplyResult{
+		{
+			Outcome: analyser.OutcomeSkipped,
+			Finding: analyser.Finding{Writes: []analyser.Write{
+				{Secret: &analyser.SecretWrite{EnvVar: "SKIPPED_KEY"}},
+			}},
+		},
+		{
+			Outcome: analyser.OutcomeApplied,
+			Finding: analyser.Finding{Writes: []analyser.Write{
+				{ConfigKey: "network.egress-allow"},
+				{Secret: &analyser.SecretWrite{EnvVar: "OPENAI_API_KEY"}},
+				{Secret: &analyser.SecretWrite{EnvVar: "REMOVED_KEY", Remove: true}},
+			}},
+		},
+	}
+
+	summary := summarize(analysis, results)
+
+	if summary.ServicesReached != 1 {
+		t.Errorf("ServicesReached = %d, want 1 (the blank host is skipped)", summary.ServicesReached)
+	}
+	if want := []string{"blocked.example", "denied.example"}; !slices.Equal(summary.Denied, want) {
+		t.Errorf("Denied = %v, want %v sorted", summary.Denied, want)
+	}
+	if summary.KeysUsed != 1 {
+		t.Errorf("KeysUsed = %d, want 1 (only the applied, non-removing secret)", summary.KeysUsed)
+	}
+	if len(summary.Results) != len(results) {
+		t.Errorf("Results = %+v, want the results passed through", summary.Results)
+	}
+}
+
+// TestSecretValueEmptyValueDoesNotResolve pins that a matched credential with an
+// empty value does not resolve: a static write must never be applied with a
+// blank secret.
+func TestSecretValueEmptyValueDoesNotResolve(t *testing.T) {
+	analysis := Analysis{
+		ReadBack: readback.ReadBack{Static: []readback.Credential{
+			{Kind: readback.CredentialStatic, EnvVar: "EMPTY_KEY", Value: ""},
+		}},
+	}
+
+	value, ok := analysis.SecretValue()(analyser.SecretWrite{EnvVar: "EMPTY_KEY"})
+	if ok || value != "" {
+		t.Errorf("SecretValue = (%q, %v), want (\"\", false) for an empty value", value, ok)
+	}
+}
+
+// TestAnalyseDerivesSecretFindingFromReadBack pins that Analyse threads the
+// read-back it just read into the findings: a static credential with hosts must
+// yield the derived secret finding. If the assignment were dropped the findings
+// would derive from a zero ReadBack and none would appear.
+func TestAnalyseDerivesSecretFindingFromReadBack(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+
+	origRead, origApply := readBack, applyFindings
+	readBack = func(string, string, readback.Manifest) (readback.ReadBack, error) {
+		return readback.ReadBack{Static: []readback.Credential{
+			{
+				Kind:     readback.CredentialStatic,
+				Provider: "openai",
+				EnvVar:   "OPENAI_API_KEY",
+				Hosts:    []string{"api.openai.com"},
+				Value:    "sk-secret",
+			},
+		}}, nil
+	}
+	var applied []analyser.Finding
+	applyFindings = func(findings []analyser.Finding, _ analyser.ApplyOptions) []analyser.ApplyResult {
+		applied = findings
+		return nil
+	}
+	t.Cleanup(func() { readBack, applyFindings = origRead, origApply })
+
+	_, err := Analyse(context.Background(), Analysis{
+		Slug:  "proj",
+		Agent: "opencode",
+		Home:  "/home/vol",
+	}, &termiotest.Mock{}, options.ModeRun, nil)
+	if err != nil {
+		t.Fatalf("Analyse: %v", err)
+	}
+	if len(applied) != 1 {
+		t.Fatalf("applied findings = %+v, want the derived secret finding", applied)
+	}
+	if applied[0].Writes[0].Secret == nil || applied[0].Writes[0].Secret.EnvVar != "OPENAI_API_KEY" {
+		t.Errorf("finding = %+v, want the OPENAI_API_KEY secret write", applied[0])
+	}
+}

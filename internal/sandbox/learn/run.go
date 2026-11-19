@@ -22,6 +22,15 @@ var homeVolumePath = readback.HomeVolumePath
 // takeManifest takes an agent's baseline manifest. A seam for the same reason.
 var takeManifest = readback.TakeManifest
 
+// startObservation starts the observation channel. It is a seam so a test can
+// drive Begin's failure branch, which a real bind failure cannot produce
+// deterministically.
+var startObservation = channel.StartObservation
+
+// recordLearnSession records a learning session in state. A seam so a test can
+// drive the record failure branches without corrupting a real state file.
+var recordLearnSession = state.RecordLearnSession
+
 // Run owns one session's observation: the channel (nil when passive), the
 // pre-overlay base policy, the captured home-volume path, the baseline manifest,
 // the recorded session (updated with the artefact path at teardown), and the
@@ -39,7 +48,7 @@ type Run struct {
 // it. On failure it returns a nil Run and the error; the caller warns and uses
 // Passive.
 func Begin(base network.Policy) (*Run, error) {
-	observer, err := channel.StartObservation("", base)
+	observer, err := startObservation("", base)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +107,7 @@ func (r *Run) CaptureBaseline(ctx context.Context, k state.Key, agentName string
 		HomeVolume: homeState.HomeVolume,
 		Baseline:   manifestToState(manifest),
 	}
-	if err := state.RecordLearnSession(k, r.record); err != nil {
+	if err := recordLearnSession(k, r.record); err != nil {
 		return "", err
 	}
 	return home, nil

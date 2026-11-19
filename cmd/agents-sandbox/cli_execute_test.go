@@ -229,6 +229,55 @@ func TestRunInvokesLearnArtefactPrune(t *testing.T) {
 	}
 }
 
+// TestRunLearnArtefactPruneReportsVerbose pins the startup sweep's reporting: a
+// sweep error and a non-zero removal count each emit one verbose line, and a
+// zero-removal sweep stays silent.
+func TestRunLearnArtefactPruneReportsVerbose(t *testing.T) {
+	initTestProjectDir(t)
+
+	cases := []struct {
+		name     string
+		removed  int
+		err      error
+		wantLine string
+	}{
+		{name: "removed", removed: 2, wantLine: "pruned 2 abandoned learn artefact(s)"},
+		{name: "error", err: errors.New("boom"), wantLine: "learn artefact prune: boom"},
+		{name: "none"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			original := pruneLearnArtefacts
+			pruneLearnArtefacts = func(time.Time) (int, error) { return tc.removed, tc.err }
+			t.Cleanup(func() { pruneLearnArtefacts = original })
+
+			root, ui := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, cmdRun, "--dry-run-vm")
+			if err := root.Execute(); err != nil {
+				t.Fatalf("run --dry-run-vm: %v", err)
+			}
+
+			if tc.wantLine == "" {
+				for _, line := range ui.VerboseCalls {
+					if strings.Contains(line, "learn artefact") {
+						t.Errorf("VerboseCalls = %v, want no prune line for a zero-removal sweep", ui.VerboseCalls)
+					}
+				}
+				return
+			}
+			found := false
+			for _, line := range ui.VerboseCalls {
+				if strings.Contains(line, tc.wantLine) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("VerboseCalls = %v, want %q", ui.VerboseCalls, tc.wantLine)
+			}
+		})
+	}
+}
+
 // TestMainProcess exercises the real main() entrypoint in a subprocess so that
 // os.Exit is not invoked in the test process itself. It covers both the
 // successful version path (exit 0) and the error path (exit 1).

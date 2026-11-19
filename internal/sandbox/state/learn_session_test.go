@@ -2,6 +2,7 @@ package state
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -115,6 +116,23 @@ func TestClearLearnSessionIsNoOpWhenAbsent(t *testing.T) {
 	}
 	if got.HomeVolume != "vol" || got.Learn != nil {
 		t.Errorf("state = %+v, want the home volume unchanged and no learn record", got)
+	}
+}
+
+// TestReadLearnSessionReportsAnUnreadableState pins that a state read failure
+// other than "not found" is returned rather than reported as "no session", so a
+// corrupt document is never mistaken for an empty one.
+func TestReadLearnSessionReportsAnUnreadableState(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	k := Key{Slug: "proj", Agent: "opencode"}
+	if err := os.MkdirAll(stateFile(k), 0o700); err != nil {
+		t.Fatalf("mkdir state file: %v", err)
+	}
+
+	if _, _, err := ReadLearnSession(k); err == nil {
+		t.Fatal("ReadLearnSession over an unreadable state = nil error, want the read failure")
+	} else if errors.Is(err, ErrStateNotFound) {
+		t.Errorf("ReadLearnSession error = %v, want a read failure, not ErrStateNotFound", err)
 	}
 }
 

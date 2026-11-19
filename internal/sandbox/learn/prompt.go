@@ -21,6 +21,10 @@ const (
 	exitNotNow  = "n"
 )
 
+// saveArtefact persists a scrubbed observation. It is a seam so a test can drive
+// Finish's save failure branch.
+var saveArtefact = channel.Save
+
 // exitPrompt is the question the launcher asks at teardown.
 const exitPrompt = "Save what agents-sandbox learned from this session?"
 
@@ -90,7 +94,7 @@ func (r *Run) Finish(ctx context.Context, in FinishInput) error {
 
 	artefactPath := ""
 	if !r.Passive() {
-		path, err := channel.Save(in.Key.Slug, r.startedAt.Unix(), observation)
+		path, err := saveArtefact(in.Key.Slug, r.startedAt.Unix(), observation)
 		if err != nil {
 			return fmt.Errorf("save the learn capture: %w", err)
 		}
@@ -98,7 +102,7 @@ func (r *Run) Finish(ctx context.Context, in FinishInput) error {
 		// Record the path so config learn can load the capture if this analysis
 		// does not finish (a crash or a review that never resolves).
 		r.record.ArtefactPath = path
-		if err := state.RecordLearnSession(in.Key, r.record); err != nil {
+		if err := recordLearnSession(in.Key, r.record); err != nil {
 			return fmt.Errorf("record the learn capture path: %w", err)
 		}
 	}

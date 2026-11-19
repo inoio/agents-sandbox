@@ -255,6 +255,25 @@ func TestArtefactDelete(t *testing.T) {
 	}
 }
 
+// Delete reports a path it cannot remove that is not simply missing, rather than
+// silently treating a failed removal as done. A non-empty directory cannot be
+// removed by os.Remove.
+func TestArtefactDeleteFailure(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "keep"), []byte("x"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	err := Delete(dir)
+	if err == nil {
+		t.Fatal("Delete of a non-empty directory returned no error")
+	}
+	if !strings.Contains(err.Error(), "remove observation") {
+		t.Errorf("Delete error = %q, want it to name the removal", err)
+	}
+	assertWrapsCause(t, err)
+}
+
 // Prune removes artefacts modified before the cutoff, keeps recent ones, and
 // removes the slug directory once it is empty.
 func TestArtefactPruneCutoff(t *testing.T) {

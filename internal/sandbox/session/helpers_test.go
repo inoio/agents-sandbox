@@ -136,13 +136,17 @@ func (f *fakePrepared) HomeVolume() string { return f.homeVolume }
 
 // fakeLearnRun is a learnSession double that records each lifecycle call's name,
 // so a test can assert the order session.Run drives it in without a real
-// observation channel or home volume.
+// observation channel or home volume. baselineErr and finishErr drive the
+// failure branches; finishInput captures what the after-run was handed.
 type fakeLearnRun struct {
-	overlay  network.Policy
-	passive  bool
-	stopped  bool
-	finished bool
-	events   *[]string
+	overlay     network.Policy
+	passive     bool
+	stopped     bool
+	finished    bool
+	baselineErr error
+	finishErr   error
+	finishInput learn.FinishInput
+	events      *[]string
 }
 
 func (f *fakeLearnRun) Overlay() network.Policy { return f.overlay }
@@ -157,13 +161,17 @@ func (f *fakeLearnRun) Stop() channel.Observation {
 
 func (f *fakeLearnRun) CaptureBaseline(context.Context, state.Key, string) (string, error) {
 	f.record("baseline")
+	if f.baselineErr != nil {
+		return "", f.baselineErr
+	}
 	return "/home/vol", nil
 }
 
-func (f *fakeLearnRun) Finish(context.Context, learn.FinishInput) error {
+func (f *fakeLearnRun) Finish(_ context.Context, in learn.FinishInput) error {
 	f.record("finish")
 	f.finished = true
-	return nil
+	f.finishInput = in
+	return f.finishErr
 }
 
 func (f *fakeLearnRun) record(event string) {

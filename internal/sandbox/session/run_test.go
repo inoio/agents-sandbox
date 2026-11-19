@@ -556,6 +556,288 @@ func TestRunLearnStartsChannelBeforePrepareAndBaselinesBeforeAttach(t *testing.T
 	}
 }
 
+// learnRunSandbox returns a mock sandbox whose attach and reap probes succeed, so
+// a full Run reaches the learn after-run.
+func learnRunSandbox() *msbtest.MockSandbox {
+	sb := &msbtest.MockSandbox{AttachCode: 0, Name_: "test-vm"}
+	sb.ShellOut = map[string]msb.ShellResult{
+		"curl -sf http://127.0.0.1:4096/session/status": msbtest.NewTestResult(
+			true, 0, `{"s1":{"type":"idle","attempt":0}}`, "", nil,
+		),
+	}
+	sb.ExecOut = map[string]msb.ShellResult{
+		"sleep 1h": msbtest.NewTestResult(true, 0, "", "", nil),
+	}
+	return sb
+}
+
+// warnContains reports whether any warning contains want.
+func warnContains(ui *termiotest.Mock, want string) bool {
+	for _, warning := range ui.WarnCalls {
+		if strings.Contains(warning, want) {
+			return true
+		}
+	}
+	return false
+}
+
+// TestLearnSeamsUseTheProductionChannel calls the production learnBegin and
+// learnPassive seams directly: Begin starts a real in-process channel (active,
+// overlay changes the fingerprint) and Passive builds an inactive Run.
+func TestLearnSeamsUseTheProductionChannel(t *testing.T) {
+	base := network.Policy{Profiles: []network.Profile{network.ProfileNone}}
+
+	active, err := learnBegin(base)
+	if err != nil {
+		t.Fatalf("learnBegin: %v", err)
+	}
+	defer active.Stop()
+	if active.Passive() {
+		t.Error("learnBegin returned a passive Run, want an active channel")
+	}
+	if active.Overlay().Fingerprint() == base.Fingerprint() {
+		t.Error("learnBegin's overlay must change the policy fingerprint")
+	}
+
+	passive := learnPassive(base)
+	if !passive.Passive() {
+		t.Error("learnPassive returned an active Run, want a passive one")
+	}
+	passive.Stop()
+}
+
+// TestRunLearnBeginFailureFallsBackToPassive pins that an unavailable channel is
+// a warning and a passive fallback, not a run failure.
+func TestRunLearnBeginFailureFallsBackToPassive(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
+
+	origBegin := learnBegin
+	learnBegin = func(network.Policy) (learnSession, error) { return nil, errors.New("channel unavailable") }
+	t.Cleanup(func() { learnBegin = origBegin })
+
+	origPrepare := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{}, nil
+	}
+	t.Cleanup(func() { prepareSandbox = origPrepare })
+
+	err := Run(
+		context.Background(),
+		resolvedRunOptions(
+			t,
+			options.RunOptions{Learn: true, Agent: "opencode", ReapPolicy: options.NewReapPolicy(true, 5)},
+		),
+		options.ModeSkipVM,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !warnContains(ui, "observation channel is unavailable") {
+		t.Errorf("WarnCalls = %v, want the passive-fallback warning", ui.WarnCalls)
+	}
+}
+
+// TestRunLearnBaselineFailureWarns pins that a failed baseline capture is a
+// warning; the run still attaches.
+func TestRunLearnBaselineFailureWarns(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	key := state.Key{Slug: "learnbaseline", Agent: "opencode"}
+	ui := &termiotest.Mock{}
+	fake := &fakeLearnRun{baselineErr: errors.New("baseline boom")}
+
+	origBegin := learnBegin
+	learnBegin = func(network.Policy) (learnSession, error) { return fake, nil }
+	t.Cleanup(func() { learnBegin = origBegin })
+
+	origPrepare := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{sb: learnRunSandbox(), target: "/workspace", key: key}, nil
+	}
+	t.Cleanup(func() { prepareSandbox = origPrepare })
+
+	if err := Run(
+		context.Background(),
+		resolvedRunOptions(
+			t,
+			options.RunOptions{Learn: true, Agent: "opencode", ReapPolicy: options.NewReapPolicy(true, 5)},
+		),
+		options.ModeRun,
+		ui,
+	); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !warnContains(ui, "capturing the session baseline failed") {
+		t.Errorf("WarnCalls = %v, want the baseline-failure warning", ui.WarnCalls)
+	}
+}
+
+// TestRunLearnFinishFailureWarns pins that a failed after-run is a warning; the
+// attach's result is still returned.
+func TestRunLearnFinishFailureWarns(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	key := state.Key{Slug: "learnfinisherr", Agent: "opencode"}
+	ui := &termiotest.Mock{}
+	fake := &fakeLearnRun{finishErr: errors.New("finish boom")}
+
+	origBegin := learnBegin
+	learnBegin = func(network.Policy) (learnSession, error) { return fake, nil }
+	t.Cleanup(func() { learnBegin = origBegin })
+
+	origPrepare := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{sb: learnRunSandbox(), target: "/workspace", key: key}, nil
+	}
+	t.Cleanup(func() { prepareSandbox = origPrepare })
+
+	if err := Run(
+		context.Background(),
+		resolvedRunOptions(
+			t,
+			options.RunOptions{Learn: true, Agent: "opencode", ReapPolicy: options.NewReapPolicy(true, 5)},
+		),
+		options.ModeRun,
+		ui,
+	); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !warnContains(ui, "the after-run failed") {
+		t.Errorf("WarnCalls = %v, want the after-run warning", ui.WarnCalls)
+	}
+}
+
+// TestRunLearnFinishReceivesCapturedHomeAndBase pins the after-run's inputs: the
+// captured home volume, the session key, and the pre-overlay base policy.
+func TestRunLearnFinishReceivesCapturedHomeAndBase(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	key := state.Key{Slug: "learnfinishin", Agent: "opencode"}
+	ui := &termiotest.Mock{}
+	fake := &fakeLearnRun{}
+	base := network.Policy{Profiles: []network.Profile{network.ProfileNone}}
+
+	origBegin := learnBegin
+	learnBegin = func(network.Policy) (learnSession, error) { return fake, nil }
+	t.Cleanup(func() { learnBegin = origBegin })
+
+	origPrepare := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{sb: learnRunSandbox(), target: "/workspace", key: key}, nil
+	}
+	t.Cleanup(func() { prepareSandbox = origPrepare })
+
+	if err := Run(
+		context.Background(),
+		resolvedRunOptions(
+			t,
+			options.RunOptions{
+				Learn:      true,
+				Agent:      "opencode",
+				Network:    base,
+				ReapPolicy: options.NewReapPolicy(true, 5),
+			},
+		),
+		options.ModeRun,
+		ui,
+	); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !fake.finished {
+		t.Fatal("Finish did not run")
+	}
+	if fake.finishInput.Home != "/home/vol" {
+		t.Errorf("FinishInput.Home = %q, want /home/vol", fake.finishInput.Home)
+	}
+	if fake.finishInput.Key != key {
+		t.Errorf("FinishInput.Key = %+v, want %+v", fake.finishInput.Key, key)
+	}
+	if fake.finishInput.Agent != "opencode" {
+		t.Errorf("FinishInput.Agent = %q, want opencode", fake.finishInput.Agent)
+	}
+	if fake.finishInput.Base.Fingerprint() != base.Fingerprint() {
+		t.Errorf("FinishInput.Base = %q, want the pre-overlay base", fake.finishInput.Base.Fingerprint())
+	}
+}
+
+// TestRunLearnSkipsFinishOnCancelledContext pins that the after-run is owned by
+// this process only while its context is live: a cancelled context leaves the
+// record for config learn and skips Finish.
+func TestRunLearnSkipsFinishOnCancelledContext(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	key := state.Key{Slug: "learncancel", Agent: "opencode"}
+	ui := &termiotest.Mock{}
+	fake := &fakeLearnRun{}
+
+	origBegin := learnBegin
+	learnBegin = func(network.Policy) (learnSession, error) { return fake, nil }
+	t.Cleanup(func() { learnBegin = origBegin })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	origPrepare := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+		cancel()
+		return &fakePrepared{sb: learnRunSandbox(), target: "/workspace", key: key}, nil
+	}
+	t.Cleanup(func() { prepareSandbox = origPrepare })
+
+	if err := Run(
+		ctx,
+		resolvedRunOptions(
+			t,
+			options.RunOptions{Learn: true, Agent: "opencode", ReapPolicy: options.NewReapPolicy(true, 5)},
+		),
+		options.ModeRun,
+		ui,
+	); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if fake.finished {
+		t.Error("Finish ran on a cancelled context; the record must be left for config learn")
+	}
+	if !fake.stopped {
+		t.Error("Stop did not run")
+	}
+}
+
+// TestRunLearnReturnsAttachErrorAfterFinish pins that the attach error is
+// returned while a successful after-run still runs.
+func TestRunLearnReturnsAttachErrorAfterFinish(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	key := state.Key{Slug: "learnattacherr", Agent: "opencode"}
+	ui := &termiotest.Mock{}
+	fake := &fakeLearnRun{}
+
+	sb := learnRunSandbox()
+	sb.AttachCode = 1
+	sb.AttachErr = errors.New("attach boom")
+
+	origBegin := learnBegin
+	learnBegin = func(network.Policy) (learnSession, error) { return fake, nil }
+	t.Cleanup(func() { learnBegin = origBegin })
+
+	origPrepare := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{sb: sb, target: "/workspace", key: key}, nil
+	}
+	t.Cleanup(func() { prepareSandbox = origPrepare })
+
+	err := Run(
+		context.Background(),
+		resolvedRunOptions(
+			t,
+			options.RunOptions{Learn: true, Agent: "opencode", ReapPolicy: options.NewReapPolicy(true, 5)},
+		),
+		options.ModeRun,
+		ui,
+	)
+	if err == nil || !strings.Contains(err.Error(), "attach boom") {
+		t.Fatalf("Run error = %v, want the attach failure", err)
+	}
+	if !fake.finished {
+		t.Error("Finish did not run despite a successful baseline")
+	}
+}
+
 func TestRunServeOnlyReturnsDeadlineExceeded(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	ui := &termiotest.Mock{}
