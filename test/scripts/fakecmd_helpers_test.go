@@ -49,15 +49,23 @@ func BinDir(tb testing.TB, name string) string {
 
 // Dispatch serves the handler registered for the name this process was invoked
 // as, returning -1 when it is not a fake. A test package's TestMain calls it
-// first, registering its fakes before it does:
+// first, registering its fakes before it does, and exits a served fake through
+// syscall.Exit rather than os.Exit:
 //
 //	func TestMain(m *testing.M) {
 //		Register("gh", fakeGh)
 //		if status := Dispatch(); status >= 0 {
-//			os.Exit(status)
+//			syscall.Exit(status)
 //		}
 //		mocks.InitFailFastMocks(m)
 //	}
+//
+// The raw exit matters because the re-executed process is the test binary: the
+// Go coverage runtime registers exit hooks in a -cover build, and for a test
+// package with no statements (this one has only _test.go files) its meta-data
+// hook prints "program not built with -cover" to the fake's stderr — which the
+// caller would read as the command's output. syscall.Exit skips the hooks, so
+// the fake emits only its handler's streams and status.
 func Dispatch() int {
 	name := filepath.Base(os.Args[0])
 	handlersMu.Lock()
