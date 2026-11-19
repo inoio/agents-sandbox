@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -10,9 +11,14 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	config "github.com/inoio/agents-sandbox/internal/configmerge"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configread"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
+	"github.com/inoio/agents-sandbox/internal/projectguard"
+	"github.com/inoio/agents-sandbox/internal/runoptions"
+	"github.com/inoio/agents-sandbox/internal/sandbox/analyser"
 	"github.com/inoio/agents-sandbox/internal/sandbox/channel"
+	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/learn"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -35,6 +41,8 @@ func buildConfigCmd(ui termio.UI) *cobra.Command {
 	cmd.AddCommand(buildConfigPathsCmd(ui))
 
 	cmd.AddCommand(buildConfigLearnCmd(ui))
+
+	cmd.AddCommand(buildConfigHardenCmd(ui))
 
 	cmd.AddCommand(&cobra.Command{
 		Use:   cmdHome,
@@ -424,4 +432,228 @@ func manifestFromState(entries []state.LearnManifestEntry) readback.Manifest {
 		})
 	}
 	return manifest
+}
+
+// buildConfigHardenCmd returns the config harden subcommand: it audits the
+// effective configuration and applies the config-only proposals interactively.
+// It needs no sandbox — it edits host files only — and is re-runnable.
+func buildConfigHardenCmd(ui termio.UI) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   cmdHarden,
+		Args:  cobra.NoArgs,
+		Short: "Audit the configuration and tighten the risky parts",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runConfigHarden(cmd, ui)
+		},
+	}
+	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Show what would change without writing")
+	return cmd
+}
+
+// runConfigHarden audits the effective config: it derives the config-only
+// findings at the effective slug's scopes and applies them through the same
+// applier a learning session uses. It reads the project layer only when the
+// trust gate left it in effect — the gate already reports an unapproved layer
+// once and excludes it — so an unapproved project secret is never read or
+// moved.
+func runConfigHarden(cmd *cobra.Command, ui termio.UI) error {
+	identity, err := git.ResolveIdentity(".")
+	if err != nil {
+		return err
+	}
+	slug := configSlugFromContext(cmd.Context())
+	if slug == "" {
+		slug = effectiveConfigSlug(identity)
+	}
+	paths := configpaths.Get()
+	scopes := configpaths.ConfigScopes(paths, slug)
+
+	//exhaustruct:ignore // a config-only run carries no session or read-back
+	facts := analyser.ConfigFacts{
+		Paths:  paths,
+		Slug:   slug,
+		Config: resolverConfig(cmd),
+		Scopes: scopes,
+		Logger: ui,
+	}
+	findings := analyser.ConfigFindings(facts)
+	// A clean configuration is quiet: the applier prints a notice even with no
+	// findings, so it is not reached here.
+	if len(findings) == 0 {
+		return nil
+	}
+
+	//exhaustruct:ignore // SecretValue is set below; a config-only run accepts no --yes
+	opts := analyser.ApplyOptions{
+		Paths:        paths,
+		Slug:         slug,
+		CheckoutSlug: identity.CheckoutSlug,
+		UI:           ui,
+		Mode:         runoptions.ResolveMode(cmd),
+		SetByFlag:    func(string) bool { return false },
+		SecretValue:  hardenSecretValue(scopes, agentNameForHarden(cmd), ui),
+	}
+	results := analyser.Apply(findings, opts)
+	printHardenSummary(ui, results)
+	return nil
+}
+
+// resolverConfig returns the effective launcher config, or nil when no resolver
+// is present (a bare command); the finder then skips the policy and inline
+// findings and audits the secret scopes alone.
+func resolverConfig(cmd *cobra.Command) *viperconfig.Config {
+	if r := resolverFromContext(cmd.Context()); r != nil {
+		return r.Config()
+	}
+	return nil
+}
+
+// agentNameForHarden returns the agent whose config dirs the finder and the
+// secret-value lookup scan, defaulting like config learn.
+func agentNameForHarden(cmd *cobra.Command) string {
+	if r := resolverFromContext(cmd.Context()); r != nil && r.Agent() != "" {
+		return r.Agent()
+	}
+	return defaultAgentName
+}
+
+// hardenSecretValue resolves a proposed static secret's value in memory, from
+// both places harden reads a secret it is about to re-write: the scopes'
+// env.secret.yaml files (a scope secret that is re-scoped) and the agent config
+// files under each scope's agent config dir (an inline config secret, C7). The
+// value is returned to the writer and never logged, carried in a finding, or
+// persisted anywhere else.
+func hardenSecretValue(
+	scopes []configpaths.ConfigScope,
+	agentName string,
+	ui termio.Logger,
+) func(analyser.SecretWrite) (string, bool) {
+	dirNames := agentConfigDirNames(agentName)
+	return func(write analyser.SecretWrite) (string, bool) {
+		if value, ok := secretValueFromScopes(scopes, write.EnvVar, ui); ok {
+			return value, true
+		}
+		return secretValueFromAgentConfigs(scopes, dirNames, write.EnvVar)
+	}
+}
+
+// secretValueFromScopes returns the literal value of envVar from the first
+// scope whose env.secret.yaml declares it, preferring a non-empty value. Each
+// file is read through envsecret, which routes the project scope through the
+// project guard, so an unapproved project secret is never read.
+func secretValueFromScopes(
+	scopes []configpaths.ConfigScope,
+	envVar string,
+	ui termio.Logger,
+) (string, bool) {
+	for _, scope := range scopes {
+		specs := envsecret.ParseSecretSpecYAML(scope.EnvSecretYAMLFile(), ui)
+		if spec, ok := specs[envVar]; ok && spec.Value != "" {
+			return spec.Value, true
+		}
+	}
+	return "", false
+}
+
+// secretValueFromAgentConfigs returns the literal value of envVar from the
+// first regular agent config file that declares it as an inline credential
+// under a scope's agent config dir. A login store or the dotenv is skipped, and
+// the read goes through the project guard, so an unapproved project file is not
+// read.
+func secretValueFromAgentConfigs(
+	scopes []configpaths.ConfigScope,
+	dirNames []string,
+	envVar string,
+) (string, bool) {
+	for _, scope := range scopes {
+		for _, name := range dirNames {
+			if value, ok := inlineCredentialValue(scope.AgentConfigDir(name), envVar); ok {
+				return value, true
+			}
+		}
+	}
+	return "", false
+}
+
+// inlineCredentialValue returns envVar's inline value from the agent config
+// files directly under dir.
+func inlineCredentialValue(dir, envVar string) (string, bool) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", false
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		if readback.SkipsInlineCredentials(path) {
+			continue
+		}
+		data, err := projectguard.ReadFile(path, configread.ReadFile)
+		if err != nil {
+			continue
+		}
+		for _, credential := range readback.InlineCredentialsIn(path, data) {
+			if credential.EnvVar == envVar && credential.Value != "" {
+				return credential.Value, true
+			}
+		}
+	}
+	return "", false
+}
+
+// agentConfigDirNames returns the agent's config dir names, or nil for an agent
+// without a resolved name; the finder and the value lookup then scan no dirs.
+func agentConfigDirNames(agentName string) []string {
+	profile, ok := agent.Lookup(agentName)
+	if !ok {
+		return nil
+	}
+	names, err := agent.ConfigDirNames(profile)
+	if err != nil {
+		return nil
+	}
+	return names
+}
+
+// printHardenSummary reports a one-line outcome summary — how many findings
+// were applied, declined, or skipped — and a line for each finding that was not
+// applied, so an interactive run shows what it wrote and why a finding stayed.
+func printHardenSummary(ui termio.UI, results []analyser.ApplyResult) {
+	var applied, declined, skipped, failed int
+	for _, result := range results {
+		switch result.Outcome {
+		case analyser.OutcomeApplied:
+			applied++
+		case analyser.OutcomeDeclined:
+			declined++
+		case analyser.OutcomeSkipped:
+			skipped++
+		case analyser.OutcomeFailed:
+			failed++
+		case analyser.OutcomeNotApplicable:
+			skipped++
+		}
+	}
+	ui.Infof("config harden: %d findings: %d applied, %d declined, %d skipped, %d failed.",
+		len(results), applied, declined, skipped, failed)
+	for _, result := range results {
+		switch result.Outcome {
+		case analyser.OutcomeSkipped:
+			ui.Infof("config harden: skipped %s: %s", findingNoun(result.Finding), result.Note)
+		case analyser.OutcomeFailed:
+			ui.Warnf("config harden: %s failed: %s", findingNoun(result.Finding), result.Err)
+		case analyser.OutcomeApplied, analyser.OutcomeDeclined, analyser.OutcomeNotApplicable:
+		}
+	}
+}
+
+// findingNoun names a finding by its evidence summary, so the summary line says
+// what was written without repeating the proposed change.
+func findingNoun(finding analyser.Finding) string {
+	if finding.Evidence.Summary != "" {
+		return finding.Evidence.Summary
+	}
+	return string(finding.Kind)
 }

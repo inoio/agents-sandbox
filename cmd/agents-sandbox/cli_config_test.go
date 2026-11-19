@@ -1024,3 +1024,242 @@ func warnsAbout(ui *termiotest.Mock, want string) bool {
 	}
 	return false
 }
+
+// hardenSlug returns the effective config slug config harden resolves for this
+// test's project, as the launcher-config resolver exposes it.
+func hardenSlug(t *testing.T, cmd *cobra.Command) string {
+	t.Helper()
+	if slug := configSlugFromContext(cmd.Context()); slug != "" {
+		return slug
+	}
+	identity, err := git.ResolveIdentity(".")
+	if err != nil {
+		t.Fatalf("resolve identity: %v", err)
+	}
+	return effectiveConfigSlug(identity)
+}
+
+// hardenPerSlugConfigFile returns the per-slug user config file a config-key
+// finding writes, so a test asserts nothing was written.
+func hardenPerSlugConfigFile(t *testing.T, slug string) string {
+	t.Helper()
+	return filepath.Join(configpaths.Get().UserSlugConfigDir(slug), "config.yaml")
+}
+
+// TestConfigHardenNonInteractiveWritesNothing pins that a config harden run on a
+// non-interactive terminal reaches the applier, prints its one-line notice
+// naming `run --learn`, and writes no file.
+func TestConfigHardenNonInteractiveWritesNothing(t *testing.T) {
+	initTestProjectDir(t)
+	// The default config has provision-host-config true, so the finder yields a
+	// finding and Apply is reached.
+	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdHarden)
+	stubPrepareMSBRuntime(t)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config harden: %v", err)
+	}
+	if len(ui.AcknowledgeCalls) != 1 {
+		t.Fatalf("AcknowledgeCalls = %v, want the one-line notice", ui.AcknowledgeCalls)
+	}
+	if !strings.Contains(ui.AcknowledgeCalls[0], "run --learn") {
+		t.Errorf("notice %q, want it to name `run --learn`", ui.AcknowledgeCalls[0])
+	}
+	configFile := hardenPerSlugConfigFile(t, hardenSlug(t, cmd))
+	if _, err := os.Stat(configFile); !os.IsNotExist(err) {
+		t.Errorf("config harden wrote %s (stat err = %v), want nothing written", configFile, err)
+	}
+}
+
+// TestConfigHardenDryRunWritesNothing pins that --dry-run makes no change and
+// asks nothing, even where a finding exists.
+func TestConfigHardenDryRunWritesNothing(t *testing.T) {
+	initTestProjectDir(t)
+	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdHarden, "--"+flagDryRun)
+	stubPrepareMSBRuntime(t)
+	selects := 0
+	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		selects++
+		return "", nil
+	}
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config harden --dry-run: %v", err)
+	}
+	if selects != 0 {
+		t.Errorf("Select calls = %d, want none under --dry-run", selects)
+	}
+	configFile := hardenPerSlugConfigFile(t, hardenSlug(t, cmd))
+	if _, err := os.Stat(configFile); !os.IsNotExist(err) {
+		t.Errorf("config harden --dry-run wrote %s (stat err = %v), want nothing written", configFile, err)
+	}
+}
+
+// TestConfigHardenNoFindingsIsQuiet pins that a clean config yields zero
+// findings, so the command prints nothing and never reaches the applier.
+func TestConfigHardenNoFindingsIsQuiet(t *testing.T) {
+	initTestProjectDir(t)
+	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdHarden)
+	stubPrepareMSBRuntime(t)
+	// A clean posture: the terminal none profile with no egress allow list and
+	// host-config provisioning off. The public profile would report (C3) even
+	// with no allow list.
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml",
+		"network:\n  profile: none\nprovision-host-config: false\n")
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config harden: %v", err)
+	}
+	if len(ui.AcknowledgeCalls) != 0 {
+		t.Errorf("AcknowledgeCalls = %v, want silence with no findings", ui.AcknowledgeCalls)
+	}
+	if joined := strings.Join(ui.InfoCalls, "\n"); joined != "" {
+		t.Errorf("InfoCalls = %v, want silence with no findings", ui.InfoCalls)
+	}
+	if len(ui.OutCalls) != 0 {
+		t.Errorf("OutCalls = %v, want silence with no findings", ui.OutCalls)
+	}
+}
+
+// TestConfigHardenHelpAndTree pins that config harden is present in the config
+// help and in `tree`.
+func TestConfigHardenHelpAndTree(t *testing.T) {
+	out := commandOut(t, cmdConfig, cmdHarden, "--help")
+	if !strings.Contains(out, cmdHarden) {
+		t.Errorf("config harden help does not name the command:\n%s", out)
+	}
+
+	treeOut := strings.Join(buildTree(t).InfoCalls, "\n")
+	row := "── " + cmdHarden + "  "
+	if !strings.Contains(treeOut, row) {
+		t.Fatalf("expected a %q row in tree output:\n%s", row, treeOut)
+	}
+}
+
+// acceptEveryFinding makes the mock UI interactive and answers every finding
+// prompt with "Apply".
+func acceptEveryFinding(ui *termiotest.Mock) {
+	ui.IsInteractiveResult = true
+	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		return "a", nil
+	}
+}
+
+// TestConfigHardenAppliesAFindingInteractively pins that an accepted finding is
+// written: the host-config provisioning finding turns the key off at the
+// per-slug user scope.
+func TestConfigHardenAppliesAFindingInteractively(t *testing.T) {
+	initTestProjectDir(t)
+	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdHarden)
+	stubPrepareMSBRuntime(t)
+	acceptEveryFinding(ui)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config harden: %v", err)
+	}
+	configFile := hardenPerSlugConfigFile(t, hardenSlug(t, cmd))
+	written, err := os.ReadFile(configFile)
+	if err != nil {
+		t.Fatalf("config harden did not write %s: %v", configFile, err)
+	}
+	if !strings.Contains(string(written), "provision-host-config: false") {
+		t.Errorf("per-slug config = %q, want provision-host-config false", written)
+	}
+}
+
+// hardenScopeSecretFile returns the per-slug user scope's env.secret.yaml.
+func hardenScopeSecretFile(t *testing.T, slug string) string {
+	t.Helper()
+	return filepath.Join(configpaths.Get().UserSlugConfigDir(slug), configpaths.EnvSecretFileName+".yaml")
+}
+
+// TestConfigHardenMovesAnInlineConfigSecret pins the load-bearing secret-value
+// source: an inline credential in a managed agent config file resolves in memory
+// (without it every C7 add is refused) and lands in the per-slug env.secret.yaml.
+func TestConfigHardenMovesAnInlineConfigSecret(t *testing.T) {
+	initTestProjectDir(t)
+	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdHarden)
+	stubPrepareMSBRuntime(t)
+	acceptEveryFinding(ui)
+	slug := hardenSlug(t, cmd)
+	agentDir := configpathstest.CreateDir(
+		filepath.Join(configpaths.Get().UserSlugConfigDir(slug), mustOpencode(t).ConfigDirName()),
+	)
+	testutil.WritePath(t, filepath.Join(agentDir, "opencode.jsonc"),
+		`{"provider":{"openai":{"options":{"apiKey":"sk-inline","baseURL":"https://api.openai.com/v1"}}}}`)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config harden: %v", err)
+	}
+	written, err := os.ReadFile(hardenScopeSecretFile(t, slug))
+	if err != nil {
+		t.Fatalf("config harden did not write the secret file: %v", err)
+	}
+	if !strings.Contains(string(written), "OPENAI_API_KEY") ||
+		!strings.Contains(string(written), "sk-inline") {
+		t.Errorf("secret file = %q, want the inline value moved under OPENAI_API_KEY", written)
+	}
+}
+
+// TestConfigHardenMovesAProjectSecret pins the other secret-value source: a
+// static secret committed in the approved project scope resolves from the
+// scope's env.secret.yaml and is moved to the per-slug user scope (removed from
+// the project file, added to the per-slug one).
+func TestConfigHardenMovesAProjectSecret(t *testing.T) {
+	initTestProjectDir(t)
+	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdHarden)
+	stubPrepareMSBRuntime(t)
+	projectSecret := filepath.Join(configpaths.Get().ProjectConfigDir(), configpaths.EnvSecretFileName+".yaml")
+	testutil.WritePath(t, projectSecret,
+		"WIDGET_TOKEN:\n  value: sk-project-secret\n  hosts:\n    - api.widget.example\n")
+	approveProjectConfig(t)
+	acceptEveryFinding(ui)
+	slug := hardenSlug(t, cmd)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config harden: %v", err)
+	}
+	written, err := os.ReadFile(hardenScopeSecretFile(t, slug))
+	if err != nil {
+		t.Fatalf("config harden did not write the per-slug secret file: %v", err)
+	}
+	if !strings.Contains(string(written), "WIDGET_TOKEN") ||
+		!strings.Contains(string(written), "sk-project-secret") {
+		t.Errorf("per-slug secret file = %q, want the project secret moved under WIDGET_TOKEN", written)
+	}
+	remaining, err := os.ReadFile(projectSecret)
+	if err == nil && strings.Contains(string(remaining), "WIDGET_TOKEN") {
+		t.Errorf("project secret file still names WIDGET_TOKEN:\n%s", remaining)
+	}
+}
+
+// TestConfigHardenLeavesAnUnapprovedProjectLayerAlone pins that a project
+// secret whose layer is unapproved is reported once and never read or moved:
+// the trust gate excludes the layer, and config harden writes nothing for it.
+func TestConfigHardenLeavesAnUnapprovedProjectLayerAlone(t *testing.T) {
+	initTestProjectDir(t)
+	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdHarden)
+	stubPrepareMSBRuntime(t)
+	projectSecret := filepath.Join(configpaths.Get().ProjectConfigDir(), configpaths.EnvSecretFileName+".yaml")
+	testutil.WritePath(t, projectSecret,
+		"WIDGET_TOKEN:\n  value: sk-project-secret\n  hosts:\n    - api.widget.example\n")
+	acceptEveryFinding(ui)
+	slug := hardenSlug(t, cmd)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config harden: %v", err)
+	}
+	// The gate reports the unapproved layer once; harden adds no second notice.
+	if len(ui.WarnCalls) != 1 {
+		t.Errorf("WarnCalls = %v, want the gate's one notice", ui.WarnCalls)
+	}
+	if _, err := os.Stat(hardenScopeSecretFile(t, slug)); !os.IsNotExist(err) {
+		t.Errorf("config harden wrote a per-slug secret for an unapproved layer (stat err = %v)", err)
+	}
+	if remaining, err := os.ReadFile(
+		projectSecret,
+	); err != nil ||
+		!strings.Contains(string(remaining), "WIDGET_TOKEN") {
+		t.Errorf("the unapproved project secret file changed (err = %v)", err)
+	}
+}
