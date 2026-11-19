@@ -159,23 +159,58 @@ func usedRequestCount(destinations []channel.Destination) int {
 	return total
 }
 
-// secretFindings proposes one env.secret.yaml write per static credential whose
-// host set and env-var name are both derivable. A credential with no env-var
-// name cannot be scoped, and one with no host is not migrated: neither yields a
-// finding.
+// secretFindings proposes one env.secret.yaml write per static env-var name. Two
+// static sources can name the same env var — a dotenv entry and an inline
+// provider key, or two inline entries — and two writes for the same literal key
+// would make the later write replace the earlier entry and drop its host set, so
+// the finding merges every source's hosts and header names. A credential with no
+// env-var name cannot be scoped, and a name with no host after the merge is not
+// migrated: neither yields a finding.
 func (s SessionFacts) secretFindings() []Finding {
-	var findings []Finding
+	var names []string
+	merged := map[string]mergedSecret{}
 	for _, credential := range s.ReadBack.Static {
 		if credential.EnvVar == "" {
 			continue
 		}
 		hosts, headerNames, attributed := credentialHosts(credential, s.Observation.Attribution)
+		secret, seen := merged[credential.EnvVar]
+		if !seen {
+			//exhaustruct:ignore // the accumulators start at their zero values
+			secret = mergedSecret{provider: credential.Provider}
+			names = append(names, credential.EnvVar)
+		}
+		secret.hosts = append(secret.hosts, hosts...)
+		secret.headerNames = append(secret.headerNames, headerNames...)
+		secret.attributed = secret.attributed || attributed
+		merged[credential.EnvVar] = secret
+	}
+
+	var findings []Finding
+	for _, name := range names {
+		secret := merged[name]
+		hosts := sortedUnique(secret.hosts)
 		if len(hosts) == 0 {
 			continue
 		}
-		findings = append(findings, secretFinding(credential, hosts, headerNames, attributed))
+		findings = append(findings, secretFinding(
+			name,
+			secret.provider,
+			hosts,
+			sortedUnique(secret.headerNames),
+			secret.attributed,
+		))
 	}
 	return findings
+}
+
+// mergedSecret accumulates what every static credential sharing one env-var name
+// contributes to that name's single finding.
+type mergedSecret struct {
+	provider    string
+	hosts       []string
+	headerNames []string
+	attributed  bool
 }
 
 // credentialHosts returns the host set to scope a static credential to. The
@@ -204,10 +239,10 @@ func credentialHosts(
 
 // secretFinding builds the per-slug secret write and its evidence. The evidence
 // carries the header NAMES only, never a value.
-func secretFinding(credential readback.Credential, hosts, headerNames []string, attributed bool) Finding {
+func secretFinding(envVar, provider string, hosts, headerNames []string, attributed bool) Finding {
 	//exhaustruct:ignore // a secret finding reports no denials and no request count
 	evidence := Evidence{
-		Summary:      "static credential " + credential.EnvVar + " used at " + strings.Join(hosts, ", "),
+		Summary:      "static credential " + envVar + " used at " + strings.Join(hosts, ", "),
 		Destinations: hosts,
 		Succeeded:    attributed,
 		Channel:      evidenceChannelReadback,
@@ -218,8 +253,8 @@ func secretFinding(credential readback.Credential, hosts, headerNames []string, 
 		Scope: ScopePerSlugUser,
 		//exhaustruct:ignore // a proposal never removes
 		Secret: &SecretWrite{
-			EnvVar:       credential.EnvVar,
-			Provider:     credential.Provider,
+			EnvVar:       envVar,
+			Provider:     provider,
 			Hosts:        hosts,
 			HeaderFields: headerNames,
 		},

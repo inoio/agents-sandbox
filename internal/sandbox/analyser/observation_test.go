@@ -329,6 +329,46 @@ func TestObservationSecretWithoutHostsYieldsNoFinding(t *testing.T) {
 	require.Empty(t, ObservationFindings(s))
 }
 
+// TestObservationSecretFindingsMergeSameEnvVar: two static credentials that
+// share an env-var name yield exactly one finding. Two writes for the same
+// literal key would make the second replace the first's entry and silently drop
+// its host set, so the finding merges every source's hosts and header names.
+func TestObservationSecretFindingsMergeSameEnvVar(t *testing.T) {
+	s := SessionFacts{
+		Current: narrowNone(),
+		ReadBack: readback.ReadBack{Static: []readback.Credential{
+			{
+				Kind:     readback.CredentialStatic,
+				EnvVar:   "OPENAI_API_KEY",
+				Provider: "openai",
+				Field:    "authorization",
+				Hosts:    []string{"config.example"},
+				Value:    "sk-dotenv",
+			},
+			{
+				Kind:     readback.CredentialStatic,
+				EnvVar:   "OPENAI_API_KEY",
+				Provider: "openai",
+				Field:    "x-api-key",
+				Hosts:    []string{"inline.example"},
+				Value:    "sk-inline",
+			},
+		}},
+	}
+
+	findings := ObservationFindings(s)
+
+	require.Len(t, findings, 1, "one finding per env-var name")
+	require.Equal(t, []string{"config.example", "inline.example"},
+		findings[0].Writes[0].Secret.Hosts, "the host sets are merged")
+	require.Equal(t, []string{"authorization", "x-api-key"},
+		findings[0].Writes[0].Secret.HeaderFields, "the header-field sets are merged")
+	require.Equal(t, []string{"config.example", "inline.example"},
+		findings[0].Evidence.Destinations, "the evidence reflects the merged host set")
+	require.Equal(t, []string{"authorization", "x-api-key"},
+		findings[0].Evidence.HeaderFields, "the evidence reflects the merged header-field set")
+}
+
 // TestObservationSecretWithoutEnvVarYieldsNoFinding: a static credential whose
 // env-var name the read-back did not recover cannot be scoped, so no finding is
 // emitted for it.

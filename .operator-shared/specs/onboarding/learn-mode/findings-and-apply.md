@@ -61,9 +61,10 @@ env var. Which form a harness needs is a per-harness property of the write-back,
   proposed at all.** Its host set comes from the destinations the session was observed sending that credential to
   (channel attribution, matched to the credential's configured env-var name); with no channel attribution (a client
   pins certificates, a non-HTTP protocol) it falls back to the endpoint the same config entry names (the read-back
-  `Credential.Hosts`). When neither yields a host the secret is not migrated — no finding is emitted, and the
-  proposal asks nothing at apply time. A static credential with no configured env-var name cannot be scoped and is
-  likewise not proposed. A learned value never produces `allow_any_host_dangerous`.
+  `Credential.Hosts`). It is proposed once per env-var name: when the read-back finds the same name in more than one
+  source, the proposal scopes it to the union of their hosts. When neither yields a host the secret is not migrated —
+  no finding is emitted, and the proposal asks nothing at apply time. A static credential with no configured env-var
+  name cannot be scoped and is likewise not proposed. A learned value never produces `allow_any_host_dangerous`.
 - **Network changes are proposed as a diff**: `network.profile = none` plus `network.egress-allow` set to the
   current allow set **∪** the observed-and-used destinations, where observed-and-used means a destination the
   session reached successfully and that was not denied. It never widens: no current allow entry is removed and no
