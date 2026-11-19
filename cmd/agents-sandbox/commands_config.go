@@ -616,16 +616,16 @@ func inlineCredentialValue(dir, envVar string) (string, bool) {
 
 // agentConfigDirNames returns the agent's config dir names, or nil for an agent
 // without a resolved name; the finder and the value lookup then scan no dirs.
+// A registered profile's dir names are validated at registration, so the error
+// is unreachable here (see allAgentConfigDirNames); the names are dropped on it
+// the same way a nil name is.
 func agentConfigDirNames(agentName string) []string {
 	profile, ok := agent.Lookup(agentName)
 	if !ok {
 		return nil
 	}
-	names, err := agent.ConfigDirNames(profile)
-	if err != nil {
-		return nil
-	}
-	return names
+	dirNames, _ := agent.ConfigDirNames(profile)
+	return dirNames
 }
 
 // printHardenSummary reports a one-line outcome summary — how many findings

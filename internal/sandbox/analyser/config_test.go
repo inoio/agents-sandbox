@@ -13,6 +13,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
+	"github.com/inoio/agents-sandbox/internal/sandbox/readback"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 	"github.com/inoio/agents-sandbox/internal/viperconfig"
@@ -517,4 +518,53 @@ func TestConfigFindingsInlineSourcesHashDistinctly(t *testing.T) {
 	require.Len(t, findings, 2)
 	require.NotEqual(t, findings[0].EvidenceHash, findings[1].EvidenceHash,
 		"two inline sources of the same secret hash distinctly")
+}
+
+// TestConfigFindingsInlineSkipsAnUnknownAgent pins that C7 yields nothing when
+// the configured agent is not a registered profile, rather than scanning a
+// guessed config dir.
+func TestConfigFindingsInlineSkipsAnUnknownAgent(t *testing.T) {
+	f := configFacts(t, &viperconfig.Config{
+		Agent:   "no-such-agent",
+		Network: network.Policy{Profiles: []network.Profile{network.ProfileNone}},
+	})
+
+	require.Empty(t, ConfigFindings(f))
+}
+
+// TestInlineConfigFindingsInScopeSkipsDirectories pins that a directory under an
+// agent config dir is not read as a config file.
+func TestInlineConfigFindingsInScopeSkipsDirectories(t *testing.T) {
+	f := configFacts(t, &viperconfig.Config{Network: network.Policy{Profiles: []network.Profile{network.ProfileNone}}})
+	scope := f.Scopes[len(f.Scopes)-1]
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "nested"), 0o750))
+
+	require.Empty(t, inlineConfigFindingsInScope(scope, dir))
+}
+
+// TestInlineConfigFindingRejectsAnIncompleteCredential pins that a credential
+// without an env-var name, a host, or a literal value yields no finding, since
+// there is nothing to move.
+func TestInlineConfigFindingRejectsAnIncompleteCredential(t *testing.T) {
+	f := configFacts(t, &viperconfig.Config{Network: network.Policy{Profiles: []network.Profile{network.ProfileNone}}})
+	scope := f.Scopes[len(f.Scopes)-1]
+
+	_, ok := inlineConfigFinding(scope, readback.Credential{})
+
+	require.False(t, ok, "an empty credential cannot be moved to env.secret.yaml")
+}
+
+// TestScopeLabelNamesEveryScope pins the scope label a finding's evidence uses
+// for each scope kind, including the unknown-kind fallback.
+func TestScopeLabelNamesEveryScope(t *testing.T) {
+	labels := map[configpaths.ScopeKind]string{
+		configpaths.ScopeProject:     "project scope",
+		configpaths.ScopePerSlugUser: "per-slug user scope",
+		configpaths.ScopeGenericUser: "generic user scope",
+		configpaths.ScopeKind(99):    "config scope",
+	}
+	for kind, want := range labels {
+		require.Equal(t, want, scopeLabel(kind))
+	}
 }

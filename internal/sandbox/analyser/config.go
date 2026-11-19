@@ -340,10 +340,9 @@ func (f ConfigFacts) inlineConfigFindings() []Finding {
 	if !ok {
 		return nil
 	}
-	names, err := agent.ConfigDirNames(profile)
-	if err != nil {
-		return nil
-	}
+	// A registered profile's dir names are validated at registration, so the
+	// error is unreachable; a failure drops the names, as an unknown agent does.
+	names, _ := agent.ConfigDirNames(profile)
 	var findings []Finding
 	for _, scope := range f.Scopes {
 		for _, name := range names {

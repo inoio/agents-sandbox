@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/projectguard"
@@ -1334,4 +1336,62 @@ func TestApplyReportsAWriteLessFindingWithoutPrompting(t *testing.T) {
 	if declined {
 		t.Error("a write-less finding recorded a decline")
 	}
+}
+
+// TestApplyFailsWhenTheProjectSecretApprovalCannotBeRecorded pins that a
+// project-scope secret removal fails when its approval cannot be extended: the
+// removal must not run without the approval that keeps the next run from asking
+// about the launcher's own change.
+func TestApplyFailsWhenTheProjectSecretApprovalCannotBeRecorded(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "network:\n  profile: none\n")
+	approveProjectLayer(t, cp)
+	restore := state.OverrideStateWriteForTest(func(string, []byte) error { return errors.New("boom") })
+	t.Cleanup(restore)
+
+	plan := plannedWrite{
+		dir:   cp.ProjectConfigDir(),
+		write: Write{Scope: ScopeProject, Secret: &SecretWrite{EnvVar: "WIDGET_TOKEN", Remove: true}},
+	}
+
+	err := executeProjectSecret(plan, ApplyOptions{CheckoutSlug: testCheckoutSlug})
+	if err == nil {
+		t.Fatal("executeProjectSecret with an unrecordable approval = nil, want the approval error")
+	}
+}
+
+// TestApplyRestoresTheSecretApprovalWhenTheRemovalFails pins that a project
+// secret removal that fails after the approval was extended restores the
+// previous approval, so the launcher's own failed change does not need
+// re-approval. The removal fails because the secret file is no longer parsable
+// once the approval has been extended.
+func TestApplyRestoresTheSecretApprovalWhenTheRemovalFails(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "network:\n  profile: none\n")
+	secretFile := filepath.Join(cp.ProjectConfigDir(), "env.secret.yaml")
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "env.secret.yaml",
+		"WIDGET_TOKEN:\n  value: sk\n  host: api.widget.example\n")
+	approveProjectLayer(t, cp)
+	before, _, err := projecttrust.LoadApproval(testCheckoutSlug)
+	require.NoError(t, err)
+	// Corrupt the file after the approval was recorded, so the removal fails at
+	// execution while the approval step already succeeded.
+	if err := os.WriteFile(secretFile, []byte("not: [valid"), 0o600); err != nil {
+		t.Fatalf("corrupt secret file: %v", err)
+	}
+
+	plan := plannedWrite{
+		dir:   cp.ProjectConfigDir(),
+		write: Write{Scope: ScopeProject, Secret: &SecretWrite{EnvVar: "WIDGET_TOKEN", Remove: true}},
+	}
+
+	err = executeProjectSecret(plan, ApplyOptions{CheckoutSlug: testCheckoutSlug})
+	if err == nil {
+		t.Fatal("executeProjectSecret over an unparsable secret file = nil, want the removal error")
+	}
+	after, _, err := projecttrust.LoadApproval(testCheckoutSlug)
+	require.NoError(t, err)
+	require.Equal(t, before, after, "a failed removal must restore the approval it extended")
 }

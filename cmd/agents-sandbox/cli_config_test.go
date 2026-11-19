@@ -16,6 +16,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/git"
+	"github.com/inoio/agents-sandbox/internal/sandbox/analyser"
 	"github.com/inoio/agents-sandbox/internal/sandbox/channel"
 	"github.com/inoio/agents-sandbox/internal/sandbox/learn"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
@@ -1327,5 +1328,154 @@ func TestSecretValueFromScopesUsesHighestPrecedence(t *testing.T) {
 	)
 	if !ok || value != "sk-per-slug" {
 		t.Fatalf("secretValueFromScopes = %q, %v; want the highest-precedence value", value, ok)
+	}
+}
+
+// TestConfigHardenResolveIdentityFailure pins that an unresolvable project
+// directory is reported rather than deriving a degraded slug; config harden
+// resolves the identity itself, so it is reached even off the root command.
+func TestConfigHardenResolveIdentityFailure(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatalf("remove cwd: %v", err)
+	}
+
+	if err := runConfigHarden(learnBareCmd(), &termiotest.Mock{}); err == nil {
+		t.Fatal("runConfigHarden over a removed cwd = nil error, want the identity failure")
+	}
+}
+
+// TestConfigHardenBareCommandFallsBackToIdentitySlug pins the no-resolver path:
+// the effective slug falls back to the identity-derived one and, with no
+// resolver config, the finder audits the secret scopes alone, so a clean tree is
+// quiet rather than prompting or writing.
+func TestConfigHardenBareCommandFallsBackToIdentitySlug(t *testing.T) {
+	initTestProjectDir(t)
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
+
+	if err := runConfigHarden(learnBareCmd(), ui); err != nil {
+		t.Fatalf("config harden: %v", err)
+	}
+	if len(ui.AcknowledgeCalls) != 0 || len(ui.InfoCalls) != 0 || len(ui.OutCalls) != 0 {
+		t.Errorf("bare-run output = %v / %v / %v, want quiet",
+			ui.AcknowledgeCalls, ui.InfoCalls, ui.OutCalls)
+	}
+}
+
+// TestAgentNameForHardenUsesResolverAgent pins that the resolver supplies the
+// agent whose config dirs the finder and the value lookup scan, with the default
+// when no resolver is present.
+func TestAgentNameForHardenUsesResolverAgent(t *testing.T) {
+	if got := agentNameForHarden(learnCmdWithResolver(launcherconfig.Config{Agent: "pi"})); got != "pi" {
+		t.Errorf("agentNameForHarden = %q, want pi", got)
+	}
+	if got := agentNameForHarden(learnBareCmd()); got != defaultAgentName {
+		t.Errorf("agentNameForHarden(bare) = %q, want %q", got, defaultAgentName)
+	}
+}
+
+// TestSecretValueFromAgentConfigsFindsNoMatch pins that a scan over an
+// agent-config tree with no matching credential resolves nothing rather than
+// inventing a value.
+func TestSecretValueFromAgentConfigsFindsNoMatch(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	scopes := configpaths.ConfigScopes(configpaths.Get(), "widget-abc")
+
+	value, ok := secretValueFromAgentConfigs(scopes, []string{"opencode"}, "MISSING_TOKEN")
+	if ok || value != "" {
+		t.Fatalf("secretValueFromAgentConfigs = %q, %v; want no match", value, ok)
+	}
+}
+
+// TestInlineCredentialValueSkipsDirsAndLoginStores pins that a directory entry
+// and a skipped file (the dotenv) contribute no value.
+func TestInlineCredentialValueSkipsDirsAndLoginStores(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "nested"), 0o750); err != nil {
+		t.Fatalf("mkdir nested: %v", err)
+	}
+	testutil.WriteFile(t, dir, ".env", "OPENAI_API_KEY=sk-dotenv\n")
+
+	value, ok := inlineCredentialValue(dir, "OPENAI_API_KEY")
+	if ok || value != "" {
+		t.Fatalf("inlineCredentialValue = %q, %v; want no value", value, ok)
+	}
+}
+
+// TestInlineCredentialValueSkipsAnUnreadableFile pins that a file the read
+// cannot open contributes no value; a dangling symlink stands in for any read
+// error.
+func TestInlineCredentialValueSkipsAnUnreadableFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Symlink(filepath.Join(dir, "missing"), filepath.Join(dir, "opencode.jsonc")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	value, ok := inlineCredentialValue(dir, "OPENAI_API_KEY")
+	if ok || value != "" {
+		t.Fatalf("inlineCredentialValue = %q, %v; want no value", value, ok)
+	}
+}
+
+// TestAgentConfigDirNamesUnknownAgent pins that an unknown agent scans no dirs.
+func TestAgentConfigDirNamesUnknownAgent(t *testing.T) {
+	if names := agentConfigDirNames("no-such-agent"); names != nil {
+		t.Errorf("agentConfigDirNames = %v, want nil for an unknown agent", names)
+	}
+}
+
+// TestPrintHardenSummaryCountsEveryOutcome pins that each outcome is counted and
+// a non-applied one is detailed, so an interactive run shows what it wrote and
+// why a finding stayed.
+func TestPrintHardenSummaryCountsEveryOutcome(t *testing.T) {
+	ui := &termiotest.Mock{}
+	results := []analyser.ApplyResult{
+		{
+			Finding: analyser.Finding{Evidence: analyser.Evidence{Summary: "applied one"}},
+			Outcome: analyser.OutcomeApplied,
+		},
+		{
+			Finding: analyser.Finding{Evidence: analyser.Evidence{Summary: "declined one"}},
+			Outcome: analyser.OutcomeDeclined,
+		},
+		{
+			Finding: analyser.Finding{Evidence: analyser.Evidence{Summary: "skipped one"}},
+			Outcome: analyser.OutcomeSkipped,
+			Note:    "a reason",
+		},
+		{
+			Finding: analyser.Finding{Evidence: analyser.Evidence{Summary: "reported one"}},
+			Outcome: analyser.OutcomeNotApplicable,
+			Note:    "reported only",
+		},
+		{
+			Finding: analyser.Finding{Evidence: analyser.Evidence{Summary: "failed one"}},
+			Outcome: analyser.OutcomeFailed,
+			Err:     "boom",
+		},
+	}
+
+	printHardenSummary(ui, results)
+
+	joined := strings.Join(ui.InfoCalls, "\n")
+	if !strings.Contains(joined, "5 findings: 1 applied, 1 declined, 1 skipped, 1 reported, 1 failed") {
+		t.Errorf("summary = %q, want every outcome counted", joined)
+	}
+	if !strings.Contains(joined, "skipped skipped one: a reason") {
+		t.Errorf("summary = %q, want the skipped detail line", joined)
+	}
+	if !strings.Contains(strings.Join(ui.WarnCalls, "\n"), "failed one failed: boom") {
+		t.Errorf("warnings = %v, want the failed detail line", ui.WarnCalls)
+	}
+}
+
+// TestFindingNounFallsBackToKind pins that a finding without an evidence summary
+// is named by its kind.
+func TestFindingNounFallsBackToKind(t *testing.T) {
+	got := findingNoun(analyser.Finding{Kind: analyser.KindConfig})
+	if got != string(analyser.KindConfig) {
+		t.Errorf("findingNoun = %q, want %q", got, analyser.KindConfig)
 	}
 }
