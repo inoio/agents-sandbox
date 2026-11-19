@@ -1,6 +1,6 @@
 ---
-description: The learn-mode proposal and applier - the finding shape (evidence, proposed write, scope), the per-slug user scope and the project scope behind the trust gate, why the managed layer never owns the credential store, the agent-config write-back and its `${ENVVAR}` (or per-harness native) placeholder convention, how a learned static secret is attributed before it is scoped, the network diff that never widens, the interactive per-finding apply and its decline memory, non-interactive behavior, `config harden` as the config-only subset with its settled finding set C1-C7, and how the after-run is owned.
-read_if: Working on the learn-mode proposal, findings, or applier - the finding shape or evidence, the per-slug user scope or the project scope and its trust gate, the credential-store copy-back rule, the agent-config write-back or its placeholder convention, static-secret attribution or the network diff, per-finding apply and decline memory, non-interactive or dry-run behavior, `config harden` or its finding set C1-C7 (the owner-scope rule, the file-mode write, the generic-scope skip, the deferred session-evidenced reduction), or which process owns the after-run.
+description: The learn-mode proposal and applier - the finding shape (evidence, proposed write, scope), the per-slug user scope and the project scope behind the trust gate, why the managed layer never owns the credential store, the agent-config write-back and its `${ENVVAR}` (or per-harness native) placeholder convention, how a learned static secret is attributed before it is scoped, the network diff that never widens, the interactive per-finding apply and its decline memory, non-interactive behavior, `config harden` as the config-only subset with its settled finding set C1–C7, and how the after-run is owned.
+read_if: Working on the learn-mode proposal, findings, or applier - the finding shape or evidence, the per-slug user scope or the project scope and its trust gate, the credential-store copy-back rule, the agent-config write-back or its placeholder convention, static-secret attribution or the network diff, per-finding apply and decline memory, non-interactive or dry-run behavior, `config harden` or its finding set C1–C7 (the owner-scope rule, the file-mode write, the generic-scope skip, the deferred session-evidenced reduction), or which process owns the after-run.
 ---
 
 # Learn mode — findings and apply
@@ -117,7 +117,8 @@ git history — harden says so and points at rotating the credential.
   never also narrowed in place, which would let the narrowing rewrite re-create the entry the move removed.
 - **C2 — an over-broad secret scope.** A secret with `allow_any_host_dangerous` and at least one host is rewritten
   without the flag. The applier's secret writer always writes `AllowAnyHostDangerous: false`, so the rewrite is the
-  drop. A dangerous secret with **no** host has nothing to narrow to and is reported, not written.
+  drop. A dangerous secret with **no** host has nothing to narrow to and is reported, not written. C2 fires outside
+  the project scope, where C1 moves the secret whole.
 - **C3 — an over-broad egress profile.** A policy that is not the terminal `none` profile is narrowed to `none`,
   keeping the current allow list. An **empty** allow list is reported, not written: narrowing to `none` with nothing
   to keep would deny all egress. A default `public` (or empty-allow) config therefore fires C3 as a report, so

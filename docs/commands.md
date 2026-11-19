@@ -556,8 +556,8 @@ It audits:
 - an `env.secret.yaml` whose file mode is too broad → tighten it to `0600`.
 - `provision-host-config: true` → turn host-config provisioning off. Run `agents-sandbox run --learn` first to derive
   your managed config from a real session.
-- a static secret left inline in a managed agent config → move the value to `env.secret.yaml` and leave a reference in
-  the config.
+- a static secret left inline in a managed agent config → move the value to `env.secret.yaml` and tell you to
+  replace the literal with a `${VAR}` reference in the config (the agent-config edit lands in a later release).
 
 A change to a setting your project owns is written to the project config, which goes through the
 [project-config trust gate]({% link configuration/launcher.md %}#approving-project-config-changes); everything else is

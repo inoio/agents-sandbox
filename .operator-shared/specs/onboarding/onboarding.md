@@ -125,8 +125,8 @@ hash of the evidence. The shipped finding set is C1–C7 in
   per-slug addition).
 - a secret with `allow_any_host_dangerous` → drop the flag, keeping its declared hosts.
 - an `env.secret.yaml` mode not `0600` → tighten it (the generic user scope is skipped).
-- a static secret left inline in a managed agent config → move it to `env.secret.yaml`, leaving a reference in the
-  config.
+- a static secret left inline in a managed agent config → move it to `env.secret.yaml`; the finding names the
+  reference to keep in the config, and the agent-config edit lands with S10.
 
 `config harden` is also the home for "reduce egress later", so the public posture is always reversible through a
 one-time, non-nagging prompt rather than automatic. Its network findings are structural only for now; deriving the
