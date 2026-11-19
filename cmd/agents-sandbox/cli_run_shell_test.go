@@ -537,6 +537,25 @@ func assertPreviewInfoLines(t *testing.T, ui *termiotest.Mock, shell bool) {
 	}
 }
 
+// TestRunDryRunLearnIsPurePreview pins that --learn combined with --dry-run
+// returns from the read-only preview: no channel starts, no VM is created.
+func TestRunDryRunLearnIsPurePreview(t *testing.T) {
+	initTestProjectDir(t)
+
+	mock := &msbtest.MockMsbClient{}
+	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{}, "run", "--dry-run", "--learn")
+	setupAbsentImagePreviewMocks(t, mock)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	assertPreviewInfoLines(t, ui, false)
+	if len(mock.CreatedSandboxCalls) != 0 {
+		t.Errorf("--learn --dry-run created %d sandbox(es), want 0", len(mock.CreatedSandboxCalls))
+	}
+}
+
 // TestRunDryRunPreviewCLI pins the run-level read-only preview: `run --dry-run`
 // on a fresh project renders the four plan lines and builds nothing, creates no
 // volume, and never resolves a version.

@@ -63,6 +63,7 @@ const (
 	flagWorktree   = runoptions.FlagWorktree
 	flagRoot       = runoptions.FlagRoot
 	flagServeOnly  = runoptions.FlagServeOnly
+	flagLearn      = runoptions.FlagLearn
 	flagNetwork    = runoptions.FlagNetwork
 	flagDNSServers = runoptions.FlagDNSServers
 	flagProxy      = runoptions.FlagProxy

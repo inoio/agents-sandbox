@@ -40,6 +40,7 @@ func registerRunFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool(FlagDryRun, false, "dry-run")
 	cmd.Flags().Bool(FlagDryRunVM, false, "dry-run-vm")
 	cmd.Flags().Bool(FlagServeOnly, false, "serve-only")
+	cmd.Flags().Bool(FlagLearn, false, "learn")
 	cmd.Flags().String(FlagAgent, defaultAgentName, "agent")
 	cmd.Flags().StringSlice(FlagNetwork, nil, "network")
 	cmd.Flags().StringSlice(FlagDNSServers, nil, "dns")
@@ -374,6 +375,50 @@ func TestBuildServeOnly(t *testing.T) {
 	}
 	if opts2.ServeOnly {
 		t.Errorf("expected ServeOnly=false by default, got true")
+	}
+}
+
+// TestBuildResolvesLearn pins the --learn flag resolution: it reaches
+// opts.Learn, and it is false when absent.
+func TestBuildResolvesLearn(t *testing.T) {
+	cmd := newRunCommand()
+	if err := cmd.Flags().Set(FlagLearn, "true"); err != nil {
+		t.Fatalf("set learn: %v", err)
+	}
+	var r *viperconfig.Resolver
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if !opts.Learn {
+		t.Errorf("expected Learn=true when --learn passed, got false")
+	}
+
+	cmd2 := newRunCommand()
+	opts2, err := Build(r.Config(), cmd2, &termiotest.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if opts2.Learn {
+		t.Errorf("expected Learn=false by default, got true")
+	}
+}
+
+// TestBuildRejectsLearnWithServeOnly pins that a learning session refuses to
+// combine with serve-only: a learning session attaches a TUI, so the pair is
+// rejected naming both flags.
+func TestBuildRejectsLearnWithServeOnly(t *testing.T) {
+	cmd := newRunCommand()
+	if err := cmd.Flags().Set(FlagLearn, "true"); err != nil {
+		t.Fatalf("set learn: %v", err)
+	}
+	if err := cmd.Flags().Set(FlagServeOnly, "true"); err != nil {
+		t.Fatalf("set serve-only: %v", err)
+	}
+	var r *viperconfig.Resolver
+	_, err := Build(r.Config(), cmd, &termiotest.Mock{})
+	if err == nil || !strings.Contains(err.Error(), "--learn") || !strings.Contains(err.Error(), "--serve-only") {
+		t.Fatalf("error = %v, want both --learn and --serve-only named", err)
 	}
 }
 

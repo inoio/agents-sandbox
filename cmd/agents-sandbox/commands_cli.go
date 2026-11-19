@@ -347,6 +347,8 @@ func registerRunFlags(cmd *cobra.Command) {
 	cmd.Flags().
 		BoolP(flagServeOnly, "s", false, "(opencode, opencode2) Serve on a dynamically allocated host port (http://127.0.0.1:<port>) for clients like Opencode Desktop, without attaching the TUI")
 	cmd.Flags().
+		Bool(flagLearn, false, "let agents-sandbox learn your config from this session")
+	cmd.Flags().
 		String(flagNotify, "", `Notify on session status: "on", "off", "desktop", or "audio" (--notify <mode> or --notify=<mode>; bare --notify = on)`)
 	if notifyFlag := cmd.Flags().Lookup(flagNotify); notifyFlag != nil {
 		notifyFlag.NoOptDefVal = "on"

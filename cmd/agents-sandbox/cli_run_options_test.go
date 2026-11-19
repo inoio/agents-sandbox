@@ -58,6 +58,28 @@ func TestRunAndShellHaveDockerFlags(t *testing.T) {
 	}
 }
 
+// TestRunCommandHasLearnFlag pins the run-only --learn flag: it is a run flag
+// (like --serve-only) and is absent from shell.
+func TestRunCommandHasLearnFlag(t *testing.T) {
+	runCmd, _ := setupCommandFixtures(t, cmdRun, "--help")
+	found, _, err := runCmd.Find([]string{cmdRun})
+	if err != nil {
+		t.Fatalf("Find %q: %v", cmdRun, err)
+	}
+	if flag := found.Flags().Lookup(flagLearn); flag == nil {
+		t.Errorf("run command must have --learn flag")
+	}
+
+	shellCmd, _ := setupCommandFixtures(t, cmdShell, "--help")
+	foundShell, _, err := shellCmd.Find([]string{cmdShell})
+	if err != nil {
+		t.Fatalf("Find %q: %v", cmdShell, err)
+	}
+	if flag := foundShell.Flags().Lookup(flagLearn); flag != nil {
+		t.Errorf("shell command must NOT have --learn flag, got %q", flag.Name)
+	}
+}
+
 func TestRunAndShellHaveProxyFlag(t *testing.T) {
 	for _, name := range []string{cmdRun, cmdShell} {
 		cmd, _ := setupCommandFixtures(t, name, "--help")
