@@ -224,6 +224,9 @@ func planTarget(write Write, opts ApplyOptions) (string, *refusal) {
 				err: "",
 			}
 		}
+		if refusal := validateManagedConfigName(write.ManagedConfig.Name); refusal != nil {
+			return "", refusal
+		}
 		dir, refusal := managedConfigDir(opts)
 		if refusal != nil {
 			return "", refusal
@@ -255,9 +258,17 @@ func planTarget(write Write, opts ApplyOptions) (string, *refusal) {
 // managedConfigDir resolves the agent config directory a managed-config write
 // targets: the per-slug user scope's dir joined with the agent's primary
 // config-dir name, which is what provisioning merges snippets from. It refuses
-// an unknown agent or one whose profile declares an unusable config-dir name,
-// rather than writing into a directory no scope reads.
+// an unset agent — which agent.Lookup would otherwise resolve to the default —
+// an unknown agent, or one whose profile declares an unusable config-dir name,
+// rather than writing into a directory no scope reads or one the caller did not
+// name.
 func managedConfigDir(opts ApplyOptions) (string, *refusal) {
+	if opts.Agent == "" {
+		return "", &refusal{
+			note: "a managed agent config file has no agent selected; it is not written",
+			err:  "",
+		}
+	}
 	profile, ok := agent.Lookup(opts.Agent)
 	if !ok {
 		return "", &refusal{
@@ -274,6 +285,24 @@ func managedConfigDir(opts ApplyOptions) (string, *refusal) {
 	}
 	scope := configpaths.ConfigScope{Kind: configpaths.ScopePerSlugUser, Dir: opts.Paths.UserSlugConfigDir(opts.Slug)}
 	return scope.AgentConfigDir(names[0]), nil
+}
+
+// validateManagedConfigName refuses a managed-config file name that is not a
+// single clean path element. The finder always passes filepath.Base, but the
+// applier joins the name under the scope directory unchecked, so a name like
+// "../x" would escape it; the write is a reported skip, never a path outside
+// the target directory.
+func validateManagedConfigName(name string) *refusal {
+	if name == "" || name == "." || name == ".." || strings.ContainsRune(name, filepath.Separator) {
+		return &refusal{
+			note: fmt.Sprintf(
+				"managed agent config name %q is not a single file name; it is not written",
+				name,
+			),
+			err: "",
+		}
+	}
+	return nil
 }
 
 // planSecret validates that the target secret file can be edited, resolves a

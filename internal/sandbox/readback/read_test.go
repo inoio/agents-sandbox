@@ -502,11 +502,11 @@ func TestReadCredentialHostsIgnoreNamedNonProviderEndpoints(t *testing.T) {
 // TestReadCappedFileRejectsUnreadableAndMissing: a path that cannot be opened,
 // or whose contents cannot be read (a directory), is refused.
 func TestReadCappedFileRejectsUnreadableAndMissing(t *testing.T) {
-	data, ok := readCappedFile(filepath.Join(t.TempDir(), "missing"), 16)
+	data, ok := ReadCappedFile(filepath.Join(t.TempDir(), "missing"), 16)
 	require.False(t, ok, "a missing file is refused")
 	require.Nil(t, data)
 
-	data, ok = readCappedFile(t.TempDir(), 16)
+	data, ok = ReadCappedFile(t.TempDir(), 16)
 	require.False(t, ok, "a directory is refused")
 	require.Nil(t, data)
 }
@@ -520,11 +520,11 @@ func TestReadCappedFileBoundary(t *testing.T) {
 	overCap := filepath.Join(dir, "over-cap")
 	require.NoError(t, os.WriteFile(overCap, bytes.Repeat([]byte("a"), 17), 0o600))
 
-	data, ok := readCappedFile(atCap, 16)
+	data, ok := ReadCappedFile(atCap, 16)
 	require.True(t, ok)
 	require.Len(t, data, 16, "a file exactly at the cap is read whole")
 
-	_, ok = readCappedFile(overCap, 16)
+	_, ok = ReadCappedFile(overCap, 16)
 	require.False(t, ok, "a file over the cap is refused")
 }
 

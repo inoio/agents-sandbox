@@ -1,8 +1,6 @@
 package analyser
 
 import (
-	"io"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -35,9 +33,13 @@ type ManagedConfigFacts struct {
 // ManagedConfigFindings returns one finding per changed, non-credential agent
 // config file, whose single write is the sanitized managed config. The static
 // credentials' values are replaced by PlaceholderFor(EnvVar) in the content and
-// never appear in the finding. A file that is a credential store, cannot be read
-// under readback.MaxHashedBytes, or still holds a value after substitution is
-// reported through Logger and yields no finding.
+// never appear in the finding. Substitution is per-file (only the file's own
+// credentials are replaced, so no ${ENVVAR} placeholder is introduced without a
+// matching secret), but the value-remains check is global: a candidate can be
+// any file the read-back's glob declared, so a value classified from a
+// different file must still refuse it. A file that is a credential store, cannot
+// be read under readback.MaxHashedBytes, or still holds any static value after
+// substitution is reported through Logger and yields no finding.
 func ManagedConfigFindings(f ManagedConfigFacts) []Finding {
 	credentialsBySource := staticCredentialsBySource(f.ReadBack.Static)
 	indirectionKey := nativeEnvIndirectionKey(f.Agent)
@@ -54,7 +56,12 @@ func ManagedConfigFindings(f ManagedConfigFacts) []Finding {
 		if !f.changed(configPath) || readback.IsCredentialStorePath(configPath) {
 			continue
 		}
-		sanitized, ok := f.sanitize(configPath, credentialsBySource[configPath], indirectionKey)
+		sanitized, ok := f.sanitize(
+			configPath,
+			credentialsBySource[configPath],
+			f.ReadBack.Static,
+			indirectionKey,
+		)
 		if !ok {
 			continue
 		}
@@ -69,16 +76,20 @@ func (f ManagedConfigFacts) changed(configPath string) bool {
 }
 
 // sanitize reads configPath's content under the read-back's cap and replaces
-// every static secret value it holds. It reports false, after naming the file
-// through the logger, when the file cannot be read, when a credential has no
-// env-var name to substitute, or when a value survives the substitution — so no
-// value ever reaches the finding.
+// every static secret value the file's own credentials hold. It reports false,
+// after naming the file through the logger, when the file cannot be read, when
+// a credential has no env-var name to substitute, or when a value survives the
+// substitution — so no value ever reaches the finding. The substitution is
+// per-file, but the value-remains check runs against the whole static set: a
+// value classified from another file can appear verbatim in this candidate, and
+// only the whole set can prove the file is value-free.
 func (f ManagedConfigFacts) sanitize(
 	configPath string,
 	credentials []readback.Credential,
+	allStatic []readback.Credential,
 	indirectionKey string,
 ) (string, bool) {
-	content, ok := readBoundedFile(filepath.Join(f.Home, configPath))
+	content, ok := readback.ReadCappedFile(filepath.Join(f.Home, configPath), readback.MaxHashedBytes)
 	if !ok {
 		f.warnf(
 			"skipping managed agent config %s: unreadable or over the %d-byte cap",
@@ -95,7 +106,7 @@ func (f ManagedConfigFacts) sanitize(
 		)
 		return "", false
 	}
-	if contentRetainsStaticValue(configPath, sanitized, credentials) {
+	if contentRetainsStaticValue(configPath, sanitized, allStatic) {
 		f.warnf(
 			"skipping managed agent config %s: a static secret value was not fully replaced",
 			configPath,
@@ -137,7 +148,7 @@ func newManagedConfigFinding(configPath, content string) Finding {
 // staticCredentialsBySource indexes the static credentials by the file they came
 // from. A credential with no value is not a secret and contributes nothing; a
 // credential with no env-var name cannot be substituted and is kept in the map
-// so the value-remains check refuses its file rather than emitting the value.
+// so substituteStaticValues refuses its file rather than emitting the value.
 func staticCredentialsBySource(static []readback.Credential) map[string][]readback.Credential {
 	bySource := make(map[string][]readback.Credential)
 	for _, credential := range static {
@@ -304,6 +315,11 @@ func assignmentKeyRange(content string, valueStart int) (int, int, bool) {
 	}
 	if start > 0 && isQuote(content[start-1]) {
 		start--
+		// The key token is quoted; consume its closing quote so replacing the
+		// whole token does not leave a dangling quote behind.
+		if end < len(content) && isQuote(content[end]) {
+			end++
+		}
 	}
 	return start, end, true
 }
@@ -335,23 +351,4 @@ func isKeyChar(b byte) bool {
 	default:
 		return false
 	}
-}
-
-// readBoundedFile reads path's contents, bounded by readback.MaxHashedBytes,
-// mirroring the read-back's own capped read. ok is false when the file cannot be
-// read or exceeds the cap.
-func readBoundedFile(path string) ([]byte, bool) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, false
-	}
-	defer func() { _ = file.Close() }()
-	data, err := io.ReadAll(io.LimitReader(file, readback.MaxHashedBytes+1))
-	if err != nil {
-		return nil, false
-	}
-	if int64(len(data)) > readback.MaxHashedBytes {
-		return nil, false
-	}
-	return data, true
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/projecttrust"
+	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -184,6 +185,51 @@ func TestApplyManagedConfigProjectScopeIsGated(t *testing.T) {
 		t.Errorf("a project-scope managed write asked %d prompts; want none", *answered)
 	}
 	assertNoFile(t, filepath.Join(cp.ProjectConfigDir(), "opencode2", "opencode.jsonc"))
+	assertNoFile(t, filepath.Join(cp.UserSlugConfigDir(testSlug), "opencode2", "opencode.jsonc"))
+}
+
+// TestApplyManagedConfigRefusesAPathElementName pins the single-path-element
+// guard: the applier joins ManagedConfigWrite.Name under the scope directory, so
+// a name carrying a separator or ".." is refused before any write.
+func TestApplyManagedConfigRefusesAPathElementName(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	ui, answered := interactiveUI()
+
+	results := Apply(
+		[]Finding{managedConfigFinding("../escape.jsonc", "model: sonnet\n")},
+		ApplyOptions{Paths: cp, Slug: testSlug, Agent: testManagedConfigAgent, UI: ui, Mode: options.ModeRun},
+	)
+
+	if results[0].Outcome != OutcomeSkipped || results[0].Note == "" {
+		t.Fatalf("result = %+v; want a skipped outcome with a note", results[0])
+	}
+	if *answered != 0 {
+		t.Errorf("an invalid managed name asked %d prompts; want none", *answered)
+	}
+	assertNoFile(t, filepath.Join(cp.UserSlugConfigDir(testSlug), "escape.jsonc"))
+}
+
+// TestApplyManagedConfigRefusesAnEmptyAgent pins that an unset Agent is refused
+// rather than silently resolving to the default agent's config dir: the write
+// must name the agent it targets.
+func TestApplyManagedConfigRefusesAnEmptyAgent(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	ui, answered := interactiveUI()
+
+	results := Apply(
+		[]Finding{managedConfigFinding("opencode.jsonc", "model: sonnet\n")},
+		ApplyOptions{Paths: cp, Slug: testSlug, UI: ui, Mode: options.ModeRun},
+	)
+
+	if results[0].Outcome != OutcomeSkipped || results[0].Note == "" {
+		t.Fatalf("result = %+v; want a skipped outcome with a note", results[0])
+	}
+	if *answered != 0 {
+		t.Errorf("an empty agent asked %d prompts; want none", *answered)
+	}
+	// The default agent is opencode2; its dir must not be touched.
 	assertNoFile(t, filepath.Join(cp.UserSlugConfigDir(testSlug), "opencode2", "opencode.jsonc"))
 }
 
@@ -496,8 +542,9 @@ func TestApplySecretSetsThePlaceholder(t *testing.T) {
 	}
 
 	content := readFile(t, filepath.Join(cp.UserSlugConfigDir(testSlug), "env.secret.yaml"))
-	if !strings.Contains(content, "placeholder: ${OPENAI_API_KEY}") {
-		t.Errorf("env.secret.yaml = %q; want placeholder ${OPENAI_API_KEY}", content)
+	placeholder := envsecret.PlaceholderFor("OPENAI_API_KEY")
+	if !strings.Contains(content, "placeholder: "+placeholder) {
+		t.Errorf("env.secret.yaml = %q; want placeholder %s", content, placeholder)
 	}
 }
 

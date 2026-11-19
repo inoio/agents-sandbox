@@ -37,14 +37,14 @@ What is on `main` now:
   the `--learn` flag, the `state.LearnSession` record (a `HomeState` schema bump), and the 30-day artefact sweep. It
   removed the S4/S5/S6 `//deadcode:ignore` markers as it wired each package's consumer. Its host-only steps (a real
   turn through the proxy, a killed-session replay) are a human accept the PR carries.
-- **S11 landed** (#754): `internal/sandbox/readback`'s inline config-file secret and glob-declared directory login
-  store, extending S5 (#749).
 - **S10 landed**: `internal/sandbox/analyser/managed_config.go` — the agent-config write-back finder
   (`ManagedConfigFindings`), the `Write.ManagedConfig`/`ApplyOptions.Agent` applier path that writes the sanitized
   config into the per-slug user scope, the `${ENVVAR}` placeholder (`envsecret.PlaceholderFor`, `SecretSpec.Placeholder`)
   with kimi's native `api_key_env` form (`agent.EnvIndirectionDescriber`), and the agent-independent credential-store
   exclusion (`readback.IsCredentialStorePath`). Its #749 half is S11's; it carries the same host-only accept as S7 (a
   real session's after-run).
+- **S11 landed** (#754): `internal/sandbox/readback`'s inline config-file secret and glob-declared directory login
+  store, extending S5 (#749).
 
 **S7, S10, and S11 have landed; the frontier is S8 (`config harden`) and S9 (first-run).**
 **S8 is implemented on `feat/697-config-harden`, awaiting its PR; S9 is not yet written** — write it when its

@@ -263,6 +263,35 @@ func TestManagedConfigSkipsAnEscapedStaticValue(t *testing.T) {
 	require.NotEmpty(t, logger.WarnCalls, "an escaped value the substitution missed must be reported")
 }
 
+// TestManagedConfigRefusesAValueFromAnotherSource pins the global retention
+// check: a candidate is any file the read-back's glob declared (opencode2's
+// .config/opencode/* includes AGENTS.md), while substitution is per-file. A
+// static value classified from a different file can therefore appear verbatim
+// in the candidate; the whole static set, not just the candidate's own
+// credentials, must refuse it.
+func TestManagedConfigRefusesAValueFromAnotherSource(t *testing.T) {
+	home := t.TempDir()
+	const sourcePath = ".config/opencode/opencode.jsonc"
+	const candidatePath = ".config/opencode/AGENTS.md"
+	const secret = "sk-cross-source"
+	writeManagedConfig(t, home, candidatePath, "Example: pass the key "+secret+" to the tool.\n")
+	logger := &termiotest.Mock{}
+
+	findings := ManagedConfigFindings(ManagedConfigFacts{
+		Home:  home,
+		Agent: "opencode2",
+		ReadBack: readback.ReadBack{
+			ConfigPaths: []string{candidatePath},
+			Changed:     []string{candidatePath},
+			Static:      []readback.Credential{testStaticCredential(sourcePath, "OPENAI_API_KEY", secret)},
+		},
+		Logger: logger,
+	})
+
+	require.Empty(t, findings)
+	require.NotEmpty(t, logger.WarnCalls, "a value from another source that survives must be reported")
+}
+
 // TestManagedConfigRefusesACredentialWithNoEnvVar pins the empty-env-var
 // refusal: a static credential the read-back could not name cannot be replaced
 // by a placeholder, so its file yields no finding rather than the raw value.
@@ -307,4 +336,56 @@ func TestManagedConfigUsesNativeEnvIndirection(t *testing.T) {
 	require.Contains(t, content, `api_key_env = "MOONSHOT_API_KEY"`)
 	require.NotContains(t, content, "${", "the native form is not a ${VAR} literal")
 	require.NotContains(t, content, secret)
+}
+
+// TestManagedConfigNativeIndirectionRewritesKeyForms pins the native rewrite's
+// key handling for a quoted key ("api_key" = "…") and a dotted key
+// (providers.x.api_key = "…"): the whole key token is replaced, including a
+// quoted key's closing quote, so no dangling quote corrupts the output.
+func TestManagedConfigNativeIndirectionRewritesKeyForms(t *testing.T) {
+	const configPath = ".kimi-code/config.toml"
+	const secret = "sk-kimi-secret"
+
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{
+			name:    "unquoted key",
+			content: `api_key = "` + secret + `"` + "\n",
+			want:    `api_key_env = "MOONSHOT_API_KEY"`,
+		},
+		{
+			name:    "quoted key",
+			content: `"api_key" = "` + secret + `"` + "\n",
+			want:    `api_key_env = "MOONSHOT_API_KEY"`,
+		},
+		{
+			name:    "dotted key",
+			content: `providers.x.api_key = "` + secret + `"` + "\n",
+			want:    `providers.x.api_key_env = "MOONSHOT_API_KEY"`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			home := t.TempDir()
+			writeManagedConfig(t, home, configPath, test.content)
+
+			findings := ManagedConfigFindings(ManagedConfigFacts{
+				Home:  home,
+				Agent: "kimi-code",
+				ReadBack: changedConfigBack(
+					configPath,
+					testStaticCredential(configPath, "MOONSHOT_API_KEY", secret),
+				),
+			})
+
+			require.Len(t, findings, 1)
+			content := string(findings[0].Writes[0].ManagedConfig.Content)
+			require.Contains(t, content, test.want)
+			require.NotContains(t, content, secret)
+		})
+	}
 }

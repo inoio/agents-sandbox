@@ -13,6 +13,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/analyser"
 	"github.com/inoio/agents-sandbox/internal/sandbox/channel"
+	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/readback"
@@ -162,6 +163,9 @@ func TestAnalysisFindingsIncludeManagedConfig(t *testing.T) {
 
 	var managed *analyser.Finding
 	for i := range findings {
+		if len(findings[i].Writes) == 0 {
+			continue
+		}
 		if findings[i].Writes[0].ManagedConfig != nil {
 			managed = &findings[i]
 		}
@@ -173,8 +177,9 @@ func TestAnalysisFindingsIncludeManagedConfig(t *testing.T) {
 	if written.Name != "opencode.jsonc" {
 		t.Errorf("managed config name = %q, want opencode.jsonc", written.Name)
 	}
-	if !strings.Contains(string(written.Content), "${OPENAI_API_KEY}") {
-		t.Errorf("managed config = %q, want the ${OPENAI_API_KEY} placeholder", written.Content)
+	placeholder := envsecret.PlaceholderFor("OPENAI_API_KEY")
+	if !strings.Contains(string(written.Content), placeholder) {
+		t.Errorf("managed config = %q, want the %s placeholder", written.Content, placeholder)
 	}
 	if strings.Contains(string(written.Content), secret) {
 		t.Errorf("managed config = %q, want no secret value", written.Content)
