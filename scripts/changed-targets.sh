@@ -132,7 +132,7 @@ if [[ -z "$selected" ]]; then
       scripts/cleanup-merged-branches.sh|scripts/test-cleanup-merged-branches.sh) add_targets cleanup-branches-test; known=1 ;;
       scripts/surface-sweep.sh|scripts/test-surface-sweep.sh) add_targets surface-sweep-test; known=1 ;;
       scripts/test-envelope.sh|scripts/test-envelope_test.sh) add_targets envelope-test; known=1 ;;
-      scripts/upstream-drift.sh|scripts/test-upstream-drift.sh) add_targets upstream-drift-test; known=1 ;;
+      scripts/upstream-drift.sh|test/scripts/upstream_drift_test.go) add_targets upstream-drift-test; known=1 ;;
       scripts/rebase-status.sh|scripts/test-rebase-status.sh) add_targets rebase-status-test; known=1 ;;
       scripts/enqueue-pr.sh|scripts/test-enqueue-pr.sh) add_targets enqueue-pr-test; known=1 ;;
       scripts/backport-audit.sh|test/scripts/backport_audit_test.go) add_targets backport-audit-test; known=1 ;;

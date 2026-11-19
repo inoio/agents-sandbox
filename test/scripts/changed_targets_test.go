@@ -66,6 +66,12 @@ func TestChangedTargets(t *testing.T) {
 			[]string{"shellcheck", "upstream-drift-test"},
 		},
 		{
+			"modified upstream-drift Go harness",
+			"test/scripts/upstream_drift_test.go",
+			"# x",
+			[]string{"upstream-drift-test", "compile-all", "lint", "test", "validate-fmt"},
+		},
+		{
 			"modified rebase-status script",
 			"scripts/rebase-status.sh",
 			"# x",

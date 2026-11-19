@@ -346,7 +346,7 @@ envelope-test:
 
 # Test the upstream-drift reporter itself (fixtures only: never touches this repo).
 upstream-drift-test:
-	./scripts/test-upstream-drift.sh
+	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -count=1 ./test/scripts/ -run UpstreamDrift
 
 # Test the rebase-status reporter itself (fixtures only: never touches this repo).
 rebase-status-test:
