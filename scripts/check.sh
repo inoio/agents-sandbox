@@ -20,7 +20,8 @@
 #   JOBS                 light-pool width (default: max(2, nproc/4))
 #   VERBOSE=1            stream each target's output instead of capturing it
 #   SERIAL=1             run one target at a time
-#   CHECK_PROGRESS=1/0   force the live status line on/off (default: on for a TTY)
+#   CHECK_PROGRESS=1/0   force the live status line on/off (default: on for a TTY;
+#                        a forced on still requires capture mode, so it is off under VERBOSE)
 #   MAKE                 make command (default: make)
 #
 # Exit status: 0 if every target passed, 1 if any failed, 2 on a usage error or
@@ -89,11 +90,13 @@ pool_width="${JOBS:-$(default_jobs)}"
 serial=0
 if [[ "${SERIAL:-0}" == 1 ]]; then pool_width=1; serial=1; fi
 
-# The live status line needs a single writer (this shell, see the schedule below)
-# and a terminal to redraw; CHECK_PROGRESS forces it for testing.
+# The live status line needs capture mode (a single writer, this shell, see the
+# schedule below) and a terminal to redraw; CHECK_PROGRESS forces it for testing,
+# but a forced on still needs capture mode, so it stays off under VERBOSE where
+# the pool owns stdout.
 progress=0
 case "${CHECK_PROGRESS:-}" in
-  1) progress=1 ;;
+  1) if [[ "$capture" == 1 ]]; then progress=1; fi ;;
   0) progress=0 ;;
   *) if [[ "$capture" == 1 && -t 1 ]]; then progress=1; fi ;;
 esac

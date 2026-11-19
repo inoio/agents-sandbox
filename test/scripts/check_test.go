@@ -5,15 +5,18 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
 
 // checkStubSource is the fixture `make` scripts/check.sh invokes: it records the
 // target's start/end order markers when STUB_ORDER is set (sleeping so an
-// overlapping pool is observable), prints a stdout and a stderr marker, and
-// exits non-zero when the control file $STUB_DIR/fail-<target> exists. Anything
-// before the target name is a flag; the last argument is the target.
+// overlapping pool is observable), burns CPU when STUB_CPU is set (so the
+// runner's CPU-seconds capture is observable rather than reading a flat 0),
+// prints a stdout and a stderr marker, and exits non-zero when the control file
+// $STUB_DIR/fail-<target> exists. Anything before the target name is a flag; the
+// last argument is the target.
 const checkStubSource = `#!/usr/bin/env bash
 set -euo pipefail
 target=""
@@ -21,6 +24,10 @@ for arg in "$@"; do target="$arg"; done
 if [[ "${STUB_ORDER:-0}" == 1 ]]; then
   printf 'start %s\n' "$target" >>"$STUB_DIR/order"
   sleep 0.3
+fi
+if [[ "${STUB_CPU:-0}" == 1 ]]; then
+  deadline=$((SECONDS + 2))
+  while ((SECONDS < deadline)); do :; done
 fi
 printf 'stdout %s\n' "$target"
 printf 'stderr %s\n' "$target" >&2
@@ -53,14 +60,15 @@ func newCheckHarness(t *testing.T) *checkHarness {
 }
 
 // checkRun controls one check.sh invocation. heavy is the space-separated
-// CHECK_HEAVY_TARGETS; jobs, serial, verbose, progress and order overlay the
-// runner's environment, each defaulting to the bash harness's default.
+// CHECK_HEAVY_TARGETS; jobs, serial, verbose, progress, cpu and order overlay
+// the runner's environment, each defaulting to the bash harness's default.
 type checkRun struct {
 	heavy    string
 	jobs     string
 	serial   string
 	verbose  string
 	progress string
+	cpu      string
 	order    string
 }
 
@@ -76,6 +84,7 @@ func (h *checkHarness) run(run checkRun, targets ...string) ScriptResult {
 		"SERIAL":              checkDefaultString(run.serial, "0"),
 		"VERBOSE":             checkDefaultString(run.verbose, "0"),
 		"CHECK_PROGRESS":      run.progress,
+		"STUB_CPU":            run.cpu,
 		"STUB_ORDER":          checkDefaultString(run.order, "0"),
 	}
 	return RunScript(h.t, h.dir, env, repositoryScript(h.t, "check.sh"), targets...)
@@ -285,6 +294,25 @@ func TestCheck(t *testing.T) {
 		}
 	})
 
+	t.Run("per-target line reports the target's cpu time", func(t *testing.T) {
+		t.Parallel()
+		h := newCheckHarness(t)
+		result := h.run(checkRun{heavy: "alpha", cpu: "1"}, "alpha")
+
+		assertStatus(t, result, 0)
+		match := regexp.MustCompile(`(?m)^PASS alpha \d+s \(cpu (\d+)s\) \[heavy\]$`).FindStringSubmatch(result.Stdout)
+		if match == nil {
+			t.Fatalf("no PASS line carrying a cpu time:\n%s", result.Stdout)
+		}
+		cpu, err := strconv.Atoi(match[1])
+		if err != nil {
+			t.Fatalf("parse cpu seconds %q: %v", match[1], err)
+		}
+		if cpu < 1 {
+			t.Errorf("cpu = %ds, want >= 1 for a target that burns CPU", cpu)
+		}
+	})
+
 	t.Run("total time line reports the target count", func(t *testing.T) {
 		t.Parallel()
 		h := newCheckHarness(t)
@@ -324,6 +352,17 @@ func TestCheck(t *testing.T) {
 		assertContains(t, "stdout", result.Stdout, "heavy alpha")
 		assertContains(t, "stdout", result.Stdout, "light beta")
 		assertContains(t, "stdout", result.Stdout, "check: 2 targets in ")
+	})
+
+	t.Run("CHECK_PROGRESS cannot force the line under VERBOSE", func(t *testing.T) {
+		t.Parallel()
+		h := newCheckHarness(t)
+		result := h.run(checkRun{heavy: "alpha", jobs: "2", verbose: "1", progress: "1"}, "alpha", "beta")
+
+		assertStatus(t, result, 0)
+		assertNotContains(t, "stdout", result.Stdout, "\x1b[")
+		assertNotContains(t, "stdout", result.Stdout, "heavy alpha")
+		assertNotContains(t, "stdout", result.Stdout, "light beta")
 	})
 
 	t.Run("check-selected filters the heavy set", func(t *testing.T) {

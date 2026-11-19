@@ -386,7 +386,8 @@ check-test:
 # The `go test ./test/scripts -run X` harness targets (`*-test`) are NOT in
 # CHECK_TARGETS: `test` already runs that whole package, so listing them would
 # execute it twice. They stay defined as selectable targets for the fast loop
-# (scripts/changed-targets.sh) and are run by CI's `lint` job by name.
+# (scripts/changed-targets.sh); CI names a subset in its `lint` job and covers
+# the rest through the `test` job's package run.
 #
 # Each heavy target parallelizes internally (~GOMAXPROCS workers), so overlapping
 # them oversubscribes the box: on 16 cores a one-leaf edit took 33s at -j16, 26s
