@@ -275,6 +275,11 @@ would re-derive is not redundant code either: dropping it would ignore an error,
   mutated package's tests, so `termio.Mock`'s spinner recording (asserted from `internal/sandbox/vm`) stayed LIVED when
   `internal/termio` was swept — and the double's new guard `return`s were the codecov patch lines, uncovered the same way.
   Assert a test double's recording where the double lives, in the double's own `*_test.go`.
+- **A test-support helper in an importable package is mutated; the same helper as a `_test.go` file is not.** gomutants
+  enumerates only `pkg.GoFiles` (production), so nothing in a `_test.go` file generates a mutant. A sweep of importable
+  test support therefore fills with `tb.Helper()`/`tb.Fatalf`/mode-literal survivors that no consumer test can kill; moving
+  the helper into its consumer as a `*_helpers_test.go` (the `test/scripts` pattern, `specs/testing/shell-script-harnesses.md`)
+  deletes the whole family at once rather than triaging each. Prefer the re-home over recording or a linkname-free seam.
 - **`--detect-equivalent` compares assembly, not behaviour.** A mutation that is logically equivalent but compiles to
   different code still reports LIVED, and must be closed by hand (delete or record).
 - **A "restore the factory" mutant (`Get = orig` removed from a `t.Cleanup`) needs a type or behavioural check, not a

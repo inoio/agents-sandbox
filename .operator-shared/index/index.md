@@ -55,11 +55,15 @@ read_if: Navigating the codebase.
 - `cliout/` + `view/` — Output rendering: `cliout` is domain-free (generic list/JSON plus `RenderPruneReport`); `view` holds the sandbox-shaped printers and report DTOs (see `specs/architecture/package-boundaries.md`).
 - `sandbox/` — **See [sandbox subindex](sandbox.md)** (VM lifecycle, docker, image, msb, volumes, pruning, sessions, state).
 - Leaf utilities — `atomicwrite` (durable state/config writes), `configmerge`, `filewalk`, `humanize`, `sysinfo`, `yamlfmt`.
-- `testutil/` — Test-only helpers: in-process go-git repo init, the fail-fast mock installers, and the module-wide scans the contract tests share.
+- `testutil/` — Test-only helpers: the git-isolation environment (`GitIsolationEnvironment`, `RunGit`, `ConfigureRepo`), `InitRepo`, `WritePath`/`WriteFile`, the fail-fast mock installers, and the module-wide contract scans. `testgit.go` is the only coverage-ignored file.
 
 ### `test/harness/` — `msb`-tagged harness smoke tests
 
 - Starts every registered harness in a real microsandbox VM under a sized pty and asserts it reaches its TUI and exits (the `*_helpers_test.go` untagged test-only support: harness table, pty driver, runner-image tooling; `smoke_msb_test.go`; untagged unit tests for the table/pty). See `specs/testing/harness-smoke-tests.md`.
+
+### `test/scripts/` — Go harnesses for the standalone `scripts/` and `ci/` tools
+
+- Drives the shell tools through `RunScript` with `gittest` fixtures and re-exec fakes, all `*_helpers_test.go`/`*_test.go` in the package; `main_test.go` installs the fail-fast mocks and dispatches the fakes, one `<tool>_test.go` per migrated harness. See `specs/testing/shell-script-harnesses.md`.
 
 ### `docs/` — Jekyll documentation site (just-the-docs)
 
