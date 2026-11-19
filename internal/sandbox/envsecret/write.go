@@ -49,9 +49,6 @@ func RemoveSecretSpec(dir, envVar string) error {
 	if err != nil {
 		return err
 	}
-	if !existed {
-		return nil
-	}
 	pointer, found, err := entryValuePointer(document, envVar)
 	if err != nil {
 		return fmt.Errorf("remove secret %q from %s: %w", envVar, filepath.Join(dir, secretFileName), err)
@@ -121,8 +118,10 @@ func parseSecretDocument(dir string) (*oneyaml.Document, bool, error) {
 	case errors.Is(err, projectguard.ErrNotApproved):
 		return nil, false, err
 	case errors.Is(err, os.ErrNotExist):
-		document, parseErr := oneyaml.Parse(nil, oneyaml.Untrusted())
-		return document, false, parseErr
+		// An absent file is an empty document; oneyaml.Parse of no input
+		// cannot fail.
+		document, _ := oneyaml.Parse(nil, oneyaml.Untrusted())
+		return document, false, nil
 	case err != nil:
 		return nil, false, err
 	}
@@ -153,14 +152,13 @@ func readSecretFileAt(path string) ([]byte, error) {
 	// The file is a project secret file, so the read is verified against the
 	// approved content the trust gate installed.
 	data, err := projectguard.ReadFile(path, configread.ReadFile)
-	switch {
-	case errors.Is(err, projectguard.ErrNotApproved), errors.Is(err, os.ErrNotExist):
-		return data, err
-	case err != nil:
-		return nil, fmt.Errorf("read %s: %w", path, err)
-	default:
+	if err == nil {
 		return data, nil
 	}
+	if errors.Is(err, projectguard.ErrNotApproved) || errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	return nil, fmt.Errorf("read %s: %w", path, err)
 }
 
 // setEntry sets mapping key to value in document, replacing the entry of the
@@ -168,11 +166,6 @@ func readSecretFileAt(path string) ([]byte, error) {
 func setEntry(document *oneyaml.Document, key string, value any) error {
 	if !document.Root().IsValid() {
 		return document.Set("", map[string]any{key: value})
-	}
-	if pointer, found, err := entryValuePointer(document, key); err != nil {
-		return err
-	} else if found {
-		return document.Set(pointer, value)
 	}
 	return document.Set(oneyaml.Pointer(key), value)
 }

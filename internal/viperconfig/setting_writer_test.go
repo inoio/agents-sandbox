@@ -1334,6 +1334,9 @@ func TestRemoveSettingRefusesDuplicateKeys(t *testing.T) {
 		t.Fatal("expected RemoveSetting to refuse a duplicate key")
 	}
 	requireWrapped(t, err)
+	if !strings.Contains(err.Error(), "no pointer") {
+		t.Errorf("err = %v, want it to name the ambiguous key's missing pointer", err)
+	}
 	if got := readTestFile(t, path); got != original {
 		t.Errorf("config changed despite the refusal:\n%s", got)
 	}
@@ -1705,6 +1708,27 @@ func TestWriteSettingKeepsTheApprovalInStep(t *testing.T) {
 	}
 	if data, _ := os.ReadFile(path); string(data) != changed {
 		t.Errorf("config.yaml = %q, want the changed file left untouched", data)
+	}
+}
+
+// TestRemoveSettingAbsentKeyKeepsTheApproval pins that an absent-key removal is
+// a byte-preserving no-op that never touches the approval: the approved bytes
+// must still verify after it.
+func TestRemoveSettingAbsentKeyKeepsTheApproval(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	approved := "cpus: 2\n"
+	t.Cleanup(projectguard.Install([]string{dir}, map[string]projectguard.Approval{
+		path: projectguard.ApprovalOf([]byte(approved)),
+	}))
+	testutil.WritePath(t, path, approved)
+
+	if err := RemoveSetting(dir, "memory"); err != nil {
+		t.Fatalf("RemoveSetting: %v", err)
+	}
+
+	if _, err := projectguard.ReadFile(path, os.ReadFile); err != nil {
+		t.Errorf("an absent-key removal changed the approval: %v", err)
 	}
 }
 

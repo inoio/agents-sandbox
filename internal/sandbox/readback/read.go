@@ -147,9 +147,6 @@ const dotenvFileName = ".env"
 // observation channel did not see. A credential whose provider no entry names
 // keeps empty Hosts.
 func (r *ReadBack) fillStaticCredentialHosts(home string, manifest Manifest) {
-	if len(r.Static) == 0 {
-		return
-	}
 	hostsByProvider := configEndpointHosts(home, manifest)
 	for i := range r.Static {
 		r.Static[i].Hosts = hostsByProvider[normalizeToken(r.Static[i].Provider)]
@@ -163,17 +160,16 @@ func (r *ReadBack) fillStaticCredentialHosts(home string, manifest Manifest) {
 func configEndpointHosts(home string, manifest Manifest) map[string][]string {
 	hostsByProvider := map[string][]string{}
 	for _, entry := range manifest.Entries {
-		if isProbe(entry) || entry.Hash == "" || filepath.Base(entry.Key) == dotenvFileName {
+		if isProbe(entry) || entry.Hash == "" {
 			continue
 		}
 		format, ok := configdecode.FormatFor(entry.Key)
 		if !ok {
 			continue
 		}
-		content, ok := readCappedFile(filepath.Join(home, entry.Key), maxHashedBytes)
-		if !ok {
-			continue
-		}
+		// A failed read yields nil content, which decodes to no hosts, so it
+		// needs no separate skip.
+		content, _ := readCappedFile(filepath.Join(home, entry.Key), maxHashedBytes)
 		document, err := configdecode.Decode(format, content)
 		if err != nil {
 			continue
@@ -226,7 +222,7 @@ func collectEndpointHosts(node any, key, entryKey string, hostsByProvider map[st
 // for a node that names no provider either way, so a generic "name"/"id" field
 // on a non-provider entry (an MCP server, a tool) never claims a provider.
 func providerNamedByEntry(entry map[string]any, entryKey string) (string, bool) {
-	if provider, ok := entry["provider"].(string); ok && provider != "" {
+	if provider, _ := entry["provider"].(string); provider != "" {
 		return normalizeToken(provider), true
 	}
 	if entryKey != "" {
@@ -242,7 +238,7 @@ var providerContainers = []string{"provider", "providers", "models"}
 
 // isProviderContainer reports whether a config key holds provider-keyed entries.
 func isProviderContainer(key string) bool {
-	return key != "" && slices.Contains(providerContainers, normalizeToken(key))
+	return slices.Contains(providerContainers, normalizeToken(key))
 }
 
 // entryEndpointHosts returns the hosts an entry's endpoint fields name, looking
@@ -265,10 +261,7 @@ func endpointHosts(node map[string]any) []string {
 		if !isEndpointKey(key) {
 			continue
 		}
-		raw, ok := value.(string)
-		if !ok {
-			continue
-		}
+		raw, _ := value.(string)
 		if host := endpointHost(raw); host != "" {
 			hosts = append(hosts, host)
 		}
@@ -292,7 +285,7 @@ var endpointKeys = []string{"baseurl", "endpoint", "url"}
 // port, and path. A value that is not an absolute URL with a host yields "".
 func endpointHost(raw string) string {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || parsed.Hostname() == "" {
+	if err != nil {
 		return ""
 	}
 	return parsed.Hostname()

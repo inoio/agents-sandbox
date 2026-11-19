@@ -82,9 +82,6 @@ func (e Evidence) hash() string {
 // sortedCopy returns a sorted copy of values, leaving the caller's slice (and
 // its order) untouched.
 func sortedCopy(values []string) []string {
-	if values == nil {
-		return nil
-	}
 	copied := append([]string(nil), values...)
 	sort.Strings(copied)
 	return copied

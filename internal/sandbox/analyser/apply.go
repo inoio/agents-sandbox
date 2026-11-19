@@ -295,15 +295,16 @@ func planConfigKey(write Write, dir string, opts ApplyOptions) *refusal {
 // file may be created) or one holding a YAML file. A JSON, JSONC, JSON5, or TOML
 // file is not editable, so the caller skips rather than corrupt the document.
 func configDirEditable(dir string) (bool, error) {
-	path, _, found, err := configdecode.FindFile(dir)
+	// A directory with no config file reports no path, whose empty extension
+	// configdecode reads as YAML, so the fall-through allows creating one.
+	path, _, _, err := configdecode.FindFile(dir)
 	if err != nil {
 		return false, err
 	}
-	if !found {
-		return true, nil
-	}
-	format, known := configdecode.FormatFor(path)
-	return known && format == configdecode.FormatYAML, nil
+	// FindFile only returns a path whose extension configdecode knows, so the
+	// format is always recognised here.
+	format, _ := configdecode.FormatFor(path)
+	return format == configdecode.FormatYAML, nil
 }
 
 // setByFlag reports whether the caller says a flag set key, treating a nil
@@ -339,7 +340,7 @@ func askApply(ui termio.Prompter, finding Finding) (bool, error) {
 // applyPrompt renders the one question a finding is accepted through: its
 // evidence summary and each write's text, never a secret value.
 func applyPrompt(finding Finding) string {
-	lines := make([]string, 0, len(finding.Writes)+2)
+	var lines []string
 	if finding.Evidence.Summary != "" {
 		lines = append(lines, finding.Evidence.Summary)
 	}
