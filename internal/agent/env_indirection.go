@@ -13,8 +13,6 @@ type EnvIndirectionDescriber interface {
 }
 
 // AsEnvIndirectionDescriber returns the agent's EnvIndirectionDescriber, if it implements one.
-//
-//deadcode:ignore reason="write-back capability; the S10 after-run wiring supplies its caller"
 func AsEnvIndirectionDescriber(a Agent) (EnvIndirectionDescriber, bool) {
 	p, ok := a.(EnvIndirectionDescriber)
 	return p, ok

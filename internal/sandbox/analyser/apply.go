@@ -439,6 +439,7 @@ func executeSecret(plan plannedWrite) error {
 		Host:                  "",
 		Hosts:                 secret.Hosts,
 		HeaderFields:          secret.HeaderFields,
+		Placeholder:           envsecret.PlaceholderFor(secret.EnvVar),
 		AllowAnyHostDangerous: false,
 	})
 }

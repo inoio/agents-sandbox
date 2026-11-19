@@ -30,8 +30,6 @@ type SecretSpec struct {
 // PlaceholderFor returns the guest-visible placeholder a managed config uses to
 // reference envVar. It is the explicit placeholder the runtime substitutes, so
 // a config file can carry it verbatim.
-//
-//deadcode:ignore reason="the agent-config write-back (S10) is the production caller; it lands in the analyser and learn after-run, not here"
 func PlaceholderFor(envVar string) string {
 	return "${" + envVar + "}"
 }

@@ -471,6 +471,36 @@ func TestApplySecretMigratesStaticOnly(t *testing.T) {
 	}
 }
 
+// TestApplySecretSetsThePlaceholder pins that an applied static secret carries
+// the guest-visible placeholder for its env var, so the managed config's
+// ${ENVVAR} is the placeholder the runtime substitutes rather than an undefined
+// reference.
+func TestApplySecretSetsThePlaceholder(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	ui, _ := interactiveUI()
+
+	finding := Finding{
+		Evidence: Evidence{Summary: "the session sent OPENAI_API_KEY"},
+		Writes: []Write{{
+			Scope:  ScopePerSlugUser,
+			Secret: &SecretWrite{EnvVar: "OPENAI_API_KEY", Provider: "openai", Hosts: []string{"api.openai.com"}},
+		}},
+	}
+	results := Apply([]Finding{finding}, ApplyOptions{
+		Paths: cp, Slug: testSlug, UI: ui, Mode: options.ModeRun,
+		SecretValue: func(SecretWrite) (string, bool) { return "sk-secret", true },
+	})
+	if results[0].Outcome != OutcomeApplied {
+		t.Fatalf("outcome = %q (%s); want applied", results[0].Outcome, results[0].Err)
+	}
+
+	content := readFile(t, filepath.Join(cp.UserSlugConfigDir(testSlug), "env.secret.yaml"))
+	if !strings.Contains(content, "placeholder: ${OPENAI_API_KEY}") {
+		t.Errorf("env.secret.yaml = %q; want placeholder ${OPENAI_API_KEY}", content)
+	}
+}
+
 func TestApplyProjectScopeIsGated(t *testing.T) {
 	t.Run("project scope extends the approval", func(t *testing.T) {
 		configpathstest.WithMockConfigPaths(t)

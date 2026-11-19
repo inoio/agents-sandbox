@@ -38,8 +38,6 @@ type ManagedConfigFacts struct {
 // never appear in the finding. A file that is a credential store, cannot be read
 // under readback.MaxHashedBytes, or still holds a value after substitution is
 // reported through Logger and yields no finding.
-//
-//deadcode:ignore reason="managed-config write-back finder; the after-run wiring supplies its caller"
 func ManagedConfigFindings(f ManagedConfigFacts) []Finding {
 	credentialsBySource := staticCredentialsBySource(f.ReadBack.Static)
 	indirectionKey := nativeEnvIndirectionKey(f.Agent)
@@ -66,8 +64,6 @@ func ManagedConfigFindings(f ManagedConfigFacts) []Finding {
 }
 
 // changed reports whether the read-back saw configPath change since baseline.
-//
-//deadcode:ignore reason="managed-config write-back finder; the after-run wiring supplies its caller"
 func (f ManagedConfigFacts) changed(configPath string) bool {
 	return slices.Contains(f.ReadBack.Changed, configPath)
 }
@@ -77,8 +73,6 @@ func (f ManagedConfigFacts) changed(configPath string) bool {
 // through the logger, when the file cannot be read, when a credential has no
 // env-var name to substitute, or when a value survives the substitution — so no
 // value ever reaches the finding.
-//
-//deadcode:ignore reason="managed-config write-back finder; the after-run wiring supplies its caller"
 func (f ManagedConfigFacts) sanitize(
 	configPath string,
 	credentials []readback.Credential,
@@ -112,8 +106,6 @@ func (f ManagedConfigFacts) sanitize(
 }
 
 // warnf logs a skipped candidate when a logger is present.
-//
-//deadcode:ignore reason="managed-config write-back finder; the after-run wiring supplies its caller"
 func (f ManagedConfigFacts) warnf(format string, args ...any) {
 	if f.Logger != nil {
 		f.Logger.Warnf(format, args...)
@@ -122,8 +114,6 @@ func (f ManagedConfigFacts) warnf(format string, args ...any) {
 
 // newManagedConfigFinding builds the per-slug managed-config finding for one
 // sanitized file. Its evidence and write text name the file and never a value.
-//
-//deadcode:ignore reason="managed-config write-back finder; the after-run wiring supplies its caller"
 func newManagedConfigFinding(configPath, content string) Finding {
 	//exhaustruct:ignore // a managed-config finding carries no destinations or header names
 	evidence := Evidence{
@@ -148,8 +138,6 @@ func newManagedConfigFinding(configPath, content string) Finding {
 // from. A credential with no value is not a secret and contributes nothing; a
 // credential with no env-var name cannot be substituted and is kept in the map
 // so the value-remains check refuses its file rather than emitting the value.
-//
-//deadcode:ignore reason="managed-config write-back finder; the after-run wiring supplies its caller"
 func staticCredentialsBySource(static []readback.Credential) map[string][]readback.Credential {
 	bySource := make(map[string][]readback.Credential)
 	for _, credential := range static {
@@ -164,8 +152,6 @@ func staticCredentialsBySource(static []readback.Credential) map[string][]readba
 // nativeEnvIndirectionKey returns the config key the agent's harness reads an
 // environment-variable name from, or "" when it takes a ${VAR} placeholder
 // verbatim. An unknown agent yields "".
-//
-//deadcode:ignore reason="managed-config write-back finder; the after-run wiring supplies its caller"
 func nativeEnvIndirectionKey(agentName string) string {
 	profile, ok := agent.Lookup(agentName)
 	if !ok {
@@ -185,8 +171,6 @@ func nativeEnvIndirectionKey(agentName string) string {
 // the env-var name). ok is false when a credential has no env-var name to
 // substitute; the caller then emits no finding. The value-remains check is the
 // caller's, because it decodes the content.
-//
-//deadcode:ignore reason="managed-config write-back finder; the after-run wiring supplies its caller"
 func substituteStaticValues(
 	content string,
 	credentials []readback.Credential,
@@ -213,8 +197,6 @@ func substituteStaticValues(
 // literal search misses even though the harness reads the value. A literal hit
 // is deliberately kept as well, so a value left in a comment or a file whose
 // format cannot be decoded is still caught.
-//
-//deadcode:ignore reason="managed-config write-back finder; the after-run wiring supplies its caller"
 func contentRetainsStaticValue(configPath, content string, credentials []readback.Credential) bool {
 	if containsStaticValue(content, credentials) {
 		return true
@@ -232,8 +214,6 @@ func contentRetainsStaticValue(configPath, content string, credentials []readbac
 
 // decodedContainsStaticValue reports whether any string a decoded document holds
 // — a key or a leaf value — contains one of the credentials' values.
-//
-//deadcode:ignore reason="managed-config write-back finder; the after-run wiring supplies its caller"
 func decodedContainsStaticValue(node any, credentials []readback.Credential) bool {
 	switch typed := node.(type) {
 	case map[string]any:
@@ -256,8 +236,6 @@ func decodedContainsStaticValue(node any, credentials []readback.Credential) boo
 
 // containsStaticValue reports whether any of the credentials' values appears in
 // text.
-//
-//deadcode:ignore reason="managed-config write-back finder; the after-run wiring supplies its caller"
 func containsStaticValue(text string, credentials []readback.Credential) bool {
 	for _, credential := range credentials {
 		if credential.Value != "" && strings.Contains(text, credential.Value) {
@@ -273,8 +251,6 @@ func containsStaticValue(text string, credentials []readback.Credential) bool {
 // env-var name. An occurrence with no recognizable assignment key before it is
 // left untouched, so the caller's value-remains check refuses the file rather
 // than emitting the value.
-//
-//deadcode:ignore reason="managed-config write-back finder; the after-run wiring supplies its caller"
 func rewriteNativeAssignments(content string, credential readback.Credential, indirectionKey string) string {
 	value := credential.Value
 	if value == "" {
@@ -306,8 +282,6 @@ func rewriteNativeAssignments(content string, credential readback.Credential, in
 // introduces the value starting at valueStart, when that value sits on the
 // right-hand side of a '=' or ':' assignment. The range includes the key's
 // quotes, if any. It reports false when no key token precedes the value.
-//
-//deadcode:ignore reason="managed-config write-back finder; the after-run wiring supplies its caller"
 func assignmentKeyRange(content string, valueStart int) (int, int, bool) {
 	separator := skipSpaceBackward(content, valueStart)
 	if separator > 0 && isQuote(content[separator-1]) {
@@ -335,8 +309,6 @@ func assignmentKeyRange(content string, valueStart int) (int, int, bool) {
 }
 
 // skipSpaceBackward returns index moved left past any ASCII whitespace.
-//
-//deadcode:ignore reason="managed-config write-back finder; the after-run wiring supplies its caller"
 func skipSpaceBackward(content string, index int) int {
 	for index > 0 && isSpaceByte(content[index-1]) {
 		index--
@@ -345,21 +317,15 @@ func skipSpaceBackward(content string, index int) int {
 }
 
 // isSpaceByte reports whether b is ASCII whitespace.
-//
-//deadcode:ignore reason="managed-config write-back finder; the after-run wiring supplies its caller"
 func isSpaceByte(b byte) bool {
 	return b == ' ' || b == '\t' || b == '\r' || b == '\n'
 }
 
 // isQuote reports whether b opens or closes a quoted config value or key.
-//
-//deadcode:ignore reason="managed-config write-back finder; the after-run wiring supplies its caller"
 func isQuote(b byte) bool { return b == '"' || b == '\'' }
 
 // isKeyChar reports whether b is part of a config key token. A '.' is excluded,
 // so a dotted key's final segment is the token that is rewritten.
-//
-//deadcode:ignore reason="managed-config write-back finder; the after-run wiring supplies its caller"
 func isKeyChar(b byte) bool {
 	switch {
 	case b >= 'a' && b <= 'z', b >= 'A' && b <= 'Z', b >= '0' && b <= '9':
@@ -374,8 +340,6 @@ func isKeyChar(b byte) bool {
 // readBoundedFile reads path's contents, bounded by readback.MaxHashedBytes,
 // mirroring the read-back's own capped read. ok is false when the file cannot be
 // read or exceeds the cap.
-//
-//deadcode:ignore reason="managed-config write-back finder; the after-run wiring supplies its caller"
 func readBoundedFile(path string) ([]byte, bool) {
 	file, err := os.Open(path)
 	if err != nil {

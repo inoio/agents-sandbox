@@ -413,8 +413,6 @@ func loginStoreFor(key string) (loginCredentialStore, bool) {
 // the store is scoped to. The Read login classification applies the store's
 // agents filter on top of the pattern; this predicate deliberately does not, so
 // it also refuses a path the caller's agent does not classify as a login.
-//
-//deadcode:ignore reason="the managed-config write-back finder is its only caller until the after-run wiring lands"
 func IsCredentialStorePath(path string) bool {
 	_, isStore := loginStoreFor(path)
 	return isStore
