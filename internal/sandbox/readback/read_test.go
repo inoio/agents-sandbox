@@ -770,7 +770,9 @@ func TestIsReferenceValue(t *testing.T) {
 		"sk",
 		"1234",
 		"aB12",
-		"ABC", // one character short of a bare identifier
+		"ABC",     // one character short of a bare identifier
+		"ABC.DEF", // uppercase but carries a non-identifier character
+		"ABC-123", // uppercase but carries a separator
 	} {
 		require.False(t, isReferenceValue(value), "%q is a literal", value)
 	}
