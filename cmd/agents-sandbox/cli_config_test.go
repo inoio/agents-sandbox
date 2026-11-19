@@ -723,6 +723,36 @@ func TestConfigLearnReplaysTheRecordedSession(t *testing.T) {
 	}
 }
 
+// TestConfigLearnConsumesTheRecord pins that a successful replay clears the
+// session record and deletes the capture, so a second `config learn` does not
+// re-prompt and the artefact does not linger.
+func TestConfigLearnConsumesTheRecord(t *testing.T) {
+	initTestProjectDir(t)
+	cmd, _ := setupCommandFixtures(t, cmdConfig, cmdLearn)
+	stubPrepareMSBRuntime(t)
+	key := learnTestKey(t)
+
+	artefactPath, err := channel.Save(key.Slug, 1763458200, channel.Observation{
+		Destinations: []channel.Destination{{Host: "api.example.com", Protocol: "https", Success: true, Count: 1}},
+	})
+	if err != nil {
+		t.Fatalf("save artefact: %v", err)
+	}
+	seedLearnState(t, key, state.LearnSession{HomeVolume: "vol-1", ArtefactPath: artefactPath})
+	stubLearnHomeVolume(t, "/home/vol")
+	stubLearnAnalyse(t)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config learn: %v", err)
+	}
+	if _, ok, err := state.ReadLearnSession(key); err != nil || ok {
+		t.Errorf("ReadLearnSession = ok=%v err=%v, want the record cleared", ok, err)
+	}
+	if _, err := os.Stat(artefactPath); !os.IsNotExist(err) {
+		t.Errorf("artefact still present after config learn (err = %v)", err)
+	}
+}
+
 func TestConfigLearnNonInteractiveWritesNothing(t *testing.T) {
 	initTestProjectDir(t)
 	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdLearn)

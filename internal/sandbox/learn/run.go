@@ -24,12 +24,14 @@ var takeManifest = readback.TakeManifest
 
 // Run owns one session's observation: the channel (nil when passive), the
 // pre-overlay base policy, the captured home-volume path, the baseline manifest,
-// and the session start.
+// the recorded session (updated with the artefact path at teardown), and the
+// session start.
 type Run struct {
 	observer  channel.Observer
 	base      network.Policy
 	home      string
 	baseline  readback.Manifest
+	record    state.LearnSession
 	startedAt time.Time
 }
 
@@ -91,11 +93,12 @@ func (r *Run) CaptureBaseline(ctx context.Context, k state.Key, agentName string
 	r.home = home
 	r.baseline = manifest
 	//exhaustruct:ignore // ArtefactPath is set at teardown, when the artefact is saved
-	if err := state.RecordLearnSession(k, state.LearnSession{
+	r.record = state.LearnSession{
 		StartedAt:  r.startedAt,
 		HomeVolume: homeState.HomeVolume,
 		Baseline:   manifestToState(manifest),
-	}); err != nil {
+	}
+	if err := state.RecordLearnSession(k, r.record); err != nil {
 		return "", err
 	}
 	return home, nil

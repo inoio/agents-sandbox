@@ -95,6 +95,12 @@ func (r *Run) Finish(ctx context.Context, in FinishInput) error {
 			return fmt.Errorf("save the learn capture: %w", err)
 		}
 		artefactPath = path
+		// Record the path so config learn can load the capture if this analysis
+		// does not finish (a crash or a review that never resolves).
+		r.record.ArtefactPath = path
+		if err := state.RecordLearnSession(in.Key, r.record); err != nil {
+			return fmt.Errorf("record the learn capture path: %w", err)
+		}
 	}
 
 	//exhaustruct:ignore // ReadBack is filled by the analysis from the home volume

@@ -2,13 +2,17 @@ package learn
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/analyser"
+	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/readback"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
@@ -120,5 +124,51 @@ func TestExitPromptNonInteractivePrintsOneLine(t *testing.T) {
 	}
 	if !strings.Contains(ui.AcknowledgeCalls[0], "run --learn") {
 		t.Errorf("notice %q, want it to name `run --learn`", ui.AcknowledgeCalls[0])
+	}
+}
+
+// TestFinishRecordsTheArtefactPath pins that a saved capture's path reaches the
+// session record, so config learn can load it when the analysis did not finish.
+// The analysis is forced to fail, which is exactly the window where the record
+// (and its path) must survive.
+func TestFinishRecordsTheArtefactPath(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	seedHomeVolume(t, k, "vol-1")
+	stubLearnReadback(t, "/home/vol", readback.Manifest{})
+
+	origRead := readBack
+	readBack = func(string, string, readback.Manifest) (readback.ReadBack, error) {
+		return readback.ReadBack{}, errors.New("read-back boom")
+	}
+	t.Cleanup(func() { readBack = origRead })
+
+	run, err := Begin(network.Policy{Profiles: []network.Profile{network.ProfileNone}})
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	if _, err := run.CaptureBaseline(context.Background(), k, "opencode"); err != nil {
+		t.Fatalf("CaptureBaseline: %v", err)
+	}
+
+	finishErr := run.Finish(context.Background(), FinishInput{
+		Key:   k,
+		Slug:  "proj",
+		Agent: "opencode",
+		Paths: configpaths.Get(),
+		Home:  "/home/vol",
+		UI:    &termiotest.Mock{},
+		Mode:  options.ModeRun,
+	})
+	if finishErr == nil {
+		t.Fatal("Finish = nil error, want the forced analysis failure")
+	}
+
+	record, ok, err := state.ReadLearnSession(k)
+	if err != nil || !ok {
+		t.Fatalf("ReadLearnSession = ok=%v err=%v, want the surviving record", ok, err)
+	}
+	if record.ArtefactPath == "" {
+		t.Error("ArtefactPath was not recorded; config learn could not load the capture")
 	}
 }

@@ -305,10 +305,11 @@ func describeConfigDir(dir string) string {
 // home volume, and runs the same analysis the live after-run does. They are
 // package variables so a test drives the command without a live VM.
 var (
-	learnReadSession  = state.ReadLearnSession
-	learnClearSession = state.ClearLearnSession
-	learnHomeVolume   = readback.HomeVolumePath
-	learnAnalyse      = learn.Analyse
+	learnReadSession    = state.ReadLearnSession
+	learnClearSession   = state.ClearLearnSession
+	learnHomeVolume     = readback.HomeVolumePath
+	learnDeleteArtefact = channel.Delete
+	learnAnalyse        = learn.Analyse
 )
 
 // buildConfigLearnCmd returns the config learn subcommand: it replays the last
@@ -390,7 +391,20 @@ func runConfigLearn(cmd *cobra.Command, ui termio.UI) error {
 		Current:      current,
 	}
 	_, err = learnAnalyse(cmd.Context(), analysis, ui, options.ModeRun, nil)
-	return err
+	if err != nil {
+		return err
+	}
+	// The replay is the after-run for a dead process: consume the record and its
+	// capture, so a second run does not re-prompt.
+	if clearErr := learnClearSession(key); clearErr != nil {
+		ui.Warnf("config learn: clearing the session record failed: %v", clearErr)
+	}
+	if record.ArtefactPath != "" {
+		if delErr := learnDeleteArtefact(record.ArtefactPath); delErr != nil {
+			ui.Warnf("config learn: deleting the capture failed: %v", delErr)
+		}
+	}
+	return nil
 }
 
 // manifestFromState rebuilds the read-back manifest from a recorded baseline, so

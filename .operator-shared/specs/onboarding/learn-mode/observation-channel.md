@@ -162,9 +162,10 @@ The pinned SDK (v0.7.16) exposes the outbound proxy (SOCKS4/5, HTTP CONNECT) and
 network config, which is creation-only. On an existing project VM the session therefore recreates it through the
 normal reconfiguration path and its guards — the per-project creation lock, and the same keep/quit/restart prompt
 when other clients are attached — with the prompt naming the temporary observation settings. The user's config is
-never written for the overlay. A user who declines the recreate gets a passive-read-back session, which establishes
-facts 1–3 and proposes no network change. It can still propose a static secret whose endpoint the entry's own config
-names (the config-entry fallback in [findings and apply](findings-and-apply.md)), since that needs no attribution.
+never written for the overlay. If the observation channel cannot start, the run continues as a passive read-back
+session, which establishes facts 1–3 and proposes no network change. It can still propose a static secret whose
+endpoint the entry's own config names (the config-entry fallback in [findings and apply](findings-and-apply.md)),
+since that needs no attribution.
 
 ## Open validation
 
