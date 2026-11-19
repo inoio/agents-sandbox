@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 )
 
@@ -15,11 +14,14 @@ import (
 // asserting the same exit codes and output substrings for the dead-code gate
 // (ci/check-deadcode.sh) driven by throwaway fixture reports.
 func TestDeadcode(t *testing.T) {
-	// Build ci/deadcodecheck once and hand it to every case through
-	// DEADCODE_CHECKER: the script's default rebuild per case would dominate
-	// this harness. The first case below leaves DEADCODE_CHECKER empty so the
-	// script's own `go build` path stays exercised too.
-	checker := deadcodeChecker(t, repositoryRoot(t))
+	// Build ci/deadcodecheck once for this invocation and hand it to every case
+	// through DEADCODE_CHECKER: the script's default rebuild per case would
+	// dominate this harness. The binary lives in this invocation's temp dir, so
+	// a `-count>1` run rebuilds it rather than handing the script a path the
+	// previous iteration's TempDir removed. The first case below leaves
+	// DEADCODE_CHECKER empty so the script's own `go build` path stays
+	// exercised too.
+	checker := buildDeadcodeChecker(t, repositoryRoot(t))
 
 	t.Run("marked finding in every configuration", func(t *testing.T) {
 		h := newDeadcodeHarness(t, checker, `//deadcode:ignore reason="test seam"`)
@@ -104,32 +106,19 @@ func TestDeadcode(t *testing.T) {
 	})
 }
 
-// deadcodeChecker builds ci/deadcodecheck once for the whole test binary,
-// returning the binary path so every case can pass it through DEADCODE_CHECKER.
-// The build runs inside the first caller's temp dir (the top-level TestDeadcode
-// t), which lives until that test returns.
-var (
-	deadcodeCheckerOnce sync.Once
-	deadcodeCheckerBin  string
-	errDeadcodeChecker  error
-)
-
-func deadcodeChecker(t *testing.T, root string) string {
+// buildDeadcodeChecker builds ci/deadcodecheck into t's temp dir and returns the
+// binary path so every case in this TestDeadcode invocation can pass it through
+// DEADCODE_CHECKER. It is called once per invocation, so the build is amortised
+// across the invocation's subtests while still being rebuilt under -count>1.
+func buildDeadcodeChecker(t *testing.T, root string) string {
 	t.Helper()
-	deadcodeCheckerOnce.Do(func() {
-		path := filepath.Join(t.TempDir(), "deadcodecheck")
-		build := exec.Command("go", "build", "-o", path, "./ci/deadcodecheck")
-		build.Dir = root
-		if out, err := build.CombinedOutput(); err != nil {
-			errDeadcodeChecker = fmt.Errorf("build deadcodecheck: %w\n%s", err, out)
-			return
-		}
-		deadcodeCheckerBin = path
-	})
-	if errDeadcodeChecker != nil {
-		t.Fatal(errDeadcodeChecker)
+	path := filepath.Join(t.TempDir(), "deadcodecheck")
+	build := exec.Command("go", "build", "-o", path, "./ci/deadcodecheck")
+	build.Dir = root
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build deadcodecheck: %v\n%s", err, out)
 	}
-	return deadcodeCheckerBin
+	return path
 }
 
 // deadcodeHarness is one fixture: a work dir holding a source file, its report
