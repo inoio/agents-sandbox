@@ -24,6 +24,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
+	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/prepare"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -495,6 +496,63 @@ func TestRunUsesSessionKeyForLease(t *testing.T) {
 	ambientKeyDir := filepath.Join(state.KeyDir(state.Key{Slug: ambientSlug, Agent: "opencode"}), "clients")
 	if _, statErr := os.Stat(ambientKeyDir); statErr == nil {
 		t.Errorf("client lease landed under the ambient checkout slug %q; Run re-resolved identity", ambientSlug)
+	}
+}
+
+// TestRunLearnStartsChannelBeforePrepareAndBaselinesBeforeAttach pins the learn
+// wiring order: Begin (and the overlay applied to the options) before
+// prepareSandbox, CaptureBaseline between prepare and attach, and Stop at
+// teardown.
+func TestRunLearnStartsChannelBeforePrepareAndBaselinesBeforeAttach(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	key := state.Key{Slug: "learnslug", Agent: "opencode"}
+	ui := &termiotest.Mock{}
+	sb := &msbtest.MockSandbox{AttachCode: 0, Name_: "test-vm"}
+	sb.ShellOut = map[string]msb.ShellResult{
+		"curl -sf http://127.0.0.1:4096/session/status": msbtest.NewTestResult(
+			true, 0, `{"s1":{"type":"idle","attempt":0}}`, "", nil,
+		),
+	}
+	sb.ExecOut = map[string]msb.ShellResult{
+		"sleep 1h": msbtest.NewTestResult(true, 0, "", "", nil),
+	}
+
+	var events []string
+	overlay := network.Policy{Profiles: []network.Profile{network.ProfileNone}, InterceptTLS: network.InterceptOn}
+
+	origPrepare := prepareSandbox
+	prepareSandbox = func(_ context.Context, opts options.RunOptions, _ bool, _ termio.UI) (preparedSandbox, error) {
+		events = append(events, "prepare")
+		if opts.Network.Fingerprint() != overlay.Fingerprint() {
+			t.Errorf("prepareSandbox saw policy %q, want the learn overlay", opts.Network.Fingerprint())
+		}
+		return &fakePrepared{sb: sb, target: "/workspace", key: key}, nil
+	}
+	t.Cleanup(func() { prepareSandbox = origPrepare })
+
+	origBegin := learnBegin
+	learnBegin = func(network.Policy) (learnSession, error) {
+		events = append(events, "begin")
+		return &fakeLearnRun{overlay: overlay, events: &events}, nil
+	}
+	t.Cleanup(func() { learnBegin = origBegin })
+
+	err := Run(
+		context.Background(),
+		resolvedRunOptions(
+			t,
+			options.RunOptions{Learn: true, Agent: "opencode", ReapPolicy: options.NewReapPolicy(true, 5)},
+		),
+		options.ModeRun,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	want := []string{"begin", "prepare", "baseline", "stop"}
+	if !slices.Equal(events, want) {
+		t.Errorf("learn event order = %v, want %v", events, want)
 	}
 }
 

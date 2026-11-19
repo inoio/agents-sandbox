@@ -6,8 +6,10 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/opener"
+	"github.com/inoio/agents-sandbox/internal/sandbox/channel"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
+	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
 
@@ -130,3 +132,34 @@ func (f *fakePrepared) GuestCWD() string { return f.guestCWD }
 func (f *fakePrepared) Key() state.Key { return f.key }
 
 func (f *fakePrepared) HomeVolume() string { return f.homeVolume }
+
+// fakeLearnRun is a learnSession double that records each lifecycle call's name,
+// so a test can assert the order session.Run drives it in without a real
+// observation channel or home volume.
+type fakeLearnRun struct {
+	overlay network.Policy
+	passive bool
+	stopped bool
+	events  *[]string
+}
+
+func (f *fakeLearnRun) Overlay() network.Policy { return f.overlay }
+
+func (f *fakeLearnRun) Passive() bool { return f.passive }
+
+func (f *fakeLearnRun) Stop() channel.Observation {
+	f.record("stop")
+	f.stopped = true
+	return channel.Observation{}
+}
+
+func (f *fakeLearnRun) CaptureBaseline(context.Context, state.Key, string) (string, error) {
+	f.record("baseline")
+	return "/home/vol", nil
+}
+
+func (f *fakeLearnRun) record(event string) {
+	if f.events != nil {
+		*f.events = append(*f.events, event)
+	}
+}
