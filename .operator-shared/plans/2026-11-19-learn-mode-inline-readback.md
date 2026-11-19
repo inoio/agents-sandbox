@@ -10,7 +10,9 @@
 
 **Spec:** `.operator-shared/specs/onboarding/learn-mode/home-read-back.md` (§What read-back establishes facts 2–3, §Open validation); the frozen contracts are in `2026-11-17-learn-mode-program.md`. The issue is #749; the kimi profile that motivates the directory store is #748 / PR #752.
 
-**Depends on:** S5 (read-back, landed). The generic mechanism and its hermes/oh-my-pi tests need nothing else. The kimi end-to-end path (`~/.kimi-code/credentials/*.json` recorded as logins) exercises #748/PR #752's declared paths and is verified when that profile lands — see Task 2's note.
+**Depends on:** S5 (read-back, landed) and #748 / PR #752 (the kimi-code profile). **This branch is based on #752**, so the `kimi-code` profile and its declared `ReadBackPaths` (`config.toml`, `mcp.json`, `credentials/*.json`) are present and the kimi end-to-end tests run against the real profile.
+
+**Execution order:** Task 2 (directory login stores) lands **before** Task 1 (inline config credentials), because Task 1's inline walk skips login-store entries through `loginStoreFor`, which Task 2 introduces. The commit order is Task 2 then Task 1; the task numbers stay as written.
 
 **Produces:** `readback.walkProviderEntries`; `readback.configInlineCredentials`; `readback.derivedEnvVarName`; `readback.loginStoreFor`; the `.kimi-code/credentials/*.json` login-store pattern.
 
@@ -95,7 +97,7 @@ func TestReadInlineSecretKeepsDotenvHostFill(t *testing.T)   // a dotenv credent
 
 - [ ] **Step 2: Run to verify it fails** — `go test ./internal/sandbox/readback/ -run 'TestDerivedEnvVarName|TestReadInlineSecret|TestReadClassifiesInlineConfigSecret'`. Expected: FAIL.
 
-- [ ] **Step 3: Implement.** Factor the provider-entry traversal out of `collectEndpointHosts` into `walkProviderEntries`, which calls `visit` for a node whenever `providerNamedByEntry` names a provider (a container child, a `provider` field, or an explicit `provider` key) — **not** gated on the entry having an endpoint, so a credential in an endpointless entry is still found. `collectEndpointHosts` then adds a host only when `entryEndpointHosts(entry)` is non-empty; its existing tests stay green because an endpointless entry contributed no host before either. Add `configInlineCredentials`: for each manifest entry that is not a probe, not a `.env`, and not `loginStoreFor`-matched, read and decode it, then for each provider entry build `entryCredentials`. `entryCredentials` yields, for the entry's own `inlineCredentialKeys` (`apikey`/`key`/`token`, via `normalizeToken`) a credential whose `EnvVar` is `derivedEnvVarName(provider)`, and, for each `looksLikeSecretKey` key of the entry's `env` sub-table, a credential whose `EnvVar` is that key; both skip a non-string value and an `isPlaceholderValue` value, and both set `Kind: CredentialStatic`, `Source`, `Provider`, and `Hosts: entryEndpointHosts(entry)`. Set `Field` empty (the harness owns the header). `derivedEnvVarName` uppercases and folds non-alphanumerics to `_`, then appends `_API_KEY`. `isPlaceholderValue` reports a value whose trimmed form starts with `${`.
+- [ ] **Step 3: Implement.** Factor the provider-entry traversal out of `collectEndpointHosts` into `walkProviderEntries`, which calls `visit` for a node whenever `providerNamedByEntry` names a provider (a container child, a `provider` field, or an explicit `provider` key) — **not** gated on the entry having an endpoint, so a credential in an endpointless entry is still found. `collectEndpointHosts` then adds a host only when `entryEndpointHosts(entry)` is non-empty; its existing tests stay green because an endpointless entry contributed no host before either. The inline walk skips a `.env` entry, a probe, and any entry `loginStoreFor` matches — `loginStoreFor` is introduced by Task 2, which is executed first (see the header's Execution order). Add `configInlineCredentials`: for each manifest entry that is not a probe, not a `.env`, and not `loginStoreFor`-matched, read and decode it, then for each provider entry build `entryCredentials`. `entryCredentials` yields, for the entry's own `inlineCredentialKeys` (`apikey`/`key`/`token`, via `normalizeToken`) a credential whose `EnvVar` is `derivedEnvVarName(provider)`, and, for each `looksLikeSecretKey` key of the entry's `env` sub-table, a credential whose `EnvVar` is that key; both skip a non-string value and an `isPlaceholderValue` value, and both set `Kind: CredentialStatic`, `Source`, `Provider`, and `Hosts: entryEndpointHosts(entry)`. Set `Field` empty (the harness owns the header). `derivedEnvVarName` uppercases and folds non-alphanumerics to `_`, then appends `_API_KEY`. `isPlaceholderValue` reports a value whose trimmed form starts with `${`.
 
 - [ ] **Step 4: Run** — `go test ./internal/sandbox/readback/`. Expected: PASS.
 
@@ -145,9 +147,9 @@ func TestLoginStoreForUnknownIsAbsent(t *testing.T)          // ".nope/x" -> fal
 func TestReadClassifiesADirectoryLoginStore(t *testing.T)    // two credentials/*.json files -> two logins, values empty
 ```
 
-  For the last test, register a minimal stub profile with `agent.Register` whose `ReadBackPaths()` is
-  `[]string{".kimi-code/credentials/*.json"}`, under a name unique to the test (e.g. `"glob-login-stub"`); assert two
-  `CredentialLogin` entries with `Provider == "kimi-code"`, empty `Value`, and both files in `ConfigPaths`.
+  The last test uses the real `kimi-code` profile (#752 declares `.kimi-code/credentials/*.json`): write two files
+  under `.kimi-code/credentials/`, call `Read(home, "kimi-code", Manifest{})`, and assert two `CredentialLogin`
+  entries with `Provider == "kimi-code"`, empty `Value`, and both files in `ConfigPaths` — no stub, no `agent.Register`.
 
 - [ ] **Step 2: Run to verify it fails** — `go test ./internal/sandbox/readback/ -run 'TestLoginStoreFor|TestReadClassifiesADirectoryLoginStore'`. Expected: FAIL.
 
@@ -185,7 +187,7 @@ git commit -m "docs(operator): record the inline-secret and directory-login read
 
 ## Self-review
 
-**Coverage.** #749 point 1 (inline static classification with provider and endpoint from the entry) is Task 1; the reference-not-a-secret rule is `isPlaceholderValue` + skipping `api_key_env`; the env-var naming decision is `derivedEnvVarName` + the declared-name-wins rule; #749 point 2 (directory login store) is Task 2. Points 3–4 (the per-harness write form, harden's inline-config finding) are the S8/S10 amendments in this PR, not this plan. The kimi acceptance is exercised through the generic mechanism once #748/PR #752 lands.
+**Coverage.** #749 point 1 (inline static classification with provider and endpoint from the entry) is Task 1; the reference-not-a-secret rule is `isPlaceholderValue` + skipping `api_key_env`; the env-var naming decision is `derivedEnvVarName` + the declared-name-wins rule; #749 point 2 (directory login store) is Task 2. Points 3–4 (the per-harness write form, harden's inline-config finding) are the S8/S10 amendments in their own PRs, not this plan. The kimi acceptance is exercised against the real `kimi-code` profile this branch is based on (#752).
 
 **Proportion.** Signatures, test names, and pinned values; the only new model shapes are one helper set in `readback` and one field on the login-store rule.
 
