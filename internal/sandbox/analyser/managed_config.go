@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configdecode"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/readback"
@@ -34,19 +35,25 @@ type ManagedConfigFacts struct {
 // ManagedConfigFindings returns one finding per changed, non-credential agent
 // config file, whose single write is the sanitized managed config. The static
 // credentials' values are replaced by PlaceholderFor(EnvVar) in the content and
-// never appear in the finding. A file that is a login store, cannot be read
+// never appear in the finding. A file that is a credential store, cannot be read
 // under readback.MaxHashedBytes, or still holds a value after substitution is
 // reported through Logger and yields no finding.
 //
 //deadcode:ignore reason="managed-config write-back finder; the after-run wiring supplies its caller"
 func ManagedConfigFindings(f ManagedConfigFacts) []Finding {
-	loginSources := loginSourceSet(f.ReadBack.Login)
 	credentialsBySource := staticCredentialsBySource(f.ReadBack.Static)
 	indirectionKey := nativeEnvIndirectionKey(f.Agent)
 
 	var findings []Finding
 	for _, configPath := range f.ReadBack.ConfigPaths {
-		if !f.changed(configPath) || loginSources[configPath] {
+		// The credential-store check is agent-independent and subsumes
+		// ReadBack.Login[].Source for the candidate set: every login source is a
+		// store path, while a store path can reach ConfigPaths without a Login
+		// entry when the store's agents filter excludes the current agent
+		// (opencode2 inherits opencode's auth.json and provisions it). A probe
+		// login's "<agent>:<probe>" source never reaches ConfigPaths, so it needs
+		// no separate filter here.
+		if !f.changed(configPath) || readback.IsCredentialStorePath(configPath) {
 			continue
 		}
 		sanitized, ok := f.sanitize(configPath, credentialsBySource[configPath], indirectionKey)
@@ -89,6 +96,13 @@ func (f ManagedConfigFacts) sanitize(
 	sanitized, ok := substituteStaticValues(string(content), credentials, indirectionKey)
 	if !ok {
 		f.warnf(
+			"skipping managed agent config %s: a credential has no env-var name to substitute",
+			configPath,
+		)
+		return "", false
+	}
+	if contentRetainsStaticValue(configPath, sanitized, credentials) {
+		f.warnf(
 			"skipping managed agent config %s: a static secret value was not fully replaced",
 			configPath,
 		)
@@ -130,17 +144,6 @@ func newManagedConfigFinding(configPath, content string) Finding {
 	return Finding{Evidence: evidence, Writes: []Write{write}, Kind: KindObservation}.withEvidenceHash()
 }
 
-// loginSourceSet indexes the login sources the write-back must never copy.
-//
-//deadcode:ignore reason="managed-config write-back finder; the after-run wiring supplies its caller"
-func loginSourceSet(login []readback.Credential) map[string]bool {
-	sources := make(map[string]bool, len(login))
-	for _, credential := range login {
-		sources[credential.Source] = true
-	}
-	return sources
-}
-
 // staticCredentialsBySource indexes the static credentials by the file they came
 // from. A credential with no value is not a secret and contributes nothing; a
 // credential with no env-var name cannot be substituted and is kept in the map
@@ -175,12 +178,13 @@ func nativeEnvIndirectionKey(agentName string) string {
 	return describer.EnvIndirectionKey()
 }
 
-// substituteStaticValues replaces each static credential's value in content,
-// then verifies no value remains. The default form replaces every occurrence of
-// the value with its ${ENVVAR} placeholder; a harness with a native indirection
-// key rewrites the whole assignment instead (its key becomes the indirection key
-// and its value becomes the env-var name). ok is false when a credential has no
-// env-var name, or when a value survives — the caller then emits no finding.
+// substituteStaticValues replaces each static credential's value in content. The
+// default form replaces every occurrence of the value with its ${ENVVAR}
+// placeholder; a harness with a native indirection key rewrites the whole
+// assignment instead (its key becomes the indirection key and its value becomes
+// the env-var name). ok is false when a credential has no env-var name to
+// substitute; the caller then emits no finding. The value-remains check is the
+// caller's, because it decodes the content.
 //
 //deadcode:ignore reason="managed-config write-back finder; the after-run wiring supplies its caller"
 func substituteStaticValues(
@@ -199,19 +203,64 @@ func substituteStaticValues(
 		}
 		sanitized = strings.ReplaceAll(sanitized, credential.Value, envsecret.PlaceholderFor(credential.EnvVar))
 	}
-	if containsStaticValue(sanitized, credentials) {
-		return "", false
-	}
 	return sanitized, true
 }
 
-// containsStaticValue reports whether any of the credentials' values still
-// appears in content.
+// contentRetainsStaticValue reports whether any of the credentials' values
+// survives in content after substitution. It tests both the literal content and,
+// when the path's format decodes, every string the decoded document holds: a
+// config file may store a value in its escaped form (JSON's \" and \\), which a
+// literal search misses even though the harness reads the value. A literal hit
+// is deliberately kept as well, so a value left in a comment or a file whose
+// format cannot be decoded is still caught.
 //
 //deadcode:ignore reason="managed-config write-back finder; the after-run wiring supplies its caller"
-func containsStaticValue(content string, credentials []readback.Credential) bool {
+func contentRetainsStaticValue(configPath, content string, credentials []readback.Credential) bool {
+	if containsStaticValue(content, credentials) {
+		return true
+	}
+	format, ok := configdecode.FormatFor(configPath)
+	if !ok {
+		return false
+	}
+	decoded, err := configdecode.Decode(format, []byte(content))
+	if err != nil {
+		return false
+	}
+	return decodedContainsStaticValue(decoded, credentials)
+}
+
+// decodedContainsStaticValue reports whether any string a decoded document holds
+// — a key or a leaf value — contains one of the credentials' values.
+//
+//deadcode:ignore reason="managed-config write-back finder; the after-run wiring supplies its caller"
+func decodedContainsStaticValue(node any, credentials []readback.Credential) bool {
+	switch typed := node.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			if containsStaticValue(key, credentials) || decodedContainsStaticValue(child, credentials) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range typed {
+			if decodedContainsStaticValue(child, credentials) {
+				return true
+			}
+		}
+	case string:
+		return containsStaticValue(typed, credentials)
+	}
+	return false
+}
+
+// containsStaticValue reports whether any of the credentials' values appears in
+// text.
+//
+//deadcode:ignore reason="managed-config write-back finder; the after-run wiring supplies its caller"
+func containsStaticValue(text string, credentials []readback.Credential) bool {
 	for _, credential := range credentials {
-		if credential.Value != "" && strings.Contains(content, credential.Value) {
+		if credential.Value != "" && strings.Contains(text, credential.Value) {
 			return true
 		}
 	}

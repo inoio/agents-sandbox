@@ -406,6 +406,20 @@ func loginStoreFor(key string) (loginCredentialStore, bool) {
 	return loginCredentialStore{}, false
 }
 
+// IsCredentialStorePath reports whether path matches a declared credential-store
+// (login-store) pattern. It is agent-independent: a store declared for one agent
+// still lives at that path for another agent whose read-back reaches it, so a
+// caller copying a home file out must refuse the path regardless of which agent
+// the store is scoped to. The Read login classification applies the store's
+// agents filter on top of the pattern; this predicate deliberately does not, so
+// it also refuses a path the caller's agent does not classify as a login.
+//
+//deadcode:ignore reason="the managed-config write-back finder is its only caller until the after-run wiring lands"
+func IsCredentialStorePath(path string) bool {
+	_, isStore := loginStoreFor(path)
+	return isStore
+}
+
 // secretKeyMarkers are the whole key segments that mark a dotenv key as a
 // secret. A key without one is ordinary configuration, not a credential.
 var secretKeyMarkers = []string{"KEY", "TOKEN", "SECRET", "PASSWORD"}

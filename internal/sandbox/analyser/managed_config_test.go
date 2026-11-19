@@ -215,6 +215,74 @@ func TestManagedConfigSkipsAValueItCannotReplace(t *testing.T) {
 	require.NotEmpty(t, logger.WarnCalls, "a value the substitution could not replace must be reported")
 }
 
+// TestManagedConfigSkipsCredentialStoreForAnyAgent pins invariant 2 for a store
+// scoped to another agent: opencode2 inherits and provisions
+// .local/share/opencode/auth.json, whose login rule is scoped to agent
+// "opencode", so it is absent from Login[] yet present in ConfigPaths. The
+// agent-independent store predicate must still refuse it, or the raw credential
+// store would be copied back.
+func TestManagedConfigSkipsCredentialStoreForAnyAgent(t *testing.T) {
+	home := t.TempDir()
+	const authPath = ".local/share/opencode/auth.json"
+	writeManagedConfig(t, home, authPath, `{"access_token": "sk-store"}`)
+
+	readBack := readback.ReadBack{
+		ConfigPaths: []string{authPath},
+		Changed:     []string{authPath},
+		// Deliberately no Login entry: the store is scoped to agent "opencode",
+		// so opencode2's read-back does not classify it a login.
+	}
+
+	findings := ManagedConfigFindings(ManagedConfigFacts{Home: home, Agent: "opencode2", ReadBack: readBack})
+
+	require.Empty(t, findings)
+}
+
+// TestManagedConfigSkipsAnEscapedStaticValue pins the decode-based safety net: a
+// value stored in its escaped form (JSON's \" here, because the value holds a
+// quote) is missed by the literal substitution and by a literal search, so only
+// the decoded check stops it from reaching the finding.
+func TestManagedConfigSkipsAnEscapedStaticValue(t *testing.T) {
+	home := t.TempDir()
+	const secret = `sk-a"b`
+	// The file stores the quote escaped, so the raw bytes hold `sk-a\"b`.
+	writeManagedConfig(t, home, managedConfigTestPath, "{\n  \"apiKey\": \"sk-a\\\"b\"\n}\n")
+	logger := &termiotest.Mock{}
+
+	findings := ManagedConfigFindings(ManagedConfigFacts{
+		Home:  home,
+		Agent: "opencode2",
+		ReadBack: changedConfigBack(
+			managedConfigTestPath,
+			testStaticCredential(managedConfigTestPath, "OPENAI_API_KEY", secret),
+		),
+		Logger: logger,
+	})
+
+	require.Empty(t, findings)
+	require.NotEmpty(t, logger.WarnCalls, "an escaped value the substitution missed must be reported")
+}
+
+// TestManagedConfigRefusesACredentialWithNoEnvVar pins the empty-env-var
+// refusal: a static credential the read-back could not name cannot be replaced
+// by a placeholder, so its file yields no finding rather than the raw value.
+func TestManagedConfigRefusesACredentialWithNoEnvVar(t *testing.T) {
+	home := t.TempDir()
+	const secret = "sk-unscoped"
+	writeManagedConfig(t, home, managedConfigTestPath, "{\n  \"apiKey\": \""+secret+"\"\n}\n")
+	logger := &termiotest.Mock{}
+
+	findings := ManagedConfigFindings(ManagedConfigFacts{
+		Home:     home,
+		Agent:    "opencode2",
+		ReadBack: changedConfigBack(managedConfigTestPath, testStaticCredential(managedConfigTestPath, "", secret)),
+		Logger:   logger,
+	})
+
+	require.Empty(t, findings)
+	require.NotEmpty(t, logger.WarnCalls, "a credential with no env-var name must be reported")
+}
+
 // TestManagedConfigUsesNativeEnvIndirection pins the per-harness escape (#749):
 // kimi reads no key from the process environment, so its write-back rewrites
 // "api_key = \"<value>\"" to "api_key_env = \"<ENVVAR>\"" and emits no ${VAR}

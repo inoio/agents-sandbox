@@ -87,6 +87,18 @@ func TestLoginStoreForUnknownIsAbsent(t *testing.T) {
 	require.False(t, ok)
 }
 
+// TestIsCredentialStorePath is agent-independent: it reports a store path true
+// whether or not the caller's agent classifies it a login. The opencode store is
+// scoped to agent "opencode", yet its path is still a credential store for any
+// agent that reaches it; an ordinary config path is not.
+func TestIsCredentialStorePath(t *testing.T) {
+	require.True(t, IsCredentialStorePath(".local/share/opencode/auth.json"),
+		"a store scoped to another agent is still a credential-store path")
+	require.True(t, IsCredentialStorePath(".kimi-code/credentials/a.json"))
+	require.False(t, IsCredentialStorePath(".config/opencode/opencode.jsonc"))
+	require.False(t, IsCredentialStorePath(".nope/x"))
+}
+
 // TestReadClassifiesADirectoryLoginStore: a store declared as a glob records one
 // login per file it selects. kimi-code declares .kimi-code/credentials/*.json,
 // so both files are logins whose values are never read.

@@ -32,6 +32,26 @@ func (envIndirectionlessProfile) ConfigDirName() string      { return "indirecti
 func (envIndirectionlessProfile) Experimental() bool         { return false }
 func (envIndirectionlessProfile) ImageSpec() agent.ImageSpec { return agent.ImageSpec{} }
 
+// TestEnvIndirectionIsKimiOnly pins that no built-in profile except kimi-code
+// implements EnvIndirectionDescriber, so the write-back keeps the default ${VAR}
+// form for every other harness.
+func TestEnvIndirectionIsKimiOnly(t *testing.T) {
+	for _, name := range agent.Names() {
+		if name == "kimi-code" {
+			continue
+		}
+		t.Run(name, func(t *testing.T) {
+			a, ok := agent.Lookup(name)
+			if !ok {
+				t.Fatalf("Lookup(%q) not ok", name)
+			}
+			if _, ok := agent.AsEnvIndirectionDescriber(a); ok {
+				t.Errorf("%s implements EnvIndirectionDescriber; only kimi-code declares one", name)
+			}
+		})
+	}
+}
+
 // TestAsEnvIndirectionDescriberRejectsAnAgentWithoutTheCapability: an Agent that
 // does not implement EnvIndirectionDescriber yields a nil describer and ok false,
 // so a caller emits the default ${VAR} form.
