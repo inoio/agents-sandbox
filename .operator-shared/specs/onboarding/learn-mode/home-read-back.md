@@ -18,7 +18,9 @@ only channel that works when the launcher-owned proxy
      `PASSWORD`; the markers are matched as whole segments, so a token-count setting such as `MAX_TOKENS` is
      configuration, not a secret.
    - An **inline** credential key (`api_key`/`apiKey`/`key`/`token`) inside a provider entry of a declared config
-     file is a static secret too. Its provider and host come from that same entry (the endpoint walk below). A value
+     file is a static secret too. Its provider and host come from that same entry (the endpoint walk below); the
+     entry the walk reads includes its nested `options` object, where opencode keeps a provider's `apiKey` beside its
+     `baseURL`. A value
      that is a reference rather than a literal — a `${…}` placeholder, a leading-`!` command reference, or a bare
      environment-variable identifier — is not a secret, and a provider that names its key indirectly
      (`api_key_env`) is not reported as one.

@@ -812,6 +812,27 @@ func TestReadInlineSecretDerivesEnvVarFromRawProvider(t *testing.T) {
 		"the derived name keeps the raw token's word boundaries")
 }
 
+// TestReadClassifiesInlineSecretFromProviderOptions: opencode keeps a provider's
+// credential in its nested "options" object (beside the baseURL the endpoint walk
+// already reads), so the read-back classifies that key too.
+func TestReadClassifiesInlineSecretFromProviderOptions(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".config/opencode/opencode.jsonc",
+		`{"provider":{"openai":{"options":{"apiKey":"sk-inline","baseURL":"https://api.example/v1"}}}}`)
+
+	rb, err := Read(home, "opencode", Manifest{})
+
+	require.NoError(t, err)
+	require.Empty(t, rb.Login)
+	require.Len(t, rb.Static, 1)
+	credential := rb.Static[0]
+	require.Equal(t, CredentialStatic, credential.Kind)
+	require.Equal(t, "openai", credential.Provider)
+	require.Equal(t, "OPENAI_API_KEY", credential.EnvVar)
+	require.Equal(t, []string{"api.example"}, credential.Hosts)
+	require.Equal(t, "sk-inline", credential.Value)
+}
+
 // TestReadClassifiesInlineSecretFromJSON: the acceptance names JSON alongside
 // TOML and YAML; a JSON/JSONC config with an inline provider key is classified.
 func TestReadClassifiesInlineSecretFromJSON(t *testing.T) {

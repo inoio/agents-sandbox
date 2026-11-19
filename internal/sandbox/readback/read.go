@@ -437,32 +437,24 @@ func configInlineCredentials(home string, manifest Manifest) []Credential {
 }
 
 // entryCredentials returns the static credentials one provider entry holds: its
-// own credential key (api_key/apiKey/key/token) and the secret-looking keys of
-// its "env" sub-table, each scoped by an env-var name. A non-string value (a
-// token count) and a value that is a reference are not credentials; the header
-// field is left to the harness. The keys are visited in sorted order, so the
-// output does not depend on map iteration order. provider is the entry's raw
-// provider token: Credential.Provider takes the normalized form (the
-// endpoint-map key), while a derived env-var name keeps the token's word
-// boundaries.
+// own credential key (api_key/apiKey/key/token), the credential keys of its
+// nested "options" object (opencode keeps a provider's apiKey beside its
+// baseURL there), and the secret-looking keys of its "env" sub-table, each
+// scoped by an env-var name. A non-string value (a token count) and a value that
+// is a reference are not credentials; the header field is left to the harness.
+// The keys are visited in sorted order, so the output does not depend on map
+// iteration order. provider is the entry's raw provider token: Credential.Provider
+// takes the normalized form (the endpoint-map key), while a derived env-var name
+// keeps the token's word boundaries.
 func entryCredentials(entry map[string]any, provider, source string) []Credential {
 	hosts := entryEndpointHosts(entry)
 	normalizedProvider := normalizeToken(provider)
-	var credentials []Credential
-	for _, key := range slices.Sorted(maps.Keys(entry)) {
-		if !slices.Contains(inlineCredentialKeys, normalizeToken(key)) {
-			continue
-		}
-		if value, ok := inlineCredentialValue(entry[key]); ok {
-			credentials = append(credentials, Credential{
-				Kind:     CredentialStatic,
-				Source:   source,
-				Provider: normalizedProvider,
-				EnvVar:   derivedEnvVarName(provider),
-				Hosts:    hosts,
-				Value:    value,
-			})
-		}
+	credentials := inlineKeyCredentials(entry, provider, normalizedProvider, source, hosts)
+	if options, ok := entry["options"].(map[string]any); ok {
+		credentials = append(
+			credentials,
+			inlineKeyCredentials(options, provider, normalizedProvider, source, hosts)...,
+		)
 	}
 	env, _ := entry["env"].(map[string]any)
 	for _, key := range slices.Sorted(maps.Keys(env)) {
@@ -479,6 +471,33 @@ func entryCredentials(entry map[string]any, provider, source string) []Credentia
 				EnvVar: key,
 				Hosts:  hosts,
 				Value:  value,
+			})
+		}
+	}
+	return credentials
+}
+
+// inlineKeyCredentials returns the credentials an entry's (or its "options"
+// object's) own credential keys hold. The keys are visited in sorted order, so
+// the output does not depend on map iteration order.
+func inlineKeyCredentials(
+	node map[string]any,
+	provider, normalizedProvider, source string,
+	hosts []string,
+) []Credential {
+	var credentials []Credential
+	for _, key := range slices.Sorted(maps.Keys(node)) {
+		if !slices.Contains(inlineCredentialKeys, normalizeToken(key)) {
+			continue
+		}
+		if value, ok := inlineCredentialValue(node[key]); ok {
+			credentials = append(credentials, Credential{
+				Kind:     CredentialStatic,
+				Source:   source,
+				Provider: normalizedProvider,
+				EnvVar:   derivedEnvVarName(provider),
+				Hosts:    hosts,
+				Value:    value,
 			})
 		}
 	}
