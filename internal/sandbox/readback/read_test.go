@@ -741,6 +741,30 @@ func TestReadInlineSecretKeepsDotenvHostFill(t *testing.T) {
 	require.Equal(t, []string{"api.example"}, rb.Static[0].Hosts)
 }
 
+// TestReadInlineSecretKeepsItsOwnEntryHost: when a second entry names the same
+// provider with a different endpoint, the inline credential keeps its own
+// entry's host, not the provider-keyed union the fill would otherwise apply.
+func TestReadInlineSecretKeepsItsOwnEntryHost(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".hermes/config.yaml", strings.Join([]string{
+		"model:",
+		"  provider: openai",
+		"  api_key: sk-inline",
+		"  base_url: https://own.example/v1",
+		"fallback:",
+		"  provider: openai",
+		"  base_url: https://other.example/v1",
+		"",
+	}, "\n"))
+
+	rb, err := Read(home, "hermes", Manifest{})
+
+	require.NoError(t, err)
+	require.Len(t, rb.Static, 1)
+	require.Equal(t, []string{"own.example"}, rb.Static[0].Hosts,
+		"the credential's own entry host, not the provider-keyed union")
+}
+
 // TestConfigInlineCredentialsSkipsAnUnknownExtension: only a config format the
 // decoder knows is walked, so an unrecognised file yields no credential.
 func TestConfigInlineCredentialsSkipsAnUnknownExtension(t *testing.T) {
