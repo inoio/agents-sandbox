@@ -53,7 +53,17 @@ What is on `main` now:
 **S7, S8, S10, and S11 have landed; the frontier is S9 (`firstrun`).**
 S8 landed as `feat/697-config-harden`; S10's managed-config write-back is where S8's C7 declarative reference write
 becomes a real agent-config edit (`api_key_env` for kimi).
-**S9 is not yet written** — write it when its predecessors land, never in advance.
+**S9 is now written** — `2026-11-17-learn-mode-firstrun.md` — against the current tree; every other subplan in the DAG
+has landed.
+
+**S9 is the retirement point for the declaration model.** It folds in the secure `provision-host-config: false`
+default (the `#97`/`#98`/`#99` work) and the first-run wizard (`#54`), and treats the stale
+`issue-99-guided-config-setup` branch (**PR #103**, a 2026-11-09 spike, ~14.8k insertions) and the stale `huh`
+backend (**PR #119**) as spikes whose *ideas* inform S9, not dependencies: S9 delivers the first-run menu on the
+current tree's `termio.Prompter` and reuses the agent's own `ProvisionRule`s for the UC4 seed. The tiered
+`config wizard` and the curated-table `config migrate` are out of scope; the curated provider table is retired per
+§Enablers. Task 7 of the S9 plan marks the superseded issues for closure (`#118` delivered by S8; `#54`, `#99`,
+`#97`, `#98` by S9; `#119` closed as a superseded spike; `#20` stays the open UX umbrella).
 
 **#749 splits across three subplans.** Issue #749 ("read back inline config secrets and directory login stores") is the
 follow-up to the kimi-code profile (#748 / PR #752): its read-back classification was deferred by that profile. Its
@@ -314,12 +324,15 @@ CHANNEL TRACK                                          LEARN TRACK
 | S8 config-harden | `2026-11-17-config-harden.md` | `config harden` | yes | S6 | S7 |
 | S10 agent-config-writeback | `2026-11-17-agent-config-writeback.md` | managed agent config from a session + placeholders (+ #749 native form) | yes | S5, S6, S7 | S8, S11 |
 | S11 inline-readback | `2026-11-19-learn-mode-inline-readback.md` | inline config secrets + directory login stores (#749) | yes | S5 | S8, S10 |
-| S9 firstrun | `2026-11-17-learn-mode-firstrun.md` (stub) | first-run `Guide` choices + UC4 seed | yes | S4, S5, S7, S10, E2, E3 | — |
+| S9 firstrun | `2026-11-17-learn-mode-firstrun.md` | first-run `Guide` choices + UC4 seed | yes | S4, S5, S7, S10, E2, E3 | — |
 
 S2, S3, S4, and S6 landed (S2/S3 shared `network.Policy`, `msb.NetworkSpec`, `msb/translate.go`,
 `viperconfig/config.go`); S6 landed on top of S5; S7 then landed on top of S4 and S6, and S10 on top of S7. **S4 and S6
 share no file**, so S7 was the join; S8 then landed on top of S6 (S11 landed, extending S5 and feeding S8's C7 and
-S10's native form). The frontier is now S9. Within each subplan, follow its own serialization. A subplan's plan is
+S10's native form). S9 is the last subplan, and the only one written after its predecessors landed — it is written
+against the current tree, adding the `internal/firstrun` package. E2 is no longer a hard dependency: the menu works on
+the existing `termio.Prompter` and only its rendering changes when the `huh` backend is reimplemented (#119). Within
+each subplan, follow its own serialization. A subplan's plan is
 written when its
 predecessors land, never in advance — S11 was written ahead of PR #752 at the maintainer's call because #749's read-back
 half depends only on the landed S5.
