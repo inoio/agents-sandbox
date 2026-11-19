@@ -32,12 +32,16 @@ config key or the `AGENTS_SANDBOX_AGENT` environment variable. Seven agents ship
   release binary after its checksum is verified, and run interactively; upgrade checks via its GitHub releases. Its
   startup update check is turned off through a launcher-owned `--config` overlay, because agents-sandbox offers upgrades
   itself. The binary is about 275 MB, so its runner image is larger than the others.
+- **`kimi-code`** — [Kimi Code CLI](https://github.com/MoonshotAI/kimi-code) (binary `kimi`), installed from its
+  standalone GitHub release binary after its checksum is verified, and run interactively; upgrade checks via the npm
+  registry. Its update check is turned off (`KIMI_CODE_NO_AUTO_UPDATE=1`), because agents-sandbox offers upgrades
+  itself. The binary is about 194 MB.
 
 > **Experimental agents:** `opencode` and `opencode2` are the tested default agents. Every other built-in
-> profile (`pi`, `claude-code`, `codex`, `hermes`, `oh-my-pi`) is **experimental** — not well tested with agents-sandbox.
+> profile (`pi`, `claude-code`, `codex`, `hermes`, `oh-my-pi`, `kimi-code`) is **experimental** — not well tested with agents-sandbox.
 > The launcher prints a notice when an experimental agent is selected.
 
-`--worktree` and `--serve-only` are rejected for pi, claude-code, codex, hermes, and oh-my-pi (they have no daemon); they run through the
+`--worktree` and `--serve-only` are rejected for pi, claude-code, codex, hermes, oh-my-pi, and kimi-code (they have no daemon); they run through the
 interactive TUI instead. Passing an unsupported `--agent` name reports the valid names in its error message.
 
 > **Note:** opencode2 server auth — v2's `serve` requires HTTP basic auth on every `/api/*` route and would otherwise generate a
@@ -91,13 +95,15 @@ agent config directories (generic user, per-slug user, project), and written to 
 - **oh-my-pi** — snippets match `config*.{yml,yaml}` in the `oh-my-pi/` subdir (e.g. `config-model.yml`); merged to
   `/home/dev/.omp/agent/config.yml`, written as YAML. omp falls back to `config.yaml`, so both names are reserved for
   the merged output.
+- **kimi-code** — snippets match `config*.toml` in the `kimi-code/` subdir (e.g. `config-provider.toml`); merged to
+  `/home/dev/.kimi-code/config.toml`, written as TOML.
 
 Matching files are parsed and **deep-merged** into one config document. The generic user directory is merged first, then
 the per-slug user directory, then the project directory; within each directory files are merged in alphabetical order,
 so later files override earlier ones.
 Snippet parsing supports JSON, JSONC, JSON5, YAML, and TOML, chosen by file extension (YAML only applies to agents whose
 pattern includes YAML extensions, e.g. a pattern like `pi-*.{json,yaml}`). The merged config is written as TOML when the
-agent's VM config path ends in `.toml` (codex), as YAML when it ends in `.yaml`/`.yml` (hermes, oh-my-pi), and as JSON otherwise.
+agent's VM config path ends in `.toml` (codex, kimi-code), as YAML when it ends in `.yaml`/`.yml` (hermes, oh-my-pi), and as JSON otherwise.
 
 If no snippet files exist, no merged config is produced.
 
@@ -168,6 +174,10 @@ The drop-in copy is scoped to the agent's settings and, for opencode, its creden
 - **oh-my-pi** — `~/.omp/agent/config.yml` or `config.yaml` (the rest of `~/.omp` — sessions, `agent.db`, the
   extracted native addon — is runtime state and is not copied; `models.yml` and `~/.omp/agent/.env` can hold literal
   provider keys and are never copied).
+- **kimi-code** — `~/.kimi-code/tui.toml` and `~/.kimi-code/AGENTS.md` only. `config.toml` is not copied, because it
+  keeps literal provider keys (`api_key`, `[providers.<id>.env]`) beside its settings; nor are `mcp.json` (MCP
+  headers and env can hold tokens), the `credentials/` logins, or runtime state. Put Kimi settings in `config*.toml`
+  snippets instead (see [Config snippet merge](#config-snippet-merge)).
 
 Precedence: the merged snippet config and any `home:` mappings override the drop-in copy for the same VM path.
 
@@ -202,8 +212,9 @@ To opt out, exclude `auth.json` from the drop-in copy by placing a `home:` entry
 host secrets in any other way; the env-secret mechanism is the supported channel for secrets you do not want on disk in
 the VM.
 
-For pi, claude-code, codex, hermes, and oh-my-pi, the drop-in copy does not include credential files. pi, claude-code,
-hermes, and oh-my-pi authenticate with env secrets instead; codex logs in inside the VM:
+For pi, claude-code, codex, hermes, oh-my-pi, and kimi-code, the drop-in copy does not include credential files. pi,
+claude-code, hermes, and oh-my-pi authenticate with env secrets instead; codex logs in inside the VM, and kimi-code
+does either:
 
 - **pi** — per-provider env vars, e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` (see pi's docs for the
   full list). Put them in an `env.secret` / `env.secret.yaml` file.
@@ -217,6 +228,9 @@ hermes, and oh-my-pi authenticate with env secrets instead; codex logs in inside
   written into its `.env`.
 - **oh-my-pi** — per-provider env vars, e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, supplied through
   `env.secret`. omp reads the process environment, so nothing needs to be written into `~/.omp/agent/.env`.
+- **kimi-code** — Kimi does not read a provider key from the process environment on its own. Name the variable in a
+  provider snippet with `api_key_env`, and supply it through `env.secret`; or run `/login` once inside the VM, whose
+  login persists on the home volume (see [Kimi Code login](#kimi-code-login)).
 - **opencode** — `OPENCODE_API_KEY`.
 
 ### Codex login
@@ -251,6 +265,38 @@ secret's placeholder, so `auth.json` stores the placeholder and the network prox
 `api.openai.com`.
 
 The login is stored in `~/.codex/auth.json` on the home volume, so you sign in once per project and agent.
+
+### Kimi Code login
+
+**API key:** declare the key as an [env secret]({% link configuration/secrets.md %}) for the provider's API host, and
+point a provider snippet at it with `api_key_env`. Kimi reads the variable on every request, and the VM only sees its
+placeholder, which the network proxy replaces on requests to that host:
+
+```yaml
+# ~/.config/agents-sandbox/env.secret.yaml
+MOONSHOT_API_KEY:
+  value: sk-xxxxxxxx
+  host: api.moonshot.ai
+```
+
+```toml
+# ~/.config/agents-sandbox/kimi-code/config-provider.toml
+default_model = "moonshot/kimi-k2"
+
+[providers.moonshot]
+type = "kimi"
+base_url = "https://api.moonshot.ai/v1"
+api_key_env = "MOONSHOT_API_KEY"
+
+[models."moonshot/kimi-k2"]
+provider = "moonshot"
+model = "kimi-k2"
+max_context_size = 262144
+```
+
+**Kimi Code plan:** run `/login` in the TUI (or `kimi login` in `agents-sandbox shell --agent kimi-code`) and finish the
+device-code sign-in on your host. The login is stored in `~/.kimi-code/credentials/` on the home volume, so you sign in
+once per project and agent; it is never copied from the host.
 
 ## Example: permissions
 
@@ -309,18 +355,19 @@ version/upgrade checks. Beyond that base, coverage differs by agent:
 - ◐ **Supportable** — the agent exposes a surface agents-sandbox could use, but does not implement yet.
 - ✖ **Unsupported** — the agent has no such surface.
 
-| Capability | `opencode` | `opencode2` | `pi` | `claude-code` | `codex` | `hermes` | `oh-my-pi` |
-|---|---|---|---|---|---|---|---|
-| Interactive attach | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Config snippet merge | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Host-config drop-in | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Version + upgrade check | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Serve/attach daemon | ✅ | ✅ | ✖ | ✖ | ◐ | ◐ | ◐ |
-| Worktree sessions | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ | ◐ |
-| Notify event stream | ✅ | ✅ | ✖ | ✖ | ◐ | ◐ | ◐ |
-| Session quiescence | ✅ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ |
+| Capability | `opencode` | `opencode2` | `pi` | `claude-code` | `codex` | `hermes` | `oh-my-pi` | `kimi-code` |
+|---|---|---|---|---|---|---|---|---|
+| Interactive attach | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Config snippet merge | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Host-config drop-in | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Version + upgrade check | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Serve/attach daemon | ✅ | ✅ | ✖ | ✖ | ◐ | ◐ | ◐ | ◐ |
+| Worktree sessions | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ | ◐ | ✖ |
+| Notify event stream | ✅ | ✅ | ✖ | ✖ | ◐ | ◐ | ◐ | ◐ |
+| Session quiescence | ✅ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ |
 
 The ◐ entries name an upstream surface agents-sandbox has not wired up: `codex app-server` (a JSON-RPC daemon with a
 turn/item event stream) for Codex, `hermes serve` / `hermes chat --format stream-json` for Hermes, and `omp --mode rpc` /
-`omp acp` (stdio servers) and the `omp worktree` CLI for Oh My Pi.
+`omp acp` (stdio servers) and the `omp worktree` CLI for Oh My Pi, and `kimi web` (a REST and WebSocket server, marked
+experimental upstream) for Kimi Code.
 

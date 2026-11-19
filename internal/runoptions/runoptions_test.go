@@ -1325,6 +1325,7 @@ func TestBuildNoticesExperimentalAgents(t *testing.T) {
 		{"codex", true},
 		{"hermes", true},
 		{"oh-my-pi", true},
+		{"kimi-code", true},
 		{"opencode", false},
 		{"opencode2", false},
 	}

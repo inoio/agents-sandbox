@@ -148,6 +148,10 @@ func TestHarnessSmoke(t *testing.T) {
 			if err := seedHomeManifest(homeBase, spec.SeedHomeManifest); err != nil {
 				t.Fatalf("seed %s home manifest: %v", name, err)
 			}
+			profile, _ := agent.Lookup(name)
+			if err := seedAgentSnippets(homeBase, profile.ConfigDirName(), spec.SeedAgentSnippets); err != nil {
+				t.Fatalf("seed %s agent snippets: %v", name, err)
+			}
 			ses := mustStartUnderPTY(
 				t, projectDir(root, name),
 				isolatedEnv(root, homeBase, os.Environ()),

@@ -295,6 +295,19 @@ var harnessSpecs = map[string]harnessSpec{
 		ReadyMarker:       ohMyPiReadyMarker,
 		SeedHomeFiles:     map[string]string{ohMyPiConfigPath: ohMyPiSmokeConfig},
 	},
+	// kimi-code's regular TUI mode renders into the terminal's normal buffer, so
+	// its welcome banner is the readiness marker. With no provider it starts
+	// logged out at the prompt and needs no egress. The first open of /workspace
+	// would show a workspace-trust dialog, so the subtest seeds a launcher config
+	// snippet that turns the trust requirement off; it merges into config.toml,
+	// which is the merged-config target and so cannot come through the home:
+	// manifest. Ctrl-D exits on a second press, which the repeated tap covers.
+	"kimi-code": {
+		QuitKey:           []byte{ctrlD},
+		KeepsNormalBuffer: true,
+		ReadyMarker:       kimiCodeReadyMarker,
+		SeedAgentSnippets: map[string]string{kimiCodeSmokeSnippet: kimiCodeSmokeConfig},
+	},
 	// opencode's editor owns Ctrl-C, so its TUI leaves on Ctrl-D.
 	"opencode":  {QuitKey: []byte{ctrlD}, Network: "", KeepsNormalBuffer: false},
 	"opencode2": {QuitKey: []byte{ctrlD}, Network: "", KeepsNormalBuffer: false},
@@ -338,6 +351,12 @@ type harnessSpec struct {
 	// beside the ~/.claude/settings.json the rules carry); a file the rules
 	// already copy belongs in SeedHomeFiles.
 	SeedHomeManifest map[string]string
+	// SeedAgentSnippets maps a snippet file name to its content, written into
+	// the agent's launcher config dir (XDG_CONFIG_HOME/agents-sandbox/<config
+	// dir>) so the launcher merges it into the agent's config. Use it for a
+	// harness whose settings live in its merged-config file, which neither the
+	// ProvisionRules nor the home: manifest may write.
+	SeedAgentSnippets map[string]string
 }
 
 // settledReadyTimeout bounds the readiness wait for a harness whose TUI keeps
@@ -379,6 +398,20 @@ const claudeCodeConfigPath = ".claude.json"
 // onboarding's only quit key aborts the launch with exit 1, which the subtest's
 // exit-0 assertion rejects. Both keys are the guest's, not the host's.
 const claudeCodeSmokeConfig = `{"hasCompletedOnboarding": true, "projects": {"/workspace": {"hasTrustDialogAccepted": true}}}`
+
+// kimiCodeReadyMarker is the title of kimi-code's welcome banner, printed when
+// its prompt comes up.
+const kimiCodeReadyMarker = "Welcome to Kimi Code!"
+
+// kimiCodeSmokeSnippet is the launcher config snippet the subtest seeds; it
+// matches kimi-code's config*.toml snippet pattern.
+const kimiCodeSmokeSnippet = "config-smoke.toml"
+
+// kimiCodeSmokeConfig treats every workspace as trusted, so kimi-code skips the
+// trust dialog it shows the first time a workspace is opened.
+const kimiCodeSmokeConfig = `[workspace]
+require_trust = false
+`
 
 // ohMyPiReadyMarker is the warning oh-my-pi prints when it starts its editor
 // with no model configured, which is exactly the smoke run: the seeded config
@@ -495,6 +528,24 @@ func seedHomeFiles(homeBase string, files map[string]string) error {
 		}
 		if err := writeFile(path, []byte(content), 0o600); err != nil {
 			return fmt.Errorf("write %s: %w", rel, err)
+		}
+	}
+	return nil
+}
+
+// seedAgentSnippets writes each snippet into the agent's config dir under the
+// run's isolated launcher config dir, where the launcher's snippet merge reads
+// it (see harnessSpec.SeedAgentSnippets). A nil or empty map writes nothing.
+//
+// It uses the same mkdirAll/writeFile seams as seedHomeFiles.
+func seedAgentSnippets(homeBase, agentConfigDirName string, snippets map[string]string) error {
+	agentDir := filepath.Join(homeBase, configDirName, launcherConfigDirName, agentConfigDirName)
+	for name, content := range snippets {
+		if err := mkdirAll(agentDir, 0o750); err != nil {
+			return fmt.Errorf("create snippet dir for %s: %w", name, err)
+		}
+		if err := writeFile(filepath.Join(agentDir, name), []byte(content), 0o600); err != nil {
+			return fmt.Errorf("write snippet %s: %w", name, err)
 		}
 	}
 	return nil

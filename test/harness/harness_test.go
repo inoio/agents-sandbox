@@ -69,6 +69,31 @@ func TestOhMyPiSeedsAHomeConfigWithoutSetupWizard(t *testing.T) {
 	}
 }
 
+// TestKimiCodeSeedsATrustedWorkspaceThroughASnippet pins how the smoke test
+// reaches kimi-code's prompt: config.toml is the merged-config target, so the
+// trust opt-out is seeded as a launcher config snippet, the welcome banner
+// marks the normal-buffer UI being up, and no egress is needed.
+func TestKimiCodeSeedsATrustedWorkspaceThroughASnippet(t *testing.T) {
+	spec, ok := harnessSpecs["kimi-code"]
+	if !ok {
+		t.Fatal("kimi-code has no smoke-test spec")
+	}
+	if !spec.KeepsNormalBuffer || spec.ReadyMarker != kimiCodeReadyMarker {
+		t.Errorf("kimi-code KeepsNormalBuffer = %v, ReadyMarker = %q; want true and %q",
+			spec.KeepsNormalBuffer, spec.ReadyMarker, kimiCodeReadyMarker)
+	}
+	if spec.Network != "" {
+		t.Errorf("kimi-code Network = %q, want the default `none`", spec.Network)
+	}
+	cfg, ok := spec.SeedAgentSnippets[kimiCodeSmokeSnippet]
+	if !ok {
+		t.Fatalf("kimi-code SeedAgentSnippets missing %s", kimiCodeSmokeSnippet)
+	}
+	if !strings.Contains(cfg, "require_trust = false") {
+		t.Errorf("kimi-code seeded config must skip the workspace-trust prompt:\n%s", cfg)
+	}
+}
+
 // TestReadyTimeoutPrefersThePerHarnessOverride pins the readiness-budget
 // selection: a spec that names an override uses it, and one that leaves it
 // unset falls back to the shared default.
@@ -249,6 +274,32 @@ func TestSeedHomeManifestEmptyWritesNothing(t *testing.T) {
 	configDir := filepath.Join(homeBase, configDirName, launcherConfigDirName)
 	if _, err := os.Stat(configDir); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("seedHomeManifest(nil) created a launcher config dir: stat err = %v", err)
+	}
+}
+
+// TestSeedAgentSnippets pins that snippets land in the agent's config dir
+// under the isolated launcher config dir (XDG_CONFIG_HOME/agents-sandbox),
+// where the launcher's snippet merge reads them, and that none writes nothing.
+func TestSeedAgentSnippets(t *testing.T) {
+	homeBase := t.TempDir()
+	if err := seedAgentSnippets(homeBase, "kimi-code", map[string]string{"config-smoke.toml": "a = 1\n"}); err != nil {
+		t.Fatalf("seedAgentSnippets: %v", err)
+	}
+	path := filepath.Join(homeBase, configDirName, launcherConfigDirName, "kimi-code", "config-smoke.toml")
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read snippet: %v", err)
+	}
+	if string(got) != "a = 1\n" {
+		t.Errorf("snippet = %q, want %q", got, "a = 1\n")
+	}
+
+	emptyBase := t.TempDir()
+	if err := seedAgentSnippets(emptyBase, "kimi-code", nil); err != nil {
+		t.Fatalf("seedAgentSnippets(nil): %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(emptyBase, configDirName)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("seedAgentSnippets(nil) created a config dir: stat err = %v", err)
 	}
 }
 
