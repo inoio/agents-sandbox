@@ -326,9 +326,9 @@ var harnessSpecs = map[string]harnessSpec{
 		SeedAgentSnippets: map[string]string{gooseSmokeSnippet: gooseSmokeConfig},
 	},
 	// grok-build's fullscreen TUI (its default screen mode) uses the alternate
-	// screen. Without credentials it still opens at its message composer: no
-	// login or folder-trust prompt comes first, so it needs no seed and no
-	// egress. Ctrl-C leaves it.
+	// screen. With no credential it comes up on its device-code sign-in screen
+	// ("Waiting for approval…"), which still satisfies the TUI assertion, so it
+	// needs no seed and no egress; Ctrl-C leaves it with exit 0.
 	"grok-build": {QuitKey: []byte{ctrlC}, Network: "", KeepsNormalBuffer: false},
 	// opencode's editor owns Ctrl-C, so its TUI leaves on Ctrl-D.
 	"opencode":  {QuitKey: []byte{ctrlD}, Network: "", KeepsNormalBuffer: false},

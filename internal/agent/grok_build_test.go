@@ -42,12 +42,20 @@ func TestGrokBuildImageSpec(t *testing.T) {
 		`https://storage.googleapis.com/grok-build-public-artifacts/cli`,
 		`grok-${GROK_BUILD_VERSION}-linux-$grok_arch.gz`,
 		`install -m 0755 "$grok_dir/grok" /opt/agents-sandbox/bin/grok`,
-		`'[cli]' 'auto_update = false' > /etc/grok/requirements.toml`,
 		`/opt/agents-sandbox/bin/grok --version`,
 	} {
 		if !strings.Contains(spec.InstallCommand, want) {
 			t.Errorf("InstallCommand = %q, want it to contain %q", spec.InstallCommand, want)
 		}
+	}
+	if want := `'[cli]' 'auto_update = false' > /etc/grok/requirements.toml`; !strings.Contains(
+		spec.RunnerCommand,
+		want,
+	) {
+		t.Errorf("RunnerCommand = %q, want it to contain %q", spec.RunnerCommand, want)
+	}
+	if strings.Contains(spec.InstallCommand, "requirements.toml") {
+		t.Errorf("InstallCommand = %q must not write the runner-stage requirements pin", spec.InstallCommand)
 	}
 	if got := spec.AgentEnv["GROK_DISABLE_AUTOUPDATER"]; got != "1" || len(spec.AgentEnv) != 1 {
 		t.Errorf("AgentEnv = %v, want only GROK_DISABLE_AUTOUPDATER=1", spec.AgentEnv)

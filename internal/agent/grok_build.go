@@ -39,7 +39,8 @@ const grokBuildDownload = `grok_asset="grok-${GROK_BUILD_VERSION}-linux-$grok_ar
 // grokBuildPinNoAutoUpdate pins the auto-updater off in the system
 // requirements file, the highest-priority config layer, so no user or project
 // setting turns it back on: the sandbox pins the baked version and offers
-// upgrades itself.
+// upgrades itself. It runs in the runner stage, which the file must be part of:
+// the agent stage is not in the runner's lineage, so a write there is discarded.
 const grokBuildPinNoAutoUpdate = `mkdir -p /etc/grok && ` +
 	`printf '%s\n' '[cli]' 'auto_update = false' > /etc/grok/requirements.toml`
 
@@ -62,13 +63,13 @@ func (grokBuildProfile) ImageSpec() ImageSpec {
 			grokBuildDownload + ` && ` +
 			`gzip -dc "$grok_dir/grok.gz" > "$grok_dir/grok" && ` +
 			`install -m 0755 "$grok_dir/grok" /opt/agents-sandbox/bin/grok && rm -rf "$grok_dir" && ` +
-			grokBuildPinNoAutoUpdate + ` && ` +
 			grokBuildDisableAutoUpdater + `=1 /opt/agents-sandbox/bin/grok --version`,
 		RequiresNode: false,
 		// grok keeps its sessions and caches under ~/.grok on the home volume, so
 		// the tool tree stays root-owned.
-		OwnsToolTree: false,
-		RuntimeLibs:  nil,
+		OwnsToolTree:  false,
+		RuntimeLibs:   nil,
+		RunnerCommand: grokBuildPinNoAutoUpdate,
 	}
 }
 

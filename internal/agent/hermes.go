@@ -112,7 +112,8 @@ func (hermesProfile) ImageSpec() ImageSpec {
 		// runner's base must carry the library too. The managed base installs
 		// libatomic1; a custom base is verified at build time and fails naming
 		// the library if absent.
-		RuntimeLibs: []string{"libatomic.so.1"},
+		RuntimeLibs:   []string{"libatomic.so.1"},
+		RunnerCommand: "",
 	}
 }
 

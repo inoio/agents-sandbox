@@ -33,6 +33,7 @@ func (opencodeProfile) ImageSpec() ImageSpec {
 		RequiresNode:   false,
 		OwnsToolTree:   false,
 		RuntimeLibs:    nil,
+		RunnerCommand:  "",
 	}
 }
 

@@ -26,6 +26,7 @@ func (claudeCodeProfile) ImageSpec() ImageSpec {
 		RequiresNode:   false,
 		OwnsToolTree:   false,
 		RuntimeLibs:    nil,
+		RunnerCommand:  "",
 	}
 }
 

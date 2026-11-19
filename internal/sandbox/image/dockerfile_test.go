@@ -720,6 +720,27 @@ func TestRenderDockerfileQwenSystemSettingsSurviveTheToolTreeCopy(t *testing.T) 
 	}
 }
 
+// TestRenderDockerfileRunsAgentRunnerCommand guards that an agent whose install
+// must land a system config file outside its tool tree gets a command in the
+// final runner stage: the agent stage is not in the runner's lineage and only
+// its tool tree is copied, so a write there is discarded. grok-build pins its
+// auto-updater off in /etc/grok/requirements.toml.
+func TestRenderDockerfileRunsAgentRunnerCommand(t *testing.T) {
+	grok, _ := agent.Lookup("grok-build")
+	rendered := mustRender(t, grok, nil, dockerOff)
+	if agentStage := stageBlock(t, rendered, agentStageAlias); strings.Contains(agentStage, "requirements.toml") {
+		t.Errorf("the agent stage must not write the runner-stage requirements pin; got:\n%s", agentStage)
+	}
+	if want := "/etc/grok/requirements.toml"; !strings.Contains(finalStage(t, rendered), want) {
+		t.Errorf("the final stage must write %s; got:\n%s", want, rendered)
+	}
+
+	opencode, _ := agent.Lookup("opencode")
+	if other := finalStage(t, mustRender(t, opencode, nil, dockerOff)); strings.Contains(other, "requirements.toml") {
+		t.Errorf("opencode declares no runner command, so no write is expected; got:\n%s", other)
+	}
+}
+
 // TestRenderDockerfileChecksAgentRuntimeLibs guards the custom-base contract for
 // an agent whose provisioned runtime links a system library: hermes's managed
 // Node.js needs libatomic.so.1, so the final stage must verify it after the user

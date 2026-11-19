@@ -468,6 +468,7 @@ func runnerStage(a agent.Resolved, baseAlias, body string, docker, dockerInjecte
 	parts = append(parts,
 		agentToolTreeCopy(a.Profile),
 		agentAdoptionBlock(a),
+		agentRunnerCommandBlock(a.Profile),
 		agentImageConfigBlock(a.Profile),
 		finalizationBlock(),
 		guestToolsBlock(a),
@@ -639,6 +640,19 @@ func runtimeLibsBlock(a agent.Agent) string {
       done; \
     fi
 `, a.Name(), strings.Join(libs, " "), a.Name())
+}
+
+// agentRunnerCommandBlock runs the agent's ImageSpec RunnerCommand in the
+// final runner stage. It is emitted here, not in the agent stage, because the
+// runner copies only the agent's tool tree out of that stage and Docker drops a
+// file written outside the copied tree. Agents that declare no command produce
+// no block.
+func agentRunnerCommandBlock(a agent.Agent) string {
+	command := a.ImageSpec().RunnerCommand
+	if command == "" {
+		return ""
+	}
+	return fmt.Sprintf("RUN %s\n", command)
 }
 
 // agentImageConfigBlock renders the sorted ENV lines for the agent's ImageSpec
