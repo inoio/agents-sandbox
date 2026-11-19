@@ -226,8 +226,10 @@ func TestApplyMoveIsAtomic(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 
-	// An unparseable project secret file makes the move's project removal fail.
-	testutil.WriteFile(t, cp.ProjectConfigDir(), "env.secret.yaml", "OPENAI_API_KEY: [unterminated\n")
+	// An unparseable project secret file is refused at plan time, so the whole
+	// move skips before its project removal runs.
+	projectContent := "OPENAI_API_KEY: [unterminated\n"
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "env.secret.yaml", projectContent)
 
 	ui, _ := interactiveUI()
 	finding := Finding{
@@ -245,10 +247,51 @@ func TestApplyMoveIsAtomic(t *testing.T) {
 		SecretValue: func(SecretWrite) (string, bool) { return "sk-secret", true },
 	})
 
-	if results[0].Outcome != OutcomeFailed {
-		t.Fatalf("outcome = %q; want failed (the project removal failed)", results[0].Outcome)
+	if results[0].Outcome != OutcomeSkipped {
+		t.Fatalf("outcome = %q; want skipped (the project secret file cannot be edited)", results[0].Outcome)
+	}
+	if content := readFile(t, filepath.Join(cp.ProjectConfigDir(), "env.secret.yaml")); content != projectContent {
+		t.Errorf("project secret changed to %q; want it untouched", content)
 	}
 	assertNoFile(t, filepath.Join(cp.UserSlugConfigDir(testSlug), "env.secret.yaml"))
+}
+
+// TestApplyMoveDoesNotLoseProjectSecret pins that a move whose later write cannot
+// run is refused before its first write runs: an unparseable per-slug
+// env.secret.yaml makes the whole finding skip, so the committed project secret
+// is never removed. Validating only at execution time ran the project removal
+// first and lost the credential when the per-slug write then failed.
+func TestApplyMoveDoesNotLoseProjectSecret(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+
+	projectContent := "OPENAI_API_KEY:\n  value: committed\n  host: api.openai.com\n"
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "env.secret.yaml", projectContent)
+	// The per-slug target is unparseable, so its write cannot run.
+	testutil.WriteFile(t, cp.UserSlugConfigDir(testSlug), "env.secret.yaml", "OPENAI_API_KEY: [unterminated\n")
+
+	ui, _ := interactiveUI()
+	finding := Finding{
+		Evidence: Evidence{Summary: "OPENAI_API_KEY committed in the project config"},
+		Writes: []Write{
+			{Scope: ScopeProject, Secret: &SecretWrite{EnvVar: "OPENAI_API_KEY", Remove: true}},
+			{
+				Scope:  ScopePerSlugUser,
+				Secret: &SecretWrite{EnvVar: "OPENAI_API_KEY", Hosts: []string{"api.openai.com"}},
+			},
+		},
+	}
+	results := Apply([]Finding{finding}, ApplyOptions{
+		Paths: cp, Slug: testSlug, CheckoutSlug: testCheckoutSlug, UI: ui, Mode: options.ModeRun,
+		SecretValue: func(SecretWrite) (string, bool) { return "sk-secret", true },
+	})
+
+	if results[0].Outcome != OutcomeSkipped {
+		t.Fatalf("outcome = %q (%s); want skipped (the per-slug write cannot run)", results[0].Outcome, results[0].Err)
+	}
+	if content := readFile(t, filepath.Join(cp.ProjectConfigDir(), "env.secret.yaml")); content != projectContent {
+		t.Errorf("project secret changed to %q; want the committed secret untouched %q", content, projectContent)
+	}
 }
 
 func TestApplySecretMigratesStaticOnly(t *testing.T) {

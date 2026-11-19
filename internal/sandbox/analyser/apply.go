@@ -188,8 +188,8 @@ type refusal struct {
 }
 
 // planWrites resolves and validates every one of a finding's writes without
-// touching the filesystem, so a finding that cannot be written whole is refused
-// before its first write runs. It returns the plans, or the first refusal.
+// writing anything, so a finding that cannot be written whole is refused before
+// its first write runs. It returns the plans, or the first refusal.
 //
 //deadcode:ignore reason="applier helper; reached through the pending S7 run --learn caller"
 func planWrites(finding Finding, opts ApplyOptions) ([]plannedWrite, *refusal) {
@@ -243,13 +243,21 @@ func planTarget(write Write, opts ApplyOptions) (string, *refusal) {
 	return opts.Paths.UserSlugConfigDir(opts.Slug), nil
 }
 
-// planSecret resolves a static secret's value in memory, and refuses a secret
-// with no derivable host or no resolvable value. A static secret is never
-// migrated without a host and never gains allow_any_host_dangerous; a login
-// credential is never read.
+// planSecret validates that the target secret file can be edited, resolves a
+// static secret's value in memory, and refuses a secret with no derivable host
+// or no resolvable value. Validating the file first means a finding whose
+// removal or addition would fail on an unparseable file is refused whole, before
+// any of its writes run. A static secret is never migrated without a host and
+// never gains allow_any_host_dangerous; a login credential is never read.
 //
 //deadcode:ignore reason="applier helper; reached through the pending S7 run --learn caller"
 func planSecret(write Write, dir string, opts ApplyOptions) (plannedWrite, *refusal) {
+	if err := envsecret.ValidateSecretFile(dir); err != nil {
+		return plannedWrite{}, &refusal{
+			note: fmt.Sprintf("secret %s cannot be edited in %s: %v", write.Secret.EnvVar, dir, err),
+			err:  "",
+		}
+	}
 	if write.Secret.Remove {
 		return plannedWrite{write: write, dir: dir, secretValue: ""}, nil
 	}
