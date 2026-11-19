@@ -90,6 +90,7 @@ git -C config sparse-checkout set --no-cone '/.agents-sandbox/'
 mkdir -p .agents-sandbox
 ln -s ../config/.agents-sandbox/Dockerfile      .agents-sandbox/Dockerfile
 ln -s ../config/.agents-sandbox/config.yaml     .agents-sandbox/config.yaml
+ln -s ../config/.agents-sandbox/env             .agents-sandbox/env
 ln -s ../config/.agents-sandbox/github-auth.sh  .agents-sandbox/github-auth.sh
 ln -s ../config/.agents-sandbox/opencode2       .agents-sandbox/opencode2
 ```
