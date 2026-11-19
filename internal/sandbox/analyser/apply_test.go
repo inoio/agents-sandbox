@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/projectguard"
@@ -231,6 +232,74 @@ func TestApplyManagedConfigRefusesAnEmptyAgent(t *testing.T) {
 	}
 	// The default agent is opencode2; its dir must not be touched.
 	assertNoFile(t, filepath.Join(cp.UserSlugConfigDir(testSlug), "opencode2", "opencode.jsonc"))
+}
+
+// TestApplyManagedConfigRefusesAnUnknownAgent pins that an Agent naming no
+// registered profile is refused rather than writing into a directory no scope
+// reads: the target dir is derived from a real agent's config-dir name.
+func TestApplyManagedConfigRefusesAnUnknownAgent(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	ui, answered := interactiveUI()
+
+	results := Apply(
+		[]Finding{managedConfigFinding("opencode.jsonc", "model: sonnet\n")},
+		ApplyOptions{Paths: cp, Slug: testSlug, Agent: "no-such-agent", UI: ui, Mode: options.ModeRun},
+	)
+
+	if results[0].Outcome != OutcomeSkipped || results[0].Note == "" {
+		t.Fatalf("result = %+v; want a skipped outcome with a note", results[0])
+	}
+	if *answered != 0 {
+		t.Errorf("an unknown agent asked %d prompts; want none", *answered)
+	}
+	assertNoFile(t, filepath.Join(cp.UserSlugConfigDir(testSlug), "no-such-agent", "opencode.jsonc"))
+}
+
+// unusableConfigDirAgent is a registered stub whose config-dir name is not a
+// single path element, so agent.ConfigDirNames rejects it. It drives the
+// managed-config write's "no usable config-dir name" refusal, which no built-in
+// profile reaches.
+type unusableConfigDirAgent struct{ name string }
+
+func (a unusableConfigDirAgent) Name() string             { return a.name }
+func (unusableConfigDirAgent) ConfigDirName() string      { return "bad/name" }
+func (unusableConfigDirAgent) Experimental() bool         { return false }
+func (unusableConfigDirAgent) ImageSpec() agent.ImageSpec { return agent.ImageSpec{} }
+
+// withUnusableConfigDirAgent registers the stub under name for the test,
+// restoring the built-in afterward.
+func withUnusableConfigDirAgent(t *testing.T, name string) {
+	t.Helper()
+	original, ok := agent.Lookup(name)
+	if !ok {
+		t.Fatalf("%s must be a registered agent", name)
+	}
+	agent.Register(unusableConfigDirAgent{name: name})
+	t.Cleanup(func() { agent.Register(original) })
+}
+
+// TestApplyManagedConfigRefusesAnUnusableConfigDir pins that a profile declaring
+// a config-dir name that is not a single path element is refused: "bad/name"
+// would escape the scope directory, so no file is written.
+func TestApplyManagedConfigRefusesAnUnusableConfigDir(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	ui, answered := interactiveUI()
+	withUnusableConfigDirAgent(t, "codex")
+
+	results := Apply(
+		[]Finding{managedConfigFinding("config.toml", "model = \"x\"\n")},
+		ApplyOptions{Paths: cp, Slug: testSlug, Agent: "codex", UI: ui, Mode: options.ModeRun},
+	)
+
+	if results[0].Outcome != OutcomeSkipped || results[0].Note == "" {
+		t.Fatalf("result = %+v; want a skipped outcome with a note", results[0])
+	}
+	if *answered != 0 {
+		t.Errorf("an unusable config dir asked %d prompts; want none", *answered)
+	}
+	assertNoFile(t, filepath.Join(cp.UserSlugConfigDir(testSlug), "bad", "name", "config.toml"))
 }
 
 func TestApplyDryRunWritesNothing(t *testing.T) {
