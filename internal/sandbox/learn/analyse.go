@@ -50,12 +50,13 @@ func (a Analysis) Findings() []analyser.Finding {
 }
 
 // SecretValue resolves a proposed static secret's value in memory, matched by
-// env-var name; the value is never persisted.
+// env-var name; the value is never persisted. An earlier same-env-var credential
+// with an empty value is skipped, so a non-empty source still resolves.
 func (a Analysis) SecretValue() func(analyser.SecretWrite) (string, bool) {
 	return func(write analyser.SecretWrite) (string, bool) {
 		for _, credential := range a.ReadBack.Static {
-			if credential.EnvVar == write.EnvVar {
-				return credential.Value, credential.Value != ""
+			if credential.EnvVar == write.EnvVar && credential.Value != "" {
+				return credential.Value, true
 			}
 		}
 		return "", false

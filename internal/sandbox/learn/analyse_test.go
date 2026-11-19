@@ -74,6 +74,7 @@ func TestFindingsSecretFromConfigEntryFallback(t *testing.T) {
 				Provider: "openai",
 				EnvVar:   "OPENAI_API_KEY",
 				Hosts:    []string{"api.openai.com"},
+				Value:    "sk-secret",
 			},
 		}},
 	}
@@ -96,7 +97,7 @@ func TestFindingsSecretFromConfigEntryFallback(t *testing.T) {
 func TestFindingsNoHostNoSecret(t *testing.T) {
 	analysis := Analysis{
 		ReadBack: readback.ReadBack{Static: []readback.Credential{
-			{Kind: readback.CredentialStatic, EnvVar: "OPENAI_API_KEY"},
+			{Kind: readback.CredentialStatic, EnvVar: "OPENAI_API_KEY", Value: "sk-secret"},
 		}},
 	}
 
@@ -225,6 +226,33 @@ func TestSecretValueEmptyValueDoesNotResolve(t *testing.T) {
 	value, ok := analysis.SecretValue()(analyser.SecretWrite{EnvVar: "EMPTY_KEY"})
 	if ok || value != "" {
 		t.Errorf("SecretValue = (%q, %v), want (\"\", false) for an empty value", value, ok)
+	}
+}
+
+// TestSecretValuePrefersANonEmptyCredential pins that SecretValue resolves the
+// first same-env-var credential that carries a value, skipping an earlier empty
+// one, and still reports no value when every match is empty.
+func TestSecretValuePrefersANonEmptyCredential(t *testing.T) {
+	analysis := Analysis{
+		ReadBack: readback.ReadBack{Static: []readback.Credential{
+			{Kind: readback.CredentialStatic, EnvVar: "OPENAI_API_KEY", Value: ""},
+			{Kind: readback.CredentialStatic, EnvVar: "OPENAI_API_KEY", Value: "sk-real"},
+		}},
+	}
+
+	value, ok := analysis.SecretValue()(analyser.SecretWrite{EnvVar: "OPENAI_API_KEY"})
+	if !ok || value != "sk-real" {
+		t.Errorf("SecretValue = (%q, %v), want (sk-real, true) past the empty source", value, ok)
+	}
+
+	allEmpty := Analysis{
+		ReadBack: readback.ReadBack{Static: []readback.Credential{
+			{Kind: readback.CredentialStatic, EnvVar: "OPENAI_API_KEY", Value: ""},
+			{Kind: readback.CredentialStatic, EnvVar: "OPENAI_API_KEY", Value: ""},
+		}},
+	}
+	if value, ok := allEmpty.SecretValue()(analyser.SecretWrite{EnvVar: "OPENAI_API_KEY"}); ok || value != "" {
+		t.Errorf("SecretValue = (%q, %v), want (\"\", false) when every match is empty", value, ok)
 	}
 }
 

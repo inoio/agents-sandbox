@@ -163,14 +163,15 @@ func usedRequestCount(destinations []channel.Destination) int {
 // static sources can name the same env var — a dotenv entry and an inline
 // provider key, or two inline entries — and two writes for the same literal key
 // would make the later write replace the earlier entry and drop its host set, so
-// the finding merges every source's hosts and header names. A credential with no
-// env-var name cannot be scoped, and a name with no host after the merge is not
-// migrated: neither yields a finding.
+// the finding merges every source's hosts and header names. An empty value is not
+// a secret, so a source with an empty value contributes no finding and no hosts.
+// A credential with no env-var name cannot be scoped, and a name with no host
+// after the merge is not migrated: neither yields a finding.
 func (s SessionFacts) secretFindings() []Finding {
 	var names []string
 	merged := map[string]mergedSecret{}
 	for _, credential := range s.ReadBack.Static {
-		if credential.EnvVar == "" {
+		if credential.EnvVar == "" || credential.Value == "" {
 			continue
 		}
 		hosts, headerNames, attributed := credentialHosts(credential, s.Observation.Attribution)
