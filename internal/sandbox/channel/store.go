@@ -71,6 +71,15 @@ func Load(path string) (Observation, error) {
 	return obs, nil
 }
 
+// Delete removes one saved artefact. A missing path is not an error: the
+// after-run deletes its own artefact, and a replay may find it already gone.
+func Delete(path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove observation: %w", err)
+	}
+	return nil
+}
+
 // Prune removes every artefact under <UserStateDir>/learn/ whose modification
 // time is before cutoff, and the slug directory once its last artefact is gone,
 // returning the number of artefacts removed. A learn tree that does not exist

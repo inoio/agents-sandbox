@@ -40,6 +40,9 @@ type ApplyOptions struct {
 	// SecretValue resolves a finding's static secret value in memory (from the
 	// read-back); it is never persisted and never logged. nil for config-only.
 	SecretValue func(w SecretWrite) (string, bool)
+	// AcceptAll applies every finding without asking. It is set only by an
+	// explicit top-level "Save all", never by --yes.
+	AcceptAll bool
 }
 
 // Apply walks findings, applying each finding's writes together after one
@@ -125,7 +128,7 @@ func applyFinding(finding Finding, opts ApplyOptions) ApplyResult {
 		return result
 	}
 
-	accepted, err := askApply(opts.UI, finding)
+	accepted, err := askApplyOrAcceptAll(opts, finding)
 	if err != nil {
 		result.Outcome = OutcomeFailed
 		result.Err = err.Error()
@@ -331,6 +334,16 @@ func configDirEditable(dir string) (bool, error) {
 //deadcode:ignore reason="applier helper; reached through the pending S7 run --learn caller"
 func setByFlag(opts ApplyOptions, key string) bool {
 	return opts.SetByFlag != nil && opts.SetByFlag(key)
+}
+
+// askApplyOrAcceptAll resolves whether a finding is accepted. AcceptAll (the
+// top-level "Save all") skips the per-finding prompt; otherwise the finding is
+// put to the user through askApply.
+func askApplyOrAcceptAll(opts ApplyOptions, finding Finding) (bool, error) {
+	if opts.AcceptAll {
+		return true, nil
+	}
+	return askApply(opts.UI, finding)
 }
 
 // askApply puts one finding to the user and reports whether it was accepted.

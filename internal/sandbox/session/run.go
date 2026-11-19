@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/notify"
 	"github.com/inoio/agents-sandbox/internal/sandbox/channel"
 	"github.com/inoio/agents-sandbox/internal/sandbox/learn"
@@ -52,6 +53,7 @@ type learnSession interface {
 	Passive() bool
 	Stop() channel.Observation
 	CaptureBaseline(ctx context.Context, k state.Key, agentName string) (string, error)
+	Finish(ctx context.Context, in learn.FinishInput) error
 }
 
 // learnBegin and learnPassive are the session's learn seams; production uses
@@ -265,9 +267,13 @@ func Run(ctx context.Context, opts options.RunOptions, mode options.Mode, ui ter
 	opts.Trace.Record(lifecycle.Attach)
 	k := ses.Key()
 
+	learnHome := ""
 	if learnRun != nil {
-		if _, err := learnRun.CaptureBaseline(ctx, k, k.Agent); err != nil {
+		home, err := learnRun.CaptureBaseline(ctx, k, k.Agent)
+		if err != nil {
 			ui.Warnf("learn mode: capturing the session baseline failed: %v", err)
+		} else {
+			learnHome = home
 		}
 	}
 
@@ -302,7 +308,27 @@ func Run(ctx context.Context, opts options.RunOptions, mode options.Mode, ui ter
 	// putting tools installed under /usr/local/go/bin and ~/go/bin on
 	// PATH for the agent and its child shells. The image's composed PATH
 	// is restored by the /etc/profile.d/agents-sandbox-path.sh merge.
-	return runAttach(ctx, k, sb, ses.GuestCWD(), ui, opts, "-l", "-c", setup)
+	attachErr := runAttach(ctx, k, sb, ses.GuestCWD(), ui, opts, "-l", "-c", setup)
+
+	// The after-run is owned by this process: it runs here, after the attach,
+	// and only when the context is still live. A cancelled context leaves the
+	// recorded session for `config learn`.
+	if learnRun != nil && ctx.Err() == nil {
+		if err := learnRun.Finish(ctx, learn.FinishInput{
+			Key:       k,
+			Slug:      opts.ConfigSlug,
+			Agent:     k.Agent,
+			Paths:     configpaths.Get(),
+			Home:      learnHome,
+			Base:      base,
+			UI:        ui,
+			Mode:      mode,
+			SetByFlag: opts.SetByFlag,
+		}); err != nil {
+			ui.Warnf("learn mode: the after-run failed: %v", err)
+		}
+	}
+	return attachErr
 }
 
 // withClientSession owns the client-lease lifecycle shared by the attach and

@@ -7,6 +7,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/opener"
 	"github.com/inoio/agents-sandbox/internal/sandbox/channel"
+	"github.com/inoio/agents-sandbox/internal/sandbox/learn"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
@@ -137,10 +138,11 @@ func (f *fakePrepared) HomeVolume() string { return f.homeVolume }
 // so a test can assert the order session.Run drives it in without a real
 // observation channel or home volume.
 type fakeLearnRun struct {
-	overlay network.Policy
-	passive bool
-	stopped bool
-	events  *[]string
+	overlay  network.Policy
+	passive  bool
+	stopped  bool
+	finished bool
+	events   *[]string
 }
 
 func (f *fakeLearnRun) Overlay() network.Policy { return f.overlay }
@@ -156,6 +158,12 @@ func (f *fakeLearnRun) Stop() channel.Observation {
 func (f *fakeLearnRun) CaptureBaseline(context.Context, state.Key, string) (string, error) {
 	f.record("baseline")
 	return "/home/vol", nil
+}
+
+func (f *fakeLearnRun) Finish(context.Context, learn.FinishInput) error {
+	f.record("finish")
+	f.finished = true
+	return nil
 }
 
 func (f *fakeLearnRun) record(event string) {

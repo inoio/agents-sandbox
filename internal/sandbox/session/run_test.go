@@ -550,7 +550,7 @@ func TestRunLearnStartsChannelBeforePrepareAndBaselinesBeforeAttach(t *testing.T
 		t.Fatalf("Run: %v", err)
 	}
 
-	want := []string{"begin", "prepare", "baseline", "stop"}
+	want := []string{"begin", "prepare", "baseline", "finish", "stop"}
 	if !slices.Equal(events, want) {
 		t.Errorf("learn event order = %v, want %v", events, want)
 	}

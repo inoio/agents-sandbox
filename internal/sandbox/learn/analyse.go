@@ -81,6 +81,18 @@ func Analyse(
 	mode options.Mode,
 	setByFlag func(string) bool,
 ) (Summary, error) {
+	return analyse(a, ui, mode, setByFlag, false)
+}
+
+// analyse is the shared body of Analyse and the live after-run's Save all:
+// acceptAll applies every finding without asking.
+func analyse(
+	a Analysis,
+	ui termio.UI,
+	mode options.Mode,
+	setByFlag func(string) bool,
+	acceptAll bool,
+) (Summary, error) {
 	readBackState, err := readBack(a.Home, a.Agent, a.Baseline)
 	if err != nil {
 		return Summary{}, err
@@ -95,6 +107,7 @@ func Analyse(
 		Mode:         mode,
 		SetByFlag:    setByFlag,
 		SecretValue:  a.SecretValue(),
+		AcceptAll:    acceptAll,
 	})
 	return summarize(a, results), nil
 }

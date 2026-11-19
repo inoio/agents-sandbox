@@ -235,6 +235,26 @@ func TestArtefactLoadMalformedFile(t *testing.T) {
 	assertWrapsCause(t, err)
 }
 
+// Delete removes one saved artefact, and a missing path is not an error: the
+// after-run deletes its own artefact, and a replay may find it already gone.
+func TestArtefactDelete(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+
+	path, err := Save("delete-me", 1763458200, sampleObservation())
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := Delete(path); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("artefact still present after Delete (err = %v)", err)
+	}
+	if err := Delete(path); err != nil {
+		t.Errorf("Delete of a missing artefact = %v, want nil", err)
+	}
+}
+
 // Prune removes artefacts modified before the cutoff, keeps recent ones, and
 // removes the slug directory once it is empty.
 func TestArtefactPruneCutoff(t *testing.T) {
