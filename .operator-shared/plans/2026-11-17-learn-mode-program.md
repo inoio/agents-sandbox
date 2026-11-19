@@ -50,10 +50,15 @@ What is on `main` now:
 - **S11 landed** (#754): `internal/sandbox/readback`'s inline config-file secret and glob-declared directory login
   store, extending S5 (#749).
 
-**S7, S8, S10, and S11 have landed; the frontier is S9 (`firstrun`).**
-S8 landed as `feat/697-config-harden`; S10's managed-config write-back is where S8's C7 declarative reference write
-becomes a real agent-config edit (`api_key_env` for kimi).
-**S9 is not yet written** — write it when its predecessors land, never in advance.
+**S7, S8, S10, and S11 have landed; the frontier is S9 (`firstrun`).** Every subplan except S9 has landed, and
+**S9 is now written** — `2026-11-17-learn-mode-firstrun.md` — against the current tree (adding `internal/firstrun`).
+S8 landed as `feat/697-config-harden` (#757); S10's managed-config write-back is where S8's C7 declarative reference
+write becomes a real agent-config edit (`api_key_env` for kimi).
+
+**S9 is the retirement point for the declaration model.** It delivers the first-run flow (the three choices from the hub)
+and folds in the secure `provision-host-config: false` default, retiring #54/#97/#98/#99; the stale
+`issue-99-guided-config-setup` branch (**PR #103**) and the stale `huh` backend (**PR #119**) are treated as spikes
+whose ideas inform S9, not dependencies. The full ticket disposition is in §Related tickets and retirement.
 
 **#749 splits across three subplans.** Issue #749 ("read back inline config secrets and directory login stores") is the
 follow-up to the kimi-code profile (#748 / PR #752): its read-back classification was deferred by that profile. Its
@@ -314,12 +319,15 @@ CHANNEL TRACK                                          LEARN TRACK
 | S8 config-harden | `2026-11-17-config-harden.md` | `config harden` | yes | S6 | S7 |
 | S10 agent-config-writeback | `2026-11-17-agent-config-writeback.md` | managed agent config from a session + placeholders (+ #749 native form) | yes | S5, S6, S7 | S8, S11 |
 | S11 inline-readback | `2026-11-19-learn-mode-inline-readback.md` | inline config secrets + directory login stores (#749) | yes | S5 | S8, S10 |
-| S9 firstrun | `2026-11-17-learn-mode-firstrun.md` (stub) | first-run `Guide` choices + UC4 seed | yes | S4, S5, S7, S10, E2, E3 | — |
+| S9 firstrun | `2026-11-17-learn-mode-firstrun.md` | first-run `Guide` choices + UC4 seed | yes | S4, S5, S7, S10, E2, E3 | — |
 
 S2, S3, S4, and S6 landed (S2/S3 shared `network.Policy`, `msb.NetworkSpec`, `msb/translate.go`,
 `viperconfig/config.go`); S6 landed on top of S5; S7 then landed on top of S4 and S6, and S10 on top of S7. **S4 and S6
 share no file**, so S7 was the join; S8 then landed on top of S6 (S11 landed, extending S5 and feeding S8's C7 and
-S10's native form). The frontier is now S9. Within each subplan, follow its own serialization. A subplan's plan is
+S10's native form). S9 is the last subplan, and the only one written after its predecessors landed — it is written
+against the current tree, adding the `internal/firstrun` package. E2 is no longer a hard dependency: the menu works on
+the existing `termio.Prompter` and only its rendering changes when the `huh` backend is reimplemented (#119). Within
+each subplan, follow its own serialization. A subplan's plan is
 written when its
 predecessors land, never in advance — S11 was written ahead of PR #752 at the maintainer's call because #749's read-back
 half depends only on the landed S5.
@@ -332,10 +340,28 @@ bypassed. The `off`-with-secrets state is kept named and rejected, not silently 
 ## Enablers (owned outside this DAG)
 
 - **E1 — `modernc.org/sqlite`.** Approach A reads opencode2's `opencode.db` credential row. Added by S5, not by a channel subplan.
-- **E2 — prompt backend (#20 / PR #119).** Interactive first-run, per-finding review, harden. Land before S9.
-- **E3 — new-user-journey e2e (#252).** Acceptance harness. Define before S9.
+- **E2 — prompt backend (#20 / PR #119).** Interactive first-run, per-finding review, harden. It is a UX upgrade on the `termio.Prompter` menu, not an S9 dependency: S9 works with the line backend and only the rendering changes when the `huh` backend lands (S9 plan, Design decision 2). #119 is a superseded spike to reimplement against `specs/architecture/termio-ui.md`.
+- **E3 — new-user-journey e2e (#252).** Acceptance harness. Define before S9; S9's host-accept task is its UC1/UC4 seed.
 - **E4 — superradcompany/microsandbox#2080 (filed).** Requests the runtime log successful substitutions with destination + header field. If it lands, S4 shrinks (read the runtime's surface) and S1's T1/T2 decision is moot. Track; do not block.
-- **Retirement (deferred, not in this DAG).** #697 supersedes the declaration model in #54/#99/#118. Once the learned path ships, retire `config migrate`'s curated provider table (and the `config harden` proposal in #118). Record it as the follow-up that closes #697; it needs no plan until the learned path lands.
+
+## Related tickets and retirement
+
+#697 supersedes the **declaration model**. Every ticket that carried it, and the disposition now that the learned path
+has landed:
+
+| Ticket | What it carried | Disposition |
+|---|---|---|
+| #118 | `config harden` subcommand | **Delivered** — S8 / PR #757. Close. |
+| #54 | first-run wizard | **Delivered** — S9. Close. |
+| #99 (+ #97, #98) | safe host-config migration; the secure `provision-host-config: false` default | **Delivered / superseded** — S9 folds in the default and the first-run flow; the curated provider table is retired. Close #97/#98/#99. |
+| `config migrate` | the host-first migration command | **Never landed on `main`** (only on the stale #103 branch). Replaced by UC4's *Learn from my host setup* (S9). |
+| #20 | replace the hand-rolled CLI prompt/UI | **Open** — the UX umbrella; low priority. |
+| #119 | the `huh` prompt backend (PR) | **Superseded spike** — close; reimplement against `specs/architecture/termio-ui.md`. Not an S9 dependency. |
+| #103 | `issue-99-guided-config-setup` (guided migration + tiered wizard) | **Superseded spike** — close. S9 reuses its ideas, not its code; the tiered `config wizard` is out of scope. |
+| #150 | derive a `header_fields` scope from attribution | **Deferred** (spec-level; `learn-mode.md` §Deferred). |
+| #697 | learn mode | The program's parent; the "close #697" follow-up *is* this retirement. |
+
+S9's Task 7 applies the closure marks (a comment naming the delivering PR, then close). E4 is tracked but never blocks.
 
 ## Rollout
 
