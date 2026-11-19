@@ -158,6 +158,96 @@ func TestManagedConfigOnlyChangedFiles(t *testing.T) {
 	require.Equal(t, "opencode.jsonc", findings[0].Writes[0].ManagedConfig.Name)
 }
 
+// TestManagedConfigOnlyChangedSnippetCandidates pins that the changed check is
+// what admits a candidate, not the snippet match alone: two snippet-matching
+// files, only one changed, yield exactly the changed one's finding.
+func TestManagedConfigOnlyChangedSnippetCandidates(t *testing.T) {
+	home := t.TempDir()
+	const changedPath = ".config/opencode/opencode.jsonc"
+	const unchangedPath = ".config/opencode/opencode.unchanged.jsonc"
+	writeManagedConfig(t, home, changedPath, "{\n  \"model\": \"sonnet\"\n}\n")
+	writeManagedConfig(t, home, unchangedPath, "{\n  \"model\": \"haiku\"\n}\n")
+
+	readBack := readback.ReadBack{
+		ConfigPaths: []string{unchangedPath, changedPath},
+		Changed:     []string{changedPath},
+	}
+
+	findings := ManagedConfigFindings(ManagedConfigFacts{Home: home, Agent: "opencode2", ReadBack: readBack})
+
+	require.Len(t, findings, 1)
+	require.Equal(t, "opencode.jsonc", findings[0].Writes[0].ManagedConfig.Name)
+}
+
+// TestManagedConfigContinuesPastASkippedCandidate pins that a candidate the
+// write-back cannot sanitize is skipped, not treated as the end of the set: an
+// unreadable file followed by a readable one still yields the readable one's
+// finding.
+func TestManagedConfigContinuesPastASkippedCandidate(t *testing.T) {
+	home := t.TempDir()
+	const unreadablePath = ".config/opencode/opencode.missing.jsonc"
+	const validPath = ".config/opencode/opencode.jsonc"
+	writeManagedConfig(t, home, validPath, "{\n  \"model\": \"sonnet\"\n}\n")
+
+	readBack := readback.ReadBack{
+		ConfigPaths: []string{unreadablePath, validPath},
+		Changed:     []string{unreadablePath, validPath},
+	}
+
+	findings := ManagedConfigFindings(ManagedConfigFacts{Home: home, Agent: "opencode2", ReadBack: readBack})
+
+	require.Len(t, findings, 1)
+	require.Equal(t, "opencode.jsonc", findings[0].Writes[0].ManagedConfig.Name)
+}
+
+// TestManagedConfigSkipsAnUnreadableDecodableEmptyCandidate pins that the
+// unreadable/over-cap refusal is what stops an empty write, not the value-remains
+// check: a missing hermes config.yaml (a format that decodes an empty document
+// without error) yields no finding, rather than an empty-content one.
+func TestManagedConfigSkipsAnUnreadableDecodableEmptyCandidate(t *testing.T) {
+	home := t.TempDir()
+	logger := &termiotest.Mock{}
+	const configPath = ".hermes/config.yaml"
+	require.True(t, snippetNameMatches("hermes", configPath), "the premise: hermes merges this snippet")
+
+	findings := ManagedConfigFindings(ManagedConfigFacts{
+		Home:     home,
+		Agent:    "hermes",
+		ReadBack: changedConfigBack(configPath),
+		Logger:   logger,
+	})
+
+	require.Empty(t, findings)
+	require.NotEmpty(t, logger.WarnCalls, "an unreadable candidate must be reported")
+}
+
+// TestManagedConfigSkipsAnUnsubstitutableCredentialOnADecodableFormat pins that
+// the substitution refusal is what stops the write, not the value-remains check:
+// a hermes config.yaml whose credential is not proposed as a secret yields no
+// finding, rather than an empty-content one.
+func TestManagedConfigSkipsAnUnsubstitutableCredentialOnADecodableFormat(t *testing.T) {
+	home := t.TempDir()
+	const configPath = ".hermes/config.yaml"
+	writeManagedConfig(t, home, configPath, "model: sonnet\n")
+	logger := &termiotest.Mock{}
+	require.True(t, snippetNameMatches("hermes", configPath), "the premise: hermes merges this snippet")
+
+	findings := ManagedConfigFindings(ManagedConfigFacts{
+		Home:  home,
+		Agent: "hermes",
+		// The credential has a value but no proposed secret, so it cannot be
+		// replaced by a placeholder.
+		ReadBack: changedConfigBack(
+			configPath,
+			testStaticCredential(configPath, "OPENAI_API_KEY", "sk-unlisted"),
+		),
+		Logger: logger,
+	})
+
+	require.Empty(t, findings)
+	require.NotEmpty(t, logger.WarnCalls, "a credential that cannot be replaced must be reported")
+}
+
 // TestManagedConfigNeverCarriesAValue pins invariant 3: no field of the finding
 // — evidence, write text, target name, or content — holds the static value.
 func TestManagedConfigNeverCarriesAValue(t *testing.T) {
