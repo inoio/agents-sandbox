@@ -102,11 +102,13 @@ func (grokBuildProfile) ProvisionRules() []ProvisionRule {
 	}
 }
 
-// ReadBackPaths declares grok's config, which can carry static keys, and its
-// login store.
+// ReadBackPaths declares grok's login store only. config.toml is withheld: it
+// can carry a static key inline (`[model.<id>] api_key`), which the read-back
+// does not classify yet, so a learned write-back would copy the raw key into
+// managed config. It is declared once the inline key is classified, the way
+// kimi-code's config.toml is.
 func (grokBuildProfile) ReadBackPaths() []string {
 	return []string{
-		grokBuildDataDir + "/" + grokBuildConfigFileName,
 		grokBuildDataDir + "/auth.json",
 	}
 }

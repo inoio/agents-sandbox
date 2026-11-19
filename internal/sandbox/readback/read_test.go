@@ -74,7 +74,8 @@ func TestReadClassifiesQwenLoginStores(t *testing.T) {
 }
 
 // TestReadClassifiesGrokBuildLoginStore pins grok-build's login store to
-// auth.json; its config file is configuration.
+// auth.json. config.toml is not a declared read-back path (it can hold an
+// inline, as-yet-unclassified key), so it contributes no config fact.
 func TestReadClassifiesGrokBuildLoginStore(t *testing.T) {
 	home := t.TempDir()
 	writeFile(t, home, ".grok/config.toml", "[ui]\nscreen_mode = \"minimal\"\n")
@@ -88,6 +89,8 @@ func TestReadClassifiesGrokBuildLoginStore(t *testing.T) {
 	require.Equal(t, ".grok/auth.json", rb.Login[0].Source)
 	require.Equal(t, "grok-build", rb.Login[0].Provider)
 	require.Empty(t, rb.Login[0].Value, "a login value is never read")
+	require.NotContains(t, rb.ConfigPaths, ".grok/config.toml",
+		"config.toml is withheld until its inline key is classified")
 }
 
 // TestLoginStoreForMatchesExactPath pins that a pattern with no metacharacter
