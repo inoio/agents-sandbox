@@ -34,7 +34,7 @@ func (claudeCodeProfile) LatestVersion(ctx context.Context) (string, error) {
 }
 func (claudeCodeProfile) NewerThan(a, b string) (bool, error) { return newerVersionThan(a, b) }
 
-func (claudeCodeProfile) SnippetPattern() string { return "settings*.json*" }
+func (claudeCodeProfile) SnippetPattern() string { return settingsSnippetPattern }
 func (claudeCodeProfile) VMConfigPath(home string) string {
 	return filepath.Join(home, ".claude", settingsFileName)
 }

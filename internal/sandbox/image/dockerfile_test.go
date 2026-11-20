@@ -685,12 +685,38 @@ func TestRenderDockerfileChecksGuestRuntimeTools(t *testing.T) {
 // TestRenderDockerfileNoGuestToolsForDaemonlessAgents guards that agents which
 // run no daemon in the VM declare no guest tools, so no check is emitted.
 func TestRenderDockerfileNoGuestToolsForDaemonlessAgents(t *testing.T) {
-	for _, name := range []string{"pi", "claude-code", "codex", "hermes", "oh-my-pi", "kimi-code"} {
+	for _, name := range []string{"pi", "claude-code", "codex", "hermes", "oh-my-pi", "kimi-code", "qwen-code"} {
 		a, _ := agent.Lookup(name)
 		final := finalStage(t, mustRender(t, a, nil, dockerOff))
 		if strings.Contains(final, "agent runtime tool missing") {
 			t.Errorf("%s runs no daemon and must not emit a guest-tool check; got:\n%s", name, final)
 		}
+	}
+}
+
+// TestRenderDockerfileQwenSystemSettingsSurviveTheToolTreeCopy guards that
+// qwen's update-disable reaches the shipped image: only the agent's tool tree
+// is copied into the runner, so the system settings file is written under it in
+// the agent stage, and the final stage points qwen at it with
+// QWEN_CODE_SYSTEM_SETTINGS_PATH. A write to the default /etc path would be in
+// a stage the runner does not include.
+func TestRenderDockerfileQwenSystemSettingsSurviveTheToolTreeCopy(t *testing.T) {
+	a, _ := agent.Lookup("qwen-code")
+	rendered := mustRender(t, a, nil, dockerOff)
+
+	agentStage := stageBlock(t, rendered, agentStageAlias)
+	if !strings.Contains(agentStage, "> /opt/agents-sandbox/qwen-code/system-settings.json") {
+		t.Errorf("the agent stage must write the system settings file under the tool tree; got:\n%s", agentStage)
+	}
+	final := finalStage(t, rendered)
+	if !strings.Contains(
+		final,
+		"ENV QWEN_CODE_SYSTEM_SETTINGS_PATH=/opt/agents-sandbox/qwen-code/system-settings.json",
+	) {
+		t.Errorf("the final stage must point qwen at the system settings file; got:\n%s", final)
+	}
+	if strings.Contains(rendered, "/etc/qwen-code") {
+		t.Errorf("rendered Dockerfile must not name the default /etc/qwen-code path; got:\n%s", rendered)
 	}
 }
 

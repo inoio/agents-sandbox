@@ -37,7 +37,7 @@ func (piProfile) LatestVersion(ctx context.Context) (string, error) {
 }
 func (piProfile) NewerThan(a, b string) (bool, error) { return newerVersionThan(a, b) }
 
-func (piProfile) SnippetPattern() string { return "settings*.json*" }
+func (piProfile) SnippetPattern() string { return settingsSnippetPattern }
 func (piProfile) VMConfigPath(home string) string {
 	return filepath.Join(home, ".pi", "agent", settingsFileName)
 }

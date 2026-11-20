@@ -391,6 +391,8 @@ var loginCredentialStores = []loginCredentialStore{
 	{pattern: ".local/share/opencode/auth.json", provider: "opencode", agents: []string{"opencode"}},
 	{pattern: ".pi/agent/settings.json", provider: "pi"},
 	{pattern: ".kimi-code/credentials/*.json", provider: "kimi-code"},
+	{pattern: ".qwen/oauth_creds.json", provider: "qwen-code"},
+	{pattern: ".qwen/mcp-oauth-tokens.json", provider: "qwen-code"},
 }
 
 // loginStoreFor returns the login-store rule matching a manifest entry key, if

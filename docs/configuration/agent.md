@@ -10,7 +10,7 @@ nav_order: 60
 
 agents-sandbox is agent-aware. A `--agent <name>` flag on `run`, `shell`, `build`, `volume`, `stop`, and `kill`
 selects the coding-agent profile to run, build, provision, or manage. The agent can also be selected via the `agent`
-config key or the `AGENTS_SANDBOX_AGENT` environment variable. Seven agents ship as built-in profiles:
+config key or the `AGENTS_SANDBOX_AGENT` environment variable. Nine agents ship as built-in profiles:
 
 - **`opencode`** — daemon-based, with serve/attach, worktree sessions, and GitHub-release upgrade checks.
 - **`opencode2`** (default) — opencode 2 (beta), installed from its upstream installer (`https://opencode.ai/v2/install`); the
@@ -36,12 +36,17 @@ config key or the `AGENTS_SANDBOX_AGENT` environment variable. Seven agents ship
   standalone GitHub release binary after its checksum is verified, and run interactively; upgrade checks via the npm
   registry. Its update check is turned off (`KIMI_CODE_NO_AUTO_UPDATE=1`), because agents-sandbox offers upgrades
   itself. The binary is about 194 MB.
+- **`qwen-code`** — [Qwen Code](https://github.com/QwenLM/qwen-code) (binary `qwen`), installed from its standalone
+  GitHub release (which bundles its own Node) after its checksum is verified, and run interactively; upgrade checks via
+  the npm registry. Its update check is turned off through a system settings file baked into the image
+  (`QWEN_CODE_SYSTEM_SETTINGS_PATH` points at it under `/opt/agents-sandbox`), because agents-sandbox offers
+  upgrades itself. The release unpacks to about 326 MB.
 
 > **Experimental agents:** `opencode` and `opencode2` are the tested default agents. Every other built-in
-> profile (`pi`, `claude-code`, `codex`, `hermes`, `oh-my-pi`, `kimi-code`) is **experimental** — not well tested with agents-sandbox.
+> profile (`pi`, `claude-code`, `codex`, `hermes`, `oh-my-pi`, `kimi-code`, `qwen-code`) is **experimental** — not well tested with agents-sandbox.
 > The launcher prints a notice when an experimental agent is selected.
 
-`--worktree` and `--serve-only` are rejected for pi, claude-code, codex, hermes, oh-my-pi, and kimi-code (they have no daemon); they run through the
+`--worktree` and `--serve-only` are rejected for pi, claude-code, codex, hermes, oh-my-pi, kimi-code, and qwen-code (they have no daemon); they run through the
 interactive TUI instead. Passing an unsupported `--agent` name reports the valid names in its error message.
 
 > **Note:** opencode2 server auth — v2's `serve` requires HTTP basic auth on every `/api/*` route and would otherwise generate a
@@ -97,6 +102,8 @@ agent config directories (generic user, per-slug user, project), and written to 
   the merged output.
 - **kimi-code** — snippets match `config*.toml` in the `kimi-code/` subdir (e.g. `config-provider.toml`); merged to
   `/home/dev/.kimi-code/config.toml`, written as TOML.
+- **qwen-code** — snippets match `settings*.json*` in the `qwen-code/` subdir (e.g. `settings-model.json`); merged to
+  `/home/dev/.qwen/settings.json`.
 
 Matching files are parsed and **deep-merged** into one config document. The generic user directory is merged first, then
 the per-slug user directory, then the project directory; within each directory files are merged in alphabetical order,
@@ -178,6 +185,11 @@ The drop-in copy is scoped to the agent's settings and, for opencode, its creden
   keeps literal provider keys (`api_key`, `[providers.<id>.env]`) beside its settings; nor are `mcp.json` (MCP
   headers and env can hold tokens), the `credentials/` logins, or runtime state. Put Kimi settings in `config*.toml`
   snippets instead (see [Config snippet merge](#config-snippet-merge)).
+- **qwen-code** — from `~/.qwen`: `QWEN.md`, `AGENTS.md`, and the `commands/`, `skills/`, `agents/`, and `workflows/`
+  directories. `settings.json` is not copied, because `/auth` saves API keys into its `env` section beside the
+  settings; nor are `.env` (environment variables, typically keys), the `oauth_creds.json` and `mcp-oauth-tokens.json`
+  logins, `extensions/` (each extension keeps its settings, including secret ones, in a `.env`), or runtime state. Put Qwen settings in `settings*.json` snippets instead (see
+  [Config snippet merge](#config-snippet-merge)).
 
 Precedence: the merged snippet config and any `home:` mappings override the drop-in copy for the same VM path.
 
@@ -212,9 +224,9 @@ To opt out, exclude `auth.json` from the drop-in copy by placing a `home:` entry
 host secrets in any other way; the env-secret mechanism is the supported channel for secrets you do not want on disk in
 the VM.
 
-For pi, claude-code, codex, hermes, oh-my-pi, and kimi-code, the drop-in copy does not include credential files. pi,
-claude-code, hermes, and oh-my-pi authenticate with env secrets instead; codex logs in inside the VM, and kimi-code
-does either:
+For pi, claude-code, codex, hermes, oh-my-pi, kimi-code, and qwen-code, the drop-in copy does not include credential
+files. pi, claude-code, hermes, and oh-my-pi authenticate with env secrets instead; codex logs in inside the VM, and
+kimi-code and qwen-code do either:
 
 - **pi** — per-provider env vars, e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` (see pi's docs for the
   full list). Put them in an `env.secret` / `env.secret.yaml` file.
@@ -231,6 +243,9 @@ does either:
 - **kimi-code** — Kimi does not read a provider key from the process environment on its own. Name the variable in a
   provider snippet with `api_key_env`, and supply it through `env.secret`; or run `/login` once inside the VM, whose
   login persists on the home volume (see [Kimi Code login](#kimi-code-login)).
+- **qwen-code** — the provider's key variable (`DASHSCOPE_API_KEY`, `OPENAI_API_KEY`, …), supplied through
+  `env.secret`, with the provider in a `settings*.json` snippet; or `/auth` once inside the VM (see
+  [Qwen Code login](#qwen-code-login)).
 - **opencode** — `OPENCODE_API_KEY`.
 
 ### Codex login
@@ -298,6 +313,45 @@ max_context_size = 262144
 device-code sign-in on your host. The login is stored in `~/.kimi-code/credentials/` on the home volume, so you sign in
 once per project and agent; it is never copied from the host.
 
+### Qwen Code login
+
+**API key:** declare the key as an [env secret]({% link configuration/secrets.md %}) for the provider's API host, and
+name it as the model's `envKey` in a settings snippet. Qwen reads the key from the process environment, which outranks the `env`
+section of `settings.json`, so the VM only sees the placeholder, which the network proxy replaces on requests to that
+host. Do not put the key into a snippet's `env` section: snippets are written into the VM as plain files.
+
+```yaml
+# ~/.config/agents-sandbox/env.secret.yaml
+DASHSCOPE_API_KEY:
+  value: sk-xxxxxxxx
+  host: dashscope.aliyuncs.com
+```
+
+```json
+// ~/.config/agents-sandbox/qwen-code/settings-provider.json
+{
+  "modelProviders": {
+    "openai": [
+      {
+        "id": "qwen3-coder-plus",
+        "name": "qwen3-coder-plus",
+        "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "envKey": "DASHSCOPE_API_KEY"
+      }
+    ]
+  },
+  "security": { "auth": { "selectedType": "openai" } },
+  "model": { "name": "qwen3-coder-plus" }
+}
+```
+
+**In the VM:** run `/auth` in the TUI and pick a provider. A Qwen OAuth sign-in is saved into
+`~/.qwen/oauth_creds.json` on the home volume, so you sign in once per project and agent; it is never copied from the
+host. Qwen OAuth signs in through a browser. An API key entered through `/auth` is written to
+`~/.qwen/settings.json`, but agents-sandbox owns that file through the `settings*.json` snippet merge — with a snippet
+it is replaced by the merged document, and with none it is removed — so an API key entered there does not survive the
+next run. Use the `envKey` + `env.secret` snippet instead for an API key that persists.
+
 ## Example: permissions
 
 Opencode permissions are configured through opencode config snippets, which agents-sandbox merges (user-first, then
@@ -355,19 +409,20 @@ version/upgrade checks. Beyond that base, coverage differs by agent:
 - ◐ **Supportable** — the agent exposes a surface agents-sandbox could use, but does not implement yet.
 - ✖ **Unsupported** — the agent has no such surface.
 
-| Capability | `opencode` | `opencode2` | `pi` | `claude-code` | `codex` | `hermes` | `oh-my-pi` | `kimi-code` |
-|---|---|---|---|---|---|---|---|---|
-| Interactive attach | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Config snippet merge | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Host-config drop-in | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Version + upgrade check | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Serve/attach daemon | ✅ | ✅ | ✖ | ✖ | ◐ | ◐ | ◐ | ◐ |
-| Worktree sessions | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ | ◐ | ✖ |
-| Notify event stream | ✅ | ✅ | ✖ | ✖ | ◐ | ◐ | ◐ | ◐ |
-| Session quiescence | ✅ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ |
+| Capability | `opencode` | `opencode2` | `pi` | `claude-code` | `codex` | `hermes` | `oh-my-pi` | `kimi-code` | `qwen-code` |
+|---|---|---|---|---|---|---|---|---|---|
+| Interactive attach | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Config snippet merge | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Host-config drop-in | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Version + upgrade check | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Serve/attach daemon | ✅ | ✅ | ✖ | ✖ | ◐ | ◐ | ◐ | ◐ | ◐ |
+| Worktree sessions | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ | ◐ | ✖ | ◐ |
+| Notify event stream | ✅ | ✅ | ✖ | ✖ | ◐ | ◐ | ◐ | ◐ | ◐ |
+| Session quiescence | ✅ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ |
 
 The ◐ entries name an upstream surface agents-sandbox has not wired up: `codex app-server` (a JSON-RPC daemon with a
 turn/item event stream) for Codex, `hermes serve` / `hermes chat --format stream-json` for Hermes, and `omp --mode rpc` /
 `omp acp` (stdio servers) and the `omp worktree` CLI for Oh My Pi, and `kimi web` (a REST and WebSocket server, marked
-experimental upstream) for Kimi Code.
+experimental upstream) for Kimi Code, and `qwen serve` (HTTP with a server-sent event stream, marked experimental
+upstream) and its managed session worktrees for Qwen Code.
 
