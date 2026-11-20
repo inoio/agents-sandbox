@@ -238,7 +238,7 @@ const publicNetwork = "public"
 // Terminal keys that leave a harness's full-screen TUI: Ctrl-D is `opencode`'s,
 // `opencode2`'s, `pi`'s, and `oh-my-pi`'s documented `app_exit`/`app.exit`, and Ctrl-C is the
 // interrupt `claude-code` announces as its exit ("Press Ctrl-C again to exit")
-// and `codex`, `qwen-code`, and `grok-build` quit on.
+// and `codex`, `qwen-code`, `grok-build`, and `mistral-vibe` quit on.
 const (
 	ctrlC = 0x03
 	ctrlD = 0x04
@@ -330,6 +330,9 @@ var harnessSpecs = map[string]harnessSpec{
 	// ("Waiting for approval…"), which still satisfies the TUI assertion, so it
 	// needs no seed and no egress; Ctrl-C leaves it with exit 0.
 	"grok-build": {QuitKey: []byte{ctrlC}, Network: "", KeepsNormalBuffer: false},
+	// mistral-vibe's Rust TUI draws on the alternate screen. Ctrl-C leaves it,
+	// including from the folder-trust dialog it may show before the session.
+	"mistral-vibe": {QuitKey: []byte{ctrlC}, Network: "", KeepsNormalBuffer: false},
 	// opencode's editor owns Ctrl-C, so its TUI leaves on Ctrl-D.
 	"opencode":  {QuitKey: []byte{ctrlD}, Network: "", KeepsNormalBuffer: false},
 	"opencode2": {QuitKey: []byte{ctrlD}, Network: "", KeepsNormalBuffer: false},
