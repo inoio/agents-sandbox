@@ -73,7 +73,8 @@ func (ohMyPiProfile) ImageSpec() ImageSpec {
 		OwnsToolTree: false,
 		// The glibc binary and its embedded addon link only glibc itself
 		// (libc, libm, libpthread, libdl, libutil), which every glibc base has.
-		RuntimeLibs: nil,
+		RuntimeLibs:   nil,
+		RunnerCommand: "",
 	}
 }
 

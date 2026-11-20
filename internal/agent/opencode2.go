@@ -85,6 +85,7 @@ func (opencode2Profile) ImageSpec() ImageSpec {
 		RequiresNode:   false,
 		OwnsToolTree:   false,
 		RuntimeLibs:    nil,
+		RunnerCommand:  "",
 	}
 }
 

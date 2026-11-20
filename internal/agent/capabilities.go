@@ -11,6 +11,14 @@ const settingsFileName = "settings.json"
 // settings.json agent config.
 const settingsSnippetPattern = "settings*.json*"
 
+// configTOMLSnippetPattern matches the launcher snippets that merge into a
+// config.toml agent config.
+const configTOMLSnippetPattern = "config*.toml"
+
+// agentsRulesPattern is the drop-in pattern for an agent's global AGENTS.md
+// instructions file at the root of its data dir.
+const agentsRulesPattern = "/AGENTS.md"
+
 // Daemon bind hostnames: loopback for a co-located client, the external
 // interface when the host forwards a published port into the VM.
 const (

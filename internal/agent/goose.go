@@ -40,8 +40,9 @@ func (gooseProfile) ImageSpec() ImageSpec {
 		RequiresNode: false,
 		// goose keeps its sessions and logs under ~/.local on the home volume, so
 		// the tool tree stays root-owned.
-		OwnsToolTree: false,
-		RuntimeLibs:  nil,
+		OwnsToolTree:  false,
+		RuntimeLibs:   nil,
+		RunnerCommand: "",
 	}
 }
 
@@ -70,7 +71,7 @@ func (gooseProfile) ConfigFileNames() []string { return []string{gooseConfigFile
 func (gooseProfile) ProvisionRules() []ProvisionRule {
 	return []ProvisionRule{
 		{Dir: gooseConfigDir, Patterns: []string{
-			"/permission.yaml", "/.goosehints", "/AGENTS.md", "/prompts/", "/recipes/",
+			"/permission.yaml", "/.goosehints", agentsRulesPattern, "/prompts/", "/recipes/",
 		}},
 	}
 }

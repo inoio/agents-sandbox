@@ -75,6 +75,7 @@ func TestExperimentalAgentSet(t *testing.T) {
 		"kimi-code":   true,
 		"qwen-code":   true,
 		"goose":       true,
+		"grok-build":  true,
 		"oh-my-pi":    true,
 	}
 	stable := map[string]bool{

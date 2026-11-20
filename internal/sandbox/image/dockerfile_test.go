@@ -685,7 +685,7 @@ func TestRenderDockerfileChecksGuestRuntimeTools(t *testing.T) {
 // TestRenderDockerfileNoGuestToolsForDaemonlessAgents guards that agents which
 // run no daemon in the VM declare no guest tools, so no check is emitted.
 func TestRenderDockerfileNoGuestToolsForDaemonlessAgents(t *testing.T) {
-	for _, name := range []string{"pi", "claude-code", "codex", "hermes", "oh-my-pi", "kimi-code", "qwen-code", "goose"} {
+	for _, name := range []string{"pi", "claude-code", "codex", "hermes", "oh-my-pi", "kimi-code", "qwen-code", "goose", "grok-build"} {
 		a, _ := agent.Lookup(name)
 		final := finalStage(t, mustRender(t, a, nil, dockerOff))
 		if strings.Contains(final, "agent runtime tool missing") {
@@ -717,6 +717,27 @@ func TestRenderDockerfileQwenSystemSettingsSurviveTheToolTreeCopy(t *testing.T) 
 	}
 	if strings.Contains(rendered, "/etc/qwen-code") {
 		t.Errorf("rendered Dockerfile must not name the default /etc/qwen-code path; got:\n%s", rendered)
+	}
+}
+
+// TestRenderDockerfileRunsAgentRunnerCommand guards that an agent whose install
+// must land a system config file outside its tool tree gets a command in the
+// final runner stage: the agent stage is not in the runner's lineage and only
+// its tool tree is copied, so a write there is discarded. grok-build pins its
+// auto-updater off in /etc/grok/requirements.toml.
+func TestRenderDockerfileRunsAgentRunnerCommand(t *testing.T) {
+	grok, _ := agent.Lookup("grok-build")
+	rendered := mustRender(t, grok, nil, dockerOff)
+	if agentStage := stageBlock(t, rendered, agentStageAlias); strings.Contains(agentStage, "requirements.toml") {
+		t.Errorf("the agent stage must not write the runner-stage requirements pin; got:\n%s", agentStage)
+	}
+	if want := "/etc/grok/requirements.toml"; !strings.Contains(finalStage(t, rendered), want) {
+		t.Errorf("the final stage must write %s; got:\n%s", want, rendered)
+	}
+
+	opencode, _ := agent.Lookup("opencode")
+	if other := finalStage(t, mustRender(t, opencode, nil, dockerOff)); strings.Contains(other, "requirements.toml") {
+		t.Errorf("opencode declares no runner command, so no write is expected; got:\n%s", other)
 	}
 }
 

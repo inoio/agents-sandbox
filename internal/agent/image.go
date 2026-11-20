@@ -30,6 +30,15 @@ type ImageSpec struct {
 	// launches. The check is glibc-only; musl bases are skipped. Agents that need
 	// none leave it nil.
 	RuntimeLibs []string
+	// RunnerCommand is a shell command the renderer runs in the final runner
+	// stage as root, after the agent tool tree is copied. It carries an agent
+	// setup step that must be part of the runner's lineage: the agent stage is
+	// not in the final image's FROM lineage and the runner copies only the
+	// agent's tool tree out of it, so anything the install writes outside that
+	// tree is discarded (Grok Build pins its auto-updater off in
+	// /etc/grok/requirements.toml this way). Agents that need none leave it
+	// empty.
+	RunnerCommand string
 }
 
 // versionArgFor derives the Docker build ARG name for an agent from its name,

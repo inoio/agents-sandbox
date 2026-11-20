@@ -20,7 +20,7 @@ By default, agents-sandbox runs in the current directory (`/workspace`). To star
 > with it.
 
 > **Note:** Requires a daemon-based agent. Worktrees are created through the agent daemon's worktree API, so `--worktree` only
-> works with daemon-based agents (opencode, opencode2); it is rejected for `pi`, `claude-code`, `codex`, `hermes`, `oh-my-pi`, `kimi-code`, `qwen-code`, and `goose`, which run through the
+> works with daemon-based agents (opencode, opencode2); it is rejected for `pi`, `claude-code`, `codex`, `hermes`, `oh-my-pi`, `kimi-code`, `qwen-code`, `goose`, and `grok-build`, which run through the
 > interactive TUI instead.
 
 ## Basic usage

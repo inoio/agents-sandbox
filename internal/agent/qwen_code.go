@@ -88,7 +88,8 @@ func (qwenCodeProfile) ImageSpec() ImageSpec {
 		// home volume, so the tool tree stays root-owned.
 		OwnsToolTree: false,
 		// The bundled Node and the prebuilt native modules link the C++ runtime.
-		RuntimeLibs: []string{"libstdc++.so.6", "libgcc_s.so.1"},
+		RuntimeLibs:   []string{"libstdc++.so.6", "libgcc_s.so.1"},
+		RunnerCommand: "",
 	}
 }
 
@@ -113,7 +114,7 @@ func (qwenCodeProfile) ConfigFileNames() []string { return []string{settingsFile
 func (qwenCodeProfile) ProvisionRules() []ProvisionRule {
 	return []ProvisionRule{
 		{Dir: qwenCodeDataDir, Patterns: []string{
-			"/QWEN.md", "/AGENTS.md", "/commands/", "/skills/", "/agents/", "/workflows/",
+			"/QWEN.md", agentsRulesPattern, "/commands/", "/skills/", "/agents/", "/workflows/",
 		}},
 	}
 }
