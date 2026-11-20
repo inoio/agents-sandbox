@@ -40,8 +40,9 @@ func (gooseProfile) ImageSpec() ImageSpec {
 		RequiresNode: false,
 		// goose keeps its sessions and logs under ~/.local on the home volume, so
 		// the tool tree stays root-owned.
-		OwnsToolTree: false,
-		RuntimeLibs:  nil,
+		OwnsToolTree:  false,
+		RuntimeLibs:   nil,
+		RunnerCommand: "",
 	}
 }
 
