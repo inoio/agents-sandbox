@@ -42,10 +42,10 @@ config key or the `AGENTS_SANDBOX_AGENT` environment variable. Twelve agents shi
   (`QWEN_CODE_SYSTEM_SETTINGS_PATH` points at it under `/opt/agents-sandbox`), because agents-sandbox offers
   upgrades itself. The release unpacks to about 326 MB.
 - **`goose`** — [Goose](https://github.com/aaif-goose/goose), installed from the static (musl) binary of its GitHub release and run
-  interactively; upgrade checks via its GitHub releases, taking the newest one whose Linux archives are
-  published. Goose publishes no checksums for its release assets, so the
-  binary is fetched over HTTPS from the pinned release tag without a checksum check. Goose checks for updates only when
-  you run `goose update`. The binary is about 159 MB.
+  interactively; upgrade checks via its GitHub releases, taking the newest one whose Linux archives are published.
+  Goose publishes no checksums for its release assets, so the binary is fetched over HTTPS from the pinned release tag
+  without a checksum check. The Linux release has no `goose update` subcommand and performs no automatic update check,
+  so there is nothing to turn off. The binary is about 159 MB.
 - **`grok-build`** — xAI's [Grok Build](https://x.ai/cli) (binary `grok`), installed from the static release binary xAI hosts (with
   the storage bucket xAI's installer uses as a fallback) and run interactively; upgrade checks via the npm registry.
   xAI publishes no checksums for the binaries it hosts, so it is fetched over HTTPS by its pinned version without a checksum

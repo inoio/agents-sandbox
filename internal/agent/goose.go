@@ -28,8 +28,8 @@ func (gooseProfile) Experimental() bool    { return true }
 // library. Its asset names use `uname -m` architectures. The release publishes
 // no checksums, so, like codex, the asset is fetched over TLS from the pinned
 // release tag; the build runs the binary once so a broken download never ships.
-// goose checks for updates only on an explicit `goose update`, so no switch is
-// needed.
+// The Linux release performs no automatic update check, so no switch is needed
+// to turn one off.
 func (gooseProfile) ImageSpec() ImageSpec {
 	return ImageSpec{
 		VersionArg: versionArgFor(gooseName),
