@@ -73,7 +73,13 @@ type proxyState struct {
 // An empty bindHost means loopback (127.0.0.1): the channel is never bound to
 // every interface, so an unset or blank value cannot expose the proxy on the
 // network.
-func Start(bindHost string) (Handle, error) {
+//
+// skipUpstreamVerify disables TLS certificate verification on the proxy's dial
+// to the real upstream. It is false in the normal case, so a credential the
+// proxy forwards cannot reach an impostor; it is the
+// network.observe.skip-upstream-verify escape hatch for a host whose egress is
+// transparently intercepted with a private CA the system roots do not include.
+func Start(bindHost string, skipUpstreamVerify bool) (Handle, error) {
 	if bindHost == "" {
 		bindHost = "127.0.0.1"
 	}
@@ -96,7 +102,7 @@ func Start(bindHost string) (Handle, error) {
 	state.recorder = new(recorder)
 	state.caFile = caFile
 	state.server = &http.Server{
-		Handler: terminateProxy(ca, state),
+		Handler: terminateProxy(ca, state, skipUpstreamVerify),
 		// A defensive ceiling on reading a request's headers; the value is not
 		// a contract and a local test server answers before it can fire.
 		// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT,ARITHMETIC_BASE reason="a defensive ReadHeaderTimeout cannot be observed by a local test server and the value is not a contract"
@@ -121,7 +127,7 @@ func Start(bindHost string) (Handle, error) {
 // before our proxy is consulted, so a policy-denied destination never reaches
 // the request hook at all; the denial this records is our proxy's dial error,
 // not a sandbox-policy denial.
-func terminateProxy(ca tls.Certificate, state *proxyState) *goproxy.ProxyHttpServer {
+func terminateProxy(ca tls.Certificate, state *proxyState, skipUpstreamVerify bool) *goproxy.ProxyHttpServer {
 	proxy := goproxy.NewProxyHttpServer()
 	// goproxy's own logger warns unconditionally; route it to a discard so it
 	// cannot interleave with the agent's TUI during a learning session.
@@ -130,6 +136,14 @@ func terminateProxy(ca tls.Certificate, state *proxyState) *goproxy.ProxyHttpSer
 	// directly instead of honouring a host proxy environment variable.
 	proxy.Tr.Proxy = nil
 	proxy.ConnectDial = nil
+	// goproxy's origin transport verifies upstream certificates by default;
+	// keep that unless the operator opted out for a host whose egress is
+	// transparently intercepted. Verification is what stops a forwarded
+	// credential reaching an impostor.
+	if skipUpstreamVerify {
+		//nolint:gosec,exhaustruct_v5 // deliberate opt-out: only InsecureSkipVerify describes the intent, and the rest of the TLS config keeps the library defaults
+		proxy.Tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	}
 
 	mitm := &goproxy.ConnectAction{
 		Action:    goproxy.ConnectMitm,

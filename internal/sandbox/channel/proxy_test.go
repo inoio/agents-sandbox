@@ -58,7 +58,9 @@ func proxyClient(t *testing.T, handle Handle) *http.Client {
 }
 
 func TestProxyRecordsDestinationAndCredentialHeaderName(t *testing.T) {
-	handle, err := Start("127.0.0.1")
+	// The upstream is httptest's self-signed TLS server; skip upstream
+	// verification so the test exercises observation, not certificate trust.
+	handle, err := Start("127.0.0.1", true)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -154,7 +156,10 @@ func TestProxyRecordsDestinationAndCredentialHeaderName(t *testing.T) {
 }
 
 func TestProxyStreamsSSEResponseIncrementally(t *testing.T) {
-	handle, err := Start("127.0.0.1")
+	// A plain-HTTP upstream keeps the test on the default (verifying) origin
+	// transport: streaming is transport-agnostic, and httptest's TLS server is
+	// self-signed, which the default transport now rejects.
+	handle, err := Start("127.0.0.1", false)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -164,7 +169,7 @@ func TestProxyStreamsSSEResponseIncrementally(t *testing.T) {
 	var releaseOnce sync.Once
 	unblock := func() { releaseOnce.Do(func() { close(release) }) }
 
-	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		flusher, ok := w.(http.Flusher)
@@ -213,7 +218,7 @@ func TestProxyStreamsSSEResponseIncrementally(t *testing.T) {
 }
 
 func TestProxyRecordsDeniedDestination(t *testing.T) {
-	handle, err := Start("127.0.0.1")
+	handle, err := Start("127.0.0.1", false)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -252,8 +257,66 @@ func TestProxyRecordsDeniedDestination(t *testing.T) {
 	}
 }
 
+// The origin transport verifies the upstream certificate by default, so an
+// upstream whose certificate the proxy's roots do not contain (httptest's
+// self-signed one) is rejected and the request is recorded as a denial — a
+// forwarded credential can never reach an impostor.
+func TestProxyVerifiesUpstreamCertificateByDefault(t *testing.T) {
+	handle, err := Start("127.0.0.1", false)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer handle.Stop()
+
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	resp, err := proxyClient(t, handle).Get(upstream.URL)
+	if err == nil {
+		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			t.Fatal("an untrusted upstream certificate was accepted, want a failed request")
+		}
+	}
+
+	observation := handle.Stop()
+	destination := destinationFor(t, observation.Destinations, "https")
+	if !destination.Denied {
+		t.Errorf("denied = false, want true for an untrusted upstream certificate")
+	}
+	if destination.Success {
+		t.Errorf("success = true, want false for an untrusted upstream certificate")
+	}
+}
+
+// skip-upstream-verify lets the same self-signed upstream round-trip, proving
+// the opt-out reaches the origin dial rather than only the constructor.
+func TestProxySkipsUpstreamVerificationWhenConfigured(t *testing.T) {
+	handle, err := Start("127.0.0.1", true)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer handle.Stop()
+
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	resp, err := proxyClient(t, handle).Get(upstream.URL)
+	if err != nil {
+		t.Fatalf("request through proxy with verification skipped: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+}
+
 func TestProxyRecordsConnectTunnelWhenMitmHandshakeFails(t *testing.T) {
-	handle, err := Start("127.0.0.1")
+	handle, err := Start("127.0.0.1", false)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -330,7 +393,7 @@ func TestProxyConnectHostnameRecordsEmptyIP(t *testing.T) {
 }
 
 func TestProxyHandleExposesCAAndStopsIdempotently(t *testing.T) {
-	handle, err := Start("127.0.0.1")
+	handle, err := Start("127.0.0.1", false)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -382,7 +445,7 @@ func TestProxyHandleExposesCAAndStopsIdempotently(t *testing.T) {
 // An empty bindHost must mean loopback: the proxy is never bound to every
 // interface, so a blank value cannot expose it on the network.
 func TestStartEmptyBindHostIsLoopback(t *testing.T) {
-	handle, err := Start("")
+	handle, err := Start("", false)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -502,7 +565,7 @@ func TestStartFailsWhenCAKeyGenerationFails(t *testing.T) {
 		return nil, errChannelSeam
 	})
 
-	if _, err := Start("127.0.0.1"); err == nil {
+	if _, err := Start("127.0.0.1", false); err == nil {
 		t.Error("Start with a failing key generator returned no error")
 	}
 }
@@ -516,7 +579,7 @@ func TestStartFailsWhenCAFileCannotBeWritten(t *testing.T) {
 	}
 	t.Setenv("TMPDIR", notADirectory)
 
-	if _, err := Start("127.0.0.1"); err == nil {
+	if _, err := Start("127.0.0.1", false); err == nil {
 		t.Error("Start with an unwritable CA temp dir returned no error")
 	}
 }
@@ -527,7 +590,7 @@ func TestStartFailsWhenListenFails(t *testing.T) {
 	caDir := t.TempDir()
 	t.Setenv("TMPDIR", caDir)
 
-	if _, err := Start("[::1]"); err == nil {
+	if _, err := Start("[::1]", false); err == nil {
 		t.Error("Start with an unparseable bind host returned no error")
 	}
 	assertNoCAFiles(t, caDir)
@@ -636,7 +699,7 @@ func TestTerminateProxyIsQuietAndDialsDirectly(t *testing.T) {
 	}
 	state := &proxyState{recorder: new(recorder)}
 
-	proxy := terminateProxy(ca, state)
+	proxy := terminateProxy(ca, state, false)
 	if _, ok := proxy.Logger.(discardLogger); !ok {
 		t.Errorf("proxy.Logger = %T, want the discard logger", proxy.Logger)
 	}
@@ -645,6 +708,24 @@ func TestTerminateProxyIsQuietAndDialsDirectly(t *testing.T) {
 	}
 	if proxy.ConnectDial != nil {
 		t.Error("ConnectDial must be nil so the proxy dials upstream directly")
+	}
+	if proxy.Tr.TLSClientConfig != nil && proxy.Tr.TLSClientConfig.InsecureSkipVerify {
+		t.Error("the origin transport must verify upstream certificates by default")
+	}
+}
+
+// terminateProxy forwards skipUpstreamVerify to the origin transport's TLS
+// config, so the network.observe.skip-upstream-verify opt-out actually reaches
+// the dial that carries a forwarded credential.
+func TestTerminateProxyForwardsSkipUpstreamVerify(t *testing.T) {
+	ca, _, err := generateCA()
+	if err != nil {
+		t.Fatalf("generateCA: %v", err)
+	}
+
+	proxy := terminateProxy(ca, &proxyState{recorder: new(recorder)}, true)
+	if proxy.Tr == nil || proxy.Tr.TLSClientConfig == nil || !proxy.Tr.TLSClientConfig.InsecureSkipVerify {
+		t.Errorf("origin transport TLS config = %+v, want InsecureSkipVerify set", proxy.Tr.TLSClientConfig)
 	}
 }
 
@@ -710,7 +791,7 @@ func TestOnResponseNilDoesNotMarkDestination(t *testing.T) {
 // registered when it observes the shutdown, so allow a brief window for that
 // goroutine to run before declaring the listener still open.
 func TestStopClosesProxyListener(t *testing.T) {
-	handle, err := Start("127.0.0.1")
+	handle, err := Start("127.0.0.1", false)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}

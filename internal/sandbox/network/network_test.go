@@ -1,6 +1,7 @@
 package network
 
 import (
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -308,6 +309,33 @@ func TestFingerprintCountsEveryEntry(t *testing.T) {
 	}
 }
 
+// network.observe is launcher-side: toggling it must not change the
+// fingerprint or the SDK spec, so it cannot recreate the VM.
+func TestObserveIsNotFingerprintedOrProjected(t *testing.T) {
+	base := Policy{Profiles: []Profile{ProfileNone}, EgressAllow: []string{"api.example.com"}}
+	withObserve := base
+	withObserve.Observe = ObserveConfig{SkipUpstreamVerify: true}
+
+	if base.Observe == withObserve.Observe {
+		t.Fatal("the two policies must differ in Observe for this test to mean anything")
+	}
+	if base.Fingerprint() != withObserve.Fingerprint() {
+		t.Error("toggling network.observe changed the fingerprint, want it launcher-side only")
+	}
+
+	baseSpec, err := base.Spec()
+	if err != nil {
+		t.Fatalf("base.Spec: %v", err)
+	}
+	observeSpec, err := withObserve.Spec()
+	if err != nil {
+		t.Fatalf("withObserve.Spec: %v", err)
+	}
+	if !reflect.DeepEqual(baseSpec, observeSpec) {
+		t.Errorf("toggling network.observe changed the SDK spec:\n base %+v\nobserve %+v", baseSpec, observeSpec)
+	}
+}
+
 func TestProfileString(t *testing.T) {
 	if got := ProfilePublic.String(); got != "public" {
 		t.Errorf("ProfilePublic.String() = %q, want public", got)
@@ -432,6 +460,7 @@ func TestPolicyEmpty(t *testing.T) {
 		{"tls-bypass", Policy{TLSBypass: []string{"*.internal.example"}}},
 		{"disable-strict", Policy{DisableStrict: true}},
 		{"proxy", Policy{Proxy: Proxy{Protocol: ProxySOCKS5, Address: "10.0.0.1:1080"}}},
+		{"observe", Policy{Observe: ObserveConfig{SkipUpstreamVerify: true}}},
 	}
 	for _, tc := range nonEmpty {
 		t.Run(tc.name, func(t *testing.T) {
