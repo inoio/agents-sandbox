@@ -2,6 +2,7 @@ package readback
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1328,6 +1329,122 @@ func TestInlineCredentialsInIgnoresAPartiallyDecodedDocument(t *testing.T) {
 		"broken: !!int notanint\n")
 
 	require.Empty(t, InlineCredentialsIn("config.yaml", data))
+}
+
+// TestClassifyConfigContentNeverReturnsAValue pins the split's value contract:
+// neither half hands a credential value back to the caller. A static
+// classification names the entry's env-var and host but carries no value; a
+// login classification records that the store exists but returns no value.
+func TestClassifyConfigContentNeverReturnsAValue(t *testing.T) {
+	const secret = "sk-classify-secret"
+
+	static, login, err := ClassifyConfigContent(
+		".hermes/config.yaml",
+		[]byte("model:\n  provider: moonshot\n  api_key: "+secret+"\n"+
+			"  base_url: https://api.custom.example/v1\n"),
+		"hermes",
+	)
+
+	require.NoError(t, err)
+	require.Empty(t, login)
+	require.Len(t, static, 1)
+	require.Equal(t, CredentialStatic, static[0].Kind)
+	require.Equal(t, "MOONSHOT_API_KEY", static[0].EnvVar)
+	require.Equal(t, []string{"api.custom.example"}, static[0].Hosts)
+	require.Empty(t, static[0].Value, "a static classification never returns the secret value")
+
+	loginStatic, loginCreds, err := ClassifyConfigContent(
+		".codex/auth.json",
+		[]byte(`{"tokens":{"access_token":"`+secret+`"}}`),
+		"codex",
+	)
+
+	require.NoError(t, err)
+	require.Empty(t, loginStatic, "a login store yields no inline static credential")
+	require.Len(t, loginCreds, 1)
+	require.Equal(t, CredentialLogin, loginCreds[0].Kind)
+	require.Equal(t, ".codex/auth.json", loginCreds[0].Source)
+	require.Equal(t, "codex", loginCreds[0].Provider)
+	require.Empty(t, loginCreds[0].Value, "a login classification never returns the store's value")
+	require.NotContains(t, loginCreds[0].Provider, secret)
+	require.NotContains(t, loginCreds[0].Source, secret)
+}
+
+// TestClassifyConfigContentSplitsStaticFromLogin pins the static half: an inline
+// provider key is classified with its provider, entry endpoint host, and env-var
+// name, and a readable config with no login store yields no login.
+func TestClassifyConfigContentSplitsStaticFromLogin(t *testing.T) {
+	static, login, err := ClassifyConfigContent(
+		".hermes/config.yaml",
+		[]byte("model:\n  provider: moonshot\n  api_key: sk-inline\n"+
+			"  base_url: https://api.custom.example/v1\n"),
+		"hermes",
+	)
+
+	require.NoError(t, err)
+	require.Empty(t, login)
+	require.Len(t, static, 1)
+	require.Equal(t, CredentialStatic, static[0].Kind)
+	require.Equal(t, "moonshot", static[0].Provider)
+	require.Equal(t, "MOONSHOT_API_KEY", static[0].EnvVar)
+	require.Equal(t, []string{"api.custom.example"}, static[0].Hosts)
+}
+
+// TestClassifyConfigContentUnknownFormatIsAnError pins that an extension the
+// decoder does not know is refused rather than guessed at.
+func TestClassifyConfigContentUnknownFormatIsAnError(t *testing.T) {
+	_, _, err := ClassifyConfigContent("notes.txt", []byte("provider: openai\napi_key: sk\n"), "hermes")
+
+	require.Error(t, err)
+}
+
+// TestClassifyConfigContentUndecodableIsAnError pins that a document the decoder
+// cannot parse is refused rather than partially scanned, and the parse cause
+// stays reachable through the wrapper.
+func TestClassifyConfigContentUndecodableIsAnError(t *testing.T) {
+	_, _, err := ClassifyConfigContent(
+		".hermes/config.yaml",
+		[]byte("model:\n  provider: openai\n  api_key: sk\nbroken: !!int notanint\n"),
+		"hermes",
+	)
+
+	require.Error(t, err)
+	require.Error(t, errors.Unwrap(err), "the decode error must be wrapped, not flattened")
+}
+
+// TestCredentialStoreForPathMatchesAScopedHostPath pins the tail-matching branch
+// the read-back uses for a scope path: a full host path under a launcher config
+// scope names the store, with its provider, even though the exact-pattern lookup
+// cannot match the whole path.
+func TestCredentialStoreForPathMatchesAScopedHostPath(t *testing.T) {
+	store, ok := credentialStoreForPath("/home/dev/.config/agents-sandbox/codex/auth.json")
+
+	require.True(t, ok, "the codex store must be recognized from the scoped path's tail")
+	require.Equal(t, "codex", store.provider)
+}
+
+// TestClassifyConfigContentExcludedFilesHaveNoInlineStatic pins that the shared
+// exclusion still holds through the exported entry point: the dotenv is a value
+// store, and a login store scoped to another agent is not classified as that
+// agent's login.
+func TestClassifyConfigContentExcludedFilesHaveNoInlineStatic(t *testing.T) {
+	dotenvStatic, dotenvLogin, err := ClassifyConfigContent(
+		".hermes/.env",
+		[]byte("OPENAI_API_KEY=sk-dotenv\n"),
+		"hermes",
+	)
+	require.NoError(t, err)
+	require.Empty(t, dotenvStatic, "the dotenv is excluded from the inline walk")
+	require.Empty(t, dotenvLogin)
+
+	foreignStatic, foreignLogin, err := ClassifyConfigContent(
+		".local/share/opencode/auth.json",
+		[]byte(`{"openai":{"type":"api"}}`),
+		"hermes",
+	)
+	require.NoError(t, err)
+	require.Empty(t, foreignStatic)
+	require.Empty(t, foreignLogin, "the shared opencode auth store is scoped to opencode")
 }
 
 // TestReadClassifiesMistralVibeDotenv pins that vibe's ~/.vibe/.env, where

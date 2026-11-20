@@ -79,6 +79,7 @@ func TestResourcePressureInteractiveAcceptPersists(t *testing.T) {
 		t.Fatalf("fixture must have distinct repo and checkout slugs")
 	}
 	slug := effectiveConfigSlugForTest(t, identity)
+	stubFirstRunMenu(t)
 
 	var selects int
 	ui.IsInteractiveResult = true
@@ -170,6 +171,7 @@ func TestDiskPressureCleanExitOffersAndPersists(t *testing.T) {
 	mock := &msbtest.MockMsbClient{}
 	root, ui := setupRunMocks(t, mock, diskPressureSandbox(), "run")
 	slug := effectiveConfigSlugForTest(t, mustIdentity(t, "."))
+	stubFirstRunMenu(t)
 	var selects int
 	ui.IsInteractiveResult = true
 	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
@@ -202,6 +204,7 @@ func TestDiskPressureExplicitFlagExplainsInsteadOfPrompting(t *testing.T) {
 
 	mock := &msbtest.MockMsbClient{}
 	root, ui := setupRunMocks(t, mock, diskPressureSandbox(), "run", "--tmp-size", "2G")
+	stubFirstRunMenu(t)
 	var selects int
 	ui.IsInteractiveResult = true
 	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {

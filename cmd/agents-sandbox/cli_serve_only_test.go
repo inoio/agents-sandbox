@@ -161,6 +161,33 @@ func TestServeOnlyStdinReaderSelectsOnTerminal(t *testing.T) {
 	}
 }
 
+// TestRunServeOnlyDoesNotOfferFirstRunMenu pins the P1 ruling: a serve-only run
+// returns before the learning after-run, so a learning choice would be recorded
+// while the observation is dropped. The menu must not be offered there.
+func TestRunServeOnlyDoesNotOfferFirstRunMenu(t *testing.T) {
+	initTestProjectDir(t)
+
+	menuCalled := false
+	original := firstRunMenu
+	firstRunMenu = func(termio.UI, *options.RunOptions, string, string) error {
+		menuCalled = true
+		return nil
+	}
+	t.Cleanup(func() { firstRunMenu = original })
+
+	captured := captureSessionRun(t)
+	root, _ := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, cmdRun, "--serve-only")
+	if err := root.Execute(); err != nil {
+		t.Fatalf("run --serve-only: %v", err)
+	}
+	if menuCalled {
+		t.Error("run --serve-only must not offer the first-run menu")
+	}
+	if captured().Learn {
+		t.Error("run --serve-only must not start a learning session")
+	}
+}
+
 // TestRunFuncServeOnlyReportsAFailedPreflight pins that a serve-only run whose
 // prerequisite checks fail stops with the preflight error.
 func TestRunFuncServeOnlyReportsAFailedPreflight(t *testing.T) {

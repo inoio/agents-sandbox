@@ -208,13 +208,14 @@ func configAgentFor(c *cobra.Command, args []string) (agent.Agent, error) {
 	return a, nil
 }
 
-// provisionHostConfigEnabled reports whether host config provisioning is on,
-// defaulting to true when no resolver is present.
+// provisionHostConfigEnabled reports whether host config provisioning is on.
+// Without a resolver it reports false, matching the documented
+// `provision-host-config: false` default.
 func provisionHostConfigEnabled(c *cobra.Command) bool {
 	if r := resolverFromContext(c.Context()); r != nil {
 		return r.ProvisionHostConfig()
 	}
-	return true
+	return false
 }
 
 // printConfigAgent renders the merged config, mirror files, and drop-in host

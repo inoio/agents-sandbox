@@ -14,12 +14,20 @@ This extends **[Switch from your existing agent]({% link switch.md %})**.
 > **Note:** If you are new to coding agents, set up your agent (opencode, opencode2, pi, claude-code, codex, hermes, oh-my-pi, kimi-code, qwen-code, goose, grok-build, or mistral-vibe) on your host first,
 > then come back here.
 
-## 1. Turn off host-config fallback
+## 1. Host-config fallback is off by default
+
+Drop-in host-config provisioning is **opt-in**: an unset `provision-host-config` means false, so the launcher already
+keeps your host agent config and credentials out of the VM. Nothing to do here unless you previously turned
+provisioning on — in that case set it back to false:
 
 ```yaml
 # ~/.config/agents-sandbox/config.yaml
 provision-host-config: false
 ```
+
+See [Drop-in provisioning]({% link configuration/agent.md %}#drop-in-provisioning-opt-in) for what provisioning copies. A
+first run also offers to learn your setup from a session instead — see
+[Letting agents-sandbox learn your setup]({% link learn-your-setup.md %}).
 
 ## 2. Bring over your config
 

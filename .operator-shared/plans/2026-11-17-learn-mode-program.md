@@ -49,16 +49,22 @@ What is on `main` now:
   real session's after-run).
 - **S11 landed** (#754): `internal/sandbox/readback`'s inline config-file secret and glob-declared directory login
   store, extending S5 (#749).
+- **S9 landed**: `internal/firstrun` — the first-run decision (`Offer`/`BuildFacts`), the three-choice menu (`Prompt`)
+  on `termio.Prompter.Select`, the host-config probe (`HostFiles`), the UC4 host-config seed (`SeedFromHost`), and the
+  `provision-host-config: false` default. The decision is recorded in `state.RootState` keyed by `<repo slug>/<agent>`,
+  re-armed by a host-config source hash. Its Task 8 host accept is a human step the PR carries.
 
-**S7, S8, S10, and S11 have landed; the frontier is S9 (`firstrun`).** Every subplan except S9 has landed, and
-**S9 is now written** — `2026-11-17-learn-mode-firstrun.md` — against the current tree (adding `internal/firstrun`).
-S8 landed as `feat/697-config-harden` (#757); S10's managed-config write-back is where S8's C7 declarative reference
-write becomes a real agent-config edit (`api_key_env` for kimi).
+**Every subplan has landed.** S7, S8, S10, and S11 landed first; **S9 (`firstrun`) landed last** — its plan
+`2026-11-17-learn-mode-firstrun.md` was written against the current tree and delivered `internal/firstrun`, the
+three-choice first-run menu, the UC4 host seed, and the `provision-host-config: false` default. S8 landed as
+`feat/697-config-harden` (#757); S10's managed-config write-back is where S8's C7 declarative reference write becomes a
+real agent-config edit (`api_key_env` for kimi).
 
-**S9 is the retirement point for the declaration model.** It delivers the first-run flow (the three choices from the hub)
-and folds in the secure `provision-host-config: false` default, retiring #54/#97/#98/#99; the stale
-`issue-99-guided-config-setup` branch (**PR #103**) and the stale `huh` backend (**PR #119**) are treated as spikes
-whose ideas inform S9, not dependencies. The full ticket disposition is in §Related tickets and retirement.
+**S9 was the retirement point for the declaration model.** It delivered the first-run flow (the three choices from the
+hub) and folded in the secure `provision-host-config: false` default, retiring #54/#97/#98/#99; the stale
+`issue-99-guided-config-setup` branch (**PR #103**) and the stale `huh` backend (**PR #119**) are superseded spikes
+whose ideas informed S9, not dependencies. The full ticket disposition is in §Related tickets and retirement; the
+tracker closures are applied separately by the controller, not by S9's Task 7.
 
 **#749 splits across three subplans.** Issue #749 ("read back inline config secrets and directory login stores") is the
 follow-up to the kimi-code profile (#748 / PR #752): its read-back classification was deferred by that profile. Its
@@ -324,8 +330,8 @@ CHANNEL TRACK                                          LEARN TRACK
 S2, S3, S4, and S6 landed (S2/S3 shared `network.Policy`, `msb.NetworkSpec`, `msb/translate.go`,
 `viperconfig/config.go`); S6 landed on top of S5; S7 then landed on top of S4 and S6, and S10 on top of S7. **S4 and S6
 share no file**, so S7 was the join; S8 then landed on top of S6 (S11 landed, extending S5 and feeding S8's C7 and
-S10's native form). S9 is the last subplan, and the only one written after its predecessors landed — it is written
-against the current tree, adding the `internal/firstrun` package. E2 is no longer a hard dependency: the menu works on
+S10's native form). S9 is the last subplan, and the only one written after its predecessors landed — it was written
+against the current tree, adding the `internal/firstrun` package, and it has landed. E2 is no longer a hard dependency: the menu works on
 the existing `termio.Prompter` and only its rendering changes when the `huh` backend is reimplemented (#119). Within
 each subplan, follow its own serialization. A subplan's plan is
 written when its
@@ -361,7 +367,8 @@ has landed:
 | #150 | derive a `header_fields` scope from attribution | **Deferred** (spec-level; `learn-mode.md` §Deferred). |
 | #697 | learn mode | The program's parent; the "close #697" follow-up *is* this retirement. |
 
-S9's Task 7 applies the closure marks (a comment naming the delivering PR, then close). E4 is tracked but never blocks.
+S9's Task 7 recorded the docs, changelog, brain, and the retirement disposition; the tracker closure marks (a comment
+naming the delivering PR, then close) are applied separately by the controller. E4 is tracked but never blocks.
 
 ## Rollout
 

@@ -863,7 +863,9 @@ func persistConfigHashes(k state.Key, fingerprints state.Fingerprints, ui termio
 }
 
 // provisionHostConfig reports whether the agent's host config files should be
-// copied into the VM. A nil option enables it (the launcher default).
+// copied into the VM. A nil option enables it, kept as the internal contract;
+// the CLI always sets the option from the resolved config, whose default is
+// off (provisioning is opt-in).
 func provisionHostConfig(opts options.RunOptions) bool {
 	if opts.ProvisionHostConfig == nil {
 		return true

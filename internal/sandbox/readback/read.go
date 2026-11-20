@@ -1,6 +1,7 @@
 package readback
 
 import (
+	"fmt"
 	"io"
 	"maps"
 	"net/url"
@@ -424,14 +425,28 @@ func SkipsInlineCredentials(path string) bool {
 	if filepath.Base(path) == dotenvFileName {
 		return true
 	}
+	_, isStore := credentialStoreForPath(path)
+	return isStore
+}
+
+// credentialStoreForPath returns the login store whose pattern matches path,
+// matched either as an exact or glob key (the read-back's sandbox-home-relative
+// spelling) or by the path's trailing elements (a host path under a launcher
+// config scope). It is the store-aware form of the SkipsInlineCredentials
+// exclusion.
+func credentialStoreForPath(path string) (loginCredentialStore, bool) {
+	// gomutants:disable-next-line BRANCH_IF reason="the tail matcher below covers every path loginStoreFor matches: the pattern's leading dot is stripped on both the pattern and the path's first tail element, so a match through the exact/glob form is also a tail match"
+	if store, ok := loginStoreFor(path); ok {
+		return store, true
+	}
 	segments := strings.Split(filepath.ToSlash(path), "/")
 	for _, store := range loginCredentialStores {
 		pattern := strings.Split(strings.TrimPrefix(store.pattern, "."), "/")
 		if matchesStoreTail(pattern, segments) {
-			return true
+			return store, true
 		}
 	}
-	return false
+	return loginCredentialStore{}, false
 }
 
 // matchesStoreTail reports whether pathSegments' trailing elements match pattern.
@@ -497,6 +512,52 @@ func isSecretKeySeparator(r rune) bool {
 // inlineCredentialKeys are the normalized keys whose value inside a provider
 // entry is that provider's own static credential.
 var inlineCredentialKeys = []string{"apikey", "key", "token"}
+
+// ClassifyConfigContent splits path's credential-bearing entries into static
+// (provider/host/env-var) and login classifications. No credential value is
+// returned: a static classification names the entry (provider, host, env-var)
+// but carries no value, and a login classification carries presence only, so
+// the caller that needs a value re-reads it with InlineCredentialsIn. path may
+// be a sandbox-home-relative key or a host path under a launcher config scope. A
+// file the inline walk excludes (the dotenv, or a login store the agent does not
+// own) yields no inline static, while a login store the agent owns yields one
+// login. An unknown format or a document the decoder cannot parse is an error,
+// never a guess.
+//
+//nolint:nonamedreturns // the documented (static, login, err) signature is the contract
+func ClassifyConfigContent(
+	path string,
+	content []byte,
+	agentName string,
+) (static, login []Credential, err error) {
+	if store, ok := credentialStoreForPath(path); ok {
+		if !store.appliesTo(agentName) {
+			return nil, nil, nil
+		}
+		return nil, []Credential{{Kind: CredentialLogin, Source: path, Provider: store.provider}}, nil
+	}
+	if SkipsInlineCredentials(path) {
+		return nil, nil, nil
+	}
+	format, ok := configdecode.FormatFor(path)
+	if !ok {
+		return nil, nil, fmt.Errorf("classify config %s: unsupported extension %q", path, filepath.Ext(path))
+	}
+	if _, err := configdecode.Decode(format, content); err != nil {
+		return nil, nil, fmt.Errorf("classify config %s: %w", path, err)
+	}
+	return withoutCredentialValues(InlineCredentialsIn(path, content)), nil, nil
+}
+
+// withoutCredentialValues clears each credential's value, so a classification
+// exposes the entry, not the secret: a caller that needs the value re-reads the
+// document through InlineCredentialsIn, threading it to the writer in memory.
+func withoutCredentialValues(credentials []Credential) []Credential {
+	for i := range credentials {
+		credentials[i].Value = ""
+	}
+	return credentials
+}
 
 // InlineCredentialsIn returns each inline static credential the config document
 // in data holds: a credential-bearing key inside a provider entry, with the

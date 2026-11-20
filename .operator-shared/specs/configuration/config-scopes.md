@@ -121,4 +121,6 @@ Adoption renames a bare root's legacy per-slug dir onto the repo slug, so the sl
 
 Non-impact: env/secret fingerprints derive from loaded values, so absent per-slug files leave them unchanged; `home:` and agent config changes already apply on the next startup / daemon restart (no new recreate path); the project trust projection is unchanged (it reads the project scope alone).
 
-`config harden` / `config wizard` do not exist in this tree (they are described by `specs/onboarding/onboarding.md` but unlanded), so no scope inspection is added for them. When they land, they should consume `ConfigScopes` for their per-scope findings.
+`config harden` consumes `ConfigScopes` (through `analyser.ConfigFacts.Scopes`) for its per-scope findings. The tiered
+`config wizard` never landed (it was described by `specs/onboarding/onboarding.md`, now retired with the declaration
+model), so no scope inspection is added for it.

@@ -99,14 +99,14 @@ and denied, and **which credential was sent to which destination** — need an o
 
 ## Prerequisites and phasing
 
-Approach A, the analyser, and `config harden` need nothing that is not in `main`. The launcher's proxy and
-interception config surfaces (`#149`, `#151`) have landed; the channel's own upstream-CA projection is the one
-launcher surface still to come (S4). Their constraints are in
-[the observation channel](learn-mode/observation-channel.md).
+Approach A, the analyser, `config harden`, and the channel need nothing that is not in `main`: the launcher's proxy and
+interception config surfaces (`#149`, `#151`) and the channel's own upstream-CA projection (S4) have landed. Their
+constraints are in [the observation channel](learn-mode/observation-channel.md).
 
-Phasing: the spike landed (run 2026-11-15; S1 for opencode2 only); the read-back landed (S5); then the analyser and
-harden (S6); then the channel's own code (S4), which adds facts 4–7 and therefore UC2's detection signal; then the
-`header_fields` scope derived from attribution.
+Phasing (landed): the spike (run 2026-11-15; S1 for opencode2 only), the read-back (S5), the analyser and `config
+harden` (S6/S8), the channel's own code (S4, which adds facts 4–7 and therefore UC2's detection signal), the `run
+--learn` invocation and after-run (S7), the managed-config write-back (S10), the inline read-back (S11), and the
+first-run flow (S9) have all landed. The `header_fields` scope derived from attribution remains deferred (#150).
 
 ## Deferred
 

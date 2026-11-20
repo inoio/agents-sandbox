@@ -11,10 +11,12 @@ nav_order: 25
 This page takes you from a fresh install to a coding agent running in a sandbox, with your project mounted at
 `/workspace`.
 
-If you already use a coding agent on this host, the same command also brings your existing setup — see
-[Switch from your existing agent]({% link switch.md %}). If you have not set up OpenCode 2 on this host yet, do that once
-first: the sandbox copies its host configuration and credentials, so OpenCode 2 starts without a separate login.
-Other agents may require a separate login inside the sandbox.
+On a first run, agents-sandbox asks how to set the sandbox up: learn by using it, learn from your host setup (only when
+host config exists), or configure it myself — see
+[Letting agents-sandbox learn your setup]({% link learn-your-setup.md %}). Host configuration is not copied into the VM
+by default, so the sandbox starts OpenCode 2 without your host setup unless you choose the host-learning path or opt in
+to [drop-in provisioning]({% link configuration/agent.md %}#drop-in-provisioning-opt-in). Some agents need a login inside
+the sandbox.
 
 ## Install agents-sandbox
 

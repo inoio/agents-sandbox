@@ -41,6 +41,7 @@ read_if: Navigating the codebase.
 - `configread/` — `ReadFile` under a 16 MiB cap (`MaxBytes`/`ErrTooLarge`) for untrusted config, secret, and snippet reads.
 - `configdecode/` — The one config-file read/classify/decode core (`FormatFor`/`Decode`/`DecodeFile`) over `configread` and `configpaths`; JSON5/JSONC via `json5`, YAML via `go.yaml.in/yaml/v4`, TOML via `go-toml/v2`.
 - `homeconfig/` — Provisions arbitrary user files (the `home:` key) into a sandbox home from the ordered config scopes.
+- `firstrun/` — First-run onboarding: the decision predicate (`Offer`/`BuildFacts`), the three-choice menu (`Prompt`) on `termio.Prompter.Select`, the host-config probe (`HostFiles`), and the UC4 host-config seed (`SeedFromHost`), wired into the `run` attach path before `session.Run` (not `shell`, `--serve-only`, or `--dry-run-vm`); the decision is recorded in `state.RootState` keyed by `<repo slug>/<agent>`.
 - `docslink/` — Composes links to the published docs site (`BaseURL`, section anchors) for the doctor and build-error `Docs:` hints.
 - `git/` — Git helpers (go-git wrapper) and project identity: the repo slug (origin-derived; per-slug config dir, grouping label) vs the checkout slug (git common dir; state/VM/volume/locks/image tag).
 - `hostlock/` — Advisory `flock` file locks, shared by the state transactions and the per-project VM lock.
@@ -54,7 +55,7 @@ read_if: Navigating the codebase.
 - `runoptions/` — `*cobra.Command`-driven run/shell option resolution (`Build`) into `options.RunOptions`.
 - `cliout/` + `view/` — Output rendering: `cliout` is domain-free (generic list/JSON plus `RenderPruneReport`); `view` holds the sandbox-shaped printers and report DTOs (see `specs/architecture/package-boundaries.md`).
 - `sandbox/` — **See [sandbox subindex](sandbox.md)** (VM lifecycle, docker, image, msb, volumes, pruning, sessions, state).
-- Leaf utilities — `atomicwrite` (durable state/config writes), `configmerge`, `filewalk`, `humanize`, `sysinfo`, `yamlfmt`.
+- Leaf utilities — `atomicwrite` (durable state/config writes), `configmerge`, `filewalk`, `globmatch` (snippet glob name matching, shared by the agent profiles and `configmerge`), `humanize`, `sysinfo`, `yamlfmt`.
 - `testutil/` — Test-only helpers: the git-isolation environment (`GitIsolationEnvironment`, `RunGit`, `ConfigureRepo`), `InitRepo`, `WritePath`/`WriteFile`, the fail-fast mock installers, and the module-wide contract scans. `testgit.go` is the only coverage-ignored file.
 
 ### `test/harness/` — `msb`-tagged harness smoke tests

@@ -428,9 +428,9 @@ func TestConfigAgentPrintsMirrorFiles(t *testing.T) {
 	}
 }
 
-func TestProvisionHostConfigEnabledDefaultsTrueWithoutResolver(t *testing.T) {
-	if !provisionHostConfigEnabled(&cobra.Command{}) {
-		t.Error("provisionHostConfigEnabled() = false, want true without a resolver")
+func TestProvisionHostConfigEnabledDefaultsFalseWithoutResolver(t *testing.T) {
+	if provisionHostConfigEnabled(&cobra.Command{}) {
+		t.Error("provisionHostConfigEnabled() = true, want false without a resolver")
 	}
 }
 
@@ -1077,8 +1077,8 @@ func hardenPerSlugConfigFile(t *testing.T, slug string) string {
 // naming `run --learn`, and writes no file.
 func TestConfigHardenNonInteractiveWritesNothing(t *testing.T) {
 	initTestProjectDir(t)
-	// The default config has provision-host-config true, so the finder yields a
-	// finding and Apply is reached.
+	// The default `public` network profile with no allow list yields a finding,
+	// so the finder is non-empty and Apply is reached.
 	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdHarden)
 	stubPrepareMSBRuntime(t)
 
@@ -1108,6 +1108,8 @@ func TestConfigHardenDryRunWritesNothing(t *testing.T) {
 	initTestProjectDir(t)
 	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdHarden, "--"+flagDryRun)
 	stubPrepareMSBRuntime(t)
+	// Provisioning is opt-in; enable it so C6 is among the previewed findings.
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml", "provision-host-config: true\n")
 	selects := 0
 	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
 		selects++
@@ -1189,6 +1191,9 @@ func TestConfigHardenAppliesAFindingInteractively(t *testing.T) {
 	initTestProjectDir(t)
 	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdHarden)
 	stubPrepareMSBRuntime(t)
+	// Provisioning is opt-in; enable it so C6 (turning it off) is the finding
+	// the applier writes.
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml", "provision-host-config: true\n")
 	acceptEveryFinding(ui)
 
 	if err := cmd.Execute(); err != nil {

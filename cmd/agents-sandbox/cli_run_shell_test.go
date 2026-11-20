@@ -21,7 +21,9 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
+	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
@@ -159,6 +161,59 @@ func TestRunShellRunAttachError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "agent session failed") {
 		t.Errorf("expected error containing 'agent session failed'; got: %v", err)
+	}
+}
+
+// TestShellDoesNotOfferFirstRunMenu pins the P1 ruling: `session.Shell` never
+// starts the agent serve daemon or a learning session, so the first-run menu
+// must not be offered on `shell` — a learning choice there would record a
+// decision with no session behind it and suppress the menu on the next run.
+func TestShellDoesNotOfferFirstRunMenu(t *testing.T) {
+	initTestProjectDir(t)
+
+	menuCalled := false
+	original := firstRunMenu
+	firstRunMenu = func(termio.UI, *options.RunOptions, string, string) error {
+		menuCalled = true
+		return nil
+	}
+	t.Cleanup(func() { firstRunMenu = original })
+
+	mock := &msbtest.MockMsbClient{}
+	root, _ := setupRunMocks(t, mock, &msbtest.MockSandbox{AttachErr: errors.New("stop after menu check")}, "shell")
+	// The attach fails by design; only whether the menu was offered matters.
+	_ = root.Execute()
+
+	if menuCalled {
+		t.Error("shell must not offer the first-run menu")
+	}
+}
+
+// TestRunDryRunVMDoesNotOfferFirstRunMenu pins the P1 ruling on the other
+// non-attach path: `run --dry-run-vm` prepares everything but returns before the
+// learning after-run, so a learning choice would be recorded while the
+// observation is dropped. The menu must not be offered there.
+func TestRunDryRunVMDoesNotOfferFirstRunMenu(t *testing.T) {
+	initTestProjectDir(t)
+
+	menuCalled := false
+	original := firstRunMenu
+	firstRunMenu = func(termio.UI, *options.RunOptions, string, string) error {
+		menuCalled = true
+		return nil
+	}
+	t.Cleanup(func() { firstRunMenu = original })
+
+	captured := captureSessionRun(t)
+	root, _ := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, cmdRun, "--dry-run-vm")
+	if err := root.Execute(); err != nil {
+		t.Fatalf("run --dry-run-vm: %v", err)
+	}
+	if menuCalled {
+		t.Error("run --dry-run-vm must not offer the first-run menu")
+	}
+	if captured().Learn {
+		t.Error("run --dry-run-vm must not start a learning session")
 	}
 }
 
@@ -908,6 +963,9 @@ func TestRunWarnsAboutUnprovisionedConfigDirDependencies(t *testing.T) {
 	mock := &msbtest.MockMsbClient{}
 	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{}, "run", "--dry-run-vm")
 	manifest := writeHostOpencodeManifest(t)
+	// Provisioning is opt-in; enable it so the manifest is actually copied and
+	// the dependency warning fires.
+	enableHostConfigProvisioning(t)
 
 	if err := root.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -918,13 +976,24 @@ func TestRunWarnsAboutUnprovisionedConfigDirDependencies(t *testing.T) {
 	}
 }
 
+// enableHostConfigProvisioning turns on the opt-in host-config drop-in copy in
+// the generic user config layer.
+func enableHostConfigProvisioning(t *testing.T) {
+	t.Helper()
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml", "provision-host-config: true\n")
+}
+
 func TestRunSkipsDependencyWarningWhenAMountSuppliesNodeModules(t *testing.T) {
 	initTestProjectDir(t)
 	mock := &msbtest.MockMsbClient{}
 	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{}, "run", "--dry-run-vm")
 	manifest := writeHostOpencodeManifest(t)
-	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml",
-		"mounts:\n  /home/dev/node_modules:\n    source: "+t.TempDir()+"\n    readonly: true\n")
+	testutil.WriteFile(
+		t,
+		configpaths.Get().UserConfigDir(),
+		"config.yaml",
+		"provision-host-config: true\nmounts:\n  /home/dev/node_modules:\n    source: "+t.TempDir()+"\n    readonly: true\n",
+	)
 
 	if err := root.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -244,32 +243,6 @@ func TestBuildMergedUsesCallerPattern(t *testing.T) {
 	}
 	if !strings.Contains(string(merged.Content), `"model": "x"`) {
 		t.Errorf("merged data = %s, want model:x", merged.Content)
-	}
-}
-
-func TestExpandBracesUnbalanced(t *testing.T) {
-	// Unmatched open or close brace: returned unchanged.
-	if got := expandBraces("a-{b,c"); len(got) != 1 || got[0] != "a-{b,c" {
-		t.Errorf("unmatched open brace = %v, want [a-{b,c]", got)
-	}
-	if got := expandBraces("a-b}"); len(got) != 1 || got[0] != "a-b}" {
-		t.Errorf("unmatched close brace = %v, want [a-b}]", got)
-	}
-}
-
-func TestExpandBracesStartingWithBrace(t *testing.T) {
-	// open == 0 is a real brace group, not "no brace".
-	cases := []struct {
-		pattern string
-		want    []string
-	}{
-		{"{a,b}", []string{"a", "b"}},
-		{"{a,b}x", []string{"ax", "bx"}},
-	}
-	for _, c := range cases {
-		if got := expandBraces(c.pattern); !slices.Equal(got, c.want) {
-			t.Errorf("expandBraces(%q) = %v, want %v", c.pattern, got, c.want)
-		}
 	}
 }
 

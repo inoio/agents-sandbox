@@ -92,6 +92,37 @@ func TestResolverQuietAndProvisionHostConfigFalse(t *testing.T) {
 	}
 }
 
+// Host-config provisioning is opt-in: with no configuration at all, an
+// unset key resolves to false so credentials are not copied into the VM until
+// the operator asks for it.
+func TestProvisionHostConfigDefaultsFalse(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+
+	r, err := NewResolver(nil, configpaths.Get(), "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.ProvisionHostConfig() {
+		t.Error("ProvisionHostConfig() = true, want the default false")
+	}
+}
+
+// An explicit true still turns provisioning on: the secure default must not
+// shadow a deliberate opt-in.
+func TestProvisionHostConfigExplicitTrueStillHonored(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml",
+		map[string]any{"provision-host-config": true})
+
+	r, err := NewResolver(nil, configpaths.Get(), "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if !r.ProvisionHostConfig() {
+		t.Error("ProvisionHostConfig() = false, want an explicit provision-host-config: true to enable it")
+	}
+}
+
 // A 1ns interval is positive but below the floor, so the <= 0 guard must not
 // swallow it.
 func TestResolverUpgradeIntervalOneNanosecond(t *testing.T) {

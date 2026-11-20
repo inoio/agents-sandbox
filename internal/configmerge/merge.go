@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"maps"
 	"os"
-	"path"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -22,6 +21,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configdecode"
 	"github.com/inoio/agents-sandbox/internal/configread"
 	"github.com/inoio/agents-sandbox/internal/filewalk"
+	"github.com/inoio/agents-sandbox/internal/globmatch"
 	"github.com/inoio/agents-sandbox/internal/projectguard"
 )
 
@@ -30,43 +30,7 @@ import (
 // "pi-*.{json,yaml}" or "settings*.json*"). A caller that proposes a managed
 // snippet uses it to avoid naming a file the merge never reads.
 func SnippetNameMatches(pattern, name string) bool {
-	return matchesGlob(pattern, name)
-}
-
-// matchesGlob reports whether name matches pattern, supporting *, **, ?, and
-// {a,b} brace alternatives. Matching is done against the basename only.
-func matchesGlob(pattern, name string) bool {
-	base := path.Base(name)
-	for _, concrete := range expandBraces(pattern) {
-		// path.Match reports ok=false for a malformed pattern, so its error
-		// cannot change the result: only the match outcome matters.
-		if ok, _ := path.Match(concrete, base); ok {
-			return true
-		}
-	}
-	return false
-}
-
-// expandBraces expands {a,b,c} alternatives into a list of concrete patterns.
-// Patterns without braces are returned unchanged.
-func expandBraces(pattern string) []string {
-	open := strings.Index(pattern, "{")
-	if open < 0 {
-		return []string{pattern}
-	}
-	closeIdx := strings.Index(pattern[open:], "}")
-	// gomutants:disable-next-line CONDITIONALS_BOUNDARY,INTEGER_INCREMENT reason="the searched substring starts with '{', so the '}' index is -1 or at least 1, never 0"
-	if closeIdx < 0 {
-		return []string{pattern}
-	}
-	closeIdx += open
-	prefix := pattern[:open]
-	suffix := pattern[closeIdx+1:]
-	var expanded []string
-	for alt := range strings.SplitSeq(pattern[open+1:closeIdx], ",") {
-		expanded = append(expanded, expandBraces(prefix+alt+suffix)...)
-	}
-	return expanded
+	return globmatch.NameMatches(pattern, name)
 }
 
 // deepMerge merges override into base recursively. Maps are merged key by key;

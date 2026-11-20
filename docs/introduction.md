@@ -31,10 +31,10 @@ The secret mechanism is not the same as copying a credential file. With `env.sec
 on the host and the guest receives a placeholder; the microsandbox proxy can substitute the value only for an allowed,
 verifiable destination. Ordinary `env`, `home:`, mounts, and files in `/workspace` are not protected by that mechanism.
 
-Host agent configuration is copied by default for convenience. For opencode, this may include
-`~/.local/share/opencode/auth.json`, which means credentials can be present in the VM. Set `provision-host-config: false` and
-use secret-backed configuration when that is not acceptable. Project `.env` files are also visible because `/workspace` is
-shared; they are not hidden by the VM boundary.
+Host agent configuration is not copied by default. When you opt in with `provision-host-config: true`, it is copied for
+convenience; for opencode that may include `~/.local/share/opencode/auth.json`, which means credentials can be present
+in the VM. Leave it off and use secret-backed configuration when that is not acceptable. Project `.env` files are also
+visible because `/workspace` is shared; they are not hidden by the VM boundary.
 
 Network egress uses the `public` profile by default, so the agent can reach its APIs and package registries. The `network:`
 configuration can refine this: profiles `private` and `host` compose with `public`, the allowlist-only `none` profile

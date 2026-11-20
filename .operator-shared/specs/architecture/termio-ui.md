@@ -32,6 +32,10 @@ test double `Mock` lives outside the production import graph in `internal/termio
 narrowed to `Logger` can still be handed the same `Mock` its test builds. Splitting `Mock` into per-role
 doubles is deliberately not part of this change.
 
+**Menus stay backend-agnostic.** An interactive menu - the first-run choices (`internal/firstrun.Prompt`) and the
+learn-mode per-finding apply - drives `termio.Prompter.Select` and nothing below it, so swapping the prompt backend
+changes only how `Select` renders. The `huh` backend (#119) is a separate UX upgrade, not a prerequisite for any menu.
+
 One consequence falls out of the split:
 - `Table` holds only the `Header`/`Out` methods it prints through (`termio.TableWriter`), not a full `UI`.
   `termio.NewTableFor(w TableWriter, headers []string)` is the constructor a UI or a test writer uses; the

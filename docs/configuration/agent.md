@@ -172,7 +172,7 @@ Precedence when the same VM path is reachable from multiple sources:
 
 `home:` > merged snippet config > verbatim mirror > drop-in provisioning
 
-> **Note:** File modes — home mappings, the verbatim mirror, and the default drop-in
+> **Note:** File modes — home mappings, the verbatim mirror, and the drop-in
 > copy preserve ordinary Unix permission bits, including executable bits.
 > Launcher scripts therefore remain directly executable in the VM.
 
@@ -180,11 +180,13 @@ The mirror is **always active**, independent of `provision-host-config`. Stale m
 are left in place in the VM. Run `agents-sandbox config agent` to list the mirror files, each shown as its host source
 path → VM path. Previously non-pattern files in `<agent>/` were silently ignored; they are now mirrored verbatim.
 
-## Default drop-in provisioning
+## Drop-in provisioning (opt-in)
 
-Beyond the snippet merge, when running the launcher now **copies the active agent's config + credential files from the
-host into the VM by default**, driven by a per-agent gitignore-style include-list manifest (provision rules). This means
-your normal agent setup (e.g. an existing opencode config) works without extra configuration.
+Beyond the snippet merge, the launcher can **copy the active agent's config + credential files from the host into the
+VM**, driven by a per-agent gitignore-style include-list manifest (provision rules). This is **off by default**: host
+config, credentials included, is not dropped into the VM until you opt in with `provision-host-config: true`. A first
+run offers a guided path (`agents-sandbox run --learn`) instead, which derives a managed config from a real session
+without copying the host files in unasked.
 
 The drop-in copy is scoped to the agent's settings and, for opencode, its credential file. Runtime state is not copied:
 
@@ -239,31 +241,30 @@ cannot override the merged snippets. Non-config files — e.g. plugins, custom c
 
 To switch from your agent's own config to `agents-sandbox/<agent>` snippet provisioning, create snippet files in the
 user or project snippet directories (see [Config snippet merge](#config-snippet-merge)). Once a snippet matching the
-agent's pattern exists, it wins over the host config for the merged config path. To stop the native-config drop-in
-entirely so only the snippet merge and `home:` mappings apply, set `provision-host-config: false`.
+agent's pattern exists, it wins over the host config for the merged config path.
 
-To turn off the drop-in copy altogether (config **and** credentials), set `provision-host-config: false` in the launcher
-config:
+To turn the drop-in copy on (config **and** credentials), set `provision-host-config: true` in the launcher config:
 
 ```yaml
-provision-host-config: false
+provision-host-config: true
 ```
 
-This skips the whole host-config copy (for opencode: `~/.config/opencode/**` and `auth.json`), while the snippet merge
-and `home:` mappings keep working. On the next run, previously drop-in-copied config and credential files are removed
-from existing home volumes so they cannot linger.
+With it on, the whole host-config copy runs (for opencode: `~/.config/opencode/**` and `auth.json`), while the snippet
+merge and `home:` mappings keep working. Leaving it off — the default — skips that copy entirely, so only the snippet
+merge and `home:` mappings apply. On the next run after turning provisioning off, previously drop-in-copied config and
+credential files are removed from existing home volumes so they cannot linger.
 
 ### Authentication: file copy vs. env-secret
 
-> **Warning:** because of the drop-in provisioning, the opencode `auth.json` credential file is now copied
-> into the VM by default. If you prefer to deliver credentials exclusively through the env-secret mechanism (which never
-> writes them into the VM, see [Secrets]({% link configuration/secrets.md %})), you can opt out of the credential file copy. The env-secret channel
-> remains fully supported and unchanged; this does not replace it.
+> **Warning:** when drop-in provisioning is on, the opencode `auth.json` credential file is copied into the VM. If you
+> prefer to deliver credentials exclusively through the env-secret mechanism (which never writes them into the VM, see
+> [Secrets]({% link configuration/secrets.md %})), leave `provision-host-config` off (the default) or exclude the
+> credential file. The env-secret channel remains fully supported and unchanged; this does not replace it.
 
-To opt out, exclude `auth.json` from the drop-in copy by placing a `home:` entry that overrides the provisioned path
-(see [Home provisioning & startup hooks]({% link configuration/home-provisioning.md %})), or remove the credential file from the host before running. The launcher does not inject
-host secrets in any other way; the env-secret mechanism is the supported channel for secrets you do not want on disk in
-the VM.
+To keep provisioning on but exclude `auth.json` from the drop-in copy, place a `home:` entry that overrides the
+provisioned path (see [Home provisioning & startup hooks]({% link configuration/home-provisioning.md %})), or remove the
+credential file from the host before running. The launcher does not inject host secrets in any other way; the env-secret
+mechanism is the supported channel for secrets you do not want on disk in the VM.
 
 For pi, claude-code, codex, hermes, oh-my-pi, kimi-code, qwen-code, goose, grok-build, and mistral-vibe, the drop-in copy does
 not include credential files. pi, claude-code, hermes, oh-my-pi, and goose authenticate with env secrets instead;

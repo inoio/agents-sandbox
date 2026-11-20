@@ -15,3 +15,4 @@ Install agents-sandbox and run your first agent, then bring your own config or k
 - [Your first agent]({% link tutorial.md %}) — run an agent in a sandbox for the first time.
 - [Switch from your existing agent]({% link switch.md %}) — bring your existing agent config and credentials into the sandbox.
 - [Manage config in the sandbox]({% link manage-config.md %}) — self-contained, reproducible config with secrets kept on the host.
+- [Letting agents-sandbox learn your setup]({% link learn-your-setup.md %}) — learn the config a session needed, then accept the proposal.
