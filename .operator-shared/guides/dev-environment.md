@@ -44,13 +44,17 @@ shell.
 ## Build cache
 
 `GOCACHE` is `/var/tmp/go-build`, set in `.agents-sandbox/env`. The home volume
-(`/home/dev`) is virtiofs, where creating small files runs ~10–35× slower than the
-VM's overlay root; the Go build cache is thousands of small object files, so a cache
-there charges every compile and link for that IO (ours had grown to 27 GB).
-`/var/tmp` is on the local root disk — ~11× faster than virtiofs on small files,
-still slower than tmpfs but not RAM-bound. It is ephemeral, so the cache rebuilds when
-the VM is recreated; Go itself only prunes entries older than five days, so the
-location is what bounds it, not a size cap.
+(`/home/dev`) is virtiofs, where small-file metadata operations run an order of
+magnitude slower than the VM's overlay root — measured (2026-11-20) ~9× on create,
+~17× on stat/read, ~10× on unlink, and ~23–33× tmpfs on the same ops — and the Go build
+cache is thousands of small object files (ours had grown to 27 GB). Large sequential IO
+is fine (virtiofs wrote a 512 MiB file faster than the overlay root), and a cold
+`go build` is CPU-bound, so a cache on `/home/dev` cost only ~5–15% more wall time in a
+direct test; the wins are bounding the cache against the home volume's disk and sparing
+that small-file IO.
+`/var/tmp` is on the local root disk and is ephemeral, so the cache rebuilds when the VM
+is recreated; Go itself only prunes entries older than five days, so the location is
+what bounds it, not a size cap.
 
 ## Current limitations
 
