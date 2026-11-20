@@ -196,6 +196,7 @@ func AsConfigMerger(a Agent) (ConfigMerger, bool) { p, ok := a.(ConfigMerger); r
 // time if needed.
 func MergesSnippetName(agentName, name string) bool {
 	profile, ok := Lookup(agentName)
+	// gomutants:disable-next-line BRANCH_IF reason="removing the guard falls through to AsConfigMerger(nil), which is also false, so the function still returns true for an unknown agent"
 	if !ok {
 		return true
 	}

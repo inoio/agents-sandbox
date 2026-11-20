@@ -339,3 +339,23 @@ func TestHostSourceHashIsStableForAKnownSet(t *testing.T) {
 		t.Errorf("source hash = %q, want the pinned digest %q", hash, want)
 	}
 }
+
+// TestSelectHostPathsExcludesSelectedDirectories pins the walk's directory
+// branch: a rule that selects a directory (so the walk descends it) must report
+// only the files under it, never the directory itself.
+func TestSelectHostPathsExcludesSelectedDirectories(t *testing.T) {
+	hostHome := t.TempDir()
+	writeHostFile(t, hostHome, ".config/widget/a.json", `{"a":1}`)
+	writeHostFile(t, hostHome, ".config/widget/sub/b.json", `{"b":2}`)
+	rule := agent.ProvisionRule{Dir: ".config/widget", Patterns: []string{"**"}}
+
+	paths := selectHostPaths(rule, hostHome)
+
+	want := []string{
+		filepath.Join(hostHome, ".config/widget/a.json"),
+		filepath.Join(hostHome, ".config/widget/sub/b.json"),
+	}
+	if !slices.Equal(paths, want) {
+		t.Errorf("selectHostPaths = %v, want only the files, not the selected directory %v", paths, want)
+	}
+}

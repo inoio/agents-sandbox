@@ -179,8 +179,10 @@ func decodedHoldsCredentialValue(node any, credentials []Credential) bool {
 // mapping with a non-string key): a string key or any descendant holds a value.
 func anyMapHoldsCredentialValue(document map[any]any, credentials []Credential) bool {
 	for key, child := range document {
-		if keyString, ok := key.(string); ok && containsCredentialValue(keyString, credentials) {
-			return true
+		if keyString, ok := key.(string); ok {
+			if containsCredentialValue(keyString, credentials) {
+				return true
+			}
 		}
 		if decodedHoldsCredentialValue(child, credentials) {
 			return true
@@ -256,7 +258,9 @@ func unquotedKey(key string) string {
 // quotes, if any. It reports false when no key token precedes the value.
 func assignmentKeyRange(content string, valueStart int) (int, int, bool) {
 	separator := skipSpaceBackward(content, valueStart)
-	if separator > 0 && isQuote(content[separator-1]) {
+	// endsWithQuote carries the bounds check, so stepping back over a quote needs
+	// no index bound comparison here.
+	if endsWithQuote(content[:separator]) {
 		separator--
 	}
 	separator = skipSpaceBackward(content, separator)
@@ -264,7 +268,7 @@ func assignmentKeyRange(content string, valueStart int) (int, int, bool) {
 		return 0, 0, false
 	}
 	end := skipSpaceBackward(content, separator-1)
-	if end > 0 && isQuote(content[end-1]) {
+	if endsWithQuote(content[:end]) {
 		end--
 	}
 	start := end
@@ -277,8 +281,9 @@ func assignmentKeyRange(content string, valueStart int) (int, int, bool) {
 	if start > 0 && isQuote(content[start-1]) {
 		start--
 		// The key token is quoted; consume its closing quote so replacing the
-		// whole token does not leave a dangling quote behind.
-		if end < len(content) && isQuote(content[end]) {
+		// whole token does not leave a dangling quote behind. end is in range
+		// here: it was bounded by the separator guard above.
+		if isQuote(content[end]) {
 			end++
 		}
 	}
@@ -300,6 +305,13 @@ func isSpaceByte(b byte) bool {
 
 // isQuote reports whether b opens or closes a quoted config value or key.
 func isQuote(b byte) bool { return b == '"' || b == '\'' }
+
+// endsWithQuote reports whether s ends with a double or single quote. It is the
+// slice form of isQuote, so a caller can step an index back over a just-passed
+// quote without a separate bounds check.
+func endsWithQuote(s string) bool {
+	return strings.HasSuffix(s, `"`) || strings.HasSuffix(s, `'`)
+}
 
 // isKeyChar reports whether b is part of a config key token. A '.' is excluded,
 // so a dotted key's final segment is the token that is rewritten.
@@ -339,13 +351,11 @@ func looksLikeSecretShapedKey(key string) bool {
 
 // isSecretShapedSegment reports whether an uppercased key segment is a marker,
 // accepting the plural form as well: TOKENS matches TOKEN, so a plural secret
-// list key such as tokens or refresh_tokens is secret-shaped.
+// list key such as tokens or refresh_tokens is secret-shaped. Trimming one
+// trailing S folds the plural to its marker; the singular markers carry no
+// trailing S, so a singular segment is unchanged.
 func isSecretShapedSegment(segment string) bool {
-	if slices.Contains(secretShapedKeyMarkers, segment) {
-		return true
-	}
-	trimmed, ok := strings.CutSuffix(segment, "S")
-	return ok && slices.Contains(secretShapedKeyMarkers, trimmed)
+	return slices.Contains(secretShapedKeyMarkers, strings.TrimSuffix(segment, "S"))
 }
 
 // keySegments splits key into its uppercased word segments on separators and
@@ -361,11 +371,11 @@ func keySegments(key string) []string {
 		}
 	}
 	var previous rune
-	for index, r := range key {
+	for _, r := range key {
 		switch {
 		case !unicode.IsLetter(r) && !unicode.IsDigit(r):
 			flush()
-		case index > 0 && unicode.IsUpper(r) && unicode.IsLower(previous):
+		case unicode.IsUpper(r) && unicode.IsLower(previous):
 			flush()
 		}
 		if unicode.IsLetter(r) || unicode.IsDigit(r) {
@@ -392,8 +402,10 @@ func decodedHoldsUndeclaredSecretValue(node any) bool {
 		}
 	case map[any]any:
 		for key, child := range typed {
-			if keyString, ok := key.(string); ok && secretKeyLeaksValue(keyString, child) {
-				return true
+			if keyString, ok := key.(string); ok {
+				if secretKeyLeaksValue(keyString, child) {
+					return true
+				}
 			}
 			if decodedHoldsUndeclaredSecretValue(child) {
 				return true
@@ -442,8 +454,8 @@ func holdsRawSecretString(node any) bool {
 // isUndeclaredSecretValue reports whether node is a non-empty string that is not
 // a reference, so it would be a raw secret under a secret-shaped key.
 func isUndeclaredSecretValue(node any) bool {
-	value, ok := node.(string)
-	if !ok || strings.TrimSpace(value) == "" {
+	value, _ := node.(string)
+	if strings.TrimSpace(value) == "" {
 		return false
 	}
 	return !isReferenceValue(value)

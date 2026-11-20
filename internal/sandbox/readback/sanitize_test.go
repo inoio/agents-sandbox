@@ -57,9 +57,13 @@ func TestAssignmentKeyRange(t *testing.T) {
 		{name: "digits and underscore", content: `a1_2 = "sk"`, value: "sk", want: "a1_2", ok: true},
 		{name: "colon separator", content: `key: "sk"`, value: "sk", want: "key", ok: true},
 		{name: "tab around separator", content: "key:\t\"sk\"", value: "sk", want: "key", ok: true},
+		{name: "unquoted value", content: `api_key=sk`, value: "sk", want: "api_key", ok: true},
+		{name: "value whose prefix is whitespace", content: `  sk`, value: "sk", want: "", ok: false},
 		{name: "colon with no key", content: `: "sk"`, value: "sk", want: "", ok: false},
 		{name: "equals with no key", content: `= "sk"`, value: "sk", want: "", ok: false},
+		{name: "non-assignment separator", content: `ab sk`, value: "sk", want: "", ok: false},
 		{name: "value at content start", content: `"sk"`, value: "sk", want: "", ok: false},
+		{name: "key with no closing quote", content: `"api=sk`, value: "sk", want: `"api`, ok: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -67,7 +71,10 @@ func TestAssignmentKeyRange(t *testing.T) {
 			require.Equal(t, test.ok, ok)
 			if test.ok {
 				require.Equal(t, test.want, test.content[start:end])
+				return
 			}
+			require.Zero(t, start, "a refused range must report start 0")
+			require.Zero(t, end, "a refused range must report end 0")
 		})
 	}
 }
@@ -89,6 +96,15 @@ func TestIsQuote(t *testing.T) {
 	for _, b := range []byte{'a', '`', '='} {
 		require.False(t, isQuote(b), "%q is not a quote", b)
 	}
+}
+
+// TestEndsWithQuote pins the slice form of isQuote: only a trailing double or
+// single quote matches, and an empty string matches neither.
+func TestEndsWithQuote(t *testing.T) {
+	require.True(t, endsWithQuote(`key"`))
+	require.True(t, endsWithQuote(`key'`))
+	require.False(t, endsWithQuote("key"))
+	require.False(t, endsWithQuote(""), "an empty prefix ends with no quote")
 }
 
 // TestIsKeyChar pins the key-token classifier to ASCII letters, digits, '_' and
@@ -449,6 +465,19 @@ func TestRewriteNativeAssignmentsLeavesAnUnkeyedOccurrence(t *testing.T) {
 	require.Equal(t, content, got)
 }
 
+// TestRewriteNativeAssignmentsRewritesPastAValueAtTheStart pins the loop over
+// every occurrence: a credential value at index 0 (no key before it, left
+// untouched) must not stop the later, recognizable assignment from being
+// rewritten. A boundary mutant that returns at the index-0 occurrence leaves
+// the later assignment unrewritten.
+func TestRewriteNativeAssignmentsRewritesPastAValueAtTheStart(t *testing.T) {
+	const content = "sk-x\napi_key = \"sk-x\"\n"
+
+	got := rewriteNativeAssignments(content, Credential{EnvVar: "MOONSHOT_API_KEY", Value: "sk-x"}, "api_key_env")
+
+	require.Equal(t, "sk-x\napi_key_env = \"MOONSHOT_API_KEY\"\n", got)
+}
+
 // TestRewriteNativeAssignmentsKeepsAnEnvTableKey pins the env-table branch: an
 // occurrence whose key is already the env-var name keeps its key and takes the
 // placeholder instead of the native indirection key.
@@ -605,6 +634,26 @@ func TestSecretKeyLeaksValueNeedsASecretShapedKey(t *testing.T) {
 // must not be secret-shaped.
 func TestLooksLikeSecretShapedKeyRejectsANonMarkerPluralSegment(t *testing.T) {
 	require.False(t, looksLikeSecretShapedKey("status"))
+}
+
+// TestKeySegments pins the word segmentation: separators and camelCase
+// boundaries split segments, an empty segment between two separators is not
+// emitted, and digits stay inside a segment.
+func TestKeySegments(t *testing.T) {
+	tests := []struct {
+		key  string
+		want []string
+	}{
+		{key: "a__b", want: []string{"A", "B"}},
+		{key: "a_b", want: []string{"A", "B"}},
+		{key: "a1b", want: []string{"A1B"}},
+		{key: "accessToken", want: []string{"ACCESS", "TOKEN"}},
+		{key: "API_KEY", want: []string{"API", "KEY"}},
+		{key: "", want: nil},
+	}
+	for _, test := range tests {
+		require.Equal(t, test.want, keySegments(test.key), "keySegments(%q)", test.key)
+	}
 }
 
 // TestDecodedHoldsUndeclaredSecretValueAnyMapIgnoresOrdinaryKeys pins the

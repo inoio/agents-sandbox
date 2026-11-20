@@ -435,6 +435,7 @@ func SkipsInlineCredentials(path string) bool {
 // config scope). It is the store-aware form of the SkipsInlineCredentials
 // exclusion.
 func credentialStoreForPath(path string) (loginCredentialStore, bool) {
+	// gomutants:disable-next-line BRANCH_IF reason="the tail matcher below covers every path loginStoreFor matches: the pattern's leading dot is stripped on both the pattern and the path's first tail element, so a match through the exact/glob form is also a tail match"
 	if store, ok := loginStoreFor(path); ok {
 		return store, true
 	}

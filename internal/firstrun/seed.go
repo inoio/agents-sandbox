@@ -177,16 +177,17 @@ func writeSeedSecrets(dir string, credentials []readback.Credential) error {
 // host-seed guard on: a non-reference string under a secret-shaped key the walk
 // did not name (e.g. an MCP Authorization header, or an options.accessToken)
 // refuses the file rather than let a raw value through. ok is false when a
-// credential cannot be migrated — it has no env-var name, no value, or no host
-// to scope it — or when the sanitizer refuses the content, so the caller leaves
-// the file unseeded rather than copy a raw value or an orphan placeholder.
+// credential cannot be migrated — it has no value, or no host to scope it; an
+// absent env-var name is refused identically by the sanitizer downstream — or
+// when the sanitizer refuses the content, so the caller leaves the file unseeded
+// rather than copy a raw value or an orphan placeholder.
 func placeholderStaticValues(
 	path string,
 	content []byte,
 	credentials []readback.Credential,
 ) (string, bool) {
 	for _, credential := range credentials {
-		if credential.EnvVar == "" || credential.Value == "" || len(credential.Hosts) == 0 {
+		if credential.Value == "" || len(credential.Hosts) == 0 {
 			return "", false
 		}
 	}

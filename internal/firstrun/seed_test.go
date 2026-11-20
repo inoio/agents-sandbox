@@ -70,6 +70,11 @@ func TestSeedFromHostPlaceholdersStaticSecret(t *testing.T) {
 	require.Contains(t, string(copied), "${MOONSHOT_API_KEY}")
 	require.NotContains(t, string(copied), "sk-inline", "the raw value never reaches the copy")
 
+	copiedInfo, err := os.Stat(filepath.Join(slugDir, "hermes", "config.yaml"))
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o644), copiedInfo.Mode().Perm(),
+		"the managed config is ordinary configuration, written 0o644")
+
 	secrets := readSeedSecrets(t, slugDir)
 	require.Equal(t, envsecret.SecretSpec{
 		Value:       "sk-inline",
@@ -405,9 +410,10 @@ func TestSeedFromHostLeavesAnUnscopableFileUnseeded(t *testing.T) {
 func TestSeedFromHostRejectsAnEmptySlug(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
-	_, err := SeedFromHost(Facts{Agent: "hermes"}, configpaths.Get(), t.TempDir())
+	migrated, err := SeedFromHost(Facts{Agent: "hermes"}, configpaths.Get(), t.TempDir())
 
 	require.Error(t, err)
+	require.Zero(t, migrated)
 }
 
 // TestSeedFromHostRejectsAnUnknownAgent pins that the seed resolves the agent
@@ -415,13 +421,14 @@ func TestSeedFromHostRejectsAnEmptySlug(t *testing.T) {
 func TestSeedFromHostRejectsAnUnknownAgent(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
-	_, err := SeedFromHost(
+	migrated, err := SeedFromHost(
 		Facts{Agent: "not-a-registered-agent", Slug: "widget-abc"},
 		configpaths.Get(),
 		t.TempDir(),
 	)
 
 	require.Error(t, err)
+	require.Zero(t, migrated)
 }
 
 // TestSeedFromHostRejectsAnInvalidAgentConfigDirName pins that the seed
@@ -431,13 +438,14 @@ func TestSeedFromHostRejectsAnInvalidAgentConfigDirName(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	agent.Register(badConfigDirAgent{})
 
-	_, err := SeedFromHost(
+	migrated, err := SeedFromHost(
 		Facts{Agent: badConfigDirAgent{}.Name(), Slug: "widget-abc"},
 		configpaths.Get(),
 		t.TempDir(),
 	)
 
 	require.Error(t, err)
+	require.Zero(t, migrated)
 	require.Error(t, errors.Unwrap(err), "the config-dir-names error must be wrapped, not flattened")
 }
 
@@ -520,7 +528,7 @@ func TestSeedOneHostFilePreservesTheManagedWriteCause(t *testing.T) {
 	targetDir := filepath.Join(scopeDir, "hermes")
 	require.NoError(t, os.WriteFile(targetDir, []byte("x"), 0o644))
 
-	_, err := seedOneHostFile(
+	migrated, err := seedOneHostFile(
 		"hermes",
 		hermesHostConfigPath,
 		filepath.Join(hostHome, hermesHostConfigPath),
@@ -529,7 +537,70 @@ func TestSeedOneHostFilePreservesTheManagedWriteCause(t *testing.T) {
 	)
 
 	require.Error(t, err)
+	require.Zero(t, migrated)
 	require.ErrorIs(t, err, syscall.ENOTDIR, "the OS cause must stay reachable through the wrapper")
+}
+
+// TestSeedOneHostFileReportsZeroOnEachFailure pins the returned migration count
+// on every failure path: SeedFromHost discards the count when the error is
+// returned, so each path is only observable through a direct call.
+func TestSeedOneHostFileReportsZeroOnEachFailure(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+
+	t.Run("over the read cap", func(t *testing.T) {
+		hostHome := t.TempDir()
+		writeHostFile(t, hostHome, hermesHostConfigPath, strings.Repeat("x", readback.MaxHashedBytes+1))
+		scopeDir := paths.UserSlugConfigDir("slug-overcap")
+		migrated, err := seedOneHostFile("hermes", hermesHostConfigPath,
+			filepath.Join(hostHome, hermesHostConfigPath), scopeDir, filepath.Join(scopeDir, "hermes"))
+		require.Error(t, err)
+		require.Zero(t, migrated)
+	})
+
+	t.Run("an undecodable config", func(t *testing.T) {
+		hostHome := t.TempDir()
+		writeHostFile(t, hostHome, hermesHostConfigPath,
+			"model:\n  provider: openai\n  api_key: sk\nbroken: !!int notanint\n")
+		scopeDir := paths.UserSlugConfigDir("slug-undecodable")
+		migrated, err := seedOneHostFile("hermes", hermesHostConfigPath,
+			filepath.Join(hostHome, hermesHostConfigPath), scopeDir, filepath.Join(scopeDir, "hermes"))
+		require.Error(t, err)
+		require.Zero(t, migrated)
+	})
+
+	t.Run("an unscopable credential", func(t *testing.T) {
+		hostHome := t.TempDir()
+		writeHostFile(t, hostHome, hermesHostConfigPath, "model:\n  provider: moonshot\n  api_key: sk-inline\n")
+		scopeDir := paths.UserSlugConfigDir("slug-unscopable")
+		migrated, err := seedOneHostFile("hermes", hermesHostConfigPath,
+			filepath.Join(hostHome, hermesHostConfigPath), scopeDir, filepath.Join(scopeDir, "hermes"))
+		require.Error(t, err)
+		require.Zero(t, migrated)
+	})
+
+	t.Run("an unwritable secret file", func(t *testing.T) {
+		hostHome := t.TempDir()
+		writeHostFile(t, hostHome, hermesHostConfigPath, hermesHostConfig)
+		scopeDir := paths.UserSlugConfigDir("slug-secret")
+		require.NoError(t, os.WriteFile(filepath.Join(scopeDir, "env.secret.yaml"), []byte("\tnot: [valid"), 0o600))
+		migrated, err := seedOneHostFile("hermes", hermesHostConfigPath,
+			filepath.Join(hostHome, hermesHostConfigPath), scopeDir, filepath.Join(scopeDir, "hermes"))
+		require.Error(t, err)
+		require.Zero(t, migrated)
+	})
+
+	t.Run("a failed managed write", func(t *testing.T) {
+		hostHome := t.TempDir()
+		writeHostFile(t, hostHome, hermesHostConfigPath, hermesHostConfig)
+		scopeDir := paths.UserSlugConfigDir("slug-managed")
+		targetDir := filepath.Join(scopeDir, "hermes")
+		require.NoError(t, os.WriteFile(targetDir, []byte("x"), 0o644))
+		migrated, err := seedOneHostFile("hermes", hermesHostConfigPath,
+			filepath.Join(hostHome, hermesHostConfigPath), scopeDir, targetDir)
+		require.Error(t, err)
+		require.Zero(t, migrated)
+	})
 }
 
 // TestHostRelativePathFallsBackOutsideHome pins the fallback: a path outside the
@@ -564,40 +635,51 @@ func TestHostRelativePathFallsBackAboveHome(t *testing.T) {
 }
 
 // TestPlaceholderStaticValuesRefusesAnUnmigratableCredential pins the guard's
-// contract for each missing field: a credential with no env-var name, no value,
-// or no host cannot be migrated, so the whole file is refused rather than
-// copied with a raw value or an orphan placeholder.
+// contract for each missing field: a credential with no value or no host cannot
+// be migrated, so the whole file is refused rather than copied with a raw value
+// or an orphan placeholder. A credential with no env-var name is refused too,
+// but by the sanitizer downstream rather than this guard. The content holds the
+// value under an ordinary key, so the refuse-undeclared-secret guard does not
+// mask the field guard by refusing for its own reason. The no-value row names an
+// unknown format: for a known format the sanitizer refuses an empty value for
+// its own reason (the empty-value substitution cannot decode), which would mask
+// the guard, so only an unknown-format path makes the missing value observable.
 func TestPlaceholderStaticValuesRefusesAnUnmigratableCredential(t *testing.T) {
-	path := ".hermes/config.yaml"
-	content := []byte("model:\n  api_key: sk-inline\n")
+	const knownPath = ".hermes/config.yaml"
+	content := []byte("model:\n  name: sk-inline\n")
 	tests := []struct {
 		name        string
+		path        string
 		credential  readback.Credential
 		wantRefused bool
 	}{
 		{
 			name:        "no env-var name",
+			path:        knownPath,
 			credential:  readback.Credential{Value: "sk-inline", Hosts: []string{"h"}},
 			wantRefused: true,
 		},
 		{
 			name:        "no value",
+			path:        "notes.txt",
 			credential:  readback.Credential{EnvVar: "MOONSHOT_API_KEY", Hosts: []string{"h"}},
 			wantRefused: true,
 		},
 		{
 			name:        "no host",
+			path:        knownPath,
 			credential:  readback.Credential{EnvVar: "MOONSHOT_API_KEY", Value: "sk-inline"},
 			wantRefused: true,
 		},
 		{
 			name:       "migratable",
+			path:       knownPath,
 			credential: readback.Credential{EnvVar: "MOONSHOT_API_KEY", Value: "sk-inline", Hosts: []string{"h"}},
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got, ok := placeholderStaticValues(path, content, []readback.Credential{test.credential})
+			got, ok := placeholderStaticValues(test.path, content, []readback.Credential{test.credential})
 			if test.wantRefused {
 				require.False(t, ok, "a credential missing a field must refuse the file")
 				require.Empty(t, got)
