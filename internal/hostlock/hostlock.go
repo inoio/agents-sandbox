@@ -4,16 +4,10 @@
 package hostlock
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
 )
-
-// flock is indirect because a real, open lock file cannot make it fail, so only
-// a substitute reaches the failure path.
-var flock = syscall.Flock
 
 // AcquireExclusive creates dir (0700) if needed, opens dir/name (0600) and
 // blocks until it holds an exclusive flock on it. The returned function
@@ -36,17 +30,17 @@ func AcquireExclusive(dir, name string) (func(), error) {
 
 // Exclusive blocks until it holds an exclusive flock on f.
 func Exclusive(f *os.File) error {
-	return flock(int(f.Fd()), syscall.LOCK_EX)
+	return flock(int(f.Fd()), lockExclusive)
 }
 
 // ExclusiveNonBlocking takes an exclusive flock on f, failing with an error
 // satisfying IsContention when another open file description holds it.
 func ExclusiveNonBlocking(f *os.File) error {
-	return flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+	return flock(int(f.Fd()), lockExclusive|lockNonBlocking)
 }
 
 // IsContention reports whether a flock error means the lock is held elsewhere
 // (as opposed to a real failure).
 func IsContention(err error) bool {
-	return errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN)
+	return isContention(err)
 }

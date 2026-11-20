@@ -10,7 +10,6 @@ import (
 	"path"
 	"regexp"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -51,15 +50,6 @@ func openSpool(homeVolumePath string) (*spool, error) {
 func (s *spool) close() { _ = s.root.Close() }
 
 func spoolPath(name string) string { return path.Join(SpoolRelativePath, name) }
-
-// spoolDirectoryFlags opens the spool directory as a directory without blocking
-// on a guest-planted FIFO (there is no O_CREATE, so the permission argument is
-// ignored).
-const spoolDirectoryFlags = os.O_RDONLY | syscall.O_DIRECTORY | syscall.O_NONBLOCK
-
-// claimedFileFlags opens a claimed request without following a guest-planted
-// symlink and without blocking on a FIFO planted as the claim.
-const claimedFileFlags = os.O_RDONLY | syscall.O_NONBLOCK | syscall.O_NOFOLLOW
 
 // readDirectoryEntries is a seam over the directory read so the ReadDir error
 // branch is testable: a directory opened with O_DIRECTORY cannot otherwise fail
