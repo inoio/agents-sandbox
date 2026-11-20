@@ -19,6 +19,10 @@ const configTOMLSnippetPattern = "config*.toml"
 // instructions file at the root of its data dir.
 const agentsRulesPattern = "/AGENTS.md"
 
+// skillsDirPattern is the drop-in pattern for an agent's skills tree at the
+// root of its data dir.
+const skillsDirPattern = "/skills/"
+
 // Daemon bind hostnames: loopback for a co-located client, the external
 // interface when the host forwards a published port into the VM.
 const (

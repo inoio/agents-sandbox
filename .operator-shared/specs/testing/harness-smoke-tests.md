@@ -103,10 +103,11 @@ coverage.
 | `grok-build` | `0x03` (Ctrl-C) | quits on Ctrl-C; with no credential it comes up on its device-code sign-in screen, which is its alternate-screen TUI |
 | `qwen-code` | `0x03` (Ctrl-C) | with no provider it starts at its auth dialog on the alternate screen; it ignores the first Ctrl-C and exits on the second, which the repeated tap covers |
 | `goose` | `0x04` (Ctrl-D) | its session REPL keeps the normal buffer; a seeded launcher config snippet names a local Ollama provider and records the telemetry choice, so it skips its configure flow and consent prompt; readied on the goose drawn in its greeting |
+| `mistral-vibe` | `0x03` (Ctrl-C) | its Rust TUI draws on the alternate screen and leaves on Ctrl-C, also from the folder-trust dialog it can show before a session; needs no seed and no egress |
 
 Five harnesses keep the terminal's normal buffer (`KeepsNormalBuffer`) and are all readied by a marker:
 `claude-code`, `hermes`, `oh-my-pi`, `kimi-code`, and `goose`. The alternate-screen harnesses are `opencode`,
-`opencode2`, `pi`, `codex`, `qwen-code`, and `grok-build`.
+`opencode2`, `pi`, `codex`, `qwen-code`, `grok-build`, and `mistral-vibe`.
 
 **Seeded home files.** A harness whose host-side state decides whether its CLI starts headful declares `SeedHomeFiles`,
 a map of home-relative path to content written under the harness's isolated HOME
@@ -204,7 +205,7 @@ and `codex` do, with `public`: `claude-code` offline exits `1` (`ECONNREFUSED ap
 in with its API before drawing anything, and `codex` may reach its API at startup. `hermes` and `goose` run under the
 default `none` — their seeded provider endpoints are loopback, so they need no egress to reach their REPLs. The other
 seven (`opencode`, `opencode2`, `pi`, `oh-my-pi`, `kimi-code`, `qwen-code`, `grok-build`) render identically with and
-without egress.
+without egress; `mistral-vibe` is verified under `none` only.
 
 **Preflight.** Skip, never fail, when the environment cannot run the suite: `/dev/kvm` missing on Linux, a
 non-Linux/non-darwin platform, or an unreachable docker daemon. The platform/KVM check runs before anything
@@ -248,7 +249,7 @@ waiting run only proceeds once the sweep sharing the root is done.
   update the seed, not the harness.
 - The quit tap is a bound, not a diagnosis: a harness that starts ignoring its key fails after `quitTimeout` of taps
   rather than reporting why.
-- Eleven harnesses mean eleven runner-image builds on a cold home. The cold home also re-transfers each
+- Twelve harnesses mean twelve runner-image builds on a cold home. The cold home also re-transfers each
   multi-GB runner image into the microsandbox cache, which dominates the suite's wall time; the caching `make test-msb`
   keeps the home (`AGENTS_SANDBOX_SMOKE_ROOT`) so the transfer is paid once, and the prebuilds and harness
   subtests run with small bounded concurrency (the harness count sized to the host's free memory). The host-only

@@ -7,7 +7,7 @@ read_if: Navigating the codebase.
 
 ## Architecture
 
-- `agents-sandbox` is a Go CLI (module `github.com/inoio/agents-sandbox`, Go 1.27) that isolates coding agents (opencode, opencode2, claudecode, codex, pi, hermes, oh-my-pi, kimi-code, qwen-code, goose, grok-build) inside a dedicated microsandbox VM per project/agent.
+- `agents-sandbox` is a Go CLI (module `github.com/inoio/agents-sandbox`, Go 1.27) that isolates coding agents (opencode, opencode2, claudecode, codex, pi, hermes, oh-my-pi, kimi-code, qwen-code, goose, grok-build, mistral-vibe) inside a dedicated microsandbox VM per project/agent.
 - It uses `msb` (the microsandbox CLI / SDK) and Docker to build/reuse the VM, and Viper + Cobra for config and CLI.
 - Layout: `cmd/agents-sandbox/` is the Cobra CLI; `internal/` holds the packages, dominated by `internal/sandbox/` (see its subindex). `docs/` is a Jekyll (just-the-docs) site; `ci/`, `Formula/`, `.github/` handle build/verification scripts, Homebrew, and CI (the macOS linker stubs the darwin cross-build needs live in `.github/stubs/`).
 - Target platforms: Linux (KVM) and macOS (Apple Silicon); platform-specific code lives in `_darwin.go`/`_linux.go` files.
@@ -36,7 +36,7 @@ read_if: Navigating the codebase.
 
 ### `internal/` — Core packages (non-sandbox)
 
-- `agent/` — Agent profiles (opencode/opencode2/claudecode/codex/pi/hermes/oh-my-pi/kimi-code/qwen-code/goose/grok-build): version resolution, capabilities (including the optional `EnvIndirectionDescriber` a harness like kimi uses to read its key from an env-var name), config-dir names, image selection.
+- `agent/` — Agent profiles (opencode/opencode2/claudecode/codex/pi/hermes/oh-my-pi/kimi-code/qwen-code/goose/grok-build/mistral-vibe): version resolution, capabilities (including the optional `EnvIndirectionDescriber` a harness like kimi uses to read its key from an env-var name), config-dir names, image selection.
 - `configpaths/` — Config/home path resolution and guards, plus shared config-file discovery (`FindConfigFile`) used by both config loaders; `configpathstest/` — its test double.
 - `configread/` — `ReadFile` under a 16 MiB cap (`MaxBytes`/`ErrTooLarge`) for untrusted config, secret, and snippet reads.
 - `configdecode/` — The one config-file read/classify/decode core (`FormatFor`/`Decode`/`DecodeFile`) over `configread` and `configpaths`; JSON5/JSONC via `json5`, YAML via `go.yaml.in/yaml/v4`, TOML via `go-toml/v2`.
