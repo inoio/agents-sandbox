@@ -73,6 +73,23 @@ func TestReadClassifiesQwenLoginStores(t *testing.T) {
 	require.ElementsMatch(t, []string{".qwen/oauth_creds.json", ".qwen/mcp-oauth-tokens.json"}, sources)
 }
 
+// TestReadClassifiesGrokBuildLoginStore pins grok-build's login store to
+// auth.json; its config file is configuration.
+func TestReadClassifiesGrokBuildLoginStore(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".grok/config.toml", "[ui]\nscreen_mode = \"minimal\"\n")
+	writeFile(t, home, ".grok/auth.json", `{"https://auth.x.ai::x":{"key":"secret"}}`)
+
+	rb, err := Read(home, "grok-build", Manifest{})
+
+	require.NoError(t, err)
+	require.Empty(t, rb.Static)
+	require.Len(t, rb.Login, 1)
+	require.Equal(t, ".grok/auth.json", rb.Login[0].Source)
+	require.Equal(t, "grok-build", rb.Login[0].Provider)
+	require.Empty(t, rb.Login[0].Value, "a login value is never read")
+}
+
 // TestLoginStoreForMatchesExactPath pins that a pattern with no metacharacter
 // matches its exact path.
 func TestLoginStoreForMatchesExactPath(t *testing.T) {

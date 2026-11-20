@@ -1100,3 +1100,54 @@ func TestRunAgentGooseRejectsDaemonOnlyFlags(t *testing.T) {
 		})
 	}
 }
+
+// TestRunDryRunAgentGrokBuild verifies `run --agent grok-build` resolves the
+// grok-build profile, notices that it is experimental, and previews without
+// starting a VM.
+func TestRunDryRunAgentGrokBuild(t *testing.T) {
+	initTestProjectDir(t)
+
+	mock := &msbtest.MockMsbClient{}
+	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{},
+		"run", "--dry-run", "--agent", "grok-build", "--agent-version", "1.0.89")
+	setupAbsentImagePreviewMocks(t, mock)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var pinnedVersion, experimental bool
+	for _, line := range ui.InfoCalls {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "dry-run: agent version 1.0.89" {
+			pinnedVersion = true
+		}
+		if strings.Contains(trimmed, "experimental") {
+			experimental = true
+		}
+	}
+	if !pinnedVersion {
+		t.Errorf("expected pinned grok-build version line; got: %v", ui.InfoCalls)
+	}
+	if !experimental {
+		t.Errorf("expected an experimental notice for grok-build; got: %v", ui.InfoCalls)
+	}
+	if len(mock.CreatedSandboxCalls) != 0 {
+		t.Errorf("--dry-run created %d sandbox(es), want 0", len(mock.CreatedSandboxCalls))
+	}
+}
+
+// TestRunAgentGrokBuildRejectsDaemonOnlyFlags verifies grok-build, which runs no
+// daemon, rejects --worktree and --serve-only.
+func TestRunAgentGrokBuildRejectsDaemonOnlyFlags(t *testing.T) {
+	for _, flagArgs := range [][]string{{"--worktree", "feat"}, {"--serve-only"}} {
+		t.Run(flagArgs[0], func(t *testing.T) {
+			initTestProjectDir(t)
+			args := append([]string{"run", "--dry-run", "--agent", "grok-build"}, flagArgs...)
+			root, _ := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, args...)
+			err := root.Execute()
+			if err == nil || !strings.Contains(err.Error(), `not supported by agent "grok-build"`) {
+				t.Errorf("err = %v, want 'not supported by agent \"grok-build\"'", err)
+			}
+		})
+	}
+}

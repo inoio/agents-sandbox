@@ -70,7 +70,7 @@ func (gooseProfile) ConfigFileNames() []string { return []string{gooseConfigFile
 func (gooseProfile) ProvisionRules() []ProvisionRule {
 	return []ProvisionRule{
 		{Dir: gooseConfigDir, Patterns: []string{
-			"/permission.yaml", "/.goosehints", "/AGENTS.md", "/prompts/", "/recipes/",
+			"/permission.yaml", "/.goosehints", agentsRulesPattern, "/prompts/", "/recipes/",
 		}},
 	}
 }

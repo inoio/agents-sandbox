@@ -1790,3 +1790,27 @@ func TestConfigAgentGooseMergesYAMLSnippets(t *testing.T) {
 		}
 	}
 }
+
+// TestConfigAgentGrokBuildMergesTOMLSnippets verifies that grok-build snippets
+// merge into one TOML document.
+func TestConfigAgentGrokBuildMergesTOMLSnippets(t *testing.T) {
+	cmd, ui := setupCommandFixtures(t, "config", "agent", "grok-build")
+	a, _ := agent.Lookup("grok-build")
+	dir := configpathstest.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName()))
+	testutil.WriteFile(t, dir, "config-ui.toml", "[ui]\nscreen_mode = \"minimal\"\n")
+	testutil.WriteFile(t, dir, "config-cli.toml",
+		"[cli]\nchannel = \"stable\"\n")
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config agent grok-build: %v", err)
+	}
+	joined := strings.Join(ui.OutCalls, "\n")
+	for _, want := range []string{
+		"config-ui.toml", "config-cli.toml", "merged agent config:",
+		"[ui]", "screen_mode = 'minimal'", "[cli]", "channel = 'stable'",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("output missing %q, got:\n%s", want, joined)
+		}
+	}
+}

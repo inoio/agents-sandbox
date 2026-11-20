@@ -79,7 +79,7 @@ func (kimiCodeProfile) LatestVersion(ctx context.Context) (string, error) {
 func (kimiCodeProfile) NewerThan(a, b string) (bool, error) { return newerVersionThan(a, b) }
 
 // SnippetPattern matches TOML snippets, which merge into config.toml as TOML.
-func (kimiCodeProfile) SnippetPattern() string { return "config*.toml" }
+func (kimiCodeProfile) SnippetPattern() string { return configTOMLSnippetPattern }
 
 func (kimiCodeProfile) VMConfigPath(home string) string {
 	return filepath.Join(home, kimiCodeDataDir, kimiCodeConfigFileName)

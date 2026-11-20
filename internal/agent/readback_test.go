@@ -20,6 +20,7 @@ func TestReadBackPaths(t *testing.T) {
 		"kimi-code":   {".kimi-code/config.toml", ".kimi-code/mcp.json", ".kimi-code/credentials/*.json"},
 		"qwen-code":   {".qwen/oauth_creds.json", ".qwen/mcp-oauth-tokens.json"},
 		"goose":       nil,
+		"grok-build":  {".grok/config.toml", ".grok/auth.json"},
 		"oh-my-pi":    {".omp/agent/config.yml", ".omp/agent/config.yaml", ".omp/agent/models.yml", ".omp/agent/.env"},
 		"pi":          {".pi/agent/settings.json"},
 	}
@@ -52,7 +53,7 @@ func TestCredentialProbes(t *testing.T) {
 		t.Errorf("opencode2 CredentialProbes() = %v, want [opencode2-sqlite]", got)
 	}
 
-	for _, name := range []string{"opencode", "codex", "claude-code", "hermes", "kimi-code", "oh-my-pi", "pi", "qwen-code", "goose"} {
+	for _, name := range []string{"opencode", "codex", "claude-code", "hermes", "kimi-code", "oh-my-pi", "pi", "qwen-code", "goose", "grok-build"} {
 		t.Run(name, func(t *testing.T) {
 			a, _ := agent.Lookup(name)
 			describer, _ := agent.AsReadBackDescriber(a)

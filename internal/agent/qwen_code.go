@@ -113,7 +113,7 @@ func (qwenCodeProfile) ConfigFileNames() []string { return []string{settingsFile
 func (qwenCodeProfile) ProvisionRules() []ProvisionRule {
 	return []ProvisionRule{
 		{Dir: qwenCodeDataDir, Patterns: []string{
-			"/QWEN.md", "/AGENTS.md", "/commands/", "/skills/", "/agents/", "/workflows/",
+			"/QWEN.md", agentsRulesPattern, "/commands/", "/skills/", "/agents/", "/workflows/",
 		}},
 	}
 }

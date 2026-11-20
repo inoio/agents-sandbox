@@ -44,7 +44,7 @@ func (codexProfile) LatestVersion(ctx context.Context) (string, error) {
 func (codexProfile) NewerThan(a, b string) (bool, error) { return newerVersionThan(a, b) }
 
 // SnippetPattern matches TOML snippets, which merge into config.toml as TOML.
-func (codexProfile) SnippetPattern() string { return "config*.toml" }
+func (codexProfile) SnippetPattern() string { return configTOMLSnippetPattern }
 
 func (codexProfile) VMConfigPath(home string) string {
 	return filepath.Join(home, ".codex", codexConfigFileName)
