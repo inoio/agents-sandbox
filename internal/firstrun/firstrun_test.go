@@ -80,24 +80,26 @@ func TestOfferFalseWhenNoHostConfigAndAlreadyLearned(t *testing.T) {
 
 // TestBuildFactsCollectsHostFilesAndPriorDecision pins the assembler: it
 // resolves the agent, probes the host config, reads the prior decision, and
-// reports no managed config for a checkout that has none.
+// reports no managed config for a checkout that has none. It uses codex, whose
+// seedable host file is config.toml (pi's settings.json is a login store and is
+// not seedable).
 func TestBuildFactsCollectsHostFilesAndPriorDecision(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	hostHome := t.TempDir()
-	writeHostFile(t, hostHome, ".pi/agent/settings.json", `{"token":"host-value"}`)
-	if err := state.RecordFirstRun("widget-abc", "pi", state.FirstRunRecord{
+	writeHostFile(t, hostHome, ".codex/config.toml", "model = \"gpt-5\"\n")
+	if err := state.RecordFirstRun("widget-abc", "codex", state.FirstRunRecord{
 		Choice:     state.FirstRunDismissed,
 		SourceHash: "stale-hash",
 	}); err != nil {
 		t.Fatalf("RecordFirstRun: %v", err)
 	}
 
-	f, err := BuildFacts("pi", "widget-abc", hostHome, configpaths.Get())
+	f, err := BuildFacts("codex", "widget-abc", hostHome, configpaths.Get())
 	if err != nil {
 		t.Fatalf("BuildFacts: %v", err)
 	}
-	if f.Agent != "pi" || f.Slug != "widget-abc" {
-		t.Errorf("identity = %q/%q, want pi/widget-abc", f.Agent, f.Slug)
+	if f.Agent != "codex" || f.Slug != "widget-abc" {
+		t.Errorf("identity = %q/%q, want codex/widget-abc", f.Agent, f.Slug)
 	}
 	if len(f.HostFiles) != 1 || f.HostSourceHash == "" {
 		t.Errorf("HostFiles = %v, hash = %q; want one host file and a non-empty hash", f.HostFiles, f.HostSourceHash)
@@ -158,6 +160,71 @@ func TestBuildFactsManagedConfigFromEnvSecret(t *testing.T) {
 	}
 	if !f.ManagedConfig {
 		t.Error("a per-slug env.secret.yaml must count as managed config")
+	}
+}
+
+// TestBuildFactsManagedConfigFromGenericUserScope pins the P2 fix: managed
+// config in the generic user scope (the layout docs/manage-config.md documents,
+// shared by every project) is a managed config layer, so the first run does not
+// offer the menu and override config the user already had.
+func TestBuildFactsManagedConfigFromGenericUserScope(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	slug := "widget-abc"
+	a, ok := agent.Lookup("codex")
+	if !ok {
+		t.Fatal("codex agent is not registered")
+	}
+	dirNames, err := agent.ConfigDirNames(a)
+	if err != nil {
+		t.Fatalf("ConfigDirNames: %v", err)
+	}
+	dir := filepath.Join(configpaths.Get().UserConfigDir(), dirNames[0])
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	testutil.WriteFile(t, dir, "config.toml", "model = \"gpt-5\"\n")
+
+	f, err := BuildFacts("codex", slug, t.TempDir(), configpaths.Get())
+	if err != nil {
+		t.Fatalf("BuildFacts: %v", err)
+	}
+	if !f.ManagedConfig {
+		t.Error("a file in the generic user scope must count as managed config")
+	}
+	if Offer(f) {
+		t.Error("generic-user managed config must suppress the menu")
+	}
+}
+
+// TestBuildFactsManagedConfigFromProjectScope pins that managed config in the
+// project scope counts too: the config merge reads it, so the first run must not
+// offer to override it.
+func TestBuildFactsManagedConfigFromProjectScope(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	slug := "widget-abc"
+	a, ok := agent.Lookup("codex")
+	if !ok {
+		t.Fatal("codex agent is not registered")
+	}
+	dirNames, err := agent.ConfigDirNames(a)
+	if err != nil {
+		t.Fatalf("ConfigDirNames: %v", err)
+	}
+	dir := filepath.Join(configpaths.Get().ProjectConfigDir(), dirNames[0])
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	testutil.WriteFile(t, dir, "config.toml", "model = \"gpt-5\"\n")
+
+	f, err := BuildFacts("codex", slug, t.TempDir(), configpaths.Get())
+	if err != nil {
+		t.Fatalf("BuildFacts: %v", err)
+	}
+	if !f.ManagedConfig {
+		t.Error("a file in the project scope must count as managed config")
+	}
+	if Offer(f) {
+		t.Error("project-scope managed config must suppress the menu")
 	}
 }
 

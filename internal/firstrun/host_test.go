@@ -3,9 +3,11 @@ package firstrun
 import (
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/sandbox/readback"
 )
 
 // provisionProfile is a test agent with a host provision rule set.
@@ -103,6 +105,92 @@ func TestHostSourceHashIndependentOfHostHome(t *testing.T) {
 
 	if firstHash != secondHash {
 		t.Errorf("source hash depends on the host home: %q != %q", firstHash, secondHash)
+	}
+}
+
+// TestHostFilesExcludesCredentialStore pins the P2 fix: a login credential store
+// the provision walk selects is not part of the set the seed would read, so the
+// host probe does not report it as seedable setup. opencode's auth.json is the
+// churny OAuth store the finding names.
+func TestHostFilesExcludesCredentialStore(t *testing.T) {
+	hostHome := t.TempDir()
+	writeHostFile(t, hostHome, ".local/share/opencode/auth.json", `{"openai":{"type":"api","key":"sk-a"}}`)
+	a := provisionProfile{rules: []agent.ProvisionRule{
+		{Dir: ".local/share/opencode", Patterns: []string{"auth.json"}},
+	}}
+
+	files, sourceHash := HostFiles(a, hostHome)
+
+	if len(files) != 0 || sourceHash != "" {
+		t.Fatalf("HostFiles = %v, hash = %q; a credential store must not be seedable", files, sourceHash)
+	}
+}
+
+// TestHostSourceHashIgnoresCredentialStoreChurn pins the consequence: a token
+// refresh in the credential store does not change the source hash, so a user who
+// chose "Configure it myself" is not re-offered the menu; a change to a
+// mergeable config file still re-arms it.
+func TestHostSourceHashIgnoresCredentialStoreChurn(t *testing.T) {
+	hostHome := t.TempDir()
+	writeHostFile(t, hostHome, ".config/widget/config.json", `{"a":1}`)
+	writeHostFile(t, hostHome, ".local/share/opencode/auth.json", `{"token":"one"}`)
+	a := provisionProfile{rules: []agent.ProvisionRule{
+		{Dir: ".config/widget", Patterns: []string{"**"}},
+		{Dir: ".local/share/opencode", Patterns: []string{"auth.json"}},
+	}}
+
+	files, before := HostFiles(a, hostHome)
+	if len(files) != 1 {
+		t.Fatalf("HostFiles = %v, want only the mergeable config", files)
+	}
+	writeHostFile(t, hostHome, ".local/share/opencode/auth.json", `{"token":"two"}`)
+	if _, afterCredentialChange := HostFiles(a, hostHome); before != afterCredentialChange {
+		t.Errorf("a credential-store change re-armed the decision: %q != %q", before, afterCredentialChange)
+	}
+	writeHostFile(t, hostHome, ".config/widget/config.json", `{"a":2}`)
+	if _, afterConfigChange := HostFiles(a, hostHome); before == afterConfigChange {
+		t.Errorf("a config-content change did not re-arm the decision: %q", before)
+	}
+}
+
+// TestHostFilesExcludesNonConfigFormats pins that a file under a broad "**" rule
+// that no config format's extension matches is not seedable setup and is left out
+// of the file list and hash.
+func TestHostFilesExcludesNonConfigFormats(t *testing.T) {
+	hostHome := t.TempDir()
+	writeHostFile(t, hostHome, ".config/widget/a.json", `{"a":1}`)
+	writeHostFile(t, hostHome, ".config/widget/README.md", "notes")
+	a := provisionProfile{rules: []agent.ProvisionRule{
+		{Dir: ".config/widget", Patterns: []string{"**"}},
+	}}
+
+	files, _ := HostFiles(a, hostHome)
+
+	want := []string{filepath.Join(hostHome, ".config/widget/a.json")}
+	if !slices.Equal(files, want) {
+		t.Errorf("HostFiles = %v, want only the JSON config %v", files, want)
+	}
+}
+
+// TestHostFilesSkipsOverCapFile pins the bounded read: a file larger than the
+// read-back cap is not loaded and not reported, while a companion seedable file
+// is. Before the fix the uncapped walk retained the large file's bytes.
+func TestHostFilesSkipsOverCapFile(t *testing.T) {
+	hostHome := t.TempDir()
+	writeHostFile(t, hostHome, ".config/widget/a.json", `{"a":1}`)
+	writeHostFile(t, hostHome, ".config/widget/big.json", strings.Repeat("x", readback.MaxHashedBytes+1))
+	a := provisionProfile{rules: []agent.ProvisionRule{
+		{Dir: ".config/widget", Patterns: []string{"**"}},
+	}}
+
+	files, sourceHash := HostFiles(a, hostHome)
+
+	want := []string{filepath.Join(hostHome, ".config/widget/a.json")}
+	if !slices.Equal(files, want) {
+		t.Errorf("HostFiles = %v, want the small seedable config only %v", files, want)
+	}
+	if sourceHash == "" {
+		t.Error("the seedable small file must still produce a non-empty hash")
 	}
 }
 

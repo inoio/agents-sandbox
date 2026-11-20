@@ -41,6 +41,12 @@ config is unchanged stays quiet; a host-config change re-arms it exactly once (t
 `BuildFacts` assembles the facts: the agent, the repo slug, whether a managed config layer exists, the host config files
 the seed would read, and their source hash. `Facts` holds no credential value — it lists paths and hashes their contents.
 
+The menu is offered only on a full `run` attach: `shell` starts no learning session and `run --serve-only` returns before
+the after-run, so neither offers it. `HostFiles` and the offer are computed from exactly the files the seed would read, so
+a host file the seed skips (a login store, a non-config format, a name the agent's merge never reads) neither offers the
+host-seed choice nor re-arms the decision. A managed config layer in any scope the merge reads (generic user, per-slug
+user, project) counts, not just the per-slug scope.
+
 **The menu (`Prompt`, on `termio.Prompter.Select`).** One consent sentence, then the choices:
 
 - **Learn by using it** — the recommended choice when the host has no agent config; starts a learning session with no

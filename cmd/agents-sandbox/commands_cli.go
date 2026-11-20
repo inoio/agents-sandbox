@@ -46,11 +46,12 @@ var autoPrune = pruning.AutoPrune
 var pruneLearnArtefacts = learn.PruneArtefacts
 
 // firstRunMenu is the first-run setup seam: a variable so a test can drive the
-// run/shell path without a host config or a state dir. Production gathers the
+// run path without a host config or a state dir. Production gathers the
 // first-run facts, offers the menu, seeds the per-slug scope for the host-seed
 // choice, and applies the outcome to opts (including the manual choice's
 // provisioned host config, gated by the menu's warning). An explicit --learn
-// (UC2) is left alone: the menu must not override the user's flag.
+// (UC2) is left alone: the menu must not override the user's flag. It applies
+// only to a full `run` attach (see offerFirstRunMenu).
 var firstRunMenu = func(ui termio.UI, opts *options.RunOptions, slug, agentName string) error {
 	if opts.Learn {
 		return nil
@@ -217,11 +218,15 @@ func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 	}
 }
 
-// offerFirstRunMenu runs the first-run setup before the session starts. It is
-// skipped on a preview (which makes no changes), and a menu error is surfaced as
-// a warning: setup guides the run, it never blocks it.
+// offerFirstRunMenu runs the first-run setup before a full `run` attach. It is
+// skipped on a preview (which makes no changes), and on a serve-only run: that
+// path returns before the learning after-run, so a learning choice would be
+// recorded while the observation is dropped. `shell` does not call it at all:
+// session.Shell starts neither the agent serve daemon nor a learning session, so
+// the menu can only record a decision with no session behind it. A menu error is
+// surfaced as a warning: setup guides the run, it never blocks it.
 func offerFirstRunMenu(ui termio.UI, opts *options.RunOptions, mode options.Mode) {
-	if mode.Previews() {
+	if mode.Previews() || opts.ServeOnly {
 		return
 	}
 	if err := firstRunMenu(ui, opts, opts.ConfigSlug, opts.Agent); err != nil {
@@ -399,7 +404,6 @@ func buildShellCmd(ui termio.UI) *cobra.Command {
 			if err != nil || exit {
 				return err
 			}
-			offerFirstRunMenu(ui, &opts, mode)
 			return session.Shell(cmd.Context(), opts, mode, ui)
 		},
 	}
