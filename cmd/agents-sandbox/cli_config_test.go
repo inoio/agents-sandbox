@@ -1767,3 +1767,26 @@ func TestFindingNounFallsBackToKind(t *testing.T) {
 		t.Errorf("findingNoun = %q, want %q", got, analyser.KindConfig)
 	}
 }
+
+// TestConfigAgentGooseMergesYAMLSnippets verifies that goose snippets under
+// either YAML extension merge into one config.yaml document.
+func TestConfigAgentGooseMergesYAMLSnippets(t *testing.T) {
+	cmd, ui := setupCommandFixtures(t, "config", "agent", "goose")
+	a, _ := agent.Lookup("goose")
+	dir := configpathstest.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName()))
+	testutil.WriteFile(t, dir, "config-provider.yaml", "GOOSE_PROVIDER: anthropic\nGOOSE_MODEL: claude-sonnet-4-5\n")
+	testutil.WriteFile(t, dir, "config-ui.yml", "GOOSE_CLI_THEME: dark\n")
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config agent goose: %v", err)
+	}
+	joined := strings.Join(ui.OutCalls, "\n")
+	for _, want := range []string{
+		"config-provider.yaml", "config-ui.yml", "merged agent config:",
+		"GOOSE_PROVIDER: anthropic", "GOOSE_MODEL: claude-sonnet-4-5", "GOOSE_CLI_THEME: dark",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("output missing %q, got:\n%s", want, joined)
+		}
+	}
+}

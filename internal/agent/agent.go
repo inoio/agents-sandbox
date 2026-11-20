@@ -49,6 +49,7 @@ func builtinRegistry() map[string]Agent {
 		ohMyPiProfile{},
 		kimiCodeProfile{},
 		qwenCodeProfile{},
+		gooseProfile{},
 	}
 	registry := make(map[string]Agent, len(profiles))
 	for _, a := range profiles {

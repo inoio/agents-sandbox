@@ -10,7 +10,7 @@ nav_order: 60
 
 agents-sandbox is agent-aware. A `--agent <name>` flag on `run`, `shell`, `build`, `volume`, `stop`, and `kill`
 selects the coding-agent profile to run, build, provision, or manage. The agent can also be selected via the `agent`
-config key or the `AGENTS_SANDBOX_AGENT` environment variable. Nine agents ship as built-in profiles:
+config key or the `AGENTS_SANDBOX_AGENT` environment variable. Ten agents ship as built-in profiles:
 
 - **`opencode`** — daemon-based, with serve/attach, worktree sessions, and GitHub-release upgrade checks.
 - **`opencode2`** (default) — opencode 2 (beta), installed from its upstream installer (`https://opencode.ai/v2/install`); the
@@ -42,11 +42,16 @@ config key or the `AGENTS_SANDBOX_AGENT` environment variable. Nine agents ship 
   (`QWEN_CODE_SYSTEM_SETTINGS_PATH` points at it under `/opt/agents-sandbox`), because agents-sandbox offers
   upgrades itself. The release unpacks to about 326 MB.
 
+- **`goose`** — [Goose](https://github.com/aaif-goose/goose), installed from the static (musl) binary of its GitHub release and run
+  interactively; upgrade checks via its GitHub releases. Goose publishes no checksums for its release assets, so the
+  binary is fetched over HTTPS from the pinned release tag without a checksum check. Goose checks for updates only when
+  you run `goose update`. The binary is about 159 MB.
+
 > **Experimental agents:** `opencode` and `opencode2` are the tested default agents. Every other built-in
-> profile (`pi`, `claude-code`, `codex`, `hermes`, `oh-my-pi`, `kimi-code`, `qwen-code`) is **experimental** — not well tested with agents-sandbox.
+> profile (`pi`, `claude-code`, `codex`, `hermes`, `oh-my-pi`, `kimi-code`, `qwen-code`, `goose`) is **experimental** — not well tested with agents-sandbox.
 > The launcher prints a notice when an experimental agent is selected.
 
-`--worktree` and `--serve-only` are rejected for pi, claude-code, codex, hermes, oh-my-pi, kimi-code, and qwen-code (they have no daemon); they run through the
+`--worktree` and `--serve-only` are rejected for pi, claude-code, codex, hermes, oh-my-pi, kimi-code, qwen-code, and goose (they have no daemon); they run through the
 interactive TUI instead. Passing an unsupported `--agent` name reports the valid names in its error message.
 
 > **Note:** opencode2 server auth — v2's `serve` requires HTTP basic auth on every `/api/*` route and would otherwise generate a
@@ -104,13 +109,15 @@ agent config directories (generic user, per-slug user, project), and written to 
   `/home/dev/.kimi-code/config.toml`, written as TOML.
 - **qwen-code** — snippets match `settings*.json*` in the `qwen-code/` subdir (e.g. `settings-model.json`); merged to
   `/home/dev/.qwen/settings.json`.
+- **goose** — snippets match `config*.{yml,yaml}` in the `goose/` subdir (e.g. `config-provider.yaml`); merged to
+  `/home/dev/.config/goose/config.yaml`, written as YAML.
 
 Matching files are parsed and **deep-merged** into one config document. The generic user directory is merged first, then
 the per-slug user directory, then the project directory; within each directory files are merged in alphabetical order,
 so later files override earlier ones.
 Snippet parsing supports JSON, JSONC, JSON5, YAML, and TOML, chosen by file extension (YAML only applies to agents whose
 pattern includes YAML extensions, e.g. a pattern like `pi-*.{json,yaml}`). The merged config is written as TOML when the
-agent's VM config path ends in `.toml` (codex, kimi-code), as YAML when it ends in `.yaml`/`.yml` (hermes, oh-my-pi), and as JSON otherwise.
+agent's VM config path ends in `.toml` (codex, kimi-code), as YAML when it ends in `.yaml`/`.yml` (hermes, oh-my-pi, goose), and as JSON otherwise.
 
 If no snippet files exist, no merged config is produced.
 
@@ -190,6 +197,11 @@ The drop-in copy is scoped to the agent's settings and, for opencode, its creden
   settings; nor are `.env` (environment variables, typically keys), the `oauth_creds.json` and `mcp-oauth-tokens.json`
   logins, `extensions/` (each extension keeps its settings, including secret ones, in a `.env`), or runtime state. Put Qwen settings in `settings*.json` snippets instead (see
   [Config snippet merge](#config-snippet-merge)).
+- **goose** — from `~/.config/goose`: `permission.yaml`, the global context files `.goosehints` and `AGENTS.md`, and the
+  `prompts/` and `recipes/` directories. `config.yaml` is not copied, because an extension's `envs` and `headers` can
+  hold tokens beside its settings; nor are the `custom_providers/` definitions (an inline `api_key` and headers),
+  `secrets.yaml` (where goose keeps secrets as plain text when there is no system keyring), `history.txt`, or runtime
+  state. Put Goose settings in `config*.yaml` snippets instead (see [Config snippet merge](#config-snippet-merge)).
 
 Precedence: the merged snippet config and any `home:` mappings override the drop-in copy for the same VM path.
 
@@ -224,9 +236,9 @@ To opt out, exclude `auth.json` from the drop-in copy by placing a `home:` entry
 host secrets in any other way; the env-secret mechanism is the supported channel for secrets you do not want on disk in
 the VM.
 
-For pi, claude-code, codex, hermes, oh-my-pi, kimi-code, and qwen-code, the drop-in copy does not include credential
-files. pi, claude-code, hermes, and oh-my-pi authenticate with env secrets instead; codex logs in inside the VM, and
-kimi-code and qwen-code do either:
+For pi, claude-code, codex, hermes, oh-my-pi, kimi-code, qwen-code, and goose, the drop-in copy does not include
+credential files. pi, claude-code, hermes, oh-my-pi, and goose authenticate with env secrets instead; codex logs in
+inside the VM, and kimi-code and qwen-code do either:
 
 - **pi** — per-provider env vars, e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` (see pi's docs for the
   full list). Put them in an `env.secret` / `env.secret.yaml` file.
@@ -246,6 +258,14 @@ kimi-code and qwen-code do either:
 - **qwen-code** — the provider's key variable (`DASHSCOPE_API_KEY`, `OPENAI_API_KEY`, …), supplied through
   `env.secret`, with the provider in a `settings*.json` snippet; or `/auth` once inside the VM (see
   [Qwen Code login](#qwen-code-login)).
+- **goose** — the provider's key variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …), supplied through `env.secret`,
+  with the provider and model in a `config*.yaml` snippet (e.g. `GOOSE_PROVIDER: anthropic` and `GOOSE_MODEL: …`). Goose
+  reads a secret from the process environment before its secret store, so nothing needs to be written into
+  `secrets.yaml`. Keep goose's settings in the snippet, including `GOOSE_TELEMETRY_ENABLED: false` (or `true`):
+  agents-sandbox owns `config.yaml` in the VM — with a snippet it is replaced by the merged document, and with none it
+  is removed — so whatever `goose configure` or the first-run telemetry prompt writes there does not survive the next
+  run. A key that `goose configure` stores in `secrets.yaml` on the home volume does persist, but the `env.secret`
+  route keeps it out of the VM.
 - **opencode** — `OPENCODE_API_KEY`.
 
 ### Codex login
@@ -409,20 +429,21 @@ version/upgrade checks. Beyond that base, coverage differs by agent:
 - ◐ **Supportable** — the agent exposes a surface agents-sandbox could use, but does not implement yet.
 - ✖ **Unsupported** — the agent has no such surface.
 
-| Capability | `opencode` | `opencode2` | `pi` | `claude-code` | `codex` | `hermes` | `oh-my-pi` | `kimi-code` | `qwen-code` |
-|---|---|---|---|---|---|---|---|---|---|
-| Interactive attach | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Config snippet merge | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Host-config drop-in | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Version + upgrade check | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Serve/attach daemon | ✅ | ✅ | ✖ | ✖ | ◐ | ◐ | ◐ | ◐ | ◐ |
-| Worktree sessions | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ | ◐ | ✖ | ◐ |
-| Notify event stream | ✅ | ✅ | ✖ | ✖ | ◐ | ◐ | ◐ | ◐ | ◐ |
-| Session quiescence | ✅ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ |
+| Capability | `opencode` | `opencode2` | `pi` | `claude-code` | `codex` | `hermes` | `oh-my-pi` | `kimi-code` | `qwen-code` | `goose` |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Interactive attach | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Config snippet merge | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Host-config drop-in | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Version + upgrade check | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Serve/attach daemon | ✅ | ✅ | ✖ | ✖ | ◐ | ◐ | ◐ | ◐ | ◐ | ◐ |
+| Worktree sessions | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ | ◐ | ✖ | ◐ | ✖ |
+| Notify event stream | ✅ | ✅ | ✖ | ✖ | ◐ | ◐ | ◐ | ◐ | ◐ | ◐ |
+| Session quiescence | ✅ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ |
 
 The ◐ entries name an upstream surface agents-sandbox has not wired up: `codex app-server` (a JSON-RPC daemon with a
 turn/item event stream) for Codex, `hermes serve` / `hermes chat --format stream-json` for Hermes, and `omp --mode rpc` /
 `omp acp` (stdio servers) and the `omp worktree` CLI for Oh My Pi, and `kimi web` (a REST and WebSocket server, marked
-experimental upstream) for Kimi Code, and `qwen serve` (HTTP with a server-sent event stream, marked experimental
-upstream) and its managed session worktrees for Qwen Code.
+experimental upstream) for Kimi Code, `qwen serve` (HTTP with a server-sent event stream, marked experimental
+upstream) and its managed session worktrees for Qwen Code, and `goose serve` (HTTP and WebSocket with a `/status`
+endpoint) for Goose.
 
