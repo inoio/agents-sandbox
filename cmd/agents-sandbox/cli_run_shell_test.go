@@ -189,6 +189,34 @@ func TestShellDoesNotOfferFirstRunMenu(t *testing.T) {
 	}
 }
 
+// TestRunDryRunVMDoesNotOfferFirstRunMenu pins the P1 ruling on the other
+// non-attach path: `run --dry-run-vm` prepares everything but returns before the
+// learning after-run, so a learning choice would be recorded while the
+// observation is dropped. The menu must not be offered there.
+func TestRunDryRunVMDoesNotOfferFirstRunMenu(t *testing.T) {
+	initTestProjectDir(t)
+
+	menuCalled := false
+	original := firstRunMenu
+	firstRunMenu = func(termio.UI, *options.RunOptions, string, string) error {
+		menuCalled = true
+		return nil
+	}
+	t.Cleanup(func() { firstRunMenu = original })
+
+	captured := captureSessionRun(t)
+	root, _ := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, cmdRun, "--dry-run-vm")
+	if err := root.Execute(); err != nil {
+		t.Fatalf("run --dry-run-vm: %v", err)
+	}
+	if menuCalled {
+		t.Error("run --dry-run-vm must not offer the first-run menu")
+	}
+	if captured().Learn {
+		t.Error("run --dry-run-vm must not start a learning session")
+	}
+}
+
 func TestRunShellShellAttachError(t *testing.T) {
 	initTestProjectDir(t)
 

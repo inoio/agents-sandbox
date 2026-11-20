@@ -219,14 +219,14 @@ func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 }
 
 // offerFirstRunMenu runs the first-run setup before a full `run` attach. It is
-// skipped on a preview (which makes no changes), and on a serve-only run: that
-// path returns before the learning after-run, so a learning choice would be
-// recorded while the observation is dropped. `shell` does not call it at all:
+// skipped on any non-attach mode (preview, dry-run-vm) and on a serve-only run:
+// those paths return before the learning after-run, so a learning choice would
+// be recorded while the observation is dropped. `shell` does not call it at all:
 // session.Shell starts neither the agent serve daemon nor a learning session, so
 // the menu can only record a decision with no session behind it. A menu error is
 // surfaced as a warning: setup guides the run, it never blocks it.
 func offerFirstRunMenu(ui termio.UI, opts *options.RunOptions, mode options.Mode) {
-	if mode.Previews() || opts.ServeOnly {
+	if mode.SkipsVM() || opts.ServeOnly {
 		return
 	}
 	if err := firstRunMenu(ui, opts, opts.ConfigSlug, opts.Agent); err != nil {
