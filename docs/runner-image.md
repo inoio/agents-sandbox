@@ -184,7 +184,7 @@ stages with fixed parents, merged into the final stage with `COPY` **after** the
   needs none of those binaries and the tool layers cache across bases.
 - **`agents-sandbox-node`** *(only for agents that need node)* — installs Node.js into `/opt/agents-sandbox`. It is emitted
   only when the selected agent requires node (today only `pi`, an npm-installed node bundle); `opencode`, `opencode2`,
-  `claude-code`, `codex`, `hermes`, `oh-my-pi`, and `kimi-code` install native binaries or provision their own runtime, and their images carry no
+  `claude-code`, `codex`, `hermes`, `oh-my-pi`, `kimi-code`, `qwen-code`, `goose`, `grok-build`, and `mistral-vibe` install native binaries or provision their own runtime, and their images carry no
   tool-installed node.
 - **`agents-sandbox-agent`** *(conditional)* — installs the selected agent into `/opt/agents-sandbox`. It starts from the
   node stage when one was emitted, otherwise from the tool base, and creates `/opt/agents-sandbox/bin` itself. npm agents
@@ -246,7 +246,7 @@ base must meet these requirements:
   (the health probe, session and worktree calls, and notifications); the daemon is launched and stopped as a
   runtime-owned job, so no process-control tool is needed. `curl` is checked after your Dockerfile body runs, so it may
   be installed in the body or an earlier stage; if it is missing, the build fails and names the tool. `pi`,
-  `claude-code`, `codex`, `hermes`, `oh-my-pi`, and `kimi-code` run no daemon and need none.
+  `claude-code`, `codex`, `hermes`, `oh-my-pi`, `kimi-code`, `qwen-code`, `goose`, `grok-build`, and `mistral-vibe` run no daemon and need none.
 - **For the host opener**: `curl`. The launcher replays a browser-login callback inside the VM with it, so every custom
   base needs `curl` even when the agent runs no daemon (the daemon agents' `curl` requirement covers the same tool). It
   is checked after your Dockerfile body runs, and a missing `curl` fails the build naming the tool. See
@@ -262,6 +262,8 @@ base must meet these requirements:
 - **For `kimi-code`**: the shared libraries `libstdc++.so.6` and `libgcc_s.so.1`, which the `kimi` binary's embedded
   Node.js links on glibc — `libstdc++6` and `libgcc-s1` on Debian/Ubuntu, `libstdc++` and `libgcc` on Fedora/RHEL. Most
   glibc bases already carry both. They are verified the same way as hermes's library.
+- **For `qwen-code`**: the same two libraries, `libstdc++.so.6` and `libgcc_s.so.1`, which the Node.js bundled in its
+  standalone release and its prebuilt native modules link on glibc.
 - The recommended CLI tools listed here are documented for your convenience, not as requirements — as a custom base you install
   your own.
 - A base that already provides docker, node, or the agent is left alone (idempotency). A pre-created `dev` user is
@@ -400,9 +402,9 @@ the v26 tarballs gained a hard `libatomic.so.1` runtime dependency, while v24 ha
 architecture, so a custom base needs no extra library to run the tool-installed node. (The managed base carries
 `libatomic1` anyway, for `hermes`.)
 
-Eight agents are built in: `opencode`, `opencode2` (default, the opencode 2 beta), `pi`, `claude-code`, `codex`,
-`hermes`, `oh-my-pi`, and `kimi-code`. Only `pi` needs node: its published package is an npm-installed `#!/usr/bin/env node` bundle, so it installs
-through `npm install -g --prefix /opt/agents-sandbox @earendil-works/pi-coding-agent@$PI_VERSION`. The other seven ship
+Twelve agents are built in: `opencode`, `opencode2` (default, the opencode 2 beta), `pi`, `claude-code`, `codex`,
+`hermes`, `oh-my-pi`, `kimi-code`, `qwen-code`, `goose`, `grok-build`, and `mistral-vibe`. Only `pi` needs node: its published package is an npm-installed `#!/usr/bin/env node` bundle, so it installs
+through `npm install -g --prefix /opt/agents-sandbox @earendil-works/pi-coding-agent@$PI_VERSION`. The other eleven ship
 self-contained native binaries or provision their own runtime — `opencode` and `opencode2` via their upstream
 installers `https://opencode.ai/install` and `https://opencode.ai/v2/install`, `claude-code` via
 `https://claude.ai/install.sh`, copying the binary into `/opt/agents-sandbox/bin`, and `codex` from the static
@@ -412,8 +414,23 @@ installers `https://opencode.ai/install` and `https://opencode.ai/v2/install`, `
 GitHub release (about 275 MB, Bun and the native addon embedded), checked against the release's `SHA256SUMS.txt`
 before it is installed as `/opt/agents-sandbox/bin/omp`, and `kimi-code` from the `kimi-code-linux-<arch>.tar.gz` asset of
 its `MoonshotAI/kimi-code` GitHub release (a Node single-executable of about 194 MB, which links `libstdc++.so.6` and
-`libgcc_s.so.1`), checked against the asset's `.sha256` before `kimi` is installed into `/opt/agents-sandbox/bin`; their
-images contain no node/npm. `hermes` is the one whose installer needs more than a
+`libgcc_s.so.1`), checked against the asset's `.sha256` before `kimi` is installed into `/opt/agents-sandbox/bin`, `qwen-code` from the
+`qwen-code-linux-<arch>.tar.gz` standalone asset of its `QwenLM/qwen-code` GitHub release (about 326 MB unpacked, with
+its own Node.js bundled), checked against the release's `SHA256SUMS`, unpacked into `/opt/agents-sandbox/qwen-code`, and
+started through a shim in `/opt/agents-sandbox/bin`, `goose` from the static
+`goose-<arch>-unknown-linux-musl.tar.gz` asset of its `aaif-goose/goose` GitHub release (about 159 MB), extracted into
+`/opt/agents-sandbox/bin` without a checksum check because the release publishes none, `grok-build` from the
+static `grok-<version>-linux-<arch>.gz` binary xAI hosts at `x.ai/cli` (about 208 MB unpacked; the storage bucket
+xAI's installer falls back to serves the same files), decompressed into `/opt/agents-sandbox/bin/grok` without a
+checksum check because xAI publishes none for the binaries it hosts, with its auto-updater pinned off in
+`/etc/grok/requirements.toml`, and `mistral-vibe` from PyPI: a uv pinned to a release digest installs a managed
+CPython 3.14 and the pinned `mistral-vibe` package (with its bundled Rust TUI) under `/opt/agents-sandbox/mistral-vibe`,
+its dependencies constrained to the release tag's `uv.lock`, links `vibe` into `/opt/agents-sandbox/bin`, and is itself
+discarded (about 585 MB in all); uv trusts the build's system CA store, so a build behind a TLS-intercepting proxy
+works; their images contain no
+tool-installed node/npm. The `qwen-code`
+image also bakes a system settings file (under `/opt/agents-sandbox/qwen-code`, pointed at by
+`QWEN_CODE_SYSTEM_SETTINGS_PATH`) to turn off Qwen's update check. `hermes` is the one whose installer needs more than a
 binary copy: it clones the pinned release tag into `/opt/agents-sandbox/hermes` and provisions its own Python (and
 Node, for the TUI/web product build) into `/opt/agents-sandbox/hermes-home`, so the tool stage needs no node of its
 own, publishes its launcher into `/opt/agents-sandbox/bin`, and keeps its tree outside `/home/dev` — which the sandbox
@@ -422,9 +439,10 @@ a `COPY --chown=dev:dev` emitted for agents that write into their own installati
 dependency ledger and bytecode markers there. The launcher the stage publishes is therefore a small shim: it keeps user state in
 `$HERMES_HOME` (`/home/dev/.hermes`, so config, sessions, and memories persist on the home volume) and links the tool
 store, uv cache, and dependency environments from the image into it, so a fresh home volume starts Hermes without
-reinstalling its dependencies. All eight resolve their latest version for an unpinned build — opencode, codex, hermes,
-and oh-my-pi via the GitHub API, opencode2 via the opencode update API (`/update/api/latest/cli/npm`, the installer's
-own source), pi via `pi.dev`, and claude-code and kimi-code via the npm registry's `latest` dist-tag — as a host-side HTTP query,
+reinstalling its dependencies. All twelve resolve their latest version for an unpinned build — opencode, codex, hermes,
+oh-my-pi, and goose via the GitHub API, opencode2 via the opencode update API (`/update/api/latest/cli/npm`, the installer's
+own source), pi via `pi.dev`, claude-code, kimi-code, qwen-code, and grok-build via the npm registry's `latest` dist-tag, and mistral-vibe via PyPI's
+JSON API — as a host-side HTTP query,
 never inside the image. The GitHub queries authenticate with a `GH_TOKEN` or `GITHUB_TOKEN` from the launcher's
 environment when one is set (`GH_TOKEN` wins), which lifts the anonymous API rate limit; a token GitHub rejects is
 retried once without it, so an expired or under-scoped token falls back to the anonymous lookup instead of failing the

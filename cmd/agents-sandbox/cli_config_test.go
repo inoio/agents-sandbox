@@ -353,6 +353,31 @@ func TestConfigAgentKimiCodeMergesTOMLSnippets(t *testing.T) {
 	}
 }
 
+// TestConfigAgentQwenCodeMergesJSONSnippets verifies that qwen-code snippets
+// merge into one settings.json document, with a provider key referenced from the
+// environment instead of written inline.
+func TestConfigAgentQwenCodeMergesJSONSnippets(t *testing.T) {
+	cmd, ui := setupCommandFixtures(t, "config", "agent", "qwen-code")
+	a, _ := agent.Lookup("qwen-code")
+	dir := configpathstest.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName()))
+	testutil.WriteFile(t, dir, "settings-ui.json", `{"general":{"vimMode":true}}`+"\n")
+	testutil.WriteFile(t, dir, "settings-auth.json",
+		`{"security":{"auth":{"selectedType":"openai"}},"model":{"name":"qwen3-coder-plus"}}`+"\n")
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config agent qwen-code: %v", err)
+	}
+	joined := strings.Join(ui.OutCalls, "\n")
+	for _, want := range []string{
+		"settings-ui.json", "settings-auth.json", "merged agent config:",
+		`"vimMode": true`, `"selectedType": "openai"`, `"name": "qwen3-coder-plus"`,
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("output missing %q, got:\n%s", want, joined)
+		}
+	}
+}
+
 func TestConfigAgentAmbiguousFlagAndPositional(t *testing.T) {
 	cmd, _ := setupCommandFixtures(t, "config", "agent", "--agent", "pi", "claude-code")
 	err := cmd.Execute()
@@ -1745,5 +1770,75 @@ func TestFindingNounFallsBackToKind(t *testing.T) {
 	got := findingNoun(analyser.Finding{Kind: analyser.KindConfig})
 	if got != string(analyser.KindConfig) {
 		t.Errorf("findingNoun = %q, want %q", got, analyser.KindConfig)
+	}
+}
+
+// TestConfigAgentGooseMergesYAMLSnippets verifies that goose snippets under
+// either YAML extension merge into one config.yaml document.
+func TestConfigAgentGooseMergesYAMLSnippets(t *testing.T) {
+	cmd, ui := setupCommandFixtures(t, "config", "agent", "goose")
+	a, _ := agent.Lookup("goose")
+	dir := configpathstest.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName()))
+	testutil.WriteFile(t, dir, "config-provider.yaml", "GOOSE_PROVIDER: anthropic\nGOOSE_MODEL: claude-sonnet-4-5\n")
+	testutil.WriteFile(t, dir, "config-ui.yml", "GOOSE_CLI_THEME: dark\n")
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config agent goose: %v", err)
+	}
+	joined := strings.Join(ui.OutCalls, "\n")
+	for _, want := range []string{
+		"config-provider.yaml", "config-ui.yml", "merged agent config:",
+		"GOOSE_PROVIDER: anthropic", "GOOSE_MODEL: claude-sonnet-4-5", "GOOSE_CLI_THEME: dark",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("output missing %q, got:\n%s", want, joined)
+		}
+	}
+}
+
+// TestConfigAgentGrokBuildMergesTOMLSnippets verifies that grok-build snippets
+// merge into one TOML document.
+func TestConfigAgentGrokBuildMergesTOMLSnippets(t *testing.T) {
+	cmd, ui := setupCommandFixtures(t, "config", "agent", "grok-build")
+	a, _ := agent.Lookup("grok-build")
+	dir := configpathstest.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName()))
+	testutil.WriteFile(t, dir, "config-ui.toml", "[ui]\nscreen_mode = \"minimal\"\n")
+	testutil.WriteFile(t, dir, "config-cli.toml",
+		"[cli]\nchannel = \"stable\"\n")
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config agent grok-build: %v", err)
+	}
+	joined := strings.Join(ui.OutCalls, "\n")
+	for _, want := range []string{
+		"config-ui.toml", "config-cli.toml", "merged agent config:",
+		"[ui]", "screen_mode = 'minimal'", "[cli]", "channel = 'stable'",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("output missing %q, got:\n%s", want, joined)
+		}
+	}
+}
+
+// TestConfigAgentMistralVibeMergesTOMLSnippets verifies that mistral-vibe
+// snippets merge into one TOML document.
+func TestConfigAgentMistralVibeMergesTOMLSnippets(t *testing.T) {
+	cmd, ui := setupCommandFixtures(t, "config", "agent", "mistral-vibe")
+	a, _ := agent.Lookup("mistral-vibe")
+	dir := configpathstest.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName()))
+	testutil.WriteFile(t, dir, "config-model.toml", "active_model = \"devstral-2\"\n")
+	testutil.WriteFile(t, dir, "config-ui.toml", "vim_keybindings = true\nenable_telemetry = false\n")
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config agent mistral-vibe: %v", err)
+	}
+	joined := strings.Join(ui.OutCalls, "\n")
+	for _, want := range []string{
+		"config-model.toml", "config-ui.toml", "merged agent config:",
+		"active_model = 'devstral-2'", "vim_keybindings = true", "enable_telemetry = false",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("output missing %q, got:\n%s", want, joined)
+		}
 	}
 }

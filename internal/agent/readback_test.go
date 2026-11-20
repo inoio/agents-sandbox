@@ -12,14 +12,18 @@ import (
 // is asserted explicitly.
 func TestReadBackPaths(t *testing.T) {
 	want := map[string][]string{
-		"opencode":    {".config/opencode/*", ".local/share/opencode/auth.json"},
-		"opencode2":   {".config/opencode/*", ".local/share/opencode/auth.json"},
-		"codex":       {".codex/auth.json"},
-		"claude-code": {".claude/settings.json"},
-		"hermes":      {".hermes/config.yaml", ".hermes/.env"},
-		"kimi-code":   {".kimi-code/config.toml", ".kimi-code/mcp.json", ".kimi-code/credentials/*.json"},
-		"oh-my-pi":    {".omp/agent/config.yml", ".omp/agent/config.yaml", ".omp/agent/models.yml", ".omp/agent/.env"},
-		"pi":          {".pi/agent/settings.json"},
+		"opencode":     {".config/opencode/*", ".local/share/opencode/auth.json"},
+		"opencode2":    {".config/opencode/*", ".local/share/opencode/auth.json"},
+		"codex":        {".codex/auth.json"},
+		"claude-code":  {".claude/settings.json"},
+		"hermes":       {".hermes/config.yaml", ".hermes/.env"},
+		"kimi-code":    {".kimi-code/config.toml", ".kimi-code/mcp.json", ".kimi-code/credentials/*.json"},
+		"qwen-code":    {".qwen/oauth_creds.json", ".qwen/mcp-oauth-tokens.json"},
+		"goose":        nil,
+		"grok-build":   {".grok/auth.json"},
+		"mistral-vibe": {".vibe/.env"},
+		"oh-my-pi":     {".omp/agent/config.yml", ".omp/agent/config.yaml", ".omp/agent/models.yml", ".omp/agent/.env"},
+		"pi":           {".pi/agent/settings.json", ".pi/agent/auth.json"},
 	}
 	for name, paths := range want {
 		t.Run(name, func(t *testing.T) {
@@ -50,7 +54,7 @@ func TestCredentialProbes(t *testing.T) {
 		t.Errorf("opencode2 CredentialProbes() = %v, want [opencode2-sqlite]", got)
 	}
 
-	for _, name := range []string{"opencode", "codex", "claude-code", "hermes", "kimi-code", "oh-my-pi", "pi"} {
+	for _, name := range []string{"opencode", "codex", "claude-code", "hermes", "kimi-code", "oh-my-pi", "pi", "qwen-code", "goose", "grok-build", "mistral-vibe"} {
 		t.Run(name, func(t *testing.T) {
 			a, _ := agent.Lookup(name)
 			describer, _ := agent.AsReadBackDescriber(a)

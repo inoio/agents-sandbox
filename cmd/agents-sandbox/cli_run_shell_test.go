@@ -880,6 +880,57 @@ func TestRunAgentKimiCodeRejectsDaemonOnlyFlags(t *testing.T) {
 	}
 }
 
+// TestRunDryRunAgentQwenCode verifies `run --agent qwen-code` resolves the
+// qwen-code profile, notices that it is experimental, and previews without
+// starting a VM.
+func TestRunDryRunAgentQwenCode(t *testing.T) {
+	initTestProjectDir(t)
+
+	mock := &msbtest.MockMsbClient{}
+	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{},
+		"run", "--dry-run", "--agent", "qwen-code", "--agent-version", "0.28.0")
+	setupAbsentImagePreviewMocks(t, mock)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var pinnedVersion, experimental bool
+	for _, line := range ui.InfoCalls {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "dry-run: agent version 0.28.0" {
+			pinnedVersion = true
+		}
+		if strings.Contains(trimmed, "experimental") {
+			experimental = true
+		}
+	}
+	if !pinnedVersion {
+		t.Errorf("expected pinned qwen-code version line; got: %v", ui.InfoCalls)
+	}
+	if !experimental {
+		t.Errorf("expected an experimental notice for qwen-code; got: %v", ui.InfoCalls)
+	}
+	if len(mock.CreatedSandboxCalls) != 0 {
+		t.Errorf("--dry-run created %d sandbox(es), want 0", len(mock.CreatedSandboxCalls))
+	}
+}
+
+// TestRunAgentQwenCodeRejectsDaemonOnlyFlags verifies qwen-code, which runs no
+// daemon, rejects --worktree and --serve-only.
+func TestRunAgentQwenCodeRejectsDaemonOnlyFlags(t *testing.T) {
+	for _, flagArgs := range [][]string{{"--worktree", "feat"}, {"--serve-only"}} {
+		t.Run(flagArgs[0], func(t *testing.T) {
+			initTestProjectDir(t)
+			args := append([]string{"run", "--dry-run", "--agent", "qwen-code"}, flagArgs...)
+			root, _ := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, args...)
+			err := root.Execute()
+			if err == nil || !strings.Contains(err.Error(), `not supported by agent "qwen-code"`) {
+				t.Errorf("err = %v, want 'not supported by agent \"qwen-code\"'", err)
+			}
+		})
+	}
+}
+
 // writeHostOpencodeManifest writes a ~/.config/opencode/package.json declaring
 // a dependency into the mocked host home and returns its path.
 func writeHostOpencodeManifest(t *testing.T) string {
@@ -1066,4 +1117,157 @@ func writeStartupHookConfig(t *testing.T) {
 	testutil.WriteFile(t, userConfigDir, "hello.sh", "#!/bin/sh\necho hello\n")
 	testutil.WriteFile(t, userConfigDir, "config.yaml",
 		"home:\n  .hello.sh:\n    source: hello.sh\n    hook: startup\n")
+}
+
+// TestRunDryRunAgentGoose verifies `run --agent goose` resolves the
+// goose profile, notices that it is experimental, and previews without
+// starting a VM.
+func TestRunDryRunAgentGoose(t *testing.T) {
+	initTestProjectDir(t)
+
+	mock := &msbtest.MockMsbClient{}
+	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{},
+		"run", "--dry-run", "--agent", "goose", "--agent-version", "1.60.1")
+	setupAbsentImagePreviewMocks(t, mock)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var pinnedVersion, experimental bool
+	for _, line := range ui.InfoCalls {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "dry-run: agent version 1.60.1" {
+			pinnedVersion = true
+		}
+		if strings.Contains(trimmed, "experimental") {
+			experimental = true
+		}
+	}
+	if !pinnedVersion {
+		t.Errorf("expected pinned goose version line; got: %v", ui.InfoCalls)
+	}
+	if !experimental {
+		t.Errorf("expected an experimental notice for goose; got: %v", ui.InfoCalls)
+	}
+	if len(mock.CreatedSandboxCalls) != 0 {
+		t.Errorf("--dry-run created %d sandbox(es), want 0", len(mock.CreatedSandboxCalls))
+	}
+}
+
+// TestRunAgentGooseRejectsDaemonOnlyFlags verifies goose, which runs no
+// daemon, rejects --worktree and --serve-only.
+func TestRunAgentGooseRejectsDaemonOnlyFlags(t *testing.T) {
+	for _, flagArgs := range [][]string{{"--worktree", "feat"}, {"--serve-only"}} {
+		t.Run(flagArgs[0], func(t *testing.T) {
+			initTestProjectDir(t)
+			args := append([]string{"run", "--dry-run", "--agent", "goose"}, flagArgs...)
+			root, _ := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, args...)
+			err := root.Execute()
+			if err == nil || !strings.Contains(err.Error(), `not supported by agent "goose"`) {
+				t.Errorf("err = %v, want 'not supported by agent \"goose\"'", err)
+			}
+		})
+	}
+}
+
+// TestRunDryRunAgentGrokBuild verifies `run --agent grok-build` resolves the
+// grok-build profile, notices that it is experimental, and previews without
+// starting a VM.
+func TestRunDryRunAgentGrokBuild(t *testing.T) {
+	initTestProjectDir(t)
+
+	mock := &msbtest.MockMsbClient{}
+	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{},
+		"run", "--dry-run", "--agent", "grok-build", "--agent-version", "1.0.89")
+	setupAbsentImagePreviewMocks(t, mock)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var pinnedVersion, experimental bool
+	for _, line := range ui.InfoCalls {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "dry-run: agent version 1.0.89" {
+			pinnedVersion = true
+		}
+		if strings.Contains(trimmed, "experimental") {
+			experimental = true
+		}
+	}
+	if !pinnedVersion {
+		t.Errorf("expected pinned grok-build version line; got: %v", ui.InfoCalls)
+	}
+	if !experimental {
+		t.Errorf("expected an experimental notice for grok-build; got: %v", ui.InfoCalls)
+	}
+	if len(mock.CreatedSandboxCalls) != 0 {
+		t.Errorf("--dry-run created %d sandbox(es), want 0", len(mock.CreatedSandboxCalls))
+	}
+}
+
+// TestRunAgentGrokBuildRejectsDaemonOnlyFlags verifies grok-build, which runs no
+// daemon, rejects --worktree and --serve-only.
+func TestRunAgentGrokBuildRejectsDaemonOnlyFlags(t *testing.T) {
+	for _, flagArgs := range [][]string{{"--worktree", "feat"}, {"--serve-only"}} {
+		t.Run(flagArgs[0], func(t *testing.T) {
+			initTestProjectDir(t)
+			args := append([]string{"run", "--dry-run", "--agent", "grok-build"}, flagArgs...)
+			root, _ := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, args...)
+			err := root.Execute()
+			if err == nil || !strings.Contains(err.Error(), `not supported by agent "grok-build"`) {
+				t.Errorf("err = %v, want 'not supported by agent \"grok-build\"'", err)
+			}
+		})
+	}
+}
+
+// TestRunDryRunAgentMistralVibe verifies `run --agent mistral-vibe` resolves the
+// mistral-vibe profile, notices that it is experimental, and previews without
+// starting a VM.
+func TestRunDryRunAgentMistralVibe(t *testing.T) {
+	initTestProjectDir(t)
+
+	mock := &msbtest.MockMsbClient{}
+	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{},
+		"run", "--dry-run", "--agent", "mistral-vibe", "--agent-version", "3.1.3")
+	setupAbsentImagePreviewMocks(t, mock)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var pinnedVersion, experimental bool
+	for _, line := range ui.InfoCalls {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "dry-run: agent version 3.1.3" {
+			pinnedVersion = true
+		}
+		if strings.Contains(trimmed, "experimental") {
+			experimental = true
+		}
+	}
+	if !pinnedVersion {
+		t.Errorf("expected pinned mistral-vibe version line; got: %v", ui.InfoCalls)
+	}
+	if !experimental {
+		t.Errorf("expected an experimental notice for mistral-vibe; got: %v", ui.InfoCalls)
+	}
+	if len(mock.CreatedSandboxCalls) != 0 {
+		t.Errorf("--dry-run created %d sandbox(es), want 0", len(mock.CreatedSandboxCalls))
+	}
+}
+
+// TestRunAgentMistralVibeRejectsDaemonOnlyFlags verifies mistral-vibe, which runs
+// no daemon, rejects --worktree and --serve-only.
+func TestRunAgentMistralVibeRejectsDaemonOnlyFlags(t *testing.T) {
+	for _, flagArgs := range [][]string{{"--worktree", "feat"}, {"--serve-only"}} {
+		t.Run(flagArgs[0], func(t *testing.T) {
+			initTestProjectDir(t)
+			args := append([]string{"run", "--dry-run", "--agent", "mistral-vibe"}, flagArgs...)
+			root, _ := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, args...)
+			err := root.Execute()
+			if err == nil || !strings.Contains(err.Error(), `not supported by agent "mistral-vibe"`) {
+				t.Errorf("err = %v, want 'not supported by agent \"mistral-vibe\"'", err)
+			}
+		})
+	}
 }

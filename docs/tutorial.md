@@ -32,7 +32,7 @@ agents-sandbox
 ```
 
 The first run builds the runner image and creates the sandbox; later runs reuse it. To start a different agent, pass
-`--agent`: `agents-sandbox --agent opencode`, `agents-sandbox --agent pi`, `agents-sandbox --agent claude-code`, `agents-sandbox --agent codex`, `agents-sandbox --agent hermes`, `agents-sandbox --agent oh-my-pi`, or `agents-sandbox --agent kimi-code`.
+`--agent`: `agents-sandbox --agent opencode`, `agents-sandbox --agent pi`, `agents-sandbox --agent claude-code`, `agents-sandbox --agent codex`, `agents-sandbox --agent hermes`, `agents-sandbox --agent oh-my-pi`, `agents-sandbox --agent kimi-code`, `agents-sandbox --agent qwen-code`, `agents-sandbox --agent goose`, `agents-sandbox --agent grok-build`, or `agents-sandbox --agent mistral-vibe`.
 
 ## What you see
 

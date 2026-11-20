@@ -53,6 +53,62 @@ func TestReadClassifiesLoginStore(t *testing.T) {
 		"a login store is also a config fact")
 }
 
+// TestReadClassifiesQwenLoginStores pins qwen's two login stores: its OAuth
+// login and its MCP OAuth tokens.
+func TestReadClassifiesQwenLoginStores(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".qwen/oauth_creds.json", `{"access_token":"secret"}`)
+	writeFile(t, home, ".qwen/mcp-oauth-tokens.json", `[{"serverName":"x"}]`)
+
+	rb, err := Read(home, "qwen-code", Manifest{})
+
+	require.NoError(t, err)
+	require.Empty(t, rb.Static)
+	var sources []string
+	for _, credential := range rb.Login {
+		require.Equal(t, "qwen-code", credential.Provider)
+		require.Empty(t, credential.Value, "a login value is never read")
+		sources = append(sources, credential.Source)
+	}
+	require.ElementsMatch(t, []string{".qwen/oauth_creds.json", ".qwen/mcp-oauth-tokens.json"}, sources)
+}
+
+// TestReadClassifiesGrokBuildLoginStore pins grok-build's login store to
+// auth.json. config.toml is not a declared read-back path (it can hold an
+// inline, as-yet-unclassified key), so it contributes no config fact.
+func TestReadClassifiesGrokBuildLoginStore(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".grok/config.toml", "[ui]\nscreen_mode = \"minimal\"\n")
+	writeFile(t, home, ".grok/auth.json", `{"https://auth.x.ai::x":{"key":"secret"}}`)
+
+	rb, err := Read(home, "grok-build", Manifest{})
+
+	require.NoError(t, err)
+	require.Empty(t, rb.Static)
+	require.Len(t, rb.Login, 1)
+	require.Equal(t, ".grok/auth.json", rb.Login[0].Source)
+	require.Equal(t, "grok-build", rb.Login[0].Provider)
+	require.Empty(t, rb.Login[0].Value, "a login value is never read")
+	require.NotContains(t, rb.ConfigPaths, ".grok/config.toml",
+		"config.toml is withheld until its inline key is classified")
+}
+
+// TestReadClassifiesPILoginInAuthJSON pins pi's login store to auth.json, where
+// pi saves its keys and OAuth logins; its settings file is configuration only.
+func TestReadClassifiesPILoginInAuthJSON(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".pi/agent/settings.json", `{"defaultProvider":"anthropic"}`)
+	writeFile(t, home, ".pi/agent/auth.json", `{"anthropic":{"type":"oauth"}}`)
+
+	rb, err := Read(home, "pi", Manifest{})
+
+	require.NoError(t, err)
+	require.Empty(t, rb.Static)
+	require.Len(t, rb.Login, 1)
+	require.Equal(t, ".pi/agent/auth.json", rb.Login[0].Source)
+	require.Equal(t, "pi", rb.Login[0].Provider)
+}
+
 // TestLoginStoreForMatchesExactPath pins that a pattern with no metacharacter
 // matches its exact path.
 func TestLoginStoreForMatchesExactPath(t *testing.T) {
@@ -1041,7 +1097,7 @@ func TestSkipsInlineCredentialsMatchesLoginStoresByPathTail(t *testing.T) {
 		"/scope/projectconfig/codex/auth.json",
 		".claude/settings.json",
 		"/x/.claude/settings.json",
-		".pi/agent/settings.json",
+		".pi/agent/auth.json",
 		"/x/kimi-code/credentials/foo.json",
 		"/x/opencode/.env",
 	}
@@ -1375,4 +1431,19 @@ func TestClassifyConfigContentExcludedFilesHaveNoInlineStatic(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, foreignStatic)
 	require.Empty(t, foreignLogin, "the shared opencode auth store is scoped to opencode")
+}
+
+// TestReadClassifiesMistralVibeDotenv pins that vibe's ~/.vibe/.env, where
+// /login stores an API key, reads as a static secret for its provider key.
+func TestReadClassifiesMistralVibeDotenv(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".vibe/.env", "MISTRAL_API_KEY=sk-test\n")
+
+	rb, err := Read(home, "mistral-vibe", Manifest{})
+
+	require.NoError(t, err)
+	require.Empty(t, rb.Login)
+	require.Len(t, rb.Static, 1)
+	require.Equal(t, ".vibe/.env", rb.Static[0].Source)
+	require.Equal(t, "MISTRAL_API_KEY", rb.Static[0].EnvVar)
 }

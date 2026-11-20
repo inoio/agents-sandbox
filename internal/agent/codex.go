@@ -32,9 +32,10 @@ func (codexProfile) ImageSpec() ImageSpec {
 			`curl -fsSL "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/codex-package-$(uname -m)-unknown-linux-musl.tar.gz" | ` +
 			`tar -xz -C /opt/agents-sandbox/codex && ` +
 			`ln -s ../codex/bin/codex /opt/agents-sandbox/bin/codex`,
-		RequiresNode: false,
-		OwnsToolTree: false,
-		RuntimeLibs:  nil,
+		RequiresNode:  false,
+		OwnsToolTree:  false,
+		RuntimeLibs:   nil,
+		RunnerCommand: "",
 	}
 }
 
@@ -44,7 +45,7 @@ func (codexProfile) LatestVersion(ctx context.Context) (string, error) {
 func (codexProfile) NewerThan(a, b string) (bool, error) { return newerVersionThan(a, b) }
 
 // SnippetPattern matches TOML snippets, which merge into config.toml as TOML.
-func (codexProfile) SnippetPattern() string { return "config*.toml" }
+func (codexProfile) SnippetPattern() string { return configTOMLSnippetPattern }
 
 func (codexProfile) VMConfigPath(home string) string {
 	return filepath.Join(home, ".codex", codexConfigFileName)

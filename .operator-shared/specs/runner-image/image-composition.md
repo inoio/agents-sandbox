@@ -1,6 +1,6 @@
 ---
 description: Contract for how the per-project runner Dockerfile is composed into per-tool multistage stages so tool-owned layers (apt tools, node, agent, docker) cache independently of the user body, the base, and each other; includes when the node stage is emitted (agent node dependency), the native vs npm agent install methods, and the `dind` → `docker` rename with deprecated aliases.
-read_if: Changing RenderDockerfile/stage composition, image layer caching, which agents need node, agent install methods (native installer vs npm), the `ImageSpec.OwnsToolTree` tool-tree ownership (`COPY --chown=dev:dev`, the `devUserBlock` `dev`-group guarantee), the dind/docker switch or marker, the Dockerfile-content docker enablement, its explicit-config precedence and the shared docker/dind source precedence (`viperconfig.EffectiveDockerSource`), the unified dockerfile diagnostics, custom-base handling, the node pin/libatomic dependency (node-removal direction), tool install paths (/opt/agents-sandbox), login-shell PATH handling (AGENTS_SANDBOX_IMAGE_PATH, the /etc/profile.d merge script), the dockerd storage driver (fuse-overlayfs with a vfs fallback), or the rootless engine's build-time prerequisites.
+read_if: Changing RenderDockerfile/stage composition, image layer caching, which agents need node, agent install methods (native installer vs npm), the `ImageSpec.OwnsToolTree` tool-tree ownership (`COPY --chown=dev:dev`, the `devUserBlock` `dev`-group guarantee), the `ImageSpec.RunnerCommand` runner-stage setup (`/etc/grok/requirements.toml`), the dind/docker switch or marker, the Dockerfile-content docker enablement, its explicit-config precedence and the shared docker/dind source precedence (`viperconfig.EffectiveDockerSource`), the unified dockerfile diagnostics, custom-base handling, the node pin/libatomic dependency (node-removal direction), tool install paths (/opt/agents-sandbox), login-shell PATH handling (AGENTS_SANDBOX_IMAGE_PATH, the /etc/profile.d merge script), the dockerd storage driver (fuse-overlayfs with a vfs fallback), or the rootless engine's build-time prerequisites.
 ---
 
 # Runner image composition and tool-layer caching
@@ -248,6 +248,13 @@ one), so a musl base is skipped rather than failed, and it resolves the library 
 and then the standard sbin directories, so a base that narrows `PATH` to `/usr/bin` still verifies an installed library
 rather than reporting it missing — so a base that installs it in the body is accepted. It fails the build naming the
 library, so a custom base that runs `hermes` must provide it — the same custom-base contract as the node pin above.
+
+The agent's **runner-stage setup command** is declared per agent (`ImageSpec.RunnerCommand`) and rendered as a root `RUN`
+in the final stage after the agent tool-tree COPY, before the ENV/LABEL config block. It carries a setup step that must be
+part of the runner's lineage: the agent stage is not in the final image's `FROM` lineage and the runner copies only the
+tool tree out of it, so a file the install writes outside that tree is discarded. `grok-build` pins its auto-updater off
+in `/etc/grok/requirements.toml` this way — the highest-priority config layer, so no user or project setting re-enables
+it. An agent that needs none leaves it empty.
 
 ## Naming: `docker` (renamed from `dind`)
 

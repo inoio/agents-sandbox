@@ -31,7 +31,7 @@ type observer struct {
 // opts.Network = obs.Overlay() there, and calls Stop at teardown. This subplan
 // does not touch session/options/prepare/vm.
 func StartObservation(bindHost string, base network.Policy) (Observer, error) {
-	handle, err := Start(bindHost)
+	handle, err := Start(bindHost, base.Observe.SkipUpstreamVerify)
 	if err != nil {
 		return nil, err
 	}

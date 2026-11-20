@@ -69,7 +69,8 @@ func (kimiCodeProfile) ImageSpec() ImageSpec {
 		// ~/.kimi-code on the home volume, so the tool tree stays root-owned.
 		OwnsToolTree: false,
 		// The embedded Node runtime links the C++ runtime beside glibc.
-		RuntimeLibs: []string{"libstdc++.so.6", "libgcc_s.so.1"},
+		RuntimeLibs:   []string{"libstdc++.so.6", "libgcc_s.so.1"},
+		RunnerCommand: "",
 	}
 }
 
@@ -79,7 +80,7 @@ func (kimiCodeProfile) LatestVersion(ctx context.Context) (string, error) {
 func (kimiCodeProfile) NewerThan(a, b string) (bool, error) { return newerVersionThan(a, b) }
 
 // SnippetPattern matches TOML snippets, which merge into config.toml as TOML.
-func (kimiCodeProfile) SnippetPattern() string { return "config*.toml" }
+func (kimiCodeProfile) SnippetPattern() string { return configTOMLSnippetPattern }
 
 func (kimiCodeProfile) VMConfigPath(home string) string {
 	return filepath.Join(home, kimiCodeDataDir, kimiCodeConfigFileName)

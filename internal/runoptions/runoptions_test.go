@@ -1326,6 +1326,10 @@ func TestBuildNoticesExperimentalAgents(t *testing.T) {
 		{"hermes", true},
 		{"oh-my-pi", true},
 		{"kimi-code", true},
+		{"qwen-code", true},
+		{"goose", true},
+		{"grok-build", true},
+		{"mistral-vibe", true},
 		{"opencode", false},
 		{"opencode2", false},
 	}

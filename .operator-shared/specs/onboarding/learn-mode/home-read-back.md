@@ -39,6 +39,12 @@ only channel that works when the launcher-owned proxy
    exact path or by a glob, so a store that is a **directory of files** — kimi's `~/.kimi-code/credentials/*.json` —
    is recorded as one login per matched file rather than missed.
 
+A profile declares a config file as a read-back path only when the reader classifies every credential shape that file
+can hold. An inline key the walk does not recognise would otherwise reach the managed-config write-back verbatim
+(its content is sanitized only against the *classified* static set), so an as-yet-unclassified file is withheld until
+its shape is covered: `grok-build` declares `~/.grok/auth.json` only, withholding `~/.grok/config.toml` because its
+`[model.<id>] api_key` is not classified yet (the `codex` precedent, which omits its own `config.toml`).
+
 Facts 1–3 come from reading the home volume. It also gives configured providers, login presence, and
 harness-specific host and error mentions where the harness happens to record them (usually failure paths, and never
 as reliable attribution). It does not give the destinations actually used, or which credential went where; alone it cannot propose a network

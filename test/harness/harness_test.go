@@ -94,6 +94,33 @@ func TestKimiCodeSeedsATrustedWorkspaceThroughASnippet(t *testing.T) {
 	}
 }
 
+// TestGooseSeedsAProviderThroughASnippet pins how the smoke test reaches goose's
+// REPL: config.yaml is the merged-config target, so the provider and the
+// telemetry choice are seeded as a launcher config snippet, the greeting marks
+// the normal-buffer REPL being up, and no egress is needed.
+func TestGooseSeedsAProviderThroughASnippet(t *testing.T) {
+	spec, ok := harnessSpecs["goose"]
+	if !ok {
+		t.Fatal("goose has no smoke-test spec")
+	}
+	if !spec.KeepsNormalBuffer || spec.ReadyMarker != gooseReadyMarker {
+		t.Errorf("goose KeepsNormalBuffer = %v, ReadyMarker = %q; want true and %q",
+			spec.KeepsNormalBuffer, spec.ReadyMarker, gooseReadyMarker)
+	}
+	if spec.Network != "" {
+		t.Errorf("goose Network = %q, want the default `none`", spec.Network)
+	}
+	cfg, ok := spec.SeedAgentSnippets[gooseSmokeSnippet]
+	if !ok {
+		t.Fatalf("goose SeedAgentSnippets missing %s", gooseSmokeSnippet)
+	}
+	for _, want := range []string{"GOOSE_PROVIDER: ollama", "GOOSE_TELEMETRY_ENABLED: false"} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("goose seeded config must contain %q:\n%s", want, cfg)
+		}
+	}
+}
+
 // TestReadyTimeoutPrefersThePerHarnessOverride pins the readiness-budget
 // selection: a spec that names an override uses it, and one that leaves it
 // unset falls back to the shared default.

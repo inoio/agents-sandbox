@@ -51,6 +51,60 @@ func TestStartObservation(t *testing.T) {
 	}
 }
 
+// StartObservation forwards network.observe.skip-upstream-verify to the proxy's
+// origin transport: with it set, a self-signed upstream round-trips through the
+// channel; without it, the same upstream is rejected.
+func TestStartObservationForwardsSkipUpstreamVerify(t *testing.T) {
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	cases := []struct {
+		name               string
+		skipUpstreamVerify bool
+		wantServed         bool
+	}{
+		{name: "verify by default", skipUpstreamVerify: false, wantServed: false},
+		{name: "skip when configured", skipUpstreamVerify: true, wantServed: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			observer, err := StartObservation("127.0.0.1", network.Policy{
+				Profiles: []network.Profile{network.ProfileNone},
+				Observe:  network.ObserveConfig{SkipUpstreamVerify: tc.skipUpstreamVerify},
+			})
+			if err != nil {
+				t.Fatalf("StartObservation: %v", err)
+			}
+			defer observer.Stop()
+
+			served := requestThroughObserver(t, observer, upstream.URL)
+			if served != tc.wantServed {
+				t.Errorf("upstream served = %v, want %v", served, tc.wantServed)
+			}
+		})
+	}
+}
+
+// requestThroughObserver issues one GET for target through the observer's proxy
+// with a client that trusts the channel CA, and reports whether the upstream
+// answered with 200.
+func requestThroughObserver(t *testing.T, obs Observer, target string) bool {
+	t.Helper()
+
+	concrete, ok := obs.(observer)
+	if !ok {
+		t.Fatalf("obs = %T, want the concrete observer", obs)
+	}
+	resp, err := proxyClient(t, concrete.handle).Get(target)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
 // Stop tears the proxy down and returns the artefact, and a second call is a
 // no-op that returns the same artefact. A recorded request drives a non-empty
 // artefact, so the identical-return assertion is not vacuous.

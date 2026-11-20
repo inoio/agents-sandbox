@@ -119,6 +119,12 @@ Once our CA is trusted upstream, the spike confirmed `curl`, `git` over HTTPS, a
 The trust is VM-creation state and does not survive a recreate on its own; a learning session that recreates the VM
 re-establishes it with that session's fresh CA.
 
+The proxy verifies the upstream certificate when it dials the real destination, because it forwards the real credential:
+an upstream whose certificate the system roots do not contain is refused and the destination is recorded as a denial,
+so a forwarded credential cannot reach an impostor. `network.observe.skip-upstream-verify` (default `false`) drops that
+verification for a host whose egress is transparently intercepted with a private CA. It is launcher-side — it never
+reaches the VM, the SDK spec, or the network fingerprint — so changing it does not recreate the VM.
+
 ## The capture artefact
 
 The channel records, per observed request: the destination (`Host` and IP), the port and protocol, whether the

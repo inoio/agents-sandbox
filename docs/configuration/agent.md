@@ -10,7 +10,7 @@ nav_order: 60
 
 agents-sandbox is agent-aware. A `--agent <name>` flag on `run`, `shell`, `build`, `volume`, `stop`, and `kill`
 selects the coding-agent profile to run, build, provision, or manage. The agent can also be selected via the `agent`
-config key or the `AGENTS_SANDBOX_AGENT` environment variable. Seven agents ship as built-in profiles:
+config key or the `AGENTS_SANDBOX_AGENT` environment variable. Twelve agents ship as built-in profiles:
 
 - **`opencode`** — daemon-based, with serve/attach, worktree sessions, and GitHub-release upgrade checks.
 - **`opencode2`** (default) — opencode 2 (beta), installed from its upstream installer (`https://opencode.ai/v2/install`); the
@@ -36,12 +36,34 @@ config key or the `AGENTS_SANDBOX_AGENT` environment variable. Seven agents ship
   standalone GitHub release binary after its checksum is verified, and run interactively; upgrade checks via the npm
   registry. Its update check is turned off (`KIMI_CODE_NO_AUTO_UPDATE=1`), because agents-sandbox offers upgrades
   itself. The binary is about 194 MB.
+- **`qwen-code`** — [Qwen Code](https://github.com/QwenLM/qwen-code) (binary `qwen`), installed from its standalone
+  GitHub release (which bundles its own Node) after its checksum is verified, and run interactively; upgrade checks via
+  the npm registry. Its update check is turned off through a system settings file baked into the image
+  (`QWEN_CODE_SYSTEM_SETTINGS_PATH` points at it under `/opt/agents-sandbox`), because agents-sandbox offers
+  upgrades itself. The release unpacks to about 326 MB.
+- **`goose`** — [Goose](https://github.com/aaif-goose/goose), installed from the static (musl) binary of its GitHub release and run
+  interactively; upgrade checks via its GitHub releases, taking the newest one whose Linux archives are published.
+  Goose publishes no checksums for its release assets, so the binary is fetched over HTTPS from the pinned release tag
+  without a checksum check. The Linux release has no `goose update` subcommand and performs no automatic update check,
+  so there is nothing to turn off. The binary is about 159 MB.
+- **`grok-build`** — xAI's [Grok Build](https://x.ai/cli) (binary `grok`), installed from the static release binary xAI hosts (with
+  the storage bucket xAI's installer uses as a fallback) and run interactively; upgrade checks via the npm registry.
+  xAI publishes no checksums for the binaries it hosts, so it is fetched over HTTPS by its pinned version without a checksum
+  check. Its auto-updater is turned off (`GROK_DISABLE_AUTOUPDATER=1`, and `auto_update = false` pinned in
+  `/etc/grok/requirements.toml`), because agents-sandbox offers upgrades itself. The binary is about 208 MB.
+- **`mistral-vibe`** — Mistral's [Vibe](https://github.com/mistralai/mistral-vibe) (binary `vibe`), installed from PyPI and run
+  interactively; upgrade checks via PyPI. The image fetches a pinned, checksum-verified uv, which installs a managed
+  CPython 3.14 and the pinned `mistral-vibe` release under `/opt/agents-sandbox/mistral-vibe`, with its Python
+  dependencies held to the versions in that release's `uv.lock`; uv itself is not shipped. Its update check is turned
+  off (`VIBE_ENABLE_UPDATE_CHECKS=false`, which outranks the user's `config.toml`), because agents-sandbox offers
+  upgrades itself, and it uses the system trust store (`VIBE_ENABLE_SYSTEM_TRUST_STORE=true`), which carries the
+  sandbox's TLS-interception CA, so secret substitution works. The install is about 585 MB.
 
 > **Experimental agents:** `opencode` and `opencode2` are the tested default agents. Every other built-in
-> profile (`pi`, `claude-code`, `codex`, `hermes`, `oh-my-pi`, `kimi-code`) is **experimental** — not well tested with agents-sandbox.
+> profile (`pi`, `claude-code`, `codex`, `hermes`, `oh-my-pi`, `kimi-code`, `qwen-code`, `goose`, `grok-build`, `mistral-vibe`) is **experimental** — not well tested with agents-sandbox.
 > The launcher prints a notice when an experimental agent is selected.
 
-`--worktree` and `--serve-only` are rejected for pi, claude-code, codex, hermes, oh-my-pi, and kimi-code (they have no daemon); they run through the
+`--worktree` and `--serve-only` are rejected for pi, claude-code, codex, hermes, oh-my-pi, kimi-code, qwen-code, goose, grok-build, and mistral-vibe (they have no daemon); they run through the
 interactive TUI instead. Passing an unsupported `--agent` name reports the valid names in its error message.
 
 > **Note:** opencode2 server auth — v2's `serve` requires HTTP basic auth on every `/api/*` route and would otherwise generate a
@@ -97,13 +119,21 @@ agent config directories (generic user, per-slug user, project), and written to 
   the merged output.
 - **kimi-code** — snippets match `config*.toml` in the `kimi-code/` subdir (e.g. `config-provider.toml`); merged to
   `/home/dev/.kimi-code/config.toml`, written as TOML.
+- **qwen-code** — snippets match `settings*.json*` in the `qwen-code/` subdir (e.g. `settings-model.json`); merged to
+  `/home/dev/.qwen/settings.json`.
+- **goose** — snippets match `config*.{yml,yaml}` in the `goose/` subdir (e.g. `config-provider.yaml`); merged to
+  `/home/dev/.config/goose/config.yaml`, written as YAML.
+- **grok-build** — snippets match `config*.toml` in the `grok-build/` subdir (e.g. `config-ui.toml`); merged to
+  `/home/dev/.grok/config.toml`, written as TOML.
+- **mistral-vibe** — snippets match `config*.toml` in the `mistral-vibe/` subdir (e.g. `config-model.toml`); merged to
+  `/home/dev/.vibe/config.toml`, written as TOML.
 
 Matching files are parsed and **deep-merged** into one config document. The generic user directory is merged first, then
 the per-slug user directory, then the project directory; within each directory files are merged in alphabetical order,
 so later files override earlier ones.
 Snippet parsing supports JSON, JSONC, JSON5, YAML, and TOML, chosen by file extension (YAML only applies to agents whose
 pattern includes YAML extensions, e.g. a pattern like `pi-*.{json,yaml}`). The merged config is written as TOML when the
-agent's VM config path ends in `.toml` (codex, kimi-code), as YAML when it ends in `.yaml`/`.yml` (hermes, oh-my-pi), and as JSON otherwise.
+agent's VM config path ends in `.toml` (codex, kimi-code, grok-build, mistral-vibe), as YAML when it ends in `.yaml`/`.yml` (hermes, oh-my-pi, goose), and as JSON otherwise.
 
 If no snippet files exist, no merged config is produced.
 
@@ -168,7 +198,10 @@ The drop-in copy is scoped to the agent's settings and, for opencode, its creden
 - **opencode2** — same drop-in copy as `opencode` (`~/.config/opencode/**` and `~/.local/share/opencode/auth.json`).
   `opencode2` reads credentials from its own database and ignores the copied `auth.json` in a new sandbox; see
   [GitHub Copilot with opencode2]({% link configuration/secrets.md %}#github-copilot-with-opencode2).
-- **pi** — `~/.pi/agent/settings.json`.
+- **pi** — from `~/.pi/agent`: `settings.json`, `keybindings.json`, the instruction files (`AGENTS.md`,
+  `AGENTS.override.md`, `CLAUDE.md`, `SYSTEM.md`, `APPEND_SYSTEM.md`), and the `extensions/`, `skills/`, `prompts/`,
+  and `themes/` directories. `auth.json` (saved keys and `/login` credentials), `models.json` and `mcp.json` (which
+  can hold literal keys and headers), `mcp-auth.json`, and sessions are not copied.
 - **claude-code** — `~/.claude/settings.json` (runtime state and the machine-managed `.credentials.json` are not copied).
 - **codex** — `~/.codex/config.toml` (sessions, logs, and the `auth.json` login cache are not copied).
 - **hermes** — `~/.hermes/config.yaml` (the rest of `~/.hermes` — `state.db`, `sessions/`, `memories/`, `skills/` — is
@@ -180,6 +213,26 @@ The drop-in copy is scoped to the agent's settings and, for opencode, its creden
   keeps literal provider keys (`api_key`, `[providers.<id>.env]`) beside its settings; nor are `mcp.json` (MCP
   headers and env can hold tokens), the `credentials/` logins, or runtime state. Put Kimi settings in `config*.toml`
   snippets instead (see [Config snippet merge](#config-snippet-merge)).
+- **qwen-code** — from `~/.qwen`: `QWEN.md`, `AGENTS.md`, and the `commands/`, `skills/`, `agents/`, and `workflows/`
+  directories. `settings.json` is not copied, because `/auth` saves API keys into its `env` section beside the
+  settings; nor are `.env` (environment variables, typically keys), the `oauth_creds.json` and `mcp-oauth-tokens.json`
+  logins, `extensions/` (each extension keeps its settings, including secret ones, in a `.env`), or runtime state. Put Qwen settings in `settings*.json` snippets instead (see
+  [Config snippet merge](#config-snippet-merge)).
+- **goose** — from `~/.config/goose`: `permission.yaml`, the global context files `.goosehints` and `AGENTS.md`, and the
+  `prompts/` and `recipes/` directories. `config.yaml` is not copied, because an extension's `envs` and `headers` can
+  hold tokens beside its settings; nor are the `custom_providers/` definitions (an inline `api_key` and headers),
+  `secrets.yaml` (where goose keeps secrets as plain text when there is no system keyring), `history.txt`, or runtime
+  state. Put Goose settings in `config*.yaml` snippets instead (see [Config snippet merge](#config-snippet-merge)).
+- **grok-build** — the global rules files in `~/.grok/` (`AGENTS.md`, `Agents.md`, `AGENT.md`, `CLAUDE.md`,
+  `Claude.md`), `~/.grok/skills/`, `~/.grok/sandbox.toml`, and `~/.grok/workflows/` only. `config.toml` is not copied,
+  because a model's `api_key` and MCP server headers can sit beside its settings; nor are the `auth.json` login,
+  `hooks/` (they run host commands) and `plugins/` (they can bundle MCP configs), the cloud-synced `requirements.toml`
+  and `managed_config.toml`, the trust stores, or runtime state. Put Grok settings in `config*.toml`
+  snippets instead (see [Config snippet merge](#config-snippet-merge)).
+- **mistral-vibe** — from `~/.vibe`: `AGENTS.md` and the `agents/`, `prompts/`, and `skills/` directories. `config.toml`
+  is not copied, because MCP server and provider headers and an MCP server's `env` can hold tokens beside its settings;
+  nor are `.env` (where Vibe stores an API key), `hooks.toml` (hooks run host commands), the trust store, or runtime
+  state. Put Vibe settings in `config*.toml` snippets instead (see [Config snippet merge](#config-snippet-merge)).
 
 Precedence: the merged snippet config and any `home:` mappings override the drop-in copy for the same VM path.
 
@@ -213,9 +266,9 @@ provisioned path (see [Home provisioning & startup hooks]({% link configuration/
 credential file from the host before running. The launcher does not inject host secrets in any other way; the env-secret
 mechanism is the supported channel for secrets you do not want on disk in the VM.
 
-For pi, claude-code, codex, hermes, oh-my-pi, and kimi-code, the drop-in copy does not include credential files. pi,
-claude-code, hermes, and oh-my-pi authenticate with env secrets instead; codex logs in inside the VM, and kimi-code
-does either:
+For pi, claude-code, codex, hermes, oh-my-pi, kimi-code, qwen-code, goose, grok-build, and mistral-vibe, the drop-in copy does
+not include credential files. pi, claude-code, hermes, oh-my-pi, and goose authenticate with env secrets instead;
+codex logs in inside the VM, and kimi-code, qwen-code, grok-build, and mistral-vibe do either:
 
 - **pi** — per-provider env vars, e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` (see pi's docs for the
   full list). Put them in an `env.secret` / `env.secret.yaml` file.
@@ -232,6 +285,24 @@ does either:
 - **kimi-code** — Kimi does not read a provider key from the process environment on its own. Name the variable in a
   provider snippet with `api_key_env`, and supply it through `env.secret`; or run `/login` once inside the VM, whose
   login persists on the home volume (see [Kimi Code login](#kimi-code-login)).
+- **qwen-code** — the provider's key variable (`DASHSCOPE_API_KEY`, `OPENAI_API_KEY`, …), supplied through
+  `env.secret`, with the provider in a `settings*.json` snippet; or `/auth` once inside the VM (see
+  [Qwen Code login](#qwen-code-login)).
+- **goose** — the provider's key variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …), supplied through `env.secret`,
+  with the provider and model in a `config*.yaml` snippet (e.g. `GOOSE_PROVIDER: anthropic` and `GOOSE_MODEL: …`). Goose
+  reads a secret from the process environment before its secret store, so nothing needs to be written into
+  `secrets.yaml`. Keep goose's settings in the snippet, including `GOOSE_TELEMETRY_ENABLED: false` (or `true`):
+  agents-sandbox owns `config.yaml` in the VM — with a snippet it is replaced by the merged document, and with none it
+  is removed — so whatever `goose configure` or the first-run telemetry prompt writes there does not survive the next
+  run. A key that `goose configure` stores in `secrets.yaml` on the home volume does persist, but the `env.secret`
+  route keeps it out of the VM.
+- **grok-build** — `XAI_API_KEY`, supplied through `env.secret` for `api.x.ai`; Grok uses it when no login is active.
+  Or sign in once inside the VM with `grok login --device-auth` (or `/login` in the TUI) and finish the sign-in on your
+  host; the login is stored in `~/.grok/auth.json` on the home volume and never copied from the host.
+- **mistral-vibe** — `MISTRAL_API_KEY`, supplied through `env.secret` for `api.mistral.ai`; Vibe reads it from the
+  process environment first. Or run `/login` once inside the VM and enter a key, which Vibe saves to `~/.vibe/.env` on
+  the home volume as plain text. The Mistral-account sign-in keeps its tokens only in an OS keyring, which the VM does
+  not have, so it is not available in the sandbox.
 - **opencode** — `OPENCODE_API_KEY`.
 
 ### Codex login
@@ -299,6 +370,45 @@ max_context_size = 262144
 device-code sign-in on your host. The login is stored in `~/.kimi-code/credentials/` on the home volume, so you sign in
 once per project and agent; it is never copied from the host.
 
+### Qwen Code login
+
+**API key:** declare the key as an [env secret]({% link configuration/secrets.md %}) for the provider's API host, and
+name it as the model's `envKey` in a settings snippet. Qwen reads the key from the process environment, which outranks the `env`
+section of `settings.json`, so the VM only sees the placeholder, which the network proxy replaces on requests to that
+host. Do not put the key into a snippet's `env` section: snippets are written into the VM as plain files.
+
+```yaml
+# ~/.config/agents-sandbox/env.secret.yaml
+DASHSCOPE_API_KEY:
+  value: sk-xxxxxxxx
+  host: dashscope.aliyuncs.com
+```
+
+```json
+// ~/.config/agents-sandbox/qwen-code/settings-provider.json
+{
+  "modelProviders": {
+    "openai": [
+      {
+        "id": "qwen3-coder-plus",
+        "name": "qwen3-coder-plus",
+        "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "envKey": "DASHSCOPE_API_KEY"
+      }
+    ]
+  },
+  "security": { "auth": { "selectedType": "openai" } },
+  "model": { "name": "qwen3-coder-plus" }
+}
+```
+
+**In the VM:** run `/auth` in the TUI and pick a provider. A Qwen OAuth sign-in is saved into
+`~/.qwen/oauth_creds.json` on the home volume, so you sign in once per project and agent; it is never copied from the
+host. Qwen OAuth signs in through a browser. An API key entered through `/auth` is written to
+`~/.qwen/settings.json`, but agents-sandbox owns that file through the `settings*.json` snippet merge — with a snippet
+it is replaced by the merged document, and with none it is removed — so an API key entered there does not survive the
+next run. Use the `envKey` + `env.secret` snippet instead for an API key that persists.
+
 ## Example: permissions
 
 Opencode permissions are configured through opencode config snippets, which agents-sandbox merges (user-first, then
@@ -356,19 +466,24 @@ version/upgrade checks. Beyond that base, coverage differs by agent:
 - ◐ **Supportable** — the agent exposes a surface agents-sandbox could use, but does not implement yet.
 - ✖ **Unsupported** — the agent has no such surface.
 
-| Capability | `opencode` | `opencode2` | `pi` | `claude-code` | `codex` | `hermes` | `oh-my-pi` | `kimi-code` |
-|---|---|---|---|---|---|---|---|---|
-| Interactive attach | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Config snippet merge | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Host-config drop-in | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Version + upgrade check | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Serve/attach daemon | ✅ | ✅ | ✖ | ✖ | ◐ | ◐ | ◐ | ◐ |
-| Worktree sessions | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ | ◐ | ✖ |
-| Notify event stream | ✅ | ✅ | ✖ | ✖ | ◐ | ◐ | ◐ | ◐ |
-| Session quiescence | ✅ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ |
+| Capability | `opencode` | `opencode2` | `pi` | `claude-code` | `codex` | `hermes` | `oh-my-pi` | `kimi-code` | `qwen-code` | `goose` | `grok-build` | `mistral-vibe` |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Interactive attach | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Config snippet merge | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Host-config drop-in | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Version + upgrade check | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Serve/attach daemon | ✅ | ✅ | ✖ | ✖ | ◐ | ◐ | ◐ | ◐ | ◐ | ◐ | ◐ | ◐ |
+| Worktree sessions | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ | ◐ | ✖ | ◐ | ✖ | ◐ | ◐ |
+| Notify event stream | ✅ | ✅ | ✖ | ✖ | ◐ | ◐ | ◐ | ◐ | ◐ | ◐ | ◐ | ◐ |
+| Session quiescence | ✅ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ |
 
 The ◐ entries name an upstream surface agents-sandbox has not wired up: `codex app-server` (a JSON-RPC daemon with a
 turn/item event stream) for Codex, `hermes serve` / `hermes chat --format stream-json` for Hermes, and `omp --mode rpc` /
 `omp acp` (stdio servers) and the `omp worktree` CLI for Oh My Pi, and `kimi web` (a REST and WebSocket server, marked
-experimental upstream) for Kimi Code.
+experimental upstream) for Kimi Code, `qwen serve` (HTTP with a server-sent event stream, marked experimental
+upstream) and its managed session worktrees for Qwen Code, `goose serve` (HTTP and WebSocket with a `/status`
+endpoint) for Goose, `grok agent stdio` (an ACP stdio server) and `grok --worktree` (sessions in git worktrees
+under `~/.grok/worktrees/`) for Grok Build, and `vibe run-server` (headless runs over JSON-RPC on stdin and stdout,
+hidden and marked experimental upstream), the headless `--output streaming` event stream, and `vibe --worktree`
+(sessions in git worktrees under `~/.vibe/worktrees/`) for Mistral Vibe.
 

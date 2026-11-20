@@ -238,7 +238,7 @@ const publicNetwork = "public"
 // Terminal keys that leave a harness's full-screen TUI: Ctrl-D is `opencode`'s,
 // `opencode2`'s, `pi`'s, and `oh-my-pi`'s documented `app_exit`/`app.exit`, and Ctrl-C is the
 // interrupt `claude-code` announces as its exit ("Press Ctrl-C again to exit")
-// and `codex` quits on.
+// and `codex`, `qwen-code`, `grok-build`, and `mistral-vibe` quit on.
 const (
 	ctrlC = 0x03
 	ctrlD = 0x04
@@ -308,6 +308,31 @@ var harnessSpecs = map[string]harnessSpec{
 		ReadyMarker:       kimiCodeReadyMarker,
 		SeedAgentSnippets: map[string]string{kimiCodeSmokeSnippet: kimiCodeSmokeConfig},
 	},
+	// qwen-code draws its TUI on the alternate screen and, with no provider
+	// configured, starts at its auth dialog, so it needs no seed and no egress.
+	// It ignores the first Ctrl-C and exits on the second, which the repeated tap
+	// covers.
+	"qwen-code": {QuitKey: []byte{ctrlC}, Network: "", KeepsNormalBuffer: false},
+	// goose's session REPL keeps the terminal's normal buffer, so the goose in its
+	// greeting is the readiness marker. Without a provider it would start the
+	// interactive configure flow or exit 1, so the subtest seeds a launcher config
+	// snippet naming a local Ollama provider (no key, no request until a prompt)
+	// and declining telemetry, which would otherwise ask first. Ctrl-D leaves the
+	// REPL.
+	"goose": {
+		QuitKey:           []byte{ctrlD},
+		KeepsNormalBuffer: true,
+		ReadyMarker:       gooseReadyMarker,
+		SeedAgentSnippets: map[string]string{gooseSmokeSnippet: gooseSmokeConfig},
+	},
+	// grok-build's fullscreen TUI (its default screen mode) uses the alternate
+	// screen. With no credential it comes up on its device-code sign-in screen
+	// ("Waiting for approval…"), which still satisfies the TUI assertion, so it
+	// needs no seed and no egress; Ctrl-C leaves it with exit 0.
+	"grok-build": {QuitKey: []byte{ctrlC}, Network: "", KeepsNormalBuffer: false},
+	// mistral-vibe's Rust TUI draws on the alternate screen. Ctrl-C leaves it,
+	// including from the folder-trust dialog it may show before the session.
+	"mistral-vibe": {QuitKey: []byte{ctrlC}, Network: "", KeepsNormalBuffer: false},
 	// opencode's editor owns Ctrl-C, so its TUI leaves on Ctrl-D.
 	"opencode":  {QuitKey: []byte{ctrlD}, Network: "", KeepsNormalBuffer: false},
 	"opencode2": {QuitKey: []byte{ctrlD}, Network: "", KeepsNormalBuffer: false},
@@ -411,6 +436,22 @@ const kimiCodeSmokeSnippet = "config-smoke.toml"
 // trust dialog it shows the first time a workspace is opened.
 const kimiCodeSmokeConfig = `[workspace]
 require_trust = false
+`
+
+// gooseReadyMarker is the goose drawn at the start of goose's session greeting,
+// printed once the session is built and the REPL is about to read input.
+const gooseReadyMarker = "__( O)>"
+
+// gooseSmokeSnippet is the launcher config snippet the subtest seeds; it matches
+// goose's config*.{yml,yaml} snippet pattern.
+const gooseSmokeSnippet = "config-smoke.yaml"
+
+// gooseSmokeConfig configures a local Ollama provider, which needs no key and
+// sends nothing until a prompt, and records the telemetry choice so the
+// first-run consent prompt does not come up.
+const gooseSmokeConfig = `GOOSE_PROVIDER: ollama
+GOOSE_MODEL: qwen3
+GOOSE_TELEMETRY_ENABLED: false
 `
 
 // ohMyPiReadyMarker is the warning oh-my-pi prints when it starts its editor
