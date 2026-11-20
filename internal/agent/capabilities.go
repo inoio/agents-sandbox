@@ -23,6 +23,10 @@ const agentsRulesPattern = "/AGENTS.md"
 // root of its data dir.
 const skillsDirPattern = "/skills/"
 
+// promptsDirPattern is the drop-in pattern for an agent's prompts tree at the
+// root of its data dir.
+const promptsDirPattern = "/prompts/"
+
 // Daemon bind hostnames: loopback for a co-located client, the external
 // interface when the host forwards a published port into the VM.
 const (

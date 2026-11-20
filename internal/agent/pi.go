@@ -65,7 +65,7 @@ func (piProfile) ProvisionRules() []ProvisionRule {
 			"/keybindings.json",
 			"/AGENTS.override.md", "/AGENTS.md", "/AGENTS.MD", "/CLAUDE.md", "/CLAUDE.MD",
 			"/SYSTEM.md", "/APPEND_SYSTEM.md",
-			"/extensions/", "/skills/", "/prompts/", "/themes/",
+			"/extensions/", skillsDirPattern, promptsDirPattern, "/themes/",
 		}},
 	}
 }
