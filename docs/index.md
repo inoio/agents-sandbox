@@ -7,7 +7,7 @@ nav_order: 0
 
 # agents-sandbox
 
-agents-sandbox runs coding agents — [opencode](https://opencode.ai), [opencode2](https://opencode.ai), [pi](https://pi.dev), [Claude Code](https://claude.com/product/claude-code), [Codex](https://github.com/openai/codex), [Hermes Agent](https://hermes-agent.nousresearch.com/), [Oh My Pi](https://github.com/can1357/oh-my-pi), [Kimi Code](https://github.com/MoonshotAI/kimi-code), [Qwen Code](https://github.com/QwenLM/qwen-code), [Goose](https://github.com/aaif-goose/goose), and [Grok Build](https://x.ai/cli) — inside a dedicated [microsandbox](https://microsandbox.dev/) [Virtual Machine](https://en.wikipedia.org/wiki/Virtual_machine) for each project, instead of directly on your machine, with your project mounted at `/workspace`.
+agents-sandbox runs coding agents — [opencode](https://opencode.ai), [opencode2](https://opencode.ai), [pi](https://pi.dev), [Claude Code](https://claude.com/product/claude-code), [Codex](https://github.com/openai/codex), [Hermes Agent](https://hermes-agent.nousresearch.com/), [Oh My Pi](https://github.com/can1357/oh-my-pi), [Kimi Code](https://github.com/MoonshotAI/kimi-code), [Qwen Code](https://github.com/QwenLM/qwen-code), [Goose](https://github.com/aaif-goose/goose), [Grok Build](https://x.ai/cli), and [Mistral Vibe](https://github.com/mistralai/mistral-vibe) — inside a dedicated [microsandbox](https://microsandbox.dev/) [Virtual Machine](https://en.wikipedia.org/wiki/Virtual_machine) for each project, instead of directly on your machine, with your project mounted at `/workspace`.
 
 ## Isolation features
 
