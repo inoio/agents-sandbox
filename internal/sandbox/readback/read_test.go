@@ -1313,3 +1313,18 @@ func TestInlineCredentialsInIgnoresAPartiallyDecodedDocument(t *testing.T) {
 
 	require.Empty(t, InlineCredentialsIn("config.yaml", data))
 }
+
+// TestReadClassifiesMistralVibeDotenv pins that vibe's ~/.vibe/.env, where
+// /login stores an API key, reads as a static secret for its provider key.
+func TestReadClassifiesMistralVibeDotenv(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".vibe/.env", "MISTRAL_API_KEY=sk-test\n")
+
+	rb, err := Read(home, "mistral-vibe", Manifest{})
+
+	require.NoError(t, err)
+	require.Empty(t, rb.Login)
+	require.Len(t, rb.Static, 1)
+	require.Equal(t, ".vibe/.env", rb.Static[0].Source)
+	require.Equal(t, "MISTRAL_API_KEY", rb.Static[0].EnvVar)
+}

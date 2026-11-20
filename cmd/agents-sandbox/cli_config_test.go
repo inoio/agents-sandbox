@@ -1814,3 +1814,26 @@ func TestConfigAgentGrokBuildMergesTOMLSnippets(t *testing.T) {
 		}
 	}
 }
+
+// TestConfigAgentMistralVibeMergesTOMLSnippets verifies that mistral-vibe
+// snippets merge into one TOML document.
+func TestConfigAgentMistralVibeMergesTOMLSnippets(t *testing.T) {
+	cmd, ui := setupCommandFixtures(t, "config", "agent", "mistral-vibe")
+	a, _ := agent.Lookup("mistral-vibe")
+	dir := configpathstest.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName()))
+	testutil.WriteFile(t, dir, "config-model.toml", "active_model = \"devstral-2\"\n")
+	testutil.WriteFile(t, dir, "config-ui.toml", "vim_keybindings = true\nenable_telemetry = false\n")
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config agent mistral-vibe: %v", err)
+	}
+	joined := strings.Join(ui.OutCalls, "\n")
+	for _, want := range []string{
+		"config-model.toml", "config-ui.toml", "merged agent config:",
+		"active_model = 'devstral-2'", "vim_keybindings = true", "enable_telemetry = false",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("output missing %q, got:\n%s", want, joined)
+		}
+	}
+}

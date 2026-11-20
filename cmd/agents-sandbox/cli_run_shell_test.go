@@ -1151,3 +1151,54 @@ func TestRunAgentGrokBuildRejectsDaemonOnlyFlags(t *testing.T) {
 		})
 	}
 }
+
+// TestRunDryRunAgentMistralVibe verifies `run --agent mistral-vibe` resolves the
+// mistral-vibe profile, notices that it is experimental, and previews without
+// starting a VM.
+func TestRunDryRunAgentMistralVibe(t *testing.T) {
+	initTestProjectDir(t)
+
+	mock := &msbtest.MockMsbClient{}
+	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{},
+		"run", "--dry-run", "--agent", "mistral-vibe", "--agent-version", "3.1.3")
+	setupAbsentImagePreviewMocks(t, mock)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var pinnedVersion, experimental bool
+	for _, line := range ui.InfoCalls {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "dry-run: agent version 3.1.3" {
+			pinnedVersion = true
+		}
+		if strings.Contains(trimmed, "experimental") {
+			experimental = true
+		}
+	}
+	if !pinnedVersion {
+		t.Errorf("expected pinned mistral-vibe version line; got: %v", ui.InfoCalls)
+	}
+	if !experimental {
+		t.Errorf("expected an experimental notice for mistral-vibe; got: %v", ui.InfoCalls)
+	}
+	if len(mock.CreatedSandboxCalls) != 0 {
+		t.Errorf("--dry-run created %d sandbox(es), want 0", len(mock.CreatedSandboxCalls))
+	}
+}
+
+// TestRunAgentMistralVibeRejectsDaemonOnlyFlags verifies mistral-vibe, which runs
+// no daemon, rejects --worktree and --serve-only.
+func TestRunAgentMistralVibeRejectsDaemonOnlyFlags(t *testing.T) {
+	for _, flagArgs := range [][]string{{"--worktree", "feat"}, {"--serve-only"}} {
+		t.Run(flagArgs[0], func(t *testing.T) {
+			initTestProjectDir(t)
+			args := append([]string{"run", "--dry-run", "--agent", "mistral-vibe"}, flagArgs...)
+			root, _ := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, args...)
+			err := root.Execute()
+			if err == nil || !strings.Contains(err.Error(), `not supported by agent "mistral-vibe"`) {
+				t.Errorf("err = %v, want 'not supported by agent \"mistral-vibe\"'", err)
+			}
+		})
+	}
+}

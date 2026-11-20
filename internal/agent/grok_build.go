@@ -97,7 +97,7 @@ func (grokBuildProfile) ProvisionRules() []ProvisionRule {
 	return []ProvisionRule{
 		{Dir: grokBuildDataDir, Patterns: []string{
 			agentsRulesPattern, "/Agents.md", "/AGENT.md", "/CLAUDE.md", "/Claude.md",
-			"/skills/", "/sandbox.toml", "/workflows/",
+			skillsDirPattern, "/sandbox.toml", "/workflows/",
 		}},
 	}
 }
