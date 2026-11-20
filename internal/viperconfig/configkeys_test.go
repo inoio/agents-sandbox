@@ -171,6 +171,7 @@ func TestConfigEnvKeysGoldenSet(t *testing.T) {
 		keyNetworkInterceptTLS, keyNetworkDisableStrict,
 		"network.proxy.protocol", "network.proxy.address",
 		"network.proxy.username", "network.proxy.password-env",
+		"network.observe.skip-upstream-verify",
 		keyUpgradeMode, keyUpgradeInterval, keyUpgradeChannel,
 		"image-cache-from", "image-cache-to",
 		KeyDind,

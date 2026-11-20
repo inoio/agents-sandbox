@@ -33,7 +33,9 @@ agents-sandbox run --learn
 
 During the session, agents-sandbox routes the sandbox's network traffic through a proxy it owns and reads the sandbox
 home back afterwards. The proxy sees which destinations the session reached and which credential each request carried.
-The read-back finds the config files the session changed and the secrets in the sandbox home.
+The read-back finds the config files the session changed and the secrets in the sandbox home. The proxy verifies the
+upstream TLS certificate; if a private CA intercepts your host's egress, see the
+[Observation channel]({% link configuration/networking.md %}#observation-channel) settings.
 
 Set up your agent as you normally would — sign in to a provider, add an API key, reach a private endpoint — and use it.
 When you exit, agents-sandbox reports what it learned and offers three choices:
