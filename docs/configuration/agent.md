@@ -196,7 +196,10 @@ The drop-in copy is scoped to the agent's settings and, for opencode, its creden
 - **opencode2** — same drop-in copy as `opencode` (`~/.config/opencode/**` and `~/.local/share/opencode/auth.json`).
   `opencode2` reads credentials from its own database and ignores the copied `auth.json` in a new sandbox; see
   [GitHub Copilot with opencode2]({% link configuration/secrets.md %}#github-copilot-with-opencode2).
-- **pi** — `~/.pi/agent/settings.json`.
+- **pi** — from `~/.pi/agent`: `settings.json`, `keybindings.json`, the instruction files (`AGENTS.md`,
+  `AGENTS.override.md`, `CLAUDE.md`, `SYSTEM.md`, `APPEND_SYSTEM.md`), and the `extensions/`, `skills/`, `prompts/`,
+  and `themes/` directories. `auth.json` (saved keys and `/login` credentials), `models.json` and `mcp.json` (which
+  can hold literal keys and headers), `mcp-auth.json`, and sessions are not copied.
 - **claude-code** — `~/.claude/settings.json` (runtime state and the machine-managed `.credentials.json` are not copied).
 - **codex** — `~/.codex/config.toml` (sessions, logs, and the `auth.json` login cache are not copied).
 - **hermes** — `~/.hermes/config.yaml` (the rest of `~/.hermes` — `state.db`, `sessions/`, `memories/`, `skills/` — is

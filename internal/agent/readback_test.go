@@ -23,7 +23,7 @@ func TestReadBackPaths(t *testing.T) {
 		"grok-build":   {".grok/auth.json"},
 		"mistral-vibe": {".vibe/.env"},
 		"oh-my-pi":     {".omp/agent/config.yml", ".omp/agent/config.yaml", ".omp/agent/models.yml", ".omp/agent/.env"},
-		"pi":           {".pi/agent/settings.json"},
+		"pi":           {".pi/agent/settings.json", ".pi/agent/auth.json"},
 	}
 	for name, paths := range want {
 		t.Run(name, func(t *testing.T) {

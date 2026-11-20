@@ -389,7 +389,7 @@ var loginCredentialStores = []loginCredentialStore{
 	{pattern: ".claude/settings.json", provider: "claude-code"},
 	{pattern: ".codex/auth.json", provider: "codex"},
 	{pattern: ".local/share/opencode/auth.json", provider: "opencode", agents: []string{"opencode"}},
-	{pattern: ".pi/agent/settings.json", provider: "pi"},
+	{pattern: ".pi/agent/auth.json", provider: "pi"},
 	{pattern: ".kimi-code/credentials/*.json", provider: "kimi-code"},
 	{pattern: ".qwen/oauth_creds.json", provider: "qwen-code"},
 	{pattern: ".qwen/mcp-oauth-tokens.json", provider: "qwen-code"},
