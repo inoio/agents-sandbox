@@ -170,19 +170,21 @@ func TestSubstituteCredentialValuesRewritesEveryCredential(t *testing.T) {
 }
 
 // TestLooksLikeSecretShapedKey pins the camelCase- and separator-aware marker
-// match: a secret-shaped segment matches, a token count does not, and
-// run-together apikey is matched as a whole.
+// match: every singular and plural marker segment matches, a key with no marker
+// segment does not, and run-together apikey is matched as a whole.
 func TestLooksLikeSecretShapedKey(t *testing.T) {
 	secretShaped := []string{
 		"api_key", "apiKey", "APIKEY", "accessToken", "access_token",
 		"Authorization", "authorization", "clientSecret", "client_secret",
 		"password", "PASSWORD", "credential", "privateKey", "bearerToken",
+		"tokens", "refresh_tokens", "refreshTokens", "apiKeys", "API_KEYS",
+		"secrets", "clientSecrets", "passwords", "credentials",
 	}
 	for _, key := range secretShaped {
 		require.Truef(t, looksLikeSecretShapedKey(key), "%q is secret-shaped", key)
 	}
 
-	ordinary := []string{"model", "maxTokens", "max_tokens", "baseURL", "region", "timeout", "theme", "permission"}
+	ordinary := []string{"model", "maxSize", "baseURL", "region", "timeout", "theme", "permission"}
 	for _, key := range ordinary {
 		require.Falsef(t, looksLikeSecretShapedKey(key), "%q is not secret-shaped", key)
 	}
@@ -325,6 +327,48 @@ func TestSanitizeConfigGuardAcceptsAnOrphanFreeDocument(t *testing.T) {
 	})
 
 	require.True(t, ok, "placeholders, an empty value, and a numeric count are not leaks")
+}
+
+// TestSanitizeConfigRefusesAnUndeclaredSecretUnderPluralFamilyKey pins the guard
+// for the plural of each marker family: a plural secret-list key such as tokens,
+// secrets, keys, credentials, or passwords must be secret-shaped, so a raw
+// string inside it refuses the file.
+func TestSanitizeConfigRefusesAnUndeclaredSecretUnderPluralFamilyKey(t *testing.T) {
+	documents := []string{
+		`{"tokens":["sk-raw"]}`,
+		`{"credentials":{"a":"sk"}}`,
+		`{"keys":["sk"]}`,
+		`{"secrets":["sk-raw"]}`,
+		`{"passwords":["sk-raw"]}`,
+	}
+	for _, document := range documents {
+		_, ok := SanitizeConfig([]byte(document), SanitizeParams{
+			Path:                       "opencode.jsonc",
+			RefuseUndeclaredSecretKeys: true,
+		})
+		require.Falsef(t, ok, "%s must refuse the file", document)
+	}
+}
+
+// TestSanitizeConfigGuardAcceptsAReferenceOnlyPluralKey pins that widening the
+// key match does not over-refuse: a plural key whose values are references,
+// numbers, or empty strings still holds no raw secret.
+func TestSanitizeConfigGuardAcceptsAReferenceOnlyPluralKey(t *testing.T) {
+	documents := []string{
+		`{"tokens":["${T}"]}`,
+		`{"maxTokens":4096}`,
+		`{"secrets":[4096]}`,
+		`{"passwords":[""]}`,
+		`{"keys":[true,null]}`,
+		`{"credentials":{"a":"${CRED_A}"}}`,
+	}
+	for _, document := range documents {
+		_, ok := SanitizeConfig([]byte(document), SanitizeParams{
+			Path:                       "opencode.jsonc",
+			RefuseUndeclaredSecretKeys: true,
+		})
+		require.Truef(t, ok, "%s holds no raw secret", document)
+	}
 }
 
 // TestSanitizeConfigGuardIsOffByDefault pins that the write-back path (which

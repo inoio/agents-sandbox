@@ -57,7 +57,10 @@ same check, so it never copies a host config file the merge would not read.
 **The no-raw-sibling rule is enforced only on the host-seed path so far.** The shared sanitizer
 (`readback.SanitizeConfig`) takes a `RefuseUndeclaredSecretKeys` flag: the UC4 host seed sets it, so any non-reference
 string left under a secret-shaped key the credential walk did not name — directly or inside a nested array or object —
-refuses the whole file. The after-run write-back
+refuses the whole file. A key is secret-shaped when a camelCase/separator-aware key segment is one of the markers
+`KEY`/`TOKEN`/`SECRET`/`PASSWORD`/`AUTHORIZATION`/`CREDENTIAL`, **or its plural** (so a secret list spelled `tokens`,
+`secrets`, `keys`, `credentials`, or `passwords` is covered); a downstream non-string value (a numeric count) is not a
+raw value, so `maxTokens: 4096` stays allowed while `tokens: ["sk-…"]` refuses. The after-run write-back
 (`analyser.ManagedConfigFindings`) leaves it off — a pre-existing S10 gap — so a secret-shaped value the walk did not
 classify can still be copied verbatim into the managed config. Until that flag is turned on for the write-back, the
 shared sanitizer must not be read as enforcing this rule on both paths.

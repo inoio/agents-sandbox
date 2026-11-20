@@ -287,6 +287,49 @@ func TestSeedFromHostRefusesAnUndeclaredSecretArray(t *testing.T) {
 	require.True(t, os.IsNotExist(copyErr), "the file is never copied with a raw array secret")
 }
 
+// TestSeedFromHostRefusesAPluralSecretFamilyKey pins the Critical guard for a
+// plural secret-list key: the Critical's own example {"tokens":["sk-raw"]} must
+// refuse the whole file rather than copy the raw value into the managed config.
+func TestSeedFromHostRefusesAPluralSecretFamilyKey(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	hostHome := t.TempDir()
+	writeHostFile(t, hostHome, ".config/opencode/opencode.jsonc", `{"tokens":["sk-raw"]}`)
+
+	migrated, err := SeedFromHost(Facts{
+		Agent:     "opencode",
+		Slug:      "widget-abc",
+		HostFiles: []string{filepath.Join(hostHome, ".config/opencode/opencode.jsonc")},
+	}, paths, hostHome)
+
+	require.Zero(t, migrated)
+	require.Error(t, err, "a raw secret under a plural secret-list key must refuse the file")
+	_, copyErr := os.Stat(filepath.Join(paths.UserSlugConfigDir("widget-abc"), "opencode", "opencode.jsonc"))
+	require.True(t, os.IsNotExist(copyErr), "the file is never copied with a raw plural-key secret")
+}
+
+// TestSeedFromHostAcceptsAPluralKeyOfReferences pins that the widened key match
+// does not over-refuse the seed: a plural key whose values are all non-strings
+// (a token count) is migrated, and a plural key of the credential's own
+// reference-shaped value is accepted by the guard.
+func TestSeedFromHostAcceptsAPluralKeyOfReferences(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	hostHome := t.TempDir()
+	writeHostFile(t, hostHome, ".config/opencode/opencode.jsonc",
+		`{"provider":{"openai":{"options":{"apiKey":"sk-good",`+
+			`"baseURL":"https://api.openai.com/v1"}}},"tokens":[4096,true,null]}`)
+
+	migrated, err := SeedFromHost(Facts{
+		Agent:     "opencode",
+		Slug:      "widget-abc",
+		HostFiles: []string{filepath.Join(hostHome, ".config/opencode/opencode.jsonc")},
+	}, paths, hostHome)
+
+	require.NoError(t, err)
+	require.Equal(t, 1, migrated, "a plural key of non-string values is still seeded")
+}
+
 // TestSeedFromHostRefusesOnlyTheLeakingFile pins that a refused file does not
 // stop the seed: a clean sibling is still migrated and copied, while the file
 // with an undeclared secret-shaped value is left unseeded and named.

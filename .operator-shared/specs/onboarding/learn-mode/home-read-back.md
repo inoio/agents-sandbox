@@ -18,8 +18,9 @@ only channel that works when the launcher-owned proxy
    sources from the copy.
 2. Which **static** secrets exist in the sandbox home, from either of two shapes:
    - A **dotenv** key names a secret when one of its `_`/`-`-separated segments is `KEY`, `TOKEN`, `SECRET`, or
-     `PASSWORD`; the markers are matched as whole segments, so a token-count setting such as `MAX_TOKENS` is
-     configuration, not a secret.
+     `PASSWORD`; the markers are matched as whole segments, and each segment matches its plural form too
+     (`MAX_TOKENS` is configuration, not a secret, because `MAX`/`TOKENS` carries a count; a plural marker segment
+     only bites when a raw value sits under it).
    - An **inline** credential key (`api_key`/`apiKey`/`key`/`token`) inside a provider entry of a declared config
      file is a static secret too. Its provider and host come from that same entry (the endpoint walk below); the
      entry the walk reads includes its nested `options` object, where opencode keeps a provider's `apiKey` beside its

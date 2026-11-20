@@ -316,16 +316,17 @@ func isKeyChar(b byte) bool {
 
 // secretShapedKeyMarkers are the whole key segments that mark a value as a
 // secret, so a non-reference string under one is refused as an undeclared
-// secret.
+// secret. Each marker matches both the singular and the plural segment, because
+// a secret list is routinely spelled in the plural (tokens, apiKeys).
 var secretShapedKeyMarkers = []string{
 	"KEY", "TOKEN", "SECRET", "PASSWORD", "AUTHORIZATION", "CREDENTIAL",
 }
 
 // looksLikeSecretShapedKey reports whether key names a secret, matching the
 // markers against the key's camelCase- and separator-aware segments: accessToken
-// matches TOKEN, apiKey matches KEY, and Authorization matches AUTHORIZATION,
-// while a token count such as maxTokens is a different segment (TOKENS). A
-// run-together apikey has no segment boundary, so it is matched as a whole.
+// matches TOKEN, apiKey matches KEY, and apiKeys matches the plural KEYS. A key
+// with no marker segment, such as maxSize, is not secret-shaped. A run-together
+// apikey has no segment boundary, so it is matched as a whole.
 func looksLikeSecretShapedKey(key string) bool {
 	switch normalizeToken(key) {
 	case "apikey", "apikeys":
@@ -333,12 +334,18 @@ func looksLikeSecretShapedKey(key string) bool {
 		// walk, so both the singular and the plural are matched whole.
 		return true
 	}
-	for _, segment := range keySegments(key) {
-		if slices.Contains(secretShapedKeyMarkers, segment) {
-			return true
-		}
+	return slices.ContainsFunc(keySegments(key), isSecretShapedSegment)
+}
+
+// isSecretShapedSegment reports whether an uppercased key segment is a marker,
+// accepting the plural form as well: TOKENS matches TOKEN, so a plural secret
+// list key such as tokens or refresh_tokens is secret-shaped.
+func isSecretShapedSegment(segment string) bool {
+	if slices.Contains(secretShapedKeyMarkers, segment) {
+		return true
 	}
-	return false
+	trimmed, ok := strings.CutSuffix(segment, "S")
+	return ok && slices.Contains(secretShapedKeyMarkers, trimmed)
 }
 
 // keySegments splits key into its uppercased word segments on separators and
