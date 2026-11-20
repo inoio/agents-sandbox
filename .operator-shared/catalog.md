@@ -26,6 +26,9 @@
 
 ### `guides/` - How-to and reference notes for this partition
 
+- `guides/adding-an-agent-profile.md`
+  - Description: Checklist for a new built-in agent profile: verify upstream claims on the built binary, only the tool tree reaches the runner image, update and TLS-trust switches, credential-free drop-in and classifiable read-back, and every place a profile touches.
+  - Read If: Adding or reviewing an agent profile (`ImageSpec`, `ProvisionRules`, `ReadBackPaths`, `harnessSpecs`); an agent setting missing from the shipped image; a secret placeholder sent unsubstituted; or an upstream-behaviour claim that turned out wrong.
 - `guides/agent-link-opening.md`
   - Description: What each agent shells out to when it opens a link on Linux (opencode `xdg-open`, opencode2's `open` package, pi's `openBrowser`, claude-code's scheme allowlist), the OSC 8 wrinkle, and the network-free VM→host transport for a host-side opener (#273).
   - Read If: Working on opening links/URLs on the host from inside the VM (#273), an in-VM `xdg-open` shim, agent opener behavior, or any VM→host action channel.

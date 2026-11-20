@@ -8,8 +8,9 @@
 [![Security](https://img.shields.io/badge/security-policy-purple.svg)](SECURITY.md)
 [![Docs](https://img.shields.io/badge/docs-github--pages-blue)](https://inoio.github.io/agents-sandbox/)
 
-agents-sandbox allows you to isolate your coding agents from the rest of your dev environment. You are put in control over what parts of your host machine and network environment are available to each agent. agents-sandbox acts as a launcher for [opencode](https://opencode.ai), [opencode2](https://opencode.ai),
-[pi](https://pi.dev), [Claude Code](https://claude.com/product/claude-code), [Codex](https://github.com/openai/codex), [Hermes Agent](https://hermes-agent.nousresearch.com/), [Oh My Pi](https://github.com/can1357/oh-my-pi), [Kimi Code](https://github.com/MoonshotAI/kimi-code), [Qwen Code](https://github.com/QwenLM/qwen-code), [Goose](https://github.com/aaif-goose/goose), [Grok Build](https://x.ai/cli), and [Mistral Vibe](https://github.com/mistralai/mistral-vibe). It builds or reuses a dedicated [microsandbox](https://microsandbox.dev/) VM per
+agents-sandbox allows you to isolate your coding agents from the rest of your dev environment. You are put in control over what parts of your host machine and network environment are available to each agent. agents-sandbox acts as a launcher for coding agents such as [opencode](https://opencode.ai),
+[Claude Code](https://claude.com/product/claude-code), [Codex](https://github.com/openai/codex), and [pi](https://pi.dev) — see
+[all supported agents](https://inoio.github.io/agents-sandbox/configuration/agent.html#built-in-agents). It builds or reuses a dedicated [microsandbox](https://microsandbox.dev/) VM per
 project and agent, then attaches the selected agent inside that VM. A system-wide microsandbox installation is not
 required: agents-sandbox provisions its own isolated runtime under its data directory, never uses `~/.microsandbox` as
 its runtime, and never writes to it (the one-time migration reads it only to copy your old volumes).
@@ -89,36 +90,10 @@ select the coding-agent to run, provision, or manage. This is also available as 
 `--agent-version` pins the version agents-sandbox installs into the runner image; it does not replace an agent already
 provided by a custom base or project Dockerfile.
 
-Twelve agents ship as built-in profiles:
-
-- **`opencode`** — a daemon-based agent with serve/attach, worktree sessions, and GitHub-release upgrade checks.
-- **`opencode2`** (default) — opencode 2 (beta), installed from its native installer; daemon-based with serve/attach, worktree
-  sessions, and upgrade checks via the opencode update API's `latest` channel. It owns its own launcher config dir (`~/.config/agents-sandbox/opencode2/`,
-  project equivalent `.agents-sandbox/opencode2/`), while its VM config path and host drop-in stay `~/.config/opencode/`.
-  While no `opencode2/` dir exists it falls back to the shared `opencode/` dir with a warning (see the agent docs).
-- **`pi`** — the pi coding agent (`@earendil-works/pi-coding-agent`, an npm-installed node bundle — the only agent that
-  needs node), run interactively, with upgrade checks via `pi.dev`.
-- **`claude-code`** — Anthropic's Claude Code, installed from its native installer, run interactively, with upgrade
-  checks via the npm registry.
-- **`codex`** — OpenAI's Codex CLI, installed from its GitHub release package, run interactively, with upgrade checks via
-  GitHub releases.
-- **`hermes`** — [Hermes Agent](https://hermes-agent.nousresearch.com/), installed from its official installer at a
-  pinned release tag, run interactively, with upgrade checks via its GitHub releases.
-- **`oh-my-pi`** — [Oh My Pi](https://github.com/can1357/oh-my-pi) (binary `omp`), installed from its checksum-verified
-  GitHub release binary (about 275 MB), run interactively, with upgrade checks via its GitHub releases.
-- **`kimi-code`** — [Kimi Code CLI](https://github.com/MoonshotAI/kimi-code) (binary `kimi`), installed from its
-  checksum-verified GitHub release binary (about 194 MB), run interactively, with upgrade checks via the npm registry.
-- **`qwen-code`** — [Qwen Code](https://github.com/QwenLM/qwen-code) (binary `qwen`), installed from its checksum-verified
-  standalone GitHub release, which bundles its own Node (about 326 MB unpacked), run interactively, with upgrade checks
-  via the npm registry.
-- **`goose`** — [Goose](https://github.com/aaif-goose/goose), installed from its static GitHub release binary (about 159 MB), run
-  interactively, with upgrade checks via its GitHub releases.
-- **`grok-build`** — xAI's [Grok Build](https://x.ai/cli) (binary `grok`), installed from its static release binary (about 208 MB),
-  run interactively, with upgrade checks via the npm registry.
-- **`mistral-vibe`** — Mistral's [Vibe](https://github.com/mistralai/mistral-vibe) (binary `vibe`), installed from PyPI with a
-  checksum-verified uv into its own managed Python (about 585 MB), run interactively, with upgrade checks via PyPI.
-
-`opencode` and `opencode2` are the tested default agents; the other ten are experimental — not well tested with
+Built-in profiles cover the most widely used agents — `opencode`, `opencode2` (default, opencode 2 beta), `claude-code`
+(Claude Code), `codex` (OpenAI Codex), and `pi` — plus further experimental agents. The
+[agent docs](https://inoio.github.io/agents-sandbox/configuration/agent.html#built-in-agents) list every profile with its install method and capabilities.
+`opencode` and `opencode2` are the tested default agents; every other profile is experimental — not well tested with
 agents-sandbox.
 
 ## Documentation

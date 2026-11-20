@@ -1,6 +1,6 @@
 ---
 title: Agent configuration
-description: "Select and configure the coding agent run by agents-sandbox: opencode, opencode2, pi, Claude Code, Codex, Hermes or Oh My Pi."
+description: "Select and configure the coding agent run by agents-sandbox: opencode, Claude Code, Codex, pi, and the other built-in agents."
 layout: default
 parent: Configuration
 nav_order: 60
@@ -10,7 +10,11 @@ nav_order: 60
 
 agents-sandbox is agent-aware. A `--agent <name>` flag on `run`, `shell`, `build`, `volume`, `stop`, and `kill`
 selects the coding-agent profile to run, build, provision, or manage. The agent can also be selected via the `agent`
-config key or the `AGENTS_SANDBOX_AGENT` environment variable. Twelve agents ship as built-in profiles:
+config key or the `AGENTS_SANDBOX_AGENT` environment variable.
+
+## Built-in agents
+
+These agents ship as built-in profiles:
 
 - **`opencode`** — daemon-based, with serve/attach, worktree sessions, and GitHub-release upgrade checks.
 - **`opencode2`** (default) — opencode 2 (beta), installed from its upstream installer (`https://opencode.ai/v2/install`); the
@@ -60,10 +64,10 @@ config key or the `AGENTS_SANDBOX_AGENT` environment variable. Twelve agents shi
   sandbox's TLS-interception CA, so secret substitution works. The install is about 585 MB.
 
 > **Experimental agents:** `opencode` and `opencode2` are the tested default agents. Every other built-in
-> profile (`pi`, `claude-code`, `codex`, `hermes`, `oh-my-pi`, `kimi-code`, `qwen-code`, `goose`, `grok-build`, `mistral-vibe`) is **experimental** — not well tested with agents-sandbox.
+> profile is **experimental** — not well tested with agents-sandbox.
 > The launcher prints a notice when an experimental agent is selected.
 
-`--worktree` and `--serve-only` are rejected for pi, claude-code, codex, hermes, oh-my-pi, kimi-code, qwen-code, goose, grok-build, and mistral-vibe (they have no daemon); they run through the
+`--worktree` and `--serve-only` are rejected for every agent other than opencode and opencode2 (they run no daemon); they run through the
 interactive TUI instead. Passing an unsupported `--agent` name reports the valid names in its error message.
 
 > **Note:** opencode2 server auth — v2's `serve` requires HTTP basic auth on every `/api/*` route and would otherwise generate a
