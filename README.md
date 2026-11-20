@@ -82,8 +82,9 @@ start the configured agent (OpenCode 2 by default):
 agents-sandbox
 ```
 
-On a first run, agents-sandbox asks how to set the sandbox up — learn by using it, learn from your host setup, or
-configure it myself (see [Letting agents-sandbox learn your setup](https://inoio.github.io/agents-sandbox/learn-your-setup.html)).
+On a first run, agents-sandbox asks how to set the sandbox up — learn by using it, learn from your host setup (when
+your host has agent config), or configure it myself (see
+[Letting agents-sandbox learn your setup](https://inoio.github.io/agents-sandbox/learn-your-setup.html)).
 For a self-contained setup with explicit secret handling, start with
 [Manage config in the sandbox](https://inoio.github.io/agents-sandbox/manage-config.html) instead.
 

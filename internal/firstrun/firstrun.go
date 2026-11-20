@@ -1,6 +1,6 @@
-// Package firstrun owns the first-run learn-mode decision: whether to offer the
-// first-run menu, what the agent's host config looks like, and — in later work —
-// the menu itself and the UC4 host-config seed.
+// Package firstrun owns the first-run learn-mode flow: whether to offer the menu
+// and what the agent's host config looks like (the decision), the menu itself,
+// and the UC4 seed that copies the host config into the managed per-slug scope.
 package firstrun
 
 import (
@@ -124,7 +124,7 @@ func dirHasRegularFile(dir string) bool {
 		return false
 	}
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if entry.Type().IsRegular() {
 			return true
 		}
 	}

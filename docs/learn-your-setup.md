@@ -34,7 +34,7 @@ choices:
 | Learn from my host setup | Seed the sandbox from your host config, then start the same learning session (only offered when host config exists, and recommended in that case) |
 | Configure it myself | Configure the sandbox by hand; also offers to copy your host config and credentials into the VM, and warns before it turns that on |
 
-Before the menu, agents-sandbox asks one consent question:
+Before the menu, agents-sandbox shows one consent sentence:
 
 > Let agents-sandbox learn from this session: set up your providers here, use the agent normally, and when you exit it
 > offers to save what it needed.

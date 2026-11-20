@@ -228,6 +228,37 @@ func TestBuildFactsManagedConfigFromProjectScope(t *testing.T) {
 	}
 }
 
+// TestBuildFactsManagedConfigIgnoresNonRegularEntries pins that a config dir
+// holding only a non-regular entry (a symlink) is not a managed config layer:
+// the predicate names a regular file, and a symlink is not one.
+func TestBuildFactsManagedConfigIgnoresNonRegularEntries(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	slug := "widget-abc"
+	a, ok := agent.Lookup("codex")
+	if !ok {
+		t.Fatal("codex agent is not registered")
+	}
+	dirNames, err := agent.ConfigDirNames(a)
+	if err != nil {
+		t.Fatalf("ConfigDirNames: %v", err)
+	}
+	dir := filepath.Join(configpaths.Get().UserConfigDir(), dirNames[0])
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(t.TempDir(), "missing"), filepath.Join(dir, "config.toml")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	f, err := BuildFacts("codex", slug, t.TempDir(), configpaths.Get())
+	if err != nil {
+		t.Fatalf("BuildFacts: %v", err)
+	}
+	if f.ManagedConfig {
+		t.Error("a symlink must not count as a managed config file")
+	}
+}
+
 // TestBuildFactsUnknownAgentIsAnError pins that the assembler refuses an agent
 // name the registry does not know.
 func TestBuildFactsUnknownAgentIsAnError(t *testing.T) {
