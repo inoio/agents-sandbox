@@ -2,6 +2,7 @@ package readback
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1398,7 +1399,8 @@ func TestClassifyConfigContentUnknownFormatIsAnError(t *testing.T) {
 }
 
 // TestClassifyConfigContentUndecodableIsAnError pins that a document the decoder
-// cannot parse is refused rather than partially scanned.
+// cannot parse is refused rather than partially scanned, and the parse cause
+// stays reachable through the wrapper.
 func TestClassifyConfigContentUndecodableIsAnError(t *testing.T) {
 	_, _, err := ClassifyConfigContent(
 		".hermes/config.yaml",
@@ -1407,6 +1409,18 @@ func TestClassifyConfigContentUndecodableIsAnError(t *testing.T) {
 	)
 
 	require.Error(t, err)
+	require.Error(t, errors.Unwrap(err), "the decode error must be wrapped, not flattened")
+}
+
+// TestCredentialStoreForPathMatchesAScopedHostPath pins the tail-matching branch
+// the read-back uses for a scope path: a full host path under a launcher config
+// scope names the store, with its provider, even though the exact-pattern lookup
+// cannot match the whole path.
+func TestCredentialStoreForPathMatchesAScopedHostPath(t *testing.T) {
+	store, ok := credentialStoreForPath("/home/dev/.config/agents-sandbox/codex/auth.json")
+
+	require.True(t, ok, "the codex store must be recognized from the scoped path's tail")
+	require.Equal(t, "codex", store.provider)
 }
 
 // TestClassifyConfigContentExcludedFilesHaveNoInlineStatic pins that the shared

@@ -479,3 +479,137 @@ func TestHoldsRawSecretStringWalksAnyMap(t *testing.T) {
 	require.True(t, holdsRawSecretString(map[any]any{1: "sk-raw"}))
 	require.False(t, holdsRawSecretString(map[any]any{1: map[string]any{"a": "${REF}"}}))
 }
+
+// TestHoldsUndeclaredSecretValueUnknownFormatIgnoresSecretShapedContent pins
+// the unknown-format fallback: a path configdecode does not know cannot be
+// decoded, so a secret-shaped key in its text is not reported (the caller
+// decides the format policy).
+func TestHoldsUndeclaredSecretValueUnknownFormatIgnoresSecretShapedContent(t *testing.T) {
+	require.False(t, holdsUndeclaredSecretValue("notes.txt", `{"apiKey":"sk-raw"}`))
+}
+
+// TestSubstituteCredentialValuesRewritesTheNativeAssignment pins the exact
+// native-indirection form: the assignment's key is replaced by the indirection
+// key and its value by the env-var name, preserving the surrounding text (a
+// dotted key's prefix included).
+func TestSubstituteCredentialValuesRewritesTheNativeAssignment(t *testing.T) {
+	got, ok := substituteCredentialValues(
+		"model.api_key = \"sk-inline\"\n",
+		[]Credential{{EnvVar: "MOONSHOT_API_KEY", Value: "sk-inline"}},
+		"api_key_env",
+		nil,
+	)
+
+	require.True(t, ok)
+	require.Equal(t, "model.api_key_env = \"MOONSHOT_API_KEY\"\n", got)
+}
+
+// TestSubstituteCredentialValuesKeepsAnEnvTableKey pins the env-table branch:
+// an assignment whose key is already the env-var name keeps that key and takes
+// the placeholder instead of the indirection key.
+func TestSubstituteCredentialValuesKeepsAnEnvTableKey(t *testing.T) {
+	got, ok := substituteCredentialValues(
+		"KIMI_API_KEY = \"sk-x\"\n",
+		[]Credential{{EnvVar: "KIMI_API_KEY", Value: "sk-x"}},
+		"api_key_env",
+		nil,
+	)
+
+	require.True(t, ok)
+	require.Equal(t, "KIMI_API_KEY = \"${KIMI_API_KEY}\"\n", got)
+}
+
+// TestSubstituteCredentialValuesReplacesTheLongestValueFirst pins the ordering:
+// when one value is a prefix of another, the longer must be substituted first,
+// or the shorter leaves a placeholder plus a stray suffix.
+func TestSubstituteCredentialValuesReplacesTheLongestValueFirst(t *testing.T) {
+	credentials := []Credential{
+		{EnvVar: "SHORT_KEY", Value: "sk-abc"},
+		{EnvVar: "LONG_KEY", Value: "sk-abcdef"},
+	}
+
+	got, ok := substituteCredentialValues("api_key = \"sk-abcdef\"\n", credentials, "", nil)
+
+	require.True(t, ok)
+	require.Equal(t, "api_key = \"${LONG_KEY}\"\n", got)
+}
+
+// TestSubstituteCredentialValuesRejectsAnEmptyEnvVar pins the substitution
+// precondition: a credential with no env-var name has no placeholder to emit, so
+// the whole content is refused rather than substituted with an empty name.
+func TestSubstituteCredentialValuesRejectsAnEmptyEnvVar(t *testing.T) {
+	_, ok := substituteCredentialValues(
+		"api_key = \"sk-x\"\n",
+		[]Credential{{Value: "sk-x"}},
+		"",
+		nil,
+	)
+
+	require.False(t, ok)
+}
+
+// TestRetainsCredentialValueFindsALiteralInAComment pins the literal half of the
+// retention check: a value left in text the decoder discards (a comment) is
+// still caught, because the literal content is searched as well.
+func TestRetainsCredentialValueFindsALiteralInAComment(t *testing.T) {
+	require.True(t, retainsCredentialValue(
+		".hermes/config.yaml",
+		"# sk-x\nmodel: y\n",
+		[]Credential{{Value: "sk-x"}},
+	))
+}
+
+// TestRetainsCredentialValueFindsAnEscapedDecodedValue pins the decoded half:
+// a value stored in its escaped form (JSON's \") is missed by the literal search
+// but found in the decoded document, so the file is still refused.
+func TestRetainsCredentialValueFindsAnEscapedDecodedValue(t *testing.T) {
+	require.True(t, retainsCredentialValue(
+		"opencode.jsonc",
+		`{"note":"sk-\"x"}`,
+		[]Credential{{Value: `sk-"x`}},
+	))
+}
+
+// TestDecodedHoldsCredentialValueWalksNestedChildren pins that a value nested
+// below a non-credential key is found, not only a value at the top level.
+func TestDecodedHoldsCredentialValueWalksNestedChildren(t *testing.T) {
+	require.True(t, decodedHoldsCredentialValue(
+		map[string]any{"outer": map[string]any{"inner": "sk-x"}},
+		[]Credential{{Value: "sk-x"}},
+	))
+}
+
+// TestContainsCredentialValueIgnoresAnEmptyValue pins the guard against the
+// empty string: an empty value would otherwise match every text.
+func TestContainsCredentialValueIgnoresAnEmptyValue(t *testing.T) {
+	require.False(t, containsCredentialValue("anything", []Credential{{Value: ""}}))
+}
+
+// TestDecodedHoldsUndeclaredSecretValueWalksTopLevelArrays pins the []any branch
+// of the undeclared-secret walk: a secret-shaped key inside a top-level array
+// element is a leak.
+func TestDecodedHoldsUndeclaredSecretValueWalksTopLevelArrays(t *testing.T) {
+	require.True(t, decodedHoldsUndeclaredSecretValue(
+		[]any{map[string]any{"apiKey": "sk-raw"}},
+	))
+}
+
+// TestSecretKeyLeaksValueNeedsASecretShapedKey pins that the key test gates the
+// value walk: an ordinary key holding a raw string is not a leak.
+func TestSecretKeyLeaksValueNeedsASecretShapedKey(t *testing.T) {
+	require.False(t, secretKeyLeaksValue("model", "sk-raw"))
+}
+
+// TestLooksLikeSecretShapedKeyRejectsANonMarkerPluralSegment pins that a
+// non-marker segment ending in 'S' is not treated as a plural marker: status
+// must not be secret-shaped.
+func TestLooksLikeSecretShapedKeyRejectsANonMarkerPluralSegment(t *testing.T) {
+	require.False(t, looksLikeSecretShapedKey("status"))
+}
+
+// TestDecodedHoldsUndeclaredSecretValueAnyMapIgnoresOrdinaryKeys pins the
+// map[any]any branch's key test: a string key that is not secret-shaped does not
+// leak even when it holds a raw string.
+func TestDecodedHoldsUndeclaredSecretValueAnyMapIgnoresOrdinaryKeys(t *testing.T) {
+	require.False(t, decodedHoldsUndeclaredSecretValue(map[any]any{"model": "raw"}))
+}

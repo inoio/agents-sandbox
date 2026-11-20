@@ -31,6 +31,47 @@ func (plainProfile) ConfigDirName() string      { return "plain-stub" }
 func (plainProfile) Experimental() bool         { return false }
 func (plainProfile) ImageSpec() agent.ImageSpec { return agent.ImageSpec{} }
 
+// mergingProvisionProfile is a registered provisioner that also declares a
+// ConfigMerger, so the seedable predicate's snippet-name check is exercised for
+// a known agent instead of short-circuiting on an unknown name.
+type mergingProvisionProfile struct {
+	rules []agent.ProvisionRule
+}
+
+func (mergingProvisionProfile) Name() string               { return "merging-provision-stub" }
+func (mergingProvisionProfile) ConfigDirName() string      { return "merging-provision-stub" }
+func (mergingProvisionProfile) Experimental() bool         { return false }
+func (mergingProvisionProfile) ImageSpec() agent.ImageSpec { return agent.ImageSpec{} }
+func (m mergingProvisionProfile) ProvisionRules() []agent.ProvisionRule {
+	return m.rules
+}
+func (mergingProvisionProfile) SnippetPattern() string { return "config*.toml" }
+func (mergingProvisionProfile) VMConfigPath(home string) string {
+	return filepath.Join(home, "config.toml")
+}
+func (mergingProvisionProfile) ConfigFileNames() []string { return []string{"config.toml"} }
+
+// TestHostFilesExcludesANonMergeableKnownFormatFile pins that the probe's
+// snippet-name check is load-bearing for a known agent: a known-format file the
+// agent's merge never reads is left out, so the offer names only files the seed
+// would actually copy.
+func TestHostFilesExcludesANonMergeableKnownFormatFile(t *testing.T) {
+	hostHome := t.TempDir()
+	writeHostFile(t, hostHome, ".config/widget/config.toml", "model = \"x\"\n")
+	writeHostFile(t, hostHome, ".config/widget/settings.json", `{"a":1}`)
+	agent.Register(mergingProvisionProfile{})
+	a := mergingProvisionProfile{rules: []agent.ProvisionRule{
+		{Dir: ".config/widget", Patterns: []string{"**"}},
+	}}
+
+	files, _ := HostFiles(a, hostHome)
+
+	want := []string{filepath.Join(hostHome, ".config/widget/config.toml")}
+	if !slices.Equal(files, want) {
+		t.Errorf("HostFiles = %v, want only the mergeable config %v", files, want)
+	}
+}
+
 // TestHostFilesPrunesUnselectedDirectoriesAndFiles pins the walk's rule
 // mirroring: an empty-Dir rule is skipped, a directory the pattern does not
 // select is pruned rather than descended, and a non-selected file is skipped, so
@@ -238,5 +279,63 @@ func TestHostSourceHashIndependentOfRuleOrder(t *testing.T) {
 	}
 	if !slices.Equal(forwardFiles, reverseFiles) {
 		t.Errorf("host file order depends on provision-rule order: %v != %v", reverseFiles, forwardFiles)
+	}
+}
+
+// TestHostFilesContinuesPastAnOverCapFile pins that an over-cap file is skipped
+// rather than ending the walk: a companion file the walk reaches after it is
+// still reported. The over-cap file sorts first so a `break` would drop the
+// companion.
+func TestHostFilesContinuesPastAnOverCapFile(t *testing.T) {
+	hostHome := t.TempDir()
+	writeHostFile(t, hostHome, ".config/widget/0big.json", strings.Repeat("x", readback.MaxHashedBytes+1))
+	writeHostFile(t, hostHome, ".config/widget/a.json", `{"a":1}`)
+	a := provisionProfile{rules: []agent.ProvisionRule{
+		{Dir: ".config/widget", Patterns: []string{"**"}},
+	}}
+
+	files, _ := HostFiles(a, hostHome)
+
+	want := []string{filepath.Join(hostHome, ".config/widget/a.json")}
+	if !slices.Equal(files, want) {
+		t.Errorf("HostFiles = %v, want the seedable file after the skipped over-cap one %v", files, want)
+	}
+}
+
+// TestHostSourceHashCoversTheRelativePath pins that the hash feeds each file's
+// home-relative path, not only its content: two homes whose only config has the
+// same content but a different relative path hash differently.
+func TestHostSourceHashCoversTheRelativePath(t *testing.T) {
+	a := provisionProfile{rules: []agent.ProvisionRule{
+		{Dir: ".config/widget", Patterns: []string{"**"}},
+	}}
+	firstHome := t.TempDir()
+	secondHome := t.TempDir()
+	writeHostFile(t, firstHome, ".config/widget/a.json", `{"a":1}`)
+	writeHostFile(t, secondHome, ".config/widget/b.json", `{"a":1}`)
+
+	_, firstHash := HostFiles(a, firstHome)
+	_, secondHash := HostFiles(a, secondHome)
+
+	if firstHash == secondHash {
+		t.Errorf("source hash %q ignored the relative path", firstHash)
+	}
+}
+
+// TestHostSourceHashIsStableForAKnownSet pins the digest scheme: a fixed file
+// set hashes to a fixed value. The digest covers the length-prefixed relative
+// path and content, so this fails if the length prefix or its width changes.
+func TestHostSourceHashIsStableForAKnownSet(t *testing.T) {
+	hostHome := t.TempDir()
+	writeHostFile(t, hostHome, ".config/widget/a.json", `{"a":1}`)
+	a := provisionProfile{rules: []agent.ProvisionRule{
+		{Dir: ".config/widget", Patterns: []string{"**"}},
+	}}
+
+	_, hash := HostFiles(a, hostHome)
+
+	const want = "dc62cd6a2573f2dff3cb628889f54d92a91afd8c7e859f0d71b658bd6e1cf118"
+	if hash != want {
+		t.Errorf("source hash = %q, want the pinned digest %q", hash, want)
 	}
 }

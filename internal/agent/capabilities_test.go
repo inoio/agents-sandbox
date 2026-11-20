@@ -68,6 +68,39 @@ func TestLatestVersionPropagatesTheCheckerError(t *testing.T) {
 	}
 }
 
+// TestMergesSnippetName pins the shared predicate the managed write-back and
+// the first-run host seed both consult: a caller is not second-guessed for an
+// unknown agent, while a known merger's pattern is matched against the name's
+// base so a path is reduced before matching. The registered no-merger case
+// lives in capabilities_internal_test.go so its global registration is cleaned
+// up again.
+func TestMergesSnippetName(t *testing.T) {
+	t.Run("unknown agent is not second-guessed", func(t *testing.T) {
+		if !agent.MergesSnippetName("not-a-registered-agent", "anything.json") {
+			t.Error("an unknown agent must report true")
+		}
+	})
+	// The "agent without a config merger" branch registers a stub in the
+	// process-global registry, so it lives in capabilities_internal_test.go
+	// where that registration can be cleaned up again.
+	t.Run("known merger matches its snippet pattern", func(t *testing.T) {
+		if !agent.MergesSnippetName("claude-code", "settings.json") {
+			t.Error("claudecode's settings.json must match its settings*.json* pattern")
+		}
+		if agent.MergesSnippetName("claude-code", "config.json") {
+			t.Error("config.json must not match claudecode's settings*.json* pattern")
+		}
+		if !agent.MergesSnippetName("codex", "config.toml") {
+			t.Error("codex's config.toml must match its config*.toml pattern")
+		}
+	})
+	t.Run("a path is reduced to its base before matching", func(t *testing.T) {
+		if !agent.MergesSnippetName("claude-code", "/home/dev/.claude/settings.local.json") {
+			t.Error("the base name must be matched, not the whole path")
+		}
+	})
+}
+
 // opencode must expose a distinct WorktreeProvider capability, separate from
 // DaemonProvider.
 func TestOpencodeImplementsWorktreeProvider(t *testing.T) {

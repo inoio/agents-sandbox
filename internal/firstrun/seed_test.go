@@ -1,9 +1,11 @@
 package firstrun
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -161,6 +163,8 @@ func TestSeedFromHostReportsAnUndecodableFile(t *testing.T) {
 	require.Equal(t, 1, migrated, "the readable sibling is still seeded")
 	require.Error(t, err, "the undecodable file is reported")
 	require.Contains(t, err.Error(), "config-broken.yaml")
+	require.NotContains(t, err.Error(), "merges no snippet",
+		"an unseedable-only report must not name the unmergeable clause")
 	_, copyErr := os.Stat(filepath.Join(paths.UserSlugConfigDir("widget-abc"), "hermes", "config-broken.yaml"))
 	require.True(t, os.IsNotExist(copyErr), "an undecodable file is never copied raw")
 }
@@ -215,6 +219,9 @@ func TestSeedFromHostSkipsANonMergeableConfigFile(t *testing.T) {
 	require.Equal(t, 1, migrated, "the mergeable snippet is still seeded")
 	require.Error(t, err, "the non-mergeable config file is reported")
 	require.Contains(t, err.Error(), "config.json")
+	require.Contains(t, err.Error(), "merges no snippet")
+	require.NotContains(t, err.Error(), "could not be seeded",
+		"an unmergeable-only report must not name the unseedable clause")
 	slugDir := paths.UserSlugConfigDir("widget-abc")
 	require.Contains(t, readSlugFile(t, slugDir, "opencode", "opencode.jsonc"), "${OPENAI_API_KEY}")
 	_, configCopyErr := os.Stat(filepath.Join(slugDir, "opencode", "config.json"))
@@ -431,6 +438,7 @@ func TestSeedFromHostRejectsAnInvalidAgentConfigDirName(t *testing.T) {
 	)
 
 	require.Error(t, err)
+	require.Error(t, errors.Unwrap(err), "the config-dir-names error must be wrapped, not flattened")
 }
 
 // TestSeedFromHostReportsAnOverCapFile pins the bounded read: a host file over
@@ -468,6 +476,21 @@ func TestSeedFromHostReportsAnUnwritableSecretFile(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestWriteSeedSecretsPreservesTheCause pins the ERRORF_WRAP contract of the
+// shared secret writer: a write failure keeps its cause reachable, so a caller
+// can tell the failure apart.
+func TestWriteSeedSecretsPreservesTheCause(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "env.secret.yaml"), []byte("\tnot: [valid"), 0o600))
+
+	err := writeSeedSecrets(dir, []readback.Credential{{
+		EnvVar: "MOONSHOT_API_KEY", Value: "sk-inline", Hosts: []string{"h"},
+	}})
+
+	require.Error(t, err)
+	require.Error(t, errors.Unwrap(err), "the secret-write error must be wrapped, not flattened")
+}
+
 // TestSeedFromHostReportsAFailedManagedWrite pins the managed-config write
 // failure: when the target cannot be written, the file is left unseeded and
 // reported. The config holds no credential, so no secret is written first.
@@ -485,6 +508,30 @@ func TestSeedFromHostReportsAFailedManagedWrite(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestSeedOneHostFilePreservesTheManagedWriteCause pins the ERRORF_WRAP
+// contract of the managed-config write: the OS cause stays reachable through the
+// wrapper, so a caller can tell the write failure apart.
+func TestSeedOneHostFilePreservesTheManagedWriteCause(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	hostHome := t.TempDir()
+	writeHostFile(t, hostHome, hermesHostConfigPath, "model:\n  provider: moonshot\n")
+	scopeDir := paths.UserSlugConfigDir("widget-abc")
+	targetDir := filepath.Join(scopeDir, "hermes")
+	require.NoError(t, os.WriteFile(targetDir, []byte("x"), 0o644))
+
+	_, err := seedOneHostFile(
+		"hermes",
+		hermesHostConfigPath,
+		filepath.Join(hostHome, hermesHostConfigPath),
+		scopeDir,
+		targetDir,
+	)
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, syscall.ENOTDIR, "the OS cause must stay reachable through the wrapper")
+}
+
 // TestHostRelativePathFallsBackOutsideHome pins the fallback: a path outside the
 // host home is reduced to its base name, so the classifier still gets a
 // meaningful trailing element rather than a parent-traversing path.
@@ -494,4 +541,159 @@ func TestHostRelativePathFallsBackOutsideHome(t *testing.T) {
 	got := hostRelativePath(hostHome, filepath.Join(t.TempDir(), "elsewhere", "config.yaml"))
 
 	require.Equal(t, "config.yaml", got)
+}
+
+// TestHostRelativePathFallsBackWhenRelFails pins the fallback for a host home and
+// path that cannot be relativized (one relative, one absolute): the base name is
+// used rather than an empty key.
+func TestHostRelativePathFallsBackWhenRelFails(t *testing.T) {
+	got := hostRelativePath("relative/home", filepath.Join(string(filepath.Separator), "abs", "config.yaml"))
+
+	require.Equal(t, "config.yaml", got)
+}
+
+// TestHostRelativePathFallsBackAboveHome pins the parent case: a path that is
+// the host home's parent relativizes to "..", which is not a usable home-relative
+// key, so it falls back to the base name.
+func TestHostRelativePathFallsBackAboveHome(t *testing.T) {
+	hostHome := filepath.Join(t.TempDir(), "home")
+
+	got := hostRelativePath(hostHome, filepath.Dir(hostHome))
+
+	require.Equal(t, filepath.Base(filepath.Dir(hostHome)), got)
+}
+
+// TestPlaceholderStaticValuesRefusesAnUnmigratableCredential pins the guard's
+// contract for each missing field: a credential with no env-var name, no value,
+// or no host cannot be migrated, so the whole file is refused rather than
+// copied with a raw value or an orphan placeholder.
+func TestPlaceholderStaticValuesRefusesAnUnmigratableCredential(t *testing.T) {
+	path := ".hermes/config.yaml"
+	content := []byte("model:\n  api_key: sk-inline\n")
+	tests := []struct {
+		name        string
+		credential  readback.Credential
+		wantRefused bool
+	}{
+		{
+			name:        "no env-var name",
+			credential:  readback.Credential{Value: "sk-inline", Hosts: []string{"h"}},
+			wantRefused: true,
+		},
+		{
+			name:        "no value",
+			credential:  readback.Credential{EnvVar: "MOONSHOT_API_KEY", Hosts: []string{"h"}},
+			wantRefused: true,
+		},
+		{
+			name:        "no host",
+			credential:  readback.Credential{EnvVar: "MOONSHOT_API_KEY", Value: "sk-inline"},
+			wantRefused: true,
+		},
+		{
+			name:       "migratable",
+			credential: readback.Credential{EnvVar: "MOONSHOT_API_KEY", Value: "sk-inline", Hosts: []string{"h"}},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, ok := placeholderStaticValues(path, content, []readback.Credential{test.credential})
+			if test.wantRefused {
+				require.False(t, ok, "a credential missing a field must refuse the file")
+				require.Empty(t, got)
+				return
+			}
+			require.True(t, ok)
+			require.Contains(t, got, "${MOONSHOT_API_KEY}")
+			require.NotContains(t, got, "sk-inline")
+		})
+	}
+}
+
+// TestSeedFromHostSeedsEveryFileInTheList pins the accumulator: every
+// seedable host file is migrated, so the returned count is the sum, not the
+// last file's count.
+func TestSeedFromHostSeedsEveryFileInTheList(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	hostHome := t.TempDir()
+	writeHostFile(t, hostHome, ".hermes/config.yaml", hermesHostConfig)
+	writeHostFile(t, hostHome, ".hermes/config-second.yaml",
+		"model:\n  provider: openai\n  api_key: sk-second\n  base_url: https://api.openai.com/v1\n")
+
+	migrated, err := SeedFromHost(Facts{
+		Agent: "hermes",
+		Slug:  "widget-abc",
+		HostFiles: []string{
+			filepath.Join(hostHome, ".hermes/config.yaml"),
+			filepath.Join(hostHome, ".hermes/config-second.yaml"),
+		},
+	}, paths, hostHome)
+
+	require.NoError(t, err)
+	require.Equal(t, 2, migrated, "both seedable files must contribute to the count")
+}
+
+// TestSeedFromHostContinuesPastASkippedFile pins that a skip does not end the
+// loop: a skipped file earlier in the list must not stop a later seedable file
+// from being migrated.
+func TestSeedFromHostContinuesPastASkippedFile(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+
+	t.Run("an inline-credential store", func(t *testing.T) {
+		hostHome := t.TempDir()
+		writeHostFile(t, hostHome, ".local/share/opencode/auth.json", `{"openai":{"type":"api","key":"sk-a"}}`)
+		writeHostFile(t, hostHome, ".config/opencode/opencode.jsonc",
+			`{"provider":{"openai":{"options":{"apiKey":"sk-good",`+
+				`"baseURL":"https://api.openai.com/v1"}}}}`)
+
+		migrated, err := SeedFromHost(Facts{
+			Agent: "opencode",
+			Slug:  "widget-abc",
+			HostFiles: []string{
+				filepath.Join(hostHome, ".local/share/opencode/auth.json"),
+				filepath.Join(hostHome, ".config/opencode/opencode.jsonc"),
+			},
+		}, paths, hostHome)
+
+		require.NoError(t, err)
+		require.Equal(t, 1, migrated, "a skipped value store must not stop the later seedable file")
+	})
+
+	t.Run("a non-config file", func(t *testing.T) {
+		hostHome := t.TempDir()
+		writeHostFile(t, hostHome, ".hermes/notes.txt", "provider: moonshot\napi_key: sk-raw\n")
+		writeHostFile(t, hostHome, ".hermes/config.yaml", hermesHostConfig)
+
+		migrated, err := SeedFromHost(Facts{
+			Agent: "hermes",
+			Slug:  "widget-abc",
+			HostFiles: []string{
+				filepath.Join(hostHome, ".hermes/notes.txt"),
+				filepath.Join(hostHome, ".hermes/config.yaml"),
+			},
+		}, paths, hostHome)
+
+		require.NoError(t, err)
+		require.Equal(t, 1, migrated, "a skipped non-config file must not stop the later seedable file")
+	})
+
+	t.Run("a non-mergeable config file", func(t *testing.T) {
+		hostHome := t.TempDir()
+		writeHostFile(t, hostHome, ".hermes/settings.yaml", "model:\n  provider: openai\n")
+		writeHostFile(t, hostHome, ".hermes/config.yaml", hermesHostConfig)
+
+		migrated, err := SeedFromHost(Facts{
+			Agent: "hermes",
+			Slug:  "widget-abc",
+			HostFiles: []string{
+				filepath.Join(hostHome, ".hermes/settings.yaml"),
+				filepath.Join(hostHome, ".hermes/config.yaml"),
+			},
+		}, paths, hostHome)
+
+		require.Equal(t, 1, migrated, "a skipped non-mergeable file must not stop the later seedable file")
+		require.Error(t, err, "the non-mergeable file is still reported")
+	})
 }

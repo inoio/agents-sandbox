@@ -41,6 +41,9 @@ func TestPromptLearnByUsingSetsLearn(t *testing.T) {
 	if gotDefault != string(ChoiceLearnByUsing) {
 		t.Errorf("default key = %q, want %q with no host config", gotDefault, ChoiceLearnByUsing)
 	}
+	if !slices.Contains(ui.InfoCalls, firstRunConsent) {
+		t.Errorf("Info calls = %v, want the consent sentence shown", ui.InfoCalls)
+	}
 }
 
 // TestPromptConsentSentenceMatchesHub pins the one consent sentence against the

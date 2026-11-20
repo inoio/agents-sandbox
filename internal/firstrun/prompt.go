@@ -35,30 +35,29 @@ type Outcome struct {
 // when the run is non-interactive or Offer(f) is false; a non-interactive run
 // warns and returns the zero Outcome (invariant 6: never hang).
 func Prompt(ui termio.UI, f Facts) (Outcome, bool) {
-	var noOutcome Outcome
 	if !Offer(f) {
-		return noOutcome, false
+		return Outcome{}, false
 	}
 	if ui == nil {
-		return noOutcome, false
+		return Outcome{}, false
 	}
 	if !ui.IsInteractive() {
 		ui.Warn("first-run setup needs an interactive terminal; skipping the setup menu")
-		return noOutcome, false
+		return Outcome{}, false
 	}
 
 	ui.Info(firstRunConsent)
 	key, err := ui.Select(firstRunQuestion, firstRunChoices(f), firstRunDefault(f))
 	if err != nil {
 		ui.Warnf("first-run setup: %v", err)
-		return noOutcome, false
+		return Outcome{}, false
 	}
 	provisionConfirmed := false
 	if Choice(key) == ChoiceManual {
 		provisionConfirmed, err = ui.Confirm(manualProvisionWarning, false)
 		if err != nil {
 			ui.Warnf("first-run setup: %v", err)
-			return noOutcome, false
+			return Outcome{}, false
 		}
 	}
 	return outcomeFor(key, f.HostSourceHash, provisionConfirmed), true
@@ -88,7 +87,7 @@ func (o Outcome) Apply(opts *options.RunOptions, slug, agentName string) error {
 // firstRunChoices builds the menu: the host seed is offered only when the host
 // has agent config (Design decision 8); the manual path is always last.
 func firstRunChoices(f Facts) []termio.Choice {
-	choices := make([]termio.Choice, 0, 3)
+	var choices []termio.Choice
 	choices = append(choices, termio.Choice{
 		Key:         string(ChoiceLearnByUsing),
 		Label:       "Learn by using it",
@@ -120,7 +119,10 @@ func firstRunDefault(f Facts) string {
 
 // outcomeFor maps a selected menu key to its outcome, carrying the source hash
 // so Apply records it. provisionConfirmed is the manual path's warning answer,
-// so the manual outcome carries the opt-in only when the user confirmed it.
+// so the manual outcome carries the opt-in only when the user confirmed it. The
+// "Learn by using it" case is named to satisfy the exhaustive switch and returns
+// the same unseeded learning outcome as the fallback, so Select only ever
+// produces one of these anyway; an unexpected key must not drop the first run.
 func outcomeFor(key, sourceHash string, provisionConfirmed bool) Outcome {
 	switch Choice(key) {
 	case ChoiceLearnFromHost:
@@ -133,9 +135,10 @@ func outcomeFor(key, sourceHash string, provisionConfirmed bool) Outcome {
 			sourceHash:          sourceHash,
 		}
 	case ChoiceLearnByUsing:
+		// gomutants:disable-next-line BRANCH_CASE reason="the unseeded learning outcome below is identical, so removing this case falls through to the same value"
 		return Outcome{Choice: ChoiceLearnByUsing, Learn: true, ProvisionHostConfig: false, sourceHash: sourceHash}
 	}
-	// Select only returns a listed key; an unexpected key falls back to the
-	// unseeded learning session rather than dropping the first run.
+	// An unexpected key falls back to the unseeded learning session rather than
+	// dropping the first run.
 	return Outcome{Choice: ChoiceLearnByUsing, Learn: true, ProvisionHostConfig: false, sourceHash: sourceHash}
 }

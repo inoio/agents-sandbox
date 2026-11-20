@@ -120,6 +120,7 @@ func seedOneHostFile(
 	if !ok {
 		return 0, fmt.Errorf("unreadable or over the %d-byte cap", readback.MaxHashedBytes)
 	}
+	// gomutants:disable-next-line BRANCH_IF reason="a known-format decode failure is refused identically downstream: SanitizeConfig retains the value and leaves the file unseeded either way"
 	if _, _, err := readback.ClassifyConfigContent(path, content, agentName); err != nil {
 		return 0, err
 	}

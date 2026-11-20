@@ -69,6 +69,9 @@ func HostFiles(a agent.Agent, hostHome string) ([]string, string) {
 		return nil, ""
 	}
 
+	// The relative paths are unique (each comes from a distinct host file), so a
+	// non-strict comparator orders identically to this one.
+	// gomutants:disable-next-line CONDITIONALS_BOUNDARY reason="rel paths are unique, so <= and < order identically"
 	sort.Slice(selected, func(i, j int) bool { return selected[i].rel < selected[j].rel })
 	files := make([]string, len(selected))
 	digest := sha256.New()

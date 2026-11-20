@@ -12,6 +12,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
@@ -32,14 +33,17 @@ func TestFirstRunMenuNoopWhenLearnAlreadySet(t *testing.T) {
 }
 
 // TestFirstRunMenuReportsHostHomeResolutionFailure pins that a host home the
-// resolver cannot produce is surfaced rather than silently skipping setup.
+// resolver cannot produce is surfaced rather than silently skipping setup, and
+// its cause stays reachable through the wrapper.
 func TestFirstRunMenuReportsHostHomeResolutionFailure(t *testing.T) {
-	configpathstest.WithMockConfigPathsHomeError(t, errors.New("no home"))
+	homeErr := errors.New("no home")
+	configpathstest.WithMockConfigPathsHomeError(t, homeErr)
 
 	err := firstRunMenu(&termiotest.Mock{}, &options.RunOptions{}, "widget-abc", "pi")
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "resolve the host home")
+	require.ErrorIs(t, err, homeErr, "the host-home cause must stay reachable through the wrapper")
 }
 
 // TestFirstRunMenuReportsBuildFactsError pins that a failed fact assembly (an
@@ -98,6 +102,43 @@ func TestFirstRunMenuLogsSeededSecrets(t *testing.T) {
 		t,
 		containsSubstring(ui.InfoCalls, "seeded 1 secret"),
 		"info messages = %v, want the seeded-secret count reported",
+		ui.InfoCalls,
+	)
+}
+
+// TestFirstRunMenuDoesNotRecordWhenNotOffered pins that a menu the user was not
+// shown leaves no decision behind: a non-interactive run that skips the prompt
+// must not record a first-run choice (which would suppress a future prompt).
+func TestFirstRunMenuDoesNotRecordWhenNotOffered(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+
+	err := firstRunMenu(&termiotest.Mock{}, &options.RunOptions{}, "widget-abc", "pi")
+
+	require.NoError(t, err)
+	_, ok, readErr := state.ReadFirstRun("widget-abc", "pi")
+	require.NoError(t, readErr)
+	require.False(t, ok, "a menu that was not offered must not record a decision")
+}
+
+// TestFirstRunMenuDoesNotLogAZeroSeed pins that the seeded-secret count is
+// reported only when a secret was migrated: a clean host config seeds zero, so
+// no "seeded" note is printed.
+func TestFirstRunMenuDoesNotLogAZeroSeed(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	writeFirstRunHostConfig(t, "hermes", "config.yaml", "model:\n  provider: moonshot\n")
+
+	ui := &termiotest.Mock{IsInteractiveResult: true}
+	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		return "learn-from-host", nil
+	}
+
+	err := firstRunMenu(ui, &options.RunOptions{}, "widget-abc", "hermes")
+
+	require.NoError(t, err)
+	require.False(
+		t,
+		containsSubstring(ui.InfoCalls, "seeded"),
+		"info messages = %v, want no seeded-secret note for a zero seed",
 		ui.InfoCalls,
 	)
 }

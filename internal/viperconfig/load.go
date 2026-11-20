@@ -93,6 +93,7 @@ func NewResolver(cmd *cobra.Command, paths configpaths.ConfigPaths, slug string)
 	// Non-flag defaults: host-config provisioning is opt-in. The first run
 	// offers a guided path (learn mode) instead of dropping the host config in
 	// unasked; copying host config, credentials included, is an explicit choice.
+	// gomutants:disable-next-line STATEMENT_REMOVE reason="false is the zero viper already yields for an unset key, so the default cannot change the decoded value"
 	v.SetDefault(keyProvisionHostConfig, false)
 
 	if err := validate(v); err != nil {

@@ -1,6 +1,7 @@
 package firstrun
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -338,7 +339,8 @@ func TestManagedConfigPresentEmptySlugIsNotManaged(t *testing.T) {
 
 // TestBuildFactsErrorsWhenPriorDecisionIsUnreadable pins that a corrupt
 // root-state document is surfaced, not treated as no prior decision: BuildFacts
-// must not silently re-offer the menu over an unreadable state file.
+// must not silently re-offer the menu over an unreadable state file. The
+// wrapped cause is preserved, so a caller can tell the failure apart.
 func TestBuildFactsErrorsWhenPriorDecisionIsUnreadable(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	statePath := filepath.Join(configpaths.Get().UserStateDir(), "state.yaml")
@@ -346,8 +348,103 @@ func TestBuildFactsErrorsWhenPriorDecisionIsUnreadable(t *testing.T) {
 		t.Fatalf("write corrupt state: %v", err)
 	}
 
-	if _, err := BuildFacts("pi", "widget-abc", t.TempDir(), configpaths.Get()); err == nil {
+	_, err := BuildFacts("pi", "widget-abc", t.TempDir(), configpaths.Get())
+	if err == nil {
 		t.Fatal("BuildFacts must surface an unreadable prior-decision document")
+	}
+	if errors.Unwrap(err) == nil {
+		t.Error("the prior-decision read error must be wrapped, not flattened")
+	}
+}
+
+// TestManagedConfigPresentEmptySlugIgnoresSharedScopes pins the empty-slug
+// early return: with no per-slug scope there is no key to manage, so a
+// generic-user config must not report managed config and suppress the menu for
+// an unkeyed run.
+func TestManagedConfigPresentEmptySlugIgnoresSharedScopes(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	a, ok := agent.Lookup("codex")
+	if !ok {
+		t.Fatal("codex agent is not registered")
+	}
+	dirNames, err := agent.ConfigDirNames(a)
+	if err != nil {
+		t.Fatalf("ConfigDirNames: %v", err)
+	}
+	dir := filepath.Join(configpaths.Get().UserConfigDir(), dirNames[0])
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	testutil.WriteFile(t, dir, "config.toml", "model = \"gpt-5\"\n")
+
+	present, err := managedConfigPresent(a, "", configpaths.Get())
+	if err != nil {
+		t.Fatalf("managedConfigPresent: %v", err)
+	}
+	if present {
+		t.Error("an empty slug has no per-slug scope, so it must not report managed config")
+	}
+}
+
+// TestManagedConfigPresentReportsFalseWhenConfigDirNamesFails pins the error
+// return: when the agent's config dir names cannot be resolved, the probe
+// reports false alongside the error, so a caller never sees a spurious managed
+// layer.
+func TestManagedConfigPresentReportsFalseWhenConfigDirNamesFails(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	agent.Register(badConfigDirAgent{})
+
+	present, err := managedConfigPresent(badConfigDirAgent{}, "widget-abc", configpaths.Get())
+	if err == nil {
+		t.Fatal("managedConfigPresent must surface ConfigDirNames' invalid-name refusal")
+	}
+	if present {
+		t.Error("a failed probe must report false")
+	}
+	if errors.Unwrap(err) == nil {
+		t.Error("the ConfigDirNames error must be wrapped, not flattened")
+	}
+}
+
+// TestBuildFactsManagedConfigFromEnvFile pins that every spelling of the value
+// layer counts, including the plain `env` file: a scope holding only it is a
+// managed config layer, so the first run does not overwrite the user's value.
+func TestBuildFactsManagedConfigFromEnvFile(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	slug := "widget-abc"
+	dir := configpaths.Get().UserSlugConfigDir(slug)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	scope := configpaths.ConfigScope{Kind: configpaths.ScopePerSlugUser, Dir: dir}
+	testutil.WriteFile(t, dir, filepath.Base(scope.EnvFile()), "OPENAI_API_KEY=sk-user\n")
+
+	f, err := BuildFacts("codex", slug, t.TempDir(), configpaths.Get())
+	if err != nil {
+		t.Fatalf("BuildFacts: %v", err)
+	}
+	if !f.ManagedConfig {
+		t.Error("a per-slug env file must count as managed config")
+	}
+}
+
+// TestBuildFactsManagedConfigIgnoresADirectoryAtTheSecretPath pins that a
+// directory named like a secret file is not a managed config file: fileExists
+// names a regular file, so a directory must not suppress the menu.
+func TestBuildFactsManagedConfigIgnoresADirectoryAtTheSecretPath(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	slug := "widget-abc"
+	dir := configpaths.Get().UserSlugConfigDir(slug)
+	if err := os.MkdirAll(filepath.Join(dir, "env.secret.yaml"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	f, err := BuildFacts("pi", slug, t.TempDir(), configpaths.Get())
+	if err != nil {
+		t.Fatalf("BuildFacts: %v", err)
+	}
+	if f.ManagedConfig {
+		t.Error("a directory at the secret path must not count as a managed config file")
 	}
 }
 

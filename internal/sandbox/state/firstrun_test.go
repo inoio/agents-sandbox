@@ -199,3 +199,21 @@ func TestReadFirstRunSurfacesACorruptDocument(t *testing.T) {
 		t.Errorf("ReadFirstRun = %+v, want the zero record", got)
 	}
 }
+
+// TestRecordFirstRunSurfacesACorruptDocument pins that a write onto an
+// unreadable root document is returned as an error, not silently dropped: a
+// failed record must reach the caller.
+func TestRecordFirstRunSurfacesACorruptDocument(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	if err := os.MkdirAll(stateRoot(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rootStateFile(), []byte("{ corrupt: [\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := RecordFirstRun("widget-abc", "opencode", FirstRunRecord{Choice: FirstRunLearned})
+	if err == nil {
+		t.Fatal("RecordFirstRun over a corrupt document = nil error, want a write failure")
+	}
+}
