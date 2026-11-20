@@ -1049,3 +1049,54 @@ func writeStartupHookConfig(t *testing.T) {
 	testutil.WriteFile(t, userConfigDir, "config.yaml",
 		"home:\n  .hello.sh:\n    source: hello.sh\n    hook: startup\n")
 }
+
+// TestRunDryRunAgentGoose verifies `run --agent goose` resolves the
+// goose profile, notices that it is experimental, and previews without
+// starting a VM.
+func TestRunDryRunAgentGoose(t *testing.T) {
+	initTestProjectDir(t)
+
+	mock := &msbtest.MockMsbClient{}
+	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{},
+		"run", "--dry-run", "--agent", "goose", "--agent-version", "1.60.1")
+	setupAbsentImagePreviewMocks(t, mock)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var pinnedVersion, experimental bool
+	for _, line := range ui.InfoCalls {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "dry-run: agent version 1.60.1" {
+			pinnedVersion = true
+		}
+		if strings.Contains(trimmed, "experimental") {
+			experimental = true
+		}
+	}
+	if !pinnedVersion {
+		t.Errorf("expected pinned goose version line; got: %v", ui.InfoCalls)
+	}
+	if !experimental {
+		t.Errorf("expected an experimental notice for goose; got: %v", ui.InfoCalls)
+	}
+	if len(mock.CreatedSandboxCalls) != 0 {
+		t.Errorf("--dry-run created %d sandbox(es), want 0", len(mock.CreatedSandboxCalls))
+	}
+}
+
+// TestRunAgentGooseRejectsDaemonOnlyFlags verifies goose, which runs no
+// daemon, rejects --worktree and --serve-only.
+func TestRunAgentGooseRejectsDaemonOnlyFlags(t *testing.T) {
+	for _, flagArgs := range [][]string{{"--worktree", "feat"}, {"--serve-only"}} {
+		t.Run(flagArgs[0], func(t *testing.T) {
+			initTestProjectDir(t)
+			args := append([]string{"run", "--dry-run", "--agent", "goose"}, flagArgs...)
+			root, _ := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, args...)
+			err := root.Execute()
+			if err == nil || !strings.Contains(err.Error(), `not supported by agent "goose"`) {
+				t.Errorf("err = %v, want 'not supported by agent \"goose\"'", err)
+			}
+		})
+	}
+}
