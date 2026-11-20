@@ -104,6 +104,12 @@
   - Description: `deprecation-policy.md` — how a flag/config key/env var/command is deprecated, how long it survives, how it is surfaced, and the current deprecation register with replacement/removal targets.
   - Read If: Deprecating or removing a CLI flag, config key, env var, or command; deciding whether a change needs a shim or a clean break; or enforcing the deprecation register in tests.
 
+#### `specs/dev-image/` - This repo's dev-VM image composition
+
+- `specs/dev-image/`
+  - Description: `composition.md` — the dev-VM image's multistage layout in `.agents-sandbox/Dockerfile`: one stage per component (`system`/`fetch`/`go`/`zig`/`extras`) merged into the final stage, which components can and cannot cross a `COPY` boundary, and per-stage version pins.
+  - Read If: Editing `.agents-sandbox/Dockerfile` or the dev-VM toolchain; bumping a pinned dev tool or adding/removing an apt package; or diagnosing a dev-image rebuild that re-ran more than the changed component.
+
 #### `specs/identity/` - Project, artifact, and sandbox identity and naming
 
 - `specs/identity/`

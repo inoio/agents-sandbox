@@ -84,7 +84,7 @@ read_if: Navigating the codebase.
 
 ### `.agents-sandbox/` — Development VM
 
-- `Dockerfile`, `config.yaml`, `*.sh`, `opencode2/` — dev environment image (go, msb, docker, …) and its provisioning.
+- `Dockerfile`, `config.yaml`, `*.sh`, `opencode2/` — dev environment image (go, msb, docker, …) and its provisioning; the Dockerfile is multistage, one stage per toolchain component (`system`/`fetch`/`go`/`zig`/`extras`).
 
 ### `.agents/skills/` — Repo engineering skills
 
