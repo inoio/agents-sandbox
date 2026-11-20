@@ -51,11 +51,13 @@ log. A placeholder never appears without its entry: a credential the analysis wi
 no env-var name) leaves the whole file uncopied rather than copied with an orphan `${ENVVAR}` or a raw sibling value.
 Only a file the agent's **snippet pattern** matches is proposed — a candidate the merge never reads (a reserved
 config-family name such as opencode's `config.json`, or any name outside the pattern) would be a managed write that
-takes no effect.
+takes no effect. The shared predicate `agent.MergesSnippetName` carries the pattern match; the host seed applies the
+same check, so it never copies a host config file the merge would not read.
 
 **The no-raw-sibling rule is enforced only on the host-seed path so far.** The shared sanitizer
 (`readback.SanitizeConfig`) takes a `RefuseUndeclaredSecretKeys` flag: the UC4 host seed sets it, so any non-reference
-string left under a secret-shaped key the credential walk did not name refuses the whole file. The after-run write-back
+string left under a secret-shaped key the credential walk did not name — directly or inside a nested array or object —
+refuses the whole file. The after-run write-back
 (`analyser.ManagedConfigFindings`) leaves it off — a pre-existing S10 gap — so a secret-shaped value the walk did not
 classify can still be copied verbatim into the managed config. Until that flag is turned on for the write-back, the
 shared sanitizer must not be read as enforcing this rule on both paths.

@@ -52,7 +52,9 @@ Legend for the first four rows: ✅ = stronger isolation or host-side handling; 
 
 > **Credential warning:** Host agent configuration is not copied into the VM by default. Opt in with
 > `provision-host-config: true` to copy the active agent's host configuration; for
-> opencode, that can include `~/.local/share/opencode/auth.json`. If credentials must not be stored in the VM, leave
+> opencode, that can include `~/.local/share/opencode/auth.json`. Because the default is off, previously drop-in-copied
+> host config and credentials are removed from existing sandboxes on the next run; opt in again to keep the drop-in
+> copy. If credentials must not be stored in the VM, leave
 > provisioning off and use the secret mechanism, and keep credentials out of `/workspace`, `home:`, `env`, and
 > writable mounts. See the [Secrets](https://inoio.github.io/agents-sandbox/configuration/secrets.html) and [Agent configuration](https://inoio.github.io/agents-sandbox/configuration/agent.html)
 > documentation.

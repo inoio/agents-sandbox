@@ -41,8 +41,8 @@ type SanitizeParams struct {
 // AllCredentials value survives the substitution, so the caller refuses the
 // file rather than copy a raw value or an orphan placeholder. With
 // RefuseUndeclaredSecretKeys set, it is also false when the decoded document
-// still holds a non-reference string under a secret-shaped key the credential
-// walk did not name.
+// still holds a non-reference string — directly or inside a collection — under a
+// secret-shaped key the credential walk did not name.
 //
 // The substitution is longest-value-first, so a value that is a prefix of
 // another does not corrupt the longer one. The value-remains check is literal
@@ -70,9 +70,10 @@ func SanitizeConfig(content []byte, params SanitizeParams) (string, bool) {
 }
 
 // holdsUndeclaredSecretValue reports whether content still holds a non-reference
-// string under a secret-shaped key the credential walk did not name. A known
-// format that does not decode reports true, so a secret cannot hide behind an
-// undecodable document; an unknown format reports false.
+// string — directly or inside a collection — under a secret-shaped key the
+// credential walk did not name. A known format that does not decode reports
+// true, so a secret cannot hide behind an undecodable document; an unknown
+// format reports false.
 func holdsUndeclaredSecretValue(path, content string) bool {
 	format, ok := configdecode.FormatFor(path)
 	if !ok {
@@ -326,7 +327,10 @@ var secretShapedKeyMarkers = []string{
 // while a token count such as maxTokens is a different segment (TOKENS). A
 // run-together apikey has no segment boundary, so it is matched as a whole.
 func looksLikeSecretShapedKey(key string) bool {
-	if normalizeToken(key) == "apikey" {
+	switch normalizeToken(key) {
+	case "apikey", "apikeys":
+		// A run-together api-key name has no segment boundary for the marker
+		// walk, so both the singular and the plural are matched whole.
 		return true
 	}
 	for _, segment := range keySegments(key) {
@@ -396,9 +400,36 @@ func decodedHoldsUndeclaredSecretValue(node any) bool {
 
 // secretKeyLeaksValue reports whether a secret-shaped key holds a raw secret
 // value rather than a placeholder, a reference, an empty string, or a non-string
-// (a numeric token count).
+// scalar. An array or object under the key leaks when any descendant string is a
+// raw secret, so a list such as {"apiKeys":["sk-raw"]} is refused.
 func secretKeyLeaksValue(key string, value any) bool {
-	return looksLikeSecretShapedKey(key) && isUndeclaredSecretValue(value)
+	return looksLikeSecretShapedKey(key) && holdsRawSecretString(value)
+}
+
+// holdsRawSecretString reports whether node is, or contains at any depth, a
+// non-empty string that is not a reference. It threads the secret-shaped key's
+// context through its descendants so a collection under the key is inspected,
+// not only a direct string value.
+func holdsRawSecretString(node any) bool {
+	switch typed := node.(type) {
+	case []any:
+		return slices.ContainsFunc(typed, holdsRawSecretString)
+	case map[string]any:
+		for _, child := range typed {
+			if holdsRawSecretString(child) {
+				return true
+			}
+		}
+	case map[any]any:
+		for _, child := range typed {
+			if holdsRawSecretString(child) {
+				return true
+			}
+		}
+	default:
+		return isUndeclaredSecretValue(typed)
+	}
+	return false
 }
 
 // isUndeclaredSecretValue reports whether node is a non-empty string that is not

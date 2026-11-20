@@ -403,9 +403,9 @@ func TestConfigAgentPrintsMirrorFiles(t *testing.T) {
 	}
 }
 
-func TestProvisionHostConfigEnabledDefaultsTrueWithoutResolver(t *testing.T) {
-	if !provisionHostConfigEnabled(&cobra.Command{}) {
-		t.Error("provisionHostConfigEnabled() = false, want true without a resolver")
+func TestProvisionHostConfigEnabledDefaultsFalseWithoutResolver(t *testing.T) {
+	if provisionHostConfigEnabled(&cobra.Command{}) {
+		t.Error("provisionHostConfigEnabled() = true, want false without a resolver")
 	}
 }
 

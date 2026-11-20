@@ -34,7 +34,10 @@ const managedConfigMode = 0o644
 // substitution, or a non-reference string under a secret-shaped key the
 // credential walk did not name — is left unseeded, never copied raw or truncated,
 // and named in the returned error while the readable files are still seeded. A
-// nil error therefore means every candidate was seeded or silently skipped.
+// config file the agent's merge never reads — its name is not matched by the
+// agent's snippet pattern, so a managed copy would take no effect — is likewise
+// skipped and named. A nil error therefore means every candidate was seeded or
+// silently skipped.
 func SeedFromHost(f Facts, paths configpaths.ConfigPaths, hostHome string) (int, error) {
 	if f.Slug == "" {
 		return 0, errors.New("firstrun: seed needs a repo slug for the per-slug scope")
@@ -54,7 +57,7 @@ func SeedFromHost(f Facts, paths configpaths.ConfigPaths, hostHome string) (int,
 	}.AgentConfigDir(dirNames[0])
 
 	migrated := 0
-	var unseedable []string
+	var unseedable, unmergeable []string
 	for _, hostPath := range f.HostFiles {
 		if readback.SkipsInlineCredentials(hostPath) {
 			// The dotenv and the login stores are value stores: they are never
@@ -66,20 +69,44 @@ func SeedFromHost(f Facts, paths configpaths.ConfigPaths, hostHome string) (int,
 			// Not a config format: an expected skip, not a failure.
 			continue
 		}
+		if !agent.MergesSnippetName(f.Agent, filepath.Base(hostPath)) {
+			// The agent's merge never reads this snippet name, so a managed copy
+			// of it would take no effect; skip and report it.
+			unmergeable = append(unmergeable, hostPath)
+			continue
+		}
 		if seeded, err := seedOneHostFile(f.Agent, path, hostPath, scopeDir, targetDir); err != nil {
 			unseedable = append(unseedable, hostPath)
 		} else {
 			migrated += seeded
 		}
 	}
-	if len(unseedable) > 0 {
-		return migrated, fmt.Errorf(
-			"firstrun: skipped %d host config file(s) that could not be seeded: %s",
-			len(unseedable),
-			strings.Join(unseedable, ", "),
-		)
+	if len(unseedable) > 0 || len(unmergeable) > 0 {
+		return migrated, skippedSeedFilesError(unseedable, unmergeable)
 	}
 	return migrated, nil
+}
+
+// skippedSeedFilesError names the host files the seed left uncopied: the ones it
+// could not sanitize, and the ones the agent's merge would never read. It is the
+// one reporting point, so the caller's warning covers both reasons.
+func skippedSeedFilesError(unseedable, unmergeable []string) error {
+	var clauses []string
+	if len(unseedable) > 0 {
+		clauses = append(clauses, fmt.Sprintf(
+			"skipped %d host config file(s) that could not be seeded: %s",
+			len(unseedable),
+			strings.Join(unseedable, ", "),
+		))
+	}
+	if len(unmergeable) > 0 {
+		clauses = append(clauses, fmt.Sprintf(
+			"skipped %d host config file(s) the agent merges no snippet for: %s",
+			len(unmergeable),
+			strings.Join(unmergeable, ", "),
+		))
+	}
+	return fmt.Errorf("firstrun: %s", strings.Join(clauses, "; "))
 }
 
 // seedOneHostFile seeds one host config file and returns the number of static

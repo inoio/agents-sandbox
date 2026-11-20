@@ -5,7 +5,6 @@ import (
 	"slices"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
-	"github.com/inoio/agents-sandbox/internal/configmerge"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/readback"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -97,18 +96,10 @@ func stringSet(values []string) map[string]bool {
 }
 
 // snippetNameMatches reports whether the agent merges a snippet with configPath's
-// base name. An unknown agent, or one without a snippet pattern, is not
-// second-guessed here: the write's target is resolved and refused at apply time.
+// base name. It delegates to the shared agent predicate, so the write-back and
+// the first-run host seed agree on which config files the merge actually reads.
 func snippetNameMatches(agentName, configPath string) bool {
-	profile, ok := agent.Lookup(agentName)
-	if !ok {
-		return true
-	}
-	merger, ok := agent.AsConfigMerger(profile)
-	if !ok {
-		return true
-	}
-	return configmerge.SnippetNameMatches(merger.SnippetPattern(), filepath.Base(configPath))
+	return agent.MergesSnippetName(agentName, configPath)
 }
 
 // changed reports whether the read-back saw configPath change since baseline.
@@ -191,7 +182,7 @@ func newManagedConfigFinding(configPath, content string) Finding {
 // staticCredentialsBySource indexes the static credentials by the file they came
 // from. A credential with no value is not a secret and contributes nothing; a
 // credential with no env-var name cannot be substituted and is kept in the map
-// so substituteStaticValues refuses its file rather than emitting the value.
+// so readback.SanitizeConfig refuses its file rather than emitting the value.
 func staticCredentialsBySource(static []readback.Credential) map[string][]readback.Credential {
 	bySource := make(map[string][]readback.Credential)
 	for _, credential := range static {

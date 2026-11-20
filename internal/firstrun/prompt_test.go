@@ -40,6 +40,41 @@ func TestPromptLearnByUsingSetsLearn(t *testing.T) {
 	}
 }
 
+// TestPromptConsentSentenceMatchesHub pins the one consent sentence against the
+// exact words the learn-mode hub specifies, so a reworded constant cannot drift
+// from the documented contract.
+func TestPromptConsentSentenceMatchesHub(t *testing.T) {
+	const hubConsent = "Let agents-sandbox learn from this session: set up your providers here, " +
+		"use the agent normally, and when you exit it offers to save what it needed."
+	if firstRunConsent != hubConsent {
+		t.Errorf("firstRunConsent = %q, want the hub's sentence %q", firstRunConsent, hubConsent)
+	}
+}
+
+// TestPromptLearningChoiceDoesNotConfirm pins that only the manual choice asks
+// the provisioning warning: a learning choice must never call Confirm.
+func TestPromptLearningChoiceDoesNotConfirm(t *testing.T) {
+	ui := &termiotest.Mock{IsInteractiveResult: true}
+	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		return string(ChoiceLearnFromHost), nil
+	}
+
+	out, offered := Prompt(ui, Facts{
+		Agent:     "pi",
+		Slug:      "widget-abc",
+		HostFiles: []string{"/home/dev/.pi/agent/settings.json"},
+	})
+	if !offered {
+		t.Fatal("the menu must be offered")
+	}
+	if len(ui.ConfirmCalls) != 0 {
+		t.Errorf("Confirm calls = %v, want none for a learning choice", ui.ConfirmCalls)
+	}
+	if out.Choice != ChoiceLearnFromHost || !out.Learn {
+		t.Errorf("outcome = %+v, want a seeded learning session", out)
+	}
+}
+
 // TestPromptOfferedFalseWhenNotInteractive pins invariant 6: a non-interactive
 // run offers nothing, never calls Select, warns, and returns the zero Outcome.
 func TestPromptOfferedFalseWhenNotInteractive(t *testing.T) {

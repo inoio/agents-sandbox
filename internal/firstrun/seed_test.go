@@ -143,7 +143,7 @@ func TestSeedFromHostReportsAnUndecodableFile(t *testing.T) {
 	paths := configpaths.Get()
 	hostHome := t.TempDir()
 	writeHostFile(t, hostHome, ".hermes/config.yaml", hermesHostConfig)
-	writeHostFile(t, hostHome, ".hermes/broken.yaml",
+	writeHostFile(t, hostHome, ".hermes/config-broken.yaml",
 		"model:\n  provider: openai\n  api_key: sk\nbroken: !!int notanint\n")
 
 	migrated, err := SeedFromHost(Facts{
@@ -151,14 +151,14 @@ func TestSeedFromHostReportsAnUndecodableFile(t *testing.T) {
 		Slug:  "widget-abc",
 		HostFiles: []string{
 			filepath.Join(hostHome, ".hermes/config.yaml"),
-			filepath.Join(hostHome, ".hermes/broken.yaml"),
+			filepath.Join(hostHome, ".hermes/config-broken.yaml"),
 		},
 	}, paths, hostHome)
 
 	require.Equal(t, 1, migrated, "the readable sibling is still seeded")
 	require.Error(t, err, "the undecodable file is reported")
-	require.Contains(t, err.Error(), "broken.yaml")
-	_, copyErr := os.Stat(filepath.Join(paths.UserSlugConfigDir("widget-abc"), "hermes", "broken.yaml"))
+	require.Contains(t, err.Error(), "config-broken.yaml")
+	_, copyErr := os.Stat(filepath.Join(paths.UserSlugConfigDir("widget-abc"), "hermes", "config-broken.yaml"))
 	require.True(t, os.IsNotExist(copyErr), "an undecodable file is never copied raw")
 }
 
@@ -185,6 +185,38 @@ func TestSeedFromHostSilentlySkipsANonConfigFile(t *testing.T) {
 	require.Equal(t, 1, migrated)
 	_, copyErr := os.Stat(filepath.Join(paths.UserSlugConfigDir("widget-abc"), "hermes", "notes.txt"))
 	require.True(t, os.IsNotExist(copyErr), "a non-config file is never copied")
+}
+
+// TestSeedFromHostSkipsANonMergeableConfigFile pins that a known-format host
+// file the agent's merge never reads is skipped and reported, while a mergeable
+// snippet is still seeded: for opencode, config.json is not matched by
+// opencode*.json*, so a managed copy of it would take no effect.
+func TestSeedFromHostSkipsANonMergeableConfigFile(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	hostHome := t.TempDir()
+	writeHostFile(t, hostHome, ".config/opencode/opencode.jsonc",
+		`{"provider":{"openai":{"options":{"apiKey":"sk-good",`+
+			`"baseURL":"https://api.openai.com/v1"}}}}`)
+	writeHostFile(t, hostHome, ".config/opencode/config.json", `{"theme":"dark"}`)
+
+	migrated, err := SeedFromHost(Facts{
+		Agent: "opencode",
+		Slug:  "widget-abc",
+		HostFiles: []string{
+			filepath.Join(hostHome, ".config/opencode/opencode.jsonc"),
+			filepath.Join(hostHome, ".config/opencode/config.json"),
+		},
+	}, paths, hostHome)
+
+	require.Equal(t, 1, migrated, "the mergeable snippet is still seeded")
+	require.Error(t, err, "the non-mergeable config file is reported")
+	require.Contains(t, err.Error(), "config.json")
+	slugDir := paths.UserSlugConfigDir("widget-abc")
+	require.Contains(t, readSlugFile(t, slugDir, "opencode", "opencode.jsonc"), "${OPENAI_API_KEY}")
+	_, configCopyErr := os.Stat(filepath.Join(slugDir, "opencode", "config.json"))
+	require.True(t, os.IsNotExist(configCopyErr),
+		"a non-mergeable config file is never written as an ineffective managed file")
 }
 
 // TestSeedFromHostRefusesAnMCPAuthorizationHeader pins the Critical guard: an
@@ -234,6 +266,27 @@ func TestSeedFromHostRefusesAnUndeclaredAccessToken(t *testing.T) {
 	require.True(t, os.IsNotExist(copyErr))
 }
 
+// TestSeedFromHostRefusesAnUndeclaredSecretArray pins the Critical guard for a
+// secret-shaped key holding an array of raw strings: the array's raw value must
+// refuse the whole file rather than be copied verbatim into the managed config.
+func TestSeedFromHostRefusesAnUndeclaredSecretArray(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	hostHome := t.TempDir()
+	writeHostFile(t, hostHome, ".config/opencode/opencode.jsonc", `{"apiKeys":["sk-raw"]}`)
+
+	migrated, err := SeedFromHost(Facts{
+		Agent:     "opencode",
+		Slug:      "widget-abc",
+		HostFiles: []string{filepath.Join(hostHome, ".config/opencode/opencode.jsonc")},
+	}, paths, hostHome)
+
+	require.Zero(t, migrated)
+	require.Error(t, err, "a raw secret in an array under a secret-shaped key must refuse the file")
+	_, copyErr := os.Stat(filepath.Join(paths.UserSlugConfigDir("widget-abc"), "opencode", "opencode.jsonc"))
+	require.True(t, os.IsNotExist(copyErr), "the file is never copied with a raw array secret")
+}
+
 // TestSeedFromHostRefusesOnlyTheLeakingFile pins that a refused file does not
 // stop the seed: a clean sibling is still migrated and copied, while the file
 // with an undeclared secret-shaped value is left unseeded and named.
@@ -241,27 +294,27 @@ func TestSeedFromHostRefusesOnlyTheLeakingFile(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	paths := configpaths.Get()
 	hostHome := t.TempDir()
-	writeHostFile(t, hostHome, ".config/opencode/good.jsonc",
+	writeHostFile(t, hostHome, ".config/opencode/opencode-good.jsonc",
 		`{"provider":{"openai":{"options":{"apiKey":"sk-good",`+
 			`"baseURL":"https://api.openai.com/v1"}}}}`)
-	writeHostFile(t, hostHome, ".config/opencode/bad.jsonc",
+	writeHostFile(t, hostHome, ".config/opencode/opencode-bad.jsonc",
 		`{"mcp":{"github":{"headers":{"Authorization":"Bearer sk-mcp-secret"}}}}`)
 
 	migrated, err := SeedFromHost(Facts{
 		Agent: "opencode",
 		Slug:  "widget-abc",
 		HostFiles: []string{
-			filepath.Join(hostHome, ".config/opencode/good.jsonc"),
-			filepath.Join(hostHome, ".config/opencode/bad.jsonc"),
+			filepath.Join(hostHome, ".config/opencode/opencode-good.jsonc"),
+			filepath.Join(hostHome, ".config/opencode/opencode-bad.jsonc"),
 		},
 	}, paths, hostHome)
 
 	require.Equal(t, 1, migrated, "the clean sibling is still seeded")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "bad.jsonc")
+	require.Contains(t, err.Error(), "opencode-bad.jsonc")
 	slugDir := paths.UserSlugConfigDir("widget-abc")
-	require.Contains(t, readSlugFile(t, slugDir, "opencode", "good.jsonc"), "${OPENAI_API_KEY}")
-	_, badCopyErr := os.Stat(filepath.Join(slugDir, "opencode", "bad.jsonc"))
+	require.Contains(t, readSlugFile(t, slugDir, "opencode", "opencode-good.jsonc"), "${OPENAI_API_KEY}")
+	_, badCopyErr := os.Stat(filepath.Join(slugDir, "opencode", "opencode-bad.jsonc"))
 	require.True(t, os.IsNotExist(badCopyErr), "the leaking file is left unseeded")
 }
 

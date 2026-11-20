@@ -55,7 +55,7 @@ read_if: Navigating the codebase.
 - `runoptions/` — `*cobra.Command`-driven run/shell option resolution (`Build`) into `options.RunOptions`.
 - `cliout/` + `view/` — Output rendering: `cliout` is domain-free (generic list/JSON plus `RenderPruneReport`); `view` holds the sandbox-shaped printers and report DTOs (see `specs/architecture/package-boundaries.md`).
 - `sandbox/` — **See [sandbox subindex](sandbox.md)** (VM lifecycle, docker, image, msb, volumes, pruning, sessions, state).
-- Leaf utilities — `atomicwrite` (durable state/config writes), `configmerge`, `filewalk`, `humanize`, `sysinfo`, `yamlfmt`.
+- Leaf utilities — `atomicwrite` (durable state/config writes), `configmerge`, `filewalk`, `globmatch` (snippet glob name matching, shared by the agent profiles and `configmerge`), `humanize`, `sysinfo`, `yamlfmt`.
 - `testutil/` — Test-only helpers: the git-isolation environment (`GitIsolationEnvironment`, `RunGit`, `ConfigureRepo`), `InitRepo`, `WritePath`/`WriteFile`, the fail-fast mock installers, and the module-wide contract scans. `testgit.go` is the only coverage-ignored file.
 
 ### `test/harness/` — `msb`-tagged harness smoke tests

@@ -1,6 +1,11 @@
 package agent
 
-import "context"
+import (
+	"context"
+	"path/filepath"
+
+	"github.com/inoio/agents-sandbox/internal/globmatch"
+)
 
 // settingsFileName is the settings filename shared by the pi and claude-code
 // agents, whose merged snippet config is written to <config dir>/settings.json.
@@ -160,6 +165,25 @@ func AsSessionStatusProvider(a Agent) (SessionStatusProvider, bool) {
 
 // AsConfigMerger returns the agent's ConfigMerger, if it implements one.
 func AsConfigMerger(a Agent) (ConfigMerger, bool) { p, ok := a.(ConfigMerger); return p, ok }
+
+// MergesSnippetName reports whether agentName's config merger reads a snippet
+// with base name name — its SnippetPattern matched against the file. Both the
+// managed config write-back and the first-run host seed use it, so neither
+// writes a config file the agent's merge would never read. An unknown agent, or
+// one whose profile declares no snippet pattern, reports true: the caller is not
+// second-guessed here, and a write's target is resolved and refused at apply
+// time if needed.
+func MergesSnippetName(agentName, name string) bool {
+	profile, ok := Lookup(agentName)
+	if !ok {
+		return true
+	}
+	merger, ok := AsConfigMerger(profile)
+	if !ok {
+		return true
+	}
+	return globmatch.NameMatches(merger.SnippetPattern(), filepath.Base(name))
+}
 
 // AsAttachRunner returns the agent's AttachRunner, if it implements one.
 func AsAttachRunner(a Agent) (AttachRunner, bool) { p, ok := a.(AttachRunner); return p, ok }

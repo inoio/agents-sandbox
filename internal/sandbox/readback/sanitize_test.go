@@ -248,6 +248,60 @@ func TestSanitizeConfigRefusesAnUndeclaredAccessToken(t *testing.T) {
 	require.False(t, ok)
 }
 
+// TestSanitizeConfigRefusesAnUndeclaredSecretArray pins the guard for a
+// secret-shaped key holding an array of raw strings: the walk must treat every
+// descendant string as a leak, not only a direct string value.
+func TestSanitizeConfigRefusesAnUndeclaredSecretArray(t *testing.T) {
+	content := []byte(`{"apiKey":["sk-raw"]}`)
+
+	_, ok := SanitizeConfig(content, SanitizeParams{
+		Path:                       "opencode.jsonc",
+		RefuseUndeclaredSecretKeys: true,
+	})
+
+	require.False(t, ok, "a raw secret in an array under a secret-shaped key must refuse the file")
+}
+
+// TestSanitizeConfigRefusesAnUndeclaredSecretArrayUnderPluralKey pins the guard
+// for a run-together plural api-key name, which the segment walk alone does not
+// recognize (apiKeys splits into API and KEYS).
+func TestSanitizeConfigRefusesAnUndeclaredSecretArrayUnderPluralKey(t *testing.T) {
+	content := []byte(`{"apiKeys":["sk-raw"]}`)
+
+	_, ok := SanitizeConfig(content, SanitizeParams{
+		Path:                       "opencode.jsonc",
+		RefuseUndeclaredSecretKeys: true,
+	})
+
+	require.False(t, ok, "a raw secret under an apiKeys-style key must refuse the file")
+}
+
+// TestSanitizeConfigRefusesAnUndeclaredSecretObject pins the guard for a
+// secret-shaped key holding a nested object of raw strings.
+func TestSanitizeConfigRefusesAnUndeclaredSecretObject(t *testing.T) {
+	content := []byte(`{"apiKey":{"default":"sk-raw"}}`)
+
+	_, ok := SanitizeConfig(content, SanitizeParams{
+		Path:                       "opencode.jsonc",
+		RefuseUndeclaredSecretKeys: true,
+	})
+
+	require.False(t, ok, "a raw secret in an object under a secret-shaped key must refuse the file")
+}
+
+// TestSanitizeConfigGuardAcceptsAnOrphanFreeArray pins that the recursion does
+// not over-refuse: an array of placeholders and references is not a leak.
+func TestSanitizeConfigGuardAcceptsAnOrphanFreeArray(t *testing.T) {
+	content := []byte(`{"apiKeys":["${OPENAI_API_KEY}","${ANTHROPIC_API_KEY}","OPENAI_API_KEY"]}`)
+
+	_, ok := SanitizeConfig(content, SanitizeParams{
+		Path:                       "opencode.jsonc",
+		RefuseUndeclaredSecretKeys: true,
+	})
+
+	require.True(t, ok, "placeholders and references in an array are not leaks")
+}
+
 // TestSanitizeConfigGuardAcceptsAnOrphanFreeDocument pins that the guard does not
 // over-refuse: a placeholder, a reference, an empty value, and a numeric token
 // count are not leaks.

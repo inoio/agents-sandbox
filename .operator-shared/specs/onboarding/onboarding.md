@@ -74,8 +74,9 @@ Every credentialed entry is classified by one concept, independent of agent:
 The classification lives in the read-back, shared by the UC4 seed (`readback.ClassifyConfigContent`) and the after-run
 analyser (`readback.Read`); its shapes, the env-var name that scopes a static secret, and the static-inline-key /
 directory-login cases are in [home read-back](learn-mode/home-read-back.md). The UC4 seed reads the host config through
-the agent's existing provision rules, classifies each credential, writes a placeholdered copy of each config file to the
-per-slug managed config and each static value to the per-slug `env.secret.yaml`, and never copies a login store (and
+the agent's existing provision rules, classifies each credential, writes a placeholdered copy of each config file the
+agent's snippet pattern merges to the per-slug managed config and each static value to the per-slug `env.secret.yaml`,
+skips (and reports) a config file the merge would never read, and never copies a login store (and
 refuses a file that still holds an unclassified secret value).
 
 ## `config harden`
