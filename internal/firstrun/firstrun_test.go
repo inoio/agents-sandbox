@@ -259,6 +259,32 @@ func TestBuildFactsManagedConfigIgnoresNonRegularEntries(t *testing.T) {
 	}
 }
 
+// TestBuildFactsManagedConfigFromLegacySecretFile pins the rule-1 fix: the probe
+// counts every spelling of the secret layer the loader reads, not just
+// env.secret.yaml, so a scope holding only the legacy env.secret suppresses the
+// menu (and the host seed cannot override the user's value).
+func TestBuildFactsManagedConfigFromLegacySecretFile(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	slug := "widget-abc"
+	dir := configpaths.Get().UserSlugConfigDir(slug)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	scope := configpaths.ConfigScope{Kind: configpaths.ScopePerSlugUser, Dir: dir}
+	testutil.WriteFile(t, dir, filepath.Base(scope.EnvSecretFile()), "OPENAI_API_KEY=sk-user@api.openai.com\n")
+
+	f, err := BuildFacts("codex", slug, t.TempDir(), configpaths.Get())
+	if err != nil {
+		t.Fatalf("BuildFacts: %v", err)
+	}
+	if !f.ManagedConfig {
+		t.Error("a legacy env.secret must count as managed config")
+	}
+	if Offer(f) {
+		t.Error("a managed secret layer must suppress the menu")
+	}
+}
+
 // TestBuildFactsUnknownAgentIsAnError pins that the assembler refuses an agent
 // name the registry does not know.
 func TestBuildFactsUnknownAgentIsAnError(t *testing.T) {

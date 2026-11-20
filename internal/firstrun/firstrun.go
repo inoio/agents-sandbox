@@ -90,10 +90,11 @@ func BuildFacts(agentName, slug, hostHome string, paths configpaths.ConfigPaths)
 
 // managedConfigPresent reports whether a managed config layer already exists for
 // a: at least one regular file directly in one of the agent's launcher config
-// dirs (primary or alias), or a scope's env.secret.yaml, in any scope the config
-// merge reads (generic user, per-slug user, project). An empty slug has no
-// per-slug scope and no decision key, so it reports false. A missing dir, or one
-// holding only subdirectories, is not a managed config layer.
+// dirs (primary or alias), or a scope's secret file (env.secret.yaml, the legacy
+// env.secret, or env), in any scope the config merge reads (generic user,
+// per-slug user, project). An empty slug has no per-slug scope and no decision
+// key, so it reports false. A missing dir, or one holding only subdirectories, is
+// not a managed config layer.
 func managedConfigPresent(a agent.Agent, slug string, paths configpaths.ConfigPaths) (bool, error) {
 	if slug == "" {
 		return false, nil
@@ -108,7 +109,7 @@ func managedConfigPresent(a agent.Agent, slug string, paths configpaths.ConfigPa
 				return true, nil
 			}
 		}
-		if fileExists(scope.EnvSecretYAMLFile()) {
+		if fileExists(scope.EnvSecretYAMLFile()) || fileExists(scope.EnvSecretFile()) || fileExists(scope.EnvFile()) {
 			return true, nil
 		}
 	}
