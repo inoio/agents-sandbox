@@ -44,8 +44,8 @@ config key or the `AGENTS_SANDBOX_AGENT` environment variable. Ten agents ship a
 
 - **`goose`** — [Goose](https://github.com/aaif-goose/goose), installed from the static (musl) binary of its GitHub release and run
   interactively; upgrade checks via its GitHub releases. Goose publishes no checksums for its release assets, so the
-  binary is fetched over HTTPS from the pinned release tag without a checksum check. Goose checks for updates only when
-  you run `goose update`. The binary is about 159 MB.
+  binary is fetched over HTTPS from the pinned release tag without a checksum check. The Linux release performs no
+  automatic update check, so there is nothing to turn off. The binary is about 159 MB.
 
 > **Experimental agents:** `opencode` and `opencode2` are the tested default agents. Every other built-in
 > profile (`pi`, `claude-code`, `codex`, `hermes`, `oh-my-pi`, `kimi-code`, `qwen-code`, `goose`) is **experimental** — not well tested with agents-sandbox.
