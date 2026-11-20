@@ -1,6 +1,9 @@
 package firstrun
 
 import (
+	"errors"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
@@ -237,6 +240,75 @@ func TestPromptManualDeclinedLeavesProvisioningOff(t *testing.T) {
 	}
 	if out.Learn {
 		t.Error("the manual choice must not start a learning session")
+	}
+}
+
+// TestPromptOfferedFalseWhenUINil pins the nil-UI guard: a caller that offers
+// the menu with no UI gets no prompt and the zero outcome rather than a panic.
+func TestPromptOfferedFalseWhenUINil(t *testing.T) {
+	out, offered := Prompt(nil, Facts{Agent: "pi", Slug: "widget-abc"})
+	if offered {
+		t.Fatal("a nil UI must not offer the menu")
+	}
+	if out != (Outcome{}) {
+		t.Errorf("outcome = %+v, want the zero Outcome", out)
+	}
+}
+
+// TestPromptWarnsAndSkipsWhenSelectFails pins the select-failure path: a UI that
+// cannot present the menu is warned about and yields the zero outcome instead of
+// an error, so a failed prompt never blocks the run.
+func TestPromptWarnsAndSkipsWhenSelectFails(t *testing.T) {
+	ui := &termiotest.Mock{IsInteractiveResult: true}
+	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		return "", errors.New("no tty")
+	}
+
+	out, offered := Prompt(ui, Facts{Agent: "pi", Slug: "widget-abc"})
+	if offered {
+		t.Fatal("a failed Select must not offer an outcome")
+	}
+	if out != (Outcome{}) {
+		t.Errorf("outcome = %+v, want the zero Outcome", out)
+	}
+	if !slices.ContainsFunc(ui.WarnCalls, func(w string) bool { return strings.Contains(w, "no tty") }) {
+		t.Errorf("warnings = %v, want the Select error surfaced", ui.WarnCalls)
+	}
+}
+
+// TestPromptWarnsAndSkipsWhenConfirmFails pins the manual path's confirm
+// failure: a UI that cannot ask the warning is warned about and yields the zero
+// outcome, so an unconfirmed provisioning opt-in is never applied.
+func TestPromptWarnsAndSkipsWhenConfirmFails(t *testing.T) {
+	ui := &termiotest.Mock{IsInteractiveResult: true, ConfirmErr: errors.New("no tty")}
+	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		return string(ChoiceManual), nil
+	}
+
+	out, offered := Prompt(ui, Facts{Agent: "pi", Slug: "widget-abc"})
+	if offered {
+		t.Fatal("a failed Confirm must not offer an outcome")
+	}
+	if out != (Outcome{}) {
+		t.Errorf("outcome = %+v, want the zero Outcome", out)
+	}
+	if !slices.ContainsFunc(ui.WarnCalls, func(w string) bool { return strings.Contains(w, "no tty") }) {
+		t.Errorf("warnings = %v, want the Confirm error surfaced", ui.WarnCalls)
+	}
+}
+
+// TestOutcomeForUnexpectedKeyFallsBackToLearnByUsing pins the defensive
+// fallback: Prompt must never drop a first run, so a key outside the menu's
+// listed set maps to the unseeded learning session. The Select seam can return
+// any key, so the fallback is reachable and is exercised here directly.
+func TestOutcomeForUnexpectedKeyFallsBackToLearnByUsing(t *testing.T) {
+	out := outcomeFor("not-a-listed-key", "hostconfig-abc123", false)
+
+	if out.Choice != ChoiceLearnByUsing || !out.Learn {
+		t.Errorf("outcome = %+v, want the unseeded learning session", out)
+	}
+	if out.sourceHash != "hostconfig-abc123" {
+		t.Errorf("sourceHash = %q, want it carried through", out.sourceHash)
 	}
 }
 

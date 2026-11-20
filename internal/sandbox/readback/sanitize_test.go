@@ -381,3 +381,101 @@ func TestSanitizeConfigGuardIsOffByDefault(t *testing.T) {
 
 	require.True(t, ok)
 }
+
+// TestSanitizeConfigRefusesACredentialNotAllowed pins the substitution
+// precondition: a credential whose env-var name the caller will not propose is
+// refused, so SanitizeConfig reports ok false rather than emitting an orphan
+// placeholder.
+func TestSanitizeConfigRefusesACredentialNotAllowed(t *testing.T) {
+	_, ok := SanitizeConfig([]byte("model:\n  api_key: sk-x\n"), SanitizeParams{
+		Path:           ".hermes/config.yaml",
+		Credentials:    []Credential{{EnvVar: "MOONSHOT_API_KEY", Value: "sk-x", Hosts: []string{"h"}}},
+		AllowedEnvVars: map[string]bool{},
+	})
+
+	require.False(t, ok)
+}
+
+// TestHoldsUndeclaredSecretValueUnknownFormat pins the unknown-format fallback:
+// a path configdecode does not know cannot be decoded, so nothing is reported.
+func TestHoldsUndeclaredSecretValueUnknownFormat(t *testing.T) {
+	require.False(t, holdsUndeclaredSecretValue("notes.txt", "anything: raw\n"))
+}
+
+// TestHoldsUndeclaredSecretValueUndecodableIsARefusal pins that a known format
+// that does not parse reports true, so a secret cannot hide behind an
+// undecodable document.
+func TestHoldsUndeclaredSecretValueUndecodableIsARefusal(t *testing.T) {
+	require.True(t, holdsUndeclaredSecretValue("opencode.jsonc", "not json"))
+}
+
+// TestRetainsCredentialValueUndecodableIsARetention pins that a known format
+// that does not parse is reported as retaining a value: the decoded walk cannot
+// run, so an escaped form cannot be ruled out.
+func TestRetainsCredentialValueUndecodableIsARetention(t *testing.T) {
+	require.True(t, retainsCredentialValue(
+		"opencode.jsonc",
+		"not json",
+		[]Credential{{Value: "sk-x"}},
+	))
+}
+
+// TestDecodedHoldsCredentialValueWalksArrays pins the array branch of the
+// decoded walk: a value held inside an array is found.
+func TestDecodedHoldsCredentialValueWalksArrays(t *testing.T) {
+	require.True(t, decodedHoldsCredentialValue(
+		[]any{"other", "sk-x"},
+		[]Credential{{Value: "sk-x"}},
+	))
+}
+
+// TestAnyMapHoldsCredentialValueWalksNonStringKeyChildren pins that a mapping
+// with a non-string key still has its descendant values walked.
+func TestAnyMapHoldsCredentialValueWalksNonStringKeyChildren(t *testing.T) {
+	require.True(t, anyMapHoldsCredentialValue(
+		map[any]any{1: "sk-x"},
+		[]Credential{{Value: "sk-x"}},
+	))
+}
+
+// TestRewriteNativeAssignmentsLeavesAnUnkeyedOccurrence pins the no-key branch:
+// an occurrence with no recognizable assignment key is left untouched, so the
+// caller's value-remains check refuses the file rather than emitting the value.
+func TestRewriteNativeAssignmentsLeavesAnUnkeyedOccurrence(t *testing.T) {
+	const content = "+ sk-x\n"
+
+	got := rewriteNativeAssignments(content, Credential{EnvVar: "MOONSHOT_API_KEY", Value: "sk-x"}, "api_key_env")
+
+	require.Equal(t, content, got)
+}
+
+// TestRewriteNativeAssignmentsKeepsAnEnvTableKey pins the env-table branch: an
+// occurrence whose key is already the env-var name keeps its key and takes the
+// placeholder instead of the native indirection key.
+func TestRewriteNativeAssignmentsKeepsAnEnvTableKey(t *testing.T) {
+	const content = "KIMI_API_KEY = \"sk-x\"\n"
+
+	got := rewriteNativeAssignments(content, Credential{EnvVar: "KIMI_API_KEY", Value: "sk-x"}, "api_key_env")
+
+	require.Contains(t, got, "${KIMI_API_KEY}")
+	require.NotContains(t, got, "sk-x")
+	require.NotContains(t, got, "api_key_env")
+}
+
+// TestDecodedHoldsUndeclaredSecretValueWalksAnyMap pins the map[any]any branch:
+// a secret-shaped string key with a raw value is a leak, and a non-string key
+// whose descendant holds one is a leak too.
+func TestDecodedHoldsUndeclaredSecretValueWalksAnyMap(t *testing.T) {
+	require.True(t, decodedHoldsUndeclaredSecretValue(map[any]any{"apiKey": "sk-raw"}))
+	require.True(t, decodedHoldsUndeclaredSecretValue(map[any]any{
+		1: map[string]any{"apiKey": "sk-raw"},
+	}))
+	require.False(t, decodedHoldsUndeclaredSecretValue(map[any]any{1: "ordinary"}))
+}
+
+// TestHoldsRawSecretStringWalksAnyMap pins the map[any]any branch of the raw
+// secret walk: a non-string key's descendant string is still inspected.
+func TestHoldsRawSecretStringWalksAnyMap(t *testing.T) {
+	require.True(t, holdsRawSecretString(map[any]any{1: "sk-raw"}))
+	require.False(t, holdsRawSecretString(map[any]any{1: map[string]any{"a": "${REF}"}}))
+}

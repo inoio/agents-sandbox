@@ -31,6 +31,28 @@ func (plainProfile) ConfigDirName() string      { return "plain-stub" }
 func (plainProfile) Experimental() bool         { return false }
 func (plainProfile) ImageSpec() agent.ImageSpec { return agent.ImageSpec{} }
 
+// TestHostFilesPrunesUnselectedDirectoriesAndFiles pins the walk's rule
+// mirroring: an empty-Dir rule is skipped, a directory the pattern does not
+// select is pruned rather than descended, and a non-selected file is skipped, so
+// the probe matches what agent.EvalProvisionRules would copy.
+func TestHostFilesPrunesUnselectedDirectoriesAndFiles(t *testing.T) {
+	hostHome := t.TempDir()
+	writeHostFile(t, hostHome, ".config/widget/a.json", `{"a":1}`)
+	writeHostFile(t, hostHome, ".config/widget/sub/b.json", `{"b":2}`)
+	writeHostFile(t, hostHome, ".config/widget/notes.txt", "notes")
+	a := provisionProfile{rules: []agent.ProvisionRule{
+		{Dir: "", Patterns: []string{"**"}},
+		{Dir: ".config/widget", Patterns: []string{"*.json"}},
+	}}
+
+	files, _ := HostFiles(a, hostHome)
+
+	want := []string{filepath.Join(hostHome, ".config/widget/a.json")}
+	if !slices.Equal(files, want) {
+		t.Errorf("HostFiles = %v, want only the selected top-level JSON %v", files, want)
+	}
+}
+
 // TestHostFilesFindsProvisionedConfig pins that the probe returns the host-side
 // paths of every file the agent's provision rule selects, sorted, with a
 // non-empty source hash.

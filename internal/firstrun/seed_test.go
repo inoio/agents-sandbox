@@ -3,13 +3,16 @@ package firstrun
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
+	"github.com/inoio/agents-sandbox/internal/sandbox/readback"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
@@ -388,4 +391,107 @@ func TestSeedFromHostLeavesAnUnscopableFileUnseeded(t *testing.T) {
 	require.True(t, os.IsNotExist(copyErr), "a file with an unscopable credential is never copied raw")
 	_, secretErr := os.Stat(filepath.Join(slugDir, "env.secret.yaml"))
 	require.True(t, os.IsNotExist(secretErr), "no secret is written for an unscopable credential")
+}
+
+// TestSeedFromHostRejectsAnEmptySlug pins that the seed needs a repo slug for
+// the per-slug scope it writes into: without one there is nowhere to seed.
+func TestSeedFromHostRejectsAnEmptySlug(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+
+	_, err := SeedFromHost(Facts{Agent: "hermes"}, configpaths.Get(), t.TempDir())
+
+	require.Error(t, err)
+}
+
+// TestSeedFromHostRejectsAnUnknownAgent pins that the seed resolves the agent
+// profile before touching the host config.
+func TestSeedFromHostRejectsAnUnknownAgent(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+
+	_, err := SeedFromHost(
+		Facts{Agent: "not-a-registered-agent", Slug: "widget-abc"},
+		configpaths.Get(),
+		t.TempDir(),
+	)
+
+	require.Error(t, err)
+}
+
+// TestSeedFromHostRejectsAnInvalidAgentConfigDirName pins that the seed
+// surfaces ConfigDirNames' invalid-name refusal rather than writing into a
+// wrong or parent-traversing scope.
+func TestSeedFromHostRejectsAnInvalidAgentConfigDirName(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	agent.Register(badConfigDirAgent{})
+
+	_, err := SeedFromHost(
+		Facts{Agent: badConfigDirAgent{}.Name(), Slug: "widget-abc"},
+		configpaths.Get(),
+		t.TempDir(),
+	)
+
+	require.Error(t, err)
+}
+
+// TestSeedFromHostReportsAnOverCapFile pins the bounded read: a host file over
+// the read-back cap is left unseeded and reported rather than loaded raw.
+func TestSeedFromHostReportsAnOverCapFile(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	hostHome := t.TempDir()
+	writeHostFile(t, hostHome, hermesHostConfigPath, strings.Repeat("x", readback.MaxHashedBytes+1))
+
+	migrated, err := SeedFromHost(seedFacts(hostHome), paths, hostHome)
+
+	require.Zero(t, migrated)
+	require.Error(t, err)
+}
+
+// TestSeedFromHostReportsAnUnwritableSecretFile pins the secret-write failure
+// path: a per-slug secret file the writer cannot edit leaves the whole file
+// unseeded and reported, so no placeholder is written without its secret.
+func TestSeedFromHostReportsAnUnwritableSecretFile(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	hostHome := t.TempDir()
+	writeHostFile(t, hostHome, hermesHostConfigPath, hermesHostConfig)
+	scopeDir := paths.UserSlugConfigDir("widget-abc")
+	require.NoError(t, os.WriteFile(
+		filepath.Join(scopeDir, "env.secret.yaml"),
+		[]byte("\tnot: [valid"),
+		0o600,
+	))
+
+	migrated, err := SeedFromHost(seedFacts(hostHome), paths, hostHome)
+
+	require.Zero(t, migrated)
+	require.Error(t, err)
+}
+
+// TestSeedFromHostReportsAFailedManagedWrite pins the managed-config write
+// failure: when the target cannot be written, the file is left unseeded and
+// reported. The config holds no credential, so no secret is written first.
+func TestSeedFromHostReportsAFailedManagedWrite(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	hostHome := t.TempDir()
+	writeHostFile(t, hostHome, hermesHostConfigPath, "model:\n  provider: moonshot\n")
+	scopeDir := paths.UserSlugConfigDir("widget-abc")
+	require.NoError(t, os.WriteFile(filepath.Join(scopeDir, "hermes"), []byte("x"), 0o644))
+
+	migrated, err := SeedFromHost(seedFacts(hostHome), paths, hostHome)
+
+	require.Zero(t, migrated)
+	require.Error(t, err)
+}
+
+// TestHostRelativePathFallsBackOutsideHome pins the fallback: a path outside the
+// host home is reduced to its base name, so the classifier still gets a
+// meaningful trailing element rather than a parent-traversing path.
+func TestHostRelativePathFallsBackOutsideHome(t *testing.T) {
+	hostHome := t.TempDir()
+
+	got := hostRelativePath(hostHome, filepath.Join(t.TempDir(), "elsewhere", "config.yaml"))
+
+	require.Equal(t, "config.yaml", got)
 }

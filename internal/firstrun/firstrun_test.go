@@ -294,6 +294,63 @@ func TestBuildFactsUnknownAgentIsAnError(t *testing.T) {
 	}
 }
 
+// badConfigDirAgent is a registered stub whose config dir name is not a single
+// path element, so ConfigDirNames refuses it. No built-in profile can produce
+// this, but the registry extension point can, so the refusal path is reachable.
+type badConfigDirAgent struct{}
+
+func (badConfigDirAgent) Name() string               { return "firstrun-bad-config-dir-stub" }
+func (badConfigDirAgent) ConfigDirName() string      { return ".." }
+func (badConfigDirAgent) ImageSpec() agent.ImageSpec { return agent.ImageSpec{} }
+func (badConfigDirAgent) Experimental() bool         { return false }
+
+// TestBuildFactsErrorsWhenTheAgentConfigDirNameIsInvalid pins that BuildFacts
+// surfaces the managed-config probe's ConfigDirNames refusal rather than
+// swallowing it: the agent's config dir names are a precondition of the probe.
+func TestBuildFactsErrorsWhenTheAgentConfigDirNameIsInvalid(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	agent.Register(badConfigDirAgent{})
+
+	_, err := BuildFacts(badConfigDirAgent{}.Name(), "widget-abc", t.TempDir(), configpaths.Get())
+	if err == nil {
+		t.Fatal("BuildFacts must surface ConfigDirNames' invalid-name refusal")
+	}
+}
+
+// TestManagedConfigPresentEmptySlugIsNotManaged pins that an empty slug has no
+// per-slug scope and therefore no managed config: the early return keeps the
+// probe from resolving a scope for the empty key.
+func TestManagedConfigPresentEmptySlugIsNotManaged(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	a, ok := agent.Lookup("pi")
+	if !ok {
+		t.Fatal("pi agent is not registered")
+	}
+
+	present, err := managedConfigPresent(a, "", configpaths.Get())
+	if err != nil {
+		t.Fatalf("managedConfigPresent: %v", err)
+	}
+	if present {
+		t.Error("an empty slug has no per-slug scope, so it must not report managed config")
+	}
+}
+
+// TestBuildFactsErrorsWhenPriorDecisionIsUnreadable pins that a corrupt
+// root-state document is surfaced, not treated as no prior decision: BuildFacts
+// must not silently re-offer the menu over an unreadable state file.
+func TestBuildFactsErrorsWhenPriorDecisionIsUnreadable(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	statePath := filepath.Join(configpaths.Get().UserStateDir(), "state.yaml")
+	if err := os.WriteFile(statePath, []byte("\tnot: [valid"), 0o644); err != nil {
+		t.Fatalf("write corrupt state: %v", err)
+	}
+
+	if _, err := BuildFacts("pi", "widget-abc", t.TempDir(), configpaths.Get()); err == nil {
+		t.Fatal("BuildFacts must surface an unreadable prior-decision document")
+	}
+}
+
 func writeHostFile(t *testing.T, root, rel, content string) {
 	t.Helper()
 	path := filepath.Join(root, rel)

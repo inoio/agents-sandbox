@@ -91,10 +91,9 @@ func selectHostPaths(rule agent.ProvisionRule, hostHome string) []string {
 		if err != nil {
 			return nil //nolint:nilerr // best-effort: skip entries the walk cannot read
 		}
-		rel, relErr := filepath.Rel(srcRoot, path)
-		if relErr != nil {
-			return nil //nolint:nilerr // skip an entry the walk cannot make relative
-		}
+		// WalkDir hands back every path built from srcRoot, so the two share
+		// absoluteness and Rel cannot fail.
+		rel, _ := filepath.Rel(srcRoot, path)
 		if rel == "." {
 			return nil
 		}
