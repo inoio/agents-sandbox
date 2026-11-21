@@ -519,6 +519,20 @@ func TestPurgeRoutesThroughSweepSeams(t *testing.T) {
 			t.Error("removeEmptyDirs did not route through removeSlugDirIfEmpty")
 		}
 	})
+
+	t.Run("removeStateForGoneKeys routes through removeHomeStateIf", func(t *testing.T) {
+		key := state.Key{Slug: "seam-gone", Agent: "opencode"}
+		stub := removeHomeStateIf
+		var called bool
+		removeHomeStateIf = func(state.Key, func(*state.HomeState) bool) error { called = true; return nil }
+		t.Cleanup(func() { removeHomeStateIf = stub })
+
+		ui := termiotest.NewTestMock(t)
+		removeStateForGoneKeys(&ui, map[state.Key]int{key: 1}, map[state.Key]int{key: 1})
+		if !called {
+			t.Error("removeStateForGoneKeys did not route through removeHomeStateIf")
+		}
+	})
 }
 
 // TestPruneSurvivingClaims pins the claim-retention rule: a planned claim is
