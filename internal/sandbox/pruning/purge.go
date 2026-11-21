@@ -520,7 +520,7 @@ func (p *RemovalPlan) sweepStaleState() error {
 			return err
 		}
 		for _, token := range tokens {
-			if _, err := state.RemoveUnheldClaim(slug, token); err != nil {
+			if _, err := removeUnheldClaim(slug, token); err != nil {
 				return err
 			}
 		}
@@ -656,7 +656,7 @@ func (p *RemovalPlan) removeState(removedVolumes map[string]struct{}, ui termio.
 	shouldRemove := stateRemovableAfterVolumes(removedVolumes)
 	var errs []error
 	for _, key := range p.Keys {
-		if err := state.RemoveHomeStateIf(key, shouldRemove); err != nil {
+		if err := removeHomeStateIf(key, shouldRemove); err != nil {
 			ui.Warnf("failed to remove state for key (slug %s, agent %s): %v", key.Slug, key.Agent, err)
 			errs = append(errs, err)
 		}

@@ -3,6 +3,7 @@ package pruning
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -452,10 +453,11 @@ func TestEnumerateStateCandidatesPropagatesErrors(t *testing.T) {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.Chmod(dir, 0o300); err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+		// Deny the slug listing through the seam: chmod 0300 no longer denies
+		// once the suite runs as uid 0.
+		restore := statefulAgentNames
+		statefulAgentNames = func(string) ([]string, error) { return nil, fs.ErrPermission }
+		t.Cleanup(func() { statefulAgentNames = restore })
 		if err := enumerateStateCandidates(emptyBuilderFor); err == nil {
 			t.Fatal("expected the StatefulAgentNames error")
 		}

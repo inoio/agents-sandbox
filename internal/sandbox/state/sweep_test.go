@@ -569,10 +569,16 @@ func TestRemoveSlugDirIfEmptyRemoveError(t *testing.T) {
 	if err := os.MkdirAll(child, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(SlugDir(slug), 0o500); err != nil {
-		t.Fatal(err)
+	// Deny the slug-dir removal through the seam: chmod 0500 no longer denies
+	// once the suite runs as uid 0.
+	restore := removeSweepEntry
+	removeSweepEntry = func(path string) error {
+		if path == SlugDir(slug) {
+			return fs.ErrPermission
+		}
+		return os.Remove(path)
 	}
-	t.Cleanup(func() { _ = os.Chmod(SlugDir(slug), 0o700) })
+	t.Cleanup(func() { removeSweepEntry = restore })
 
 	if err := RemoveSlugDirIfEmpty(slug); err == nil {
 		t.Fatal("RemoveSlugDirIfEmpty should surface a failed child removal")

@@ -3,6 +3,7 @@ package pruning
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -435,10 +436,11 @@ func TestSweepStaleStatePropagatesErrors(t *testing.T) {
 			t.Fatal(err)
 		}
 		testutil.WritePath(t, filepath.Join(claimsDir, "free.claim"), "")
-		if err := os.Chmod(claimsDir, 0o500); err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = os.Chmod(claimsDir, 0o700) })
+		// Deny the claim unlink through the seam: chmod 0500 no longer denies
+		// once the suite runs as uid 0.
+		restore := removeUnheldClaim
+		removeUnheldClaim = func(string, string) (bool, error) { return false, fs.ErrPermission }
+		t.Cleanup(func() { removeUnheldClaim = restore })
 		plan := &RemovalPlan{Slugs: []string{slug}}
 		if err := plan.sweepStaleState(); err == nil {
 			t.Fatal("expected the claim removal error")
@@ -539,11 +541,12 @@ func TestExecuteJoinsOwnershipUpdateFailure(t *testing.T) {
 		t.Fatal("expected the checkout's adoption claim to be planned")
 	}
 
-	root := configpaths.Get().UserStateDir()
-	if err := os.Chmod(root, 0o500); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(root, 0o700) })
+	// Deny the root-state write through the seam: chmod 0500 no longer denies
+	// once the suite runs as uid 0.
+	restore := state.OverrideStateWriteForTest(func(path string, _ []byte) error {
+		return &os.PathError{Op: "write", Path: path, Err: os.ErrPermission}
+	})
+	t.Cleanup(restore)
 
 	if err := plan.Execute(context.Background(), false, false, &ui); err == nil {
 		t.Fatal("expected the ownership-update failure to be joined")
@@ -578,14 +581,14 @@ func TestExecuteJoinsStateAndDirRemovalFailures(t *testing.T) {
 		t.Fatalf("PlanRemoval: %v", err)
 	}
 
-	// Neither the agent dir (the state file's parent) nor the slug dir (the
-	// claims dir's parent) is writable, so both removals fail.
-	for _, dir := range []string{state.KeyDir(agentKey), state.SlugDir(slug)} {
-		if err := os.Chmod(dir, 0o500); err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
-	}
+	// Deny the state-file removal and the claims-dir unlink through the seams:
+	// chmod 0500 no longer denies once the suite runs as uid 0.
+	restoreState := removeHomeStateIf
+	removeHomeStateIf = func(state.Key, func(*state.HomeState) bool) error { return fs.ErrPermission }
+	t.Cleanup(func() { removeHomeStateIf = restoreState })
+	restoreDir := removeSweepEntry
+	removeSweepEntry = func(string) error { return fs.ErrPermission }
+	t.Cleanup(func() { removeSweepEntry = restoreDir })
 
 	if err := plan.Execute(context.Background(), false, false, &ui); err == nil {
 		t.Fatal("expected the state and dir removal failures to be joined")
