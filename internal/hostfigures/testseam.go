@@ -3,7 +3,7 @@ package hostfigures
 // OverrideTotalMemoryGiBForTest replaces the installed-RAM read and returns a
 // function that restores the previous one.
 //
-//deadcode:ignore reason="test seam: only tests and the sentinel installer set it"
+//deadcode:ignore reason="test seam: only tests and hostfigurestest's sentinel installer set it"
 func OverrideTotalMemoryGiBForTest(read func() int) func() {
 	previous := totalMemoryGiB
 	totalMemoryGiB = read
@@ -13,7 +13,7 @@ func OverrideTotalMemoryGiBForTest(read func() int) func() {
 // OverrideNumCPUsForTest replaces the CPU-count read and returns a function that
 // restores the previous one.
 //
-//deadcode:ignore reason="test seam: only tests and the sentinel installer set it"
+//deadcode:ignore reason="test seam: only tests and hostfigurestest's sentinel installer set it"
 func OverrideNumCPUsForTest(read func() uint8) func() {
 	previous := numCPUs
 	numCPUs = read
@@ -23,7 +23,7 @@ func OverrideNumCPUsForTest(read func() uint8) func() {
 // OverrideAvailableMemoryMiBForTest replaces the available-memory read and
 // returns a function that restores the previous one.
 //
-//deadcode:ignore reason="test seam: only tests and the sentinel installer set it"
+//deadcode:ignore reason="test seam: only tests and hostfigurestest's sentinel installer set it"
 func OverrideAvailableMemoryMiBForTest(read func() (uint32, bool)) func() {
 	previous := availableMemoryMiB
 	availableMemoryMiB = read

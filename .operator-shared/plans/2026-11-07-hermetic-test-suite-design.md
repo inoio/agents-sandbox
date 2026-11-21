@@ -173,13 +173,14 @@ fails:
   the rest of the run does.
 - A test-only installer — driven by an env var the sentinel run sets — pins the
   seams to fixed sentinels (RAM 1 GiB, CPUs 1) in every test binary that installs
-  the fail-fast mocks. Every test package already calls
-  `mocks.InitFailFastMocks`, which delegates to `hostfigurestest`, so the override
-  is comprehensive without threading per-`RunOptions` state; production code stays
-  free of test env reads.
-- The leaf's default test asserts the production wiring by *function identity*
-  (`reflect`), so the seam-contract tests read no real host figure and need no
-  `//testenv:allow` exemption.
+  the fail-fast mocks. `mocks.InitFailFastMocks` delegates to `hostfigurestest`,
+  and the hand-mirrored TestMains (which install the families directly because the
+  wrapper cannot reach their package) call it themselves; a contract test keeps
+  both wired. The override is comprehensive without threading per-`RunOptions`
+  state; production code stays free of test env reads.
+- The leaf's default test asserts the production wiring by qualified function
+  name (`runtime.FuncForPC` on the reflected value), so the seam-contract tests
+  read no real host figure and need no `//testenv:allow` exemption.
 
 Alternatives considered and rejected: a reachability analyzer (catches the
 indirect case but noisy, slow, whole-program SSA) and an audited-only requirement
@@ -229,7 +230,7 @@ Production reads: `vm.BootMaxMemoryMiB` and `vm`'s CPU default,
   machine-independent; direct `sysinfo` reads are gone from the test files, and
   the ambient gate still flags a new one.
 - Each seam has a contract test: the leaf asserts its defaults are the `sysinfo`
-  functions by function identity (reading no host figure), and `vm`/`prepare`
+  functions by qualified name (reading no host figure), and `vm`/`prepare`
   assert the value maps through.
 - Enforcement is the sentinel pass (see "Host-figure enforcement").
 
@@ -326,7 +327,7 @@ copy must not write into the source tree (build/test writes go to the scrubbed
   `sudo unshare -n`) and whether AppArmor/userns restrictions force a container.
 - The sentinel env-var name (`AGENTS_SANDBOX_HERMETIC_SENTINEL`), the sentinel
   values (RAM 1 GiB, CPUs 1, 1 MiB available), and the seam-exempt set (none: the
-  default test asserts wiring by function identity).
+  default test asserts wiring by qualified name).
 - Which sleeps are genuine dwell tests and which collapse into channels.
 - CI job naming/trigger, and whether it is advisory or blocking at introduction.
 - The measured runtime threshold that promotes the suite to per-PR and then to the

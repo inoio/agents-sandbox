@@ -17,7 +17,7 @@ func TestInstallSentinelsFromEnv(t *testing.T) {
 
 		InstallSentinelsFromEnv()
 
-		if got := hostfigures.TotalMemoryGiB(); got != 20 {
+		if got := hostfigures.TotalMemoryGiB(); got != 20 { //testenv:allow the subtest seeded the seam value it asserts
 			t.Errorf("TotalMemoryGiB = %d, want the seed 20 left untouched", got)
 		}
 	})
@@ -35,12 +35,13 @@ func TestInstallSentinelsFromEnv(t *testing.T) {
 
 		InstallSentinelsFromEnv()
 
-		if got := hostfigures.TotalMemoryGiB(); got != 1 {
+		if got := hostfigures.TotalMemoryGiB(); got != 1 { //testenv:allow the installer test reads the seam it pinned
 			t.Errorf("TotalMemoryGiB = %d, want the sentinel 1", got)
 		}
-		if got := hostfigures.NumCPUs(); got != 1 {
+		if got := hostfigures.NumCPUs(); got != 1 { //testenv:allow the installer test reads the seam it pinned
 			t.Errorf("NumCPUs = %d, want the sentinel 1", got)
 		}
+		//testenv:allow the installer test reads the seam it pinned
 		if gotMiB, gotKnown := hostfigures.AvailableMemoryMiB(); gotMiB != 1 || !gotKnown {
 			t.Errorf("AvailableMemoryMiB = (%d, %v), want the sentinel (1, true)", gotMiB, gotKnown)
 		}
