@@ -27,8 +27,8 @@ the guest; the suites then build the launcher there and drive it directly.
 make kvm-up                 # create + boot the guest; cloud-init provisions it on first boot
 make kvm-ssh                # a shell in the guest (or: scripts/kvm-guest.sh ssh)
 make kvm-sync               # rsync this checkout into ~/agents-sandbox in the guest
-make kvm-run                # run KVM_RUN (default: make test-msb-journeys) in the guest
-make kvm-run KVM_RUN='make test-msb'
+make kvm-run                # run KVM_RUN (default: make test-msb) in the guest
+make kvm-run KVM_RUN='make test-msb-journeys'
 make kvm-down               # destroy the guest and its disk
 ```
 

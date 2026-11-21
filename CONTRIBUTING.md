@@ -147,7 +147,7 @@ This project defaults to **test-driven development**:
 - The `msb`-tagged suites (`make test-msb`, `make test-msb-journeys`) start real microsandbox VMs, so they need a KVM
   host and stay **host-only**: `make compile-all` compiles them on every PR, but CI never runs them. The development VM
   has no working `/dev/kvm`, so build a libvirt guest with `make kvm-up`, sync a checkout with `make kvm-sync`, and run
-  the suite inside it with `make kvm-run` (`KVM_RUN` selects the command, default `make test-msb-journeys`). See
+  the suite inside it with `make kvm-run` (`KVM_RUN` selects the command, default `make test-msb`). See
   `.operator-shared/guides/kvm-guest.md`.
 
 ## Documentation
