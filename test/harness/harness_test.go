@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -243,19 +244,20 @@ func TestClaudeCodeSeedsItsFirstRunState(t *testing.T) {
 	}
 }
 
-// TestSeedHomeManifest pins that a manifest seed is written to a private seed
-// file and declared in the isolated launcher config's home: manifest with an
-// absolute source, so the launcher provisions it into the VM. The written
-// config is parsed back with the launcher's own home-manifest reader, so a
-// shape the launcher would reject fails here.
-func TestSeedHomeManifest(t *testing.T) {
+// TestSeedLauncherConfig pins that the isolated launcher config enables
+// host-config provisioning and carries the home: manifest. The opt-in is what
+// makes the agent's ProvisionRules copy a harness's SeedHomeFiles; the manifest
+// seeds a target outside those rules. The written config is parsed back with the
+// launcher's own home-manifest reader, so a shape the launcher would reject
+// fails here.
+func TestSeedLauncherConfig(t *testing.T) {
 	homeBase := t.TempDir()
 	files := map[string]string{
 		claudeCodeConfigPath: claudeCodeSmokeConfig,
 		".nested/seed":       "content",
 	}
-	if err := seedHomeManifest(homeBase, files); err != nil {
-		t.Fatalf("seedHomeManifest: %v", err)
+	if err := seedLauncherConfig(homeBase, files); err != nil {
+		t.Fatalf("seedLauncherConfig: %v", err)
 	}
 	for target, want := range files {
 		got, err := os.ReadFile(filepath.Join(homeBase, seedDirName, target))
@@ -271,6 +273,7 @@ func TestSeedHomeManifest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read launcher config: %v", err)
 	}
+	assertProvisioningEnabled(t, data)
 	manifest, ok, err := homeconfig.ParseHomeConfig(configPath, data)
 	if err != nil {
 		t.Fatalf("parse launcher config: %v", err)
@@ -290,17 +293,37 @@ func TestSeedHomeManifest(t *testing.T) {
 	}
 }
 
-// TestSeedHomeManifestEmptyWritesNothing pins that a harness with no manifest
-// seed leaves the launcher config untouched, so the smoke run gets deterministic
-// defaults rather than an empty home: manifest.
-func TestSeedHomeManifestEmptyWritesNothing(t *testing.T) {
+// TestSeedLauncherConfigWithoutManifest pins that a harness with no
+// SeedHomeManifest still gets a launcher config that enables host-config
+// provisioning (its SeedHomeFiles depend on it) and declares no home: manifest.
+func TestSeedLauncherConfigWithoutManifest(t *testing.T) {
 	homeBase := t.TempDir()
-	if err := seedHomeManifest(homeBase, nil); err != nil {
-		t.Fatalf("seedHomeManifest(nil): %v", err)
+	if err := seedLauncherConfig(homeBase, nil); err != nil {
+		t.Fatalf("seedLauncherConfig(nil): %v", err)
 	}
-	configDir := filepath.Join(homeBase, configDirName, launcherConfigDirName)
-	if _, err := os.Stat(configDir); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("seedHomeManifest(nil) created a launcher config dir: stat err = %v", err)
+	configPath := filepath.Join(homeBase, configDirName, launcherConfigDirName, launcherConfigFileName)
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read launcher config: %v", err)
+	}
+	assertProvisioningEnabled(t, data)
+	if _, ok, err := homeconfig.ParseHomeConfig(configPath, data); err != nil {
+		t.Fatalf("parse launcher config: %v", err)
+	} else if ok {
+		t.Errorf("launcher config has a home: key for an empty manifest:\n%s", data)
+	}
+}
+
+// assertProvisioningEnabled fails unless data is a launcher config that turns
+// host-config provisioning on, the opt-in a SeedHomeFiles seed needs.
+func assertProvisioningEnabled(t *testing.T, data []byte) {
+	t.Helper()
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal launcher config: %v", err)
+	}
+	if got, ok := raw["provision-host-config"]; !ok || got != true {
+		t.Errorf("launcher config provision-host-config = %v (present %v), want true:\n%s", got, ok, data)
 	}
 }
 
@@ -922,10 +945,11 @@ func TestHarnessConcurrencyForFreeMemory(t *testing.T) {
 }
 
 // TestHarnessRunArgsCapTheSmokeMemory pins that a harness smoke run boots its VM
-// at the smoke memory, not the launcher's larger default.
+// at the smoke memory, not the launcher's larger default, and passes --yes so
+// the launcher's first-run setup menu never blocks the pty before the harness.
 func TestHarnessRunArgsCapTheSmokeMemory(t *testing.T) {
 	got := harnessRunArgs("opencode", "none")
-	want := []string{"run", "--agent", "opencode", "--network", "none", "--memory", smokeMemorySpec()}
+	want := []string{"run", "--agent", "opencode", "--network", "none", "--memory", smokeMemorySpec(), "--yes"}
 	if !slices.Equal(got, want) {
 		t.Errorf("harnessRunArgs = %v, want %v", got, want)
 	}

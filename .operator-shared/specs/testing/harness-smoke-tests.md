@@ -34,7 +34,7 @@ runtime it requires, as `integration` names a real docker daemon). `make test-ms
 tagged-only compile regression is caught on every PR.
 
 **Scope of the assertion.** For every name in `agent.Names()`, the suite starts the harness the way a user does
-(`agents-sandbox run --agent <name>` under a pseudo-terminal, `github.com/creack/pty`) and asserts:
+(`agents-sandbox run --agent <name> --yes` under a pseudo-terminal, `github.com/creack/pty`) and asserts:
 
 1. the attach client reached its full-screen TUI, within a timeout; a first-run/login screen counts. A harness
    whose UI takes over the alternate screen (`ESC [ ? 1049 h`) announces this while the process is still alive; one
@@ -43,6 +43,20 @@ tagged-only compile regression is caught on every PR.
 2. the process then exited `0` after the harness's quit presses were written to the terminal; escalation
    (`SIGTERM`/`SIGKILL`) is cleanup only and fails the subtest if reached;
 3. the output never contains the daemon-timeout marker (`did not become healthy`).
+
+**`--yes` skips the launcher's first-run menu.** `run` on a checkout with no managed config layer offers the
+first-run setup menu (`internal/firstrun`) before the session. Under the suite's pty that menu is interactive and
+blocks, so the harness never starts. `--yes` makes the launcher non-interactive (`termio`'s `IsInteractive` is false
+under `assumeYes`), so `firstrun.Prompt` warns and skips the menu; the run proceeds as a plain attach with no
+learning session. The warning line is harmless and unreserved. The menu itself is exercised by the
+`cmd/agents-sandbox` first-run tests; the smoke suite only needs it out of the way.
+
+**The isolated launcher config turns host-config provisioning on.** `provision-host-config` is opt-in since the
+first-run change (default off), so a `SeedHomeFiles` seed — written under the isolated HOME for the agent's
+`ProvisionRules` to copy — would never reach the VM, and the harness would stop at its own first-run setup. So every
+subtest writes a launcher config into the run's isolated `XDG_CONFIG_HOME` with `provision-host-config: true`,
+alongside any `home:` manifest seed. What provisioning copies from is that isolated, seed-only home, so nothing of the
+developer's config is provisioned.
 
 It proves "the harness reached its TUI", not "the client session is functional": a healthy daemon whose client
 renders a connection-error screen still passes. Daemon health itself is covered because the launcher blocks in
@@ -111,8 +125,9 @@ Five harnesses keep the terminal's normal buffer (`KeepsNormalBuffer`) and are a
 
 **Seeded home files.** A harness whose host-side state decides whether its CLI starts headful declares `SeedHomeFiles`,
 a map of home-relative path to content written under the harness's isolated HOME
-(`<root>/runs/<name>/home`) before the run; the launcher
-provisions it into the VM the way it provisions a real `~/.hermes/config.yaml`. `hermes` needs it: with no provider its
+(`<root>/runs/<name>/home`) before the run; the launcher copies it into the VM through the agent's `ProvisionRules`,
+which the isolated launcher config's `provision-host-config: true` enables (see above), the way it copies a real
+`~/.hermes/config.yaml`. `hermes` needs it: with no provider its
 classic CLI stops at a first-run setup guard that always exits `1` (`_first_run_setup_guard`), so no quit key could
 leave it `0`. The seed makes a dummy, loopback provider count as configured (and settles the shared-metrics offer) so
 hermes reaches its REPL, where Ctrl-D exits `0`. The seed is a config, not a credential: the endpoint is a closed
@@ -130,8 +145,16 @@ The seed sets `hasCompletedOnboarding` and pre-trusts the guest working director
 so it binds at `/workspace`), so claude-code reaches its prompt, where repeated Ctrl-C exits 0.
 
 **Tap until it goes, then assert the exit.** `quit` taps the harness's key every `quitPressInterval` (400ms) until the
-process exits, for at most `quitTimeout` (15s), then asserts exit code 0. A fixed sequence is wrong for two measured
-reasons. A TUI paints its screen seconds before it accepts input, so taps made in that window are ignored: on a KVM host
+process exits, for at most `quitTimeout` (15s), then asserts exit code 0. It stops tapping once the test pty is back in
+cooked mode (`ptySession.inRawMode`, read through the master, which shares the slave's termios): the launcher's msb
+attach holds the pty raw for the session and restores it on the way out, so cooked means the attach is tearing down and a
+further tap is no longer a keystroke but the SIGINT the cooked terminal makes of it — which kills the launcher
+mid-teardown, reporting a clean harness exit as `-1` (`qwen-code` printed "Agent powering down. Goodbye!" and
+`claude-code` reached its prompt, yet both failed this way). The interval itself is deliberately not widened to cover
+that teardown: it has to stay far shorter than the window a "press again to exit" prompt allows, or a repeated-key exit
+stops chaining — a 2s interval was already measured to miss it once (it is why `claude-code` was briefly misread as
+having no exit key).
+A fixed sequence is wrong for two measured reasons. A TUI paints its screen seconds before it accepts input, so taps made in that window are ignored: on a KVM host
 `opencode2` leaves on a tap ~3s after the alternate-screen marker and ignores the same key at ~0ms and ~350ms, and
 `opencode` ignores a tap at ~3s while its screen still shows the launcher's own output. Whether those early bytes sit
 buffered in the guest and are consumed once the harness reads, or are delivered and ignored while it initialises, is not

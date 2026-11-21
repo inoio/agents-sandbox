@@ -30,7 +30,9 @@ const (
 	// tapped every quitPressInterval until the process exits, for at most
 	// quitTimeout. The interval is a human double-tap — a harness whose exit is
 	// a repeated key leaves on the next tap, and one that paints its TUI before
-	// it accepts input simply ignores the taps made meanwhile.
+	// it accepts input simply ignores the taps made meanwhile. It must stay far
+	// shorter than the window a "press again to exit" prompt allows, so a
+	// repeated-key exit chains; a slower cadence was measured to miss it.
 	quitPressInterval = 400 * time.Millisecond
 	quitTimeout       = 15 * time.Second
 	// prepareTimeout bounds the one-off launcher build and the per-harness
@@ -145,8 +147,8 @@ func TestHarnessSmoke(t *testing.T) {
 			if err := seedHomeFiles(homeBase, spec.SeedHomeFiles); err != nil {
 				t.Fatalf("seed %s home files: %v", name, err)
 			}
-			if err := seedHomeManifest(homeBase, spec.SeedHomeManifest); err != nil {
-				t.Fatalf("seed %s home manifest: %v", name, err)
+			if err := seedLauncherConfig(homeBase, spec.SeedHomeManifest); err != nil {
+				t.Fatalf("seed %s launcher config: %v", name, err)
 			}
 			profile, _ := agent.Lookup(name)
 			if err := seedAgentSnippets(homeBase, profile.ConfigDirName(), spec.SeedAgentSnippets); err != nil {
@@ -192,9 +194,21 @@ func TestHarnessSmoke(t *testing.T) {
 // accepted input (opencode draws its footer while it is still loading), and a
 // harness whose exit is a repeated key — claude-code announces "Press Ctrl-C
 // again to exit" — needs the taps to keep coming.
+//
+// Once the launcher's attach has restored the terminal (the pty is back in
+// cooked mode) it is tearing down, and one more tap is no longer a keystroke but
+// the SIGINT the cooked terminal makes of it — which kills the launcher
+// mid-teardown, so its harness's clean exit is reported as -1 (qwen-code printed
+// "Agent powering down. Goodbye!" and claude-code reached its prompt, yet both
+// reported -1 this way). So the loop stops tapping past that point and only
+// waits for the exit. The tap cadence is left alone: it must stay short enough
+// that a repeated-key exit chains.
 func quit(ses *ptySession, spec harnessSpec) (int, error) {
 	deadline := time.Now().Add(quitTimeout)
 	for presses := 1; ; presses++ {
+		if !ses.inRawMode() {
+			return waitExitWithin(ses, deadline, presses, spec)
+		}
 		if err := ses.write(spec.QuitKey); err != nil {
 			return 0, err
 		}
@@ -203,10 +217,27 @@ func quit(ses *ptySession, spec harnessSpec) (int, error) {
 			return code, nil
 		}
 		if !time.Now().Before(deadline) {
-			return 0, fmt.Errorf("%d presses of %#x within %s did not exit it: %w",
-				presses, spec.QuitKey, quitTimeout, err)
+			return 0, quitTimeoutError(presses, spec, err)
 		}
 	}
+}
+
+// waitExitWithin waits out the remaining quit budget for a process that has
+// begun tearing down, returning its exit code or the same timeout error the
+// tapping loop reports.
+func waitExitWithin(ses *ptySession, deadline time.Time, presses int, spec harnessSpec) (int, error) {
+	code, err := ses.waitExit(time.Until(deadline))
+	if err == nil {
+		return code, nil
+	}
+	return 0, quitTimeoutError(presses, spec, err)
+}
+
+// quitTimeoutError reports that a harness did not exit within quitTimeout after
+// presses taps of its key.
+func quitTimeoutError(presses int, spec harnessSpec, err error) error {
+	return fmt.Errorf("%d presses of %#x within %s did not exit it: %w",
+		presses, spec.QuitKey, quitTimeout, err)
 }
 
 // waitReady blocks until the harness can be driven with its quit key. A harness
