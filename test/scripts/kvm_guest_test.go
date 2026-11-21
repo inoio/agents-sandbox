@@ -76,6 +76,20 @@ func TestKvmGuestRenderWritesCloudInitAndDomain(t *testing.T) {
 	assertContains(t, "meta-data", metadata, "instance-id: asb-kvm-test")
 }
 
+func TestKvmGuestRenderDefaultsTheImageCacheUnderHome(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestEnv(dir)
+	env["HOME"] = dir
+	// The XDG dirs are 0700 by design and must not be used: libvirt's QEMU
+	// user could not traverse them to read the cached base image.
+	env["XDG_CACHE_HOME"] = filepath.Join(dir, ".cache")
+	env["XDG_DATA_HOME"] = filepath.Join(dir, ".local", "share")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "render")
+	assertStatus(t, result, 0)
+	assertContains(t, "render stdout", result.Stdout, "image path: "+filepath.Join(dir, ".agents-sandbox-kvm"))
+}
+
 func TestKvmGuestRunForwardsTheCommandOverSSH(t *testing.T) {
 	dir := t.TempDir()
 	argvPath := filepath.Join(dir, "ssh-argv")

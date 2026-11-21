@@ -39,13 +39,14 @@ before `up`. Env overrides (`VM_NAME`, `VM_VCPUS`, `VM_MEMORY_MIB`, `VM_DISK_GIB
 `REPO_BRANCH`, `GO_VERSION`, `SSH_PUBKEY`, `SOURCE_DIR`, `LIBVIRT_URI`, `ARTIFACT_DIR`, `KVM_IMAGE_CACHE`,
 `KVM_REFRESH_IMAGE`) are documented in the script header.
 
-The base cloud image is cached in `KVM_IMAGE_CACHE` (default
-`${XDG_DATA_HOME:-~/.local/share}/agents-sandbox/kvm`), **outside** `ARTIFACT_DIR`: only the first `up` fetches it,
-`down` leaves it in place, and every worktree of a bare checkout reuses the one copy. It lives under the XDG data dir
-rather than `~/.cache` because libvirt runs QEMU as its own user (`libvirt-qemu`), which must traverse the cache to
-read the base image, and `~/.cache` is `0700` by design — the script `chmod`s the cache subtree readable and warns if
-`$HOME` itself is not traversable. Because the forky `daily/latest` filename is stable, the cache cannot notice a
-newer daily build on its own — set `KVM_REFRESH_IMAGE=1` to discard and re-fetch it.
+The base cloud image is cached in `KVM_IMAGE_CACHE` (default `~/.agents-sandbox-kvm`), **outside** `ARTIFACT_DIR`: only
+the first `up` fetches it, `down` leaves it in place, and every worktree of a bare checkout reuses the one copy. It is a
+single dir directly under `$HOME`, not `.cache`/`.local` and not nested, because libvirt runs QEMU as its own user
+(`libvirt-qemu`), which must traverse **every** path component to read the base image: `~/.cache`/`~/.local` are `0700`
+by design, and a nested dir can inherit a `0700` parent under a restrictive umask. `$HOME` itself is normally
+world-traversable; the script `chmod`s the cache dir readable and warns if `$HOME` is not. Because the forky
+`daily/latest` filename is stable, the cache cannot notice a newer daily build on its own — set `KVM_REFRESH_IMAGE=1` to
+discard and re-fetch it.
 
 ## The guest-firewall hazard
 
