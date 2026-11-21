@@ -166,12 +166,16 @@ manual testing showed three presses leave it, so the exception is gone and every
 **Isolation (hard requirement).** The child never reads or writes the developer's existing agents-sandbox
 configuration or state. Each run creates one temp root, shared by all subtests, and:
 
-- the root is created under a **short, fixed base** (`/tmp/asb-…`), not the host's `TMPDIR`: microsandbox
+- the root is created under a **short base** — `smokeRootBaseDefault` (`/tmp`) or the `AGENTS_SANDBOX_MSB_ROOT_BASE`
+  override — not the host's `TMPDIR`: microsandbox
   derives its sandbox control-socket path from the private home under `XDG_DATA_HOME` (`<root>/data/agents-sandbox/msb`)
   and rejects a derived path that does not fit a Unix socket's `sun_path` (104 bytes on macOS, the tighter
   target), so a long `TMPDIR` — macOS's default is ~49 bytes — would fail every harness before its TUI with
-  "sandbox runtime socket path is too long"; a fast unit test pins the budget (`msb` appends a fixed 50-byte
-  suffix and rejects a home above 55 bytes on Linux, microsandbox v0.7.8);
+  "sandbox runtime socket path is too long"; a created root (fresh or reused) is validated against the budget and
+  rejected when it does not fit, and a fast unit test pins the default and the budget (`msb` appends a fixed 50-byte
+  suffix and rejects a home above 55 bytes on Linux, microsandbox v0.7.8). The override exists because `/tmp` is a
+  RAM-backed tmpfs where systemd mounts it as one, which the 10+ GiB image cache would exhaust or spend the RAM; the
+  Makefile points it at the disk-backed `$(MSB_REUSE_ROOT)`;
 - the per-harness subtests run **in parallel**, bounded by a semaphore sized from the host's **free memory**
   (`harnessConcurrencyFor`: as many `smokeWorkingSetMiB` (1.5 GiB) VMs as fit after a fixed 2 GiB host reserve — the
   host OS, docker, and the concurrently running `internal/sandbox/msb` test binary — never fewer than one). The
@@ -218,8 +222,12 @@ between runs (resolved to an absolute path, validated to fit the socket-path bud
 root, so the microsandbox image cache under `<root>/data` survives and the per-run image transfer is paid once.
 The caching `make test-msb` sets it to the standing `$(MSB_REUSE_ROOT)/smoke` root, so the image cache and the
 docker layers survive and each agent's runner image is rebuilt in place under one tag; `make test-msb-cold` leaves
-it unset and so takes a fresh root. The default (unset) is a fresh root removed
-after the run; the reused directory is left in place. A reused root is held under an exclusive lock beside it for
+it unset and so takes a fresh root. `MSB_REUSE_ROOT` defaults to `/opt/asb-reuse`, not `/tmp`: the cache is 10+ GiB
+and `/tmp` is a RAM-backed tmpfs on hosts where systemd mounts it as one (`/var/tmp` is too on many), which either
+exhausts at the largest runner image or spends the RAM — while `/opt` is disk-backed and still short enough for the
+socket budget. The `msb-reuse-root` target creates it as the current user where the parent allows it and otherwise
+prints the `sudo install -d` command, and the KVM guest's cloud-init pre-creates it. The default (unset) is a fresh
+root removed after the run; the reused directory is left in place. A reused root is held under an exclusive lock beside it for
 the run's lifetime, so a second run that shares the root waits rather than racing: the run that finishes first
 would otherwise sweep every sandbox in the shared home, destroying the other's live VMs.
 

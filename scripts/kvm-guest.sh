@@ -20,6 +20,7 @@
 #   ./scripts/kvm-guest.sh render    # write the cloud-init seed + domain XML, no boot
 #   ./scripts/kvm-guest.sh ssh       # ssh into the guest
 #   ./scripts/kvm-guest.sh sync      # rsync the current checkout into the guest
+#   ./scripts/kvm-guest.sh prime     # copy the host's runner images + msb home into the guest
 #   ./scripts/kvm-guest.sh run make test-msb-journeys   # run a command in the guest
 #   ./scripts/kvm-guest.sh firewall  # re-apply the host nft rules guest egress needs
 #   ./scripts/kvm-guest.sh down      # destroy the guest and its disk
@@ -37,6 +38,7 @@
 #   KVM_IMAGE_CACHE=/var/lib/libvirt/images/agents-sandbox  KVM_REFRESH_IMAGE=1  KVM_BOOT_TIMEOUT=300
 #   REPO_URL=https://github.com/inoio/agents-sandbox.git  REPO_BRANCH=<current branch>
 #   GO_VERSION=<from .go-version>
+#   KVM_PRIME_ROOT=/opt/asb-reuse  # the root `prime` copies from and to
 #
 # The base image is cached in KVM_IMAGE_CACHE (shared across worktrees and
 # untouched by `down`), so only the first `up` fetches it. Set
@@ -103,12 +105,13 @@ die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 usage() {
   cat <<'EOF'
-usage: kvm-guest.sh {up|render|ssh|sync|run <cmd...>|firewall|down}
+usage: kvm-guest.sh {up|render|ssh|sync|prime|run <cmd...>|firewall|down}
 
   up        create and boot the KVM guest (cloud-init provisions it)
   render    write the cloud-init seed and domain XML to ARTIFACT_DIR, no boot
   ssh       open a shell in the guest
   sync      rsync SOURCE_DIR (default: this checkout) into the guest
+  prime     copy the host's runner images and microsandbox home into the guest
   run <..>  run a command in ~/agents-sandbox in the guest
   firewall  re-apply the host nft rules the guest's egress needs
   down      destroy the guest and its disk
@@ -173,6 +176,9 @@ runcmd:
   - systemctl enable --now docker
   - getent group kvm >/dev/null || groupadd -r kvm
   - usermod -aG docker,kvm $VM_USER
+  # The msb suites cache 10+ GiB of runner images under MSB_REUSE_ROOT (default
+  # /opt/asb-reuse); the guest's /tmp is a RAM-backed tmpfs that would exhaust.
+  - install -d -o $VM_USER -g $VM_USER -m 0755 /opt/asb-reuse
   - udevadm control --reload-rules
   - udevadm trigger /dev/kvm || true
   - curl -fsSL "https://go.dev/dl/go$GO_VERSION.linux-$GO_ARCH.tar.gz" -o /tmp/go.tgz
@@ -357,6 +363,39 @@ sync_in() {
     "$source/" "$VM_USER@$ip:~/agents-sandbox/"
 }
 
+# prime copies the host's runner images (docker save | ssh docker load) and
+# microsandbox home into the guest, so the suite's image prebuild finds both and
+# skips it. Both sides must use the same MSB_REUSE_ROOT (KVM_PRIME_ROOT, default
+# /opt/asb-reuse): the runner-image slug hashes the project directory's absolute
+# path, so a different root names different images and nothing matches. Host and
+# guest must also share the CPU architecture and the microsandbox runtime version;
+# prime before a run, never while one is using the home.
+prime() {
+  local ip root="${KVM_PRIME_ROOT:-/opt/asb-reuse}" tags home
+  ip="$(require_guest_ip)"
+  home="$root/smoke/data/agents-sandbox/msb"
+
+  tags="$(docker images --format '{{.Repository}}:{{.Tag}}' \
+    --filter reference='agents-sandbox/runner-*' 2>/dev/null || true)"
+  if [ -n "$tags" ]; then
+    log "copying host runner images to $VM_USER@$ip"
+    # shellcheck disable=SC2086  # word-split the newline-separated tag list into args
+    docker save $tags | ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" 'docker load'
+  else
+    log "no host runner images (agents-sandbox/runner-*); build them first: 'make test-msb' on the host"
+  fi
+
+  if [ -d "$home" ]; then
+    log "copying the microsandbox home from $home"
+    ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" "mkdir -p '$root/smoke/data/agents-sandbox'"
+    rsync -a "$home/" "$VM_USER@$ip:$home/"
+  else
+    log "no host microsandbox home at $home; build it first: 'make test-msb' on the host"
+  fi
+
+  log "primed — run 'make kvm-run' (host and guest must both use MSB_REUSE_ROOT=$root)"
+}
+
 run_in() {
   [ "$#" -gt 0 ] || { usage >&2; exit 2; }
   # A login shell so /etc/profile.d puts Go and ~/.local/bin (msb) on PATH for
@@ -493,6 +532,7 @@ case "${1:-}" in
   render)          render ;;
   ssh)             ssh_in ;;
   sync)            sync_in ;;
+  prime)           prime ;;
   run)             shift; run_in "$@" ;;
   firewall|fix-net) fix_firewall ;;
   down|destroy)    destroy ;;

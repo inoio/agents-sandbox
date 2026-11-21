@@ -40,8 +40,8 @@ const (
 )
 
 const (
-	// smokeRootBase and smokeRootPrefix place the suite's shared temp root at a
-	// short, fixed path instead of under the host's TMPDIR.
+	// smokeRootPrefix names the suite's shared temp roots; smokeRootBaseDefault
+	// is the base they are created under when smokeRootBaseEnv is unset.
 	//
 	// microsandbox derives its sandbox control-socket path from the private home
 	// under XDG_DATA_HOME (<root>/data/agents-sandbox/msb) and rejects a derived
@@ -50,8 +50,16 @@ const (
 	// macOS's default is already ~49 bytes — would push the derived path over
 	// the limit and fail every harness before its TUI with "sandbox runtime
 	// socket path is too long", so the root stays short.
-	smokeRootBase   = "/tmp"
-	smokeRootPrefix = "asb-"
+	smokeRootPrefix      = "asb-"
+	smokeRootBaseDefault = "/tmp"
+	// smokeRootBaseEnv overrides the base a fresh suite root is created under.
+	// /tmp is short and disk-backed on a stock host, but it is a RAM-backed tmpfs
+	// where systemd mounts it as one (and in the KVM guest), where the suite's
+	// 10+ GiB image cache would exhaust it or spend the RAM; the Makefile points
+	// this at the disk-backed $(MSB_REUSE_ROOT). The override must still keep the
+	// root within the socket budget, so a created root is validated like a reuse
+	// root.
+	smokeRootBaseEnv = "AGENTS_SANDBOX_MSB_ROOT_BASE"
 
 	// dataDirName is the XDG data directory isolatedEnv puts under the root; the
 	// private microsandbox home is nested inside it.
@@ -76,6 +84,16 @@ const (
 	// one image cache (see isolatedEnv/harnessHomeBase).
 	runsDirName = "runs"
 )
+
+// smokeRootBase returns the base a fresh suite root is created under: the
+// smokeRootBaseEnv override when set, else smokeRootBaseDefault.
+func smokeRootBase() string {
+	//testenv:allow the smoke suite reads its own fresh-root base override
+	if dir := os.Getenv(smokeRootBaseEnv); dir != "" {
+		return dir
+	}
+	return smokeRootBaseDefault
+}
 
 // smokeRootReuseEnv, when set, points the suite at an existing directory it
 // keeps between runs instead of a fresh temp root. The microsandbox image cache
@@ -191,9 +209,10 @@ func acquireReuseLock(dir string) (func(), error) {
 // under (nil for a fresh root). A set smokeRootReuseEnv reuses that directory —
 // resolved to an absolute path and validated to fit the sandbox socket path
 // budget — so the microsandbox image cache under it survives between runs;
-// otherwise a fresh temp root is created for the caller to remove. The lock
-// serializes runs that share a root, so a finishing run's sandbox sweep cannot
-// destroy VMs another run is still using.
+// otherwise a fresh temp root is created under smokeRootBase() (the
+// smokeRootBaseEnv override, else smokeRootBaseDefault) for the caller to remove,
+// validated to the same budget. The lock serializes runs that share a root, so a
+// finishing run's sandbox sweep cannot destroy VMs another run is still using.
 func resolveSuiteRoot() (string, bool, func(), error) {
 	//testenv:allow the smoke suite reads its own reuse-root override
 	if dir := os.Getenv(smokeRootReuseEnv); dir != "" {
@@ -218,9 +237,19 @@ func resolveSuiteRoot() (string, bool, func(), error) {
 		}
 		return reuseRoot, true, release, nil
 	}
-	root, err := mkdtemp(smokeRootBase, smokeRootPrefix)
+	root, err := mkdtemp(smokeRootBase(), smokeRootPrefix)
 	if err != nil {
 		return "", false, nil, err
+	}
+	if !rootFitsSandboxSocket(root) {
+		_ = os.Remove(root)
+		return "", false, nil, fmt.Errorf(
+			"suite root %q derives a %d-byte sandbox control-socket path, at or above the %d-byte sun_path limit; set %s to a shorter base",
+			root,
+			len(msbHomeUnderRoot(root))+sandboxSocketPathSuffix,
+			sunPathLimit,
+			smokeRootBaseEnv,
+		)
 	}
 	return root, false, nil, nil
 }

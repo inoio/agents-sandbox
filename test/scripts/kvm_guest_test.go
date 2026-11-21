@@ -139,6 +139,65 @@ func TestKvmGuestSyncForwardsTheCheckoutWithExcludes(t *testing.T) {
 	assertContains(t, "rsync argv", argv, "--exclude .kvm-guest/")
 }
 
+// TestKvmGuestPrimeCopiesImagesAndHome pins that `prime` copies both halves of
+// the guest's cached state from the host: its runner images over docker
+// save|ssh docker load, and its microsandbox home over rsync.
+func TestKvmGuestPrimeCopiesImagesAndHome(t *testing.T) {
+	dir := t.TempDir()
+	dockerLog := filepath.Join(dir, "docker-argv")
+	sshLog := filepath.Join(dir, "ssh-argv")
+	rsyncLog := filepath.Join(dir, "rsync-argv")
+
+	root := filepath.Join(dir, "root")
+	home := filepath.Join(root, "smoke", "data", "agents-sandbox", "msb")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatalf("create host msb home: %v", err)
+	}
+
+	env := kvmGuestEnv(dir)
+	env["KVM_PRIME_ROOT"] = root
+	env["SURFACE_SWEEP_DOCKER_LOG"] = dockerLog
+	env["SURFACE_SWEEP_DOCKER_IMAGES"] = "agents-sandbox/runner-opencode-abc:opencode-latest"
+	env["SSH_ARGV"] = sshLog
+	env["RSYNC_ARGV"] = rsyncLog
+	env["PATH"] = kvmGuestPath(t, "virsh", "ssh", "rsync", "docker")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "prime")
+	assertStatus(t, result, 0)
+
+	dockerArgv := readText(t, dockerLog)
+	assertContains(t, "docker argv", dockerArgv, "images --format")
+	assertContains(t, "docker argv", dockerArgv, "save agents-sandbox/runner-opencode-abc:opencode-latest")
+
+	sshArgv := readText(t, sshLog)
+	assertContains(t, "ssh argv", sshArgv, "dev@192.168.122.55")
+	assertContains(t, "ssh argv", sshArgv, "docker load")
+	assertContains(t, "ssh argv", sshArgv, "mkdir -p '"+filepath.Join(root, "smoke", "data", "agents-sandbox")+"'")
+
+	rsyncArgv := readText(t, rsyncLog)
+	assertContains(t, "rsync argv", rsyncArgv, home+"/")
+	assertContains(t, "rsync argv", rsyncArgv, "dev@192.168.122.55:"+home+"/")
+}
+
+// TestKvmGuestPrimeWarnsWhenTheHostHasNoCache pins that a host with nothing
+// built warns and copies nothing, rather than opening a transfer to the guest.
+func TestKvmGuestPrimeWarnsWhenTheHostHasNoCache(t *testing.T) {
+	dir := t.TempDir()
+	sshLog := filepath.Join(dir, "ssh-argv")
+	env := kvmGuestEnv(dir)
+	env["KVM_PRIME_ROOT"] = filepath.Join(dir, "empty-root")
+	env["SSH_ARGV"] = sshLog
+	env["PATH"] = kvmGuestPath(t, "virsh", "ssh", "rsync", "docker")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "prime")
+	assertStatus(t, result, 0)
+	assertContains(t, "prime stderr", result.Stderr, "no host runner images")
+	assertContains(t, "prime stderr", result.Stderr, "no host microsandbox home")
+	if _, err := os.Stat(sshLog); err == nil {
+		t.Error("prime opened an ssh connection with nothing to copy")
+	}
+}
+
 func TestKvmGuestRunRejectsNoCommand(t *testing.T) {
 	dir := t.TempDir()
 	env := kvmGuestEnv(dir)

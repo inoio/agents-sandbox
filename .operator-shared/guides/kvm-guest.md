@@ -1,6 +1,6 @@
 ---
-description: The host-only libvirt KVM guest for running the msb test suites - why the development VM cannot run them, the `scripts/kvm-guest.sh` provisioner and its `make kvm-up`/`kvm-sync`/`kvm-run`/`kvm-down` targets, the nested-KVM prerequisites, and the volatile host-firewall fix guest egress needs.
-read_if: Running the msb suites (`make test-msb`, `make test-msb-journeys`) and needing a KVM host; provisioning or destroying the libvirt guest; diagnosing a guest that never gets a DHCP lease, a `virsh start` `Permission denied` on the cache (AppArmor), or no DNS/egress behind Docker's `ip filter` table; or changing `scripts/kvm-guest.sh`.
+description: The host-only libvirt KVM guest for running the msb test suites - why the development VM cannot run them, the `scripts/kvm-guest.sh` provisioner and its `make kvm-up`/`kvm-sync`/`kvm-prime`/`kvm-run`/`kvm-down` targets, the disk-backed reuse root the guest pre-creates, the nested-KVM prerequisites, and the volatile host-firewall fix guest egress needs.
+read_if: Running the msb suites (`make test-msb`, `make test-msb-journeys`) and needing a KVM host; provisioning or destroying the libvirt guest; priming the guest's runner-image/msb cache from the host (`make kvm-prime`) or diagnosing a `prime` that copies nothing; diagnosing a guest that never gets a DHCP lease, a `virsh start` `Permission denied` on the cache (AppArmor), or no DNS/egress behind Docker's `ip filter` table; or changing `scripts/kvm-guest.sh`.
 ---
 
 # The KVM guest for the msb suites
@@ -27,6 +27,7 @@ the guest; the suites then build the launcher there and drive it directly.
 make kvm-up                 # create + boot the guest; cloud-init provisions it on first boot
 make kvm-ssh                # a shell in the guest (or: scripts/kvm-guest.sh ssh)
 make kvm-sync               # rsync this checkout into ~/agents-sandbox in the guest
+make kvm-prime              # copy the host's built runner images + msb home into the guest
 make kvm-run                # run KVM_RUN (default: make test-msb) in the guest
 make kvm-run KVM_RUN='make test-msb-journeys'
 make kvm-down               # destroy the guest and its disk (the base image stays cached)
@@ -39,6 +40,23 @@ the cloud-init seed and domain XML under `ARTIFACT_DIR` (default `./.kvm-guest`)
 before `up`. Env overrides (`VM_NAME`, `VM_VCPUS`, `VM_MEMORY_MIB`, `VM_DISK_GIB`, `VM_USER`, `REPO_URL`,
 `REPO_BRANCH`, `GO_VERSION`, `SSH_PUBKEY`, `SOURCE_DIR`, `LIBVIRT_URI`, `UBUNTU_CODENAME`, `IMAGE_URL`,
 `ARTIFACT_DIR`, `KVM_IMAGE_CACHE`, `KVM_REFRESH_IMAGE`, `KVM_BOOT_TIMEOUT`) are documented in the script header.
+
+cloud-init also creates `/opt/asb-reuse`, owned by the guest user, for the msb suites' standing reuse root: `make
+test-msb` caches 10+ GiB of runner images under `MSB_REUSE_ROOT` (default `/opt/asb-reuse`), while the guest's `/tmp`
+is a RAM-backed tmpfs that would exhaust at the largest runner image. See
+`.operator-shared/specs/testing/harness-smoke-tests.md`.
+
+### Priming the guest from the host
+
+The guest builds its runner images and loads them into microsandbox itself; on a cold guest that is the suite's
+dominant cost (the `docker` build plus the multi-GB `docker save | msb ImageLoad` transfer). `make kvm-prime` copies
+both halves from the host so the guest's prebuild finds them and skips it: the runner images over
+`docker save | ssh docker load`, and the microsandbox home (`<root>/smoke/data/agents-sandbox/msb`) over `rsync`.
+
+It only matches when host and guest agree on `MSB_REUSE_ROOT` (`KVM_PRIME_ROOT`, default `/opt/asb-reuse`): the
+runner-image slug hashes the project directory's absolute path, so a different root names different images and
+nothing is reused. Host and guest must also share the CPU architecture and the microsandbox runtime version. Build
+the host's cache first (`make test-msb` on the host), and prime before a run, never while a run is using the home.
 
 The base cloud image is cached in `KVM_IMAGE_CACHE` (default
 `/var/lib/libvirt/images/agents-sandbox`), **outside** `ARTIFACT_DIR`: only the first `up` fetches it, `down` leaves it

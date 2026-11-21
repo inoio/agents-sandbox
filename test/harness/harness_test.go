@@ -542,27 +542,28 @@ func TestIsolatedEnvAllowlist(t *testing.T) {
 func TestSmokeRootStaysShortEnoughForSandboxSockets(t *testing.T) {
 	// os.MkdirTemp appends nine random characters after the pattern.
 	const mkdirTempSuffix = "123456789"
-	root := filepath.Join(smokeRootBase, smokeRootPrefix+mkdirTempSuffix)
+	root := filepath.Join(smokeRootBaseDefault, smokeRootPrefix+mkdirTempSuffix)
 	if !rootFitsSandboxSocket(root) {
 		t.Errorf(
-			"the default suite root %q derives a %d-byte sandbox control-socket path, at or above the %d-byte sun_path limit; keep smokeRootBase and smokeRootPrefix short",
+			"the default suite root %q derives a %d-byte sandbox control-socket path, at or above the %d-byte sun_path limit; keep smokeRootBaseDefault, any %s override, and smokeRootPrefix short",
 			root,
 			len(msbHomeUnderRoot(root))+sandboxSocketPathSuffix,
 			sunPathLimit,
+			smokeRootBaseEnv,
 		)
 	}
 }
 
-// shortTempDir creates a unique directory under smokeRootBase. Its path is short
-// enough for a reuse root's derived sandbox control socket, and being unique per
-// invocation keeps a test from sharing (and deleting) a fixed /tmp path another
-// concurrent run uses.
+// shortTempDir creates a unique directory under smokeRootBaseDefault. Its path
+// is short enough for a reuse root's derived sandbox control socket, and being
+// unique per invocation keeps a test from sharing (and deleting) a fixed /tmp
+// path another concurrent run uses.
 func shortTempDir(t *testing.T) string {
 	t.Helper()
-	// mkdtemp (the resolveSuiteRoot seam) with the short smokeRootBase, not
-	// t.TempDir: t.TempDir's test-named path under TMPDIR is too long for the
+	// mkdtemp (the resolveSuiteRoot seam) with the short smokeRootBaseDefault,
+	// not t.TempDir: t.TempDir's test-named path under TMPDIR is too long for the
 	// socket budget.
-	dir, err := mkdtemp(smokeRootBase, smokeRootPrefix+"t-")
+	dir, err := mkdtemp(smokeRootBaseDefault, smokeRootPrefix+"t-")
 	if err != nil {
 		t.Fatalf("create short temp dir: %v", err)
 	}
@@ -609,6 +610,66 @@ func TestResolveSuiteRootReusesEnv(t *testing.T) {
 	}
 	if reused || root == "" {
 		t.Errorf("resolveSuiteRoot = (%q, %v), want a fresh, non-reused root", root, reused)
+	}
+}
+
+// TestSmokeRootBaseOverride pins that AGENTS_SANDBOX_MSB_ROOT_BASE moves a fresh
+// suite root, so a host whose /tmp is a RAM-backed tmpfs can create roots on a
+// disk-backed base. The mkdtemp seam keeps the returned root short enough for the
+// socket budget regardless of the (necessarily short) base's own length.
+func TestSmokeRootBaseOverride(t *testing.T) {
+	originalMkdtemp := mkdtemp
+	t.Cleanup(func() { mkdtemp = originalMkdtemp })
+	var gotBase, gotPrefix string
+	mkdtemp = func(base, prefix string) (string, error) {
+		gotBase, gotPrefix = base, prefix
+		return filepath.Join(base, "root"), nil
+	}
+
+	base := shortTempDir(t)
+	t.Setenv(smokeRootReuseEnv, "")
+	t.Setenv(smokeRootBaseEnv, base)
+
+	root, reused, release, err := resolveSuiteRoot()
+	if err != nil {
+		t.Fatalf("resolveSuiteRoot: %v", err)
+	}
+	if release != nil {
+		t.Error("resolveSuiteRoot returned a lock release for a fresh root, want nil")
+	}
+	if reused {
+		t.Error("resolveSuiteRoot reused a root with the reuse env unset")
+	}
+	if gotBase != base {
+		t.Errorf("resolveSuiteRoot created under base %q, want the override %q", gotBase, base)
+	}
+	if gotPrefix != smokeRootPrefix {
+		t.Errorf("resolveSuiteRoot created with prefix %q, want %q", gotPrefix, smokeRootPrefix)
+	}
+	if want := filepath.Join(base, "root"); root != want {
+		t.Errorf("resolveSuiteRoot root = %q, want %q", root, want)
+	}
+}
+
+// TestSmokeRootBaseOverrideRejectsLongBase pins that a base which cannot fit the
+// socket budget is reported at resolution, not left to fail a harness later.
+func TestSmokeRootBaseOverrideRejectsLongBase(t *testing.T) {
+	longBase := filepath.Join(t.TempDir(), strings.Repeat("x", sunPathLimit))
+	if err := os.MkdirAll(longBase, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(smokeRootReuseEnv, "")
+	t.Setenv(smokeRootBaseEnv, longBase)
+
+	root, reused, release, err := resolveSuiteRoot()
+	if err == nil {
+		t.Fatal("resolveSuiteRoot = nil error, want a too-long base rejected")
+	}
+	if !strings.Contains(err.Error(), smokeRootBaseEnv) {
+		t.Errorf("resolveSuiteRoot error %q, want it to name %s", err, smokeRootBaseEnv)
+	}
+	if root != "" || reused || release != nil {
+		t.Errorf("resolveSuiteRoot = (%q, %v, release %v), want zero values on failure", root, reused, release != nil)
 	}
 }
 

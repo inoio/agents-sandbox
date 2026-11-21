@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-cold test-msb-reuse compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic envelope-test check check-test verify print-check-targets check-local-changes check-branch-changes check-selected changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test backport-audit-test open-backport-pr-test kvm-guest-test kvm-up kvm-sync kvm-ssh kvm-run kvm-down event-base-test classify-changes-test brain-check brain-check-test shellcheck docs-serve
+.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-cold test-msb-reuse msb-reuse-root compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic envelope-test check check-test verify print-check-targets check-local-changes check-branch-changes check-selected changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test backport-audit-test open-backport-pr-test kvm-guest-test kvm-up kvm-sync kvm-prime kvm-ssh kvm-run kvm-down event-base-test classify-changes-test brain-check brain-check-test shellcheck docs-serve
 
 VERSION ?= dev
 
@@ -39,10 +39,19 @@ INTEGRATION_PARALLEL ?= 4
 # the image builds lengthens the one binary that dominates the run.
 INTEGRATION_TIMEOUT ?= 60m
 MSB_PARALLEL ?=
-# Standing root for the caching `test-msb`: it must stay short enough for
-# microsandbox's derived sandbox control socket (see test/harness/harness_helpers_test.go).
-# Remove it to start fresh.
-MSB_REUSE_ROOT ?= /tmp/asb-reuse
+# Standing root for the caching `test-msb`. Two constraints: it must stay short
+# enough for microsandbox's derived sandbox control socket (see
+# test/harness/harness_helpers_test.go — the smoke root must be under 30 bytes),
+# and it must live on a real disk, because the suite caches 10+ GiB of runner
+# images here. /tmp is a RAM-backed tmpfs where systemd mounts it as one, and
+# /var/tmp often is too; a tmpfs root either exhausts at the largest runner
+# image ("Disk quota exceeded") or silently spends 14+ GiB of RAM. /opt is
+# disk-backed on Linux and macOS. `msb-reuse-root` creates it as your user where
+# the parent is writable; otherwise run the one-time command it prints:
+#   sudo install -d -o "$USER" -g "$USER" -m 0755 /opt/asb-reuse
+# The KVM guest pre-creates it in cloud-init (scripts/kvm-guest.sh). Remove it to
+# start fresh.
+MSB_REUSE_ROOT ?= /opt/asb-reuse
 # Host-only: the msb suites need a KVM host, and the dev VM has no working
 # /dev/kvm. `make kvm-up` builds a libvirt guest and these run the suite inside
 # it. See .operator-shared/guides/kvm-guest.md. Never run by CI.
@@ -202,12 +211,25 @@ test-integration:
 # network); excluded from test/check via the `msb` build tag. These keep the
 # embedded native library: they are the tests that actually load it.
 #
+# Ensure the standing reuse root exists before `test-msb` runs. Without it the
+# suite either fails deep in the image prebuild (a tmpfs root) or hits a bare
+# permission error. Created as the current user where the parent allows it; on a
+# stock host /opt is root-owned, so print the one-time command instead.
+msb-reuse-root:
+	@mkdir -p "$(MSB_REUSE_ROOT)" 2>/dev/null || { \
+		printf '%s\n' \
+			"error: cannot create $(MSB_REUSE_ROOT)." \
+			"Create it once on a short, disk-backed path (not tmpfs):" \
+			"  sudo install -d -o \"$$(id -un)\" -g \"$$(id -gn)\" -m 0755 $(MSB_REUSE_ROOT)" >&2; \
+		exit 1; \
+	}
+
 # test-msb reuses a standing microsandbox home and smoke root, so the multi-GB
 # `docker save | msb ImageLoad` transfer and the docker layers are paid once and
 # each agent's runner image is rebuilt in place under one tag. The home outlives
 # the run, so remove $(MSB_REUSE_ROOT) to start fresh, and a reused home is held
 # under a lock so a second run waits rather than racing. Add -v for timings.
-test-msb:
+test-msb: msb-reuse-root
 	AGENTS_SANDBOX_SMOKE_ROOT=$(MSB_REUSE_ROOT)/smoke \
 	AGENTS_SANDBOX_MSB_TEST_HOME=$(MSB_REUSE_ROOT)/msb \
 	AGENTS_SANDBOX_MSB_PARALLEL=$(MSB_PARALLEL) \
@@ -216,11 +238,14 @@ test-msb:
 # Like test-msb, but on a fresh, isolated microsandbox home that caches nothing
 # between runs. It forces the reuse variables unset, so an exported
 # AGENTS_SANDBOX_SMOKE_ROOT or AGENTS_SANDBOX_MSB_TEST_HOME cannot turn it into a
-# caching run. The suite removes the runner images it built (and its temp root),
+# caching run. It still creates its fresh root under the disk-backed
+# $(MSB_REUSE_ROOT) via AGENTS_SANDBOX_MSB_ROOT_BASE, because the fresh root holds
+# the same 10+ GiB of runner images a tmpfs /tmp cannot. The suite removes the
+# runner images it built (and its temp root),
 # untagging only the leaf so the classic builder's layer cache survives, so a
 # cold run leaves no tagged runner image.
-test-msb-cold:
-	AGENTS_SANDBOX_SMOKE_ROOT= AGENTS_SANDBOX_MSB_TEST_HOME= AGENTS_SANDBOX_MSB_PARALLEL=$(MSB_PARALLEL) CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/harness/... ./internal/sandbox/msb/...
+test-msb-cold: msb-reuse-root
+	AGENTS_SANDBOX_SMOKE_ROOT= AGENTS_SANDBOX_MSB_TEST_HOME= AGENTS_SANDBOX_MSB_ROOT_BASE=$(MSB_REUSE_ROOT) AGENTS_SANDBOX_MSB_PARALLEL=$(MSB_PARALLEL) CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/harness/... ./internal/sandbox/msb/...
 
 # Host-only KVM-guest workflow. These build a libvirt guest (cloud-init seeds
 # docker, Go, msb, and the repo), sync a checkout into it, and run a command
@@ -231,6 +256,13 @@ kvm-up:
 
 kvm-sync:
 	scripts/kvm-guest.sh sync
+
+# Copy the host's runner images and microsandbox home into the guest so its
+# image prebuild is a no-op. Both sides must use the same $(MSB_REUSE_ROOT): the
+# runner-image slug hashes the project directory's absolute path, so a different
+# root names different images. See the guide.
+kvm-prime:
+	scripts/kvm-guest.sh prime
 
 kvm-ssh:
 	scripts/kvm-guest.sh ssh

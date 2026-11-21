@@ -54,8 +54,8 @@
   - Description: The module's minimum Go version and why it cannot be lower, with the evidence and primary sources.
   - Read If: Changing the `go` directive, `.go-version`, or a Go pin; asking whether a lower Go version can be advertised; or diagnosing a dependency/promoted-field/GOTOOLCHAIN "requires a newer Go" error.
 - `guides/kvm-guest.md`
-  - Description: The host-only libvirt KVM guest for running the msb test suites - why the development VM cannot run them, the `scripts/kvm-guest.sh` provisioner and its `make kvm-up`/`kvm-sync`/`kvm-run`/`kvm-down` targets, the nested-KVM prerequisites, and the volatile host-firewall fix guest egress needs.
-  - Read If: Running the msb suites (`make test-msb`, `make test-msb-journeys`) and needing a KVM host; provisioning or destroying the libvirt guest; diagnosing a guest with no DNS/egress behind Docker's `ip filter` table; or changing `scripts/kvm-guest.sh`.
+  - Description: The host-only libvirt KVM guest for running the msb test suites - why the development VM cannot run them, the `scripts/kvm-guest.sh` provisioner and its `make kvm-up`/`kvm-sync`/`kvm-prime`/`kvm-run`/`kvm-down` targets, the disk-backed reuse root the guest pre-creates, the nested-KVM prerequisites, and the volatile host-firewall fix guest egress needs.
+  - Read If: Running the msb suites (`make test-msb`, `make test-msb-journeys`) and needing a KVM host; provisioning or destroying the libvirt guest; priming the guest's runner-image/msb cache from the host (`make kvm-prime`) or diagnosing a `prime` that copies nothing; diagnosing a guest with no DNS/egress behind Docker's `ip filter` table; or changing `scripts/kvm-guest.sh`.
 - `guides/mutation-testing.md`
   - Description: Mutation testing for Go in this repo: the gomutants choice, how to close survivors, and the multi-turn sweep runbook.
   - Read If: Evaluating or changing a Go mutation-testing tool or the `make mutation` target; triaging LIVED mutants from a sweep; picking a `SINCE` scope for a branch/PR sweep; coordinating a #268 survivor-reduction pass; or deciding whether a sweep may run in the VM (it may not - it OOMs).
