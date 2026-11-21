@@ -23,6 +23,9 @@ run, with test bodies adding only a few seconds.)
 result — the target to use when measuring or profiling test bodies. A second `make test` on an unchanged tree is
 cache-fast.
 
+The hermetic envelope (`make test-scrubbed`/`test-hermetic`, see `specs/testing/test-isolation.md`) costs roughly 1.5×
+an uncached `go test` and ~4.5× a cached `make test`; measure it against the uncached baseline, never a cache-fast run.
+
 ## Why linking is paid on every run
 
 `go test` in **run** mode links each test binary into the ephemeral work dir, so the link command's `-o` is a
