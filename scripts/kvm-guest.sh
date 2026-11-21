@@ -32,14 +32,17 @@
 #   VM_USER=dev  SSH_PUBKEY=<path-or-key>  ARTIFACT_DIR=$PWD/.kvm-guest
 #   SOURCE_DIR=<checkout to sync>  LIBVIRT_URI=qemu:///system
 #   IMAGE_URL=<full cloud-image URL>
-#   KVM_IMAGE_CACHE=~/.cache/agents-sandbox/kvm  KVM_REFRESH_IMAGE=1
+#   KVM_IMAGE_CACHE=~/.local/share/agents-sandbox/kvm  KVM_REFRESH_IMAGE=1
 #   REPO_URL=https://github.com/inoio/agents-sandbox.git  REPO_BRANCH=<current branch>
 #   GO_VERSION=<from .go-version>
 #
 # The base image is cached in KVM_IMAGE_CACHE (shared across worktrees and
 # untouched by `down`), so only the first `up` fetches it. Set
 # KVM_REFRESH_IMAGE=1 to re-fetch (the forky `daily/latest` filename is stable,
-# so the cache cannot otherwise notice a newer daily build).
+# so the cache cannot otherwise notice a newer daily build). The cache lives
+# under the XDG data dir, not ~/.cache: libvirt runs QEMU as its own user
+# (e.g. libvirt-qemu), which must traverse the cache to read the base image,
+# and ~/.cache is 0700 by design.
 #
 # Firewall: where Docker manages the iptables-nft `ip filter` table (its base
 # chains carry `policy drop`) and libvirt uses its nftables backend, libvirt's
@@ -57,7 +60,7 @@ VM_USER="${VM_USER:-dev}"
 LIBVIRT_URI="${LIBVIRT_URI:-qemu:///system}"
 REPO_URL="${REPO_URL:-https://github.com/inoio/agents-sandbox.git}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-$PWD/.kvm-guest}"
-KVM_IMAGE_CACHE="${KVM_IMAGE_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/agents-sandbox/kvm}"
+KVM_IMAGE_CACHE="${KVM_IMAGE_CACHE:-${XDG_DATA_HOME:-$HOME/.local/share}/agents-sandbox/kvm}"
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
@@ -395,6 +398,12 @@ EOF
 create() {
   check_host
   mkdir -p "$ARTIFACT_DIR" "$KVM_IMAGE_CACHE"
+  # The base image must be readable (and the cache dir traversable) by
+  # libvirt's QEMU user, which is not us on a system libvirt.
+  chmod 0755 "$KVM_IMAGE_CACHE"
+  if [ -n "$(find "$HOME" -maxdepth 0 ! -perm -o+x 2>/dev/null)" ]; then
+    log "warn: $HOME is not traversable by other users; libvirt's QEMU user may not read $IMAGE_PATH (chmod o+x \"$HOME\")"
+  fi
 
   if [ "${KVM_REFRESH_IMAGE:-}" = "1" ]; then
     log "KVM_REFRESH_IMAGE set; discarding the cached base image"
@@ -410,6 +419,7 @@ create() {
   else
     log "using cached base image $IMAGE_PATH"
   fi
+  chmod 0644 "$IMAGE_PATH"
   if [ ! -f "$DISK_PATH" ]; then
     log "creating ${VM_DISK_GIB}G overlay on $(basename "$IMAGE_PATH")"
     qemu-img create -f qcow2 -F qcow2 -b "$IMAGE_PATH" "$DISK_PATH" "${VM_DISK_GIB}G" >/dev/null
