@@ -64,14 +64,24 @@ Groups with no failing test are stated empty.
   - `internal/sandbox/vm` — `TestAdoptLegacyIdentityPersistRecoveredVolumeFailureFailsClosed`,
     `TestAdoptLegacyIdentityClaimCommitFailureFailsClosed`,
     `TestRecordImageProvenanceWarnsWhenStateCannotBeWritten`
+
+  **Resolved (#799):** the strict run is green. Each fixture now induces its
+  failure through a seam instead of `chmod`: `configmerge`'s mirror read through
+  the `projectguard` approval the walk reads with; `runtimemigration`'s volume
+  listing through a `readDir` var; the three `vm` state writes through the
+  existing `state.OverrideStateWriteForTest` hook (now wired to the per-key
+  funnel too); and the sweep fixtures written after this inventory, in
+  `internal/sandbox/pruning` (10 cases) and `internal/sandbox/state` (1), through
+  `state.removeSweepEntry` and the pruning `statefulAgentNames` /
+  `readStateEntries` / `removeSweepEntry` / `removeUnheldClaim` /
+  `removeHomeStateIf` / `removeSlugDirIfEmpty` seams. The strict run also pins
+  `GOTOOLCHAIN=local`, so a `toolchain` directive cannot download inside the
+  namespace.
 - **Other** — empty.
 
 ## Follow-up scope
 
-The uid/permission surface is the one concrete work item the envelope produced.
-The fix is to make those six tests independent of the effective uid by injecting
-the failing reader/writer (a seam that returns an error) instead of relying on
-`chmod` denial — which is also what lets `make test-hermetic` run under
-`--map-root-user`. The identity/CWD, host-figure, and wall-clock surfaces are not
-exercised by the envelope; they get their own enforcement (the git seam, the
+The uid/permission surface is resolved (above): `make test-hermetic` is green.
+The identity/CWD, host-figure, and wall-clock surfaces remain — they are not
+exercised by the envelope and get their own enforcement (the git seam, the
 host-figure sentinel pass, the `time.Sleep` gate category) per the design.

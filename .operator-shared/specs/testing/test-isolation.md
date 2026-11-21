@@ -186,8 +186,8 @@ both; the release gate is the strict tier's floor, and promotion toward the defa
 runtime budget, never a date (see `guides/test-runtime-cost.md`).
 
 The `--netns` tier runs as uid 0 (`unshare --net --map-root-user`), so a test must not depend on the effective uid: a
-permission-denial fixture induces the read/write failure through a package seam, never `chmod`. Six such fixtures still
-assume an unprivileged uid, so that tier is currently red pending that change.
+permission-denial fixture induces the read/write failure through a package seam, never `chmod`. Every such fixture now
+uses a seam, so the tier is green.
 
 ## Ambient-environment gate
 
