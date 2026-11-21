@@ -599,9 +599,9 @@ func seedAgentSnippets(homeBase, agentConfigDirName string, snippets map[string]
 	return nil
 }
 
-// The seed tree and isolated launcher config dir seedHomeManifest writes: the
-// seed sources live under <homeBase>/seed, and the home manifest under
-// <homeBase>/config/<launcherConfigDirName>, the agents-sandbox dir inside
+// The seed tree and isolated launcher config dir seedLauncherConfig writes: the
+// home-manifest seed sources live under <homeBase>/seed, and the launcher config
+// under <homeBase>/config/<launcherConfigDirName>, the agents-sandbox dir inside
 // XDG_CONFIG_HOME (configpaths.UserConfigDir).
 const (
 	seedDirName            = "seed"
@@ -609,31 +609,38 @@ const (
 	launcherConfigFileName = "config.json"
 )
 
-// seedHomeManifest provisions each VM-home-relative target through the launcher
-// config's `home:` key rather than the agent's ProvisionRules: it writes the
-// content to a private seed file under the run's seed dir and writes a launcher
-// config whose home: manifest maps the target to that seed file's absolute path,
-// so the launcher copies it into the VM home. A nil or empty map writes nothing.
+// seedLauncherConfig writes the run's isolated launcher config. It always
+// enables host-config provisioning (provision-host-config: true), so the agent's
+// ProvisionRules copy a harness's SeedHomeFiles into the VM: provisioning is
+// opt-in since the first-run change, and an isolated home has no managed config
+// layer, so without the opt-in the seeded host config never reaches the VM and
+// the harness stops at its own first-run setup.
+//
+// When files is non-empty it also declares the `home:` manifest, provisioning
+// each VM-home-relative target outside the agent's ProvisionRules: it writes the
+// content to a private seed file under the run's seed dir and maps the target to
+// that seed file's absolute path, so the launcher copies it into the VM home.
 //
 // It uses the same mkdirAll/writeFile seams as seedHomeFiles.
-func seedHomeManifest(homeBase string, files map[string]string) error {
-	if len(files) == 0 {
-		return nil
-	}
-	manifest := make(map[string]string, len(files))
-	for target, content := range files {
-		source := filepath.Join(homeBase, seedDirName, target)
-		if err := mkdirAll(filepath.Dir(source), 0o750); err != nil {
-			return fmt.Errorf("create seed parent for %s: %w", target, err)
+func seedLauncherConfig(homeBase string, files map[string]string) error {
+	config := map[string]any{"provision-host-config": true}
+	if len(files) > 0 {
+		manifest := make(map[string]string, len(files))
+		for target, content := range files {
+			source := filepath.Join(homeBase, seedDirName, target)
+			if err := mkdirAll(filepath.Dir(source), 0o750); err != nil {
+				return fmt.Errorf("create seed parent for %s: %w", target, err)
+			}
+			if err := writeFile(source, []byte(content), 0o600); err != nil {
+				return fmt.Errorf("write seed %s: %w", target, err)
+			}
+			manifest[target] = source
 		}
-		if err := writeFile(source, []byte(content), 0o600); err != nil {
-			return fmt.Errorf("write seed %s: %w", target, err)
-		}
-		manifest[target] = source
+		config["home"] = manifest
 	}
-	data, err := json.Marshal(map[string]any{"home": manifest})
+	data, err := json.Marshal(config)
 	if err != nil {
-		return fmt.Errorf("marshal home manifest: %w", err)
+		return fmt.Errorf("marshal launcher config: %w", err)
 	}
 	dir := filepath.Join(homeBase, configDirName, launcherConfigDirName)
 	if err := mkdirAll(dir, 0o750); err != nil {

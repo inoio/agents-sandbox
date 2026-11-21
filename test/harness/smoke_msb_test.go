@@ -145,8 +145,8 @@ func TestHarnessSmoke(t *testing.T) {
 			if err := seedHomeFiles(homeBase, spec.SeedHomeFiles); err != nil {
 				t.Fatalf("seed %s home files: %v", name, err)
 			}
-			if err := seedHomeManifest(homeBase, spec.SeedHomeManifest); err != nil {
-				t.Fatalf("seed %s home manifest: %v", name, err)
+			if err := seedLauncherConfig(homeBase, spec.SeedHomeManifest); err != nil {
+				t.Fatalf("seed %s launcher config: %v", name, err)
 			}
 			profile, _ := agent.Lookup(name)
 			if err := seedAgentSnippets(homeBase, profile.ConfigDirName(), spec.SeedAgentSnippets); err != nil {

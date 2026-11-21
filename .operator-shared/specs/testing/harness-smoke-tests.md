@@ -48,8 +48,15 @@ tagged-only compile regression is caught on every PR.
 first-run setup menu (`internal/firstrun`) before the session. Under the suite's pty that menu is interactive and
 blocks, so the harness never starts. `--yes` makes the launcher non-interactive (`termio`'s `IsInteractive` is false
 under `assumeYes`), so `firstrun.Prompt` warns and skips the menu; the run proceeds as a plain attach with no
-learning session and no host-config provisioning. The warning line is harmless and unreserved. The menu itself is
-exercised by the `cmd/agents-sandbox` first-run tests; the smoke suite only needs it out of the way.
+learning session. The warning line is harmless and unreserved. The menu itself is exercised by the
+`cmd/agents-sandbox` first-run tests; the smoke suite only needs it out of the way.
+
+**The isolated launcher config turns host-config provisioning on.** `provision-host-config` is opt-in since the
+first-run change (default off), so a `SeedHomeFiles` seed — written under the isolated HOME for the agent's
+`ProvisionRules` to copy — would never reach the VM, and the harness would stop at its own first-run setup. So every
+subtest writes a launcher config into the run's isolated `XDG_CONFIG_HOME` with `provision-host-config: true`,
+alongside any `home:` manifest seed. What provisioning copies from is that isolated, seed-only home, so nothing of the
+developer's config is provisioned.
 
 It proves "the harness reached its TUI", not "the client session is functional": a healthy daemon whose client
 renders a connection-error screen still passes. Daemon health itself is covered because the launcher blocks in
@@ -118,8 +125,9 @@ Five harnesses keep the terminal's normal buffer (`KeepsNormalBuffer`) and are a
 
 **Seeded home files.** A harness whose host-side state decides whether its CLI starts headful declares `SeedHomeFiles`,
 a map of home-relative path to content written under the harness's isolated HOME
-(`<root>/runs/<name>/home`) before the run; the launcher
-provisions it into the VM the way it provisions a real `~/.hermes/config.yaml`. `hermes` needs it: with no provider its
+(`<root>/runs/<name>/home`) before the run; the launcher copies it into the VM through the agent's `ProvisionRules`,
+which the isolated launcher config's `provision-host-config: true` enables (see above), the way it copies a real
+`~/.hermes/config.yaml`. `hermes` needs it: with no provider its
 classic CLI stops at a first-run setup guard that always exits `1` (`_first_run_setup_guard`), so no quit key could
 leave it `0`. The seed makes a dummy, loopback provider count as configured (and settles the shared-metrics offer) so
 hermes reaches its REPL, where Ctrl-D exits `0`. The seed is a config, not a credential: the endpoint is a closed
