@@ -255,7 +255,7 @@ func writeState(k Key, state HomeState) error {
 	if err != nil {
 		return fmt.Errorf("marshal state: %w", err)
 	}
-	if err := atomicwrite.WriteFile(path, data); err != nil {
+	if err := writeStateFile(path, data); err != nil {
 		return fmt.Errorf("write state file: %w", err)
 	}
 	return nil

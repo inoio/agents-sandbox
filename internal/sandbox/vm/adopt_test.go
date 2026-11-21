@@ -12,6 +12,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/agents-sandbox/internal/atomicwrite"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/git"
@@ -133,16 +134,21 @@ func TestAdoptLegacyIdentityReleasesKeyLocksOnDestroyFailure(t *testing.T) {
 func TestAdoptLegacyIdentityPersistRecoveredVolumeFailureFailsClosed(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
-	// The checkout state directory is read-only, so the marker write cannot
-	// create its temp file. The read still sees a missing file (the trigger).
+	// The marker write is denied through the seam while the root claim commits:
+	// chmod 0555 no longer denies once the suite runs as uid 0. The read still
+	// sees a missing file (the trigger).
 	keyDir := state.KeyDir(adoptCheckoutKey())
 	if err := os.MkdirAll(keyDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(keyDir, 0o555); err != nil {
-		t.Skipf("cannot make the checkout state dir read-only: %v", err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(keyDir, 0o700) })
+	markerPath := filepath.Join(keyDir, "state.yaml")
+	restore := state.OverrideStateWriteForTest(func(path string, data []byte) error {
+		if path == markerPath {
+			return &os.PathError{Op: "write", Path: path, Err: os.ErrPermission}
+		}
+		return atomicwrite.WriteFile(path, data)
+	})
+	t.Cleanup(restore)
 
 	handle := legacyVMWithHome()
 	ui := termiotest.NewTestMock(t)
@@ -178,26 +184,14 @@ func TestAdoptLegacyIdentityPersistRecoveredVolumeFailureFailsClosed(t *testing.
 func TestAdoptLegacyIdentityClaimCommitFailureFailsClosed(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
-	// Pre-create the root lock so a read-only state root still lets the
-	// transaction acquire its lock and read (a missing root state file), leaving
-	// only the final atomic write to fail. Pre-create the checkout state
-	// directory too, so on the old ordering the marker write would succeed and the
-	// assertion below would catch it.
-	root := configpaths.Get().UserStateDir()
-	lockPath := filepath.Join(root, "locks", "root.lock")
-	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(lockPath, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(state.KeyDir(adoptCheckoutKey()), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(root, 0o555); err != nil {
-		t.Skipf("cannot make the state root read-only: %v", err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(root, 0o700) })
+	// Deny every state write through the seam: the root-state write is the first
+	// durable step of a VM-only adoption, so its failure aborts before the marker
+	// and before the destroy. chmod 0555 no longer denies once the suite runs as
+	// uid 0.
+	restore := state.OverrideStateWriteForTest(func(path string, _ []byte) error {
+		return &os.PathError{Op: "rename", Path: path, Err: os.ErrPermission}
+	})
+	t.Cleanup(restore)
 
 	handle := legacyVMWithHome()
 	ui := termiotest.NewTestMock(t)
