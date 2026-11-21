@@ -652,17 +652,18 @@ func TestScanMirrorSkipsUnreadableEntries(t *testing.T) {
 	if err := os.MkdirAll(locked, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	secretFile := filepath.Join(locked, "secret.json")
 	testutil.WriteFile(t, locked, "secret.json", `{"s": 1}`)
-	if err := os.Chmod(locked, 0o000); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
-
 	noread := filepath.Join(user, "noread.json")
-	if err := os.WriteFile(noread, []byte(`{}`), 0o000); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(noread, 0o644) })
+	testutil.WriteFile(t, user, "noread.json", `{}`)
+
+	// Deny the two reads through the project guard the walk reads with: chmod
+	// 000 no longer denies once the suite runs as uid 0.
+	restore := projectguard.Install(nil, map[string]projectguard.Approval{
+		secretFile: {Absent: true},
+		noread:     {Absent: true},
+	})
+	t.Cleanup(restore)
 
 	entries := ScanMirror("opencode*.json*", nil, []string{user, ""}, dest)
 	if len(entries) != 1 || entries[0].HostPath != filepath.Join(user, "ok.json") {
