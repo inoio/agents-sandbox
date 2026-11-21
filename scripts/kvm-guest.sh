@@ -341,8 +341,10 @@ sync_in() {
 
 run_in() {
   [ "$#" -gt 0 ] || { usage >&2; exit 2; }
+  # A login shell so /etc/profile.d puts Go and ~/.local/bin (msb) on PATH for
+  # the suite the command runs.
   exec ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$(require_guest_ip)" \
-    -- "cd ~/agents-sandbox && $*"
+    -- "bash -lc 'cd ~/agents-sandbox && $*'"
 }
 
 probe_guest_egress() {

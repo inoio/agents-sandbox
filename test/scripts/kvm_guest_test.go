@@ -84,6 +84,7 @@ func TestKvmGuestRunForwardsTheCommandOverSSH(t *testing.T) {
 
 	argv := readText(t, argvPath)
 	assertContains(t, "ssh argv", argv, "dev@192.168.122.55")
+	assertContains(t, "ssh argv", argv, "bash -lc")
 	assertContains(t, "ssh argv", argv, "make test-msb-journeys")
 }
 
