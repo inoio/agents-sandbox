@@ -30,6 +30,7 @@
 #   VM_NAME=asb-kvm  VM_VCPUS=8  VM_MEMORY_MIB=16384  VM_DISK_GIB=80
 #   VM_USER=dev  SSH_PUBKEY=<path-or-key>  ARTIFACT_DIR=$PWD/.kvm-guest
 #   SOURCE_DIR=<checkout to sync>  LIBVIRT_URI=qemu:///system
+#   UBUNTU_CODENAME=resolute  IMAGE_URL=<full cloud-image URL>
 #   REPO_URL=https://github.com/inoio/agents-sandbox.git  REPO_BRANCH=<current branch>
 #   GO_VERSION=<from .go-version>
 #
@@ -47,7 +48,8 @@ VM_MEMORY_MIB="${VM_MEMORY_MIB:-16384}"
 VM_DISK_GIB="${VM_DISK_GIB:-80}"
 VM_USER="${VM_USER:-dev}"
 LIBVIRT_URI="${LIBVIRT_URI:-qemu:///system}"
-IMAGE_BASE_URL="${IMAGE_BASE_URL:-https://cloud-images.ubuntu.com/current}"
+UBUNTU_CODENAME="${UBUNTU_CODENAME:-resolute}"
+IMAGE_BASE_URL="${IMAGE_BASE_URL:-https://cloud-images.ubuntu.com/$UBUNTU_CODENAME/current}"
 REPO_URL="${REPO_URL:-https://github.com/inoio/agents-sandbox.git}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-$PWD/.kvm-guest}"
 
@@ -70,7 +72,7 @@ case "$(uname -m)" in
   *) echo "error: unsupported host arch '$(uname -m)' (need x86_64 or aarch64)" >&2; exit 1 ;;
 esac
 
-IMAGE_URL="${IMAGE_URL:-$IMAGE_BASE_URL/$( [ "$IMAGE_ARCH" = amd64 ] && echo "noble-server-cloudimg-amd64.img" || echo "noble-server-cloudimg-arm64.img")}"
+IMAGE_URL="${IMAGE_URL:-$IMAGE_BASE_URL/$UBUNTU_CODENAME-server-cloudimg-$IMAGE_ARCH.img}"
 IMAGE_PATH="$ARTIFACT_DIR/$(basename "$IMAGE_URL")"
 DISK_PATH="$ARTIFACT_DIR/$VM_NAME.qcow2"
 SEED_PATH="$ARTIFACT_DIR/$VM_NAME-seed.img"
@@ -382,7 +384,11 @@ create() {
 
   if [ ! -f "$IMAGE_PATH" ]; then
     log "fetching $IMAGE_URL"
-    curl -fL --progress-bar "$IMAGE_URL" -o "$IMAGE_PATH"
+    # Download to a .part and move on success, so a failed fetch (a 404, a
+    # dropped connection) leaves no partial base image to be mistaken for a
+    # complete one on the next run.
+    curl -fL --progress-bar "$IMAGE_URL" -o "$IMAGE_PATH.part"
+    mv "$IMAGE_PATH.part" "$IMAGE_PATH"
   fi
   if [ ! -f "$DISK_PATH" ]; then
     log "creating ${VM_DISK_GIB}G overlay on $(basename "$IMAGE_PATH")"
