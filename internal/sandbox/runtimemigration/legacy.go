@@ -178,13 +178,17 @@ func necessaryVolumesFor(m state.Migration) ([]string, error) {
 	return necessaryVolumes(legacyHome, runtime.PrivateHome(), m)
 }
 
+// readDir is os.ReadDir; tests substitute it to force an unlistable directory
+// without relying on permission bits, which an effective uid of 0 bypasses.
+var readDir = os.ReadDir
+
 // matchingDirNames lists the immediate subdirectories of dir whose name matches
 // match. A missing directory is always empty. When tolerateUnreadable is true an
 // existing-but-unlistable directory (not-a-directory or permission denied) is
 // also empty; when false only the missing case is empty and any other read
 // failure is returned, so an open campaign fails closed.
 func matchingDirNames(dir string, match func(string) bool, tolerateUnreadable bool) ([]string, error) {
-	entries, err := os.ReadDir(dir)
+	entries, err := readDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
