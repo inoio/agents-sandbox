@@ -8,8 +8,10 @@
 # directly in it as a host session, and the microsandbox VMs it creates are
 # nested. The guest is deliberately NOT an agents-sandbox sandbox.
 #
-# Guest: Debian forky (14, testing) genericcloud image, seeded by cloud-init.
-# Override with IMAGE_URL for a different image (e.g. an Ubuntu cloud image). The domain is defined with
+# Guest: Ubuntu cloud image (resolute), seeded by cloud-init. The spike and the
+# first successful host boot used it; the Debian forky daily did not reach DHCP
+# here. Override with IMAGE_URL for another image (e.g. a Debian cloud image),
+# or UBUNTU_CODENAME to pick a different Ubuntu release. The domain is defined with
 # `virsh define` (no virt-install): virt-manager's Python bindings are a common
 # host breakage and nothing here needs them.
 #
@@ -31,16 +33,16 @@
 #   VM_NAME=asb-kvm  VM_VCPUS=8  VM_MEMORY_MIB=16384  VM_DISK_GIB=80
 #   VM_USER=dev  SSH_PUBKEY=<path-or-key>  ARTIFACT_DIR=$PWD/.kvm-guest
 #   SOURCE_DIR=<checkout to sync>  LIBVIRT_URI=qemu:///system
-#   IMAGE_URL=<full cloud-image URL>
-#   KVM_IMAGE_CACHE=~/.agents-sandbox-kvm  KVM_REFRESH_IMAGE=1
+#   UBUNTU_CODENAME=resolute  IMAGE_URL=<full cloud-image URL>
+#   KVM_IMAGE_CACHE=~/.agents-sandbox-kvm  KVM_REFRESH_IMAGE=1  KVM_BOOT_TIMEOUT=300
 #   REPO_URL=https://github.com/inoio/agents-sandbox.git  REPO_BRANCH=<current branch>
 #   GO_VERSION=<from .go-version>
 #
 # The base image is cached in KVM_IMAGE_CACHE (shared across worktrees and
 # untouched by `down`), so only the first `up` fetches it. Set
-# KVM_REFRESH_IMAGE=1 to re-fetch (the forky `daily/latest` filename is stable,
-# so the cache cannot otherwise notice a newer daily build). The cache is a
-# single dir directly under $HOME, not a nested path and not the XDG
+# KVM_REFRESH_IMAGE=1 to re-fetch when the URL is a moving alias (a Debian
+# `daily/latest`, or an Ubuntu `current`, does not change filename). The cache is
+# a single dir directly under $HOME, not a nested path and not the XDG
 # cache/data dirs: libvirt runs QEMU as its own user (e.g. libvirt-qemu), which
 # must traverse every path component to read the base image, and ~/.cache and
 # ~/.local are 0700 by design, while a nested dir can inherit a 0700 parent
@@ -83,10 +85,10 @@ case "$(uname -m)" in
   *) echo "error: this provisioner targets x86_64 (host arch: $(uname -m)); the guest domain XML is x86_64-only" >&2; exit 1 ;;
 esac
 
-# Debian forky publishes only date-stamped daily builds, under a stable
-# `daily/latest` alias; the image matches the dev image's base (debian:forky-slim)
-# and its newer kernel suits nested KVM.
-IMAGE_URL="${IMAGE_URL:-https://cloud.debian.org/images/cloud/forky/daily/latest/debian-14-genericcloud-$IMAGE_ARCH-daily.qcow2}"
+# Ubuntu publishes each release under `/<codename>/current/`, with the image
+# named `<codename>-server-cloudimg-<arch>.img`.
+UBUNTU_CODENAME="${UBUNTU_CODENAME:-resolute}"
+IMAGE_URL="${IMAGE_URL:-https://cloud-images.ubuntu.com/$UBUNTU_CODENAME/current/$UBUNTU_CODENAME-server-cloudimg-$IMAGE_ARCH.img}"
 IMAGE_PATH="$KVM_IMAGE_CACHE/$(basename "$IMAGE_URL")"
 DISK_PATH="$ARTIFACT_DIR/$VM_NAME.qcow2"
 SEED_PATH="$ARTIFACT_DIR/$VM_NAME-seed.img"
@@ -334,7 +336,7 @@ guest_ip() {
 require_guest_ip() {
   local ip
   ip="$(guest_ip)"
-  [ -n "$ip" ] || die "no DHCP lease for '$VM_NAME'; is it running?"
+  [ -n "$ip" ] || die "no DHCP lease for '$VM_NAME' — still booting? check: virsh -c $LIBVIRT_URI net-dhcp-leases default"
   printf '%s\n' "$ip"
 }
 
@@ -362,14 +364,17 @@ run_in() {
 
 probe_guest_egress() {
   local ip="${1:-}" result=""
-  [ -n "$ip" ] || return 0
+  if [ -z "$ip" ]; then
+    log "guest not reachable yet; skipping the DNS/egress probe (retry: $0 ssh)"
+    return 0
+  fi
   result="$(ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
     -o ConnectTimeout=8 -o LogLevel=ERROR "$VM_USER@$ip" \
     'getent hosts install.microsandbox.dev >/dev/null 2>&1 && echo ok || echo no-dns' 2>/dev/null || true)"
   case "$result" in
     ok) log "guest DNS/egress: ok" ;;
     no-dns) log "guest DNS/egress: BROKEN"; print_firewall_hint ;;
-    *) : ;;
+    *) log "could not reach the guest over ssh to probe DNS/egress (sshd may still be starting)" ;;
   esac
 }
 
@@ -384,12 +389,16 @@ boot: docker, Go $GO_VERSION, msb, and the repo at $REPO_BRANCH.
 Watch progress:  virsh -c $LIBVIRT_URI console $VM_NAME    (leave with Ctrl-])
 SSH:             ssh $VM_USER@${ip:-<guest-ip>}   (or: $0 ssh)
 
-When cloud-init is done, gate the guest before running the suites:
+When cloud-init is done, gate the guest (after: make kvm-ssh):
 
   ls -la /dev/kvm                                   # nested KVM present
   msb doctor && msb run alpine -- uname -a          # runtime works
-  cd ~/agents-sandbox && make build                  # build the launcher
-  make test-msb-journeys                             # the journeys suite
+  go version                                        # Go from /etc/profile.d
+  exit
+
+Then, on the host, sync this checkout and run the suite:
+
+  make kvm-sync && make kvm-run                     # KVM_RUN (default: make test-msb)
 
 Artifacts (disk, seed): $ARTIFACT_DIR
 Base image (cached, reused): $IMAGE_PATH
@@ -439,13 +448,21 @@ create() {
   virsh_cmd define "$DOMAIN_XML_PATH" >/dev/null
   virsh_cmd start "$VM_NAME"
 
-  log "waiting for an IP address (cloud-init first boot takes a few minutes)"
-  local ip="" _
-  for _ in $(seq 1 60); do
+  local timeout="${KVM_BOOT_TIMEOUT:-300}" waited=0 ip=""
+  log "waiting up to ${timeout}s for a DHCP lease (cloud-init first boot takes a few minutes)"
+  while [ "$waited" -lt "$timeout" ]; do
     ip="$(guest_ip)"
     [ -n "$ip" ] && break
     sleep 5
+    waited=$((waited + 5))
+    [ $((waited % 30)) -eq 0 ] && log "  ...still waiting (${waited}s)"
   done
+  if [ -z "$ip" ]; then
+    log "warn: no DHCP lease after ${timeout}s — the guest may still be booting"
+    log "  lease:     virsh -c $LIBVIRT_URI net-dhcp-leases default"
+    log "  console:   virsh -c $LIBVIRT_URI console $VM_NAME   (leave with Ctrl-])"
+    log "  retry ssh: $0 ssh"
+  fi
 
   print_next_steps "$ip"
   probe_guest_egress "$ip"

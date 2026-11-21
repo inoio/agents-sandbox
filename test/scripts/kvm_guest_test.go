@@ -58,7 +58,7 @@ func TestKvmGuestRenderWritesCloudInitAndDomain(t *testing.T) {
 	env["KVM_IMAGE_CACHE"] = cacheDir
 	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "render")
 	assertStatus(t, result, 0)
-	assertContains(t, "render stdout", result.Stdout, "/forky/daily/latest/debian-14-genericcloud-")
+	assertContains(t, "render stdout", result.Stdout, "resolute/current/resolute-server-cloudimg-")
 	assertContains(t, "render stdout", result.Stdout, "image path: "+cacheDir)
 
 	userData := readText(t, filepath.Join(dir, "asb-kvm-test-user-data"))
