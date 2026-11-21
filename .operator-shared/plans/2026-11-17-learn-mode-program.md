@@ -370,6 +370,13 @@ has landed:
 S9's Task 7 recorded the docs, changelog, brain, and the retirement disposition; the tracker closure marks (a comment
 naming the delivering PR, then close) are applied separately by the controller. E4 is tracked but never blocks.
 
+Wrap-up trackers were opened while the work was verified: **#789** (cleanup — retire the program artefacts, delete
+`spike/learn-mode/`, flip the hub spec's status, close #103, then #697), **#790** (UX — one consistent experience
+across the learn surfaces; #20 stays open alongside), and **#791** (other areas to drive through harnesses). The
+verification itself — a second `msb` suite that drives full journeys (`test/msb/journeys`; design in
+`.operator-shared/specs/testing/msb-journeys.md`, v1 opencode2 only) plus the host-accept steps — is tracked by
+#252 and the per-PR notes.
+
 ## Rollout
 
 Per subplan: a worktree off `origin/main` → `subagent-driven-development` (fresh implementer per task, fresh reviewer gating it) → one `code-review`/`reviewer-large` whole-subplan review → PR → merge queue (`scripts/enqueue-pr.sh`). Host-only steps are a **human accept** step and the subplan is not done until they are checked. S1 and S0 are not SDD runs: S1 is a host spike whose deliverable is a recorded decision, S0 is prose drafting.

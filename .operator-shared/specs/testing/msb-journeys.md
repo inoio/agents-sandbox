@@ -1,0 +1,227 @@
+---
+description: Design for harness journeys - a second `msb`-tagged suite (`test/msb/journeys`) that drives full user journeys through real harnesses (v1: learn mode on opencode2), the shared untagged `test/msb/driver` package, the `test/harness`→`test/msb/startup` rename, the "everything under test/ is test code" gate scope with the production-closure contract test, and the surface-sweep promotion flow.
+read_if: Working on the msb journeys suite (`test/msb/journeys`, `make test-msb-journeys`), the shared `test/msb/driver` package, the `test/harness`→`test/msb/startup` rename, the dead-code/ambient "test/ is test code" gate scope, the production-closure contract test, or wiring the release surface sweep to the journeys suite.
+---
+
+# Harness journeys (msb) — design
+
+## Intent
+
+Learn mode (#697) is implemented but under-verified: every harness profile declares the read-back and
+provision capabilities, yet only opencode2's read-back was ever exercised (spike S1), and the whole
+learn flow has never been driven end to end by a harness. The existing `msb`-tagged suite deliberately
+stops at "the harness reached its TUI" (`specs/testing/harness-smoke-tests.md`), so it cannot catch a
+broken learn flow — only a harness that fails to start.
+
+We want a **repeatable acceptance harness**: an automated blackbox tier that drives full journeys
+through real harnesses in a real VM, plus an agent-run exploratory tier whose findings graduate into
+the automated tier. When a harness's own layout changes and an automated journey fails, an agent
+triages and adapts the test rather than treating the failure as a product regression.
+
+## Goals
+
+- A second `msb`-tagged suite that drives harnesses **beyond first start** — through a real user
+  journey — without touching the minimal startup gate.
+- v1 scope: **learn mode** (UC1, UC4, `config learn`).
+- The exploratory tier (the release surface sweep) can invoke the automated tier as its spine, and
+  the two share one isolation model.
+- Findings management: exploratory findings become automated tests; automated failures are triaged by
+  an agent against the harness's current layout.
+- Keep the repo's isolation and gate guarantees intact while adding a shared test-support package.
+
+## Non-goals
+
+- Changing `make test-msb`'s contract (every registered harness reaches its TUI and exits cleanly).
+- CI: `msb`-tagged suites need KVM + docker + network, so they stay host-only (`make compile-all`
+  still compiles them on every PR).
+- Real credentials or real egress. A journey uses a host-side stub provider; the assertion is about
+  what the launcher observed, not about model output.
+- A new generic acceptance framework; v1 is the learn-mode journeys + the machinery they need.
+
+## Anti-goals
+
+- A suite that only passes when a specific harness version is installed, or that pins harness versions.
+- Duplicating the pty/isolation machinery (two drifting drivers).
+- Letting the new tier's runtime leak into the default `make test` (it must not run a VM).
+- Weakening the dead-code or ambient gates to add the driver.
+
+## Constraints (repo)
+
+- Go 1.27; TDD; `make fmt`, `make lint`, `make check`. A behavior change updates docs and adds a
+  `changelog.d/<PR>.<type>.md` fragment.
+- `test-isolation.md`: every test package's `TestMain` installs its acyclic fail-fast mocks; a
+  non-test test-support file carries a file-scope `//deadcode:ignore`; a **tagged-only** package is
+  silently dropped by `go test ./...` (verified), so a package that must run in the default suite
+  needs an untagged file.
+- The build tag names the **runtime** (`msb` = KVM + docker + network), not the scope.
+- `harness-smoke-tests.md`: the harness-table completeness test must run in the default suite, so a
+  newly registered harness fails `make test` until covered.
+
+## Approaches and decisions
+
+### Suite placement
+
+- **A — ride the existing tiers:** extend `test/harness` toward a first turn and add a learn-mode
+  journey to the surface sweep. Rejected: it violates "keep `test-msb` minimal".
+- **B — a second `msb` suite + the surface sweep as the exploratory tier** (chosen). The automated
+  half is a new suite; the exploratory half is the existing sweep.
+- **C — drive from `test/scripts`:** wrong runtime (no VM) and no pty machinery.
+
+**Decision:** a new suite, `test/msb/journeys`. The build tag stays `msb`; **scope lives in the
+package and target name**, not the tag. This keeps `compile-all` and `lint` free (both glob `./...`
+with `msb` already) and keeps the runtime tag honest.
+
+### `test/` layout
+
+```
+test/
+  scripts/           # unchanged — drives shell tools, no VM
+  msb/
+    driver/          # shared driving support (untagged)
+    startup/         # was test/harness — the minimal startup smoke (msb-tagged)
+    journeys/        # the new full-journey suite (msb-tagged)
+```
+
+`test/harness` → `test/msb/startup`. "startup" pairs cleanly with "journeys" (harness lifecycle
+phase); "smoke" names a depth, not a phase. Targets: `make test-msb` (startup, unchanged intent) and
+`make test-msb-journeys`. The `AGENTS_SANDBOX_SMOKE_ROOT` env var is **kept by name** (documented,
+CI-facing); only the package path changes.
+
+`driver` is **untagged** so its unit tests run in the default `make test` and never start a VM. The
+**harness table** (`harnessSpecs`, quit keys, seeds, readiness markers) moves into `driver` — both
+suites need "how to start and quit harness X", and keeping the table untagged keeps its
+completeness test running in the default suite (the tagged-only-package trap).
+
+### Shared machinery: A1
+
+- **A1 — extract a shared driver package** (chosen): pty session, `isolatedEnv`, root resolution +
+  reuse lock, readiness matching, harness table, into `test/msb/driver`.
+- **A2 — self-contained journeys suite:** rejected; two drivers that drift, and the pty
+  `TCSANOW`/buffer quirks are exactly what must be fixed once.
+
+The driver keeps the launcher-binary exec; the microsandbox SDK is never imported (the suite drives
+the built binary, not the SDK).
+
+### "Everything under `test/` is test code" (gate scope)
+
+- **A (chosen):** teach the dead-code gate to ignore findings under `test/`, and extend the ambient
+  and ambient-tool contract tests to scan **non-test `.go` files under `test/`** as well as `_test.go`.
+  No `//deadcode:ignore` on `driver`; its host calls keep the `//testenv:allow` markers they carry
+  today. This closes a latent gap: the existing non-test `*/testmock.go` files already escape the
+  ambient scan.
+- **B — marker-driven:** add the file-scope marker to `driver` and key the ambient scans on it.
+  Rejected as fiddlier for no extra reach.
+- **C — keep host-touching calls in `_test.go`, extract only pure helpers.** Rejected: it defeats
+  sharing the pty session, the most valuable shared piece.
+
+### Provider for a journey
+
+A learn-mode journey must make the harness **send** an outbound request so the terminating proxy sees
+the credential→destination pair. **Correction (builder check):** a *guest-loopback* stub never
+traverses the host-owned terminating proxy, so it cannot produce attribution — the earlier "loopback
+stub" wording was wrong for the attribution half. The destination must be a **host-side stub** the VM
+reaches through the proxy, with the same dummy-provider seed pattern `hermes`/`goose` use. That keeps
+the turn egress-free (no public destination) while the proxy still terminates TLS and observes the
+credential→destination pair.
+
+**Decision:** proving the real agent turn through the proxy is a **prerequisite**, not a deferrable
+unknown. The plan includes a spike that lands the host-side stub destination and a real turn the
+proxy carries, before the attribution journeys are written. The read-back journeys (config changes,
+static secrets, managed-config write-back) are independent and can land in parallel; the attribution
+journeys depend on the spike.
+
+### Harness scope for v1
+
+**Decision:** v1 covers **opencode2 only** (the S1-verified profile, with its SQLite credential
+probe). The journey spec is a **table field**, so adding a harness is one entry, and the remaining
+harnesses are recorded as explicit exemptions — the #252 acceptance shape ("covered, or exempted with
+the reason recorded") — so S1's partial state is visible rather than silently so. Coverage of the
+other harnesses is tracked separately (the "extend to all agents" issue).
+
+### Production-closure gate
+
+Add `internal/testutil/production_closure_contract_test.go`: run `go list -deps ./cmd/agents-sandbox`
+(no `-test`, so it is the production closure) and fail if `testing` or any test-support package
+appears. Converts the "nothing test-only ships" convention into an enforced gate, and is what keeps
+the shared `driver` honest. Reuses `internal/testutil`'s existing `TestMain`.
+
+## Journey suite v1 (learn mode)
+
+- **UC1** — fresh install, no host config: the menu offers "Learn by using it"; drive the stub
+  provider, exit, assert the exit prompt ("Review and save / Save all / Not now"), accept, and assert
+  the managed config and `env.secret.yaml` land in the per-slug user scope.
+- **UC4** — host config present: assert the menu offers "Learn from my host setup" and that
+  `firstrun.SeedFromHost` pre-populates the per-slug scope (static secrets placeholdered, login stores
+  dropped) before the session.
+- **`config learn`** — replay a finished session (owning process gone) through the review path.
+  **Call:** seed the `state.LearnSession` record and a real home volume (what the CLI tests already
+  do) rather than abnormally killing a launcher mid-turn. Avoids an abnormal-kill path and a leaked
+  VM the suite's clean-quit model would not cover; the journey exercises the analysis, which is the
+  unit `config learn` owns.
+
+**Assertion granularity (call).** A journey asserts the *semantic* effect, not a byte-for-byte
+golden: the credential's env-var name appears in `env.secret.yaml` with its host scoping, the managed
+config file contains the `${ENVVAR}` placeholder, and the expected config keys are present. This
+keeps the "adapt the test when the harness's layout changes" triage cheap; a full-file golden would
+recouple the test to every incidental byte of a harness's authored config.
+
+This also absorbs **#252**'s "the first turn round-trips and no first-run scaffolding appeared": that
+assertion belongs to a journey, not to the minimal startup gate.
+
+Non-interactive and dry-run behaviour are asserted per the repo's invariants (warn, never hang).
+
+## Exploratory tier and the promotion flow
+
+The surface sweep (`specs/testing/release-surface-testing.md`) gains a learn-mode journey block and a
+spine step that runs `make test-msb-journeys` (warm the shared root once). Journey agents then
+hand-drive the same flows under the sweep's isolation.
+
+**Shared-root interface (call).** The spine passes the sweep's root to the suite through the env vars
+the driver already resolves — `AGENTS_SANDBOX_SMOKE_ROOT=<sweep>/smoke` and
+`AGENTS_SANDBOX_MSB_TEST_HOME=<sweep>/msb` — so the suite's image/data home and reuse lock live inside
+the sweep root. No new interface and no second lock; the Go suite's existing reuse lock serializes the
+spine's invocation against any other carry-over run.
+
+- Exploratory finding → new/extended automated journey test (recorded as an issue, then implemented).
+- Automated failure → agent triages against the harness's current layout; if the harness changed, the
+  test is adapted; if the product regressed, it is a real finding.
+- One issue tracks **other areas to drive through harnesses** (notifications, worktrees, serve-only,
+  docker-in-sandbox), added as journey blocks later.
+
+## Failure modes the implementation must survive
+
+- A tagged-only package is dropped by `go test ./...` — the table and completeness test must stay
+  untagged (in `driver`).
+- The rename touches specs/brain/docs; the doc-link gate must stay green (relative links updated).
+- `make test-msb`'s explicit package list must be updated so startup stays the quick gate.
+- The driver's own `TestMain` must install its acyclic fail-fast mocks, like every test package.
+- A journey under load must not become a host-dependent flake (no fixed wall-clock against a real
+  VM; reuse the readiness/quit-tap pattern).
+
+## Left to the builder
+
+Exact driver API and file split; the stub provider's shape and per-harness wiring; the precise
+ambient-scan generalization (which non-test files under `test/` to parse, and its fixtures); the
+deadcode `test/` filter in `ci/deadcodecheck`; the surface-sweep journey task text; the doc/brain/
+changelog edits; and whether any journey runs under the `startup` suite's image prebuild or its own.
+
+## Resolved in review
+
+- **Proxy turn is a prerequisite.** The plan includes the spike that proves a real agent turn through
+  the host-owned terminating proxy (host-side stub destination), ahead of the attribution journeys.
+- **v1 scope is opencode2 only.** The journey spec is a table field; the other harnesses are recorded
+  exemptions, with their coverage tracked by a follow-up issue.
+
+## Calls recorded for the user to check
+
+- Package/target: `test/msb/{driver,startup,journeys}`, tag stays `msb`, `make test-msb-journeys`.
+- Harness table in `driver`; `driver` untagged.
+- Keep `AGENTS_SANDBOX_SMOKE_ROOT`.
+- Gate scope: option A (all of `test/` is test code).
+- Provider: **host-side** stub reached through the proxy; proving the proxy turn is a prerequisite.
+- v1 harness scope: opencode2 only; the journey spec is a table field with recorded exemptions.
+- `config learn` journey: seed the session record + a real home volume, no abnormal kill.
+- Assertions: semantic (env-var name, host scoping, placeholder, keys), not byte-for-byte goldens.
+- Shared root: the spine sets `AGENTS_SANDBOX_SMOKE_ROOT` / `AGENTS_SANDBOX_MSB_TEST_HOME` into the
+  sweep root; no new interface.
+- #252's first-turn assertion moves into the journeys suite; other areas tracked separately.
