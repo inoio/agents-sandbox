@@ -919,6 +919,23 @@ func TestTUIStarted(t *testing.T) {
 	}
 }
 
+// TestTuiLeft pins the alternate-screen-leave signal the quit loop stops tapping
+// on: an alternate-screen harness emits it while giving the screen back as it
+// tears down, and falls back to cooked mode there, so a further tap would be
+// reprocessed as SIGINT and kill it mid-teardown. It must not fire on the enter
+// sequence the readiness wait watches for.
+func TestTuiLeft(t *testing.T) {
+	if !tuiLeft([]byte("tui output\n\x1b[?1049lbye")) {
+		t.Error("tuiLeft = false, want true for the alternate-screen leave sequence")
+	}
+	if tuiLeft([]byte("tui output\nstill up")) {
+		t.Error("tuiLeft = true, want false without the leave sequence")
+	}
+	if tuiLeft([]byte("launcher output\n\x1b[?1049htui")) {
+		t.Error("tuiLeft = true for the enter sequence, want false")
+	}
+}
+
 // TestHarnessConcurrencyForFreeMemory pins the memory-derived parallel-harness
 // count: as many smoke VMs as fit after the host reserve, floored, and never
 // fewer than one.

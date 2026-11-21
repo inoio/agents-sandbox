@@ -145,15 +145,25 @@ The seed sets `hasCompletedOnboarding` and pre-trusts the guest working director
 so it binds at `/workspace`), so claude-code reaches its prompt, where repeated Ctrl-C exits 0.
 
 **Tap until it goes, then assert the exit.** `quit` taps the harness's key every `quitPressInterval` (400ms) until the
-process exits, for at most `quitTimeout` (15s), then asserts exit code 0. It stops tapping once the test pty is back in
-cooked mode (`ptySession.inRawMode`, read through the master, which shares the slave's termios): the launcher's msb
-attach holds the pty raw for the session and restores it on the way out, so cooked means the attach is tearing down and a
-further tap is no longer a keystroke but the SIGINT the cooked terminal makes of it — which kills the launcher
-mid-teardown, reporting a clean harness exit as `-1` (`qwen-code` printed "Agent powering down. Goodbye!" and
-`claude-code` reached its prompt, yet both failed this way). The interval itself is deliberately not widened to cover
-that teardown: it has to stay far shorter than the window a "press again to exit" prompt allows, or a repeated-key exit
-stops chaining — a 2s interval was already measured to miss it once (it is why `claude-code` was briefly misread as
-having no exit key).
+process exits, for at most `quitTimeout` (15s), then asserts exit code 0. It stops tapping once either teardown signal
+appears and only waits for the exit:
+
+- **the alternate screen came back** (`tuiLeft`): the alternate-screen-leave sequence (`ESC [ ? 1049 l`) is the
+  harness's own, guest-side teardown signal, emitted as it restores its terminal. It is the only signal visible before
+  the guest process exits — which is when `qwen-code`'s slow "Agent powering down. Goodbye!" teardown gets tapped past:
+  the next 400ms tap reaches the terminal the harness has already restored to cooked mode, becomes SIGINT, and kills it
+  mid-teardown. The guest then reports `-1`, which `os.Exit(-1)` turns into the launcher's `255`. The check starts from
+  the second press, so a leave left by the readiness wait cannot end the loop before the first tap.
+- **the test pty is back in cooked mode** (`ptySession.inRawMode`, read through the master, which shares the slave's
+  termios): the launcher's msb attach holds the pty raw for the session and restores it on the way out. This covers a
+  normal-buffer harness (`claude-code`) that emits no alternate-screen sequence, where a tap after the restore is the
+  SIGINT the cooked terminal makes of it and kills the launcher mid-teardown, reporting its clean exit as `-1`. It
+  cannot stand in for the guest-side signal, though: the attach owns the host pty and restores it only after the guest
+  process has already exited, so it never observes the guest's earlier restore.
+
+The interval itself is deliberately not widened to cover that teardown: it has to stay far shorter than the window a
+"press again to exit" prompt allows, or a repeated-key exit stops chaining — a 2s interval was already measured to miss
+it once (it is why `claude-code` was briefly misread as having no exit key).
 A fixed sequence is wrong for two measured reasons. A TUI paints its screen seconds before it accepts input, so taps made in that window are ignored: on a KVM host
 `opencode2` leaves on a tap ~3s after the alternate-screen marker and ignores the same key at ~0ms and ~350ms, and
 `opencode` ignores a tap at ~3s while its screen still shows the launcher's own output. Whether those early bytes sit

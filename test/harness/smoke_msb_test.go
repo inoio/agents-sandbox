@@ -195,18 +195,31 @@ func TestHarnessSmoke(t *testing.T) {
 // harness whose exit is a repeated key — claude-code announces "Press Ctrl-C
 // again to exit" — needs the taps to keep coming.
 //
-// Once the launcher's attach has restored the terminal (the pty is back in
-// cooked mode) it is tearing down, and one more tap is no longer a keystroke but
-// the SIGINT the cooked terminal makes of it — which kills the launcher
-// mid-teardown, so its harness's clean exit is reported as -1 (qwen-code printed
-// "Agent powering down. Goodbye!" and claude-code reached its prompt, yet both
-// reported -1 this way). So the loop stops tapping past that point and only
-// waits for the exit. The tap cadence is left alone: it must stay short enough
-// that a repeated-key exit chains.
+// Once the harness has caught the quit it begins tearing down and restores its
+// own terminal to cooked mode, so one more tap is no longer a keystroke but the
+// SIGINT the cooked terminal makes of it, and the harness dies mid-teardown —
+// which the launcher reports as exit -1 (its clean exit lost), or, through
+// os.Exit(-1), as 255. So the loop stops tapping once either teardown signal
+// appears and only waits for the exit:
+//
+//   - the alternate screen came back (tuiLeft): the harness's own, guest-side
+//     teardown signal, emitted while it restores its terminal. It is the only
+//     signal visible before the guest exits, which is when qwen-code's slow
+//     "Agent powering down" teardown gets tapped past.
+//   - the test pty is back in cooked mode (ptySession.inRawMode): the launcher's
+//     msb attach holds the pty raw for the session and restores it on the way
+//     out, which covers a normal-buffer harness (claude-code) that emits no
+//     alternate-screen sequence. It cannot stand in for the guest's restore,
+//     though: the attach owns the host pty and only restores it after the guest
+//     process has already exited, so it never observes the guest's earlier
+//     restore.
+//
+// The tap cadence is left alone: it must stay short enough that a repeated-key
+// exit chains.
 func quit(ses *ptySession, spec harnessSpec) (int, error) {
 	deadline := time.Now().Add(quitTimeout)
 	for presses := 1; ; presses++ {
-		if !ses.inRawMode() {
+		if teardownStarted(ses, presses) {
 			return waitExitWithin(ses, deadline, presses, spec)
 		}
 		if err := ses.write(spec.QuitKey); err != nil {
