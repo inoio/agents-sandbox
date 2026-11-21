@@ -140,6 +140,7 @@ if [[ -z "$selected" ]]; then
       scripts/brain-check.sh|test/scripts/brain_check_test.go) add_targets brain-check-test; known=1 ;;
       scripts/backport-audit.sh|test/scripts/backport_audit_test.go) add_targets backport-audit-test; known=1 ;;
       scripts/open-backport-pr.sh|test/scripts/open_backport_pr_test.go) add_targets open-backport-pr-test; known=1 ;;
+      scripts/kvm-guest.sh|test/scripts/kvm_guest_test.go) add_targets kvm-guest-test; known=1 ;;
     esac
     # A changed shell script selects the lint gate. Two trees used to fall
     # through to the full-set fail-safe and would otherwise lose coverage: the

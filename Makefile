@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-cold test-msb-reuse compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic envelope-test check check-test verify print-check-targets check-local-changes check-branch-changes check-selected changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test backport-audit-test open-backport-pr-test event-base-test classify-changes-test brain-check brain-check-test shellcheck docs-serve
+.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-cold test-msb-reuse compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic envelope-test check check-test verify print-check-targets check-local-changes check-branch-changes check-selected changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test backport-audit-test open-backport-pr-test kvm-guest-test event-base-test classify-changes-test brain-check brain-check-test shellcheck docs-serve
 
 VERSION ?= dev
 
@@ -372,6 +372,11 @@ backport-audit-test:
 # Test the backport-PR opener itself (fixtures only: never touches this repo).
 open-backport-pr-test:
 	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -count=1 ./test/scripts/ -run OpenBackport
+
+# Test the libvirt guest provisioner's arg handling, cloud-init seed, and
+# domain XML (fixtures only: fakes virsh/ssh/rsync, never touches a hypervisor).
+kvm-guest-test:
+	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -count=1 ./test/scripts/ -run KvmGuest
 
 # Test the check runner itself (fixtures only: never runs the real targets).
 check-test:
