@@ -25,6 +25,12 @@ const daemonTimeoutMarker = "did not become healthy"
 // full-screen TUI takes over the alternate screen buffer.
 const altScreenEnter = "\x1b[?1049h"
 
+// altScreenLeave is the sequence the same harness emits as it gives the
+// alternate screen back while quitting: its own teardown signal, and the point
+// past which a further quit tap would reach a terminal the harness has already
+// restored to cooked mode.
+const altScreenLeave = "\x1b[?1049l"
+
 // escapeByte starts an ANSI escape sequence.
 const escapeByte = 0x1b
 
@@ -250,6 +256,30 @@ const (
 	ctrlC = 0x03
 	ctrlD = 0x04
 )
+
+// The quit loop taps the harness's key in pairs until the process exits (see
+// quit). quitPressInterval keeps the two presses of a pair within the window a
+// repeated-key exit's "press again" prompt allows — qwen-code's was measured
+// under 1.2s, and a slower cadence stops the exit chaining — while
+// quitRetryInterval spaces the pairs out, so a harness that has caught the quit
+// can finish tearing down (and emit its alternate-screen leave) before the loop
+// writes another press. quitTimeout bounds the whole sequence.
+const (
+	quitPressInterval = 400 * time.Millisecond
+	quitRetryInterval = 2 * time.Second
+	quitTimeout       = 15 * time.Second
+)
+
+// quitIntervalAfterPress returns the wait before the next quit press: a pair's
+// two presses are one quitPressInterval apart, and the even press ends the pair,
+// after which the loop waits quitRetryInterval for the harness to exit or to
+// signal its teardown.
+func quitIntervalAfterPress(presses int) time.Duration {
+	if presses%2 == 0 {
+		return quitRetryInterval
+	}
+	return quitPressInterval
+}
 
 // harnessSpecs maps every registered harness to how the smoke test drives it.
 // It must stay in sync with agent.Names(); the smoke test asserts the two key
@@ -708,6 +738,27 @@ func isANSIFinalByte(c byte) bool {
 // over the alternate screen, the signal that its full-screen TUI came up.
 func tuiStarted(output []byte) bool {
 	return bytes.Contains(output, []byte(altScreenEnter))
+}
+
+// tuiLeft reports whether the accumulated output shows a harness giving the
+// alternate screen back, the signal that an alternate-screen harness caught the
+// quit and is tearing down rather than still listening for a further tap.
+func tuiLeft(output []byte) bool {
+	return bytes.Contains(output, []byte(altScreenLeave))
+}
+
+// teardownStarted reports whether the quit loop should stop tapping and only
+// wait for the exit: the harness gave the alternate screen back, or the
+// launcher's attach has restored the test pty to cooked mode. The
+// alternate-screen check starts from the second press, so a leave sequence left
+// by the readiness wait cannot end the loop before it has tapped once; the
+// cooked check applies from the first press, so a session that is already
+// tearing down is never tapped.
+func teardownStarted(ses *ptySession, presses int) bool {
+	if presses > 1 && tuiLeft(ses.output()) {
+		return true
+	}
+	return !ses.inRawMode()
 }
 
 // sawDaemonTimeout reports whether the captured output contains the launcher's

@@ -919,6 +919,48 @@ func TestTUIStarted(t *testing.T) {
 	}
 }
 
+// TestTuiLeft pins the alternate-screen-leave signal the quit loop stops tapping
+// on: an alternate-screen harness emits it while giving the screen back as it
+// tears down, and falls back to cooked mode there, so a further tap would be
+// reprocessed as SIGINT and kill it mid-teardown. It must not fire on the enter
+// sequence the readiness wait watches for.
+func TestTuiLeft(t *testing.T) {
+	if !tuiLeft([]byte("tui output\n\x1b[?1049lbye")) {
+		t.Error("tuiLeft = false, want true for the alternate-screen leave sequence")
+	}
+	if tuiLeft([]byte("tui output\nstill up")) {
+		t.Error("tuiLeft = true, want false without the leave sequence")
+	}
+	if tuiLeft([]byte("launcher output\n\x1b[?1049htui")) {
+		t.Error("tuiLeft = true for the enter sequence, want false")
+	}
+}
+
+// TestQuitIntervalKeepsPairsRapidAndWaitsBetweenThem pins the quit tap cadence:
+// the two presses of a pair stay one quitPressInterval apart (so a repeated-key
+// exit chains), and every even press ends a pair and is followed by the longer
+// quitRetryInterval, which gives a slow teardown room to finish before the next
+// press.
+func TestQuitIntervalKeepsPairsRapidAndWaitsBetweenThem(t *testing.T) {
+	for _, test := range []struct {
+		presses int
+		want    time.Duration
+	}{
+		{presses: 1, want: quitPressInterval},
+		{presses: 2, want: quitRetryInterval},
+		{presses: 3, want: quitPressInterval},
+		{presses: 4, want: quitRetryInterval},
+	} {
+		if got := quitIntervalAfterPress(test.presses); got != test.want {
+			t.Errorf("quitIntervalAfterPress(%d) = %s, want %s", test.presses, got, test.want)
+		}
+	}
+	// The pair must stay inside qwen-code's measured chaining window (~1.2s).
+	if quitPressInterval >= quitRetryInterval {
+		t.Errorf("quitPressInterval %s is not shorter than quitRetryInterval %s", quitPressInterval, quitRetryInterval)
+	}
+}
+
 // TestHarnessConcurrencyForFreeMemory pins the memory-derived parallel-harness
 // count: as many smoke VMs as fit after the host reserve, floored, and never
 // fewer than one.
