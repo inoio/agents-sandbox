@@ -8,7 +8,8 @@
 # directly in it as a host session, and the microsandbox VMs it creates are
 # nested. The guest is deliberately NOT an agents-sandbox sandbox.
 #
-# Guest: Ubuntu cloud image, seeded by cloud-init. The domain is defined with
+# Guest: Debian forky (14, testing) genericcloud image, seeded by cloud-init.
+# Override with IMAGE_URL for a different image (e.g. an Ubuntu cloud image). The domain is defined with
 # `virsh define` (no virt-install): virt-manager's Python bindings are a common
 # host breakage and nothing here needs them.
 #
@@ -30,7 +31,7 @@
 #   VM_NAME=asb-kvm  VM_VCPUS=8  VM_MEMORY_MIB=16384  VM_DISK_GIB=80
 #   VM_USER=dev  SSH_PUBKEY=<path-or-key>  ARTIFACT_DIR=$PWD/.kvm-guest
 #   SOURCE_DIR=<checkout to sync>  LIBVIRT_URI=qemu:///system
-#   UBUNTU_CODENAME=resolute  IMAGE_URL=<full cloud-image URL>
+#   IMAGE_URL=<full cloud-image URL>
 #   REPO_URL=https://github.com/inoio/agents-sandbox.git  REPO_BRANCH=<current branch>
 #   GO_VERSION=<from .go-version>
 #
@@ -48,8 +49,6 @@ VM_MEMORY_MIB="${VM_MEMORY_MIB:-16384}"
 VM_DISK_GIB="${VM_DISK_GIB:-80}"
 VM_USER="${VM_USER:-dev}"
 LIBVIRT_URI="${LIBVIRT_URI:-qemu:///system}"
-UBUNTU_CODENAME="${UBUNTU_CODENAME:-resolute}"
-IMAGE_BASE_URL="${IMAGE_BASE_URL:-https://cloud-images.ubuntu.com/$UBUNTU_CODENAME/current}"
 REPO_URL="${REPO_URL:-https://github.com/inoio/agents-sandbox.git}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-$PWD/.kvm-guest}"
 
@@ -62,17 +61,20 @@ if [ -z "${REPO_BRANCH:-}" ]; then
 fi
 
 if [ -z "${GO_VERSION:-}" ]; then
-  GO_VERSION="$(sed -n 's/^go \([0-9][0-9.]*\).*/\1/p' "$repo_root/go.mod" 2>/dev/null | head -1 || true)"
+  GO_VERSION="$(tr -d '[:space:]' < "$repo_root/.go-version" 2>/dev/null || true)"
+  [ -n "$GO_VERSION" ] || GO_VERSION="$(sed -n 's/^go \([0-9][0-9.]*\).*/\1/p' "$repo_root/go.mod" 2>/dev/null | head -1 || true)"
   [ -n "$GO_VERSION" ] || GO_VERSION="1.27.4"
 fi
 
 case "$(uname -m)" in
-  x86_64)  IMAGE_ARCH="amd64"; GO_ARCH="amd64" ;;
-  aarch64) IMAGE_ARCH="arm64"; GO_ARCH="arm64" ;;
-  *) echo "error: unsupported host arch '$(uname -m)' (need x86_64 or aarch64)" >&2; exit 1 ;;
+  x86_64) IMAGE_ARCH="amd64"; GO_ARCH="amd64" ;;
+  *) echo "error: this provisioner targets x86_64 (host arch: $(uname -m)); the guest domain XML is x86_64-only" >&2; exit 1 ;;
 esac
 
-IMAGE_URL="${IMAGE_URL:-$IMAGE_BASE_URL/$UBUNTU_CODENAME-server-cloudimg-$IMAGE_ARCH.img}"
+# Debian forky publishes only date-stamped daily builds, under a stable
+# `daily/latest` alias; the image matches the dev image's base (debian:forky-slim)
+# and its newer kernel suits nested KVM.
+IMAGE_URL="${IMAGE_URL:-https://cloud.debian.org/images/cloud/forky/daily/latest/debian-14-genericcloud-$IMAGE_ARCH-daily.qcow2}"
 IMAGE_PATH="$ARTIFACT_DIR/$(basename "$IMAGE_URL")"
 DISK_PATH="$ARTIFACT_DIR/$VM_NAME.qcow2"
 SEED_PATH="$ARTIFACT_DIR/$VM_NAME-seed.img"
@@ -179,7 +181,7 @@ write_domain_xml() {
   <vcpu>$VM_VCPUS</vcpu>
   <cpu mode='host-passthrough'/>
   <os>
-    <type arch='$([ "$IMAGE_ARCH" = amd64 ] && echo x86_64 || echo aarch64)' machine='q35'>hvm</type>
+    <type arch='x86_64' machine='q35'>hvm</type>
     <boot dev='hd'/>
   </os>
   <features>
@@ -333,6 +335,7 @@ sync_in() {
   source="${SOURCE_DIR:-$(git -C "$repo_root" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$repo_root")}"
   log "syncing $source → $VM_USER@$ip:~/agents-sandbox"
   rsync -az --delete --exclude '.git/' --exclude '.superpowers/' \
+    --exclude "$(basename "$ARTIFACT_DIR")/" \
     "$source/" "$VM_USER@$ip:~/agents-sandbox/"
 }
 

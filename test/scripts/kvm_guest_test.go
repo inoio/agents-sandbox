@@ -55,7 +55,7 @@ func TestKvmGuestRenderWritesCloudInitAndDomain(t *testing.T) {
 	dir := t.TempDir()
 	result := RunScript(t, dir, kvmGuestEnv(dir), repositoryScript(t, "kvm-guest.sh"), "render")
 	assertStatus(t, result, 0)
-	assertContains(t, "render stdout", result.Stdout, "/resolute/current/resolute-server-cloudimg-")
+	assertContains(t, "render stdout", result.Stdout, "/forky/daily/latest/debian-14-genericcloud-")
 
 	userData := readText(t, filepath.Join(dir, "asb-kvm-test-user-data"))
 	assertContains(t, "user-data", userData, "https://example.test/agents-sandbox.git")
@@ -85,6 +85,24 @@ func TestKvmGuestRunForwardsTheCommandOverSSH(t *testing.T) {
 	argv := readText(t, argvPath)
 	assertContains(t, "ssh argv", argv, "dev@192.168.122.55")
 	assertContains(t, "ssh argv", argv, "make test-msb-journeys")
+}
+
+func TestKvmGuestSyncForwardsTheCheckoutWithExcludes(t *testing.T) {
+	dir := t.TempDir()
+	argvPath := filepath.Join(dir, "rsync-argv")
+	env := kvmGuestEnv(dir)
+	env["ARTIFACT_DIR"] = filepath.Join(dir, ".kvm-guest")
+	env["SOURCE_DIR"] = "/host/checkout"
+	env["RSYNC_ARGV"] = argvPath
+	env["PATH"] = kvmGuestPath(t, "virsh", "rsync")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync")
+	assertStatus(t, result, 0)
+
+	argv := readText(t, argvPath)
+	assertContains(t, "rsync argv", argv, "/host/checkout/")
+	assertContains(t, "rsync argv", argv, "dev@192.168.122.55:~/agents-sandbox/")
+	assertContains(t, "rsync argv", argv, "--exclude .kvm-guest/")
 }
 
 func TestKvmGuestRunRejectsNoCommand(t *testing.T) {

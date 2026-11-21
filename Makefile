@@ -46,7 +46,7 @@ MSB_REUSE_ROOT ?= /tmp/asb-reuse
 # Host-only: the msb suites need a KVM host, and the dev VM has no working
 # /dev/kvm. `make kvm-up` builds a libvirt guest and these run the suite inside
 # it. See .operator-shared/guides/kvm-guest.md. Never run by CI.
-KVM_RUN ?= make test-msb-journeys
+KVM_RUN ?= make test-msb
 # The SDK's microsandbox_ffi_path tag swaps its //go:embed for reading the FFI
 # library from $MICROSANDBOX_FFI_PATH at runtime. The unit and integration
 # suites reach the SDK only through seams, so they never read that path and need
