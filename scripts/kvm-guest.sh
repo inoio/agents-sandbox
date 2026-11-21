@@ -34,26 +34,28 @@
 #   VM_USER=dev  SSH_PUBKEY=<path-or-key>  ARTIFACT_DIR=$PWD/.kvm-guest
 #   SOURCE_DIR=<checkout to sync>  LIBVIRT_URI=qemu:///system
 #   UBUNTU_CODENAME=resolute  IMAGE_URL=<full cloud-image URL>
-#   KVM_IMAGE_CACHE=~/.agents-sandbox-kvm  KVM_REFRESH_IMAGE=1  KVM_BOOT_TIMEOUT=300
+#   KVM_IMAGE_CACHE=/var/lib/libvirt/images/agents-sandbox  KVM_REFRESH_IMAGE=1  KVM_BOOT_TIMEOUT=300
 #   REPO_URL=https://github.com/inoio/agents-sandbox.git  REPO_BRANCH=<current branch>
 #   GO_VERSION=<from .go-version>
 #
 # The base image is cached in KVM_IMAGE_CACHE (shared across worktrees and
 # untouched by `down`), so only the first `up` fetches it. Set
 # KVM_REFRESH_IMAGE=1 to re-fetch when the URL is a moving alias (a Debian
-# `daily/latest`, or an Ubuntu `current`, does not change filename). The cache is
-# a single dir directly under $HOME, not a nested path and not the XDG
-# cache/data dirs: libvirt runs QEMU as its own user (e.g. libvirt-qemu), which
-# must traverse every path component to read the base image, and ~/.cache and
-# ~/.local are 0700 by design, while a nested dir can inherit a 0700 parent
-# under a restrictive umask. $HOME itself is normally world-traversable.
+# `daily/latest`, or an Ubuntu `current`, does not change filename). The default
+# is libvirt's own image dir: libvirt runs QEMU as its own user (e.g.
+# libvirt-qemu) and, on Debian/Ubuntu, confines it with AppArmor to paths
+# libvirt knows about, so a qcow2 backing file under $HOME is denied even at
+# 0644 in a 0755 dir. /var/lib/libvirt/images is allowed, and its ancestors are
+# traversable. Create it once, owned by you so the fetch can write:
+#   sudo install -d -o "$USER" -g "$USER" -m 0755 "$KVM_IMAGE_CACHE"
 #
 # Firewall: where Docker manages the iptables-nft `ip filter` table (its base
 # chains carry `policy drop`) and libvirt uses its nftables backend, libvirt's
 # accepts land in a separate table that cannot override that drop — the guest
 # then reaches the host for ICMP/SSH/DHCP only, not DNS or egress. `firewall`
-# applies the three name-keyed accepts that fix it; `up` probes the guest and
-# points at them when it can.
+# applies the name-keyed accepts that fix it (INPUT for host-bound traffic, and
+# DOCKER-USER for forwarded traffic — Docker rebuilds FORWARD but preserves
+# DOCKER-USER); `up` probes the guest and points at them when it can.
 set -euo pipefail
 
 VM_NAME="${VM_NAME:-asb-kvm}"
@@ -64,7 +66,7 @@ VM_USER="${VM_USER:-dev}"
 LIBVIRT_URI="${LIBVIRT_URI:-qemu:///system}"
 REPO_URL="${REPO_URL:-https://github.com/inoio/agents-sandbox.git}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-$PWD/.kvm-guest}"
-KVM_IMAGE_CACHE="${KVM_IMAGE_CACHE:-$HOME/.agents-sandbox-kvm}"
+KVM_IMAGE_CACHE="${KVM_IMAGE_CACHE:-/var/lib/libvirt/images/agents-sandbox}"
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
@@ -298,13 +300,14 @@ and drops host-bound and forwarded traffic by policy, while
 libvirt's nftables backend writes its accepts into a separate table
 that cannot override that drop. Add three name-keyed accepts:
 
-  sudo nft insert rule ip filter INPUT   iifname "$bridge" accept
-  sudo nft insert rule ip filter FORWARD iifname "$bridge" accept
-  sudo nft insert rule ip filter FORWARD oifname "$bridge" accept
+  sudo nft insert rule ip filter INPUT       iifname "$bridge" accept
+  sudo nft insert rule ip filter DOCKER-USER iifname "$bridge" accept
+  sudo nft insert rule ip filter DOCKER-USER oifname "$bridge" accept
 
 or let this script do it:  sudo $0 firewall
-These rules are volatile: a 'virsh net-destroy default', a Docker
-restart, or a reboot drops them — re-run if the guest loses DNS.
+Docker preserves DOCKER-USER across daemon restarts, but a reboot drops
+these unless your base ruleset re-applies them — re-run if the guest
+loses DNS after a reboot.
 ------------------------------------------------------------
 EOF
 }
@@ -317,11 +320,11 @@ fix_firewall() {
     log "no Docker-managed 'ip filter' table here; guest egress needs no extra rules"
     return 0
   fi
-  log "adding name-keyed accepts for bridge '$bridge' to the ip filter table"
+  log "accepting bridge '$bridge' in INPUT and DOCKER-USER (Docker preserves DOCKER-USER)"
   "${runner[@]}" nft insert rule ip filter INPUT iifname "$bridge" accept
-  "${runner[@]}" nft insert rule ip filter FORWARD iifname "$bridge" accept
-  "${runner[@]}" nft insert rule ip filter FORWARD oifname "$bridge" accept
-  log "done — volatile: a net-destroy, Docker restart, or reboot drops these rules"
+  "${runner[@]}" nft insert rule ip filter DOCKER-USER iifname "$bridge" accept
+  "${runner[@]}" nft insert rule ip filter DOCKER-USER oifname "$bridge" accept
+  log "done — Docker preserves DOCKER-USER; a reboot drops these unless your base ruleset re-applies them"
 }
 
 guest_ip() {
@@ -408,13 +411,18 @@ EOF
 
 create() {
   check_host
-  mkdir -p "$ARTIFACT_DIR" "$KVM_IMAGE_CACHE"
-  # The base image must be readable (and the cache dir traversable) by
-  # libvirt's QEMU user, which is not us on a system libvirt.
-  chmod 0755 "$KVM_IMAGE_CACHE"
-  if [ -n "$(find "$HOME" -maxdepth 0 ! -perm -o+x 2>/dev/null)" ]; then
-    log "warn: $HOME is not traversable by other users; libvirt's QEMU user may not read $IMAGE_PATH (chmod o+x \"$HOME\")"
+  mkdir -p "$ARTIFACT_DIR"
+  # The base image must be readable by libvirt's QEMU user, and on
+  # Debian/Ubuntu AppArmor only allows libvirt's own paths, so the cache
+  # defaults to /var/lib/libvirt/images/agents-sandbox. Create it once,
+  # owned by us so the fetch can write.
+  if [ ! -d "$KVM_IMAGE_CACHE" ]; then
+    die "image cache '$KVM_IMAGE_CACHE' does not exist. Create it once:
+      sudo install -d -o \"\$USER\" -g \"\$USER\" -m 0755 '$KVM_IMAGE_CACHE'
+    (a base image on a path libvirt's QEMU user cannot read, or AppArmor does
+     not allow, makes 'virsh start' fail with Permission denied)"
   fi
+  [ -w "$KVM_IMAGE_CACHE" ] || die "image cache '$KVM_IMAGE_CACHE' is not writable by $USER; chown it: sudo chown \"\$USER\" '$KVM_IMAGE_CACHE'"
 
   if [ "${KVM_REFRESH_IMAGE:-}" = "1" ]; then
     log "KVM_REFRESH_IMAGE set; discarding the cached base image"

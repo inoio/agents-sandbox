@@ -76,18 +76,33 @@ func TestKvmGuestRenderWritesCloudInitAndDomain(t *testing.T) {
 	assertContains(t, "meta-data", metadata, "instance-id: asb-kvm-test")
 }
 
-func TestKvmGuestRenderDefaultsTheImageCacheUnderHome(t *testing.T) {
+func TestKvmGuestRenderDefaultsTheImageCacheToLibvirtDir(t *testing.T) {
 	dir := t.TempDir()
-	env := kvmGuestEnv(dir)
-	env["HOME"] = dir
-	// The XDG dirs are 0700 by design and must not be used: libvirt's QEMU
-	// user could not traverse them to read the cached base image.
-	env["XDG_CACHE_HOME"] = filepath.Join(dir, ".cache")
-	env["XDG_DATA_HOME"] = filepath.Join(dir, ".local", "share")
-
-	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "render")
+	result := RunScript(t, dir, kvmGuestEnv(dir), repositoryScript(t, "kvm-guest.sh"), "render")
 	assertStatus(t, result, 0)
-	assertContains(t, "render stdout", result.Stdout, "image path: "+filepath.Join(dir, ".agents-sandbox-kvm"))
+	// The default must be a path libvirt's QEMU user can read past AppArmor,
+	// so a home-directory default (0644 in 0755 or not) is not enough.
+	assertContains(t, "render stdout", result.Stdout, "image path: /var/lib/libvirt/images/agents-sandbox/")
+}
+
+func TestKvmGuestFirewallAcceptsTheBridgeInInputAndDockerUser(t *testing.T) {
+	dir := t.TempDir()
+	argvPath := filepath.Join(dir, "nft-argv")
+	env := kvmGuestEnv(dir)
+	env["NFT_ARGV"] = argvPath
+	env["PATH"] = kvmGuestPath(t, "virsh", "nft", "id")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "firewall")
+	assertStatus(t, result, 0)
+
+	argv := readText(t, argvPath)
+	assertContains(t, "nft argv", argv, "insert rule ip filter INPUT iifname virbr0 accept")
+	assertContains(t, "nft argv", argv, "insert rule ip filter DOCKER-USER iifname virbr0 accept")
+	assertContains(t, "nft argv", argv, "insert rule ip filter DOCKER-USER oifname virbr0 accept")
+	// FORWARD is rebuilt by Docker on every start, so an insert there is lost.
+	if strings.Contains(argv, "FORWARD") {
+		t.Fatalf("firewall inserted into FORWARD (Docker rebuilds it):\n%s", argv)
+	}
 }
 
 func TestKvmGuestRunForwardsTheCommandOverSSH(t *testing.T) {
@@ -193,6 +208,8 @@ func kvmGuestVirshHandler(args []string) (string, string, int) {
 		return "", "error: failed to get domain 'asb-kvm-test'\n", 1
 	case strings.Contains(joined, "net-info"):
 		return "Name:           default\nActive:         yes\n", "", 0
+	case strings.Contains(joined, "net-dumpxml"):
+		return "<network><bridge name='virbr0'/></network>\n", "", 0
 	default:
 		return "", "", 0
 	}
@@ -211,6 +228,20 @@ func kvmGuestSSHHandler(args []string) (string, string, int) {
 func kvmGuestRsyncHandler(args []string) (string, string, int) {
 	recordArgv("RSYNC_ARGV", args)
 	return "", "", 0
+}
+
+// kvmGuestNftHandler serves the `nft` a script under test calls: it logs the
+// invocation and succeeds, so a case can assert the rules `firewall` inserts
+// without touching the host ruleset.
+func kvmGuestNftHandler(args []string) (string, string, int) {
+	recordArgv("NFT_ARGV", args)
+	return "", "", 0
+}
+
+// kvmGuestIDHandler reports uid 0 so `firewall` takes the no-sudo path and
+// calls the faked `nft` directly.
+func kvmGuestIDHandler(_ []string) (string, string, int) {
+	return "0\n", "", 0
 }
 
 // recordArgv appends the faked command's argv to the file named by envVar, when

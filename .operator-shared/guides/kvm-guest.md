@@ -40,32 +40,35 @@ before `up`. Env overrides (`VM_NAME`, `VM_VCPUS`, `VM_MEMORY_MIB`, `VM_DISK_GIB
 `REPO_BRANCH`, `GO_VERSION`, `SSH_PUBKEY`, `SOURCE_DIR`, `LIBVIRT_URI`, `UBUNTU_CODENAME`, `IMAGE_URL`,
 `ARTIFACT_DIR`, `KVM_IMAGE_CACHE`, `KVM_REFRESH_IMAGE`, `KVM_BOOT_TIMEOUT`) are documented in the script header.
 
-The base cloud image is cached in `KVM_IMAGE_CACHE` (default `~/.agents-sandbox-kvm`), **outside** `ARTIFACT_DIR`: only
-the first `up` fetches it, `down` leaves it in place, and every worktree of a bare checkout reuses the one copy. It is a
-single dir directly under `$HOME`, not `.cache`/`.local` and not nested, because libvirt runs QEMU as its own user
-(`libvirt-qemu`), which must traverse **every** path component to read the base image: `~/.cache`/`~/.local` are `0700`
-by design, and a nested dir can inherit a `0700` parent under a restrictive umask. `$HOME` itself is normally
-world-traversable; the script `chmod`s the cache dir readable and warns if `$HOME` is not. Because an Ubuntu
-`current` alias (like a Debian `daily/latest`) keeps a stable filename, the cache cannot notice a newer build on its
-own — set `KVM_REFRESH_IMAGE=1` to discard and re-fetch it.
+The base cloud image is cached in `KVM_IMAGE_CACHE` (default
+`/var/lib/libvirt/images/agents-sandbox`), **outside** `ARTIFACT_DIR`: only the first `up` fetches it, `down` leaves it
+in place, and every worktree of a bare checkout reuses the one copy. The default is libvirt's own image dir because
+libvirt runs QEMU as its own user (`libvirt-qemu`) and, on Debian/Ubuntu, confines it with AppArmor to paths libvirt
+knows about — a qcow2 backing file under `$HOME` is denied even at `0644` in a `0755` dir (see below). Create the dir
+once, owned by you so the fetch can write:
+
+```console
+sudo install -d -o "$USER" -g "$USER" -m 0755 /var/lib/libvirt/images/agents-sandbox
+```
+
+Because an Ubuntu `current` alias (like a Debian `daily/latest`) keeps a stable filename, the cache cannot notice a
+newer build on its own — set `KVM_REFRESH_IMAGE=1` to discard and re-fetch it.
 
 ### AppArmor: a base image outside libvirt's allowed paths
 
 On a host with AppArmor for libvirt (the default on Ubuntu/Debian), the per-domain QEMU profile only allows paths
-libvirt knows about. A qcow2 **backing file** at `~/.agents-sandbox-kvm` is denied even when it is `0644` and the dir
-`0755` — `virsh define` succeeds but `virsh start` fails with `Could not open '…': Permission denied` from
-`qemu-system-x86_64`. Confirm with `sudo dmesg | grep -i 'apparmor.*DENIED'` (profile `libvirt-…`). Two fixes:
+libvirt knows about. A qcow2 **backing file** at `~/.agents-sandbox-kvm` (or anywhere outside libvirt's dirs) is denied
+even when it is `0644` and the dir `0755` — `virsh define` succeeds but `virsh start` fails with
+`Could not open '…': Permission denied` from `qemu-system-x86_64`. Confirm with
+`sudo dmesg | grep -i 'apparmor.*DENIED'` (profile `libvirt-…`). The default avoids this by living in
+`/var/lib/libvirt/images`; the alternative is to allow a `$HOME` cache in the qemu abstraction, once per host:
 
 ```console
-# Keep the cache under $HOME: allow it in the qemu abstraction, once per host
 sudo tee /etc/apparmor.d/local/abstractions/libvirt-qemu >/dev/null <<'EOF'
 /home/*/.agents-sandbox-kvm/** r,
 EOF
 sudo systemctl restart apparmor libvirtd          # virt-aa-helper regenerates the profile
-
-# Or move the cache to the dir libvirt already allows (no AppArmor change)
-sudo install -d -o "$USER" -g "$USER" -m 0755 /var/lib/libvirt/images/agents-sandbox
-KVM_IMAGE_CACHE=/var/lib/libvirt/images/agents-sandbox make kvm-up
+KVM_IMAGE_CACHE=~/.agents-sandbox-kvm make kvm-up
 ```
 
 ## The guest-firewall hazard
@@ -73,8 +76,12 @@ KVM_IMAGE_CACHE=/var/lib/libvirt/images/agents-sandbox make kvm-up
 Where Docker manages the iptables-nft `ip filter` table (its base chains carry `policy drop`) and libvirt uses its
 nftables backend, libvirt's accepts land in a separate table that cannot override the drop: the guest then reaches the
 host for ICMP/SSH/DHCP only, not DNS or egress. `up` probes the guest for this and points at the fix; apply it with
-`scripts/kvm-guest.sh firewall` (or the printed `nft insert rule` lines). The rules are volatile — a
-`virsh net-destroy default`, a Docker restart, or a reboot drops them.
+`scripts/kvm-guest.sh firewall` (or the printed `nft insert rule` lines). It accepts the bridge in **INPUT** (host-bound
+traffic) and in **DOCKER-USER** (forwarded traffic) — Docker rebuilds `FORWARD` on every start but preserves
+`DOCKER-USER`. Docker preserves `DOCKER-USER` across daemon restarts; a reboot drops the rules unless your base
+ruleset re-applies them. Do not reload a `flush ruleset` base config on a running host: it also wipes Docker's and
+libvirt's tables, so a live apply needs `systemctl restart docker` then `systemctl restart libvirtd` then
+`virsh net-start default`.
 
 ## Host accept
 
