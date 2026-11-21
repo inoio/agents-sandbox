@@ -1,6 +1,6 @@
 ---
-description: Contract for keeping tests off real host state - where test doubles and fail-fast installers live (the `<pkg>/<name>test` test-support subpackages), the fail-fast seam mocks installed by every test package's TestMain, the external-TestMain rule, the file-scope vs declaration-scope `//deadcode:ignore` policy, the host-home redirect in WithMockConfigPaths, the seam import-chain exceptions, the msb-tagged isolated runtime home and its stop-then-remove sandbox teardown, the rule that seam overrides must be restored so the suite stays idempotent under -count>1, the trap that a dependency memoizing an environment variable (docker/cli `config.Dir()`) is not isolated by t.Setenv, and the absolute-write-root invariant that guards every state/config write funnel at the consumer so an unresolved root cannot write relative to the process CWD.
-read_if: Adding a test package, a test double, or a TestMain; deciding where a test double or fail-fast installer lives; debugging a test that reads or writes real host state (config, home, docker, msb, doctor), an msb-tagged test that leaks a sandbox/VM, a test that passes at -count=1 but fails under -count>1, or a state/config/lock write that must reject a path that did not resolve to an absolute root; or when a test's DOCKER_CONFIG/HOME no longer reaches docker/cli's config loading.
+description: Contract for keeping tests off real host state - where test doubles and fail-fast installers live (the `<pkg>/<name>test` test-support subpackages), the fail-fast seam mocks installed by every test package's TestMain, the external-TestMain rule, the file-scope vs declaration-scope `//deadcode:ignore` policy, the host-home redirect in WithMockConfigPaths, the seam import-chain exceptions, the msb-tagged isolated runtime home and its stop-then-remove sandbox teardown, the rule that seam overrides must be restored so the suite stays idempotent under -count>1, the trap that a dependency memoizing an environment variable (docker/cli `config.Dir()`) is not isolated by t.Setenv, the absolute-write-root invariant that guards every state/config write funnel at the consumer so an unresolved root cannot write relative to the process CWD, and the hermetic envelope (`make test-scrubbed`/`test-hermetic`) with its uid-0 strict tier.
+read_if: Adding a test package, a test double, or a TestMain; deciding where a test double or fail-fast installer lives; debugging a test that reads or writes real host state (config, home, docker, msb, doctor), an msb-tagged test that leaks a sandbox/VM, a test that passes at -count=1 but fails under -count>1, or a state/config/lock write that must reject a path that did not resolve to an absolute root; the hermetic envelope targets (`make test-scrubbed`/`test-hermetic`) or a failure only the scrubbed/uid-0 run sees; or when a test's DOCKER_CONFIG/HOME no longer reaches docker/cli's config loading.
 ---
 
 # Test isolation
@@ -175,6 +175,19 @@ on where the suite runs. The helper fails fast if the pinned temp dir still reso
 sits inside a bare checkout). A test that needs a specific layout chdirs into its own fixture after the call, as the
 bare-checkout tests do. This is why `configpaths`' project-path accessor tests assert the relative base without
 pinning the CWD themselves, and it closes the incident below.
+
+## Hermetic envelope
+
+`scripts/hermetic-envelope.sh` runs the default suite decoupled from the execution environment, as two make targets:
+`make test-scrubbed` (a module copy outside any git checkout, run under `env -i` with an explicit variable allowlist
+and a pre-warmed module cache, with `-count=1` so Go's test cache is not consulted) and `make test-hermetic` (adds a
+loopback-only network namespace via `--netns`, isolating name resolution and sockets). The suite must stay green under
+both; the release gate is the strict tier's floor, and promotion toward the default `make test` follows a measured
+runtime budget, never a date (see `guides/test-runtime-cost.md`).
+
+The `--netns` tier runs as uid 0 (`unshare --net --map-root-user`), so a test must not depend on the effective uid: a
+permission-denial fixture induces the read/write failure through a package seam, never `chmod`. Six such fixtures still
+assume an unprivileged uid, so that tier is currently red pending that change.
 
 ## Ambient-environment gate
 
