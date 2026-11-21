@@ -25,6 +25,12 @@ const daemonTimeoutMarker = "did not become healthy"
 // full-screen TUI takes over the alternate screen buffer.
 const altScreenEnter = "\x1b[?1049h"
 
+// altScreenLeave is the sequence the same harness emits as it gives the
+// alternate screen back while quitting: its own teardown signal, and the point
+// past which a further quit tap would reach a terminal already restored to
+// cooked mode.
+const altScreenLeave = "\x1b[?1049l"
+
 // escapeByte starts an ANSI escape sequence.
 const escapeByte = 0x1b
 
@@ -405,25 +411,6 @@ const settledReadyTimeout = 25 * time.Second
 // is up — so a slow cold start fails the subtest only when it genuinely hangs.
 const heavyweightReadyTimeout = 120 * time.Second
 
-const (
-	// quitPressInterval and quitPressMaxInterval pace the quit: the harness's
-	// key is tapped, then waited on, until the process exits, for at most
-	// quitTimeout. The wait starts at quitPressInterval — a human double-tap —
-	// and doubles up to quitPressMaxInterval, so a harness that catches the
-	// quit and begins tearing down is not tapped again while it exits (see
-	// quit).
-	quitPressInterval    = 400 * time.Millisecond
-	quitPressMaxInterval = 3 * time.Second
-	// quitTimeout bounds the whole tap sequence.
-	quitTimeout = 15 * time.Second
-)
-
-// nextQuitInterval returns the wait after the next tap: double the previous
-// interval, capped at quitPressMaxInterval.
-func nextQuitInterval(interval time.Duration) time.Duration {
-	return min(interval*2, quitPressMaxInterval)
-}
-
 // hermesReadyMarker is the startup line hermes' classic CLI prints before it
 // accepts input (show_banner: "Hermes Agent v<version> (<date>)"). It is stable
 // across releases, unlike the version itself.
@@ -727,6 +714,13 @@ func isANSIFinalByte(c byte) bool {
 // over the alternate screen, the signal that its full-screen TUI came up.
 func tuiStarted(output []byte) bool {
 	return bytes.Contains(output, []byte(altScreenEnter))
+}
+
+// tuiLeft reports whether the accumulated output shows a harness giving the
+// alternate screen back, the signal that it caught the quit and is tearing
+// down rather than still listening for a further tap.
+func tuiLeft(output []byte) bool {
+	return bytes.Contains(output, []byte(altScreenLeave))
 }
 
 // sawDaemonTimeout reports whether the captured output contains the launcher's

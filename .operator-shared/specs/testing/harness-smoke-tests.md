@@ -144,13 +144,15 @@ workspace-trust dialog — whose only quit key aborts the launch with exit 1, so
 The seed sets `hasCompletedOnboarding` and pre-trusts the guest working directory (the project dir is not a repository,
 so it binds at `/workspace`), so claude-code reaches its prompt, where repeated Ctrl-C exits 0.
 
-**Tap until it goes, then assert the exit.** `quit` taps the harness's key, waits for the process to exit, and taps
-again if it did not — for at most `quitTimeout` (15s) — then asserts exit code 0. The wait starts at
-`quitPressInterval` (400ms) and doubles up to `quitPressMaxInterval` (3s): a harness that catches the quit and begins
-tearing down restores the terminal's cooked mode before it exits, so a tap written in that window is no longer a
-keystroke but the SIGINT the terminal makes of it, and the process dies mid-teardown (`qwen-code` printed its
-"Agent powering down. Goodbye!" and still reported `-1` while the taps stayed 400ms apart). The widening gap gives a
-slow teardown room to finish; the first taps stay rapid so a harness whose early presses are ignored still gets them.
+**Tap until it goes, then assert the exit.** `quit` taps the harness's key every `quitPressInterval` (400ms) until the
+process exits, for at most `quitTimeout` (15s), then asserts exit code 0. Once the harness has given the alternate
+screen back (`altScreenLeave`), however, the loop stops tapping and only waits: the harness has caught the quit and is
+tearing down, has restored the terminal's cooked mode, and a further tap is no longer a keystroke but the SIGINT the
+terminal makes of it, which kills the process mid-teardown (`qwen-code` printed its "Agent powering down. Goodbye!"
+and still reported `-1` under the taps alone). The interval itself is deliberately not widened to cover that teardown:
+it has to stay far shorter than the window a "press again to exit" prompt allows, or a repeated-key exit stops
+chaining — a 2s interval was already measured to miss it once (it is why `claude-code` was briefly misread as having
+no exit key).
 A fixed sequence is wrong for two measured reasons. A TUI paints its screen seconds before it accepts input, so taps made in that window are ignored: on a KVM host
 `opencode2` leaves on a tap ~3s after the alternate-screen marker and ignores the same key at ~0ms and ~350ms, and
 `opencode` ignores a tap at ~3s while its screen still shows the launcher's own output. Whether those early bytes sit

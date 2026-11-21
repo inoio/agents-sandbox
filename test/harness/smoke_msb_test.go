@@ -26,6 +26,15 @@ const (
 	// runtime install, so this only has to absorb the VM start; the budget
 	// stays generous for a cold host.
 	tuiReadyTimeout = 180 * time.Second
+	// quitPressInterval and quitTimeout pace the quit: the harness's key is
+	// tapped every quitPressInterval until the process exits, for at most
+	// quitTimeout. The interval is a human double-tap — a harness whose exit is
+	// a repeated key leaves on the next tap, and one that paints its TUI before
+	// it accepts input simply ignores the taps made meanwhile. It must stay far
+	// shorter than the window a "press again to exit" prompt allows, so a
+	// repeated-key exit chains; a slower cadence was measured to miss it.
+	quitPressInterval = 400 * time.Millisecond
+	quitTimeout       = 15 * time.Second
 	// prepareTimeout bounds the one-off launcher build and the per-harness
 	// runner-image prebuild every subtest shares.
 	prepareTimeout = 30 * time.Minute
@@ -186,31 +195,48 @@ func TestHarnessSmoke(t *testing.T) {
 // harness whose exit is a repeated key — claude-code announces "Press Ctrl-C
 // again to exit" — needs the taps to keep coming.
 //
-// The wait after each tap doubles from quitPressInterval up to
-// quitPressMaxInterval. A harness that catches the quit and begins tearing down
-// restores the terminal to its cooked mode before it exits, so a tap written in
-// that window is no longer a keystroke: the terminal turns it into SIGINT and
-// the process dies (qwen-code's graceful exit is reported as -1 this way while
-// the taps stay 400ms apart). The widening gap gives a slow teardown room to
-// finish, while the first taps stay rapid so a harness whose early presses are
-// ignored still receives them.
+// Once the harness has given the alternate screen back it has caught the quit
+// and is tearing down: it has restored the terminal to its cooked mode, so one
+// more tap is no longer a keystroke but the SIGINT the terminal makes of it, and
+// the process dies mid-teardown (qwen-code printed "Agent powering down.
+// Goodbye!" and still reported -1 this way). So the loop stops tapping past
+// that point and only waits for the exit — the cadence is left alone, because it
+// must stay short enough for a repeated-key exit to chain.
 func quit(ses *ptySession, spec harnessSpec) (int, error) {
 	deadline := time.Now().Add(quitTimeout)
-	interval := quitPressInterval
 	for presses := 1; ; presses++ {
+		if presses > 1 && tuiLeft(ses.output()) {
+			return waitExitWithin(ses, deadline, presses, spec)
+		}
 		if err := ses.write(spec.QuitKey); err != nil {
 			return 0, err
 		}
-		code, err := ses.waitExit(interval)
+		code, err := ses.waitExit(quitPressInterval)
 		if err == nil {
 			return code, nil
 		}
 		if !time.Now().Before(deadline) {
-			return 0, fmt.Errorf("%d presses of %#x within %s did not exit it: %w",
-				presses, spec.QuitKey, quitTimeout, err)
+			return 0, quitTimeoutError(presses, spec, err)
 		}
-		interval = nextQuitInterval(interval)
 	}
+}
+
+// waitExitWithin waits out the remaining quit budget for a process that has
+// begun tearing down, returning its exit code or the same timeout error the
+// tapping loop reports.
+func waitExitWithin(ses *ptySession, deadline time.Time, presses int, spec harnessSpec) (int, error) {
+	code, err := ses.waitExit(time.Until(deadline))
+	if err == nil {
+		return code, nil
+	}
+	return 0, quitTimeoutError(presses, spec, err)
+}
+
+// quitTimeoutError reports that a harness did not exit within quitTimeout after
+// presses taps of its key.
+func quitTimeoutError(presses int, spec harnessSpec, err error) error {
+	return fmt.Errorf("%d presses of %#x within %s did not exit it: %w",
+		presses, spec.QuitKey, quitTimeout, err)
 }
 
 // waitReady blocks until the harness can be driven with its quit key. A harness

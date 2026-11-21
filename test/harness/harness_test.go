@@ -955,22 +955,18 @@ func TestHarnessRunArgsCapTheSmokeMemory(t *testing.T) {
 	}
 }
 
-// TestNextQuitIntervalWidensUpToTheCap pins the quit tap backoff: the wait after
-// each tap doubles from quitPressInterval, capped at quitPressMaxInterval, so a
-// harness whose teardown outlasts the base interval is not tapped again while it
-// exits (a tap then becomes SIGINT and the exit is reported as -1).
-func TestNextQuitIntervalWidensUpToTheCap(t *testing.T) {
-	got := quitPressInterval
-	want := []time.Duration{
-		800 * time.Millisecond,
-		1600 * time.Millisecond,
-		quitPressMaxInterval,
-		quitPressMaxInterval,
+// TestTuiLeft pins the alternate-screen-leave signal the quit loop stops tapping
+// on: a harness that gives the alternate screen back has caught the quit and is
+// tearing down, so a further tap would reach a cooked-mode terminal and become
+// SIGINT.
+func TestTuiLeft(t *testing.T) {
+	if !tuiLeft([]byte("tui output\n\x1b[?1049lbye")) {
+		t.Error("tuiLeft = false, want true for alternate-screen leave sequence")
 	}
-	for _, w := range want {
-		got = nextQuitInterval(got)
-		if got != w {
-			t.Fatalf("nextQuitInterval = %s, want %s", got, w)
-		}
+	if tuiLeft([]byte("tui output\nstill up")) {
+		t.Error("tuiLeft = true, want false without the leave sequence")
+	}
+	if tuiLeft([]byte("\x1b[?1049h")) {
+		t.Error("tuiLeft = true for the enter sequence, want false")
 	}
 }
