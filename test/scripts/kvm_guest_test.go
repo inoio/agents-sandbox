@@ -53,9 +53,13 @@ func TestKvmGuestRejectsUnknownSubcommand(t *testing.T) {
 
 func TestKvmGuestRenderWritesCloudInitAndDomain(t *testing.T) {
 	dir := t.TempDir()
-	result := RunScript(t, dir, kvmGuestEnv(dir), repositoryScript(t, "kvm-guest.sh"), "render")
+	cacheDir := filepath.Join(dir, "image-cache")
+	env := kvmGuestEnv(dir)
+	env["KVM_IMAGE_CACHE"] = cacheDir
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "render")
 	assertStatus(t, result, 0)
 	assertContains(t, "render stdout", result.Stdout, "/forky/daily/latest/debian-14-genericcloud-")
+	assertContains(t, "render stdout", result.Stdout, "image path: "+cacheDir)
 
 	userData := readText(t, filepath.Join(dir, "asb-kvm-test-user-data"))
 	assertContains(t, "user-data", userData, "https://example.test/agents-sandbox.git")
@@ -130,6 +134,31 @@ func TestKvmGuestDownDestroysTheDomain(t *testing.T) {
 	argv := readText(t, argvPath)
 	assertContains(t, "virsh argv", argv, "destroy asb-kvm-test")
 	assertContains(t, "virsh argv", argv, "undefine asb-kvm-test")
+}
+
+func TestKvmGuestDownKeepsTheCachedBaseImage(t *testing.T) {
+	dir := t.TempDir()
+	cacheDir := filepath.Join(dir, "image-cache")
+	imagePath := filepath.Join(cacheDir, "guest.qcow2")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatalf("mkdir cache: %v", err)
+	}
+	if err := os.WriteFile(imagePath, []byte("image"), 0o644); err != nil {
+		t.Fatalf("write cached image: %v", err)
+	}
+
+	env := kvmGuestEnv(dir)
+	env["KVM_IMAGE_CACHE"] = cacheDir
+	env["IMAGE_URL"] = "https://example.test/guest.qcow2"
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["PATH"] = kvmGuestPath(t, "virsh")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "down")
+	assertStatus(t, result, 0)
+
+	if _, err := os.Stat(imagePath); err != nil {
+		t.Fatalf("cached base image removed by down: %v", err)
+	}
 }
 
 // kvmGuestVirshHandler serves the `virsh` a script under test calls. It logs

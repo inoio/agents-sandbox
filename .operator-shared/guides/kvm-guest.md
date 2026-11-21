@@ -29,15 +29,20 @@ make kvm-ssh                # a shell in the guest (or: scripts/kvm-guest.sh ssh
 make kvm-sync               # rsync this checkout into ~/agents-sandbox in the guest
 make kvm-run                # run KVM_RUN (default: make test-msb) in the guest
 make kvm-run KVM_RUN='make test-msb-journeys'
-make kvm-down               # destroy the guest and its disk
+make kvm-down               # destroy the guest and its disk (the base image stays cached)
 ```
 
 `up` prints the guest's SSH address and a next-steps checklist; cloud-init takes a few minutes on first boot. Once it
 is done, gate the guest (`ls -la /dev/kvm`, `msb doctor`) before running a suite. `scripts/kvm-guest.sh render` writes
 the cloud-init seed and domain XML under `ARTIFACT_DIR` (default `./.kvm-guest`) without booting, useful to inspect
 before `up`. Env overrides (`VM_NAME`, `VM_VCPUS`, `VM_MEMORY_MIB`, `VM_DISK_GIB`, `VM_USER`, `REPO_URL`,
-`REPO_BRANCH`, `GO_VERSION`, `SSH_PUBKEY`, `SOURCE_DIR`, `LIBVIRT_URI`, `ARTIFACT_DIR`) are documented in the script
-header.
+`REPO_BRANCH`, `GO_VERSION`, `SSH_PUBKEY`, `SOURCE_DIR`, `LIBVIRT_URI`, `ARTIFACT_DIR`, `KVM_IMAGE_CACHE`,
+`KVM_REFRESH_IMAGE`) are documented in the script header.
+
+The base cloud image is cached in `KVM_IMAGE_CACHE` (default `${XDG_CACHE_HOME:-~/.cache}/agents-sandbox/kvm`),
+**outside** `ARTIFACT_DIR`: only the first `up` fetches it, `down` leaves it in place, and every worktree of a bare
+checkout reuses the one copy. Because the forky `daily/latest` filename is stable, the cache cannot notice a newer
+daily build on its own — set `KVM_REFRESH_IMAGE=1` to discard and re-fetch it.
 
 ## The guest-firewall hazard
 

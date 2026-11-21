@@ -32,8 +32,14 @@
 #   VM_USER=dev  SSH_PUBKEY=<path-or-key>  ARTIFACT_DIR=$PWD/.kvm-guest
 #   SOURCE_DIR=<checkout to sync>  LIBVIRT_URI=qemu:///system
 #   IMAGE_URL=<full cloud-image URL>
+#   KVM_IMAGE_CACHE=~/.cache/agents-sandbox/kvm  KVM_REFRESH_IMAGE=1
 #   REPO_URL=https://github.com/inoio/agents-sandbox.git  REPO_BRANCH=<current branch>
 #   GO_VERSION=<from .go-version>
+#
+# The base image is cached in KVM_IMAGE_CACHE (shared across worktrees and
+# untouched by `down`), so only the first `up` fetches it. Set
+# KVM_REFRESH_IMAGE=1 to re-fetch (the forky `daily/latest` filename is stable,
+# so the cache cannot otherwise notice a newer daily build).
 #
 # Firewall: where Docker manages the iptables-nft `ip filter` table (its base
 # chains carry `policy drop`) and libvirt uses its nftables backend, libvirt's
@@ -51,6 +57,7 @@ VM_USER="${VM_USER:-dev}"
 LIBVIRT_URI="${LIBVIRT_URI:-qemu:///system}"
 REPO_URL="${REPO_URL:-https://github.com/inoio/agents-sandbox.git}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-$PWD/.kvm-guest}"
+KVM_IMAGE_CACHE="${KVM_IMAGE_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/agents-sandbox/kvm}"
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
@@ -75,7 +82,7 @@ esac
 # `daily/latest` alias; the image matches the dev image's base (debian:forky-slim)
 # and its newer kernel suits nested KVM.
 IMAGE_URL="${IMAGE_URL:-https://cloud.debian.org/images/cloud/forky/daily/latest/debian-14-genericcloud-$IMAGE_ARCH-daily.qcow2}"
-IMAGE_PATH="$ARTIFACT_DIR/$(basename "$IMAGE_URL")"
+IMAGE_PATH="$KVM_IMAGE_CACHE/$(basename "$IMAGE_URL")"
 DISK_PATH="$ARTIFACT_DIR/$VM_NAME.qcow2"
 SEED_PATH="$ARTIFACT_DIR/$VM_NAME-seed.img"
 USERDATA_PATH="$ARTIFACT_DIR/$VM_NAME-user-data"
@@ -223,7 +230,8 @@ render() {
   mkdir -p "$ARTIFACT_DIR"
   write_seed_files
   write_domain_xml
-  printf 'image: %s\nrendered:\n%s\n%s\n%s\n' "$IMAGE_URL" "$USERDATA_PATH" "$METADATA_PATH" "$DOMAIN_XML_PATH"
+  printf 'image: %s\nimage path: %s\nrendered:\n%s\n%s\n%s\n' \
+    "$IMAGE_URL" "$IMAGE_PATH" "$USERDATA_PATH" "$METADATA_PATH" "$DOMAIN_XML_PATH"
 }
 
 check_host() {
@@ -378,15 +386,20 @@ When cloud-init is done, gate the guest before running the suites:
   cd ~/agents-sandbox && make build                  # build the launcher
   make test-msb-journeys                             # the journeys suite
 
-Artifacts (base image, disk, seed): $ARTIFACT_DIR
+Artifacts (disk, seed): $ARTIFACT_DIR
+Base image (cached, reused): $IMAGE_PATH
 ============================================================
 EOF
 }
 
 create() {
   check_host
-  mkdir -p "$ARTIFACT_DIR"
+  mkdir -p "$ARTIFACT_DIR" "$KVM_IMAGE_CACHE"
 
+  if [ "${KVM_REFRESH_IMAGE:-}" = "1" ]; then
+    log "KVM_REFRESH_IMAGE set; discarding the cached base image"
+    rm -f "$IMAGE_PATH"
+  fi
   if [ ! -f "$IMAGE_PATH" ]; then
     log "fetching $IMAGE_URL"
     # Download to a .part and move on success, so a failed fetch (a 404, a
@@ -394,6 +407,8 @@ create() {
     # complete one on the next run.
     curl -fL --progress-bar "$IMAGE_URL" -o "$IMAGE_PATH.part"
     mv "$IMAGE_PATH.part" "$IMAGE_PATH"
+  else
+    log "using cached base image $IMAGE_PATH"
   fi
   if [ ! -f "$DISK_PATH" ]; then
     log "creating ${VM_DISK_GIB}G overlay on $(basename "$IMAGE_PATH")"
@@ -433,7 +448,7 @@ destroy() {
     log "domain '$VM_NAME' is not defined; removing any leftover disk"
   fi
   rm -f "$DISK_PATH" "$SEED_PATH" "$USERDATA_PATH" "$METADATA_PATH" "$DOMAIN_XML_PATH"
-  log "removed '$VM_NAME' and its disk (base image kept at $IMAGE_PATH)"
+  log "removed '$VM_NAME' and its disk (base image kept in cache at $IMAGE_PATH)"
 }
 
 case "${1:-}" in
