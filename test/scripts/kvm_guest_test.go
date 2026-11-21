@@ -55,6 +55,7 @@ func TestKvmGuestRenderWritesCloudInitAndDomain(t *testing.T) {
 	dir := t.TempDir()
 	result := RunScript(t, dir, kvmGuestEnv(dir), repositoryScript(t, "kvm-guest.sh"), "render")
 	assertStatus(t, result, 0)
+	assertContains(t, "render stdout", result.Stdout, "/resolute/current/resolute-server-cloudimg-")
 
 	userData := readText(t, filepath.Join(dir, "asb-kvm-test-user-data"))
 	assertContains(t, "user-data", userData, "https://example.test/agents-sandbox.git")

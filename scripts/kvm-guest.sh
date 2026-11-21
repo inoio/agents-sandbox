@@ -221,7 +221,7 @@ render() {
   mkdir -p "$ARTIFACT_DIR"
   write_seed_files
   write_domain_xml
-  printf 'rendered:\n%s\n%s\n%s\n' "$USERDATA_PATH" "$METADATA_PATH" "$DOMAIN_XML_PATH"
+  printf 'image: %s\nrendered:\n%s\n%s\n%s\n' "$IMAGE_URL" "$USERDATA_PATH" "$METADATA_PATH" "$DOMAIN_XML_PATH"
 }
 
 check_host() {
