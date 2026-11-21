@@ -32,6 +32,9 @@ One finding shape serves both a learning session and config-only analysis (`conf
 - **A harden move writes two scopes.** A static secret wrongly committed in the project scope is removed from the
   project config and added at the per-slug user scope; the removal is harden's "reduce" contract, which the
   proposal never invokes. Both writes are trust-gated and applied together (or neither).
+- **A write shadowed by a flag or environment variable is reported, not written.** A per-slug config write is also
+  skipped when a CLI flag or environment variable supplies that key (`resourceproposal.ShadowSource`), since a value
+  written there would not take effect; it is reported like the project-owned case.
 
 ## The credential store
 
@@ -39,7 +42,9 @@ One finding shape serves both a learning session and config-only analysis (`conf
 unconditionally on every start, so a managed file that carries a login entry the agent refreshed in the sandbox
 would destroy it. The copy-back therefore never targets a file the agent refreshes, and never adds a `home:` or
 provision rule for the credential store. Static secrets go to `env.secret.yaml` and appear as placeholders in the
-managed agent config; login entries stay only in the persistent sandbox home.
+managed agent config; login entries stay only in the persistent sandbox home. The secret writer never persists a spec
+with an empty value or with neither hosts nor an explicit dangerous flag — `BuildSecretsFromSpecs` would drop it — so
+a finding that cannot produce a provisionable spec writes nothing.
 
 ## The agent-config write-back
 
@@ -85,7 +90,11 @@ in its config needs its **native env indirection** instead — kimi reads no key
 accepts `api_key_env = "<ENVVAR>"`, so the write-back emits that form, and msb puts the placeholder into the named
 env var. An assignment whose key is already the env-var name — an env-table entry such as `KIMI_API_KEY = "…"` —
 keeps its key and takes `${ENVVAR}` instead: that name is what the harness reads. Which form a harness needs is a
-per-harness property of the write-back, not of the finding.
+per-harness property of the write-back, not of the finding. The placeholder is explicit (`envsecret.PlaceholderFor`)
+because the runtime's default placeholder is generated and cannot be referenced from a config file, so the launcher
+names one and records the same string on the secret's `env.secret.yaml` entry. Re-applying the write-back is
+idempotent — identical content yields an identical file — and a decline is remembered by evidence hash like any other
+finding.
 
 ## Attribution and the network diff
 
@@ -100,7 +109,10 @@ per-harness property of the write-back, not of the finding.
 - **Network changes are proposed as a diff**: `network.profile = none` plus `network.egress-allow` set to the
   current allow set **∪** the observed-and-used destinations, where observed-and-used means a destination the
   session reached successfully and that was not denied. It never widens: no current allow entry is removed and no
-  denied destination enters the allow set. Denied destinations are reported separately and never auto-allowed.
+  denied destination enters the allow set. Denied destinations are reported separately and never auto-allowed. The
+  diff's *current* allow set is the user's policy **before** the channel overlay is applied: the overlay injects the
+  observation proxy's address and its upstream CA only so the session can be observed, so neither is ever fed back as
+  a proposed egress entry nor written to the user's config.
 - The applied network policy is creation-only, so it takes effect at the next VM creation through the existing
   recreate path; the proposal states that.
 
@@ -111,10 +123,13 @@ per-harness property of the write-back, not of the finding.
   top-level accept-all, never `--yes`); Not now writes nothing and records nothing.
 - Applying is interactive and per finding, and a finding's writes each name their own scope and are applied together
   (a move applies both writes or neither). A decline is remembered, keyed on a hash of the evidence, and re-armed
-  when the evidence changes. The record lives in the user state dir, keyed by repo slug, so it survives a config-dir
-  reset and is shared by clones.
-- A non-interactive run writes no proposal and prints one line naming the command that produces it. A dry run
-  records nothing and proposes nothing.
+  when the evidence changes. The hash is canonical — list fields are sorted — so it is stable across runs for the
+  same observation and changes with any evidence change. The record lives in the user state dir, keyed by repo slug,
+  so it survives a config-dir reset and is shared by clones.
+- A non-interactive run writes no proposal and prints one line naming the command that produces it. `--learn` is
+  refused together with `--serve-only` at option resolution (a learning session attaches a TUI). A `--dry-run` returns
+  before the channel starts, and a `--dry-run-vm` prepares but skips the VM, so neither writes a session record or runs
+  the after-run.
 
 ## After-run ownership
 

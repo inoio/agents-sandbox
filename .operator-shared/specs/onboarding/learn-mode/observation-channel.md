@@ -149,7 +149,9 @@ so the analyser attributes a header to a configured secret by falling back to `r
 
 The artefact stays on the host, is deleted after analysis by default, and is never uploaded. It is secret material
 (invariant 3). An unreviewed artefact — a session whose owning process died — is swept at the next launcher start once
-it is 30 days old.
+it is 30 days old. The artefact is uncapped: the recorder keeps one entry per distinct `(host, ip, port, path,
+protocol)` for the whole session and `Save`/`Load` impose no size bound, so a session that generates many distinct
+paths can grow the launcher's memory and write a large file under the user state dir.
 
 ## Prerequisites and constraints
 
@@ -171,7 +173,9 @@ when other clients are attached — with the prompt naming the temporary observa
 never written for the overlay. If the observation channel cannot start, the run continues as a passive read-back
 session, which establishes facts 1–3 and proposes no network change. It can still propose a static secret whose
 endpoint the entry's own config names (the config-entry fallback in [findings and apply](findings-and-apply.md)),
-since that needs no attribution.
+since that needs no attribution. The launcher records the overlay's fingerprint as the running VM's network state, so
+the first ordinary run after a learning session sees the overlay gone and recreates the VM again through the same
+path.
 
 ## Open validation
 
@@ -184,7 +188,9 @@ what the proposal may claim until it is closed:
   and bypasses the sandbox egress policy — a temporary widening, so S7 must either compose the base policy onto the
   proxy's dial or explicitly announce and accept it.
 - **QUIC/HTTP3 bypass** — with the proxy active, only TCP consumers were tested; a QUIC client may reach the network
-  directly, so the learned destination set is authoritative for TCP, not exhaustive.
+  directly, so the learned destination set is authoritative for TCP, not exhaustive. The set could later be made
+  exhaustive by blocking QUIC (`TLSConfig.BlockQUIC`) and by an explicit intercepted-port list; both are deliberately
+  out of scope today.
 - **Certificate pinning** — no pinning client was available to test, so the fallback to config-derived attribution
   is used with a warning, unverified.
 - **`msb-trust java` / `chrome`** — the base image has neither, so the Java/Chrome trust imports are unverified.

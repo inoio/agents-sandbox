@@ -45,6 +45,9 @@ can hold. An inline key the walk does not recognise would otherwise reach the ma
 its shape is covered: `grok-build` declares `~/.grok/auth.json` only, withholding `~/.grok/config.toml` because its
 `[model.<id>] api_key` is not classified yet (the `codex` precedent, which omits its own `config.toml`).
 
+An agent whose profile declares no read-back — unknown, or a harness whose layout is not yet verified — yields an empty
+manifest and an empty read-back, never an error and never a false "no credentials" result.
+
 Facts 1–3 come from reading the home volume. It also gives configured providers, login presence, and
 harness-specific host and error mentions where the harness happens to record them (usually failure paths, and never
 as reliable attribution). It does not give the destinations actually used, or which credential went where; alone it cannot propose a network
@@ -56,7 +59,9 @@ Reading a credential is not always reading a dotenv file. A harness may keep its
 must therefore parse the agent's database and walk its config files, not only its `.env`. The spike verified the
 database shape for opencode2 alone: `~/.config/opencode/` is empty, and the API key sits inline in
 `~/.local/share/opencode/opencode.db` (SQLite), table `credential` (`integration_id`, `label`, `active`), column
-`value` = JSON `{"type":"key","key":"…"}` — a static key, not a login. Its sessions and transcripts are in the same
+`value` = JSON `{"type":"key","key":"…"}` — a static key, not a login. The row's `value.type` discriminates them:
+`key` is a static credential whose `key` field is read; any other type (`oauth`) is a login whose value is not read
+out. Its sessions and transcripts are in the same
 DB, with prompt history and small state files under `~/.local/state/opencode/` and its log under
 `~/.local/share/opencode/log/`. The other harnesses' layouts are unverified.
 
@@ -82,7 +87,9 @@ is not a scan of the home volume.
 UC2's file-attributed detection will need a baseline from an ordinary run too, refreshed at the end of every run once
 that detection lands. A manifest must expect large, frequently-changing files inside a config
 dir — opencode2's `opencode.db` is ~13 MB, almost all of it a churny model catalog — so a whole-file hash changes
-often and only a changed entry is evidence, not every refreshed line.
+often and only a changed entry is evidence, not every refreshed line. A credential-probe entry carries neither size
+nor mtime and is compared on its row digest alone; that digest covers only the rows the probe selected, never the
+store file, so a catalog change does not fire it.
 
 ## Open validation
 
