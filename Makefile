@@ -329,9 +329,12 @@ surface-sweep-test:
 	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -count=1 ./test/scripts/ -run SurfaceSweep
 
 # Run the default suite in a hermetic envelope: a module copy outside any git
-# checkout and a scrubbed environment. See specs/testing/test-isolation.md.
+# checkout and a scrubbed environment, with the host-figure sentinel pass (which
+# macOS relies on, since it has no network namespace). See
+# specs/testing/test-isolation.md.
 test-scrubbed:
 	./scripts/hermetic-envelope.sh -- make test
+	./scripts/hermetic-envelope.sh --sentinel -- make test
 
 # Strict envelope: adds a network namespace with only loopback (Linux).
 # Runs the suite as uid 0, so a test must not depend on the effective uid.

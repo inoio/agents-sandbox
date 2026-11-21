@@ -16,6 +16,8 @@ const SentinelEnv = "AGENTS_SANDBOX_HERMETIC_SENTINEL"
 // InstallSentinelsFromEnv pins the host-figure seams to values deliberately
 // different from any host when SentinelEnv is set, and is a no-op otherwise. A
 // test that reads a real host figure rather than the seam then fails.
+//
+//deadcode:ignore reason="test support: called only by mocks.InitFailFastMocks and notify's TestMain"
 func InstallSentinelsFromEnv() {
 	if os.Getenv(SentinelEnv) == "" {
 		return
