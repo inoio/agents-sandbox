@@ -57,10 +57,19 @@ type hostProbe struct {
 	name         string
 }
 
+// hostProbeCalls lists the known host-figure readers a test must not call
+// directly. Both the raw `sysinfo` reads and the seam accessors above them —
+// `hostfigures.*` and `sandbox/vm.BootMaxMemoryMiB` — are listed: a direct call
+// still resolves the seam's host default unless the test pins it, so it makes the
+// test depend on the runner's hardware just as a raw read does. `vm` stays listed
+// to keep a cross-package (non-sysinfo) case in the scanner fixture.
 var hostProbeCalls = []hostProbe{
 	{importSuffix: "/internal/sysinfo", name: "NumCPUs"},
 	{importSuffix: "/internal/sysinfo", name: "TotalMemoryGiB"},
 	{importSuffix: "/internal/sysinfo", name: "AvailableMemoryMiB"},
+	{importSuffix: "/internal/hostfigures", name: "NumCPUs"},
+	{importSuffix: "/internal/hostfigures", name: "TotalMemoryGiB"},
+	{importSuffix: "/internal/hostfigures", name: "AvailableMemoryMiB"},
 	{importSuffix: "/internal/sandbox/vm", name: "BootMaxMemoryMiB"},
 }
 
@@ -507,6 +516,18 @@ import (
 func TestX(t *testing.T) { _ = vm.BootMaxMemoryMiB() }
 `,
 			want: []string{"vm.BootMaxMemoryMiB"},
+		},
+		{
+			name: "a host-figure seam accessor read is flagged",
+			file: `package example
+import (
+	"testing"
+
+	"example.com/mod/internal/hostfigures"
+)
+func TestX(t *testing.T) { _ = hostfigures.TotalMemoryGiB() }
+`,
+			want: []string{"hostfigures.TotalMemoryGiB"},
 		},
 		{
 			name: "a marker sanctions a host-probe read",

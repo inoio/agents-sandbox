@@ -21,6 +21,10 @@
 #                   is loopback, so everything else egresses nowhere (Linux
 #                   only; needs unshare and ip). Fails loudly when unavailable
 #                   rather than silently degrading to a scrubbed run.
+#   --sentinel      Set the host-figure sentinel env var, so the fail-fast mocks
+#                   pin the host-figure seams to non-host values and a test that
+#                   still reads the real host figures fails. See
+#                   specs/testing/test-isolation.md.
 #   --keep          Keep the work dir on exit (default: remove it).
 #   --print         Print the plan (work dir, environment, command) and exit
 #                   without running anything.
@@ -35,10 +39,11 @@ work_dir=""
 keep=0
 print_only=0
 netns=0
+sentinel=0
 command=()
 
 usage() {
-  sed -n '3,29p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '3,33p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 while (( $# > 0 )); do
@@ -52,6 +57,7 @@ while (( $# > 0 )); do
     --keep) keep=1; shift ;;
     --print) print_only=1; shift ;;
     --netns) netns=1; shift ;;
+    --sentinel) sentinel=1; shift ;;
     --) shift; command=("$@"); break ;;
     -h|--help) usage; exit 0 ;;
     *) echo "test-envelope: unknown option: $1" >&2; usage >&2; exit 2 ;;
@@ -130,6 +136,13 @@ env_args=(
   "LANG=${LANG:-C.UTF-8}"
   "TZ=${TZ:-UTC}"
 )
+
+# The sentinel pass pins the host-figure seams to non-host values, so a test that
+# still reads the real host figures fails. The var is not passed otherwise, so a
+# scrubbed/normal run reads whatever TestMain pinned.
+if (( sentinel )); then
+  env_args+=("AGENTS_SANDBOX_HERMETIC_SENTINEL=1")
+fi
 
 run_command=("${command[@]}")
 if (( netns )); then

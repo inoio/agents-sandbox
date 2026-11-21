@@ -1,6 +1,6 @@
 ---
-description: Contract for keeping tests off real host state - where test doubles and fail-fast installers live (the `<pkg>/<name>test` test-support subpackages), the fail-fast seam mocks installed by every test package's TestMain, the external-TestMain rule, the file-scope vs declaration-scope `//deadcode:ignore` policy, the host-home redirect in WithMockConfigPaths, the seam import-chain exceptions, the msb-tagged isolated runtime home and its stop-then-remove sandbox teardown, the rule that seam overrides must be restored so the suite stays idempotent under -count>1, the trap that a dependency memoizing an environment variable (docker/cli `config.Dir()`) is not isolated by t.Setenv, the absolute-write-root invariant that guards every state/config write funnel at the consumer so an unresolved root cannot write relative to the process CWD, and the hermetic envelope (`make test-scrubbed`/`test-hermetic`) with its uid-0 strict tier.
-read_if: Adding a test package, a test double, or a TestMain; deciding where a test double or fail-fast installer lives; debugging a test that reads or writes real host state (config, home, docker, msb, doctor), an msb-tagged test that leaks a sandbox/VM, a test that passes at -count=1 but fails under -count>1, or a state/config/lock write that must reject a path that did not resolve to an absolute root; the hermetic envelope targets (`make test-scrubbed`/`test-hermetic`) or a failure only the scrubbed/uid-0 run sees; or when a test's DOCKER_CONFIG/HOME no longer reaches docker/cli's config loading.
+description: Contract for keeping tests off real host state - where test doubles and fail-fast installers live (the `<pkg>/<name>test` test-support subpackages), the fail-fast seam mocks installed by every test package's TestMain, the external-TestMain rule, the file-scope vs declaration-scope `//deadcode:ignore` policy, the host-home redirect in WithMockConfigPaths, the seam import-chain exceptions, the msb-tagged isolated runtime home and its stop-then-remove sandbox teardown, the rule that seam overrides must be restored so the suite stays idempotent under -count>1, the trap that a dependency memoizing an environment variable (docker/cli `config.Dir()`) is not isolated by t.Setenv, the absolute-write-root invariant that guards every state/config write funnel at the consumer so an unresolved root cannot write relative to the process CWD, the hermetic envelope (`make test-scrubbed`/`test-hermetic`) with its uid-0 strict tier, the host-figure seam (`internal/hostfigures`) shared by `vm`/`prepare`/`session`, and the `--sentinel` pass that pins the host RAM/CPU/available-memory figures to non-host sentinels.
+read_if: Adding a test package, a test double, or a TestMain; deciding where a test double or fail-fast installer lives; debugging a test that reads or writes real host state (config, home, docker, msb, doctor), an msb-tagged test that leaks a sandbox/VM, a test that passes at -count=1 but fails under -count>1, or a state/config/lock write that must reject a path that did not resolve to an absolute root; the hermetic envelope targets (`make test-scrubbed`/`test-hermetic`) or a failure only the scrubbed/uid-0 run sees; when a test's DOCKER_CONFIG/HOME no longer reaches docker/cli's config loading; or when a test depends on the host's RAM or CPU count, or a host-figure read (`--sentinel`) must be pinned or seamed.
 ---
 
 # Test isolation
@@ -75,10 +75,10 @@ Add a `main_test.go` with such a `TestMain` to every new package that has tests;
 
 A test double or a fail-fast installer never ships in the production import graph. Each lives in a
 `<pkg>/<name>test` subpackage beside the package it supports — `configpathstest`, `dockertest`, `doctortest`,
-`msbtest` (with its `msbtest/runtime` isolation-helpers leaf), `notifytest`, `openertest`, `termiotest` — so the
-shipped binary links neither `testing` nor the double. The subpackage name is the package name plus `test` (for
-example `configpaths` → `configpathstest`, `termio` → `termiotest`). The central doubles keep the `testmock*.go`
-file name the Codecov glob and the lint path rule match, except `termiotest`, whose double is `mock.go`.
+`hostfigurestest`, `msbtest` (with its `msbtest/runtime` isolation-helpers leaf), `notifytest`, `openertest`,
+`termiotest` — so the shipped binary links neither `testing` nor the double. The subpackage name is the package name
+plus `test` (for example `configpaths` → `configpathstest`, `termio` → `termiotest`). The central doubles keep the
+`testmock*.go` file name the Codecov glob and the lint path rule match, except `termiotest`, whose double is `mock.go`.
 
 Two shapes. A **sibling double** — a `<pkg>/<name>test` subpackage — supports exactly one production
 package (the marker and `TestMain` rules below). **Shared test infrastructure** — the pty driver, the
@@ -217,9 +217,10 @@ The gate covers these known direct forms:
 - `exec.Command`/`CommandContext` of an absolute-path literal (the existing ambient-tool check in
   `real_command_contract_test.go` still covers `docker`/`gh`/`git`/`gpg`/`msb`/`ssh`, and a shell interpreter is
   allowed there);
-- a known host-figure read — `sysinfo.NumCPUs`/`TotalMemoryGiB`/`AvailableMemoryMiB` and
-  `sandbox/vm.BootMaxMemoryMiB` (`hostProbeCalls`) — because such a read makes the test depend on the runner's
-  hardware.
+- a known host-figure read — the raw `sysinfo.NumCPUs`/`TotalMemoryGiB`/`AvailableMemoryMiB`, the seam accessors
+  `hostfigures.NumCPUs`/`TotalMemoryGiB`/`AvailableMemoryMiB`, and `sandbox/vm.BootMaxMemoryMiB` (`hostProbeCalls`) —
+  because a direct call resolves the seam's host default unless the test pins it, so it makes the test depend on the
+  runner's hardware just as a raw read does.
 
 The scan is a source heuristic over known direct selector calls, not a proof of isolation. It does not see method
 forms (`net.Dialer.Dial`, `net.DefaultResolver.LookupHost`, `net.ListenTCP`), an `http` client, `os.UserHomeDir`
@@ -227,6 +228,28 @@ forms (`net.Dialer.Dial`, `net.DefaultResolver.LookupHost`, `net.ListenTCP`), an
 Those stay a review responsibility; the gate guards against the common direct form regressing.
 
 `TestAmbientEnvironmentUses` pins the scanner and the marker semantics.
+
+## Host-figure seams and the sentinel pass
+
+A production read of a host figure (installed RAM, CPU count, available memory) is invisible to the ambient gate,
+which sees only a test's direct call. The reads live behind one seam, `internal/hostfigures`: `vm`'s boot RAM and CPU
+defaults, `prepare`'s available-memory read, and `session`'s two reads all go through it. The gate still flags a direct
+read of the raw `sysinfo` functions or of the seam accessors in a default-suite test — the seam is the fix, and the gate
+keeps a new direct read from reappearing.
+
+The seam alone cannot falsify a remaining host read (the envelope's copy leaves the host figures unchanged), so the
+envelope runs a second, **sentinel pass** (`--sentinel`): it sets `AGENTS_SANDBOX_HERMETIC_SENTINEL`, and the fail-fast
+installer a test binary runs pins the seams through `hostfigurestest.InstallSentinelsFromEnv` to non-host sentinels
+(RAM 1 GiB, CPUs 1, 1 MiB available). Every TestMain that installs a fail-fast family installs the sentinel too —
+`mocks.InitFailFastMocks` for the packages that can import it, and the hand-mirrored TestMains (which install families
+directly because the wrapper cannot reach them) call `hostfigurestest.InstallSentinelsFromEnv` themselves; two contract
+tests keep both wired. `test-scrubbed` (the floor, on macOS too) and `test-hermetic` (the strict tier) each run a
+normal pass then the sentinel pass, and `test-hermetic-sentinel` runs the strict sentinel pass alone. A test that still
+derives an expected value from the real host figures then fails; a test that pins the value it asserts against, or
+compares seam to seam, passes. The leaf's own wiring test asserts the defaults are the `sysinfo` functions by qualified
+name, so it reads no host figure and needs no `//testenv:allow`. The sentinel is read in `TestMain`, before Go's
+test-cache log records env reads, so a run that sets it must pass `-count=1`; the `test` target forces it, and the
+envelope already does.
 
 ## Deliberate real-state reads
 
