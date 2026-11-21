@@ -18,6 +18,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
+	"github.com/inoio/agents-sandbox/internal/hostfigures"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
@@ -817,7 +818,7 @@ func TestCreateProjectVMConfiguresTheVM(t *testing.T) {
 			name: "defaults",
 			opts: options.RunOptions{Memory: "1G"},
 			check: func(t *testing.T, spec msb.SandboxSpec) {
-				hostCPUs := numCPUs()
+				hostCPUs := hostfigures.NumCPUs()
 				if spec.CPUs != hostCPUs || spec.MaxCPUs != hostCPUs {
 					t.Errorf("CPUs/MaxCPUs = %d/%d, want the pinned %d", spec.CPUs, spec.MaxCPUs, hostCPUs)
 				}
@@ -839,7 +840,7 @@ func TestCreateProjectVMConfiguresTheVM(t *testing.T) {
 			name: "configured CPUs",
 			opts: options.RunOptions{Memory: "1G", CPUs: 1},
 			check: func(t *testing.T, spec msb.SandboxSpec) {
-				hostCPUs := numCPUs()
+				hostCPUs := hostfigures.NumCPUs()
 				if spec.CPUs != 1 || spec.MaxCPUs != hostCPUs {
 					t.Errorf("CPUs/MaxCPUs = %d/%d, want 1/%d", spec.CPUs, spec.MaxCPUs, hostCPUs)
 				}
@@ -1332,9 +1333,20 @@ func assertInfoCall(t *testing.T, ui *termiotest.Mock, wantSubstr string) {
 // TestBootMaxMemoryMiBIsThePinnedRAM pins the boot maximum a project VM is
 // created with: the seam's installed RAM in whole GiB, never zero.
 func TestBootMaxMemoryMiBIsThePinnedRAM(t *testing.T) {
-	want := options.ParseMemoryGiB(uint32(totalMemoryGiB()))
+	want := options.ParseMemoryGiB(uint32(hostfigures.TotalMemoryGiB()))
 	if got := BootMaxMemoryMiB(); got == 0 || got != want {
 		t.Errorf("BootMaxMemoryMiB = %d, want the pinned RAM %d MiB", got, want)
+	}
+}
+
+// TestBootMaxMemoryMiBMapsTheSeam pins that the boot maximum derives from the
+// host-figure seam through the MiB conversion, so pinning the seam moves it.
+func TestBootMaxMemoryMiBMapsTheSeam(t *testing.T) {
+	restore := hostfigures.OverrideTotalMemoryGiBForTest(func() int { return 32 })
+	t.Cleanup(restore)
+
+	if got, want := BootMaxMemoryMiB(), options.ParseMemoryGiB(32); got != want {
+		t.Errorf("BootMaxMemoryMiB = %d, want %d", got, want)
 	}
 }
 

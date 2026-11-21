@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
+	"github.com/inoio/agents-sandbox/internal/hostfigures/hostfigurestest"
 	"github.com/inoio/agents-sandbox/internal/notify/notifytest"
 	"github.com/inoio/agents-sandbox/internal/opener/openertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
@@ -23,6 +24,9 @@ func InitFailFastMocks(m *testing.M) {
 	notifytest.InstallFailFast()
 	// gomutants:disable-next-line STATEMENT_REMOVE reason="reachable only through another package's TestMain: InitFailFastMocks calls m.Run() after this, so no test inside this package can invoke it; the installed seam (openertest.InstallFailFast) is itself covered by the openertest tests"
 	openertest.InstallFailFast()
+	// Pin the host-figure seams to sentinels under the hermetic sentinel pass, so
+	// a test that still reads the real host figures fails.
+	hostfigurestest.InstallSentinelsFromEnv()
 	// gomutants:disable-next-line STATEMENT_REMOVE reason="the wrapper is reachable only through TestMain, so removing m.Run() returns 0 with zero tests run and the package still reports ok: no assertion inside the test binary can reach this statement, and nothing asserts the process exit status"
 	m.Run()
 }

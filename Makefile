@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-cold test-msb-reuse compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic envelope-test check check-test verify print-check-targets check-local-changes check-branch-changes check-selected changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test backport-audit-test open-backport-pr-test event-base-test classify-changes-test brain-check brain-check-test shellcheck docs-serve
+.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-cold test-msb-reuse compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic test-hermetic-sentinel envelope-test check check-test verify print-check-targets check-local-changes check-branch-changes check-selected changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test backport-audit-test open-backport-pr-test event-base-test classify-changes-test brain-check brain-check-test shellcheck docs-serve
 
 VERSION ?= dev
 
@@ -338,6 +338,13 @@ test-scrubbed:
 # See specs/testing/test-isolation.md.
 test-hermetic:
 	./scripts/hermetic-envelope.sh --netns -- make test
+	./scripts/hermetic-envelope.sh --netns --sentinel -- make test
+
+# The sentinel pass alone: the strict envelope with the host figures pinned to
+# non-host sentinels, so a test that still reads the real host figures fails.
+# See specs/testing/test-isolation.md.
+test-hermetic-sentinel:
+	./scripts/hermetic-envelope.sh --netns --sentinel -- make test
 
 # Test the hermetic envelope driver itself (fixtures only: never touches this repo).
 envelope-test:

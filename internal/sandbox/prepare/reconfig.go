@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/hostfigures"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -297,7 +298,7 @@ func detectAndOfferMemoryRaise(
 	if live.config != nil {
 		currentMiB = live.config.MemoryMiB
 	}
-	hostAvailableMiB, hostAvailableKnown := hostAvailableMemoryMiB()
+	hostAvailableMiB, hostAvailableKnown := hostfigures.AvailableMemoryMiB()
 	return resourceproposal.DetectAndOfferMemoryRaise(
 		ctx, k, live.handle, hs.ResourcePressure,
 		resourceproposal.MemoryLimits{

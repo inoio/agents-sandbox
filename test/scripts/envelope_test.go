@@ -326,6 +326,25 @@ func TestEnvelope(t *testing.T) {
 	})
 }
 
+// TestEnvelopeSentinelEnv pins that the sentinel env var reaches the child only
+// when --sentinel is passed: the sentinel pass pins the host-figure seams, and a
+// scrubbed run must not inherit the pin.
+func TestEnvelopeSentinelEnv(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	fixture := envelopeFixture(t, filepath.Join(root, "base"))
+
+	plain := runEnvelope(t, root, nil, "--source", fixture, "--print")
+	assertStatus(t, plain, 0)
+	if strings.Contains(plain.Stdout, "AGENTS_SANDBOX_HERMETIC_SENTINEL") {
+		t.Errorf("plain print names the sentinel env:\n%s", plain.Stdout)
+	}
+
+	pinned := runEnvelope(t, root, nil, "--source", fixture, "--sentinel", "--print")
+	assertStatus(t, pinned, 0)
+	assertContains(t, "stdout", pinned.Stdout, "env AGENTS_SANDBOX_HERMETIC_SENTINEL=1")
+}
+
 // envelopeFixture writes the bash harness's new_fixture module: a Makefile whose
 // test target runs check.sh, and a check.sh that reports the scrubbed
 // environment and writes a marker into its working directory. It returns the
