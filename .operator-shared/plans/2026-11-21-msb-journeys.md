@@ -39,6 +39,8 @@ Input classes and failure modes the spec implies but no task's tests pin by defa
 
 ## Phase 0 — Host-side KVM-guest tooling (new scope)
 
+> **Status: landed and host-validated.** Tasks 1–3 are implemented on `feat/793-msb-journeys`; the guest boots Ubuntu, reaches a DHCP lease, and `make kvm-ssh` works. Deviations from the step text below (an added `render` subcommand; x86_64-only; a cached base image in `/var/lib/libvirt/images/agents-sandbox`; Ubuntu as the default image; the `firewall` subcommand targeting INPUT + DOCKER-USER; `KVM_RUN` defaulting to `make test-msb` until the journeys target exists in Phase 3) are documented in `.operator-shared/guides/kvm-guest.md` and the commits. To be finished only by push + PR on user approval (the changelog slug `797` must become the real PR number).
+
 **Why:** `/dev/kvm` does not work in the agents-sandbox dev VM, so the `msb` suites can only run on a KVM host. The repo has no provisioning story; this phase commits a libvirt + cloud-init provisioner and make targets so a human can build the guest and run the suites inside it repeatably. The guest *is* the KVM host: the launcher runs directly in it (never inside an agents-sandbox VM), and the microsandbox VMs it creates are nested.
 
 ### Task 1: `scripts/kvm-guest.sh` — libvirt guest provisioner + runner
