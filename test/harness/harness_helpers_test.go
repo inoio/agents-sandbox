@@ -159,7 +159,7 @@ func harnessConcurrencyFor(freeMiB int) int {
 }
 
 // harnessRunArgs is the `run` invocation a harness smoke subtest drives: the
-// agent and network under test, the smoke memory cap, and --yes.
+// agent and network under test, the smoke memory cap, --yes, and --no-rebuild.
 //
 // --yes makes the launcher non-interactive, which is what keeps the first-run
 // onboarding menu (internal/firstrun) from blocking the pty: termio treats
@@ -167,10 +167,24 @@ func harnessConcurrencyFor(freeMiB int) int {
 // as a plain run with no learning session and no host-config provisioning. A
 // run without it would sit at "How would you like to set up this checkout?"
 // until the readiness wait times out and the harness never starts.
+//
+// --no-rebuild reuses the image the suite already prebuilt and skips the agent
+// upgrade check. The check runs against the run's fresh machine-global root
+// state, so its once-a-day window is always expired and each harness would
+// re-resolve its agent's latest release; for the GitHub-backed agents that
+// spends the shared anonymous 60-requests/hour api.github.com budget the suite
+// as a whole has to stay under.
 func harnessRunArgs(name, network string) []string {
 	return []string{
-		"run", "--agent", name, "--network", network, "--memory", smokeMemorySpec(), "--yes",
+		"run", "--agent", name, "--network", network, "--memory", smokeMemorySpec(), "--yes", "--no-rebuild",
 	}
+}
+
+// dockerStorageShellArgs is the `shell` invocation the docker-storage sibling
+// subtest drives: a docker-enabled opencode VM under the given network. It
+// carries --no-rebuild for the same reason harnessRunArgs does.
+func dockerStorageShellArgs(network string) []string {
+	return []string{"shell", "--agent", "opencode", "--docker", "--network", network, "--no-rebuild"}
 }
 
 // msbHomeUnderRoot is the private microsandbox home a suite root derives.
@@ -604,6 +618,29 @@ func isolatedEnv(root, homeBase string, inherited []string) []string {
 		"XDG_CACHE_HOME="+filepath.Join(homeBase, cacheDirName),
 		"TMPDIR="+filepath.Join(homeBase, tmpDirName),
 	)
+}
+
+// smokeGitHubTokenEnvVars are the environment variables the smoke suite reads a
+// GitHub API token from, in the launcher's precedence order (GH_TOKEN wins over
+// GITHUB_TOKEN, matching internal/agent's githubToken).
+var smokeGitHubTokenEnvVars = []string{"GH_TOKEN", "GITHUB_TOKEN"}
+
+// withGitHubToken appends the environment's GitHub API token, when one is set, to
+// a prebuild child's env. The prebuild's `build` resolves each unpinned agent's
+// latest release, and the GitHub-backed agents' requests would otherwise share
+// the anonymous 60-requests/hour api.github.com limit; the token lifts them to
+// the authenticated limit. It is a deliberate exception to isolatedEnv's
+// allowlist — the launcher sends the token only to api.github.com (never into a
+// VM, whose secrets come from config files), so keeping it host-side does not
+// weaken the isolation. An absent token leaves env unchanged: the launcher falls
+// back to anonymous access.
+func withGitHubToken(env, inherited []string) []string {
+	for _, name := range smokeGitHubTokenEnvVars {
+		if value := envValue(inherited, name); value != "" {
+			return append(env, name+"="+value)
+		}
+	}
+	return env
 }
 
 // prepareHome creates the per-harness home tree isolatedEnv points the child at:

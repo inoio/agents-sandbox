@@ -51,6 +51,15 @@ under `assumeYes`), so `firstrun.Prompt` warns and skips the menu; the run proce
 learning session. The warning line is harmless and unreserved. The menu itself is exercised by the
 `cmd/agents-sandbox` first-run tests; the smoke suite only needs it out of the way.
 
+**`--no-rebuild` keeps the runs off the release-resolution endpoints.** Both the harness `run` and the docker-storage
+`shell` pass `--no-rebuild`. The suite prebuilt every image, so the flag cannot change what is built; what it removes is
+the agent upgrade check. That check runs against the run's isolated root state (`XDG_STATE_HOME` is per run), so its
+once-a-day window is always expired and every harness would otherwise re-resolve its agent's newest release. For the five
+GitHub-backed agents (`opencode`, `codex`, `goose`, `hermes`, `oh-my-pi`) those lookups share the anonymous
+60-requests/hour `api.github.com` budget, which the suite has to stay under. The prebuild's `build` still resolves an
+unpinned version, so the suite pays that budget once per GitHub-backed agent there — authenticated when the environment
+carries a GitHub token (see Isolation).
+
 **The isolated launcher config turns host-config provisioning on.** `provision-host-config` is opt-in since the
 first-run change (default off), so a `SeedHomeFiles` seed — written under the isolated HOME for the agent's
 `ProvisionRules` to copy — would never reach the VM, and the harness would stop at its own first-run setup. So every
@@ -216,6 +225,12 @@ configuration or state. Each run creates one temp root, shared by all subtests, 
   docker endpoint the runner-image build needs and hold no agents-sandbox config or state, so keeping them
   does not weaken the isolation — and the docker preflight runs under the same isolated environment, before
   any image build, so it can never certify a daemon the child cannot reach;
+- the **prebuild** env additionally carries the environment's GitHub API token when one is set (`withGitHubToken`,
+  `GH_TOKEN` then `GITHUB_TOKEN`, matching the launcher's precedence). The prebuild's `build` resolves each unpinned
+  agent's latest release, and the GitHub-backed agents' requests would otherwise share the anonymous
+  60-requests/hour `api.github.com` limit. The launcher sends the token only to `api.github.com` — never into a VM,
+  whose secrets come from config files — so keeping it host-side does not weaken the isolation. The harness runs and the
+  docker-storage `shell` do not carry it: `--no-rebuild` leaves them nothing to resolve;
 - the child gets a sized terminal — the parent's window when the test process has a tty, else 40×120 — so a
   full-screen TUI does not render into a zero-column terminal;
 - the working directory is a temp project dir, so project config and the derived slug are throwaway;

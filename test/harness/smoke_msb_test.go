@@ -388,14 +388,16 @@ func prebuildImages(t *testing.T, root string) {
 // throwaway project directory its subtest will run from, so the project slug
 // and agent identity match. The builds run up to prebuildConcurrency at a time;
 // the isolated home pays for the microsandbox runtime install here, outside any
-// harness's TUI budget.
+// harness's TUI budget. The env carries the environment's GitHub token when one
+// is set, so its release resolutions authenticate.
 func buildHarnessImages(t *testing.T, root string) error {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), prepareTimeout)
 	defer cancel()
 
-	env := isolatedEnv(root, root, os.Environ())
+	inherited := os.Environ()
+	env := withGitHubToken(isolatedEnv(root, root, inherited), inherited)
 	pairs := suiteProjectAgents()
 	for _, pair := range pairs {
 		if err := os.MkdirAll(projectDir(root, pair.Project), 0o755); err != nil {

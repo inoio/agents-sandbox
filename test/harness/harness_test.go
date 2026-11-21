@@ -1048,12 +1048,71 @@ func TestHarnessConcurrencyForFreeMemory(t *testing.T) {
 }
 
 // TestHarnessRunArgsCapTheSmokeMemory pins that a harness smoke run boots its VM
-// at the smoke memory, not the launcher's larger default, and passes --yes so
-// the launcher's first-run setup menu never blocks the pty before the harness.
+// at the smoke memory, not the launcher's larger default, passes --yes so the
+// launcher's first-run setup menu never blocks the pty before the harness, and
+// passes --no-rebuild so the run reuses the suite's prebuilt image without the
+// agent upgrade check (which, against the run's fresh machine-global state,
+// re-resolves each agent's latest release every run).
 func TestHarnessRunArgsCapTheSmokeMemory(t *testing.T) {
 	got := harnessRunArgs("opencode", "none")
-	want := []string{"run", "--agent", "opencode", "--network", "none", "--memory", smokeMemorySpec(), "--yes"}
+	want := []string{
+		"run",
+		"--agent",
+		"opencode",
+		"--network",
+		"none",
+		"--memory",
+		smokeMemorySpec(),
+		"--yes",
+		"--no-rebuild",
+	}
 	if !slices.Equal(got, want) {
 		t.Errorf("harnessRunArgs = %v, want %v", got, want)
+	}
+}
+
+// TestDockerStorageShellArgsReuseThePrebuiltImage pins that the docker-storage
+// sibling's `shell` reuses the suite's prebuilt image too: it drives a
+// docker-enabled opencode VM under the given network with --no-rebuild, so it
+// makes no release-resolution request.
+func TestDockerStorageShellArgsReuseThePrebuiltImage(t *testing.T) {
+	got := dockerStorageShellArgs("none")
+	want := []string{"shell", "--agent", "opencode", "--docker", "--network", "none", "--no-rebuild"}
+	if !slices.Equal(got, want) {
+		t.Errorf("dockerStorageShellArgs = %v, want %v", got, want)
+	}
+}
+
+// TestWithGitHubTokenAddsTheTokenWhenPresent pins that a prebuild child gets the
+// environment's GitHub API token, so its release-resolution requests
+// authenticate instead of sharing the anonymous api.github.com limit. GH_TOKEN
+// wins over GITHUB_TOKEN, matching the launcher's own precedence.
+func TestWithGitHubTokenAddsTheTokenWhenPresent(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		inherited []string
+		wantName  string
+		wantValue string
+	}{
+		{"gh-token", []string{"GH_TOKEN=ghp_x"}, "GH_TOKEN", "ghp_x"},
+		{"github-token", []string{"GITHUB_TOKEN=ghp_y"}, "GITHUB_TOKEN", "ghp_y"},
+		{"gh-token-wins", []string{"GH_TOKEN=ghp_x", "GITHUB_TOKEN=ghp_y"}, "GH_TOKEN", "ghp_x"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := withGitHubToken([]string{"PATH=/usr/bin"}, tc.inherited)
+			if value := envValue(got, tc.wantName); value != tc.wantValue {
+				t.Errorf("%s = %q, want %q", tc.wantName, value, tc.wantValue)
+			}
+		})
+	}
+}
+
+// TestWithGitHubTokenLeavesEnvUnchangedWhenAbsent pins that no token variable is
+// injected when the environment has none, so an anonymous host stays anonymous.
+func TestWithGitHubTokenLeavesEnvUnchangedWhenAbsent(t *testing.T) {
+	env := []string{"PATH=/usr/bin"}
+	got := withGitHubToken(env, []string{"PATH=/usr/bin"})
+	if !slices.Equal(got, env) {
+		t.Errorf("withGitHubToken = %v, want the env unchanged (%v)", got, env)
 	}
 }
