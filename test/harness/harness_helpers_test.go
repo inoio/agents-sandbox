@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -185,6 +186,38 @@ func harnessRunArgs(name, network string) []string {
 // carries --no-rebuild for the same reason harnessRunArgs does.
 func dockerStorageShellArgs(network string) []string {
 	return []string{"shell", "--agent", "opencode", "--docker", "--network", network, "--no-rebuild"}
+}
+
+// smokeVMCPUsEnv caps each smoke VM's vCPU count. Unset (the default) leaves the
+// launcher's own default, every host CPU. The KVM guest sets it: a nested guest
+// has few vCPUs next to the host, so parallel harnesses each claiming every vCPU
+// oversubscribe it and slow every VM start.
+const smokeVMCPUsEnv = "AGENTS_SANDBOX_MSB_VM_CPUS"
+
+// cpusFlag is the launcher flag a vCPU-capped smoke run appends (see
+// withVMCPUs).
+const cpusFlag = "cpus"
+
+// smokeVMCPUsFromValue parses the vCPU cap: a positive, 8-bit integer caps each
+// smoke VM; anything else (unset, zero, non-numeric, out of range) leaves the
+// launcher's default. Kept pure so it is testable without the host, like
+// harnessConcurrencyFor.
+func smokeVMCPUsFromValue(value string) uint8 {
+	n, err := strconv.ParseUint(strings.TrimSpace(value), 10, 8)
+	if err != nil || n == 0 {
+		return 0
+	}
+	return uint8(n)
+}
+
+// withVMCPUs appends the launcher's --cpus flag when cpus is non-zero, leaving
+// args unchanged otherwise, so a run with no cap set is byte-for-byte what the
+// suite has always driven.
+func withVMCPUs(args []string, cpus uint8) []string {
+	if cpus == 0 {
+		return args
+	}
+	return append(args, "--"+cpusFlag, strconv.Itoa(int(cpus)))
 }
 
 // msbHomeUnderRoot is the private microsandbox home a suite root derives.

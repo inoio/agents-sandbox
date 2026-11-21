@@ -84,6 +84,15 @@ func harnessConcurrency() int {
 	return 1
 }
 
+// smokeVMCPUs is the per-VM vCPU cap each smoke run carries, read from the
+// environment: the KVM guest sets AGENTS_SANDBOX_MSB_VM_CPUS so parallel
+// harnesses do not each claim every guest vCPU. Zero (unset or invalid) leaves
+// the launcher's own default. It reads the environment, so it lives in the
+// msb-tagged file; smokeVMCPUsFromValue holds the parsing policy.
+func smokeVMCPUs() uint8 {
+	return smokeVMCPUsFromValue(os.Getenv(smokeVMCPUsEnv))
+}
+
 // TestHarnessSmoke starts every registered harness the way a user does
 // (`agents-sandbox run --agent <name>`) inside a real microsandbox VM and
 // asserts it reaches its full-screen TUI, exits 0 on its quit key, and never
@@ -148,7 +157,7 @@ func TestHarnessSmoke(t *testing.T) {
 			ses := mustStartUnderPTY(
 				t, projectDir(root, name),
 				isolatedEnv(root, homeBase, os.Environ()),
-				append([]string{binary}, harnessRunArgs(name, network)...)...,
+				append([]string{binary}, withVMCPUs(harnessRunArgs(name, network), smokeVMCPUs())...)...,
 			)
 			if err := waitReady(ses, spec); err != nil {
 				t.Fatalf("harness %s did not reach its TUI: %v\n--- output ---\n%s", name, err, stripANSI(ses.output()))

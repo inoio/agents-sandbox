@@ -30,7 +30,7 @@ func runDockerStorageDriverSmoke(t *testing.T, root, binary string) {
 	}
 
 	ses := mustStartUnderPTY(t, dir, isolatedEnv(root, root, os.Environ()),
-		append([]string{binary}, dockerStorageShellArgs(networkNone)...)...)
+		append([]string{binary}, withVMCPUs(dockerStorageShellArgs(networkNone), smokeVMCPUs())...)...)
 	defer ses.close()
 
 	// The shell prints no startup marker, and its attach takes the terminal only

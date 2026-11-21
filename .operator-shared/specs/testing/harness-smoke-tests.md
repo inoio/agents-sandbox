@@ -30,7 +30,9 @@ The same gap means a newly registered harness has no test that it starts at all.
 **Tag and location.** The suite lives in package `test/harness/` behind the build tag `msb` (a tag names the
 runtime it requires, as `integration` names a real docker daemon). `make test-msb` runs it, together with the
 `msb`-tagged real-client tests in `internal/sandbox/msb/` (`realstack_msb_test.go`); it is not part of
-`make check`, `make test`, or the default CI. `make compile-all` compiles it (`-tags 'integration msb'`) so a
+`make check`, `make test`, or the default CI. The KVM guest's `make kvm-run` drives `make test-msb-in-vm`
+instead: the same suite with the two packages serialized (`go test -p 1`) and each smoke VM's vCPUs capped
+(see Isolation). `make compile-all` compiles it (`-tags 'integration msb'`) so a
 tagged-only compile regression is caught on every PR.
 
 **Scope of the assertion.** For every name in `agent.Names()`, the suite starts the harness the way a user does
@@ -207,7 +209,9 @@ configuration or state. Each run creates one temp root, shared by all subtests, 
   count is read via `sysinfo.AvailableMemoryMiB` (falling back to `TotalMemoryGiB`), and `AGENTS_SANDBOX_MSB_PARALLEL`
   overrides it. It is enforced by the semaphore, not `-parallel`, so even a bare `go test -tags msb ./...` cannot
   start a VM per harness; each smoke run boots its VM at `--memory` `smokeMemorySpec()` (2 GiB) instead of the
-  launcher's 4 GiB default. The working set, not the VM ceiling, sizes the count because a guest allocates only the
+  launcher's 4 GiB default, and — when `AGENTS_SANDBOX_MSB_VM_CPUS` is set (the in-guest `make test-msb-in-vm`
+  sets it) — caps vCPUs with `--cpus`, because a project VM otherwise claims every host vCPU and parallel
+  harnesses oversubscribe a nested guest. The working set, not the VM ceiling, sizes the count because a guest allocates only the
   pages it touches (virtio-mem); it tracks the heaviest harness (measured peaks under 0.5 GiB for pi, over 1 GiB for
   opencode2), so sizing on the lightest would oversubscribe the host. Each harness gets its own home base
   `<root>/runs/<name>` — created before the child starts by `prepareHome`, including its `TMPDIR`, which the launcher

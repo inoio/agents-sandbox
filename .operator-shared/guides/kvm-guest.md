@@ -28,10 +28,19 @@ make kvm-up                 # create + boot the guest; cloud-init provisions it 
 make kvm-ssh                # a shell in the guest (or: scripts/kvm-guest.sh ssh)
 make kvm-sync               # rsync this checkout into ~/agents-sandbox in the guest
 make kvm-prime              # copy the host's built runner images + msb home into the guest
-make kvm-run                # run KVM_RUN (default: make test-msb) in the guest
+make kvm-run                # run KVM_RUN (default: make test-msb-in-vm) in the guest
+make kvm-run KVM_RUN='make test-msb'          # the host variant, unchanged
 make kvm-run KVM_RUN='make test-msb-journeys'
 make kvm-down               # destroy the guest and its disk (the base image stays cached)
 ```
+
+`make kvm-run` defaults to `make test-msb-in-vm`, the in-guest variant of `make test-msb`: the same caching
+suite, with three changes that only matter on a nested guest. The two `msb`-tagged packages run serialized
+(`go test -p 1`), because each starts its own VMs and a nested guest cannot absorb both at once. Each smoke
+VM's vCPUs are capped (`MSB_GUEST_VM_CPUS`, default 2, passed as `AGENTS_SANDBOX_MSB_VM_CPUS`), because a
+project VM otherwise claims every guest vCPU. And the parallel-harness count defaults to
+`MSB_GUEST_PARALLEL` (2) when `MSB_PARALLEL` is unset, instead of the host-sized memory heuristic.
+`make test-msb` and `make test-msb-cold` are unchanged.
 
 `up` prints the guest's SSH address and a next-steps checklist; cloud-init takes a few minutes on first boot. Once it
 is done, gate the guest (`ls -la /dev/kvm`, `msb doctor`) before running a suite. `up` waits up to `KVM_BOOT_TIMEOUT`

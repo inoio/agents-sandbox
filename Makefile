@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-cold test-msb-reuse msb-reuse-root compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic test-hermetic-sentinel envelope-test check check-test verify print-check-targets check-local-changes check-branch-changes check-selected changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test backport-audit-test open-backport-pr-test kvm-guest-test kvm-up kvm-sync kvm-prime kvm-ssh kvm-run kvm-down event-base-test classify-changes-test brain-check brain-check-test shellcheck docs-serve
+.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-cold test-msb-in-vm test-msb-reuse msb-reuse-root compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic test-hermetic-sentinel envelope-test check check-test verify print-check-targets check-local-changes check-branch-changes check-selected changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test backport-audit-test open-backport-pr-test kvm-guest-test kvm-up kvm-sync kvm-prime kvm-ssh kvm-run kvm-down event-base-test classify-changes-test brain-check brain-check-test shellcheck docs-serve
 
 VERSION ?= dev
 
@@ -39,6 +39,14 @@ INTEGRATION_PARALLEL ?= 4
 # the image builds lengthens the one binary that dominates the run.
 INTEGRATION_TIMEOUT ?= 60m
 MSB_PARALLEL ?=
+# Per-smoke-VM vCPU cap for the in-guest KVM run (`test-msb-in-vm`). Each smoke
+# VM otherwise claims every host vCPU, so parallel harnesses oversubscribe a
+# nested guest's few vCPUs. Passed as AGENTS_SANDBOX_MSB_VM_CPUS.
+MSB_GUEST_VM_CPUS ?= 2
+# Parallel-harness count the in-guest KVM run uses when MSB_PARALLEL is unset.
+# The host's memory-derived default sizes for a full host; a nested guest with
+# MSB_GUEST_VM_CPUS-capped VMs wants a small fixed count instead.
+MSB_GUEST_PARALLEL ?= 2
 # Standing root for the caching `test-msb`. Two constraints: it must stay short
 # enough for microsandbox's derived sandbox control socket (see
 # test/harness/harness_helpers_test.go — the smoke root must be under 30 bytes),
@@ -55,7 +63,7 @@ MSB_REUSE_ROOT ?= /opt/asb-reuse
 # Host-only: the msb suites need a KVM host, and the dev VM has no working
 # /dev/kvm. `make kvm-up` builds a libvirt guest and these run the suite inside
 # it. See .operator-shared/guides/kvm-guest.md. Never run by CI.
-KVM_RUN ?= make test-msb
+KVM_RUN ?= make test-msb-in-vm
 # The SDK's microsandbox_ffi_path tag swaps its //go:embed for reading the FFI
 # library from $MICROSANDBOX_FFI_PATH at runtime. The unit and integration
 # suites reach the SDK only through seams, so they never read that path and need
@@ -252,6 +260,21 @@ test-msb: msb-reuse-root
 # cold run leaves no tagged runner image.
 test-msb-cold: msb-reuse-root
 	AGENTS_SANDBOX_SMOKE_ROOT= AGENTS_SANDBOX_MSB_TEST_HOME= AGENTS_SANDBOX_MSB_ROOT_BASE=$(MSB_REUSE_ROOT) AGENTS_SANDBOX_MSB_PARALLEL=$(MSB_PARALLEL) CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/harness/... ./internal/sandbox/msb/...
+
+# The in-guest variant `kvm-run` drives by default: the same caching suite as
+# test-msb, with changes that only matter on a nested guest. The two msb-tagged
+# packages run serialized (`-p 1`), because each starts its own VMs and a nested
+# guest cannot absorb both at once; each smoke VM's vCPUs are capped
+# (AGENTS_SANDBOX_MSB_VM_CPUS), because a project VM otherwise claims every guest
+# vCPU; and the parallel-harness count defaults to MSB_GUEST_PARALLEL instead of
+# the host-sized heuristic. The host targets are unchanged — the cap env var is
+# unset and the parallel default is untouched there.
+test-msb-in-vm: msb-reuse-root
+	AGENTS_SANDBOX_MSB_VM_CPUS=$(MSB_GUEST_VM_CPUS) \
+	AGENTS_SANDBOX_SMOKE_ROOT=$(MSB_REUSE_ROOT)/smoke \
+	AGENTS_SANDBOX_MSB_TEST_HOME=$(MSB_REUSE_ROOT)/msb \
+	AGENTS_SANDBOX_MSB_PARALLEL=$(or $(MSB_PARALLEL),$(MSB_GUEST_PARALLEL)) \
+	CGO_ENABLED=1 go test -tags msb -p 1 -timeout 60m -count=1 ./test/harness/... ./internal/sandbox/msb/...
 
 # Host-only KVM-guest workflow. These build a libvirt guest (cloud-init seeds
 # docker, Go, msb, and the repo), sync a checkout into it, and run a command

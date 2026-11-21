@@ -1083,6 +1083,46 @@ func TestDockerStorageShellArgsReuseThePrebuiltImage(t *testing.T) {
 	}
 }
 
+// TestSmokeVMCPUsFromValue pins the per-VM vCPU cap parsing: a positive 8-bit
+// integer caps the VM, and every other value (unset, zero, non-numeric, or
+// beyond a uint8) leaves the launcher's default.
+func TestSmokeVMCPUsFromValue(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value string
+		want  uint8
+	}{
+		{"unset", "", 0},
+		{"zero", "0", 0},
+		{"positive", "2", 2},
+		{"padded", "  3  ", 3},
+		{"non-numeric", "abc", 0},
+		{"negative", "-1", 0},
+		{"beyond uint8", "256", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := smokeVMCPUsFromValue(tc.value); got != tc.want {
+				t.Errorf("smokeVMCPUsFromValue(%q) = %d, want %d", tc.value, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestWithVMCPUsAppendsOnlyWhenCapped pins that a zero cap leaves the argv
+// untouched (so a host run is unchanged) and a non-zero cap appends the
+// launcher's --cpus flag with the value.
+func TestWithVMCPUsAppendsOnlyWhenCapped(t *testing.T) {
+	base := []string{"run", "--agent", "opencode"}
+	if got := withVMCPUs(append([]string(nil), base...), 0); !slices.Equal(got, base) {
+		t.Errorf("withVMCPUs(cpus 0) = %v, want %v", got, base)
+	}
+	got := withVMCPUs(append([]string(nil), base...), 2)
+	want := []string{"run", "--agent", "opencode", "--cpus", "2"}
+	if !slices.Equal(got, want) {
+		t.Errorf("withVMCPUs(cpus 2) = %v, want %v", got, want)
+	}
+}
+
 // TestWithGitHubTokenAddsTheTokenWhenPresent pins that a prebuild child gets the
 // environment's GitHub API token, so its release-resolution requests
 // authenticate instead of sharing the anonymous api.github.com limit. GH_TOKEN
