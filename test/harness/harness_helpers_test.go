@@ -135,10 +135,17 @@ func harnessConcurrencyFor(freeMiB int) int {
 }
 
 // harnessRunArgs is the `run` invocation a harness smoke subtest drives: the
-// agent and network under test, and the smoke memory cap.
+// agent and network under test, the smoke memory cap, and --yes.
+//
+// --yes makes the launcher non-interactive, which is what keeps the first-run
+// onboarding menu (internal/firstrun) from blocking the pty: termio treats
+// assumeYes as non-interactive, so the menu is skipped and the attach proceeds
+// as a plain run with no learning session and no host-config provisioning. A
+// run without it would sit at "How would you like to set up this checkout?"
+// until the readiness wait times out and the harness never starts.
 func harnessRunArgs(name, network string) []string {
 	return []string{
-		"run", "--agent", name, "--network", network, "--memory", smokeMemorySpec(),
+		"run", "--agent", name, "--network", network, "--memory", smokeMemorySpec(), "--yes",
 	}
 }
 

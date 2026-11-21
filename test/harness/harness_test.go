@@ -922,10 +922,11 @@ func TestHarnessConcurrencyForFreeMemory(t *testing.T) {
 }
 
 // TestHarnessRunArgsCapTheSmokeMemory pins that a harness smoke run boots its VM
-// at the smoke memory, not the launcher's larger default.
+// at the smoke memory, not the launcher's larger default, and passes --yes so
+// the launcher's first-run setup menu never blocks the pty before the harness.
 func TestHarnessRunArgsCapTheSmokeMemory(t *testing.T) {
 	got := harnessRunArgs("opencode", "none")
-	want := []string{"run", "--agent", "opencode", "--network", "none", "--memory", smokeMemorySpec()}
+	want := []string{"run", "--agent", "opencode", "--network", "none", "--memory", smokeMemorySpec(), "--yes"}
 	if !slices.Equal(got, want) {
 		t.Errorf("harnessRunArgs = %v, want %v", got, want)
 	}

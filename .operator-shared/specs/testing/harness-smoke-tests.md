@@ -34,7 +34,7 @@ runtime it requires, as `integration` names a real docker daemon). `make test-ms
 tagged-only compile regression is caught on every PR.
 
 **Scope of the assertion.** For every name in `agent.Names()`, the suite starts the harness the way a user does
-(`agents-sandbox run --agent <name>` under a pseudo-terminal, `github.com/creack/pty`) and asserts:
+(`agents-sandbox run --agent <name> --yes` under a pseudo-terminal, `github.com/creack/pty`) and asserts:
 
 1. the attach client reached its full-screen TUI, within a timeout; a first-run/login screen counts. A harness
    whose UI takes over the alternate screen (`ESC [ ? 1049 h`) announces this while the process is still alive; one
@@ -43,6 +43,13 @@ tagged-only compile regression is caught on every PR.
 2. the process then exited `0` after the harness's quit presses were written to the terminal; escalation
    (`SIGTERM`/`SIGKILL`) is cleanup only and fails the subtest if reached;
 3. the output never contains the daemon-timeout marker (`did not become healthy`).
+
+**`--yes` skips the launcher's first-run menu.** `run` on a checkout with no managed config layer offers the
+first-run setup menu (`internal/firstrun`) before the session. Under the suite's pty that menu is interactive and
+blocks, so the harness never starts. `--yes` makes the launcher non-interactive (`termio`'s `IsInteractive` is false
+under `assumeYes`), so `firstrun.Prompt` warns and skips the menu; the run proceeds as a plain attach with no
+learning session and no host-config provisioning. The warning line is harmless and unreserved. The menu itself is
+exercised by the `cmd/agents-sandbox` first-run tests; the smoke suite only needs it out of the way.
 
 It proves "the harness reached its TUI", not "the client session is functional": a healthy daemon whose client
 renders a connection-error screen still passes. Daemon health itself is covered because the launcher blocks in
