@@ -15,82 +15,22 @@ read_if: Navigating the codebase.
 
 ## Project Index
 
+Root-level files:
+
 - `README.md` — Overview, comparison table, boundary/tradeoffs.
 - `STYLEGUIDE.md` — Documentation styleguide for user-facing docs.
 - `AGENTS.md` — Authoritative agent instructions (dev workflow, toolchain, lint/test commands).
 - `GLOSSARY.md` — Project terminology.
 - `CHANGELOG.md`, `CHANGELOG` fragments in `changelog.d/`, `ROADMAP.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `LICENSE.md`, `SECURITY.md` — Project metadata and policy.
 - `Makefile` — fmt/lint/test/build targets.
-- `scripts/` — Repo-maintenance shell scripts: `cleanup-merged-branches.sh` (`make cleanup-branches`), `upstream-drift.sh`, `rebase-status.sh`, `enqueue-pr.sh` (the merge-queue enqueue/watch helper behind `make enqueue-pr-test`), `surface-sweep.sh` (the release-surface sweep isolation helper; see `specs/testing/release-surface-testing.md`), `brain-check.sh` (the Operator brain's structural gate, `make brain-check`; see `.operator-shared/guides/operator-brain-maintenance.md`), the hermetic envelope driver `hermetic-envelope.sh` (`make test-scrubbed`/`test-hermetic`; see `specs/testing/test-isolation.md`), and the changed-file pair `changed-files.sh` (the local/branch diff, the single source of truth, behind `make changelog-presence`) and `changed-targets.sh` (the changed-file→`check`-target map behind `make check-local-changes`/`check-branch-changes`; see `specs/ci/quality-gates.md`). Every harness now lives in the Go `test/scripts` package; no bash test harness remains (see `specs/testing/shell-script-harnesses.md`).
-- `spike/learn-mode/` — Throwaway host-run harness for the learn-mode observation spike (runbook + one driver per experiment + `d_runtime_interception.sh` + `s8_sdk_channel/`, the SDK channel-semantics probe as its own Go module); kept until S1 finishes for all harnesses, then deleted and folded into the `learn-mode/` subspecs.
 - `go.mod`, `go.sum`, `.go-version` — Module deps (cobra, viper, go-git, msb SDK, docker/moby, testify) and the pinned Go toolchain.
 - `opencode.jsonc` — opencode config for this repo.
 - `.golangci.yml`, `.gitignore` — Lint config and ignore rules.
 - Tooling/ignored (`.idea/`, `.run/`, `docs/vendor/`) — IDE/tooling config and the gitignored gem bundle; omitted.
 
-### `cmd/agents-sandbox/` — Cobra CLI entry and commands
+Subindexes:
 
-- `main.go`, `cli.go`, `commands.go` — entry point, Cobra root, injection seams (msb/docker mocks), and root/tree/version/upgrade wiring.
-- `commands_*.go` — one file per command area (run/shell, system, config incl. `config paths`, `config learn`, and `config harden`, inspect, storage/`df`); `<area>_output.go` — renderers; `constants.go`/`tree.go` — command and flag names plus `tree`.
-- `cli_*_test.go` — CLI integration tests, one per command/area.
-
-### `internal/` — Core packages (non-sandbox)
-
-- `agent/` — Agent profiles (opencode/opencode2/claudecode/codex/pi/hermes/oh-my-pi/kimi-code/qwen-code/goose/grok-build/mistral-vibe): version resolution, capabilities (including the optional `EnvIndirectionDescriber` a harness like kimi uses to read its key from an env-var name), config-dir names, image selection.
-- `configpaths/` — Config/home path resolution and guards, plus shared config-file discovery (`FindConfigFile`) used by both config loaders; `configpathstest/` — its test double.
-- `configread/` — `ReadFile` under a 16 MiB cap (`MaxBytes`/`ErrTooLarge`) for untrusted config, secret, and snippet reads.
-- `configdecode/` — The one config-file read/classify/decode core (`FormatFor`/`Decode`/`DecodeFile`) over `configread` and `configpaths`; JSON5/JSONC via `json5`, YAML via `go.yaml.in/yaml/v4`, TOML via `go-toml/v2`.
-- `homeconfig/` — Provisions arbitrary user files (the `home:` key) into a sandbox home from the ordered config scopes.
-- `firstrun/` — First-run onboarding: the decision predicate (`Offer`/`BuildFacts`), the three-choice menu (`Prompt`) on `termio.Prompter.Select`, the host-config probe (`HostFiles`), and the UC4 host-config seed (`SeedFromHost`), wired into the `run` attach path before `session.Run` (not `shell`, `--serve-only`, or `--dry-run-vm`); the decision is recorded in `state.RootState` keyed by `<repo slug>/<agent>`.
-- `docslink/` — Composes links to the published docs site (`BaseURL`, section anchors) for the doctor and build-error `Docs:` hints.
-- `git/` — Git helpers (go-git wrapper) and project identity: the repo slug (origin-derived; per-slug config dir, grouping label) vs the checkout slug (git common dir; state/VM/volume/locks/image tag).
-- `hostlock/` — Advisory `flock` file locks, shared by the state transactions and the per-project VM lock.
-- `notify/` — Desktop notifications (backend, dedup, events, watch); `notifytest/` — its test double.
-- `opener/` — Host link-opener channel: watches the home volume's spool for in-VM `xdg-open` requests, allowlist-checks the target, and hands it to the host handler.
-- `termio/` — Terminal UI: role interfaces (`Logger`/`Output`/`Prompter`/`SpinnerFactory`/`TerminalState`/`Streams`), printer, table, spinner, ansi, levels; `termiotest/` — its test double; and the terminal-reset emit (`ResetTerminal`/`TerminalResetSequence`), shared by the agent attach and the startup-hook attach.
-- `upgrade/` — Self-upgrade (channel selection, Homebrew).
-- `projectguard/` — Leaf holding, for one command, the digests of the approved project files; `ReadFile` verifies every project read against them and records a violation the image build and VM stage stop on.
-- `projecttrust/` — Project config trust gate: the `.agents-sandbox` layer's projection (`Compute`), the decision against the per-checkout approval in `RootState` (`Evaluate`), the approval prompt/refusal, and the launcher-write approval (`ApproveSettingWrite`); wired into the root command's `PersistentPreRunE` (`cmd/agents-sandbox/trust.go`).
-- `viperconfig/` — Viper-based launcher config: `Config`/`Resolver`, layer discovery (`ConfigLayers`, the six-layer precedence list), env/flag binding, the derived config-key registry, decode hooks, and validation.
-- `runoptions/` — `*cobra.Command`-driven run/shell option resolution (`Build`) into `options.RunOptions`.
-- `cliout/` + `view/` — Output rendering: `cliout` is domain-free (generic list/JSON plus `RenderPruneReport`); `view` holds the sandbox-shaped printers and report DTOs (see `specs/architecture/package-boundaries.md`).
-- `sandbox/` — **See [sandbox subindex](sandbox.md)** (VM lifecycle, docker, image, msb, volumes, pruning, sessions, state).
-- Leaf utilities — `atomicwrite` (durable state/config writes), `configmerge`, `filewalk`, `globmatch` (snippet glob name matching, shared by the agent profiles and `configmerge`), `humanize`, `sysinfo`, `yamlfmt`.
-- `testutil/` — Test-only helpers: the git-isolation environment (`GitIsolationEnvironment`, `RunGit`, `ConfigureRepo`), `InitRepo`, `WritePath`/`WriteFile`, the fail-fast mock installers, and the module-wide contract scans. `testgit.go` is the only coverage-ignored file.
-
-### `test/harness/` — `msb`-tagged harness smoke tests
-
-- Starts every registered harness in a real microsandbox VM under a sized pty and asserts it reaches its TUI and exits (the `*_helpers_test.go` untagged test-only support: harness table, pty driver, runner-image tooling; `smoke_msb_test.go`; untagged unit tests for the table/pty). See `specs/testing/harness-smoke-tests.md`.
-
-### `test/scripts/` — Go harnesses for the standalone `scripts/` and `ci/` tools
-
-- Drives the shell tools through `RunScript` with `gittest` fixtures and re-exec fakes, all `*_helpers_test.go`/`*_test.go` in the package; `main_test.go` installs the fail-fast mocks and dispatches the fakes, one `<tool>_test.go` per migrated harness. See `specs/testing/shell-script-harnesses.md`.
-
-### `docs/` — Jekyll documentation site (just-the-docs)
-
-- Navigation groups pages by user need (Get started / Guides / Recipes / Configuration / Concepts / Reference); per-feature pages live in `configuration/`, C4/lifecycle diagrams in `diagrams/*.puml`, and `vendor/` is a gitignored gem bundle.
-
-### `ci/` — Build and verification scripts
-
-- The gate scripts: `check-docs.sh` (doc link/style gate), `check-deadcode.sh` + `deadcodecheck/` (dead-code gate driver and helper), `check-changelog.sh` (changelog fragments), `check-ci-guards.sh` (the `github.event_name`/`on.pull_request.types` invariants and the four exempt-path copies), `event-base.sh` (the single base-SHA resolver), and `classify-changes.sh` (the `changes` job's `code`/`exec` classification); see `specs/ci/ci-pipeline.md`. Their harnesses are Go `test/scripts/*_test.go` tests.
-
-### `Formula/` — Homebrew formula
-
-- `agents-sandbox.rb` — Formula for macOS install.
-
-### `.github/` — CI, Pages, and templates
-
-- `workflows/` — `ci.yml`, `pages.yml`, `codeql.yml`, `fuzz.yml`, `mutation.yml`.
-- `stubs/*.tbd` — macOS framework/library stubs the darwin cross-build needs (see `specs/release/darwin-cross-compile.md`); `ISSUE_TEMPLATE/`, `PULL_REQUEST_TEMPLATE.md`, `dependabot.yml`.
-
-### `.agents-sandbox/` — Development VM
-
-- `Dockerfile`, `config.yaml`, `*.sh`, `opencode2/` — dev environment image (go, msb, docker, …) and its provisioning; the Dockerfile is multistage, one stage per toolchain component (`system`/`fetch`/`go`/`zig`/`extras`).
-
-### `.agents/skills/` — Repo engineering skills
-
-- `release/` — the release runbook (`SKILL.md`, `RELEASE-NOTES.md`, `NON-GO-DEPS.md`); `bare-worktrees/` — the bare-checkout layout this repo uses.
-- `handle-pr-feedback/`, `maintain/`, `pr/` — repo-adapted skills: the PR-mergeability loop, the GitHub maintainer flow, and the PR-body template.
-- `compacting-context/` — the `session.compact` recipe so an agent told to compact its own context loads the skill instead of scanning for a nonexistent tool; `opencode2-self-management/`, `opencode2-probe/`, `terminal-reset/` — runbooks retired from the shared brain (the `session.compact` API, driving the opencode2 daemon's event stream, and verifying the post-attach terminal reset).
-- `upstream-drift/`, `rebase-status/` — the two reporter scripts (`scripts/upstream-drift.sh`, `scripts/rebase-status.sh`) for checking how far `origin/main` moved before a rebase, and the state of an in-progress rebase.
-- `greptile-review/` — a maintainer-run correctness review (cross-component bugs, invariant bypasses, under-asserting tests, overstated docs), the third axis beside `code-review`; ships `RULES.md` (14 families), `mine.sh`+`corpus.tsv` (the mined Greptile corpus), and `validation.md` (RED/GREEN records).
+- `cmd/` — the Cobra CLI entry point, command wiring, and output renderers; see the [cmd subindex](cmd.md).
+- `internal/` — the core packages outside `internal/sandbox`; see the [internal subindex](internal.md).
+- `internal/sandbox/` — VM lifecycle, docker, image, msb, volumes, pruning, sessions, state; see the [sandbox subindex](sandbox.md).
+- `scripts/`, `spike/`, `test/`, `ci/`, `docs/`, `Formula/`, `.github/`, `.agents-sandbox/`, `.agents/skills/` — maintenance scripts, CI gates and their Go harnesses, the docs site, Homebrew, the dev-VM image, and the repo skills; see the [tooling subindex](tooling.md).
