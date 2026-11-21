@@ -26,15 +26,6 @@ const (
 	// runtime install, so this only has to absorb the VM start; the budget
 	// stays generous for a cold host.
 	tuiReadyTimeout = 180 * time.Second
-	// quitPressInterval and quitTimeout pace the quit: the harness's key is
-	// tapped every quitPressInterval until the process exits, for at most
-	// quitTimeout. The interval is a human double-tap — a harness whose exit is
-	// a repeated key leaves on the next tap, and one that paints its TUI before
-	// it accepts input simply ignores the taps made meanwhile. It must stay far
-	// shorter than the window a "press again to exit" prompt allows, so a
-	// repeated-key exit chains; a slower cadence was measured to miss it.
-	quitPressInterval = 400 * time.Millisecond
-	quitTimeout       = 15 * time.Second
 	// prepareTimeout bounds the one-off launcher build and the per-harness
 	// runner-image prebuild every subtest shares.
 	prepareTimeout = 30 * time.Minute
@@ -188,24 +179,38 @@ func TestHarnessSmoke(t *testing.T) {
 	})
 }
 
-// quit taps the harness's key until the process exits and returns its exit
-// code. Tapping on is what a user does, and it is what the harnesses need: the
-// press that lands can be ignored because the TUI painted its screen before it
-// accepted input (opencode draws its footer while it is still loading), and a
+// quit taps the harness's key in pairs until the process exits and returns its
+// exit code. Tapping on is what a user does, and it is what the harnesses need:
+// the press that lands can be ignored because the TUI painted its screen before
+// it accepted input (opencode draws its footer while it is still loading), and a
 // harness whose exit is a repeated key — claude-code announces "Press Ctrl-C
 // again to exit" — needs the taps to keep coming.
 //
-// Once the harness has caught the quit it begins tearing down and restores its
-// own terminal to cooked mode, so one more tap is no longer a keystroke but the
-// SIGINT the cooked terminal makes of it, and the harness dies mid-teardown —
-// which the launcher reports as exit -1 (its clean exit lost), or, through
-// os.Exit(-1), as 255. So the loop stops tapping once either teardown signal
-// appears and only waits for the exit:
+// Two measured facts shape the cadence. A repeated-key exit must chain: the
+// arm and fire presses have to stay within the window its "press again" prompt
+// allows, and qwen-code's was measured at under 1.2s (a 0.8s gap still chained,
+// a 1.2s gap did not). And a harness that has caught the quit restores its
+// terminal as it tears down, so a press written while it does is no longer a
+// keystroke but the SIGINT a cooked terminal makes of it — qwen-code's slow
+// "Agent powering down" teardown is killed this way, its clean exit reported as
+// -1 (which os.Exit(-1) turns into the launcher's 255). A slow teardown can
+// outlast one press interval, so a fixed cadence writes the next press into
+// that window.
+//
+// So presses come in pairs: the two presses of a pair are kept one
+// quitPressInterval (400ms) apart, well inside the chaining window, and every
+// pair is followed by quitRetryInterval (2s) before the next pair. The pair
+// itself delivers an arm and a fire when the harness needs two presses; a slow
+// teardown gets the 2s to finish, and its alternate-screen leave to appear, so
+// the loop stops — see teardownStarted — before it writes another press.
+//
+// The loop stops tapping once either teardown signal appears and only waits for
+// the exit:
 //
 //   - the alternate screen came back (tuiLeft): the harness's own, guest-side
 //     teardown signal, emitted while it restores its terminal. It is the only
 //     signal visible before the guest exits, which is when qwen-code's slow
-//     "Agent powering down" teardown gets tapped past.
+//     teardown gets tapped past.
 //   - the test pty is back in cooked mode (ptySession.inRawMode): the launcher's
 //     msb attach holds the pty raw for the session and restores it on the way
 //     out, which covers a normal-buffer harness (claude-code) that emits no
@@ -213,11 +218,9 @@ func TestHarnessSmoke(t *testing.T) {
 //     though: the attach owns the host pty and only restores it after the guest
 //     process has already exited, so it never observes the guest's earlier
 //     restore.
-//
-// The tap cadence is left alone: it must stay short enough that a repeated-key
-// exit chains.
 func quit(ses *ptySession, spec harnessSpec) (int, error) {
 	deadline := time.Now().Add(quitTimeout)
+	interval := quitPressInterval
 	for presses := 1; ; presses++ {
 		if teardownStarted(ses, presses) {
 			return waitExitWithin(ses, deadline, presses, spec)
@@ -225,13 +228,14 @@ func quit(ses *ptySession, spec harnessSpec) (int, error) {
 		if err := ses.write(spec.QuitKey); err != nil {
 			return 0, err
 		}
-		code, err := ses.waitExit(quitPressInterval)
+		code, err := ses.waitExit(interval)
 		if err == nil {
 			return code, nil
 		}
 		if !time.Now().Before(deadline) {
 			return 0, quitTimeoutError(presses, spec, err)
 		}
+		interval = quitIntervalAfterPress(presses)
 	}
 }
 

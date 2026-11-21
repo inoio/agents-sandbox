@@ -257,6 +257,30 @@ const (
 	ctrlD = 0x04
 )
 
+// The quit loop taps the harness's key in pairs until the process exits (see
+// quit). quitPressInterval keeps the two presses of a pair within the window a
+// repeated-key exit's "press again" prompt allows — qwen-code's was measured
+// under 1.2s, and a slower cadence stops the exit chaining — while
+// quitRetryInterval spaces the pairs out, so a harness that has caught the quit
+// can finish tearing down (and emit its alternate-screen leave) before the loop
+// writes another press. quitTimeout bounds the whole sequence.
+const (
+	quitPressInterval = 400 * time.Millisecond
+	quitRetryInterval = 2 * time.Second
+	quitTimeout       = 15 * time.Second
+)
+
+// quitIntervalAfterPress returns the wait before the next quit press: a pair's
+// two presses are one quitPressInterval apart, and the even press ends the pair,
+// after which the loop waits quitRetryInterval for the harness to exit or to
+// signal its teardown.
+func quitIntervalAfterPress(presses int) time.Duration {
+	if presses%2 == 0 {
+		return quitRetryInterval
+	}
+	return quitPressInterval
+}
+
 // harnessSpecs maps every registered harness to how the smoke test drives it.
 // It must stay in sync with agent.Names(); the smoke test asserts the two key
 // sets are equal.
