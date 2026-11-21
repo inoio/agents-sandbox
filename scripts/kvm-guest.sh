@@ -378,7 +378,11 @@ prime() {
   tags="$(docker images --format '{{.Repository}}:{{.Tag}}' \
     --filter reference='agents-sandbox/runner-*' 2>/dev/null || true)"
   if [ -n "$tags" ]; then
-    log "copying host runner images to $VM_USER@$ip"
+    log "copying host runner images to $VM_USER@$ip; 'docker load' prints one 'Loaded image' line per image:"
+    # shellcheck disable=SC2086  # word-split the newline-separated tag list, one per line
+    printf '==>   %s\n' $tags >&2
+    # One save|load stream, not a save/load per image, so a layer shared between
+    # two images is sent once; docker load still reports each image as it lands.
     # shellcheck disable=SC2086  # word-split the newline-separated tag list into args
     docker save $tags | ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" 'docker load'
   else
@@ -388,7 +392,9 @@ prime() {
   if [ -d "$home" ]; then
     log "copying the microsandbox home from $home"
     ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" "mkdir -p '$root/smoke/data/agents-sandbox'"
-    rsync -a "$home/" "$VM_USER@$ip:$home/"
+    # --info=progress2 gives an overall progress line; --no-inc-recursive makes
+    # its total (and so its percentage) meaningful for a full copy.
+    rsync -a --info=progress2 --no-inc-recursive "$home/" "$VM_USER@$ip:$home/"
   else
     log "no host microsandbox home at $home; build it first: 'make test-msb' on the host"
   fi

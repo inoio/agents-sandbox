@@ -52,6 +52,9 @@ The guest builds its runner images and loads them into microsandbox itself; on a
 dominant cost (the `docker` build plus the multi-GB `docker save | msb ImageLoad` transfer). `make kvm-prime` copies
 both halves from the host so the guest's prebuild finds them and skips it: the runner images over
 `docker save | ssh docker load`, and the microsandbox home (`<root>/smoke/data/agents-sandbox/msb`) over `rsync`.
+It prints the image list before starting and one `Loaded image: <ref>` line per image as each lands (the stream is
+one save/load, not a save/load per image, so a shared layer is sent once), and copies the home with
+`rsync --info=progress2`, so neither transfer is a silent wait.
 
 It only matches when host and guest agree on `MSB_REUSE_ROOT` (`KVM_PRIME_ROOT`, default `/opt/asb-reuse`): the
 runner-image slug hashes the project directory's absolute path, so a different root names different images and

@@ -165,6 +165,10 @@ func TestKvmGuestPrimeCopiesImagesAndHome(t *testing.T) {
 	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "prime")
 	assertStatus(t, result, 0)
 
+	// The image list is printed before the transfer so the (long, silent) docker
+	// save stream does not look stalled; docker load then reports each image.
+	assertContains(t, "prime stderr", result.Stderr, "agents-sandbox/runner-opencode-abc:opencode-latest")
+
 	dockerArgv := readText(t, dockerLog)
 	assertContains(t, "docker argv", dockerArgv, "images --format")
 	assertContains(t, "docker argv", dockerArgv, "save agents-sandbox/runner-opencode-abc:opencode-latest")
@@ -175,6 +179,7 @@ func TestKvmGuestPrimeCopiesImagesAndHome(t *testing.T) {
 	assertContains(t, "ssh argv", sshArgv, "mkdir -p '"+filepath.Join(root, "smoke", "data", "agents-sandbox")+"'")
 
 	rsyncArgv := readText(t, rsyncLog)
+	assertContains(t, "rsync argv", rsyncArgv, "--info=progress2")
 	assertContains(t, "rsync argv", rsyncArgv, home+"/")
 	assertContains(t, "rsync argv", rsyncArgv, "dev@192.168.122.55:"+home+"/")
 }
