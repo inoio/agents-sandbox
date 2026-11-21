@@ -57,6 +57,11 @@ type hostProbe struct {
 	name         string
 }
 
+// hostProbeCalls lists the known host-figure readers a test must not call
+// directly. `sandbox/vm.BootMaxMemoryMiB` stays listed even though it now reads
+// the hostfigures seam: a direct call still resolves the seam's host default
+// unless the test pins it, and it keeps a cross-package (non-sysinfo) case in the
+// scanner fixture.
 var hostProbeCalls = []hostProbe{
 	{importSuffix: "/internal/sysinfo", name: "NumCPUs"},
 	{importSuffix: "/internal/sysinfo", name: "TotalMemoryGiB"},

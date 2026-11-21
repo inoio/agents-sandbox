@@ -2408,6 +2408,10 @@ func TestExistingServeHostPort(t *testing.T) {
 // above the live boot maximum: only a live VM booted with a lower maximum than
 // a fresh VM would get counts.
 func TestBootMaxMemoryGrew(t *testing.T) {
+	// Pin the seam so the fresh maximum is deterministic, and halve it for the
+	// lower case so it is strictly lower without underflowing a small RAM pin.
+	restore := hostfigures.OverrideTotalMemoryGiBForTest(func() int { return 16 })
+	t.Cleanup(restore)
 	freshMaxMiB := vm.BootMaxMemoryMiB() //testenv:allow the recreate flag compares against the boot maximum the host-figure seam supplies
 	tests := []struct {
 		name string
@@ -2422,7 +2426,7 @@ func TestBootMaxMemoryGrew(t *testing.T) {
 		},
 		{
 			name: "lower live maximum",
-			live: liveProjectVM{config: &msb.SandboxConfig{MaxMemoryMiB: freshMaxMiB - 1024}},
+			live: liveProjectVM{config: &msb.SandboxConfig{MaxMemoryMiB: freshMaxMiB / 2}},
 			want: true,
 		},
 	}
