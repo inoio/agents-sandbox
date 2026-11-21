@@ -80,6 +80,11 @@ shipped binary links neither `testing` nor the double. The subpackage name is th
 example `configpaths` → `configpathstest`, `termio` → `termiotest`). The central doubles keep the `testmock*.go`
 file name the Codecov glob and the lint path rule match, except `termiotest`, whose double is `mock.go`.
 
+Two shapes. A **sibling double** — a `<pkg>/<name>test` subpackage — supports exactly one production
+package (the marker and `TestMain` rules below). **Shared test infrastructure** — the pty driver, the
+harness table, the `test/scripts` helpers — lives under the top-level `test/` tree and is shared by
+suites, not owned by one package.
+
 Each test-support package's own tests declare `TestMain` in an **external** test package (`package <name>test_test`).
 The isolation contract test treats an external `TestMain` as reaching every seam family — it can import
 `internal/testutil/mocks` with no test import cycle — so the leaf's `TestMain` installs the full fail-fast set, not the

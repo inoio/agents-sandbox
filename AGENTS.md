@@ -115,6 +115,9 @@ Use the linter as a guide for code style: Run it after every major edit, for sma
 ## Documentation
 
 - User-facing docs follow [`STYLEGUIDE.md`](STYLEGUIDE.md).
+- Design docs and plans live in `.operator-shared/` (`specs/`, `plans/`), which is published with the repo.
+  `docs/superpowers/` is gitignored scratch — a doc written there cannot be PR'd — so override the
+  `brainstorming`/`writing-plans` default path and write to `.operator-shared/`.
 - When changing or adding behavior, keep `README.md` and `docs` directory (except `docs/superpowers`) in sync and
   current, and add a `changelog.d/<PR-number>.<type>.md` fragment (see `CONTRIBUTING.md`).
 - Linking style: root-level docs (README.md, SECURITY.md, ...) link into `docs/` with rendered HTML links
