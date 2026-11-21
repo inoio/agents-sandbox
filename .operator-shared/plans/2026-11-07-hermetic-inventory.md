@@ -20,8 +20,8 @@ Ratio: the envelope is ~1.5× an uncached `go test` (+~10 s) and ~4.5× a cached
 `make test`. The module copy is ~8.6 MB / ~0.5 s; the overhead is the uncached
 run plus re-linking in the copy, not the copy itself. That is inside the
 "small multiple" the design targets, so promotion to a per-PR run (and
-eventually the default) is realistic once the uid/permission surface below is
-fixed.
+eventually the default) is realistic; the uid/permission surface below is now
+resolved.
 
 Compare against a fair baseline, never a cached `make test`: the difference is
 the test cache, not the envelope.
@@ -30,7 +30,10 @@ the test cache, not the envelope.
 
 - `make test-scrubbed` is **green** (all 49 packages) — no test depends on the
   ambient environment, the CWD being a checkout, or the real home.
-- `make test-hermetic` is **red** in 3 packages, all one surface (below).
+- `make test-hermetic` was **red** in 3 packages at the first run, all one
+  surface (uid/permission, below); it is **green** after the resolution below,
+  which also covered 2 further packages (`pruning`, `state`) whose fixtures
+  landed after this record.
 
 ### Filesystem scratch (resolved in Plan 1)
 
@@ -64,14 +67,24 @@ Groups with no failing test are stated empty.
   - `internal/sandbox/vm` — `TestAdoptLegacyIdentityPersistRecoveredVolumeFailureFailsClosed`,
     `TestAdoptLegacyIdentityClaimCommitFailureFailsClosed`,
     `TestRecordImageProvenanceWarnsWhenStateCannotBeWritten`
+
+  **Resolved (#799):** the strict run is green. Each fixture now induces its
+  failure through a seam instead of `chmod`: `configmerge`'s mirror read through
+  the `projectguard` approval the walk reads with; `runtimemigration`'s volume
+  listing through a `readDir` var; the three `vm` state writes through the
+  existing `state.OverrideStateWriteForTest` hook (now wired to the per-key
+  funnel too); and the sweep fixtures written after this inventory, in
+  `internal/sandbox/pruning` (10 cases) and `internal/sandbox/state` (1), through
+  `state.removeSweepEntry` and the pruning `statefulAgentNames` /
+  `readStateEntries` / `removeSweepEntry` / `removeUnheldClaim` /
+  `removeHomeStateIf` / `removeSlugDirIfEmpty` seams. The strict run also pins
+  `GOTOOLCHAIN=local`, so a `toolchain` directive cannot download inside the
+  namespace.
 - **Other** — empty.
 
 ## Follow-up scope
 
-The uid/permission surface is the one concrete work item the envelope produced.
-The fix is to make those six tests independent of the effective uid by injecting
-the failing reader/writer (a seam that returns an error) instead of relying on
-`chmod` denial — which is also what lets `make test-hermetic` run under
-`--map-root-user`. The identity/CWD, host-figure, and wall-clock surfaces are not
-exercised by the envelope; they get their own enforcement (the git seam, the
+The uid/permission surface is resolved (above): `make test-hermetic` is green.
+The identity/CWD, host-figure, and wall-clock surfaces remain — they are not
+exercised by the envelope and get their own enforcement (the git seam, the
 host-figure sentinel pass, the `time.Sleep` gate category) per the design.

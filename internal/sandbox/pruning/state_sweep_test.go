@@ -3,6 +3,7 @@ package pruning
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -327,10 +328,16 @@ func TestSweepSlugPropagatesChildErrors(t *testing.T) {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.Chmod(dir, 0o300); err != nil {
-			t.Fatal(err)
+		// Deny the state-dir listing through the seam: chmod 0300 no longer
+		// denies once the suite runs as uid 0.
+		restore := readStateEntries
+		readStateEntries = func(path string) ([]os.DirEntry, error) {
+			if path == dir {
+				return nil, fs.ErrPermission
+			}
+			return os.ReadDir(path)
 		}
-		t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+		t.Cleanup(func() { readStateEntries = restore })
 		var report StateSweepReport
 		if err := report.sweepSlug(slug); err == nil {
 			t.Fatal("expected the state-dir read error")
@@ -344,10 +351,11 @@ func TestSweepSlugPropagatesChildErrors(t *testing.T) {
 		if err := os.MkdirAll(filepath.Join(dir, claimsDirName), 0o700); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.Chmod(dir, 0o500); err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+		// Deny the claims-dir unlink through the seam: chmod 0500 no longer
+		// denies once the suite runs as uid 0.
+		restore := removeSweepEntry
+		removeSweepEntry = func(string) error { return fs.ErrPermission }
+		t.Cleanup(func() { removeSweepEntry = restore })
 		var report StateSweepReport
 		if err := report.sweepSlug(slug); err == nil {
 			t.Fatal("expected the claims-dir removal error")
@@ -361,10 +369,11 @@ func TestSweepSlugPropagatesChildErrors(t *testing.T) {
 		if err := os.MkdirAll(filepath.Join(dir, "sub"), 0o700); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.Chmod(dir, 0o500); err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+		// Deny the slug-dir removal through the seam: chmod 0500 no longer
+		// denies once the suite runs as uid 0.
+		restore := removeSlugDirIfEmpty
+		removeSlugDirIfEmpty = func(string) error { return fs.ErrPermission }
+		t.Cleanup(func() { removeSlugDirIfEmpty = restore })
 		var report StateSweepReport
 		if err := report.sweepSlug(slug); err == nil {
 			t.Fatal("expected the slug-dir removal error")
@@ -397,10 +406,11 @@ func TestSweepClaimsPropagatesErrors(t *testing.T) {
 			t.Fatal(err)
 		}
 		testutil.WritePath(t, filepath.Join(claimsDir, "free.claim"), "")
-		if err := os.Chmod(claimsDir, 0o500); err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = os.Chmod(claimsDir, 0o700) })
+		// Deny the claim unlink through the seam: chmod 0500 no longer denies
+		// once the suite runs as uid 0.
+		restore := removeUnheldClaim
+		removeUnheldClaim = func(string, string) (bool, error) { return false, fs.ErrPermission }
+		t.Cleanup(func() { removeUnheldClaim = restore })
 		var report StateSweepReport
 		if err := report.sweepClaims(slug); err == nil {
 			t.Fatal("expected the claim removal error")
@@ -458,10 +468,11 @@ func TestSweepKeyStatePropagatesErrors(t *testing.T) {
 		if err := seedHomeState(key, state.HomeState{}); err != nil {
 			t.Fatalf("seed state: %v", err)
 		}
-		if err := os.Chmod(state.SlugDir(slug), 0o500); err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = os.Chmod(state.SlugDir(slug), 0o700) })
+		// Deny the state-file removal through the seam: chmod 0500 no longer
+		// denies once the suite runs as uid 0.
+		restore := removeHomeStateIf
+		removeHomeStateIf = func(state.Key, func(*state.HomeState) bool) error { return fs.ErrPermission }
+		t.Cleanup(func() { removeHomeStateIf = restore })
 		var report StateSweepReport
 		if err := report.sweepKeyState(key); err == nil {
 			t.Fatal("expected the state removal error")
@@ -478,10 +489,11 @@ func TestRemoveEmptyClaimsDirPropagatesError(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, claimsDirName), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(dir, 0o500); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	// Deny the claims-dir unlink through the seam: chmod 0500 no longer denies
+	// once the suite runs as uid 0.
+	restore := removeSweepEntry
+	removeSweepEntry = func(string) error { return fs.ErrPermission }
+	t.Cleanup(func() { removeSweepEntry = restore })
 
 	if err := removeEmptyClaimsDir(slug); err == nil {
 		t.Fatal("expected the claims-dir removal error")

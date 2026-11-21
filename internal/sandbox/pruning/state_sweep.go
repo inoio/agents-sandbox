@@ -16,6 +16,17 @@ import (
 // mirroring the state package's claims layout.
 const claimsDirName = "claims"
 
+// sweepSeams are the filesystem and state operations the sweeps drive; tests
+// substitute them to force a failure without permission bits, which an
+// effective uid of 0 bypasses.
+var (
+	readStateEntries     = os.ReadDir
+	removeSweepEntry     = os.Remove
+	removeUnheldClaim    = state.RemoveUnheldClaim
+	removeHomeStateIf    = state.RemoveHomeStateIf
+	removeSlugDirIfEmpty = state.RemoveSlugDirIfEmpty
+)
+
 // PruneStateArtifacts reclaims the safe-tier internal state under the state
 // root: for every project slug it removes unheld claims and stale client
 // leases, removes a state file that records no home volume, drops a now-empty
@@ -68,7 +79,7 @@ func (r *StateSweepReport) sweepSlug(slug string) error {
 	if err := removeEmptyClaimsDir(slug); err != nil {
 		return err
 	}
-	if err := state.RemoveSlugDirIfEmpty(slug); err != nil {
+	if err := removeSlugDirIfEmpty(slug); err != nil {
 		return err
 	}
 	if _, err := os.Stat(state.SlugDir(slug)); os.IsNotExist(err) {
@@ -85,7 +96,7 @@ func (r *StateSweepReport) sweepClaims(slug string) error {
 		return err
 	}
 	for _, token := range tokens {
-		removed, err := state.RemoveUnheldClaim(slug, token)
+		removed, err := removeUnheldClaim(slug, token)
 		if err != nil {
 			return err
 		}
@@ -101,7 +112,7 @@ func (r *StateSweepReport) sweepClaims(slug string) error {
 // is not an agent. Both the per-agent keys and the legacy agent-less
 // <slug>/state.yaml are swept; a key with no state file is a no-op.
 func (r *StateSweepReport) sweepStatesAndLeases(slug string) error {
-	entries, err := os.ReadDir(state.SlugDir(slug))
+	entries, err := readStateEntries(state.SlugDir(slug))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -139,7 +150,7 @@ func (r *StateSweepReport) sweepKeyState(key state.Key) error {
 		r.StaleStatesKept++
 		return nil
 	}
-	if err := state.RemoveHomeStateIf(key, stateHasNoHomeVolume); err != nil {
+	if err := removeHomeStateIf(key, stateHasNoHomeVolume); err != nil {
 		return err
 	}
 	if _, err := state.ReadState(key); errors.Is(err, state.ErrStateNotFound) {
@@ -157,7 +168,10 @@ func (r *StateSweepReport) sweepKeyState(key state.Key) error {
 // the unlink fails the removal with ENOTEMPTY and the dir is left in place.
 func removeEmptyClaimsDir(slug string) error {
 	dir := filepath.Join(state.SlugDir(slug), claimsDirName)
-	if err := os.Remove(dir); err != nil && !errors.Is(err, os.ErrNotExist) && !errors.Is(err, syscall.ENOTEMPTY) {
+	if err := removeSweepEntry(
+		dir,
+	); err != nil && !errors.Is(err, os.ErrNotExist) &&
+		!errors.Is(err, syscall.ENOTEMPTY) {
 		return fmt.Errorf("remove empty claims dir %s: %w", dir, err)
 	}
 	return nil

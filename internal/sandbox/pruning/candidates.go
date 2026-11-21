@@ -110,7 +110,7 @@ func enumerateStateCandidates(builderFor func(string) *candidateBuilder) error {
 	}
 	for _, slug := range slugs {
 		builder := builderFor(slug)
-		agents, err := state.StatefulAgentNames(slug)
+		agents, err := statefulAgentNames(slug)
 		if err != nil {
 			return err
 		}
@@ -126,6 +126,11 @@ func enumerateStateCandidates(builderFor func(string) *candidateBuilder) error {
 	}
 	return nil
 }
+
+// statefulAgentNames is state.StatefulAgentNames; tests substitute it to force
+// an unreadable slug directory without permission bits, which an effective uid
+// of 0 bypasses.
+var statefulAgentNames = state.StatefulAgentNames
 
 // noteStateFile records a key and its state-file mtime when the state file
 // exists. A state file removed between enumeration and the stat is absence, not
