@@ -18,7 +18,19 @@ var (
 	capturedDaemonPollInterval = daemonPollInterval
 )
 
+// capturedTotalMemoryGiB and capturedNumCPUs hold the production host-figure
+// reads, captured before TestMain pins the seams so VM-default assertions are
+// machine-independent. The seam-contract test asserts them.
+var (
+	capturedTotalMemoryGiB = totalMemoryGiB
+	capturedNumCPUs        = numCPUs
+)
+
 func TestMain(m *testing.M) {
+	// Pin the host figures to a fixed machine so a VM-default assertion does
+	// not depend on the host that runs the suite.
+	totalMemoryGiB = func() int { return 16 }
+	numCPUs = func() uint8 { return 4 }
 	// A mock that does not answer a readiness probe must fail fast, not poll out
 	// the production budget: these are mocked unit tests, and the first probe is
 	// healthy in every passing case. A test that needs the production window, or
