@@ -2408,7 +2408,7 @@ func TestExistingServeHostPort(t *testing.T) {
 // above the live boot maximum: only a live VM booted with a lower maximum than
 // a fresh VM would get counts.
 func TestBootMaxMemoryGrew(t *testing.T) {
-	freshMaxMiB := vm.BootMaxMemoryMiB() //testenv:allow the recreate flag compares against the host's current boot maximum
+	freshMaxMiB := vm.BootMaxMemoryMiB() //testenv:allow the recreate flag compares against the boot maximum the host-figure seam supplies
 	tests := []struct {
 		name string
 		live liveProjectVM
@@ -2583,19 +2583,9 @@ func TestDetectAndOfferMemoryRaiseReadsTheHostFigureSeam(t *testing.T) {
 		options.RunOptions{}, pressureHomeState(t, k), configpaths.Get(), ui,
 	)
 
-	if !anyWarningContains(ui.WarnCalls, "host has only") {
+	if !contains(joinStrings(ui.WarnCalls), "host has only") {
 		t.Errorf("warn calls = %v, want the host-lacks-the-raise warning", ui.WarnCalls)
 	}
-}
-
-// anyWarningContains reports whether any of the warnings contains substring.
-func anyWarningContains(warnings []string, substring string) bool {
-	for _, warning := range warnings {
-		if strings.Contains(warning, substring) {
-			return true
-		}
-	}
-	return false
 }
 
 // TestDetectAndOfferMemoryRaiseDeclineDoesNotReOfferSameOOM pins the decline

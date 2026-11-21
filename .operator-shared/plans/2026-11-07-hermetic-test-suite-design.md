@@ -130,9 +130,9 @@ dependent. This is how A's envelope is built, not a competing whole.
 - **A is the process; B is applied selectively** where a value must be supplied
   rather than denied. C is the envelope's mechanism.
 - **Host-figure independence is enforced by a sentinel pass**, not by the
-  envelope alone: host figures live on `options.Seams`, and a second envelope run
-  pins them to non-host sentinels so a real-host read fails. See "Host-figure
-  enforcement".
+  envelope alone: host figures live on the `internal/hostfigures` seam, and a
+  second envelope run pins them to non-host sentinels so a real-host read fails.
+  See "Host-figure enforcement".
 - **The envelope is Linux-strict, cross-platform-lenient.** `make test-hermetic`
   is Linux (netns + scrub + temp copy). `make test-scrubbed` (temp copy + scrub,
   no netns) runs on macOS too and is the floor everywhere.

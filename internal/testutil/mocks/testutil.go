@@ -26,6 +26,7 @@ func InitFailFastMocks(m *testing.M) {
 	openertest.InstallFailFast()
 	// Pin the host-figure seams to sentinels under the hermetic sentinel pass, so
 	// a test that still reads the real host figures fails.
+	// gomutants:disable-next-line STATEMENT_REMOVE reason="reachable only through another package's TestMain: removing it leaves the sentinel pass a silent no-op; the installer is covered by hostfigurestest's TestInstallSentinelsFromEnv, but this call is not reached by any test in this package"
 	hostfigurestest.InstallSentinelsFromEnv()
 	// gomutants:disable-next-line STATEMENT_REMOVE reason="the wrapper is reachable only through TestMain, so removing m.Run() returns 0 with zero tests run and the package still reports ok: no assertion inside the test binary can reach this statement, and nothing asserts the process exit status"
 	m.Run()

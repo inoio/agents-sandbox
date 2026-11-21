@@ -75,10 +75,10 @@ Add a `main_test.go` with such a `TestMain` to every new package that has tests;
 
 A test double or a fail-fast installer never ships in the production import graph. Each lives in a
 `<pkg>/<name>test` subpackage beside the package it supports — `configpathstest`, `dockertest`, `doctortest`,
-`msbtest` (with its `msbtest/runtime` isolation-helpers leaf), `notifytest`, `openertest`, `termiotest` — so the
-shipped binary links neither `testing` nor the double. The subpackage name is the package name plus `test` (for
-example `configpaths` → `configpathstest`, `termio` → `termiotest`). The central doubles keep the `testmock*.go`
-file name the Codecov glob and the lint path rule match, except `termiotest`, whose double is `mock.go`.
+`hostfigurestest`, `msbtest` (with its `msbtest/runtime` isolation-helpers leaf), `notifytest`, `openertest`,
+`termiotest` — so the shipped binary links neither `testing` nor the double. The subpackage name is the package name
+plus `test` (for example `configpaths` → `configpathstest`, `termio` → `termiotest`). The central doubles keep the
+`testmock*.go` file name the Codecov glob and the lint path rule match, except `termiotest`, whose double is `mock.go`.
 
 Two shapes. A **sibling double** — a `<pkg>/<name>test` subpackage — supports exactly one production
 package (the marker and `TestMain` rules below). **Shared test infrastructure** — the pty driver, the
@@ -231,17 +231,19 @@ Those stay a review responsibility; the gate guards against the common direct fo
 ## Host-figure seams and the sentinel pass
 
 A production read of a host figure (installed RAM, CPU count, available memory) is invisible to the ambient gate,
-which sees only a test's direct call. The reads live behind one seam, `internal/hostfigures`, so a test binary pins
-the figures it derives from instead of reading the runner: `vm`'s boot RAM and CPU defaults and `prepare`'s
-available-memory read go through it, as `session`'s two reads already did. The gate still flags a direct `sysinfo.*`
-read in a default-suite test — the seam is the fix, and the gate keeps a new direct read from reappearing.
+which sees only a test's direct call. The reads live behind one seam, `internal/hostfigures`: `vm`'s boot RAM and CPU
+defaults, `prepare`'s available-memory read, and `session`'s two reads all go through it. The gate still flags a direct
+`sysinfo.*` read in a default-suite test — the seam is the fix, and the gate keeps a new direct read from reappearing.
 
 The seam alone cannot falsify a remaining host read (the envelope's copy leaves the host figures unchanged), so
 `make test-hermetic` runs a second, **sentinel pass** (`--sentinel`): it sets `AGENTS_SANDBOX_HERMETIC_SENTINEL`, and the
-fail-fast installer every test package runs (`mocks.InitFailFastMocks`) pins the seams to non-host sentinels (RAM 1 GiB,
-CPUs 1). A test that still derives an expected value from the real host figures then fails; a test that pins the value
-it asserts against, or compares seam to seam, passes. The few default-suite tests that assert a seam is wired to the
-production read are the only place the real figures are read, and carry `//testenv:allow`.
+fail-fast installer a test binary runs (`mocks.InitFailFastMocks`, or the package's own TestMain mirroring it) pins the
+seams through `hostfigurestest.InstallSentinelsFromEnv` to non-host sentinels (RAM 1 GiB, CPUs 1, 1 MiB available). A
+test that still derives an expected value from the real host figures then fails; a test that pins the value it asserts
+against, or compares seam to seam, passes. The leaf's own wiring test asserts the defaults are the `sysinfo` functions
+by identity, so it reads no host figure and needs no `//testenv:allow`. The sentinel is read in `TestMain`, before Go's
+test-cache log records env reads, so a run that sets it must pass `-count=1`; the `test` target forces it, and the
+envelope already does.
 
 ## Deliberate real-state reads
 

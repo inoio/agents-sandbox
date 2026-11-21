@@ -235,6 +235,64 @@ func TestInitFailFastMocksInstallsEveryFamily(t *testing.T) {
 	}
 }
 
+// TestInitFailFastMocksInstallsHostFigureSentinel pins the wiring the seam family
+// registry cannot: the sentinel installer is not a family (its name lacks the
+// InstallFailFast prefix), so nothing else asserts the wrapper calls it, and
+// deleting the call would leave the hermetic sentinel pass a silent no-op.
+func TestInitFailFastMocksInstallsHostFigureSentinel(t *testing.T) {
+	root := moduleRoot(t)
+	modulePath := moduleImportPath(t, root)
+
+	const (
+		sentinelDir       = "internal/hostfigures/hostfigurestest"
+		sentinelInstaller = "InstallSentinelsFromEnv"
+	)
+	dir := filepath.Join(root, fullSetInstallerPackage)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read %s: %v", fullSetInstallerPackage, err)
+	}
+
+	found := false
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+		file := cachedParseGoFile(t, filepath.Join(dir, entry.Name()), nil).file
+		wrapper := findFunc(file, fullSetInstaller)
+		if wrapper == nil {
+			continue
+		}
+		found = wrapperCallsInstaller(file, wrapper, modulePath+"/"+sentinelDir, sentinelInstaller)
+		break
+	}
+	if !found {
+		t.Errorf("%s does not call %s.%s; the hermetic sentinel pass would be a silent no-op",
+			fullSetInstaller, sentinelDir, sentinelInstaller)
+	}
+}
+
+// wrapperCallsInstaller reports whether fn directly calls importPath.name before
+// the statement that starts the tests.
+func wrapperCallsInstaller(file *ast.File, fn *ast.FuncDecl, importPath, name string) bool {
+	imports := importedPackagesByLocalName(file)
+	testRunParam := firstParamName(fn)
+	for _, statement := range fn.Body.List {
+		if call, ok := directCall(statement); ok {
+			if selector, ok := call.Fun.(*ast.SelectorExpr); ok {
+				if base, ok := selector.X.(*ast.Ident); ok &&
+					imports[base.Name] == importPath && selector.Sel.Name == name {
+					return true
+				}
+			}
+		}
+		if statementRunsTests(statement, testRunParam) {
+			break
+		}
+	}
+	return false
+}
+
 // TestSeamFamiliesMatchDeclaredInstallers keeps seamFamilies complete, so a new
 // seam family cannot go unchecked behind a hand-maintained list: every declared
 // installer must be registered.

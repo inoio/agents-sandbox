@@ -140,8 +140,14 @@ bootstrap:
 	    fi; \
 	fi
 
+# The sentinel installer reads AGENTS_SANDBOX_HERMETIC_SENTINEL in TestMain, before
+# Go's test-cache log is active, so the variable is not part of the cache key: a
+# cached PASS could stand in for a run that never pinned the seams. Force -count=1
+# when the sentinel is requested, so the pass really runs.
+TEST_COUNT = $(if $(AGENTS_SANDBOX_HERMETIC_SENTINEL),-count=1,)
+
 test:
-	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -timeout $(TEST_TIMEOUT) ./...
+	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -timeout $(TEST_TIMEOUT) $(TEST_COUNT) ./...
 
 test-uncached:
 	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -timeout $(TEST_TIMEOUT) -count=1 ./...
