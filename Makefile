@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-cold test-msb-reuse compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic envelope-test check check-test verify print-check-targets check-local-changes check-branch-changes check-selected changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test backport-audit-test open-backport-pr-test kvm-guest-test event-base-test classify-changes-test brain-check brain-check-test shellcheck docs-serve
+.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-cold test-msb-reuse compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic envelope-test check check-test verify print-check-targets check-local-changes check-branch-changes check-selected changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test backport-audit-test open-backport-pr-test kvm-guest-test kvm-up kvm-sync kvm-ssh kvm-run kvm-down event-base-test classify-changes-test brain-check brain-check-test shellcheck docs-serve
 
 VERSION ?= dev
 
@@ -43,6 +43,10 @@ MSB_PARALLEL ?=
 # microsandbox's derived sandbox control socket (see test/harness/harness_helpers_test.go).
 # Remove it to start fresh.
 MSB_REUSE_ROOT ?= /tmp/asb-reuse
+# Host-only: the msb suites need a KVM host, and the dev VM has no working
+# /dev/kvm. `make kvm-up` builds a libvirt guest and these run the suite inside
+# it. See .operator-shared/guides/kvm-guest.md. Never run by CI.
+KVM_RUN ?= make test-msb-journeys
 # The SDK's microsandbox_ffi_path tag swaps its //go:embed for reading the FFI
 # library from $MICROSANDBOX_FFI_PATH at runtime. The unit and integration
 # suites reach the SDK only through seams, so they never read that path and need
@@ -217,6 +221,25 @@ test-msb:
 # cold run leaves no tagged runner image.
 test-msb-cold:
 	AGENTS_SANDBOX_SMOKE_ROOT= AGENTS_SANDBOX_MSB_TEST_HOME= AGENTS_SANDBOX_MSB_PARALLEL=$(MSB_PARALLEL) CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/harness/... ./internal/sandbox/msb/...
+
+# Host-only KVM-guest workflow. These build a libvirt guest (cloud-init seeds
+# docker, Go, msb, and the repo), sync a checkout into it, and run a command
+# there — the msb suites need a KVM host, which the dev VM is not. They are
+# never run by CI. See .operator-shared/guides/kvm-guest.md.
+kvm-up:
+	scripts/kvm-guest.sh up
+
+kvm-sync:
+	scripts/kvm-guest.sh sync
+
+kvm-ssh:
+	scripts/kvm-guest.sh ssh
+
+kvm-run:
+	scripts/kvm-guest.sh run '$(KVM_RUN)'
+
+kvm-down:
+	scripts/kvm-guest.sh down
 
 # Compile every test binary including build-tagged files (`//go:build
 # integration`, `//go:build msb`) so a regression that only breaks tagged code

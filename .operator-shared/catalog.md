@@ -53,6 +53,9 @@
 - `guides/go-version-support.md`
   - Description: The module's minimum Go version and why it cannot be lower, with the evidence and primary sources.
   - Read If: Changing the `go` directive, `.go-version`, or a Go pin; asking whether a lower Go version can be advertised; or diagnosing a dependency/promoted-field/GOTOOLCHAIN "requires a newer Go" error.
+- `guides/kvm-guest.md`
+  - Description: The host-only libvirt KVM guest for running the msb test suites - why the development VM cannot run them, the `scripts/kvm-guest.sh` provisioner and its `make kvm-up`/`kvm-sync`/`kvm-run`/`kvm-down` targets, the nested-KVM prerequisites, and the volatile host-firewall fix guest egress needs.
+  - Read If: Running the msb suites (`make test-msb`, `make test-msb-journeys`) and needing a KVM host; provisioning or destroying the libvirt guest; diagnosing a guest with no DNS/egress behind Docker's `ip filter` table; or changing `scripts/kvm-guest.sh`.
 - `guides/mutation-testing.md`
   - Description: Mutation testing for Go in this repo: the gomutants choice, how to close survivors, and the multi-turn sweep runbook.
   - Read If: Evaluating or changing a Go mutation-testing tool or the `make mutation` target; triaging LIVED mutants from a sweep; picking a `SINCE` scope for a branch/PR sweep; coordinating a #268 survivor-reduction pass; or deciding whether a sweep may run in the VM (it may not - it OOMs).
@@ -179,14 +182,17 @@
 ### `plans/` - TDD implementation plans
 
 - `plans/2026-11-07-hermetic-test-suite-design.md`
-  - Description: `worktree-layout.md` — the `/workspace` bind rule and guest-CWD derivation.
-  - Read If: Changing the `/workspace` bind-source resolution, guest-CWD derivation, the worktree mount rule, or the outside-worktree shared-git-dir mount; or diagnosing a session that hides the worktree it was launched from, a `git` command that cannot resolve inside the VM, or the `--worktree` host git-dir side effect.
+  - Description: Design for making the default `go test` suite hermetic: the host-figure sentinel pass, the wall-clock and ambient-identity rules, and the release-to-default cadence.
+  - Read If: Working on test decoupling from the execution environment, the host-figure sentinel pass, or the hermetic suite's cadence (the landed envelope contract is in `specs/testing/test-isolation.md`).
 - `plans/2026-11-07-hermetic-inventory.md`
-  - Description: `worktree-layout.md` — the `/workspace` bind rule and guest-CWD derivation.
-  - Read If: Changing the `/workspace` bind-source resolution, guest-CWD derivation, the worktree mount rule, or the outside-worktree shared-git-dir mount; or diagnosing a session that hides the worktree it was launched from, a `git` command that cannot resolve inside the VM, or the `--worktree` host git-dir side effect.
+  - Description: First-run envelope record: the green scrubbed run and the six uid/permission tests the strict run fails as root.
+  - Read If: Picking up a hermetic surface fix, choosing the next hermetic task, or checking the envelope's measured runtime against `make test`.
 - `plans/2026-11-07-hermetic-uid-permission-surface.md`
-  - Description: `worktree-layout.md` — the `/workspace` bind rule and guest-CWD derivation.
-  - Read If: Changing the `/workspace` bind-source resolution, guest-CWD derivation, the worktree mount rule, or the outside-worktree shared-git-dir mount; or diagnosing a session that hides the worktree it was launched from, a `git` command that cannot resolve inside the VM, or the `--worktree` host git-dir side effect.
+  - Description: Plan 2 of the hermetic design: remove the effective-uid dependence from the six tests the strict envelope runs as uid 0, and make `make test-hermetic` green.
+  - Read If: A red `make test-hermetic` run under uid 0, the six uid/permission-dependent tests, or adding a read/write failure seam to `configmerge`, `runtimemigration`, or `state`.
 - `plans/2026-11-15-learn-mode-spike.md`
-  - Description: `worktree-layout.md` — the `/workspace` bind rule and guest-CWD derivation.
-  - Read If: Changing the `/workspace` bind-source resolution, guest-CWD derivation, the worktree mount rule, or the outside-worktree shared-git-dir mount; or diagnosing a session that hides the worktree it was launched from, a `git` command that cannot resolve inside the VM, or the `--worktree` host git-dir side effect.
+  - Description: Validation spike for learn mode: the host-run experiments behind the observation channel, with S1's per-harness home read-back still open (opencode2 only). Harness: `spike/learn-mode/`.
+  - Read If: Picking up the unrun per-harness read-back (S1), rerunning an experiment, or checking an unverified observation-channel assumption (proxy reachability under `none`, egress bypass, denial logging, DNS coverage, per-harness credential layout).
+- `plans/2026-11-21-msb-journeys.md`
+  - Description: Implementation plan for #793, the first slice of the harness-journeys acceptance harness: host-side libvirt KVM-guest tooling (`scripts/kvm-guest.sh` + `make kvm-*`), the `test/harness`→`test/msb/startup` rename with the shared untagged `test/msb/driver`, the gate-scope changes (dead-code `test/` filter, ambient scan over non-test `.go` under `test/`, the production-closure contract test), `make test-msb-journeys` with the named-step journey model, and the learn-mode journeys (UC1, UC4, `config learn`, attribution) plus the surface-sweep block.
+  - Read If: Executing #793; working on `scripts/kvm-guest.sh` or the `make kvm-*` targets; the `test/msb/{driver,startup,journeys}` rename and layout; the journeys' `Journey`/`Step` model; or the dead-code/ambient `test/` gate scope.
