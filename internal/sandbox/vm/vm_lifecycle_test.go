@@ -1333,9 +1333,8 @@ func assertInfoCall(t *testing.T, ui *termiotest.Mock, wantSubstr string) {
 // TestBootMaxMemoryMiBIsThePinnedRAM pins the boot maximum a project VM is
 // created with: the seam's installed RAM in whole GiB, never zero.
 func TestBootMaxMemoryMiBIsThePinnedRAM(t *testing.T) {
-	want := options.ParseMemoryGiB(
-		uint32(hostfigures.TotalMemoryGiB()),
-	) //testenv:allow the package TestMain pins the host figures
+	//testenv:allow the package TestMain pins the host figures
+	want := options.ParseMemoryGiB(uint32(hostfigures.TotalMemoryGiB()))
 	if got := BootMaxMemoryMiB(); got == 0 || got != want {
 		t.Errorf("BootMaxMemoryMiB = %d, want the pinned RAM %d MiB", got, want)
 	}

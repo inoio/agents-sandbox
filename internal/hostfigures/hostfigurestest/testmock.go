@@ -12,8 +12,11 @@ const SentinelEnv = "AGENTS_SANDBOX_HERMETIC_SENTINEL"
 
 // InstallSentinelsFromEnv pins the host-figure seams to values deliberately
 // different from any host when SentinelEnv is set, and is a no-op otherwise. A
-// test that reads a real host figure rather than the seam then fails. Wired up by
-// every test package through testutil.InitFailFastMocks (and notify's TestMain).
+// test that reads a real host figure rather than the seam then fails. Every
+// TestMain that installs the fail-fast mocks installs it: mocks.InitFailFastMocks
+// delegates here, and the hand-mirrored TestMains that install the families
+// directly (the wrapper cannot reach their package) call it themselves. Two
+// contract tests keep both routes wired.
 func InstallSentinelsFromEnv() {
 	if os.Getenv(SentinelEnv) == "" {
 		return

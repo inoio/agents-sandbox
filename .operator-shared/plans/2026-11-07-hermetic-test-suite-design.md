@@ -172,10 +172,10 @@ fails:
   `prepare` test that calls the exported `vm.BootMaxMemoryMiB` sees the same value
   the rest of the run does.
 - A test-only installer — driven by an env var the sentinel run sets — pins the
-  seams to fixed sentinels (RAM 1 GiB, CPUs 1) in every test binary that installs
+  seams to fixed sentinels (RAM 1 GiB, CPUs 1, 1 MiB available) in every test binary that installs
   the fail-fast mocks. `mocks.InitFailFastMocks` delegates to `hostfigurestest`,
   and the hand-mirrored TestMains (which install the families directly because the
-  wrapper cannot reach their package) call it themselves; a contract test keeps
+  wrapper cannot reach their package) call it themselves; two contract tests keep
   both wired. The override is comprehensive without threading per-`RunOptions`
   state; production code stays free of test env reads.
 - The leaf's default test asserts the production wiring by qualified function
