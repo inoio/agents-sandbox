@@ -126,6 +126,7 @@ env_args=(
   "GOMODCACHE=${GOMODCACHE:-$(go env GOMODCACHE)}"
   "GOFLAGS=${GOFLAGS:+$GOFLAGS }-count=1"
   "CGO_ENABLED=${CGO_ENABLED:-0}"
+  "GOTOOLCHAIN=local"
   "LANG=${LANG:-C.UTF-8}"
   "TZ=${TZ:-UTC}"
 )

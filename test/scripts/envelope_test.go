@@ -66,6 +66,20 @@ func TestEnvelope(t *testing.T) {
 		}
 	})
 
+	t.Run("pins GOTOOLCHAIN=local", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		fixture := envelopeFixture(t, filepath.Join(root, "base"))
+
+		// An inherited GOTOOLCHAIN must lose to the pinned one, so a toolchain
+		// directive cannot trigger a download inside the network namespace.
+		result := runEnvelope(t, root, map[string]string{"GOTOOLCHAIN": "auto"},
+			"--source", fixture, "--print")
+
+		assertStatus(t, result, 0)
+		assertContains(t, "stdout", result.Stdout, "env GOTOOLCHAIN=local")
+	})
+
 	t.Run("print shows the plan and runs nothing", func(t *testing.T) {
 		t.Parallel()
 		root := t.TempDir()
