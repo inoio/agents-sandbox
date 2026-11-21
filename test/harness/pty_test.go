@@ -51,6 +51,55 @@ func TestSessionInRawMode(t *testing.T) {
 	}
 }
 
+// TestTeardownStartedStopsOnAlternateScreenLeaveOrCookedPty pins the quit loop's
+// stop policy. The host-cooked check (inRawMode) cannot see an alternate-screen
+// harness restore its guest terminal earlier, which is when qwen-code's slow
+// teardown gets tapped past; the alternate-screen-leave check is that guest-side
+// signal, and it must not end the loop before the first tap.
+func TestTeardownStartedStopsOnAlternateScreenLeaveOrCookedPty(t *testing.T) {
+	master, slave, err := pty.Open()
+	if err != nil {
+		t.Fatalf("pty.Open: %v", err)
+	}
+	defer master.Close()
+	defer slave.Close()
+
+	ses := &ptySession{master: master}
+	// A cooked pty is already tearing down: stop from the first press.
+	if !teardownStarted(ses, 1) {
+		t.Error("teardownStarted(cooked pty, 1) = false, want true")
+	}
+	if !teardownStarted(ses, 2) {
+		t.Error("teardownStarted(cooked pty, 2) = false, want true")
+	}
+
+	state, err := term.MakeRaw(int(slave.Fd()))
+	if err != nil {
+		t.Fatalf("MakeRaw: %v", err)
+	}
+	t.Cleanup(func() { _ = term.Restore(int(slave.Fd()), state) })
+
+	// A raw pty with no leave is still listening: keep tapping.
+	if teardownStarted(ses, 1) {
+		t.Error("teardownStarted(raw pty, 1) = true, want false")
+	}
+	if teardownStarted(ses, 2) {
+		t.Error("teardownStarted(raw pty, 2) = true, want false")
+	}
+
+	// A leave on the raw pty ends it from the second press...
+	ses.buffer.WriteString(altScreenLeave)
+	if !teardownStarted(ses, 2) {
+		t.Error("teardownStarted(raw pty with leave, 2) = false, want true")
+	}
+	// ...but never before the loop has tapped once.
+	beforeFirstPress := &ptySession{master: master}
+	beforeFirstPress.buffer.WriteString(altScreenLeave)
+	if teardownStarted(beforeFirstPress, 1) {
+		t.Error("teardownStarted(leave, 1) = true, want false before the first tap")
+	}
+}
+
 // mustStartUnderPTY starts argv under a pseudo-terminal, failing the test if it
 // cannot start and closing the session in cleanup.
 func mustStartUnderPTY(t *testing.T, dir string, env []string, argv ...string) *ptySession {

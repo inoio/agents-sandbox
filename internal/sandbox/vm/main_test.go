@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/hostfigures"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	mocks "github.com/inoio/agents-sandbox/internal/testutil/mocks"
 )
@@ -19,6 +20,11 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	// Pin the host figures to a fixed machine so a VM-default assertion does
+	// not depend on the host that runs the suite. The mocks fail-fast installer
+	// re-pins them to sentinels under the hermetic sentinel pass.
+	hostfigures.OverrideTotalMemoryGiBForTest(func() int { return 16 })
+	hostfigures.OverrideNumCPUsForTest(func() uint8 { return 4 })
 	// A mock that does not answer a readiness probe must fail fast, not poll out
 	// the production budget: these are mocked unit tests, and the first probe is
 	// healthy in every passing case. A test that needs the production window, or

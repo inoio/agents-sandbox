@@ -9,6 +9,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
+	"github.com/inoio/agents-sandbox/internal/hostfigures"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
@@ -70,6 +71,9 @@ func TestResourcePressureInteractiveAcceptPersists(t *testing.T) {
 	// An origin-holding clone gives distinct repo and checkout slugs, so a write
 	// to the wrong slug is observable.
 	t.Chdir(newOriginClone(t))
+	// Pin the boot maximum above the pressure limit so the raise the OOM offers
+	// can apply, independent of the host's RAM.
+	t.Cleanup(hostfigures.OverrideTotalMemoryGiBForTest(func() int { return 8 }))
 	withoutMemoryEnv(t)
 
 	mock := &msbtest.MockMsbClient{}

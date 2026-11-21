@@ -13,6 +13,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/git"
+	"github.com/inoio/agents-sandbox/internal/hostfigures"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
@@ -2407,7 +2408,11 @@ func TestExistingServeHostPort(t *testing.T) {
 // above the live boot maximum: only a live VM booted with a lower maximum than
 // a fresh VM would get counts.
 func TestBootMaxMemoryGrew(t *testing.T) {
-	freshMaxMiB := vm.BootMaxMemoryMiB() //testenv:allow the recreate flag compares against the host's current boot maximum
+	// Pin the seam so the fresh maximum is deterministic, and halve it for the
+	// lower case so it is strictly lower without underflowing a small RAM pin.
+	restore := hostfigures.OverrideTotalMemoryGiBForTest(func() int { return 16 })
+	t.Cleanup(restore)
+	freshMaxMiB := vm.BootMaxMemoryMiB() //testenv:allow the recreate flag compares against the boot maximum the host-figure seam supplies
 	tests := []struct {
 		name string
 		live liveProjectVM
@@ -2421,7 +2426,7 @@ func TestBootMaxMemoryGrew(t *testing.T) {
 		},
 		{
 			name: "lower live maximum",
-			live: liveProjectVM{config: &msb.SandboxConfig{MaxMemoryMiB: freshMaxMiB - 1024}},
+			live: liveProjectVM{config: &msb.SandboxConfig{MaxMemoryMiB: freshMaxMiB / 2}},
 			want: true,
 		},
 	}
@@ -2548,6 +2553,42 @@ func TestDetectAndOfferMemoryRaiseNewerOOMOffersAndPersists(t *testing.T) {
 	}
 	if got := resolvePreparedMemory(t, k.Slug); got != "8192M" {
 		t.Errorf("persisted memory = %q, want 8192M", got)
+	}
+}
+
+// TestDetectAndOfferMemoryRaiseReadsTheHostFigureSeam pins that the offer
+// derives its host-available figure from the host-figure seam: with the host
+// unable to hand out the raise, the warning is emitted.
+func TestDetectAndOfferMemoryRaiseReadsTheHostFigureSeam(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	withoutMemoryEnv(t)
+	restore := hostfigures.OverrideAvailableMemoryMiBForTest(func() (uint32, bool) { return 0, true })
+	t.Cleanup(restore)
+
+	k := testVMKey()
+	oldKill := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	if err := seedHomeState(k, state.HomeState{ResourcePressure: &state.ResourcePressureState{
+		Kind: "memory", Evidence: string(pressure.EvidenceOOMLog), Victim: "old",
+		OOMSeenAt: oldKill, OfferedAt: oldKill.Add(time.Minute),
+	}}); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
+	}
+	newKill := oldKill.Add(time.Hour)
+	cfg := &msb.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 8192}
+	handle := &msbtest.MockSandboxHandle{Cfg: cfg, LogsResult: []msb.LogEntry{memoryRaiseLogEntry(newKill)}}
+	ui := &termiotest.Mock{
+		IsInteractiveResult: true,
+		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
+		InputFn:             func(string, string) (string, error) { return "8G", nil },
+	}
+
+	detectAndOfferMemoryRaise(
+		context.Background(), liveProjectVM{handle: handle, config: cfg}, k,
+		options.RunOptions{}, pressureHomeState(t, k), configpaths.Get(), ui,
+	)
+
+	if !contains(joinStrings(ui.WarnCalls), "host has only") {
+		t.Errorf("warn calls = %v, want the host-lacks-the-raise warning", ui.WarnCalls)
 	}
 }
 

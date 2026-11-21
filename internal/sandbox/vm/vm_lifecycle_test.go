@@ -18,6 +18,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
+	"github.com/inoio/agents-sandbox/internal/hostfigures"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
@@ -30,7 +31,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/sysinfo"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
@@ -818,10 +818,9 @@ func TestCreateProjectVMConfiguresTheVM(t *testing.T) {
 			name: "defaults",
 			opts: options.RunOptions{Memory: "1G"},
 			check: func(t *testing.T, spec msb.SandboxSpec) {
-				//testenv:allow asserts the VM CPU default is the host's CPU count
-				hostCPUs := sysinfo.NumCPUs()
+				hostCPUs := hostfigures.NumCPUs() //testenv:allow the package TestMain pins the host figures
 				if spec.CPUs != hostCPUs || spec.MaxCPUs != hostCPUs {
-					t.Errorf("CPUs/MaxCPUs = %d/%d, want the host's %d", spec.CPUs, spec.MaxCPUs, hostCPUs)
+					t.Errorf("CPUs/MaxCPUs = %d/%d, want the pinned %d", spec.CPUs, spec.MaxCPUs, hostCPUs)
 				}
 				if spec.IdleTimeout != options.DefaultVMIdleTimeout {
 					t.Errorf("IdleTimeout = %v, want the default %v", spec.IdleTimeout, options.DefaultVMIdleTimeout)
@@ -841,8 +840,7 @@ func TestCreateProjectVMConfiguresTheVM(t *testing.T) {
 			name: "configured CPUs",
 			opts: options.RunOptions{Memory: "1G", CPUs: 1},
 			check: func(t *testing.T, spec msb.SandboxSpec) {
-				//testenv:allow asserts the VM CPU maximum is the host's CPU count
-				hostCPUs := sysinfo.NumCPUs()
+				hostCPUs := hostfigures.NumCPUs() //testenv:allow the package TestMain pins the host figures
 				if spec.CPUs != 1 || spec.MaxCPUs != hostCPUs {
 					t.Errorf("CPUs/MaxCPUs = %d/%d, want 1/%d", spec.CPUs, spec.MaxCPUs, hostCPUs)
 				}
@@ -1332,13 +1330,24 @@ func assertInfoCall(t *testing.T, ui *termiotest.Mock, wantSubstr string) {
 	t.Errorf("expected InfoCall containing %q; got: %v", wantSubstr, ui.InfoCalls)
 }
 
-// TestBootMaxMemoryMiBIsTheHostRAM pins the boot maximum a project VM is created
-// with: the host's installed RAM in whole GiB, never zero on a real host.
-func TestBootMaxMemoryMiBIsTheHostRAM(t *testing.T) {
-	//testenv:allow asserts the boot maximum is the host's whole-GiB RAM
-	want := options.ParseMemoryGiB(uint32(sysinfo.TotalMemoryGiB()))
+// TestBootMaxMemoryMiBIsThePinnedRAM pins the boot maximum a project VM is
+// created with: the seam's installed RAM in whole GiB, never zero.
+func TestBootMaxMemoryMiBIsThePinnedRAM(t *testing.T) {
+	//testenv:allow the package TestMain pins the host figures
+	want := options.ParseMemoryGiB(uint32(hostfigures.TotalMemoryGiB()))
 	if got := BootMaxMemoryMiB(); got == 0 || got != want {
-		t.Errorf("BootMaxMemoryMiB = %d, want the host RAM %d MiB", got, want)
+		t.Errorf("BootMaxMemoryMiB = %d, want the pinned RAM %d MiB", got, want)
+	}
+}
+
+// TestBootMaxMemoryMiBMapsTheSeam pins that the boot maximum derives from the
+// host-figure seam through the MiB conversion, so pinning the seam moves it.
+func TestBootMaxMemoryMiBMapsTheSeam(t *testing.T) {
+	restore := hostfigures.OverrideTotalMemoryGiBForTest(func() int { return 32 })
+	t.Cleanup(restore)
+
+	if got, want := BootMaxMemoryMiB(), options.ParseMemoryGiB(32); got != want {
+		t.Errorf("BootMaxMemoryMiB = %d, want %d", got, want)
 	}
 }
 

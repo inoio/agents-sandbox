@@ -16,6 +16,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/hostfigures"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
@@ -464,6 +465,8 @@ func TestRunShellPreviewSkipsPreflight(t *testing.T) {
 // rather than a fixed literal that collides with a smaller memory.
 func TestRunShellMemoryTwoGiBHalvesTmpSize(t *testing.T) {
 	initTestProjectDir(t)
+	// Pin the boot maximum above 2G so --memory 2G is not clamped by a small host.
+	t.Cleanup(hostfigures.OverrideTotalMemoryGiBForTest(func() int { return 8 }))
 
 	mock := &msbtest.MockMsbClient{}
 	root, _ := setupRunMocks(t, mock, &msbtest.MockSandbox{AttachErr: errors.New("fail")},

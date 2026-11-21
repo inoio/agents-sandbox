@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
+	"github.com/inoio/agents-sandbox/internal/hostfigures"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -18,6 +19,33 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
+
+// The package-var seams captured at init, before main_test.go pins them, so a
+// test can assert their production wiring.
+var (
+	defaultBootMaxMemoryMiB       = bootMaxMemoryMiB
+	defaultHostAvailableMemoryMiB = hostAvailableMemoryMiB
+)
+
+// TestDefaultSeamsReadTheHostFigures pins that the two package-var seams default
+// to the hostfigures reads, not a raw host read: overriding the seam moves the
+// default's result. Without this a silent swap back to sysinfo would leave the
+// suite hitting the real host with no failing test.
+func TestDefaultSeamsReadTheHostFigures(t *testing.T) {
+	restoreMemory := hostfigures.OverrideTotalMemoryGiBForTest(func() int { return 16 })
+	restoreAvailable := hostfigures.OverrideAvailableMemoryMiBForTest(func() (uint32, bool) { return 12345, true })
+	t.Cleanup(func() {
+		restoreMemory()
+		restoreAvailable()
+	})
+
+	if got, want := defaultBootMaxMemoryMiB(), options.ParseMemoryGiB(16); got != want {
+		t.Errorf("default bootMaxMemoryMiB = %d, want the seam's %d", got, want)
+	}
+	if got, ok := defaultHostAvailableMemoryMiB(); got != 12345 || !ok {
+		t.Errorf("default hostAvailableMemoryMiB = (%d, %v), want the seam's (12345, true)", got, ok)
+	}
+}
 
 // seedPressureMarker writes a pressure marker as the key's HomeState.
 func seedPressureMarker(t *testing.T, k state.Key, marker state.ResourcePressureState) {

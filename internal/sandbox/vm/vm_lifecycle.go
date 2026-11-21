@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/inoio/agents-sandbox/internal/hostfigures"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
@@ -13,7 +14,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/sysinfo"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -293,7 +293,7 @@ func reconcileResources(ctx context.Context, handle msb.SandboxHandle, opts opti
 // a VM's memory above it.
 func BootMaxMemoryMiB() uint32 {
 	//nolint:gosec // G115: physical RAM in GiB cannot overflow uint32
-	return options.ParseMemoryGiB(uint32(sysinfo.TotalMemoryGiB()))
+	return options.ParseMemoryGiB(uint32(hostfigures.TotalMemoryGiB()))
 }
 
 // bootMemoryMiB is the memory a new project VM boots with: the configured
@@ -329,9 +329,9 @@ func createProjectVM(ctx context.Context, creation ProjectVMCreation, name strin
 	}
 	opts := creation.Options
 	cpus := opts.CPUs
-	numCPUs := sysinfo.NumCPUs()
+	hostCPUs := hostfigures.NumCPUs()
 	if cpus == 0 {
-		cpus = numCPUs
+		cpus = hostCPUs
 	}
 
 	vmEnv := buildProjectVMEnv(creation.Env.Vars, info.Env)
@@ -374,7 +374,7 @@ func createProjectVM(ctx context.Context, creation ProjectVMCreation, name strin
 		Env:          vmEnv,
 		Workdir:      defaultTargetDir,
 		CPUs:         cpus,
-		MaxCPUs:      numCPUs,
+		MaxCPUs:      hostCPUs,
 		MemoryMiB:    effectiveMemoryMiB,
 		MaxMemoryMiB: BootMaxMemoryMiB(),
 		Detached:     true,

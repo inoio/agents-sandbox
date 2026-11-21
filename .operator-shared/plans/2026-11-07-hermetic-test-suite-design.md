@@ -130,9 +130,9 @@ dependent. This is how A's envelope is built, not a competing whole.
 - **A is the process; B is applied selectively** where a value must be supplied
   rather than denied. C is the envelope's mechanism.
 - **Host-figure independence is enforced by a sentinel pass**, not by the
-  envelope alone: host figures live on `options.Seams`, and a second envelope run
-  pins them to non-host sentinels so a real-host read fails. See "Host-figure
-  enforcement".
+  envelope alone: host figures live on the `internal/hostfigures` seam, and a
+  second envelope run pins them to non-host sentinels so a real-host read fails.
+  See "Host-figure enforcement".
 - **The envelope is Linux-strict, cross-platform-lenient.** `make test-hermetic`
   is Linux (netns + scrub + temp copy). `make test-scrubbed` (temp copy + scrub,
   no netns) runs on macOS too and is the floor everywhere.
@@ -146,12 +146,14 @@ dependent. This is how A's envelope is built, not a competing whole.
   relative fixture (`now.Add(-time.Hour)`) from an absolute-instant expectation,
   and 191 sites are mostly the former. The `time.Now` audit is manual; add a
   clock seam only if a test turns out to assert an absolute instant.
-- **Identity is made hermetic by seam, not by a gate category.** Once the
-  convenience accessors read a pinned seam, a correct call and an ambient one are
-  syntactically identical, so a source gate could not distinguish them. The seam
-  (or the `testutil.CheckoutSlug` + `t.Chdir` alternative) is the enforcement; no
-  identity gate category is added. The envelope then falsifies any residual
-  layout dependence, because CWD is outside any checkout.
+- **Identity is made hermetic by the envelope, not a seam or a gate.** The
+  envelope runs from a copy outside any checkout, and `ResolveIdentity` falls back
+  to a path-derived non-repo identity rather than erroring, so no default-suite
+  test depends on the module's real checkout (see surface 1). A cwd seam pinned
+  per `TestMain` would break the sites that `t.Chdir` into a fixture before
+  reading the slug; a source gate would flag those sites alike and, as below,
+  could not tell a pinned from an ambient call. No identity seam and no identity
+  gate category.
 
 ## Host-figure enforcement: the sentinel pass
 
@@ -162,19 +164,23 @@ run, the **sentinel pass**, that pins the host-figure seams to values
 deliberately different from the host so any test still reading the real host
 fails:
 
-- The host figures live on `options.Seams` (the established cross-package
-  injection point), falling back to package vars and then `sysinfo`. `vm`,
-  `prepare`, and `session` all read them through that one path, so a
-  `prepare` test that calls the exported `vm.BootMaxMemoryMiB` sees the same
-  value the rest of the run does.
+- The host figures live on the leaf `internal/hostfigures` (a package var per
+  figure, defaulting to `sysinfo`), the one seam `vm`, `prepare`, and `session`
+  read. A leaf rather than `options.Seams`: `vm.BootMaxMemoryMiB()` takes no
+  `RunOptions`, and `mocks` cannot import `vm`/`prepare` (it would cycle with
+  their internal `_test.go` files) — the leaf is what both sides can import, so a
+  `prepare` test that calls the exported `vm.BootMaxMemoryMiB` sees the same value
+  the rest of the run does.
 - A test-only installer — driven by an env var the sentinel run sets — pins the
-  seams to fixed sentinels (RAM 1 GiB, CPUs 1) in every test binary that installs
-  the fail-fast mocks. Every test package already calls
-  `mocks.InitFailFastMocks`, so the override is comprehensive without threading
-  per-`RunOptions` state; production code stays free of test env reads.
-- A small sentinel-exempt set (the seam-contract tests that assert the production
-  wiring, marked `//testenv:allow`) is the only place the real value is read, and
-  it is named explicitly so the exemption is reviewable.
+  seams to fixed sentinels (RAM 1 GiB, CPUs 1, 1 MiB available) in every test binary that installs
+  the fail-fast mocks. `mocks.InitFailFastMocks` delegates to `hostfigurestest`,
+  and the hand-mirrored TestMains (which install the families directly because the
+  wrapper cannot reach their package) call it themselves; two contract tests keep
+  both wired. The override is comprehensive without threading per-`RunOptions`
+  state; production code stays free of test env reads.
+- The leaf's default test asserts the production wiring by qualified function
+  name (`runtime.FuncForPC` on the reflected value), so the seam-contract tests
+  read no real host figure and need no `//testenv:allow` exemption.
 
 Alternatives considered and rejected: a reachability analyzer (catches the
 indirect case but noisy, slow, whole-program SSA) and an audited-only requirement
@@ -192,45 +198,41 @@ indirect case but noisy, slow, whole-program SSA) and an audited-only requiremen
 derives the project base from CWD too.
 
 Because both the tests and production resolve `"."`, the suite is currently
-self-consistent *inside* the repo; the envelope removes that scaffolding and
-exposes any place that assumed the module's real checkout. The fix is one
-deterministic identity per test binary:
+self-consistent *inside* the repo; the envelope removes that scaffolding. The read
+is total: `ResolveIdentity` does not error on a directory outside a repository, it
+returns a path-derived non-repo identity, so the suite stays green and no
+default-suite test depends on the module's real checkout. No test asserts a slug
+*value* (each compares two runtime-resolved identities, or checks substring
+presence); the one test that pins the non-repo fallback
+(`cli_config_paths_test.go`) is deliberate.
 
-- **Preferred:** a `git` package seam for the cwd the convenience accessors use
-  (`ResolveIdentity` keeps taking an explicit `cwd`; only the `Must*` wrappers
-  read the seam), pinned in each affected `TestMain` to a synthesized checkout.
-  The synthesized layout is created in-process with go-git
-  (`testutil.InitRepo` already initializes via go-git, not the git binary), so
-  it needs no external command and no network.
-- **Alternative:** `testutil.CheckoutSlug(t)` returning a deterministic slug and
-  a `t.Chdir(testutil.InitRepo(t))` at each site. More churn (dozens of sites),
-  no global mutable state.
+**Resolved by the envelope; no seam and no gate.** The seam the first draft
+preferred (a cwd seam pinned per `TestMain`) does not fit the call sites: they
+split into ambient reads and ~20 that read the slug *after* `t.Chdir(fixture)` to
+get the fixture's slug, which a single pinned cwd would break (each fixture is a
+go-git repo in a temp dir, so those sites are already deterministic). A gate would
+flag all ~40 sites alike, and — per the Decisions section — a source gate cannot
+tell a pinned call from an ambient one.
 
-The gate should learn to flag `git.MustRepoSlug`/`MustCheckoutSlug` in the
-default suite the same way it flags host probes, so a new call site cannot
-reintroduce the dependency once the residuals are closed.
+### 2. Host resource figures — built
 
-### 2. Host resource figures
+Production reads: `vm.BootMaxMemoryMiB` and `vm`'s CPU default,
+`prepare/reconfig.go`'s available-memory read; `session` seeds its two reads.
 
-Production reads: `vm.BootMaxMemoryMiB` (`sysinfo.TotalMemoryGiB`),
-`vm` CPU defaults (`sysinfo.NumCPUs`), `prepare/reconfig.go`
-(`sysinfo.AvailableMemoryMiB`); `session` already seams its two reads.
-
-- Add narrow package seams in `vm` (`totalMemoryGiB`, `numCPUs`) and `prepare`
-  (available memory), defaulting to `sysinfo`, pinned in the owning package's
-  `TestMain` — the pattern `session`'s `bootMaxMemoryMiB`/`hostAvailableMemoryMiB`
-  and the existing interval seams already use.
-- **Cross-package reads are the complication.** A package-private var in `vm` is
-  only pinnable by `vm`'s own test binary, so `prepare`'s test of
-  `bootMaxMemoryGrew` (which calls the exported `vm.BootMaxMemoryMiB`) still reads
-  the real host. This is why the seam lives on `options.Seams` (see "Host-figure
-  enforcement"), with the package vars as its fallback.
-- Rewrite the host-dependent assertions to compare against the pinned seam value
-  (as `TestOfferMemoryRaiseAfterAttachClampsToTheBootMaximum` now does) so the
-  test stays meaningful and machine-independent.
-- Keep one seam-contract test per read that asserts the default closure is the
-  production function and maps through unchanged; delete direct `sysinfo` reads
-  from test files.
+- The reads go through one leaf, `internal/hostfigures` (a package var per
+  figure, defaulting to `sysinfo`, with an `Override…ForTest` set/restore). `vm`
+  and `prepare` call the leaf.
+- **Cross-package pinning is why it is a leaf, not per-package vars.** `mocks`
+  cannot import `vm`/`prepare`, so the sentinel installer reaches the seam through
+  the leaf both sides import. (`options.Seams` does not fit: `BootMaxMemoryMiB()`
+  takes no `RunOptions`.)
+- The host-dependent assertions compare against the seam, or pin it, so they are
+  machine-independent; direct `sysinfo` reads are gone from the test files, and
+  the ambient gate still flags a new one.
+- Each seam has a contract test: the leaf asserts its defaults are the `sysinfo`
+  functions by qualified name (reading no host figure), and `vm`/`prepare`
+  assert the value maps through.
+- Enforcement is the sentinel pass (see "Host-figure enforcement").
 
 ### 3. Process environment
 
@@ -307,10 +309,11 @@ copy must not write into the source tree (build/test writes go to the scrubbed
 1. **Envelope + inventory + budget.** `make test-hermetic`/`test-scrubbed`, temp
    copy, env scrub, netns wrapper; record the first red run as the worklist and
    measure the runtime against `make test`.
-2. **Identity/CWD seam** (surface 1).
-3. **Host-figure seams + sentinel pass** (surface 2): move the reads onto
-   `options.Seams`, wire the test-only pinning installer, and make any real-host
-   read fail under the sentinel run.
+2. **Identity/CWD** (surface 1) — resolved by the envelope's non-repo fallback;
+   no production or test change (see surface 1).
+3. **Host-figure seams + sentinel pass** (surface 2) — built: the leaf
+   `internal/hostfigures`, the `hostfigurestest` sentinel installer wired through
+   `mocks.InitFailFastMocks`, and the `--sentinel` envelope pass.
 4. **Wall-clock** (surface 5): remove sleeps, add the `time.Sleep` gate category.
 5. **Cadence wiring**: strict run in the release workflow (required), the optional
    PR job, `test-scrubbed` on macOS; docs and `AGENTS.md` updated.
@@ -322,9 +325,9 @@ copy must not write into the source tree (build/test writes go to the scrubbed
   (`GOFLAGS`, `-tags microsandbox_ffi_path`, `CGO_ENABLED`, cache dirs).
 - The netns privilege story on the CI runner (rootless `unshare -rn` versus
   `sudo unshare -n`) and whether AppArmor/userns restrictions force a container.
-- The precise `git` seam shape (package seam pinned in `TestMain` versus the
-  `testutil.CheckoutSlug` helper), chosen against the failing inventory.
-- The sentinel env-var name, the sentinel values, and the exact seam-exempt set.
+- The sentinel env-var name (`AGENTS_SANDBOX_HERMETIC_SENTINEL`), the sentinel
+  values (RAM 1 GiB, CPUs 1, 1 MiB available), and the seam-exempt set (none: the
+  default test asserts wiring by qualified name).
 - Which sleeps are genuine dwell tests and which collapse into channels.
 - CI job naming/trigger, and whether it is advisory or blocking at introduction.
 - The measured runtime threshold that promotes the suite to per-PR and then to the

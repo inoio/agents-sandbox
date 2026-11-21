@@ -90,6 +90,15 @@ var seamFamilies = []seamFamily{
 // seamFamilies by hand.
 const installerPrefix = "InstallFailFast"
 
+// The host-figure sentinel installer is not a seam family (its name lacks the
+// installer prefix), so nothing in the family registry asserts it is wired. It
+// is pinned separately: by the wrapper-body test, and by the test that every
+// TestMain installing a family also installs it.
+const (
+	hostFigureSentinelDir       = "internal/hostfigures/hostfigurestest"
+	hostFigureSentinelInstaller = "InstallSentinelsFromEnv"
+)
+
 // registeredInstaller identifies a seam installer by where it is declared.
 type registeredInstaller struct {
 	dir         string
@@ -233,6 +242,111 @@ func TestInitFailFastMocksInstallsEveryFamily(t *testing.T) {
 		t.Errorf("%s (%s) installs %v, want every seam family %v",
 			fullSetInstaller, fullSetInstallerPackage, got, want)
 	}
+}
+
+// TestInitFailFastMocksInstallsHostFigureSentinel pins the wiring the seam family
+// registry cannot: the sentinel installer is not a family (its name lacks the
+// InstallFailFast prefix), so nothing else asserts the wrapper calls it, and
+// deleting the call would leave the hermetic sentinel pass a silent no-op.
+func TestInitFailFastMocksInstallsHostFigureSentinel(t *testing.T) {
+	root := moduleRoot(t)
+	modulePath := moduleImportPath(t, root)
+
+	dir := filepath.Join(root, fullSetInstallerPackage)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read %s: %v", fullSetInstallerPackage, err)
+	}
+
+	found := false
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+		file := cachedParseGoFile(t, filepath.Join(dir, entry.Name()), nil).file
+		wrapper := findFunc(file, fullSetInstaller)
+		if wrapper == nil {
+			continue
+		}
+		found = wrapperCallsInstaller(file, wrapper, modulePath+"/"+hostFigureSentinelDir, hostFigureSentinelInstaller)
+		break
+	}
+	if !found {
+		t.Errorf("%s does not call %s.%s; the hermetic sentinel pass would be a silent no-op",
+			fullSetInstaller, hostFigureSentinelDir, hostFigureSentinelInstaller)
+	}
+}
+
+// TestEveryTestMainInstallingFamiliesInstallsHostFigureSentinel pins that a
+// package whose TestMain installs fail-fast families by hand — rather than
+// through the wrapper, which cannot reach a package the installer imports —
+// also installs the host-figure sentinel. Without it the sentinel pass is a
+// silent no-op in that binary, so a host-figure read there would go undetected.
+func TestEveryTestMainInstallingFamiliesInstallsHostFigureSentinel(t *testing.T) {
+	root := moduleRoot(t)
+	modulePath := moduleImportPath(t, root)
+
+	checked := 0
+	for _, pkg := range modulePackages(t, root) {
+		if !pkg.hasTests || pkg.dir == fullSetInstallerPackage {
+			// The wrapper's own TestMain calls it unqualified (a package cannot
+			// import itself), so the selector scan below cannot see it.
+			continue
+		}
+		mainTestPath := filepath.Join(root, pkg.dir, "main_test.go")
+		parsed, err := loadParsedModuleFile(mainTestPath, nil)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			t.Fatalf("parse %s: %v", mainTestPath, err)
+		}
+		testMain := findFunc(parsed.file, "TestMain")
+		if testMain == nil || len(installedFamiliesIn(parsed.file, testMain, modulePath, seamFamilies)) == 0 {
+			continue
+		}
+		checked++
+		installsSentinel := wrapperCallsInstaller(
+			parsed.file,
+			testMain,
+			modulePath+"/"+fullSetInstallerPackage,
+			fullSetInstaller,
+		) ||
+			wrapperCallsInstaller(
+				parsed.file,
+				testMain,
+				modulePath+"/"+hostFigureSentinelDir,
+				hostFigureSentinelInstaller,
+			)
+		if !installsSentinel {
+			t.Errorf("%s: TestMain installs fail-fast families but not %s.%s; the sentinel pass would be a no-op there",
+				pkg.dir, hostFigureSentinelDir, hostFigureSentinelInstaller)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no TestMain installing a fail-fast family found")
+	}
+}
+
+// wrapperCallsInstaller reports whether fn directly calls importPath.name before
+// the statement that starts the tests.
+func wrapperCallsInstaller(file *ast.File, fn *ast.FuncDecl, importPath, name string) bool {
+	imports := importedPackagesByLocalName(file)
+	testRunParam := firstParamName(fn)
+	for _, statement := range fn.Body.List {
+		if call, ok := directCall(statement); ok {
+			if selector, ok := call.Fun.(*ast.SelectorExpr); ok {
+				if base, ok := selector.X.(*ast.Ident); ok &&
+					imports[base.Name] == importPath && selector.Sel.Name == name {
+					return true
+				}
+			}
+		}
+		if statementRunsTests(statement, testRunParam) {
+			break
+		}
+	}
+	return false
 }
 
 // TestSeamFamiliesMatchDeclaredInstallers keeps seamFamilies complete, so a new

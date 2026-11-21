@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
+	"github.com/inoio/agents-sandbox/internal/hostfigures/hostfigurestest"
 	"github.com/inoio/agents-sandbox/internal/notify/notifytest"
 	"github.com/inoio/agents-sandbox/internal/opener/openertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
@@ -27,6 +28,7 @@ func TestMain(m *testing.M) {
 	// Point the msb-tagged tests at an isolated microsandbox home; a no-op in
 	// the untagged build (see the leaf's runtime.go).
 	removeIsolatedRuntimeHome := runtime.InstallIsolatedRuntimeHome()
+	hostfigurestest.InstallSentinelsFromEnv()
 	m.Run()
 	// A test that failed or panicked without reaching its own cleanup would
 	// otherwise leave a detached VM in the home removeIsolatedRuntimeHome

@@ -5,13 +5,13 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/hostfigures"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
 	"github.com/inoio/agents-sandbox/internal/sandbox/resourceproposal"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
-	"github.com/inoio/agents-sandbox/internal/sysinfo"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -19,10 +19,10 @@ import (
 // bounds come from. They are vars so a test can pin a host, rather than assert
 // against the installed RAM and /proc/meminfo of the machine running the suite
 // (the boot maximum is the host's whole-GiB RAM, so the raise the offer can
-// suggest depends on it).
+// suggest depends on it). Both read the shared host-figure seam.
 var (
 	bootMaxMemoryMiB       = sandbox.BootMaxMemoryMiB
-	hostAvailableMemoryMiB = sysinfo.AvailableMemoryMiB
+	hostAvailableMemoryMiB = hostfigures.AvailableMemoryMiB
 )
 
 // offerMemoryRaiseAfterAttach detects a memory hit from the just-ended session

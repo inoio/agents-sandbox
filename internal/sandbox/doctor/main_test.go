@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
+	"github.com/inoio/agents-sandbox/internal/hostfigures/hostfigurestest"
 	"github.com/inoio/agents-sandbox/internal/notify/notifytest"
 	"github.com/inoio/agents-sandbox/internal/opener/openertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
@@ -21,5 +22,6 @@ func TestMain(m *testing.M) {
 	msbtest.InstallFailFastGet()
 	notifytest.InstallFailFast()
 	openertest.InstallFailFast()
+	hostfigurestest.InstallSentinelsFromEnv()
 	m.Run()
 }
