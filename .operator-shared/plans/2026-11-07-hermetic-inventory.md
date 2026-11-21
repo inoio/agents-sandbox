@@ -20,8 +20,8 @@ Ratio: the envelope is ~1.5× an uncached `go test` (+~10 s) and ~4.5× a cached
 `make test`. The module copy is ~8.6 MB / ~0.5 s; the overhead is the uncached
 run plus re-linking in the copy, not the copy itself. That is inside the
 "small multiple" the design targets, so promotion to a per-PR run (and
-eventually the default) is realistic once the uid/permission surface below is
-fixed.
+eventually the default) is realistic; the uid/permission surface below is now
+resolved.
 
 Compare against a fair baseline, never a cached `make test`: the difference is
 the test cache, not the envelope.
@@ -30,7 +30,10 @@ the test cache, not the envelope.
 
 - `make test-scrubbed` is **green** (all 49 packages) — no test depends on the
   ambient environment, the CWD being a checkout, or the real home.
-- `make test-hermetic` is **red** in 3 packages, all one surface (below).
+- `make test-hermetic` was **red** in 3 packages at the first run, all one
+  surface (uid/permission, below); it is **green** after the resolution below,
+  which also covered 2 further packages (`pruning`, `state`) whose fixtures
+  landed after this record.
 
 ### Filesystem scratch (resolved in Plan 1)
 

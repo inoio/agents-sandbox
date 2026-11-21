@@ -467,6 +467,60 @@ func TestRemoveSandboxesWarnsAndJoinsFailures(t *testing.T) {
 	}
 }
 
+// TestPurgeRoutesThroughSweepSeams pins that the sweep seams intercept the purge
+// and candidate call sites, not only sweepSlug: a test that stubs one seam to
+// force a failure must not miss a call site that still calls state directly.
+func TestPurgeRoutesThroughSweepSeams(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+
+	t.Run("planStateKeys routes through statefulAgentNames", func(t *testing.T) {
+		stub := statefulAgentNames
+		var called bool
+		statefulAgentNames = func(string) ([]string, error) { called = true; return nil, nil }
+		t.Cleanup(func() { statefulAgentNames = stub })
+
+		if err := planStateKeys(map[string]struct{}{"seam-slug": {}}, func(state.Key) {}); err != nil {
+			t.Fatalf("planStateKeys: %v", err)
+		}
+		if !called {
+			t.Error("planStateKeys did not route through statefulAgentNames")
+		}
+	})
+
+	t.Run("sweepStaleState routes through removeHomeStateIf", func(t *testing.T) {
+		key := state.Key{Slug: "seam-sweep", Agent: "opencode"}
+		if err := seedHomeState(key, state.HomeState{}); err != nil {
+			t.Fatalf("seed state: %v", err)
+		}
+		stub := removeHomeStateIf
+		var called bool
+		removeHomeStateIf = func(state.Key, func(*state.HomeState) bool) error { called = true; return nil }
+		t.Cleanup(func() { removeHomeStateIf = stub })
+
+		plan := &RemovalPlan{Slugs: []string{key.Slug}, Keys: []state.Key{key}}
+		if err := plan.sweepStaleState(); err != nil {
+			t.Fatalf("sweepStaleState: %v", err)
+		}
+		if !called {
+			t.Error("sweepStaleState did not route through removeHomeStateIf")
+		}
+	})
+
+	t.Run("removeEmptyDirs routes through removeSlugDirIfEmpty", func(t *testing.T) {
+		stub := removeSlugDirIfEmpty
+		var called bool
+		removeSlugDirIfEmpty = func(string) error { called = true; return nil }
+		t.Cleanup(func() { removeSlugDirIfEmpty = stub })
+
+		ui := termiotest.NewTestMock(t)
+		plan := &RemovalPlan{Slugs: []string{"seam-dirs"}}
+		_ = plan.removeEmptyDirs(&ui)
+		if !called {
+			t.Error("removeEmptyDirs did not route through removeSlugDirIfEmpty")
+		}
+	})
+}
+
 // TestPruneSurvivingClaims pins the claim-retention rule: a planned claim is
 // dropped when its volume was removed or no longer exists, but kept when its
 // volume survived a failed removal — the surviving home's only owner record when
@@ -582,9 +636,17 @@ func TestExecuteJoinsStateAndDirRemovalFailures(t *testing.T) {
 	}
 
 	// Deny the state-file removal and the claims-dir unlink through the seams:
-	// chmod 0500 no longer denies once the suite runs as uid 0.
+	// chmod 0500 no longer denies once the suite runs as uid 0. The state seam
+	// fails only a removal that would actually happen, so step 1's sweep
+	// (predicate false: the state still names its volume) is not intercepted.
 	restoreState := removeHomeStateIf
-	removeHomeStateIf = func(state.Key, func(*state.HomeState) bool) error { return fs.ErrPermission }
+	removeHomeStateIf = func(k state.Key, shouldRemove func(*state.HomeState) bool) error {
+		cur, err := state.ReadState(k)
+		if err == nil && !shouldRemove(cur) {
+			return nil
+		}
+		return fs.ErrPermission
+	}
 	t.Cleanup(func() { removeHomeStateIf = restoreState })
 	restoreDir := removeSweepEntry
 	removeSweepEntry = func(string) error { return fs.ErrPermission }

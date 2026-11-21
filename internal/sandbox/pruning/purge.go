@@ -233,7 +233,7 @@ func plannedKeyAdder(keys map[state.Key]struct{}, agent string) func(state.Key) 
 // per-agent key directories and the legacy agent-less file.
 func planStateKeys(slugSet map[string]struct{}, addKey func(state.Key)) error {
 	for slug := range slugSet {
-		agents, err := state.StatefulAgentNames(slug)
+		agents, err := statefulAgentNames(slug)
 		if err != nil {
 			return err
 		}
@@ -527,7 +527,7 @@ func (p *RemovalPlan) sweepStaleState() error {
 	}
 	for _, key := range p.Keys {
 		state.SweepClientLeases(key)
-		if err := state.RemoveHomeStateIf(key, stateHasNoHomeVolume); err != nil {
+		if err := removeHomeStateIf(key, stateHasNoHomeVolume); err != nil {
 			return err
 		}
 	}
@@ -672,7 +672,7 @@ func (p *RemovalPlan) removeEmptyDirs(ui termio.Logger) []error {
 			ui.Warnf("failed to remove empty claims dir for %s: %v", slug, err)
 			errs = append(errs, err)
 		}
-		if err := state.RemoveSlugDirIfEmpty(slug); err != nil {
+		if err := removeSlugDirIfEmpty(slug); err != nil {
 			ui.Warnf("failed to remove empty state dir for %s: %v", slug, err)
 			errs = append(errs, err)
 		}

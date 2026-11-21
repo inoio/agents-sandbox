@@ -8,8 +8,8 @@ import (
 )
 
 // TestOverrideStateWriteForTestInstallsAndRestores pins the seam's contract: it
-// replaces the root-state writer so a caller can force a write failure, and the
-// returned function restores the previous writer.
+// replaces the state writer both funnels use so a caller can force a write
+// failure, and the returned function restores the previous writer.
 func TestOverrideStateWriteForTestInstallsAndRestores(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 

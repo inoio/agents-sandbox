@@ -186,8 +186,9 @@ both; the release gate is the strict tier's floor, and promotion toward the defa
 runtime budget, never a date (see `guides/test-runtime-cost.md`).
 
 The `--netns` tier runs as uid 0 (`unshare --net --map-root-user`), so a test must not depend on the effective uid: a
-permission-denial fixture induces the read/write failure through a package seam, never `chmod`. Every such fixture now
-uses a seam, so the tier is green.
+permission-denial fixture induces the read/write failure through a package seam, never `chmod`. The fixtures the tier
+surfaced now do this and it is green; the other permission-denial fixtures still `chmod` and skip under root
+(`requireNonRoot` or an `os.Geteuid() == 0` guard), so the strict tier does not exercise their error branches.
 
 ## Ambient-environment gate
 
