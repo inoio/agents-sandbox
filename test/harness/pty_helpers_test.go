@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -179,6 +180,22 @@ func (s *ptySession) output() []byte {
 func (s *ptySession) write(data []byte) error {
 	_, err := s.master.Write(data)
 	return err
+}
+
+// inRawMode reports whether the terminal is in raw mode. The launcher's msb
+// attach client puts the test pty in raw mode while it drives the session and
+// restores it before it exits, so the pty falling back to cooked mode is the
+// signal that the attach is on its way out: a key written past that point is no
+// longer a keystroke but the SIGINT the cooked terminal makes of it, which kills
+// the launcher mid-teardown. Reading it through the master works because a pty
+// master and slave share one termios (the master has no line discipline of its
+// own). A read error reports false, which the quit loop treats as "stop tapping".
+func (s *ptySession) inRawMode() bool {
+	termios, err := unix.IoctlGetTermios(int(s.master.Fd()), ioctlReadTermios)
+	if err != nil {
+		return false
+	}
+	return termios.Lflag&unix.ICANON == 0
 }
 
 // waitForTUI blocks until the child's output shows a full-screen TUI while the

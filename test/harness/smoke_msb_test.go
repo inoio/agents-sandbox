@@ -195,17 +195,18 @@ func TestHarnessSmoke(t *testing.T) {
 // harness whose exit is a repeated key — claude-code announces "Press Ctrl-C
 // again to exit" — needs the taps to keep coming.
 //
-// Once the harness has given the alternate screen back it has caught the quit
-// and is tearing down: it has restored the terminal to its cooked mode, so one
-// more tap is no longer a keystroke but the SIGINT the terminal makes of it, and
-// the process dies mid-teardown (qwen-code printed "Agent powering down.
-// Goodbye!" and still reported -1 this way). So the loop stops tapping past
-// that point and only waits for the exit — the cadence is left alone, because it
-// must stay short enough for a repeated-key exit to chain.
+// Once the launcher's attach has restored the terminal (the pty is back in
+// cooked mode) it is tearing down, and one more tap is no longer a keystroke but
+// the SIGINT the cooked terminal makes of it — which kills the launcher
+// mid-teardown, so its harness's clean exit is reported as -1 (qwen-code printed
+// "Agent powering down. Goodbye!" and claude-code reached its prompt, yet both
+// reported -1 this way). So the loop stops tapping past that point and only
+// waits for the exit. The tap cadence is left alone: it must stay short enough
+// that a repeated-key exit chains.
 func quit(ses *ptySession, spec harnessSpec) (int, error) {
 	deadline := time.Now().Add(quitTimeout)
 	for presses := 1; ; presses++ {
-		if presses > 1 && tuiLeft(ses.output()) {
+		if !ses.inRawMode() {
 			return waitExitWithin(ses, deadline, presses, spec)
 		}
 		if err := ses.write(spec.QuitKey); err != nil {

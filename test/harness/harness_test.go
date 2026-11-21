@@ -954,19 +954,3 @@ func TestHarnessRunArgsCapTheSmokeMemory(t *testing.T) {
 		t.Errorf("harnessRunArgs = %v, want %v", got, want)
 	}
 }
-
-// TestTuiLeft pins the alternate-screen-leave signal the quit loop stops tapping
-// on: a harness that gives the alternate screen back has caught the quit and is
-// tearing down, so a further tap would reach a cooked-mode terminal and become
-// SIGINT.
-func TestTuiLeft(t *testing.T) {
-	if !tuiLeft([]byte("tui output\n\x1b[?1049lbye")) {
-		t.Error("tuiLeft = false, want true for alternate-screen leave sequence")
-	}
-	if tuiLeft([]byte("tui output\nstill up")) {
-		t.Error("tuiLeft = true, want false without the leave sequence")
-	}
-	if tuiLeft([]byte("\x1b[?1049h")) {
-		t.Error("tuiLeft = true for the enter sequence, want false")
-	}
-}

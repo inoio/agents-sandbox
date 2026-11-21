@@ -14,7 +14,42 @@ import (
 	"unicode/utf8"
 
 	"github.com/creack/pty"
+	"golang.org/x/term"
 )
+
+// TestSessionInRawMode pins inRawMode against a real pty: a fresh pty is cooked,
+// and making the slave raw is visible through the master — the signal the quit
+// loop uses to stop tapping once the launcher's attach has restored the
+// terminal to cooked mode. Reading the master works because a pty master and
+// slave share one termios.
+func TestSessionInRawMode(t *testing.T) {
+	master, slave, err := pty.Open()
+	if err != nil {
+		t.Fatalf("pty.Open: %v", err)
+	}
+	defer master.Close()
+	defer slave.Close()
+
+	ses := &ptySession{master: master}
+	if ses.inRawMode() {
+		t.Error("inRawMode = true for a fresh pty, want false")
+	}
+
+	state, err := term.MakeRaw(int(slave.Fd()))
+	if err != nil {
+		t.Fatalf("MakeRaw: %v", err)
+	}
+	if !ses.inRawMode() {
+		t.Error("inRawMode = false after MakeRaw, want true")
+	}
+
+	if err := term.Restore(int(slave.Fd()), state); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	if ses.inRawMode() {
+		t.Error("inRawMode = true after Restore, want false")
+	}
+}
 
 // mustStartUnderPTY starts argv under a pseudo-terminal, failing the test if it
 // cannot start and closing the session in cleanup.
