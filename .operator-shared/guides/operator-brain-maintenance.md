@@ -3,6 +3,19 @@
 Conventions for the `.operator-shared/` brain so it stays small and findable. The brain is auto-injected at
 session start, so its size is a per-session tax and its accuracy is a correctness risk.
 
+## What the plugin injects
+
+Only part of the brain is auto-injected, and the split is what makes compaction possible:
+
+- `operator.md` and `catalog.md` — injected in full.
+- `index/index.md` — injected in full.
+- Every other `index/*.md` subindex — only its frontmatter `description`/`read_if` is injected (into the index
+  listing); its body is read on demand.
+
+So `catalog.md` and `index/index.md` are the two files whose size is paid every session, and moving detail from
+`index/index.md` into a subindex is free. A sub-**catalog** is not an option: this plugin injects only the root
+`catalog.md`, so the catalog must shrink in place.
+
 ## Catalog entries
 
 The catalog is a map, not a second copy of the docs.
@@ -19,7 +32,10 @@ The catalog is a map, not a second copy of the docs.
 - **Spec subsystems are one entry each.** A `specs/<subsystem>/` entry names the files it holds and aggregates their
   distinct read triggers; the per-spec `read_if` lives in the file's frontmatter, so a reader lists the subsystem
   directory and scans frontmatter for the exact contract. This keeps the auto-injected catalog small at the cost of one
-  extra lookup; do not expand a subsystem back into one entry per spec file.
+  extra lookup; do not expand a subsystem back into one entry per spec file. The Description names the files **with no
+  per-file gloss** (the gloss belongs to the file's own frontmatter), and the Read If keeps the strongest anchors per
+  concern rather than a per-file symbol dump — that dump re-expands the subsystem into per-file entries on the
+  auto-injected surface.
 
 ## Plans vs specs
 
