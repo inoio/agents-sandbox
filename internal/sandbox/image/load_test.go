@@ -456,6 +456,56 @@ func TestEnsureLoadedReusesContentRef(t *testing.T) {
 	}
 }
 
+// TestEnsureLoadedTrustsContentRefRegardlessOfReportedDigest pins the fix for the
+// redundant reload observed on a KVM guest: microsandbox records its own config
+// digest for a loaded image, which does not equal the Docker image ID the
+// launcher compares against in practice. A cache hit on the content-addressed
+// reference already proves the content (its content id is the Docker image ID),
+// so it must be reused without a digest comparison. Otherwise every run
+// reimports the multi-GB runner image — twice per run, the home-volume prefill
+// and the project VM — which no readiness budget on a nested-virt guest
+// absorbs.
+func TestEnsureLoadedTrustsContentRefRegardlessOfReportedDigest(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	contentRef := naming.ContentImageRef("test-project", "opencode", "9f2c1a7b4d6e0f31")
+	dockertest.WithNoopDockerMock(t)
+	inspected := false
+	msbClient := &msbtest.MockMsbClient{
+		ImageGetFn: func(_ context.Context, ref string) error {
+			if ref == contentRef {
+				return nil
+			}
+			return errors.New("not cached")
+		},
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			inspected = true
+			return &msb.ImageConfig{Digest: "sha256:a-different-digest"}, nil
+		},
+	}
+
+	info, err := EnsureLoaded(context.Background(), docker.Get(), msbClient,
+		ImageInfo{
+			DockerTag: naming.DockerImageRef("test-project", "opencode"),
+			Ref:       contentRef,
+			Identity:  testContentIdentity(),
+			Digest:    "sha256:0b09f28064f8dfda7145d47f33a7d3e680d731f6a97dd213a31558cae209e131",
+		},
+		&termiotest.Mock{},
+	)
+	if err != nil {
+		t.Fatalf("EnsureLoaded: %v", err)
+	}
+	if len(msbClient.LoadedImages) != 0 {
+		t.Errorf("expected no load when the content ref is cached, got %v", msbClient.LoadedImages)
+	}
+	if inspected {
+		t.Error("a cached content ref needs no digest comparison")
+	}
+	if info.Ref != contentRef {
+		t.Errorf("info.Ref = %q, want the reused content ref %q", info.Ref, contentRef)
+	}
+}
+
 // TestEnsureLoadedReusesNameRefForMigration pins that a 0.6.0 install, which
 // cached the image under the prefix-free name reference, keeps its cache: the
 // name ref is derived from the image's structured identity and reused when its

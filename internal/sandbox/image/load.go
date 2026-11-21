@@ -34,11 +34,8 @@ func imageRefCandidates(info ImageInfo) []string {
 // content matches (see imageRefCandidates for the content, name, and legacy
 // prefixed refs), otherwise it loads the Docker image under info.Ref. The
 // candidate set is derived from info.Identity, so a reference the launcher
-// rendered is never parsed back. The comparison uses the content digest
-// microsandbox records for the image, the same value as Docker's image ID; a
-// cached image that records no digest is unknown content and is reloaded, never
-// trusted via the source-signature dockerfile-id label. Loading directly avoids
-// removing a manifest that an existing VM may still reference.
+// rendered is never parsed back. Loading directly avoids removing a manifest
+// that an existing VM may still reference.
 func EnsureLoaded(
 	ctx context.Context,
 	dclient docker.Client,
@@ -52,7 +49,7 @@ func EnsureLoaded(
 			continue
 		}
 		anyCandidateCached = true
-		if cachedImageMatches(ctx, mclient, candidate, info) {
+		if cachedCandidateMatches(ctx, mclient, candidate, info) {
 			info.Ref = candidate
 			ui.Verbosef("microsandbox image %s is up to date", candidate)
 			return info, nil
@@ -82,15 +79,30 @@ func EnsureLoaded(
 	return info, nil
 }
 
-// cachedImageMatches reports whether the microsandbox image under ref holds
-// the same content as the Docker image described by info. Docker's image ID and
-// the microsandbox config digest are the same content identity, so they are
-// compared directly. A nil inspect result, or one that records no digest, is
-// unknown content and never counts as a match: the dockerfile-id label is a
-// source signature, not a content identity, and can match while the bytes
-// differ (a floating base tag, or the dev user's uid/gid), so it must not stand
-// in for the digest. The cost is one reload — a load records a digest, so the
-// image matches next time.
+// cachedCandidateMatches reports whether the cached image under candidate holds
+// info's content. The content-addressed reference encodes the content id (the
+// Docker image ID's short hex), so a cache hit on it proves the content and is
+// trusted directly. The name and legacy references do not encode content, so
+// their cached content is compared by digest (cachedImageMatches).
+func cachedCandidateMatches(ctx context.Context, mclient msb.ImageStore, candidate string, info ImageInfo) bool {
+	if info.Identity.ContentID != "" && candidate == info.Identity.Ref() {
+		return true
+	}
+	return cachedImageMatches(ctx, mclient, candidate, info)
+}
+
+// cachedImageMatches reports whether the microsandbox image under ref holds the
+// same content as the Docker image described by info, comparing the digest
+// microsandbox records against Docker's image ID. It guards only the candidate
+// references that do not encode content (the name and legacy refs), and it is
+// best-effort: the runtime's recorded digest is not guaranteed to equal Docker's
+// image ID, so a mismatch there is not proof the bytes differ. The
+// content-addressed reference is never checked this way, because its content id
+// already identifies the image (see cachedCandidateMatches). A nil inspect
+// result, or one that records no digest, is unknown content and never counts as
+// a match: the dockerfile-id label is a source signature, not a content
+// identity, and can match while the bytes differ (a floating base tag, or the
+// dev user's uid/gid), so it must not stand in for the digest.
 func cachedImageMatches(ctx context.Context, mclient msb.ImageStore, ref string, info ImageInfo) bool {
 	mInspect, err := mclient.ImageInspect(ctx, ref)
 	if err != nil {
