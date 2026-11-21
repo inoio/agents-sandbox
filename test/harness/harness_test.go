@@ -954,3 +954,23 @@ func TestHarnessRunArgsCapTheSmokeMemory(t *testing.T) {
 		t.Errorf("harnessRunArgs = %v, want %v", got, want)
 	}
 }
+
+// TestNextQuitIntervalWidensUpToTheCap pins the quit tap backoff: the wait after
+// each tap doubles from quitPressInterval, capped at quitPressMaxInterval, so a
+// harness whose teardown outlasts the base interval is not tapped again while it
+// exits (a tap then becomes SIGINT and the exit is reported as -1).
+func TestNextQuitIntervalWidensUpToTheCap(t *testing.T) {
+	got := quitPressInterval
+	want := []time.Duration{
+		800 * time.Millisecond,
+		1600 * time.Millisecond,
+		quitPressMaxInterval,
+		quitPressMaxInterval,
+	}
+	for _, w := range want {
+		got = nextQuitInterval(got)
+		if got != w {
+			t.Fatalf("nextQuitInterval = %s, want %s", got, w)
+		}
+	}
+}

@@ -405,6 +405,25 @@ const settledReadyTimeout = 25 * time.Second
 // is up — so a slow cold start fails the subtest only when it genuinely hangs.
 const heavyweightReadyTimeout = 120 * time.Second
 
+const (
+	// quitPressInterval and quitPressMaxInterval pace the quit: the harness's
+	// key is tapped, then waited on, until the process exits, for at most
+	// quitTimeout. The wait starts at quitPressInterval — a human double-tap —
+	// and doubles up to quitPressMaxInterval, so a harness that catches the
+	// quit and begins tearing down is not tapped again while it exits (see
+	// quit).
+	quitPressInterval    = 400 * time.Millisecond
+	quitPressMaxInterval = 3 * time.Second
+	// quitTimeout bounds the whole tap sequence.
+	quitTimeout = 15 * time.Second
+)
+
+// nextQuitInterval returns the wait after the next tap: double the previous
+// interval, capped at quitPressMaxInterval.
+func nextQuitInterval(interval time.Duration) time.Duration {
+	return min(interval*2, quitPressMaxInterval)
+}
+
 // hermesReadyMarker is the startup line hermes' classic CLI prints before it
 // accepts input (show_banner: "Hermes Agent v<version> (<date>)"). It is stable
 // across releases, unlike the version itself.

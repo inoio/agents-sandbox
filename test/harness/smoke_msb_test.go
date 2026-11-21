@@ -26,13 +26,6 @@ const (
 	// runtime install, so this only has to absorb the VM start; the budget
 	// stays generous for a cold host.
 	tuiReadyTimeout = 180 * time.Second
-	// quitPressInterval and quitTimeout pace the quit: the harness's key is
-	// tapped every quitPressInterval until the process exits, for at most
-	// quitTimeout. The interval is a human double-tap — a harness whose exit is
-	// a repeated key leaves on the next tap, and one that paints its TUI before
-	// it accepts input simply ignores the taps made meanwhile.
-	quitPressInterval = 400 * time.Millisecond
-	quitTimeout       = 15 * time.Second
 	// prepareTimeout bounds the one-off launcher build and the per-harness
 	// runner-image prebuild every subtest shares.
 	prepareTimeout = 30 * time.Minute
@@ -192,13 +185,23 @@ func TestHarnessSmoke(t *testing.T) {
 // accepted input (opencode draws its footer while it is still loading), and a
 // harness whose exit is a repeated key — claude-code announces "Press Ctrl-C
 // again to exit" — needs the taps to keep coming.
+//
+// The wait after each tap doubles from quitPressInterval up to
+// quitPressMaxInterval. A harness that catches the quit and begins tearing down
+// restores the terminal to its cooked mode before it exits, so a tap written in
+// that window is no longer a keystroke: the terminal turns it into SIGINT and
+// the process dies (qwen-code's graceful exit is reported as -1 this way while
+// the taps stay 400ms apart). The widening gap gives a slow teardown room to
+// finish, while the first taps stay rapid so a harness whose early presses are
+// ignored still receives them.
 func quit(ses *ptySession, spec harnessSpec) (int, error) {
 	deadline := time.Now().Add(quitTimeout)
+	interval := quitPressInterval
 	for presses := 1; ; presses++ {
 		if err := ses.write(spec.QuitKey); err != nil {
 			return 0, err
 		}
-		code, err := ses.waitExit(quitPressInterval)
+		code, err := ses.waitExit(interval)
 		if err == nil {
 			return code, nil
 		}
@@ -206,6 +209,7 @@ func quit(ses *ptySession, spec harnessSpec) (int, error) {
 			return 0, fmt.Errorf("%d presses of %#x within %s did not exit it: %w",
 				presses, spec.QuitKey, quitTimeout, err)
 		}
+		interval = nextQuitInterval(interval)
 	}
 }
 
