@@ -44,8 +44,10 @@ func TestJourneyCoverageAllowsMultipleJourneysPerAgent(t *testing.T) {
 // against exemptions over the registered agent names: a journey naming an
 // unknown agent; a registered agent covered by no journey and carrying no
 // exemption; an exemption with a blank reason; and an exemption naming no
-// registered agent. It is pure so the multiple-journeys-per-agent contract is
-// testable without the real table.
+// registered agent. It takes the table as arguments so the
+// multiple-journeys-per-agent contract is testable without the real table, but
+// it is not pure: it validates journey agents against the live agent.Lookup
+// registry.
 func journeyCoverageProblems(journeys []Journey, exemptions map[string]string, registered []string) []string {
 	covered := make(map[string]bool, len(journeys))
 	var problems []string
@@ -95,8 +97,8 @@ func journeyCoverageProblems(journeys []Journey, exemptions map[string]string, r
 func TestAttributionJourneyRegistered(t *testing.T) {
 	for _, journey := range Journeys {
 		if journey.Name == attributionJourney.Name {
-			if journey.Agent != "opencode2" {
-				t.Errorf("attribution journey agent = %q, want opencode2", journey.Agent)
+			if journey.Agent != opencode2AgentName {
+				t.Errorf("attribution journey agent = %q, want %q", journey.Agent, opencode2AgentName)
 			}
 			return
 		}

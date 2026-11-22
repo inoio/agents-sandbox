@@ -33,6 +33,8 @@ func TestStubOriginFromValue(t *testing.T) {
 		{name: "host http", in: "http://stub.internal", want: "http://stub.internal"},
 		{name: "port dropped", in: "http://127.0.0.1:8080", want: "http://127.0.0.1"},
 		{name: "userinfo and path dropped", in: "https://user:pass@host/path", want: "https://host"},
+		{name: "ipv6 literal", in: "http://[::1]", want: "http://[::1]"},
+		{name: "ipv6 literal with port", in: "https://[2001:db8::1]:8443", want: "https://[2001:db8::1]"},
 		{name: "unsupported scheme", in: "ftp://host", want: stubOriginDefault},
 		{name: "no host", in: "https://", want: stubOriginDefault},
 		{name: "not a url", in: "not a url", want: stubOriginDefault},

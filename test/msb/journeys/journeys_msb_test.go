@@ -17,6 +17,13 @@ import (
 // as the startup smoke does, so a journey's budget only has to absorb its VM
 // start. A step's error aborts its journey and names the failing step, so a
 // scenario reads top-to-bottom and a failure points at one line.
+//
+// Every journey drives driver.ProjectDir(root, Agent), so all v1 journeys share
+// one project slug and hence one microsandbox VM and home volume, and the sweep
+// only runs at suite start and teardown. Per-journey state a step asserts must
+// therefore live in that journey's isolated HOME (a fresh t.TempDir per subtest,
+// via driver.IsolatedEnv), never in the shared volume or project dir; a future
+// journey that depends on a clean shared VM must add its own reset.
 func TestHarnessJourneys(t *testing.T) {
 	driver.Preflight(t)
 	if len(Journeys) == 0 {

@@ -1,15 +1,11 @@
 package journeys
 
-// attributionHostConfigRelPath is the agent's global config file the attribution
-// journey seeds into the isolated HOME as the host config. It is opencode's
-// higher-precedence .jsonc, so the host seed is what the agent reads over the
-// stub's provisioned .json; both carry the same provider pointing at the stub.
-const attributionHostConfigRelPath = ".config/opencode/opencode.jsonc"
-
 // attributionPrompt is the one message the journey sends, so the agent issues a
-// request at the stub provider's baseURL and the terminating proxy observes the
-// credential→destination pair. A completed model turn is not required; the
-// journey asserts what the analyser wrote to the scope, not the model's answer.
+// request at the stub provider's baseURL. A completed model turn is not
+// required; the journey asserts what the analyser wrote to the scope, not the
+// model's answer. Under the default `.invalid` advertised route the request need
+// not reach the stub at all, so this journey does not depend on the terminating
+// proxy observing the credential→destination pair (see attributionScope).
 const attributionPrompt = "hello"
 
 // attributionHostConfig builds the journey's host agent config from the context:
@@ -22,7 +18,7 @@ const attributionPrompt = "hello"
 // builder requires).
 func attributionHostConfig(c *Context) map[string]string {
 	return map[string]string{
-		attributionHostConfigRelPath: stubProviderDocument(c.Stub.Addr()),
+		opencodeHostConfigRelPath: stubProviderDocument(c.Stub.Addr()),
 	}
 }
 

@@ -123,6 +123,14 @@ func TestStepAssertFirstRunRecorded(t *testing.T) {
 		}
 	})
 
+	t.Run("the manual choice records the manual decision", func(t *testing.T) {
+		c := newContext(t)
+		writeRootState(t, c, "schema: 1\nfirst_runs:\n  \""+keyFor(t, c)+"\":\n    choice: manual\n")
+		if err := StepAssertFirstRunRecorded(firstrun.ChoiceManual).Run(c); err != nil {
+			t.Errorf("manual choice: %v", err)
+		}
+	})
+
 	t.Run("a missing root state fails", func(t *testing.T) {
 		if err := StepAssertFirstRunRecorded(firstrun.ChoiceLearnByUsing).Run(newContext(t)); err == nil {
 			t.Error("missing root state file: got nil error, want failure")

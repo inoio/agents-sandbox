@@ -158,6 +158,14 @@ closed by `tb.Cleanup`.
 **Provisional.** The one open question the host accept settles is whether the default route reaches the
 proxy; the managed-layer suppression is resolved by provisioning through the `home:` manifest (above).
 
+### Isolation between journeys
+
+All v1 journeys drive the same project directory (`driver.ProjectDir(root, "opencode2")`), so they share one
+project slug and therefore one microsandbox VM and one home volume. The runner sweeps sandboxes only at
+suite start and teardown, so a journey must not rely on the shared volume being clean: per-journey state it
+asserts must live in the journey's own isolated HOME (a fresh temp dir per subtest, threaded by
+`driver.IsolatedEnv`). A future journey that needs a clean shared VM must reset it itself.
+
 ### Harness scope for v1
 
 **Decision:** v1 covers **opencode2 only** (the S1-verified profile, with its SQLite credential

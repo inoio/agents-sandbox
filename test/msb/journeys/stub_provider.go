@@ -200,7 +200,9 @@ func stubAdvertisedHost() string {
 // stubOriginFromValue parses an advertised-origin override: an http(s) URL with
 // a host yields scheme://hostname (its port, userinfo, and path are dropped,
 // because the listener's own port is always used); anything else yields
-// stubOriginDefault. Kept pure so it is testable without the host.
+// stubOriginDefault. An IPv6 literal host is re-bracketed, so `http://[::1]`
+// round-trips rather than re-emitting the invalid `http://::1`. Kept pure so it
+// is testable without the host.
 func stubOriginFromValue(value string) string {
 	parsed, err := url.Parse(strings.TrimSpace(value))
 	if err != nil || parsed.Hostname() == "" {
@@ -208,10 +210,20 @@ func stubOriginFromValue(value string) string {
 	}
 	switch parsed.Scheme {
 	case "http", "https":
-		return parsed.Scheme + "://" + parsed.Hostname()
+		return parsed.Scheme + "://" + bracketedHost(parsed.Hostname())
 	default:
 		return stubOriginDefault
 	}
+}
+
+// bracketedHost wraps an IPv6 literal host in brackets, so an origin URL is
+// valid; every other host is returned unchanged. url.Hostname strips the
+// brackets, which must be restored when the host is emitted in a URL.
+func bracketedHost(hostname string) string {
+	if strings.Contains(hostname, ":") {
+		return "[" + hostname + "]"
+	}
+	return hostname
 }
 
 // stubHandler answers the stub's requests. A completed model turn is not

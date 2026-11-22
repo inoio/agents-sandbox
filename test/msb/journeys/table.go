@@ -5,6 +5,14 @@ package journeys
 // journey literal cannot drift apart.
 const opencode2AgentName = "opencode2"
 
+// opencodeHostConfigRelPath is the agent's global config file the journeys seed
+// into the isolated HOME as host config. It is opencode's higher-precedence
+// .jsonc, so the host seed is what the agent reads over the stub's provisioned
+// .json; both carry the same provider pointing at the stub. It is shared by
+// every journey that seeds a host config (UC4 and attribution), so a path change
+// updates both seeds together.
+const opencodeHostConfigRelPath = ".config/opencode/opencode.jsonc"
+
 // Journeys is the journey table: one entry per scenario the suite drives. v1
 // covers opencode2 only, with the learn-mode journeys (UC1, UC4, `config learn`,
 // attribution) landing across Phase 2; a journey is added here as a literal once

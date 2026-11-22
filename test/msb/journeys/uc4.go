@@ -12,10 +12,6 @@ const uc4Prompt = "hello"
 // select both, so the first-run decision sees host setup and offers "Learn from
 // my host setup".
 const (
-	// uc4HostConfigRelPath is the opencode global config file the agent's
-	// snippet pattern merges: the host config the seed copies (placeholdered)
-	// into the per-slug scope.
-	uc4HostConfigRelPath = ".config/opencode/opencode.jsonc"
 	// uc4LoginStoreRelPath is opencode's auth.json, a declared login credential
 	// store. The seed must drop it rather than copy its raw value.
 	uc4LoginStoreRelPath = ".local/share/opencode/auth.json"
@@ -26,13 +22,14 @@ const (
 
 // uc4HostConfig builds UC4's host agent config from the journey context: the
 // same OpenAI-compatible provider the stub serves, but as the agent's own host
-// config file. Its baseURL host is the stub's advertised origin, so the static
-// apiKey the seed migrates is scoped to exactly the host uc4Scope asserts. The
-// login store beside it is a value store the seed must never copy.
+// config file (opencodeHostConfigRelPath). Its baseURL host is the stub's
+// advertised origin, so the static apiKey the seed migrates is scoped to
+// exactly the host uc4Scope asserts. The login store beside it is a value store
+// the seed must never copy.
 func uc4HostConfig(c *Context) map[string]string {
 	return map[string]string{
-		uc4HostConfigRelPath: stubProviderDocument(c.Stub.Addr()),
-		uc4LoginStoreRelPath: `{"openai":{"type":"api"}}`,
+		opencodeHostConfigRelPath: stubProviderDocument(c.Stub.Addr()),
+		uc4LoginStoreRelPath:      `{"openai":{"type":"api"}}`,
 	}
 }
 

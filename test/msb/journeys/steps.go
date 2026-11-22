@@ -52,14 +52,9 @@ const exitSaveAllKey = "s"
 const exitNotNowKey = "n"
 
 // The applier's per-finding prompt belongs to analyser's unexported
-// applyFindingKey and applyPrompt, so both are named here like the exit keys:
-// applyFindingKey answers one finding's Select with "a" (Apply), and
-// applyPromptMarker is the question's last line, matched after driver.MarkerText
-// normalizes it.
-const (
-	applyFindingKey   = "a"
-	applyPromptMarker = "Apply this change?"
-)
+// applyFindingKey, so it is named here like the exit keys: applyFindingKey
+// answers one finding's Select with "a" (Apply).
+const applyFindingKey = "a"
 
 // learnArtefactStartedUnix names the seeded artefact: channel.Save keys a
 // session's artefact by its start time, and config learn loads it back through
@@ -303,7 +298,7 @@ func StepSeedLearnSession() Step {
 		observation := channel.Observation{
 			Destinations: []channel.Destination{{
 				Host:     stubHost,
-				Protocol: "https",
+				Protocol: "http",
 				Success:  true,
 				Count:    1,
 			}},
@@ -518,8 +513,9 @@ func StepAssertNoProjectScaffolding() Step {
 
 // StepAssertFirstRunRecorded asserts the run recorded choice's first-run
 // decision once in the isolated home's launcher-global RootState, under the
-// "<repo slug>/<agent>" key the launcher uses. The menu's learning choices all
-// record state.FirstRunLearned. It reads the root state file directly, not
+// "<repo slug>/<agent>" key the launcher uses. The menu's learning choices
+// record state.FirstRunLearned, and the manual choice records
+// state.FirstRunManual. It reads the root state file directly, not
 // through state.ReadFirstRun: that resolves the process's real configpaths,
 // while the run wrote under the journey's isolated XDG_STATE_HOME.
 func StepAssertFirstRunRecorded(choice firstrun.Choice) Step {
@@ -567,14 +563,15 @@ func StepAssertFirstRunRecorded(choice firstrun.Choice) Step {
 }
 
 // recordedFirstRunChoice maps a first-run menu choice to the choice the launcher
-// records in RootState: both learning paths record FirstRunLearned. It reports
+// records in RootState: both learning paths record FirstRunLearned, and the
+// manual path records FirstRunManual (see firstrun.Outcome.Apply). It reports
 // false for a choice no first-run path records.
 func recordedFirstRunChoice(choice firstrun.Choice) (state.FirstRunChoice, bool) {
 	switch choice {
 	case firstrun.ChoiceLearnByUsing, firstrun.ChoiceLearnFromHost:
 		return state.FirstRunLearned, true
 	case firstrun.ChoiceManual:
-		return "", false
+		return state.FirstRunManual, true
 	default:
 		return "", false
 	}
