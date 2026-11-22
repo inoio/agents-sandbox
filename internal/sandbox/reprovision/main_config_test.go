@@ -347,3 +347,29 @@ func TestLoadConfigFilesRecordsTheMainConfigBasePath(t *testing.T) {
 		t.Errorf("base path = %q", got)
 	}
 }
+
+func TestMaterializeRemovesAMainConfigLeftWithoutKeys(t *testing.T) {
+	target := t.TempDir()
+	for rel, content := range map[string]string{
+		".codex/config.toml":                      "model = \"gpt-5\"\n",
+		mainConfigBaseDir + "/.codex/config.toml": "model = \"gpt-5\"\n",
+	} {
+		path := filepath.Join(target, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := Materialize(codexConfigFiles(""), VMHomeDir, target); err != nil {
+		t.Fatalf("Materialize: %v", err)
+	}
+
+	for _, rel := range []string{".codex/config.toml", mainConfigBaseDir + "/.codex/config.toml"} {
+		if _, err := os.Stat(filepath.Join(target, rel)); !os.IsNotExist(err) {
+			t.Errorf("%s still exists (%v), want it removed", rel, err)
+		}
+	}
+}

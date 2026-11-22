@@ -68,12 +68,10 @@ func Reconcile(configPath string, base, live, launcher []byte) (Reconciliation, 
 		// gomutants:disable-next-line RETURN_ZERO reason="the keep outcome is the zero Reconciliation"
 		return Reconciliation{Action: ReconcileKeep, Content: nil}, nil
 	}
+	// A document decoded from the same format always marshals; a failure is
+	// still reported, and the caller writes the launcher document instead.
 	content, err := marshalConfig(configPath, result)
-	// gomutants:disable-next-line BRANCH_IF reason="a document decoded from the same format always marshals; the check guards the encoder's contract only"
-	if err != nil {
-		return Reconciliation{}, err
-	}
-	return Reconciliation{Action: ReconcileWrite, Content: content}, nil
+	return Reconciliation{Action: ReconcileWrite, Content: content}, err
 }
 
 func isEmptyDocument(data []byte) bool { return len(bytes.TrimSpace(data)) == 0 }
