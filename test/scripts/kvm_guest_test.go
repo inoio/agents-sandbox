@@ -289,9 +289,45 @@ func TestKvmGuestAgentUpReattachesWithoutSyncingOverALiveSession(t *testing.T) {
 	sshArgv := readText(t, filepath.Join(dir, "ssh-argv"))
 	assertContains(t, "ssh argv", sshArgv, "tmux has-session")
 	assertContains(t, "ssh argv", sshArgv, "tmux new -A -s agents-sandbox")
-	assertNotContains(t, "ssh argv", sshArgv, "cloud-init status")
 	assertNotContains(t, "ssh argv", sshArgv, "config provision")
 	assertNotContains(t, "rsync argv", readText(t, filepath.Join(dir, "rsync-argv")), "agents-sandbox")
+}
+
+// TestKvmGuestAgentUpRefusesToSyncWhenTheSessionProbeFails pins that a probe
+// that cannot reach the guest is not read as "no live session": the one-way,
+// --delete sync must not run on an unknown session state.
+func TestKvmGuestAgentUpRefusesToSyncWhenTheSessionProbeFails(t *testing.T) {
+	dir := t.TempDir()
+	env := agentUpEnv(t, dir)
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "running"
+	env["SSH_PROBE_FAIL"] = "1"
+	env["RSYNC_ARGV"] = filepath.Join(dir, "rsync-argv")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "agent-up", "opencode2")
+	assertStatus(t, result, 1)
+
+	assertContains(t, "stderr", result.Stderr, "refusing to sync")
+	assertNotContains(t, "rsync argv", readText(t, filepath.Join(dir, "rsync-argv")), "agents-sandbox")
+}
+
+// TestKvmGuestAgentUpRejectsUnsafeCommandCharacters pins the guard against every
+// character that would end or expand the remote shell layers, not just the
+// single quote.
+func TestKvmGuestAgentUpRejectsUnsafeCommandCharacters(t *testing.T) {
+	for _, unsafe := range []string{"'", `"`, "$", "`", `\`} {
+		t.Run(unsafe, func(t *testing.T) {
+			dir := t.TempDir()
+			env := agentUpEnv(t, dir)
+
+			result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"),
+				"agent-up", "opencode2"+unsafe)
+			assertStatus(t, result, 1)
+
+			assertContains(t, "stderr", result.Stderr, "shell string")
+			assertNotContains(t, "ssh argv", readText(t, filepath.Join(dir, "ssh-argv")), "cloud-init")
+		})
+	}
 }
 
 // TestKvmGuestAgentUpRejectsASingleQuoteInTheCommand pins that a credential
@@ -649,11 +685,32 @@ func kvmGuestSSHHandler(args []string) (string, string, int) {
 	if envOption("SSH_CLOUD_INIT_FAIL") != "" && strings.Contains(joined, "cloud-init status") {
 		return "", "Cloud-init failed: see status --long\n", 1
 	}
-	// No agent session unless a case asks for one, so the full bring-up runs.
-	if strings.Contains(joined, "tmux has-session") && envOption("SSH_AGENT_SESSION") == "" {
-		return "", "", 1
+	return kvmGuestSSHSessionResponse(joined)
+}
+
+// kvmGuestSSHSessionResponse answers the tmux session probes and lets every other
+// command succeed silently. A bare probe (`agent`) encodes presence in its exit
+// status; agent-up's probe prints the state, so a failed connect is distinct
+// from "absent".
+func kvmGuestSSHSessionResponse(joined string) (string, string, int) {
+	if !strings.Contains(joined, "tmux has-session") {
+		return "", "", 0
 	}
-	return "", "", 0
+	if envOption("SSH_PROBE_FAIL") != "" {
+		return "", "", 255
+	}
+	present := envOption("SSH_AGENT_SESSION") != ""
+	stateProtocol := strings.Contains(joined, "echo present")
+	if stateProtocol && present {
+		return "present\n", "", 0
+	}
+	if stateProtocol {
+		return "absent\n", "", 0
+	}
+	if present {
+		return "", "", 0
+	}
+	return "", "", 1
 }
 
 // kvmGuestRsyncHandler serves the `rsync` a script under test calls: it logs

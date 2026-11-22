@@ -159,8 +159,8 @@ make kvm-agent KVM_AGENT='LITELLM_API_KEY=… GITHUB_PAT=… opencode'
 
 **Credentials are not provisioned** — the guest's opencode2 is not behind the launcher's secret proxy, so an inline
 `VAR=value` (or an interactive login in the guest) is the channel; treat the value as visible in the host's process
-list and shell history. The command is embedded in a single-quoted remote command, so it must not contain a single
-quote.
+list and shell history. The command is embedded in a nested shell string, so it must not contain a single quote,
+double quote, backslash, dollar sign, or backtick.
 
 The guest checkout is the agent's own: it commits and creates worktrees there. `make kvm-sync` is one-way and `--delete`s,
 so do not run it over a live agent session. It excludes the `.git` entry itself (not just a `.git/` directory): the host

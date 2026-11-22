@@ -128,13 +128,17 @@ DOMAIN_XML_PATH="$ARTIFACT_DIR/$VM_NAME.xml"
 log() { printf '%s\n' "==> $*" >&2; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
-# require_no_single_quote rejects a command that cannot be embedded in the
-# single-quoted remote string `agent_in` builds. A quote would end the string
-# early and corrupt the remote command silently.
-require_no_single_quote() {
-  case "$1" in
-    *"'"*) die "the agent command must not contain a single quote (it is embedded in a single-quoted remote command)" ;;
-  esac
+# require_safe_agent_command rejects a command that cannot be embedded in the
+# remote shell string `agent_in` builds: it lands inside a single-quoted remote
+# script and is re-parsed by a nested `bash -c "…"`, so a quote or an expansion
+# character would end the string or be expanded early.
+require_safe_agent_command() {
+  local command="$1" char
+  for char in "'" '"' '$' '`' "\\"; do
+    case "$command" in
+      *"$char"*) die "the agent command must not contain a single quote, double quote, backslash, dollar sign, or backtick (it is embedded in a shell string)" ;;
+    esac
+  done
 }
 
 usage() {
@@ -517,7 +521,7 @@ agent_in() {
   local ip session command
   session="${KVM_AGENT_SESSION:-agents-sandbox}"
   command="${*:-opencode2}"
-  require_no_single_quote "$command"
+  require_safe_agent_command "$command"
   ip="$(require_guest_ip)"
   exec ssh -tt -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
     -- "bash -lc 'cd ~/agents-sandbox && exec tmux new -A -s $session bash -c \"$command\"'"
@@ -601,30 +605,39 @@ wait_for_cloud_init() {
   log "cloud-init: done"
 }
 
-# guest_has_agent_session reports whether the agent's tmux session already runs
-# in the guest. agent_up reattaches to it instead of syncing: sync_in is one-way
-# and `--delete`, so re-running the command to recover a dropped connection must
-# not overwrite a live session's work.
-guest_has_agent_session() {
+# guest_agent_session_state prints "present" or "absent" for the agent's tmux
+# session, and returns non-zero only when the guest could not be reached. A
+# failed probe must not read as "absent": the caller syncs on "absent", and that
+# sync is one-way with `--delete`.
+guest_agent_session_state() {
   local ip="$1" session="${KVM_AGENT_SESSION:-agents-sandbox}"
   ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=8 \
-    -o LogLevel=ERROR "$VM_USER@$ip" "tmux has-session -t $session" >/dev/null 2>&1
+    -o LogLevel=ERROR "$VM_USER@$ip" \
+    "tmux has-session -t $session >/dev/null 2>&1 && echo present || echo absent" 2>/dev/null
 }
 
 # agent_up is the one-command bring-up: ensure the guest is running, gate on
-# cloud-init, sync this checkout, materialize the agent config, and attach an
-# interactive session. A live session is reattached without syncing. It composes
-# the subcommands so the step-by-step targets remain available.
+# cloud-init, then — checking for a live session only now that the guest is
+# reachable — sync this checkout, materialize the agent config, and attach. A
+# live session is reattached without syncing. It composes the subcommands so the
+# step-by-step targets remain available.
 agent_up() {
-  local ip
-  require_no_single_quote "${*:-opencode2}"
+  local ip session_state
+  require_safe_agent_command "${*:-opencode2}"
   ensure_running
   ip="$(require_guest_ip)"
-  if guest_has_agent_session "$ip"; then
-    log "agent session '${KVM_AGENT_SESSION:-agents-sandbox}' is already running; reattaching without syncing"
-    agent_in "$@"
-  fi
   wait_for_cloud_init "$ip"
+  session_state="$(guest_agent_session_state "$ip" || true)"
+  case "$session_state" in
+    present)
+      log "agent session '${KVM_AGENT_SESSION:-agents-sandbox}' is already running; reattaching without syncing"
+      agent_in "$@"
+      ;;
+    absent) : ;;
+    *)
+      die "could not determine whether an agent session is running in '$VM_NAME' (probe returned '$session_state'); refusing to sync over it"
+      ;;
+  esac
   sync_in
   agent_provision "${KVM_AGENT_NAME:-opencode2}"
   agent_in "$@"
