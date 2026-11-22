@@ -18,9 +18,11 @@ import (
 	"github.com/inoio/agents-sandbox/internal/hostlock"
 )
 
-// daemonTimeoutMarker is what the launcher prints when its daemon health probe
-// never succeeds. A harness whose output contains it never reached the TUI.
-const daemonTimeoutMarker = "did not become healthy"
+// daemonTimeoutMarker is the substring the launcher prints when a detached
+// service's readiness probe never succeeds (internal/sandbox/vm's
+// awaitJobReady: "<label> did not become ready within <timeout>"). A harness
+// whose output contains it never reached the TUI.
+const daemonTimeoutMarker = "did not become ready"
 
 // altScreenEnter is the terminal control sequence a harness emits as its
 // full-screen TUI takes over the alternate screen buffer.

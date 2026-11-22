@@ -12,7 +12,7 @@ read_if: Adding or changing the harness smoke tests, the `msb` build tag, `make 
 Harness support can break without any test noticing. `opencode2` did: its `DaemonProvider.DaemonHealthCmd`
 sent no credentials, v2's `serve` answers every `/api/*` route with `401` when unauthenticated, and
 `ensureDaemon` (`internal/sandbox/vm/daemon.go`) polled to its `daemonReadyTimeout` (60s) before failing. The
-daemon was healthy; the launcher could not see it, and the user got "… did not become healthy within 60s"
+daemon was healthy; the launcher could not see it, and the user got "… did not become ready within 60s"
 instead of a TUI. See `specs/agents/opencode2.md` for the fix.
 
 No existing test could catch it:
@@ -44,7 +44,7 @@ tagged-only compile regression is caught on every PR.
    (see Readiness);
 2. the process then exited `0` after the harness's quit presses were written to the terminal; escalation
    (`SIGTERM`/`SIGKILL`) is cleanup only and fails the subtest if reached;
-3. the output never contains the daemon-timeout marker (`did not become healthy`).
+3. the output never contains the detached-service readiness-timeout marker (`did not become ready`).
 
 **`--yes` skips the launcher's first-run menu.** `run` on a checkout with no managed config layer offers the
 first-run setup menu (`internal/firstrun`) before the session. Under the suite's pty that menu is interactive and
