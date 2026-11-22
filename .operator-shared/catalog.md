@@ -202,3 +202,9 @@
 - `plans/2026-11-22-kvm-guest-sync-back.md`
   - Description: Implementation plan for the guest git identity and `make kvm-sync-back`: `kvm-agent-provision` copies the host `~/.gitconfig` into the guest and disables signing, and the new sync-back subcommand fetches the guest's branches back (all into `refs/remotes/kvm-guest/*`, or one into a local branch).
   - Read If: Working on `make kvm-sync-back`, the guest git identity provisioning, or `scripts/kvm-guest.sh`'s `sync_back`/`agent_provision`.
+- `plans/2026-11-22-kvm-agent-up-design.md`
+  - Description: Design for the one-command KVM-guest agent bring-up (`make kvm-agent-up`, the `agent-up` subcommand): idempotent ensure-running, the cloud-init gate, and credential passthrough.
+  - Read If: Working on `make kvm-agent-up` or `scripts/kvm-guest.sh`'s `agent_up`/`ensure_running`/`wait_for_cloud_init`.
+- `plans/2026-11-22-kvm-agent-up.md`
+  - Description: Implementation plan for the same one-command bring-up (its tasks and tests); retire when folded into `guides/kvm-guest.md`.
+  - Read If: Executing or reviewing the `kvm-agent-up` plan.

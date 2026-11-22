@@ -32,6 +32,7 @@ make kvm-run                # run KVM_RUN (default: make test-msb-in-vm) in the 
 make kvm-run KVM_RUN='make test-msb'          # the host variant, unchanged
 make kvm-run KVM_RUN='make test-msb-journeys'
 make kvm-down               # destroy the guest and its disk (the base image stays cached)
+make kvm-agent-up           # one command: ensure up + cloud-init + sync + provision + attach
 ```
 
 `make kvm-run` defaults to `make test-msb-in-vm`, the in-guest variant of `make test-msb`: the same caching
@@ -132,6 +133,13 @@ make kvm-agent-provision   # materialize the agent config into the guest home
 make kvm-agent             # attach the agent session
 ```
 
+The one-command path is `make kvm-agent-up`: it ensures the guest is running (idempotent — a created, stopped, or
+running guest all work), waits for cloud-init, syncs the checkout, materializes the config, and attaches, reading
+`LITELLM_API_KEY` from the host environment (extend the credential set with `KVM_AGENT`). It fails fast when the key
+is unset. When the agent's tmux session is already running, it **reattaches without syncing** — `kvm-sync` is one-way
+and `--delete`s — so re-running it to recover a dropped connection cannot overwrite the live agent's work. The three
+commands above stay for manual control.
+
 `make kvm-agent-provision` runs the launcher's own `config provision` **in the guest** — so it writes exactly the
 config a sandbox would receive (merged snippets, verbatim mirror, host drop-in, home files), reusing the launcher's
 pipeline rather than re-implementing it — and first rsyncs the host's `~/.config/agents-sandbox/` so the guest resolves
@@ -151,8 +159,8 @@ make kvm-agent KVM_AGENT='LITELLM_API_KEY=… GITHUB_PAT=… opencode'
 
 **Credentials are not provisioned** — the guest's opencode2 is not behind the launcher's secret proxy, so an inline
 `VAR=value` (or an interactive login in the guest) is the channel; treat the value as visible in the host's process
-list and shell history. The command is embedded in a single-quoted remote command, so it must not contain a single
-quote.
+list and shell history. The command is embedded in a nested shell string, so it must not contain a single quote,
+double quote, backslash, dollar sign, or backtick.
 
 The guest checkout is the agent's own: it commits and creates worktrees there. `make kvm-sync` is one-way and `--delete`s,
 so do not run it over a live agent session. It excludes the `.git` entry itself (not just a `.git/` directory): the host

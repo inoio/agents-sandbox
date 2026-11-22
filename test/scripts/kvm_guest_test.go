@@ -169,6 +169,196 @@ func TestKvmGuestAgentForwardsAnInlineCredentialCommand(t *testing.T) {
 	assertContains(t, "ssh argv", argv, "tmux new -A -s agents-sandbox")
 }
 
+// agentUpEnv is the environment the agent-up cases share: fakes for the commands
+// the flow drives, a temp SOURCE_DIR so sync has something to send, and a temp
+// HOME with no launcher config so provisioning is a no-op.
+func agentUpEnv(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	home := filepath.Join(dir, "home")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatalf("create home: %v", err)
+	}
+	env := kvmGuestEnv(dir)
+	env["HOME"] = home
+	env["SOURCE_DIR"] = filepath.Join(dir, "checkout")
+	env["SSH_ARGV"] = filepath.Join(dir, "ssh-argv")
+	env["VIRSH_ARGV"] = filepath.Join(dir, "virsh-argv")
+	env["PATH"] = kvmGuestPath(t, "virsh", "ssh", "rsync", "git")
+	return env
+}
+
+// TestKvmGuestAgentUpLeavesARunningGuestAlone pins that the ensure step must not
+// recreate an existing domain: `virsh start` on a running domain fails, and
+// create's check_host refuses an existing domain outright.
+func TestKvmGuestAgentUpLeavesARunningGuestAlone(t *testing.T) {
+	dir := t.TempDir()
+	env := agentUpEnv(t, dir)
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "running"
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "agent-up", "opencode2")
+	assertStatus(t, result, 0)
+
+	virshArgv := readText(t, filepath.Join(dir, "virsh-argv"))
+	assertNotContains(t, "virsh argv", virshArgv, "define")
+	assertNotContains(t, "virsh argv", virshArgv, "start")
+}
+
+// TestKvmGuestAgentUpStartsAStoppedGuest pins that a defined-but-stopped guest
+// (after a host reboot) is started, not rebuilt.
+func TestKvmGuestAgentUpStartsAStoppedGuest(t *testing.T) {
+	dir := t.TempDir()
+	env := agentUpEnv(t, dir)
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "shut off"
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "agent-up", "opencode2")
+	assertStatus(t, result, 0)
+
+	virshArgv := readText(t, filepath.Join(dir, "virsh-argv"))
+	assertContains(t, "virsh argv", virshArgv, "start asb-kvm-test")
+	assertContains(t, "virsh argv", virshArgv, "net-info default")
+	assertNotContains(t, "virsh argv", virshArgv, "define")
+}
+
+// TestKvmGuestAgentUpGatesOnCloudInitBeforeSyncing pins the order: the cloud-init
+// gate precedes syncing, provisioning, and attaching.
+func TestKvmGuestAgentUpGatesOnCloudInitBeforeSyncing(t *testing.T) {
+	dir := t.TempDir()
+	env := agentUpEnv(t, dir)
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "running"
+	env["RSYNC_ARGV"] = filepath.Join(dir, "rsync-argv")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"),
+		"agent-up", "LITELLM_API_KEY=secret opencode2")
+	assertStatus(t, result, 0)
+
+	sshArgv := readText(t, filepath.Join(dir, "ssh-argv"))
+	cloudInit := strings.Index(sshArgv, "cloud-init status --wait")
+	provision := strings.Index(sshArgv, "config provision")
+	attach := strings.Index(sshArgv, "tmux new")
+	if cloudInit < 0 || provision < 0 || attach < 0 {
+		t.Fatalf("agent-up skipped a step:\n%s", sshArgv)
+	}
+	if cloudInit >= provision || provision >= attach {
+		t.Fatalf("steps out of order (cloud-init=%d provision=%d attach=%d):\n%s",
+			cloudInit, provision, attach, sshArgv)
+	}
+	assertContains(t, "ssh argv", sshArgv, "LITELLM_API_KEY=secret opencode2")
+	// The checkout must be synced, so the guest carries `config provision`.
+	assertContains(t, "rsync argv", readText(t, filepath.Join(dir, "rsync-argv")),
+		"dev@192.168.122.55:~/agents-sandbox/")
+}
+
+// TestKvmGuestAgentUpFailsWhenCloudInitFails pins that a failed cloud-init
+// aborts before syncing into a half-provisioned guest.
+func TestKvmGuestAgentUpFailsWhenCloudInitFails(t *testing.T) {
+	dir := t.TempDir()
+	env := agentUpEnv(t, dir)
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "running"
+	env["SSH_CLOUD_INIT_FAIL"] = "1"
+	env["RSYNC_ARGV"] = filepath.Join(dir, "rsync-argv")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "agent-up", "opencode2")
+	assertStatus(t, result, 1)
+
+	assertContains(t, "stderr", result.Stderr, "cloud-init failed")
+	assertNotContains(t, "ssh argv", readText(t, filepath.Join(dir, "ssh-argv")), "tmux new")
+	// The gate precedes sync: a regression that synced before the cloud-init
+	// wait would leave an rsync log here.
+	assertNotContains(t, "rsync argv", readText(t, filepath.Join(dir, "rsync-argv")), "agents-sandbox")
+}
+
+// TestKvmGuestAgentUpReattachesWithoutSyncingOverALiveSession pins the recovery
+// path: re-running the command against a guest that already has the session must
+// reattach, not sync_in (one-way, --delete) over the live agent's work.
+func TestKvmGuestAgentUpReattachesWithoutSyncingOverALiveSession(t *testing.T) {
+	dir := t.TempDir()
+	env := agentUpEnv(t, dir)
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "running"
+	env["SSH_AGENT_SESSION"] = "1"
+	env["RSYNC_ARGV"] = filepath.Join(dir, "rsync-argv")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"),
+		"agent-up", "LITELLM_API_KEY=secret opencode2")
+	assertStatus(t, result, 0)
+
+	sshArgv := readText(t, filepath.Join(dir, "ssh-argv"))
+	assertContains(t, "ssh argv", sshArgv, "tmux has-session")
+	assertContains(t, "ssh argv", sshArgv, "tmux new -A -s agents-sandbox")
+	assertNotContains(t, "ssh argv", sshArgv, "config provision")
+	assertNotContains(t, "rsync argv", readText(t, filepath.Join(dir, "rsync-argv")), "agents-sandbox")
+}
+
+// TestKvmGuestAgentUpRefusesToSyncWhenTheSessionProbeFails pins that a probe
+// that cannot reach the guest is not read as "no live session": the one-way,
+// --delete sync must not run on an unknown session state.
+func TestKvmGuestAgentUpRefusesToSyncWhenTheSessionProbeFails(t *testing.T) {
+	dir := t.TempDir()
+	env := agentUpEnv(t, dir)
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "running"
+	env["SSH_PROBE_FAIL"] = "1"
+	env["RSYNC_ARGV"] = filepath.Join(dir, "rsync-argv")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "agent-up", "opencode2")
+	assertStatus(t, result, 1)
+
+	assertContains(t, "stderr", result.Stderr, "refusing to sync")
+	assertNotContains(t, "rsync argv", readText(t, filepath.Join(dir, "rsync-argv")), "agents-sandbox")
+}
+
+// TestKvmGuestAgentUpRejectsUnsafeCommandCharacters pins the guard against every
+// character that would end or expand the remote shell layers, not just the
+// single quote.
+func TestKvmGuestAgentUpRejectsUnsafeCommandCharacters(t *testing.T) {
+	for _, unsafe := range []string{"'", `"`, "$", "`", `\`} {
+		t.Run(unsafe, func(t *testing.T) {
+			dir := t.TempDir()
+			env := agentUpEnv(t, dir)
+
+			result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"),
+				"agent-up", "opencode2"+unsafe)
+			assertStatus(t, result, 1)
+
+			assertContains(t, "stderr", result.Stderr, "shell string")
+			assertNotContains(t, "ssh argv", readText(t, filepath.Join(dir, "ssh-argv")), "cloud-init")
+		})
+	}
+}
+
+// TestKvmGuestAgentUpRejectsASingleQuoteInTheCommand pins that a credential
+// carrying a single quote is rejected before any guest contact: it would end the
+// single-quoted remote string early and corrupt the command silently.
+func TestKvmGuestAgentUpRejectsASingleQuoteInTheCommand(t *testing.T) {
+	dir := t.TempDir()
+	env := agentUpEnv(t, dir)
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"),
+		"agent-up", "LITELLM_API_KEY=a'b opencode2")
+	assertStatus(t, result, 1)
+
+	assertContains(t, "stderr", result.Stderr, "single quote")
+	assertNotContains(t, "ssh argv", readText(t, filepath.Join(dir, "ssh-argv")), "cloud-init")
+}
+
+// TestKvmGuestAgentRejectsASingleQuoteInTheCommand pins the same guard on the
+// direct `agent` subcommand.
+func TestKvmGuestAgentRejectsASingleQuoteInTheCommand(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestEnv(dir)
+	env["SSH_ARGV"] = filepath.Join(dir, "ssh-argv")
+	env["PATH"] = kvmGuestPath(t, "virsh", "ssh")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "agent", "opencode2'")
+	assertStatus(t, result, 1)
+
+	assertContains(t, "stderr", result.Stderr, "single quote")
+}
+
 // TestKvmGuestAgentProvisionSyncsConfigAndMaterializes pins that
 // `agent-provision` ships the host's launcher config to the guest and runs the
 // launcher's own `config provision` there, targeting the guest home.
@@ -475,6 +665,8 @@ func kvmGuestVirshHandler(args []string) (string, string, int) {
 			return "Name:           asb-kvm-test\n", "", 0
 		}
 		return "", "error: failed to get domain 'asb-kvm-test'\n", 1
+	case strings.Contains(joined, "domstate"):
+		return envOption("VIRSH_DOMSTATE") + "\n", "", 0
 	case strings.Contains(joined, "net-info"):
 		return "Name:           default\nActive:         yes\n", "", 0
 	case strings.Contains(joined, "net-dumpxml"):
@@ -489,7 +681,36 @@ func kvmGuestVirshHandler(args []string) (string, string, int) {
 // command the script forwarded.
 func kvmGuestSSHHandler(args []string) (string, string, int) {
 	recordArgv("SSH_ARGV", args)
-	return "", "", 0
+	joined := strings.Join(args, " ")
+	if envOption("SSH_CLOUD_INIT_FAIL") != "" && strings.Contains(joined, "cloud-init status") {
+		return "", "Cloud-init failed: see status --long\n", 1
+	}
+	return kvmGuestSSHSessionResponse(joined)
+}
+
+// kvmGuestSSHSessionResponse answers the tmux session probes and lets every other
+// command succeed silently. A bare probe (`agent`) encodes presence in its exit
+// status; agent-up's probe prints the state, so a failed connect is distinct
+// from "absent".
+func kvmGuestSSHSessionResponse(joined string) (string, string, int) {
+	if !strings.Contains(joined, "tmux has-session") {
+		return "", "", 0
+	}
+	if envOption("SSH_PROBE_FAIL") != "" {
+		return "", "", 255
+	}
+	present := envOption("SSH_AGENT_SESSION") != ""
+	stateProtocol := strings.Contains(joined, "echo present")
+	if stateProtocol && present {
+		return "present\n", "", 0
+	}
+	if stateProtocol {
+		return "absent\n", "", 0
+	}
+	if present {
+		return "", "", 0
+	}
+	return "", "", 1
 }
 
 // kvmGuestRsyncHandler serves the `rsync` a script under test calls: it logs

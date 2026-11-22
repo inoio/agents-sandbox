@@ -23,6 +23,7 @@
 #   ./scripts/kvm-guest.sh prime     # copy the host's runner images + msb home into the guest
 #   ./scripts/kvm-guest.sh run make test-msb-journeys   # run a command in the guest
 #   ./scripts/kvm-guest.sh agent            # interactive agent session in the guest
+#   ./scripts/kvm-guest.sh agent-up         # ensure up + cloud-init + sync + provision + attach
 #   ./scripts/kvm-guest.sh agent-provision  # materialize the agent config into the guest
 #   ./scripts/kvm-guest.sh sync-back [branch]  # fetch the guest's branches back to the host
 #   ./scripts/kvm-guest.sh firewall  # re-apply the host nft rules guest egress needs
@@ -51,6 +52,8 @@
 #   GO_VERSION=<from .go-version>  GOLANGCI_LINT_VERSION=<from the Makefile>
 #   OPENCODE2_VERSION=<the opencode2 installer's --version; unset installs latest>
 #   KVM_AGENT_SESSION=agents-sandbox  # the guest tmux session the agent runs in
+#   KVM_AGENT_NAME=opencode2  # the profile `agent-up`/`agent-provision` materializes
+#   KVM_CLOUD_INIT_ATTEMPTS=120  KVM_CLOUD_INIT_INTERVAL=5  # the agent-up SSH/cloud-init gate
 #   KVM_PRIME_ROOT=/opt/asb-reuse  # the root `prime` copies from and to
 #
 # The base image is cached in KVM_IMAGE_CACHE (shared across worktrees and
@@ -82,6 +85,11 @@ LIBVIRT_URI="${LIBVIRT_URI:-qemu:///system}"
 REPO_URL="${REPO_URL:-https://github.com/inoio/agents-sandbox.git}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-$PWD/.kvm-guest}"
 KVM_IMAGE_CACHE="${KVM_IMAGE_CACHE:-/var/lib/libvirt/images/agents-sandbox}"
+# The cloud-init gate waits for sshd, then for cloud-init itself. The attempts ×
+# interval bound only how long the guest may take to accept SSH; the
+# `cloud-init status --wait` that follows blocks until cloud-init reports.
+KVM_CLOUD_INIT_ATTEMPTS="${KVM_CLOUD_INIT_ATTEMPTS:-120}"
+KVM_CLOUD_INIT_INTERVAL="${KVM_CLOUD_INIT_INTERVAL:-5}"
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
@@ -120,9 +128,22 @@ DOMAIN_XML_PATH="$ARTIFACT_DIR/$VM_NAME.xml"
 log() { printf '%s\n' "==> $*" >&2; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
+# require_safe_agent_command rejects a command that cannot be embedded in the
+# remote shell string `agent_in` builds: it lands inside a single-quoted remote
+# script and is re-parsed by a nested `bash -c "…"`, so a quote or an expansion
+# character would end the string or be expanded early.
+require_safe_agent_command() {
+  local command="$1" char
+  for char in "'" '"' '$' '`' "\\"; do
+    case "$command" in
+      *"$char"*) die "the agent command must not contain a single quote, double quote, backslash, dollar sign, or backtick (it is embedded in a shell string)" ;;
+    esac
+  done
+}
+
 usage() {
   cat <<'EOF'
-usage: kvm-guest.sh {up|render|ssh|sync|prime|run <cmd...>|agent [cmd]|agent-provision [name]|sync-back [branch]|firewall|down}
+usage: kvm-guest.sh {up|render|ssh|sync|prime|run <cmd...>|agent [cmd]|agent-up [cmd]|agent-provision [name]|sync-back [branch]|firewall|down}
 
   up                create and boot the KVM guest (cloud-init provisions it)
   render            write the cloud-init seed and domain XML to ARTIFACT_DIR, no boot
@@ -131,6 +152,8 @@ usage: kvm-guest.sh {up|render|ssh|sync|prime|run <cmd...>|agent [cmd]|agent-pro
   prime             copy the host's runner images and microsandbox home into the guest
   run <..>          run a command in ~/agents-sandbox in the guest
   agent [cmd]       open an interactive agent session in a guest tmux session (default: opencode2)
+  agent-up [cmd]    ensure the guest is up, wait for cloud-init, sync, provision,
+                    and attach an agent session (one-command bring-up)
   agent-provision [name]
                     materialize the agent's provisioned config into the guest home
   sync-back [branch]
@@ -498,6 +521,7 @@ agent_in() {
   local ip session command
   session="${KVM_AGENT_SESSION:-agents-sandbox}"
   command="${*:-opencode2}"
+  require_safe_agent_command "$command"
   ip="$(require_guest_ip)"
   exec ssh -tt -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
     -- "bash -lc 'cd ~/agents-sandbox && exec tmux new -A -s $session bash -c \"$command\"'"
@@ -532,6 +556,91 @@ agent_provision() {
   else
     log "no $HOME/.gitconfig on this host; the guest keeps its own git identity"
   fi
+}
+
+# ensure_running brings the guest to a running state without recreating an
+# existing domain: undefined is created, a stopped domain is started (sharing
+# the boot path's lease wait), a running one is left alone. `create`'s
+# check_host refuses an existing domain, so it is never called over one.
+ensure_running() {
+  if ! virsh_cmd dominfo "$VM_NAME" >/dev/null 2>&1; then
+    create
+    return
+  fi
+  if [ "$(virsh_cmd domstate "$VM_NAME" 2>/dev/null | tr -d '[:space:]')" = "running" ]; then
+    log "guest '$VM_NAME' is running"
+    return
+  fi
+  local ip
+  log "starting the stopped guest '$VM_NAME'"
+  # A host reboot drops the default network and the firewall accepts the guest
+  # egress needs, so the start path re-ensures both, matching `create`.
+  ensure_default_network
+  virsh_cmd start "$VM_NAME" >/dev/null
+  ip="$(wait_for_lease)"
+  probe_guest_egress "$ip"
+}
+
+# wait_for_cloud_init gates on the guest being provisioned: it retries the SSH
+# connect (sshd accepts well after the DHCP lease appears), then runs
+# `cloud-init status --wait`, failing when cloud-init reports an error.
+wait_for_cloud_init() {
+  local ip="$1" attempt=0 status
+  while [ "$attempt" -lt "$KVM_CLOUD_INIT_ATTEMPTS" ]; do
+    if ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=8 \
+        -o LogLevel=ERROR "$VM_USER@$ip" true >/dev/null 2>&1; then
+      break
+    fi
+    attempt=$((attempt + 1))
+    sleep "$KVM_CLOUD_INIT_INTERVAL"
+  done
+  [ "$attempt" -lt "$KVM_CLOUD_INIT_ATTEMPTS" ] \
+    || die "guest ssh did not come up; check the console: virsh -c $LIBVIRT_URI console $VM_NAME"
+  log "waiting for cloud-init to finish in '$VM_NAME'"
+  if ! status="$(ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=8 \
+        "$VM_USER@$ip" 'cloud-init status --wait' 2>&1)"; then
+    printf '%s\n' "$status" >&2
+    die "cloud-init failed in '$VM_NAME'; inspect: $0 run 'cloud-init status --long'"
+  fi
+  log "cloud-init: done"
+}
+
+# guest_agent_session_state prints "present" or "absent" for the agent's tmux
+# session, and returns non-zero only when the guest could not be reached. A
+# failed probe must not read as "absent": the caller syncs on "absent", and that
+# sync is one-way with `--delete`.
+guest_agent_session_state() {
+  local ip="$1" session="${KVM_AGENT_SESSION:-agents-sandbox}"
+  ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=8 \
+    -o LogLevel=ERROR "$VM_USER@$ip" \
+    "tmux has-session -t $session >/dev/null 2>&1 && echo present || echo absent" 2>/dev/null
+}
+
+# agent_up is the one-command bring-up: ensure the guest is running, gate on
+# cloud-init, then — checking for a live session only now that the guest is
+# reachable — sync this checkout, materialize the agent config, and attach. A
+# live session is reattached without syncing. It composes the subcommands so the
+# step-by-step targets remain available.
+agent_up() {
+  local ip session_state
+  require_safe_agent_command "${*:-opencode2}"
+  ensure_running
+  ip="$(require_guest_ip)"
+  wait_for_cloud_init "$ip"
+  session_state="$(guest_agent_session_state "$ip" || true)"
+  case "$session_state" in
+    present)
+      log "agent session '${KVM_AGENT_SESSION:-agents-sandbox}' is already running; reattaching without syncing"
+      agent_in "$@"
+      ;;
+    absent) : ;;
+    *)
+      die "could not determine whether an agent session is running in '$VM_NAME' (probe returned '$session_state'); refusing to sync over it"
+      ;;
+  esac
+  sync_in
+  agent_provision "${KVM_AGENT_NAME:-opencode2}"
+  agent_in "$@"
 }
 
 probe_guest_egress() {
@@ -624,6 +733,16 @@ create() {
   virsh_cmd define "$DOMAIN_XML_PATH" >/dev/null
   virsh_cmd start "$VM_NAME"
 
+  local ip=""
+  ip="$(wait_for_lease)"
+  print_next_steps "$ip"
+  probe_guest_egress "$ip"
+}
+
+# wait_for_lease blocks until the guest has a DHCP lease, printing progress, and
+# warns (printing nothing) on timeout. It is the boot gate `create` and the
+# ensure-running path share.
+wait_for_lease() {
   local timeout="${KVM_BOOT_TIMEOUT:-300}" waited=0 ip=""
   log "waiting up to ${timeout}s for a DHCP lease (cloud-init first boot takes a few minutes)"
   while [ "$waited" -lt "$timeout" ]; do
@@ -639,9 +758,7 @@ create() {
     log "  console:   virsh -c $LIBVIRT_URI console $VM_NAME   (leave with Ctrl-])"
     log "  retry ssh: $0 ssh"
   fi
-
-  print_next_steps "$ip"
-  probe_guest_egress "$ip"
+  printf '%s\n' "$ip"
 }
 
 destroy() {
@@ -664,6 +781,7 @@ case "${1:-}" in
   prime)           prime ;;
   run)             shift; run_in "$@" ;;
   agent)           shift; agent_in "$@" ;;
+  agent-up)        shift; agent_up "$@" ;;
   agent-provision) shift; agent_provision "$@" ;;
   sync-back)       shift; sync_back "$@" ;;
   firewall|fix-net) fix_firewall ;;
