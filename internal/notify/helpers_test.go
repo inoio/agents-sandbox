@@ -202,16 +202,22 @@ func (s *streamStub) Recv(ctx context.Context) (msb.StreamEvent, error) {
 func (s *streamStub) Close() error { return nil }
 
 // recordBackend records notifications for assertions. The mutex makes it safe
-// to read while the watcher goroutine is still appending.
+// to read while the watcher goroutine is still appending. notify, when set
+// before the watcher starts, signals each recorded notification so a test waits
+// on the event instead of polling count() against the clock.
 type recordBackend struct {
-	mu  sync.Mutex
-	got []Notification
+	mu     sync.Mutex
+	got    []Notification
+	notify chan struct{}
 }
 
 func (r *recordBackend) Notify(n Notification) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.got = append(r.got, n)
+	r.mu.Unlock()
+	if r.notify != nil {
+		r.notify <- struct{}{}
+	}
 }
 
 func (r *recordBackend) count() int {

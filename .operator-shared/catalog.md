@@ -190,6 +190,9 @@
 - `plans/2026-11-21-msb-journeys.md`
   - Description: Implementation plan for #793, the first slice of the harness-journeys acceptance harness: host-side libvirt KVM-guest tooling (`scripts/kvm-guest.sh` + `make kvm-*`), the `test/harness`→`test/msb/startup` rename with the shared untagged `test/msb/driver`, the gate-scope changes (dead-code `test/` filter, ambient scan over non-test `.go` under `test/`, the production-closure contract test), `make test-msb-journeys` with the named-step journey model, and the learn-mode journeys (UC1, UC4, `config learn`, attribution) plus the surface-sweep block.
   - Read If: Executing #793; working on `scripts/kvm-guest.sh` or the `make kvm-*` targets; the `test/msb/{driver,startup,journeys}` rename and layout; the journeys' `Journey`/`Step` model; or the dead-code/ambient `test/` gate scope.
+- `plans/2026-11-22-hermetic-wall-clock.md`
+  - Description: The remaining wall-clock surface — convert event-wait sleeps to channel sync, mark the genuine dwells, and add the `time.Sleep` ambient-gate category.
+  - Read If: Removing a test sleep, or a `time.Sleep` gate-category failure.
 - `plans/2026-11-22-msb-smoke-remedies.md`
   - Description: Implementation plan for the in-guest smoke-suite reliability remedies: the start-of-run sandbox sweep, the `docker-ready-timeout`/`daemon-ready-timeout` config keys threaded into `internal/sandbox/vm`, the `AGENTS_SANDBOX_MSB_TIMEOUT_FACTOR` ceiling scaler, and the stale daemon-timeout marker.
   - Read If: Working on the `test-msb-in-vm` guest target, the smoke suite's readiness/quit ceilings or start sweep, the VM readiness-timeout config keys, or the `MSB_GUEST_*` make variables.

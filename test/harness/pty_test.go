@@ -311,7 +311,7 @@ func waitForOutput(t *testing.T, ses *ptySession, want string) {
 		if time.Now().After(deadline) {
 			t.Fatalf("output %q never contained %q", ses.output(), want)
 		}
-		time.Sleep(5 * time.Millisecond)
+		time.Sleep(5 * time.Millisecond) //testenv:allow polls a child PTY's output, which has no in-process signal
 	}
 }
 
@@ -586,7 +586,7 @@ func TestPTYHonoursWorkingDirectoryAndEnv(t *testing.T) {
 			if time.Now().After(deadline) {
 				t.Fatalf("output %q does not contain %q", ses.output(), want)
 			}
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(10 * time.Millisecond) //testenv:allow polls a child PTY's output, which has no in-process signal
 		}
 	}
 }

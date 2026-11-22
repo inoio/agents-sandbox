@@ -99,21 +99,26 @@ func TestWatchRetriesUntilCancelled(t *testing.T) {
 	defer func() { watchReconnectPolicy = orig }()
 
 	var attempts atomic.Int32
+	attempted := make(chan struct{}, 8)
 	sb := msbtest.NewMockSandbox(msbtest.SandboxOpts{})
 	sb.(*msbtest.MockSandbox).ShellStreamFn = func(string) (msb.StreamHandle, error) {
 		attempts.Add(1)
+		select {
+		case attempted <- struct{}{}:
+		default:
+		}
 		return nil, errors.New("shell failed")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- Watch(ctx, SandboxStreamOpener{Sandbox: sb}, opencodeSpec(), &recordBackend{}) }()
 
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if attempts.Load() >= 5 {
-			break
+	for range 5 {
+		select {
+		case <-attempted:
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for 5 reconnect attempts")
 		}
-		time.Sleep(10 * time.Millisecond)
 	}
 	cancel()
 	err := <-done
@@ -300,7 +305,7 @@ func TestWatchDrivesBackend(t *testing.T) {
 			{Kind: msb.StreamEventStdout, Data: sseBlock("session.idle")},
 		},
 	}
-	backend := &recordBackend{}
+	backend := &recordBackend{notify: make(chan struct{}, 4)}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -308,12 +313,10 @@ func TestWatchDrivesBackend(t *testing.T) {
 	go func() { done <- Watch(ctx, stubStreams{handle: stream}, opencodeSpec(), backend) }()
 
 	// Wait for the done notification, then stop the watcher.
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if backend.count() == 1 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
+	select {
+	case <-backend.notify:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for the done notification")
 	}
 	cancel()
 	select {
@@ -340,7 +343,7 @@ func TestWatchDedupClearsOnBusy(t *testing.T) {
 		},
 	}
 	sb := msbtest.NewMockSandbox(msbtest.SandboxOpts{StreamHandle_: stream})
-	inner := &recordBackend{}
+	inner := &recordBackend{notify: make(chan struct{}, 4)}
 	dedup := NewDedup("watchslug-a", StateClaimer{}, allTriggersOn(), inner)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -348,12 +351,12 @@ func TestWatchDedupClearsOnBusy(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- Watch(ctx, SandboxStreamOpener{Sandbox: sb}, opencodeSpec(), dedup) }()
 
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if inner.count() == 2 {
-			break
+	for range 2 {
+		select {
+		case <-inner.notify:
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for 2 notifications")
 		}
-		time.Sleep(10 * time.Millisecond)
 	}
 	cancel()
 	select {
