@@ -43,9 +43,15 @@ func (claudeCodeProfile) VMConfigPath(home string) string {
 }
 func (claudeCodeProfile) ConfigFileNames() []string { return []string{settingsFileName} }
 
+// ProvisionRules copies settings.json and the user-authored instruction files:
+// CLAUDE.md and the commands, agents, and skills trees. settings.json can hold
+// keys in its env block; the drop-in is opt-in with that consent. The
+// .credentials.json login and the runtime state are not copied.
 func (claudeCodeProfile) ProvisionRules() []ProvisionRule {
 	return []ProvisionRule{
-		{Dir: ".claude", Patterns: []string{settingsFileName}},
+		{Dir: ".claude", Patterns: []string{
+			settingsFileName, claudeRulesPattern, commandsDirPattern, agentsDirPattern, skillsDirPattern,
+		}},
 	}
 }
 

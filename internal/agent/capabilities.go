@@ -24,6 +24,21 @@ const configTOMLSnippetPattern = "config*.toml"
 // instructions file at the root of its data dir.
 const agentsRulesPattern = "/AGENTS.md"
 
+// claudeRulesPattern is the drop-in pattern for a CLAUDE.md rules file at the
+// root of an agent's data dir.
+const claudeRulesPattern = "/CLAUDE.md"
+
+// agentsOverridePattern is the drop-in pattern for an AGENTS.override.md rules
+// file at the root of an agent's data dir.
+const agentsOverridePattern = "/AGENTS.override.md"
+
+// agentsDirPattern and commandsDirPattern are the drop-in patterns for an
+// agent's subagent and command trees at the root of its data dir.
+const (
+	agentsDirPattern   = "/agents/"
+	commandsDirPattern = "/commands/"
+)
+
 // skillsDirPattern is the drop-in pattern for an agent's skills tree at the
 // root of its data dir.
 const skillsDirPattern = "/skills/"

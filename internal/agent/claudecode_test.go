@@ -76,21 +76,11 @@ func TestClaudeCodeConfigMerger(t *testing.T) {
 	}
 }
 
-func TestClaudeCodeProvisionRules(t *testing.T) {
-	a, _ := agent.Lookup("claude-code")
-	provisioner, ok := agent.AsProvisioner(a)
-	if !ok {
-		t.Fatal("claude-code should implement Provisioner")
-	}
-	found := false
-	for _, r := range provisioner.ProvisionRules() {
-		if r.Dir == ".claude" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("ProvisionRules missing .claude: %+v", provisioner.ProvisionRules())
-	}
+func TestClaudeCodeProvisionRulesCopySettingsAndInstructions(t *testing.T) {
+	assertProvisionedSet(t, "claude-code", ".claude",
+		[]string{"settings.json", "CLAUDE.md", "commands/review.md", "agents/reviewer.md", "skills/tdd/SKILL.md"},
+		[]string{".credentials.json", "settings.local.json", "projects/x/session.jsonl", "todos/a.json", "statsig/s"},
+	)
 }
 
 func TestClaudeCodeLatestVersionCancelledCtx(t *testing.T) {

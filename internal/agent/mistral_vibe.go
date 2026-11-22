@@ -125,7 +125,7 @@ func (mistralVibeProfile) ProvisionRules() []ProvisionRule {
 	return []ProvisionRule{
 		{
 			Dir:      mistralVibeDataDir,
-			Patterns: []string{agentsRulesPattern, "/agents/", promptsDirPattern, skillsDirPattern},
+			Patterns: []string{agentsRulesPattern, agentsDirPattern, promptsDirPattern, skillsDirPattern},
 		},
 	}
 }

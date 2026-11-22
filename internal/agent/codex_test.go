@@ -105,16 +105,11 @@ func TestCodexRunnerCommandBakesTheSystemConfig(t *testing.T) {
 	}
 }
 
-func TestCodexProvisionRulesExcludeAuth(t *testing.T) {
-	a, _ := agent.Lookup("codex")
-	provisioner, ok := agent.AsProvisioner(a)
-	if !ok {
-		t.Fatal("codex should implement Provisioner")
-	}
-	rules := provisioner.ProvisionRules()
-	if len(rules) != 1 || rules[0].Dir != ".codex" || !slices.Equal(rules[0].Patterns, []string{"config.toml"}) {
-		t.Errorf("ProvisionRules = %+v, want [.codex: config.toml]", rules)
-	}
+func TestCodexProvisionRulesCopyConfigAndInstructions(t *testing.T) {
+	assertProvisionedSet(t, "codex", ".codex",
+		[]string{"config.toml", "AGENTS.md", "AGENTS.override.md", "skills/tdd/SKILL.md"},
+		[]string{"auth.json", "sessions/2026/x.jsonl", "log/codex-tui.log", "history.jsonl"},
+	)
 }
 
 func TestCodexVersion(t *testing.T) {
