@@ -55,6 +55,20 @@ golangci-lint version    # matches the Makefile pin (2.15.0)
 exit
 ```
 
+If `msb doctor` reports `KVM access: permission denied` — "you are in the 'kvm' group, but this login
+session predates the change" — that is expected on the first login after `up`: cloud-init's
+`usermod -aG docker,kvm` ran after your session opened. Reconnect (`exit`, then `make kvm-ssh`) so a new login
+applies the groups; `msb doctor --fix` (or `sudo setfacl -m u:dev:rw /dev/kvm`) fixes the current session.
+
+If a tool is missing, check which seed the guest actually booted before debugging the tool:
+
+```console
+grep -c 'opencode.ai/v2/install' /var/lib/cloud/instance/user-data.txt
+```
+
+`0` means `make kvm-up` ran from a checkout without this branch's provisioning; `1` but tools still missing means a
+`runcmd` line failed — inspect `cloud-init status --long` and `sudo tail -80 /var/log/cloud-init-output.log`.
+
 Failures: `opencode2: command not found` means the installer failed or `~/.local/bin` is not on `PATH` (a fresh SSH
 login sources `/etc/profile.d/zz-asb-kvm.sh`; check `echo $PATH`). Missing `golangci-lint` means the pin was not read
 from the Makefile at `up` time. Cloud-init is one-shot: after changing provisioning, `make kvm-down && make kvm-up`.
