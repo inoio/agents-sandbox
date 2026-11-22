@@ -295,6 +295,13 @@ const (
 	QuitTimeout       = 15 * time.Second
 )
 
+// ExitSaveTimeout bounds how long the launcher may take to exit after its learn
+// exit prompt is answered. Answering "Save all" runs the after-run analysis and
+// save path before the process exits, which can outlast the quit budget on a
+// cold host — so the post-answer wait gets its own, larger bound rather than
+// failing a run that is still working.
+const ExitSaveTimeout = TuiReadyTimeout
+
 // quitIntervalAfterPress returns the wait before the next quit press: a pair's
 // two presses are one QuitPressInterval apart, and the even press ends the pair,
 // after which the loop waits quitRetryInterval for the harness to exit or to

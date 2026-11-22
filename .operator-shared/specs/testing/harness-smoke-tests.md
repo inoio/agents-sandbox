@@ -105,7 +105,7 @@ the launcher; no harness currently needs it, but it stays for one that does. Two
   is live and the harness is already painting, so the loss is on the harness's side — see "Press until it goes" below.
 
 Once the image prebuild has run, the harness's UI comes up about 14s after launch, so the settled fallback is 25s. A
-harness whose startup is much slower raises the ceiling with `ReadyTimeout`: `hermes` carries a whole Python/Node tool
+harness whose startup is much slower raises the ceiling with `Spec.ReadyTimeout()`: `hermes` carries a whole Python/Node tool
 store, so its spec sets `heavyweightReadyTimeout` (120s). The override bounds either wait (marker or settle), not a
 sleep — hermes' banner marker ends its wait as soon as the CLI is up. An alternate-screen harness is bounded by the TUI
 marker wait (180s) instead.
@@ -161,19 +161,19 @@ workspace-trust dialog — whose only quit key aborts the launch with exit 1, so
 The seed sets `hasCompletedOnboarding` and pre-trusts the guest working directory (the project dir is not a repository,
 so it binds at `/workspace`), so claude-code reaches its prompt, where repeated Ctrl-C exits 0.
 
-**Tap until it goes, then assert the exit.** `quit` taps the harness's key in pairs until the process exits, for at most
-`quitTimeout` (15s), then asserts exit code 0. The two presses of a pair are one `quitPressInterval` (400ms) apart, so a
+**Tap until it goes, then assert the exit.** `driver.Quit` taps the harness's key in pairs until the process exits, for at most
+`driver.QuitTimeout` (15s), then asserts exit code 0. The two presses of a pair are one `driver.QuitPressInterval` (400ms) apart, so a
 repeated-key exit chains; every pair is followed by `quitRetryInterval` (2s) before the next pair, so a harness that has
 caught the quit can finish tearing down before another press is written. The loop also stops tapping once either teardown
 signal appears and only waits for the exit:
 
-- **the alternate screen came back** (`tuiLeft`): the alternate-screen-leave sequence (`ESC [ ? 1049 l`) is the
+- **the alternate screen came back** (`driver.TuiLeft`): the alternate-screen-leave sequence (`ESC [ ? 1049 l`) is the
   harness's own, guest-side teardown signal, emitted as it restores its terminal. It is the only signal visible before
   the guest process exits — which is when `qwen-code`'s slow "Agent powering down. Goodbye!" teardown gets tapped past:
   the next 400ms tap reaches the terminal the harness has already restored to cooked mode, becomes SIGINT, and kills it
   mid-teardown. The guest then reports `-1`, which `os.Exit(-1)` turns into the launcher's `255`. The check starts from
   the second press, so a leave left by the readiness wait cannot end the loop before the first tap.
-- **the test pty is back in cooked mode** (`ptySession.inRawMode`, read through the master, which shares the slave's
+- **the test pty is back in cooked mode** (`driver.Session.inRawMode`, read through the master, which shares the slave's
   termios): the launcher's msb attach holds the pty raw for the session and restores it on the way out. This covers a
   normal-buffer harness (`claude-code`) that emits no alternate-screen sequence, where a tap after the restore is the
   SIGINT the cooked terminal makes of it and kills the launcher mid-teardown, reporting its clean exit as `-1`. It
@@ -210,17 +210,17 @@ configuration or state. Each run creates one temp root, shared by all subtests, 
   RAM-backed tmpfs where systemd mounts it as one, which the 10+ GiB image cache would exhaust or spend the RAM; the
   Makefile points it at the disk-backed `$(MSB_REUSE_ROOT)`;
 - the per-harness subtests run **in parallel**, bounded by a semaphore sized from the host's **free memory**
-  (`harnessConcurrencyFor`: as many `smokeWorkingSetMiB` (1.5 GiB) VMs as fit after a fixed 2 GiB host reserve — the
+  (`driver.HarnessConcurrencyFor`: as many `driver.SmokeWorkingSetMiB` (1.5 GiB) VMs as fit after a fixed 2 GiB host reserve — the
   host OS, docker, and the concurrently running `internal/sandbox/msb` test binary — never fewer than one). The
   count is read via `sysinfo.AvailableMemoryMiB` (falling back to `TotalMemoryGiB`), and `AGENTS_SANDBOX_MSB_PARALLEL`
   overrides it. It is enforced by the semaphore, not `-parallel`, so even a bare `go test -tags msb ./...` cannot
-  start a VM per harness; each smoke run boots its VM at `--memory` `smokeMemorySpec()` (2 GiB) instead of the
+  start a VM per harness; each smoke run boots its VM at `--memory` `driver.SmokeMemorySpec()` (2 GiB) instead of the
   launcher's 4 GiB default, and — when `AGENTS_SANDBOX_MSB_VM_CPUS` is set (the in-guest `make test-msb-in-vm`
   sets it) — caps vCPUs with `--cpus`, because a project VM otherwise claims every host vCPU and parallel
   harnesses oversubscribe a nested guest. The working set, not the VM ceiling, sizes the count because a guest allocates only the
   pages it touches (virtio-mem); it tracks the heaviest harness (measured peaks under 0.5 GiB for pi, over 1 GiB for
   opencode2), so sizing on the lightest would oversubscribe the host. Each harness gets its own home base
-  `<root>/runs/<name>` — created before the child starts by `prepareHome`, including its `TMPDIR`, which the launcher
+  `<root>/runs/<name>` — created before the child starts by `driver.PrepareHome`, including its `TMPDIR`, which the launcher
   needs (a missing `TMPDIR` fails sandbox creation with `io error: no such file or directory`) — so overlapping runs
   never share a `HOME` or a seeded config, while `XDG_DATA_HOME` stays `<root>/data` so every harness shares one
   microsandbox home (the image cache);
@@ -240,7 +240,7 @@ configuration or state. Each run creates one temp root, shared by all subtests, 
   in-guest `make test-msb-in-vm`) are rewritten to `AGENTS_SANDBOX_DOCKER_READY_TIMEOUT` /
   `AGENTS_SANDBOX_DAEMON_READY_TIMEOUT` in the child env. A host that happens to export the launcher's variable
   still has it dropped by the allowlist, so only the suite's opt-in crosses;
-- the **prebuild** env additionally carries the environment's GitHub API token when one is set (`withGitHubToken`,
+- the **prebuild** env additionally carries the environment's GitHub API token when one is set (`driver.WithGitHubToken`,
   `GH_TOKEN` then `GITHUB_TOKEN`, matching the launcher's precedence). The prebuild's `build` resolves each unpinned
   agent's latest release, and the GitHub-backed agents' requests would otherwise share the anonymous
   60-requests/hour `api.github.com` limit. The launcher sends the token only to `api.github.com` — never into a VM,
@@ -302,7 +302,7 @@ home; it lists with `sandbox list -q` and removes each name with `sandbox remove
 required, or the non-interactive remove blocks on its confirmation). A freshly created temp root's removal is
 registered as soon as the root is created, so a skip (the docker preflight) or a failed launcher build removes
 it too; a reused root (`AGENTS_SANDBOX_SMOKE_ROOT`) is kept. A fresh root's cleanup also removes the runner-image
-tags the run built (`cleanupRunnerImages`, deriving each tag from `git.ResolveIdentity` over the project dir, skipping
+tags the run built (`driver.CleanupRunnerImages`, deriving each tag from `git.ResolveIdentity` over the project dir, skipping
 a project dir that did not resolve), untagging the leaf only (`docker rmi --no-prune`) so the classic builder's layer
 cache survives: a cold run leaves no tagged runner image; a reused root keeps its tags, which are rebuilt in place on
 the next run. The
@@ -331,7 +331,7 @@ waiting run only proceeds once the sweep sharing the root is done.
   (whether a bare custom provider still counts as configured) and its shared-metrics `offer_version` (a bump re-asks
   the prompt before the REPL). A change to either fails the subtest with the screen hermes stopped on, and the fix is to
   update the seed, not the harness.
-- The quit tap is a bound, not a diagnosis: a harness that starts ignoring its key fails after `quitTimeout` of taps
+- The quit tap is a bound, not a diagnosis: a harness that starts ignoring its key fails after `driver.QuitTimeout` of taps
   rather than reporting why.
 - Twelve harnesses mean twelve runner-image builds on a cold home. The cold home also re-transfers each
   multi-GB runner image into the microsandbox cache, which dominates the suite's wall time; the caching `make test-msb`

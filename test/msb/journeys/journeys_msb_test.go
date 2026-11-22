@@ -19,6 +19,11 @@ import (
 // scenario reads top-to-bottom and a failure points at one line.
 func TestHarnessJourneys(t *testing.T) {
 	driver.Preflight(t)
+	if len(Journeys) == 0 {
+		// Until Phase 2 adds journeys, building the launcher and prebuilding
+		// every runner image would be a multi-minute no-op. Skip before either.
+		t.Skip("no journeys defined")
+	}
 	root, binary := driver.Prepare(t)
 	driver.PreflightDocker(t, root)
 	// Register cleanup after the docker preflight so a skip touches nothing, but

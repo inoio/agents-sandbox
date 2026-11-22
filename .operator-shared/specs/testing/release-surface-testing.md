@@ -80,10 +80,10 @@ Failure modes the surface implies; each is pinned by a check in the task named.
 
 **Files:**
 - `scripts/surface-sweep.sh` — the isolation helper (committed; follows `test/msb/driver`'s isolation intent —
-  the `rootFitsSandboxSocket` budget check and dropping the ambient `HOME`/`XDG_*`/`AGENTS_SANDBOX_*`/`OPENCODE_SANDBOX_*`/
-  `MSB_*` — but is sourced, not imported; that package is `msb`-tagged test-only. Unlike `isolatedEnv`'s strict
-  allow-list it keeps the caller's wider shell env (`PATH`/`TERM`/`tmux`/…), because its `env` snippet is sourced into an
-  interactive journey shell).
+  the `RootFitsSandboxSocket` budget check and dropping the ambient `HOME`/`XDG_*`/`AGENTS_SANDBOX_*`/`OPENCODE_SANDBOX_*`/
+  `MSB_*` — but is sourced, not imported; that package is untagged test-support code under `test/`. Unlike
+  `driver.IsolatedEnv`'s strict allow-list it keeps the caller's wider shell env (`PATH`/`TERM`/`tmux`/…), because its
+  `env` snippet is sourced into an interactive journey shell).
 - `test/scripts/surface_sweep_test.go` — its tests, runnable without a VM or a real `asb`.
 
 **Interfaces:**

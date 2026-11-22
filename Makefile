@@ -30,7 +30,7 @@ TEST_TIMEOUT ?= 5m
 # Bounded concurrency for the host-only tiers' parallel stages; both suites are
 # otherwise serial across their top-level tests. test-integration uses
 # INTEGRATION_PARALLEL. test-msb sizes its parallel harnesses from the host's
-# free memory (test/msb/startup) and is additionally capped by an internal
+# free memory (test/msb/driver) and is additionally capped by an internal
 # semaphore, so a bare `go test -tags msb` cannot start a VM per harness; set
 # MSB_PARALLEL to a count to force it instead of the memory-derived default.
 INTEGRATION_PARALLEL ?= 4

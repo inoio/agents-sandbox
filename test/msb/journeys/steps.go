@@ -92,6 +92,9 @@ func StepLaunch(args ...string) Step {
 // launcher's termio Select reads as a line.
 func StepChooseFirstRun(choice firstrun.Choice) Step {
 	return Step{Name: "choose first-run " + string(choice), Run: func(c *Context) error {
+		if _, err := session(c); err != nil {
+			return err
+		}
 		return writeLine(c, string(choice))
 	}}
 }
@@ -102,7 +105,11 @@ func StepChooseFirstRun(choice firstrun.Choice) Step {
 // prints its key and the wait times out with the choice named.
 func StepAssertFirstRunOffered(choice firstrun.Choice) Step {
 	return Step{Name: "assert first-run offers " + string(choice), Run: func(c *Context) error {
-		if err := c.Session.WaitForMarker(string(choice), driver.TuiReadyTimeout); err != nil {
+		ses, err := session(c)
+		if err != nil {
+			return err
+		}
+		if err := ses.WaitForMarker(string(choice), driver.TuiReadyTimeout); err != nil {
 			return fmt.Errorf("first-run menu did not offer %q: %w", choice, err)
 		}
 		return nil
@@ -113,14 +120,22 @@ func StepAssertFirstRunOffered(choice firstrun.Choice) Step {
 // table's readiness signal.
 func StepWaitReady() Step {
 	return Step{Name: "wait for the harness TUI", Run: func(c *Context) error {
-		return driver.WaitReady(c.Session, c.Spec)
+		ses, err := session(c)
+		if err != nil {
+			return err
+		}
+		return driver.WaitReady(ses, c.Spec)
 	}}
 }
 
 // StepSendPrompt types prompt into the harness's editor and presses Enter.
 func StepSendPrompt(prompt string) Step {
 	return Step{Name: "send prompt", Run: func(c *Context) error {
-		return c.Session.Write([]byte(prompt + "\r"))
+		ses, err := session(c)
+		if err != nil {
+			return err
+		}
+		return ses.Write([]byte(prompt + "\r"))
 	}}
 }
 
@@ -130,21 +145,26 @@ func StepSendPrompt(prompt string) Step {
 // holds open.
 func StepQuit() Step {
 	return Step{Name: "quit the harness", Run: func(c *Context) error {
+		ses, err := session(c)
+		if err != nil {
+			return err
+		}
 		if len(c.Spec.QuitKey) == 0 {
 			return errors.New("the harness has no quit key")
 		}
+		needle := driver.MarkerText(learnExitPromptMarker)
 		deadline := time.Now().Add(driver.QuitTimeout)
 		for {
-			if strings.Contains(driver.StripANSI(c.Session.Output()), learnExitPromptMarker) {
+			if strings.Contains(driver.MarkerText(string(ses.Output())), needle) {
 				return nil
 			}
-			if c.Session.HasExited() {
+			if ses.HasExited() {
 				return fmt.Errorf("the launcher exited before the learn exit prompt")
 			}
 			if !time.Now().Before(deadline) {
 				return fmt.Errorf("the learn exit prompt did not appear within %s", driver.QuitTimeout)
 			}
-			if err := c.Session.Write(c.Spec.QuitKey); err != nil {
+			if err := ses.Write(c.Spec.QuitKey); err != nil {
 				return err
 			}
 			time.Sleep(driver.QuitPressInterval)
@@ -153,13 +173,19 @@ func StepQuit() Step {
 }
 
 // StepChooseExit answers the learn exit prompt with key (the launcher's
-// r/s/n choice) and waits for the launcher to exit 0.
+// r/s/n choice) and waits for the launcher to exit 0. Answering "Save all" runs
+// the analysis/save path before the process exits, so the post-answer wait uses
+// the larger ExitSaveTimeout rather than the quit budget.
 func StepChooseExit(key string) Step {
 	return Step{Name: "choose exit " + key, Run: func(c *Context) error {
-		if err := writeLine(c, key); err != nil {
+		ses, err := session(c)
+		if err != nil {
 			return err
 		}
-		code, err := c.Session.WaitExit(driver.QuitTimeout)
+		if err = writeLine(c, key); err != nil {
+			return err
+		}
+		code, err := ses.WaitExit(driver.ExitSaveTimeout)
 		if err != nil {
 			return fmt.Errorf("the launcher did not exit after the exit prompt: %w", err)
 		}
@@ -259,6 +285,17 @@ func journeyNetwork(spec driver.Spec) string {
 		return spec.Network
 	}
 	return driver.NetworkNone
+}
+
+// session returns the context's launched session, or an error when no
+// StepLaunch ran first. A session-dependent step before the launch is a
+// malformed journey, and the runner names the failing step, so returning an
+// error keeps it a reported failure rather than a nil dereference.
+func session(c *Context) (*driver.Session, error) {
+	if c.Session == nil {
+		return nil, errors.New("no session: StepLaunch must run before this step")
+	}
+	return c.Session, nil
 }
 
 // writeLine sends line followed by a newline to the session, the form the

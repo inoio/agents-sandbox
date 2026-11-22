@@ -107,8 +107,8 @@ the built binary, not the SDK).
 - **A (chosen):** teach the dead-code gate to ignore findings under `test/`, and extend the ambient
   and ambient-tool contract tests to scan **non-test `.go` files under `test/`** as well as `_test.go`.
   No `//deadcode:ignore` on `driver`; its host calls keep the `//testenv:allow` markers they carry
-  today. This closes a latent gap: the existing non-test `*/testmock.go` files already escape the
-  ambient scan.
+  today. The widening reaches the shared untagged driver's non-test files (they live under `test/`),
+  which would otherwise escape the ambient scan because they are not `_test.go` files.
 - **B — marker-driven:** add the file-scope marker to `driver` and key the ambient scans on it.
   Rejected as fiddlier for no extra reach.
 - **C — keep host-touching calls in `_test.go`, extract only pure helpers.** Rejected: it defeats

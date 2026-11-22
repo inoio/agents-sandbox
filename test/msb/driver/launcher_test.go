@@ -29,3 +29,13 @@ func TestQuitIntervalKeepsPairsRapidAndWaitsBetweenThem(t *testing.T) {
 		t.Errorf("QuitPressInterval %s is not shorter than quitRetryInterval %s", QuitPressInterval, quitRetryInterval)
 	}
 }
+
+// TestExitSaveTimeoutExceedsQuitTimeout pins the invariant the learn-exit wait
+// depends on: answering the exit prompt runs the analysis/save path before the
+// process exits, so the post-answer budget must be strictly larger than the
+// quit budget or a successful run would be reported as a timeout.
+func TestExitSaveTimeoutExceedsQuitTimeout(t *testing.T) {
+	if ExitSaveTimeout <= QuitTimeout {
+		t.Errorf("ExitSaveTimeout %s must exceed QuitTimeout %s", ExitSaveTimeout, QuitTimeout)
+	}
+}
