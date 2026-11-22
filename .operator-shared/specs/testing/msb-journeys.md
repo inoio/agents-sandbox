@@ -258,7 +258,8 @@ hand-drive the same flows under the sweep's isolation.
 the driver already resolves — `AGENTS_SANDBOX_SMOKE_ROOT=<sweep>/smoke` and
 `AGENTS_SANDBOX_MSB_TEST_HOME=<sweep>/msb` — so the suite's image/data home and reuse lock live inside
 the sweep root. No new interface and no second lock; the Go suite's existing reuse lock serializes the
-spine's invocation against any other carry-over run.
+spine's invocation against any other carry-over run. The `test-msb-journeys` target derives both vars from its
+`MSB_REUSE_ROOT` make variable, so the spine sets `MSB_REUSE_ROOT=<sweep>` when it invokes the target.
 
 - Exploratory finding → new/extended automated journey test (recorded as an issue, then implemented).
 - Automated failure → agent triages against the harness's current layout; if the harness changed, the
