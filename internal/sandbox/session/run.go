@@ -528,6 +528,11 @@ func runAttach(
 			)
 			if endedAbnormally && !interrupted {
 				offerMemoryRaiseAfterAttach(ctx, k, sb, summary, opts, ui)
+			} else {
+				ui.Verbosef(
+					"no in-session memory-raise offer: abnormal end %v, interrupted %v, exit code %d",
+					endedAbnormally, interrupted, exitCode,
+				)
 			}
 			if !interrupted {
 				offerDiskRaiseAfterAttach(ctx, k, sb, opts, ui)

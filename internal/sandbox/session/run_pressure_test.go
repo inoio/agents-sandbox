@@ -246,6 +246,63 @@ func diskProbeKey() string {
 	return command + " " + strings.Join(args, " ")
 }
 
+// TestOfferMemoryRaiseAfterAttachUsesConfiguredMemoryWhenMetricsFail pins the
+// post-attach fallback on a runtime that reports no live metrics: the offer is
+// still made, with the run's configured memory as its basis, instead of
+// deferring to the next launch.
+func TestOfferMemoryRaiseAfterAttachUsesConfiguredMemoryWhenMetricsFail(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_MEMORY", "")
+	t.Setenv("OPENCODE_SANDBOX_MEMORY", "")
+	k := state.Key{Slug: "fallbacklimit", Agent: "opencode"}
+	seedSessionHomeState(t, k)
+	var inputDefault string
+	ui := &termiotest.Mock{
+		IsInteractiveResult: true,
+		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
+		InputFn: func(_ string, defaultValue string) (string, error) {
+			inputDefault = defaultValue
+			return defaultValue, nil
+		},
+	}
+	sb := &msbtest.MockSandbox{
+		LogsResult: []msb.LogEntry{sessionOOMLogLine(time.Now())},
+		MetricsErr: errors.New("sandbox 199 has no verified live metrics slot"),
+	}
+
+	offerMemoryRaiseAfterAttach(
+		context.Background(), k, sb, pressureSummary{}, options.RunOptions{Memory: "4G"}, ui,
+	)
+
+	if inputDefault != "5G" {
+		t.Errorf("Input default = %q, want 5G from the run's configured memory", inputDefault)
+	}
+}
+
+// TestRunAttachTracesWhyNoMemoryOffer pins the diagnostic: a clean exit skips
+// the in-session memory offer, and the reason is reported at verbose level so
+// an operator can tell a skipped offer from detection that never ran.
+func TestRunAttachTracesWhyNoMemoryOffer(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	k := state.Key{Slug: "traceoffer", Agent: "opencode"}
+	seedSessionHomeState(t, k)
+	ui := &termiotest.Mock{}
+	sb := &msbtest.MockSandbox{AttachCode: 0}
+
+	_ = runAttach(context.Background(), k, sb, "/workspace", ui,
+		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(false, 5)}), "-l")
+
+	traced := false
+	for _, call := range ui.VerboseCalls {
+		if strings.Contains(call, "no in-session memory-raise offer") {
+			traced = true
+		}
+	}
+	if !traced {
+		t.Errorf("verbose calls %v do not trace the skipped offer", ui.VerboseCalls)
+	}
+}
+
 // TestOfferDiskRaiseAfterAttachOffersAFullTmp pins the post-attach disk probe:
 // a /tmp short of space is offered with the run's /tmp size and saved, and the
 // user learns it applies on the next run.

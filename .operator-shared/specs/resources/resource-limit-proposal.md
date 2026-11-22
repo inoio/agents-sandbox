@@ -195,6 +195,12 @@ pressure, and re-arming on the ratio alone would re-offer every launch.)
 - Built on `termio.Prompter` (`IsInteractive`, `Select`, `Input`, `Confirm`). Non-interactive
   invocations (`--yes`, piped input, no TTY) never block: they log what was detected and defer
   to the next launch or leave the marker.
+- The suggestion's basis is the live metrics limit when the read yields one, else the run's
+  configured memory (`options.ParseMemory(opts.Memory)`, passed as `MemoryLimits.FallbackCurrentMiB`).
+  The post-attach path has no `live.config`, so it cannot take the configured value from the VM
+  record the way the next-launch path does; the fallback keeps an in-session OOM offer working on a
+  runtime that reports no live metrics (`guides/vm-oom-crash-resilience.md`). The live limit is
+  still preferred when present, because the saved config can diverge from the guest (§5).
 - Flow (in-session, after terminal reset): explain what happened ("the VM ran out of memory and
   the harness was killed"), then offer to raise `--memory`. `Select` for the decision, `Input`
   for the value, pre-filled with a suggested increment (e.g. current + 25%, rounded to GiB) and
@@ -399,3 +405,12 @@ Resolved on a KVM host (msb 0.7.13):
   and after a live grow (`Modify{RootDiskSizeMiB}`, `disposition: live`) a fresh handle reports the
   new size, also after stop and restart, so drift detection can rely on it.
 - `/workspace` quota and `/tmp` pressure are measurable with an in-guest `df` (§1e).
+
+Observed on a KVM host (msb 0.7.16):
+- `Metrics` can be unavailable for a sandbox's whole life (`no verified live metrics slot`), which
+  disables the headroom detector and leaves a live memory resize unconfirmed. The memory offer no
+  longer depends on it (§3); the diagnosis procedure is in `guides/vm-oom-crash-resilience.md`.
+  Cause confirmed: versions match and a *fresh* sandbox's metrics work, so it is sandbox-specific —
+  the slot is established at sandbox creation, and a sandbox created before the runtime gained it never
+  gets one (a stop/start does not help; recreating the sandbox does). Whether the runtime should
+  establish the slot for an older sandbox instead is a microsandbox-side question.

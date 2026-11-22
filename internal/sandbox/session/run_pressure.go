@@ -48,6 +48,7 @@ func offerMemoryRaiseAfterAttach(
 		ctx, k, sb, marker,
 		resourceproposal.MemoryLimits{
 			CurrentMiB:         0,
+			FallbackCurrentMiB: options.ParseMemory(opts.Memory),
 			BootMaxMiB:         bootMaxMemoryMiB(),
 			HostAvailableMiB:   hostAvailableMiB,
 			HostAvailableKnown: hostAvailableKnown,

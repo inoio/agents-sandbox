@@ -16,8 +16,13 @@ import (
 // or BootMaxMiB means unknown.
 type MemoryLimits struct {
 	// CurrentMiB is the VM's configured memory; zero falls back to the live
-	// metrics limit.
+	// metrics limit, then to FallbackCurrentMiB.
 	CurrentMiB uint32
+	// FallbackCurrentMiB is the memory basis used when neither CurrentMiB nor
+	// the live metrics limit is known (the run's configured memory). The
+	// post-attach path on a runtime that reports no live metrics uses it to
+	// offer a raise in-session instead of deferring to the next launch.
+	FallbackCurrentMiB uint32
 	// BootMaxMiB is the VM's boot maximum (host RAM at creation).
 	BootMaxMiB uint32
 	// HostAvailableMiB is the memory the host can still hand out without
@@ -100,50 +105,19 @@ func DetectAndOfferMemoryRaise(
 
 	if limits.CurrentMiB == 0 {
 		limits.CurrentMiB = pressure.MemoryLimitMiB(metrics)
+		if limits.CurrentMiB == 0 {
+			limits.CurrentMiB = limits.FallbackCurrentMiB
+		}
 	}
 
 	marker = reArmAnsweredHeadroom(k, marker, metrics, threshold, ui)
 
-	var (
-		hit   pressure.Signal
-		hitAt time.Time
-		offer bool
-	)
-	switch {
-	case oomFound && oomNeedsOffer(marker, oomAt):
-		hit, hitAt, offer = oomSignal, oomAt, true
-	case !oomFound && unansweredOOM(marker):
-		// The recorded kill was never answered, but its log line has left the
-		// tail (or the VM was recreated). Offer it from the marker so a
-		// non-interactive run's promise is kept (specs/resources/resource-limit-proposal.md).
-		hit = pressure.Signal{
-			Kind:     pressure.KindMemory,
-			Evidence: pressure.EvidenceOOMLog,
-			Victim:   marker.Victim,
-			// gomutants:disable-next-line INTEGER_INCREMENT reason="the marker records only Kind/Evidence/Victim; an OOM-log signal's used/limit fields are never read"
-			UsedMiB: 0,
-			// gomutants:disable-next-line INTEGER_INCREMENT reason="the marker records only Kind/Evidence/Victim; an OOM-log signal's used/limit fields are never read"
-			LimitMiB: 0,
-		}
-		hitAt, offer = marker.OOMSeenAt, true
-	case headroomTripped && headroomNeedsOffer(marker):
-		hit, hitAt, offer = headroomSignal, headroomSeenAt(marker, time.Now()), true
-	case !headroomTripped && unansweredHeadroom(marker):
-		// The recorded headroom condition was never answered, but the fresh
-		// metrics read has recovered. Offer it from the marker so a
-		// non-interactive run's promise is kept.
-		hit = pressure.Signal{
-			Kind:     pressure.KindMemory,
-			Evidence: pressure.EvidenceHeadroom,
-			Victim:   marker.Victim,
-			// gomutants:disable-next-line INTEGER_INCREMENT reason="the marker records only Kind/Evidence/Victim; a headroom signal's used/limit fields are never read"
-			UsedMiB: 0,
-			// gomutants:disable-next-line INTEGER_INCREMENT reason="the marker records only Kind/Evidence/Victim; a headroom signal's used/limit fields are never read"
-			LimitMiB: 0,
-		}
-		hitAt, offer = marker.OOMSeenAt, true
-	}
+	hit, hitAt, offer := selectOfferHit(marker, oomFound, oomAt, oomSignal, headroomTripped, headroomSignal)
 	if !offer {
+		ui.Verbosef(
+			"no memory-raise offer: oomFound=%v metricsTripped=%v headroomTripped=%v marker=%+v",
+			oomFound, metricsTripped, headroomTripped, marker,
+		)
 		return ""
 	}
 
@@ -165,6 +139,51 @@ func DetectAndOfferMemoryRaise(
 	}
 
 	return presentMemoryRaise(hit, hitAt, limits, k, opts, paths, ui)
+}
+
+// selectOfferHit applies the anti-nag rules to the signals and the recorded
+// marker, returning the hit to offer and whether one is due. It modifies
+// nothing.
+func selectOfferHit(
+	marker *state.ResourcePressureState,
+	oomFound bool,
+	oomAt time.Time,
+	oomSignal pressure.Signal,
+	headroomTripped bool,
+	headroomSignal pressure.Signal,
+) (pressure.Signal, time.Time, bool) {
+	switch {
+	case oomFound && oomNeedsOffer(marker, oomAt):
+		return oomSignal, oomAt, true
+	case !oomFound && unansweredOOM(marker):
+		// The recorded kill was never answered, but its log line has left the
+		// tail (or the VM was recreated). Offer it from the marker so a
+		// non-interactive run's promise is kept (specs/resources/resource-limit-proposal.md).
+		return markerSignal(pressure.EvidenceOOMLog, marker), marker.OOMSeenAt, true
+	case headroomTripped && headroomNeedsOffer(marker):
+		return headroomSignal, headroomSeenAt(marker, time.Now()), true
+	case !headroomTripped && unansweredHeadroom(marker):
+		// The recorded headroom condition was never answered, but the fresh
+		// metrics read has recovered. Offer it from the marker so a
+		// non-interactive run's promise is kept.
+		return markerSignal(pressure.EvidenceHeadroom, marker), marker.OOMSeenAt, true
+	}
+	return pressure.Signal{}, time.Time{}, false
+}
+
+// markerSignal reconstructs a memory hit from the recorded marker: a kill whose
+// log line has left the read tail, or a headroom condition that has recovered.
+// The marker records only Kind/Evidence/Victim, which is all the offer reads.
+func markerSignal(evidence pressure.Evidence, marker *state.ResourcePressureState) pressure.Signal {
+	return pressure.Signal{
+		Kind:     pressure.KindMemory,
+		Evidence: evidence,
+		Victim:   marker.Victim,
+		// gomutants:disable-next-line INTEGER_INCREMENT reason="the marker records only Kind/Evidence/Victim; the used/limit fields are never read from a marker-reconstructed signal"
+		UsedMiB: 0,
+		// gomutants:disable-next-line INTEGER_INCREMENT reason="the marker records only Kind/Evidence/Victim; the used/limit fields are never read from a marker-reconstructed signal"
+		LimitMiB: 0,
+	}
 }
 
 // withBootStart extends a tail read holding an OOM line with everything logged
