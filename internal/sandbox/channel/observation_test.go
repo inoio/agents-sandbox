@@ -343,6 +343,18 @@ func TestRecorderDenyRecordsUnobservedDestination(t *testing.T) {
 	if destinations[0].Channel != observedViaProxy {
 		t.Errorf("channel = %q, want %q", destinations[0].Channel, observedViaProxy)
 	}
+	// A denial is not a failed handshake, so the entry carries no failure count
+	// and the serialised artefact omits the omitempty key entirely.
+	if destinations[0].Failed != 0 {
+		t.Errorf("failed = %d, want 0: a denial is not a failed handshake", destinations[0].Failed)
+	}
+	encoded, err := json.Marshal(destinations[0])
+	if err != nil {
+		t.Fatalf("marshal the deny entry: %v", err)
+	}
+	if strings.Contains(string(encoded), `"failed"`) {
+		t.Errorf("deny entry = %s, want no failed count in the artefact", encoded)
+	}
 }
 
 // A protocol-less deny must not match a "connect" entry: the tunnel was

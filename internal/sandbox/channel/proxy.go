@@ -110,7 +110,6 @@ func Start(bindHost string, skipUpstreamVerify bool, openLog func() (*os.File, e
 	state.recorder = new(recorder)
 	state.caFile = caFile
 	state.log = &proxyLog{
-		// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT reason="the line count starts at zero; a nonzero start only shifts a count no test of a real session can observe before a warning"
 		mu: sync.Mutex{}, file: nil, openLog: openLog, lines: 0, closed: false,
 		onHandshakeFailure: state.failTunnel,
 	}

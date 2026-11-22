@@ -186,8 +186,7 @@ func (r *recorder) deny(host, ip, path, protocol string, port uint16) {
 			FirstSeen: time.Time{},
 			LastSeen:  time.Time{},
 			Channel:   observedViaProxy,
-			// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT reason="a denial is never a tunnel, so its Failed count is read nowhere; the zero literal is exhaustruct's"
-			Failed: 0,
+			Failed:    0,
 		})
 	}
 }

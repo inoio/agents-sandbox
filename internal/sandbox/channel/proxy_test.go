@@ -551,6 +551,27 @@ func TestProxyHandleExposesCAAndStopsIdempotently(t *testing.T) {
 	}
 }
 
+// A session that never warns reports no warnings and leaves no log, so the
+// after-run's summary does not claim a problem the clean session never had.
+func TestProxyCleanSessionReportsNoWarnings(t *testing.T) {
+	opened := false
+	handle, err := Start("127.0.0.1", false, func() (*os.File, error) {
+		opened = true
+		return nil, errChannelSeam
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	observation := handle.Stop()
+	if observation.ProxyWarnings != 0 || observation.ProxyLog != "" {
+		t.Errorf("clean session artefact = %+v, want no warnings and no log", observation)
+	}
+	if opened {
+		t.Error("a clean session opened a proxy log, want no file until the first warning")
+	}
+}
+
 // An empty bindHost must mean loopback: the proxy is never bound to every
 // interface, so a blank value cannot expose it on the network.
 func TestStartEmptyBindHostIsLoopback(t *testing.T) {
