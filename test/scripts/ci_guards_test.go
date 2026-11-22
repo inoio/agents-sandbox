@@ -389,10 +389,21 @@ func TestCIGuards(t *testing.T) {
 		f := newCIGuardsFixture(t)
 		f.replaceAll(
 			".github/workflows/ci.yml",
-			"needs: [tag-guard, lint, test, integration, integration-podman]",
-			"needs: [tag-guard, lint, test, integration-podman]",
+			"needs: [tag-guard, lint, test, integration, integration-podman, hermetic]",
+			"needs: [tag-guard, lint, test, integration-podman, hermetic]",
 		)
 		ciGuardsExpect(t, f.root, 1, "'release' needs: does not include 'integration'")
+	})
+
+	t.Run("release.needs dropping hermetic", func(t *testing.T) {
+		t.Parallel()
+		f := newCIGuardsFixture(t)
+		f.replaceAll(
+			".github/workflows/ci.yml",
+			"needs: [tag-guard, lint, test, integration, integration-podman, hermetic]",
+			"needs: [tag-guard, lint, test, integration, integration-podman]",
+		)
+		ciGuardsExpect(t, f.root, 1, "'release' needs: does not include 'hermetic'")
 	})
 
 	t.Run("cache writer losing the main-only guard", func(t *testing.T) {
@@ -805,6 +816,33 @@ jobs:
       - uses: actions/checkout@v7
       - run: make test-integration
 
+  hermetic:
+    name: hermetic
+    needs: [changes]
+    if: ${{ !cancelled() && github.event_name != 'merge_group' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: .go-version
+          cache: true
+      - name: Enable rootless user namespaces for the envelope's network namespace
+        if: ${{ startsWith(github.ref, 'refs/tags/') || needs.changes.outputs.exec != 'false' }}
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          else
+            echo "no unprivileged-userns restriction on this runner"
+          fi
+      - name: Warm the module cache for the offline envelope
+        if: ${{ startsWith(github.ref, 'refs/tags/') || needs.changes.outputs.exec != 'false' }}
+        run: go mod download
+      - name: Run the hermetic envelope
+        if: ${{ startsWith(github.ref, 'refs/tags/') || needs.changes.outputs.exec != 'false' }}
+        run: make test-hermetic
+
   tag-guard:
     name: tag-guard
     if: startsWith(github.ref, 'refs/tags/')
@@ -817,7 +855,7 @@ jobs:
   release:
     name: release
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [tag-guard, lint, test, integration, integration-podman]
+    needs: [tag-guard, lint, test, integration, integration-podman, hermetic]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

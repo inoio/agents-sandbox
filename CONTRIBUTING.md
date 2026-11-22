@@ -64,6 +64,8 @@ Run these from the module root:
 |----------------------|------------------------------------------------------------|
 | `make test`          | Run the test suite                                         |
 | `make test-race`     | Run the test suite under the race detector                 |
+| `make test-scrubbed` | Run the suite in a hermetic envelope (temp copy + scrubbed env + sentinel pass) |
+| `make test-hermetic` | `test-scrubbed` plus a loopback-only network namespace (strict; Linux) |
 | `make fuzz`          | Fuzz the parsers for `FUZZTIME` per target (default `30s`)  |
 | `make vulncheck`     | Scan for reachable vulnerabilities (`govulncheck`)         |
 | `make compile-all`   | Compile all code incl. `integration`-tagged test files      |
@@ -111,6 +113,13 @@ This project defaults to **test-driven development**:
 - `make verify` is the CI-parity check and additionally runs `make test-race` (race detector) and `make vulncheck`
   (`govulncheck` against the Go vulnerability database; needs network on first run). CI runs each as its own job, so run
   `make verify` when a change touches concurrency or dependencies.
+- `make test-scrubbed` and `make test-hermetic` run the default suite decoupled from the execution environment: a module
+  copy outside any git checkout, a scrubbed environment, and the host-figure sentinel pass. `test-scrubbed` is the floor
+  (it also runs on macOS); the strict `test-hermetic` (Linux) adds a loopback-only network namespace and so runs as uid 0
+  — a permission-denial fixture must induce the failure through a package seam, never `chmod`. The suite must stay green
+  under both. The `hermetic` CI job is advisory on a pull request and required on a release tag (`release.needs`), so a
+  red envelope refuses to publish; promotion to the default `make test` follows a measured runtime budget, not a date.
+  See `specs/testing/test-isolation.md`.
 - `make deadcode` fails when production code cannot be reached from any `main` package — code only tests call. It
   analyses the default, `integration`, `msb`, and `integration msb` configurations and unions the findings, so a function
   only a tagged build reaches still fails. When unreachable code is deliberate (a test seam, an internal extension

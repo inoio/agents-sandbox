@@ -181,15 +181,6 @@
 
 ### `plans/` - TDD implementation plans
 
-- `plans/2026-11-07-hermetic-test-suite-design.md`
-  - Description: Design for making the default `go test` suite hermetic: the host-figure sentinel pass, the wall-clock and ambient-identity rules, and the release-to-default cadence.
-  - Read If: Working on test decoupling from the execution environment, the host-figure sentinel pass, or the hermetic suite's cadence (the landed envelope contract is in `specs/testing/test-isolation.md`).
-- `plans/2026-11-07-hermetic-inventory.md`
-  - Description: First-run envelope record: the green scrubbed run and the six uid/permission tests the strict run fails as root.
-  - Read If: Picking up a hermetic surface fix, choosing the next hermetic task, or checking the envelope's measured runtime against `make test`.
-- `plans/2026-11-07-hermetic-uid-permission-surface.md`
-  - Description: Plan 2 of the hermetic design: remove the effective-uid dependence from the six tests the strict envelope runs as uid 0, and make `make test-hermetic` green.
-  - Read If: A red `make test-hermetic` run under uid 0, the six uid/permission-dependent tests, or adding a read/write failure seam to `configmerge`, `runtimemigration`, or `state`.
 - `plans/2026-11-15-learn-mode-spike.md`
   - Description: Validation spike for learn mode: the host-run experiments behind the observation channel, with S1's per-harness home read-back still open (opencode2 only). Harness: `spike/learn-mode/`.
   - Read If: Picking up the unrun per-harness read-back (S1), rerunning an experiment, or checking an unverified observation-channel assumption (proxy reachability under `none`, egress bypass, denial logging, DNS coverage, per-harness credential layout).
