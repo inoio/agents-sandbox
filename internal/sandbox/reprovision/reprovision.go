@@ -20,6 +20,10 @@ import (
 // microsandbox SDK's file writes create files owned by root.
 const defaultSandboxUser = "dev"
 
+// rootUser runs the chmod, chown, and rename commands that fix up the SDK's
+// root-owned writes.
+const rootUser = "root"
+
 // Provision writes the merged agent config (when snippets exist), each home
 // file, and the drop-in copy into the sandbox. For that it creates parent directories as
 // needed, removes the marked stale paths, then chowns every written path and
@@ -73,7 +77,9 @@ func Provision(ctx context.Context, sb msb.SandboxExecutor, cf *ConfigFiles) (re
 			return err
 		}
 	}
-	return nil
+	written, err := applyStateDefaultsInSandbox(ctx, sb, fs, cf.StateDefaults)
+	paths = append(paths, written...)
+	return err
 }
 
 // writeFileGroup writes each file's data, creating parent directories and
@@ -115,7 +121,7 @@ func chmodFile(ctx context.Context, sb msb.SandboxExecutor, path string, mode os
 		ctx,
 		"chmod",
 		[]string{fmt.Sprintf("%04o", mode.Perm()), path},
-		msb.ExecRequest{User: "root"},
+		msb.ExecRequest{User: rootUser},
 	)
 	if err != nil {
 		return err
@@ -150,7 +156,7 @@ func chownPaths(ctx context.Context, sb msb.SandboxExecutor, paths []string) err
 		}
 	}
 	cmd := "chown -R " + defaultSandboxUser + ":" + defaultSandboxUser + " " + strings.Join(unique, " ")
-	if out, err := sb.Shell(ctx, cmd, msb.ExecRequest{User: "root"}); err != nil {
+	if out, err := sb.Shell(ctx, cmd, msb.ExecRequest{User: rootUser}); err != nil {
 		return fmt.Errorf("chown provisioned files: %w", err)
 	} else if !out.Success() {
 		return fmt.Errorf("chown provisioned files: %s", strings.TrimSpace(out.Stderr()))

@@ -20,23 +20,16 @@ config key or the `AGENTS_SANDBOX_AGENT` environment variable. Twelve agents shi
   schema (e.g. structured `providers.*.models.*.capabilities`) differs from v1's — so the two can now diverge. Its VM
   config path and host drop-in stay `~/.config/opencode/` (v2 reads the same files as v1).
 - **`pi`** — the pi coding agent, run interactively; upgrade checks via `pi.dev`.
-- **`claude-code`** — Anthropic's Claude Code, run interactively; upgrade checks via the npm registry.
+- **`claude-code`** — Anthropic's Claude Code, run interactively; upgrade checks via the npm registry. `/workspace` is
+  [pre-trusted](#workspace-is-pre-trusted).
 - **`codex`** — OpenAI's Codex CLI, run interactively; upgrade checks via GitHub releases. The image sets three
   defaults in Codex's system config, `/etc/codex/config.toml`:
   - The startup update check is off (`check_for_update_on_startup = false`), because agents-sandbox offers upgrades
     itself.
   - Codex's own command sandbox is off (`sandbox_mode = "danger-full-access"`), because the VM already isolates it.
     Codex still asks for approval according to its `approval_policy`.
-  - `/workspace` is a trusted folder, so Codex does not ask whether to trust it. This covers `/workspace` and the
-    repository rooted there (also from a subdirectory or a worktree inside it). Because the folder is trusted, the
-    repository's own `.codex/` config, hooks, and MCP servers load without asking, as they would after answering
-    Codex's trust question. To keep them off, mark the folder untrusted in a `codex/config.toml` snippet; Codex then
-    opens it restricted:
-
-    ```toml
-    [projects."/workspace"]
-    trust_level = "untrusted"
-    ```
+  - `/workspace` is a trusted folder (`[projects."/workspace"] trust_level = "trusted"`); see
+    [`/workspace` is pre-trusted](#workspace-is-pre-trusted).
 
   These are defaults, Codex's lowest config layer, so every other layer overrides them: a
   [config snippet](#config-snippet-merge) or the opt-in host drop-in of `config.toml`, the repository's
@@ -120,6 +113,23 @@ paths, so a fresh install shows where launcher config goes. Creating one silence
 VMs, home volumes, and state are also scoped per agent: the sandbox name, home volume, and state file all carry the agent, so
 switching agents no longer tears down the project sandbox and multiple agents can serve the same project concurrently
 (see [Sandboxes]({% link sandboxes.md %}#identity-one-sandbox-per-checkout-and-agent)).
+
+### `/workspace` is pre-trusted
+
+Claude Code and Codex ask on first start whether you trust the folder they open. In the sandbox they do not ask
+about `/workspace`: you chose that directory on the host when you started the sandbox, and the VM is the isolation
+boundary. Because the folder is trusted, the repository's own agent config applies without asking, as it would after
+you answered the question yourself — Codex loads its `.codex/` config, hooks, and MCP servers; Claude Code applies the
+repository's `.claude/settings.json` permission rules, additional directories, and environment variables.
+
+| Agent | Where the trust is set | To keep the folder untrusted |
+| --- | --- | --- |
+| `codex` | The image's system config, `/etc/codex/config.toml` (Codex's lowest config layer, never written at run time) | Set `trust_level = "untrusted"` for `[projects."/workspace"]` in a `codex/config.toml` snippet; Codex then opens the folder restricted |
+| `claude-code` | `projects["/workspace"].hasTrustDialogAccepted` in `~/.claude.json` on the home volume, set only when the key is missing; every other key in that file is kept | Set that key to `false` in `~/.claude.json` inside the sandbox; agents-sandbox keeps an explicit value |
+
+The trust covers `/workspace` and the repository rooted there, also when the agent starts in a subdirectory. Claude
+Code looks for a trusted folder only up to the repository root, so a checkout nested inside `/workspace` (a sandbox
+started outside the worktree) still asks.
 
 ## Config snippet merge
 

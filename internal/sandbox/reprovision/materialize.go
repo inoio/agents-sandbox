@@ -50,7 +50,7 @@ func Materialize(cf *ConfigFiles, vmHome, targetDir string) error {
 			}
 		}
 	}
-	return nil
+	return materializeStateDefaults(cf.StateDefaults, vmHome, targetDir)
 }
 
 // writeMaterializedFile creates the destination's parent directories and writes
