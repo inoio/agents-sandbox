@@ -50,6 +50,7 @@
 #   KVM_IMAGE_CACHE=/var/lib/libvirt/images/agents-sandbox  KVM_REFRESH_IMAGE=1  KVM_BOOT_TIMEOUT=300
 #   REPO_URL=https://github.com/inoio/agents-sandbox.git  REPO_BRANCH=<current branch>
 #   GO_VERSION=<from .go-version>  GOLANGCI_LINT_VERSION=<from the Makefile>
+#   GH_VERSION=<from .agents-sandbox/Dockerfile>  # the gh CLI installed in the guest
 #   OPENCODE2_VERSION=<the opencode2 installer's --version; unset installs latest>
 #   KVM_AGENT_SESSION=agents-sandbox  # the guest tmux session the agent runs in
 #   KVM_AGENT_NAME=opencode2  # the profile `agent-up`/`agent-provision` materializes
@@ -107,6 +108,11 @@ fi
 
 if [ -z "${GOLANGCI_LINT_VERSION:-}" ]; then
   GOLANGCI_LINT_VERSION="$(sed -n 's/^GOLANGCI_LINT_VERSION[[:space:]]*=[[:space:]]*//p' "$repo_root/Makefile" 2>/dev/null | head -1 || true)"
+fi
+
+if [ -z "${GH_VERSION:-}" ]; then
+  GH_VERSION="$(sed -n 's/^ARG GH_VERSION=//p' "$repo_root/.agents-sandbox/Dockerfile" 2>/dev/null | head -1 | tr -d '[:space:]' || true)"
+  [ -n "$GH_VERSION" ] || GH_VERSION="2.104.0"
 fi
 
 case "$(uname -m)" in
@@ -187,7 +193,7 @@ resolve_ssh_key() {
 # write_seed_files writes the cloud-init user-data and metadata. It touches
 # nothing outside ARTIFACT_DIR, so `render` can use it without a host.
 write_seed_files() {
-  local pubkey opencode2_install golangci_install golangci_line
+  local pubkey opencode2_install golangci_install golangci_line gh_install
   pubkey="$(resolve_ssh_key)"
 
   # opencode2 is installed for the guest user (a root install would not be on the
@@ -205,6 +211,10 @@ write_seed_files() {
     golangci_install="curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b /usr/local/bin v$GOLANGCI_LINT_VERSION"
     golangci_line="  - $golangci_install"
   fi
+
+  # gh: the GitHub CLI, installed from the pinned release .deb the same way the
+  # dev image does, so the in-guest agent can work with issues, PRs, and pushes.
+  gh_install="curl -fsSL https://github.com/cli/cli/releases/download/v$GH_VERSION/gh_${GH_VERSION}_linux_$GO_ARCH.deb -o /tmp/gh.deb && dpkg -i /tmp/gh.deb && rm -f /tmp/gh.deb"
 
   cat > "$USERDATA_PATH" <<EOF
 #cloud-config
@@ -257,6 +267,7 @@ runcmd:
   # the checkout; cloud-init is one-shot, so a failed boot is rebuilt, not retried.
   - sudo -u $VM_USER -H bash -lc '$opencode2_install'
 $golangci_line
+  - $gh_install
 EOF
 
   cat > "$METADATA_PATH" <<EOF

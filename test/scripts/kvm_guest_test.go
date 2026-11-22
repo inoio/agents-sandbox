@@ -55,6 +55,7 @@ func TestKvmGuestRenderWritesCloudInitAndDomain(t *testing.T) {
 	dir := t.TempDir()
 	cacheDir := filepath.Join(dir, "image-cache")
 	env := kvmGuestEnv(dir)
+	env["GH_VERSION"] = "9.9.9"
 	env["KVM_IMAGE_CACHE"] = cacheDir
 	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "render")
 	assertStatus(t, result, 0)
@@ -75,6 +76,15 @@ func TestKvmGuestRenderWritesCloudInitAndDomain(t *testing.T) {
 	assertContains(t, "user-data", userData, "- tmux")
 	assertContains(t, "user-data", userData, "- shellcheck")
 	assertContains(t, "user-data", userData, "golangci-lint.run/install.sh")
+
+	// The guest carries the GitHub CLI so the agent can work with issues and PRs.
+	assertContains(
+		t,
+		"user-data",
+		userData,
+		"https://github.com/cli/cli/releases/download/v9.9.9/gh_9.9.9_linux_amd64.deb",
+	)
+	assertContains(t, "user-data", userData, "dpkg -i /tmp/gh.deb")
 
 	domainXML := readText(t, filepath.Join(dir, "asb-kvm-test.xml"))
 	assertContains(t, "domain xml", domainXML, "<name>asb-kvm-test</name>")
