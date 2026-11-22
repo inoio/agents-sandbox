@@ -17,7 +17,7 @@ The commands are grouped by area; jump to a group:
 - **Pruning:** [`prune`](#prune), [`prune --purge`](#prune---purge), [`image prune`](#image-prune), [`volume prune`](#volume-prune), [`sandbox prune`](#sandbox-prune), [`sandbox compact`](#sandbox-compact)
 - **Storage:** [`df`](#df), [`storage`](#storage)
 - **State:** [`state repair`](#state-repair)
-- **Configuration:** [`config`](#config), [`config paths`](#config-paths), [`config harden`](#config-harden)
+- **Configuration:** [`config`](#config), [`config paths`](#config-paths), [`config harden`](#config-harden), [`config provision`](#config-provision-name)
 - **Agents:** [`config agent`](#config-agent-name), [`config home`](#config-home)
 - **Volumes:** [`volume`](#volume)
 - **Sandboxes:** [`sandbox`](#sandbox)
@@ -488,6 +488,29 @@ config dirs (primary):
 One `user:` line is printed per user scope in precedence order — the generic user dir, then the per-slug user dir — and the project dir follows last. A dir that does not exist is marked `(missing)`, e.g. `user: "/home/me/.config/agents-sandbox/opencode2" (missing)`. The header label is `primary` when the agent's own namespace is used, or `legacy fallback "<namespace>"` when the agent is reading a shared legacy namespace (see [agent configuration]({% link configuration/agent.md %})). These are host launcher-config dirs; the guest agent config path is always `~/.config/opencode` regardless.
 
 Each host file is listed as `merged` (its VM path is the merged config path or part of the removed config-file family) or `not merged` (copied verbatim). Verbatim mirror files are listed as their host source path → VM path.
+
+#### config provision [name]
+
+Materialize the agent's provisioned config into a host directory instead of a VM. It writes exactly the files the
+launcher would provision into a sandbox — the merged snippet config, the verbatim config-dir mirror, the host drop-in
+copy, and the `home:` files — under the target directory, mapping each VM path to the same relative path. Used to seed
+a machine that runs the agent directly; the host-side KVM-guest tooling drives it with `make kvm-agent-provision`.
+
+```console
+agents-sandbox config provision --target /home/dev
+agents-sandbox config provision opencode --target ./staging
+```
+
+**Flags:**
+
+| Flag       | Short | Default     | Purpose                                      |
+|------------|-------|-------------|----------------------------------------------|
+| `--agent`  | —     | `opencode2` | Coding-agent profile to materialize.         |
+| `--target` | —     | —           | Host directory to write into (required).     |
+
+The agent is resolved like `config agent` — the `--agent` flag, then the positional `[name]`, then the configured agent,
+then `opencode2`. Whether host config is drop-in provisioned follows the same `provision-host-config` setting as a run,
+and the project config trust gate applies: an unapproved project config is ignored.
 
 #### config paths
 

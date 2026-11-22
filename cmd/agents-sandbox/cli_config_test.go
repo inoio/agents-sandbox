@@ -393,6 +393,47 @@ func TestConfigAgentUnknownAgent(t *testing.T) {
 	}
 }
 
+// TestConfigProvisionMaterializesAgentConfigIntoTarget pins the host-target
+// materializer at the command boundary: the agent's provisioned merged config
+// lands as a real file under --target, mapped from the VM home.
+func TestConfigProvisionMaterializesAgentConfigIntoTarget(t *testing.T) {
+	target := t.TempDir()
+	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdProvision, "--"+flagTarget, target)
+	snippetDir := configpathstest.CreateDir(
+		filepath.Join(configpaths.Get().UserConfigDir(), mustOpencode(t).ConfigDirName()),
+	)
+	testutil.WriteFile(t, snippetDir, "opencode-model.json5", `{"model":"x"}`)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config provision: %v", err)
+	}
+	dest := filepath.Join(target, ".config", "opencode", "opencode.jsonc")
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("read materialized merged config %s: %v", dest, err)
+	}
+	if !strings.Contains(string(got), `"model": "x"`) {
+		t.Errorf("materialized config = %q, want the merged snippet", got)
+	}
+	joined := strings.Join(ui.InfoCalls, "\n")
+	if !strings.Contains(joined, "opencode") || !strings.Contains(joined, target) {
+		t.Errorf("InfoCalls = %v, want the agent and target named", ui.InfoCalls)
+	}
+}
+
+// TestConfigProvisionRequiresTarget pins that the command refuses to run
+// without a destination directory.
+func TestConfigProvisionRequiresTarget(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, cmdConfig, cmdProvision)
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("config provision without --target = nil error, want an error")
+	}
+	if !strings.Contains(err.Error(), flagTarget) {
+		t.Errorf("config provision error = %v, want it to name --%s", err, flagTarget)
+	}
+}
+
 func TestConfigHomeManifestError(t *testing.T) {
 	cmd, _ := setupCommandFixtures(t, "config", "home")
 	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml", "home:\n  ../escape:\n")

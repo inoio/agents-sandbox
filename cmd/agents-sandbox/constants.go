@@ -44,6 +44,7 @@ const (
 	cmdRepair     = "repair"
 	cmdLearn      = "learn"
 	cmdHarden     = "harden"
+	cmdProvision  = "provision"
 
 	flagRemove = "rm"
 
@@ -91,6 +92,7 @@ const (
 	flagDisk         = "disk"
 	flagRootOnly     = "root-only"
 	flagLayers       = "layers"
+	flagTarget       = "target"
 
 	annotationAlsoAs = naming.Prefix + "/also-as"
 	annotationArgs   = naming.Prefix + "/args"
