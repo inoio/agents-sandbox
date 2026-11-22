@@ -42,7 +42,7 @@
 #   nested virtualization enabled (e.g. options kvm-amd nested=1 + reboot)
 #
 # Env overrides:
-#   VM_NAME=asb-kvm  VM_VCPUS=8  VM_MEMORY_MIB=16384  VM_DISK_GIB=80
+#   VM_NAME=asb-kvm  VM_VCPUS=12  VM_MEMORY_MIB=16384  VM_DISK_GIB=80
 #   VM_USER=dev  SSH_PUBKEY=<path-or-key>  ARTIFACT_DIR=$PWD/.kvm-guest
 #   SOURCE_DIR=<checkout to sync>  LIBVIRT_URI=qemu:///system
 #   UBUNTU_CODENAME=resolute  IMAGE_URL=<full cloud-image URL>
@@ -74,7 +74,7 @@
 set -euo pipefail
 
 VM_NAME="${VM_NAME:-asb-kvm}"
-VM_VCPUS="${VM_VCPUS:-8}"
+VM_VCPUS="${VM_VCPUS:-12}"
 VM_MEMORY_MIB="${VM_MEMORY_MIB:-16384}"
 VM_DISK_GIB="${VM_DISK_GIB:-80}"
 VM_USER="${VM_USER:-dev}"
