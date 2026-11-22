@@ -113,6 +113,16 @@ finding.
   diff's *current* allow set is the user's policy **before** the channel overlay is applied: the overlay injects the
   observation proxy's address and its upstream CA only so the session can be observed, so neither is ever fed back as
   a proposed egress entry nor written to the user's config.
+- **Entries are hostnames.** The channel names each tunnel by its TLS SNI (the runtime opens tunnels by IP); a tunnel
+  still recorded under an IP never carried a handshake (an abandoned happy-eyeballs attempt, a pre-warmed connection), so
+  it is not use and never becomes an allow entry. An address entry would also break when the address rotates.
+- **The lock carries interception.** Under the runtime's strict-hostname mode a hostname allow rule admits only an
+  intercepted connection, and `intercept-tls: auto` is off without a secret, so a `none` lock with hostname entries and
+  no interception would block every destination it allows. The finding therefore also writes `network.intercept-tls: on`
+  unless the current policy already has it on or sets `disable-strict`; a policy already narrowed to the used set but
+  missing interception still gets the finding.
+- **The review shows the entries.** The apply prompt lists every proposed destination, the request count, and the
+  channel that saw them, and the denied destinations apart, before the user accepts the lock.
 - The applied network policy is creation-only, so it takes effect at the next VM creation through the existing
   recreate path; the proposal states that.
 

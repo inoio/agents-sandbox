@@ -283,9 +283,14 @@ func TestProxyTerminatesForTheSNIHostnameOfAnIPConnect(t *testing.T) {
 		t.Fatalf("status = %d, want %d", response.StatusCode, http.StatusOK)
 	}
 
-	destination := destinationFor(t, handle.Stop().Destinations, "https")
+	observation := handle.Stop()
+	destination := destinationFor(t, observation.Destinations, "https")
 	if destination.Host != sniHostname {
 		t.Errorf("https destination host = %q, want the SNI hostname %q", destination.Host, sniHostname)
+	}
+	tunnel := destinationFor(t, observation.Destinations, "connect")
+	if tunnel.Host != sniHostname || tunnel.IP != upstreamURL.Hostname() {
+		t.Errorf("connect destination = %+v, want host %q with IP %q", tunnel, sniHostname, upstreamURL.Hostname())
 	}
 }
 
@@ -803,6 +808,33 @@ func TestTerminateProxyForwardsSkipUpstreamVerify(t *testing.T) {
 
 // A CONNECT target that is a literal IP records that IP, so an analyser can name
 // the destination a pinned or non-HTTP client reached.
+// TestProxyStateNamesOnlyIPTunnelsWithAnSNI: a tunnel opened by hostname is
+// already named, and a handshake without SNI (or naming its own IP) carries no
+// better name, so only an IP tunnel with a distinct SNI is renamed.
+func TestProxyStateNamesOnlyIPTunnelsWithAnSNI(t *testing.T) {
+	state := &proxyState{recorder: new(recorder)}
+	state.observeConnect("203.0.113.7:443")
+	state.observeConnect("api.example:443")
+
+	state.nameTunnel("api.example:443", "other.example")
+	state.nameTunnel("203.0.113.7:443", "")
+	state.nameTunnel("203.0.113.7:443", "203.0.113.7")
+
+	hosts := map[string]bool{}
+	for _, destination := range state.recorder.result(Observation{}).Destinations {
+		hosts[destination.Host] = true
+	}
+	if len(hosts) != 2 || !hosts["203.0.113.7"] || !hosts["api.example"] {
+		t.Fatalf("hosts = %v, want both tunnels unchanged", hosts)
+	}
+
+	state.nameTunnel("203.0.113.7:443", "named.example")
+	destinations := state.recorder.result(Observation{}).Destinations
+	if destinationByHost(t, destinations, "named.example").IP != "203.0.113.7" {
+		t.Errorf("destinations = %+v, want the IP tunnel named named.example", destinations)
+	}
+}
+
 func TestProxyConnectIPHostRecordsIP(t *testing.T) {
 	state := &proxyState{recorder: new(recorder)}
 

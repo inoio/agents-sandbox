@@ -871,6 +871,59 @@ func TestApplyPromptSurfacesWriteText(t *testing.T) {
 	}
 }
 
+// TestApplyPromptListsTheProposedDestinations: a proposed egress-allow entry
+// names the destination, the use behind it, and the channel that saw it, so the
+// user can judge the lock before applying it. Denied destinations are listed
+// apart, because they are never allowed.
+func TestApplyPromptListsTheProposedDestinations(t *testing.T) {
+	finding := Finding{
+		Evidence: Evidence{
+			Summary:      "lock egress to the destinations this session used",
+			Destinations: []string{"api.anthropic.com", "raw.githubusercontent.com"},
+			Denied:       []string{"evil.example"},
+			Count:        12,
+			Succeeded:    true,
+			Channel:      "proxy",
+		},
+	}
+
+	prompt := applyPrompt(finding)
+
+	for _, want := range []string{
+		"  + api.anthropic.com",
+		"  + raw.githubusercontent.com",
+		"12 requests observed by the proxy",
+		"  - evil.example",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt = %q; want it to contain %q", prompt, want)
+		}
+	}
+	if strings.Index(prompt, "+ api.anthropic.com") > strings.Index(prompt, "Apply this change?") {
+		t.Errorf("prompt = %q; want the destinations before the question", prompt)
+	}
+}
+
+func TestApplyPromptOmitsAZeroRequestCount(t *testing.T) {
+	finding := Finding{Evidence: Evidence{Destinations: []string{"tunnel-only.example"}, Channel: "proxy"}}
+
+	prompt := applyPrompt(finding)
+
+	if strings.Contains(prompt, "0 requests") || !strings.Contains(prompt, "Allowed (observed by the proxy):") {
+		t.Errorf("prompt = %q; want the channel without a zero request count", prompt)
+	}
+}
+
+func TestApplyPromptOmitsTheDestinationBlockWithoutDestinations(t *testing.T) {
+	finding := Finding{Evidence: Evidence{Summary: "move the key to env.secret.yaml"}}
+
+	prompt := applyPrompt(finding)
+
+	if strings.Contains(prompt, "requests observed") || strings.Contains(prompt, "  + ") {
+		t.Errorf("prompt = %q; want no destination block for a finding without destinations", prompt)
+	}
+}
+
 // TestApplyFailsWhenTheDeclineMemoryCannotBeRead pins that an unreadable decline
 // memory is a failure, not a silent re-proposal: the applier must not ask about a
 // finding whose decline state it could not determine.

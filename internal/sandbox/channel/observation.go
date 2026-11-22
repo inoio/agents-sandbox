@@ -54,6 +54,9 @@ type Observation struct {
 // Destinations are held as stable pointers, so the entry observe returns stays
 // valid for the recorder's lifetime and a caller can keep it from the request
 // hook until the response hook.
+// connectProtocol is the protocol of an accepted CONNECT tunnel's entry.
+const connectProtocol = "connect"
+
 type recorder struct {
 	destinations []*Destination
 	attribution  []Attribution
@@ -80,6 +83,27 @@ func (r *recorder) observe(host, ip, path, protocol string, port uint16, headerN
 	destination.LastSeen = now
 	r.attribute(host, path, headerNames)
 	return destination
+}
+
+// nameTunnel moves one tunnel opened to ip:port onto hostname, the name the
+// client sent as TLS SNI. The msb runtime opens its tunnels by IP and names the
+// host only in the handshake, so without this every tunnel would be recorded
+// under an address. The IP stays on the named entry; the IP-only entry loses
+// the one tunnel and disappears once it has none left. A tunnel this recorder
+// never saw is ignored.
+func (r *recorder) nameTunnel(ip string, port uint16, hostname string) {
+	for index, tunnel := range r.destinations {
+		if tunnel.Host != ip || tunnel.IP != ip || tunnel.Protocol != connectProtocol || tunnel.Port != port {
+			continue
+		}
+		named := r.observe(hostname, ip, "", connectProtocol, port, nil)
+		named.Success = true
+		tunnel.Count--
+		if tunnel.Count <= 0 {
+			r.destinations = slices.Delete(r.destinations, index, index+1)
+		}
+		return
+	}
 }
 
 // deny records that a request to a destination was refused by this proxy's own

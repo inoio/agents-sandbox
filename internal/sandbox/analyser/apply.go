@@ -473,6 +473,7 @@ func applyPrompt(finding Finding) string {
 	if finding.Evidence.Summary != "" {
 		lines = append(lines, finding.Evidence.Summary)
 	}
+	lines = append(lines, destinationLines(finding.Evidence)...)
 	for _, write := range finding.Writes {
 		if write.Text != "" {
 			lines = append(lines, write.Text)
@@ -480,6 +481,34 @@ func applyPrompt(finding Finding) string {
 	}
 	lines = append(lines, "Apply this change?")
 	return strings.Join(lines, "\n")
+}
+
+// destinationLines renders the destinations a finding rests on, so a proposed
+// egress lock shows what it would allow before the user accepts it: each used
+// destination, the request count and the channel that saw them, and the denied
+// destinations apart, because they are never allowed.
+func destinationLines(evidence Evidence) []string {
+	if len(evidence.Destinations) == 0 && len(evidence.Denied) == 0 {
+		return nil
+	}
+	var lines []string
+	if len(evidence.Destinations) > 0 {
+		observed := "observed by the " + evidence.Channel
+		if evidence.Count > 0 {
+			observed = fmt.Sprintf("%d requests %s", evidence.Count, observed)
+		}
+		lines = append(lines, "Allowed ("+observed+"):")
+		for _, destination := range evidence.Destinations {
+			lines = append(lines, "  + "+destination)
+		}
+	}
+	if len(evidence.Denied) > 0 {
+		lines = append(lines, "Denied, not allowed:")
+		for _, destination := range evidence.Denied {
+			lines = append(lines, "  - "+destination)
+		}
+	}
+	return lines
 }
 
 // executeWrite performs one planned write and returns the directory it wrote to.

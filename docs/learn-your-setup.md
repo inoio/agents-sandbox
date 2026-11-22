@@ -73,7 +73,11 @@ When you exit, agents-sandbox reports what it learned and offers three choices:
 Learn mode writes to your **per-slug user config** (`~/.config/agents-sandbox/<repo-slug>/`), keyed by the repository
 so every clone of it shares the same settings. It proposes:
 
-- a `network.egress-allow` set — the destinations the session used, added to the ones you already allow;
+- a `network.egress-allow` set — the hostnames the session used, added to the ones you already allow, with
+  `network.profile: none` so nothing else is reachable. The review lists every hostname before you apply it. Because
+  a hostname rule under `none` admits only an intercepted connection, the lock also sets `network.intercept-tls: on`
+  unless interception is already on or `disable-strict` is set. Hosts the session did not use, such as a sign-in
+  refresh endpoint, are not on the list; add them yourself if the agent needs them later;
 - a static secret for each credential it can attribute to a destination;
 - a managed copy of each agent config file the session created or changed that the launcher merges, written to the same
   per-slug user config with each static secret value replaced by a placeholder. The value itself goes to

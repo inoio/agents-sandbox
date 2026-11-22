@@ -61,6 +61,69 @@ func TestRecorderObservedPointerStaysValid(t *testing.T) {
 	t.Fatal("the held destination is missing from the artefact")
 }
 
+// TestRecorderNamesAnIPTunnelByItsSNIHostname: the msb runtime opens a tunnel
+// by IP and names the host only in the TLS SNI. Once the name is known the
+// tunnel is recorded under it, keeping the IP, so the analyser proposes a
+// hostname rather than an address a CDN may rotate.
+func TestRecorderNamesAnIPTunnelByItsSNIHostname(t *testing.T) {
+	r := new(recorder)
+	r.observe("160.79.104.10", "160.79.104.10", "", "connect", 443, nil).Success = true
+	r.observe("160.79.104.10", "160.79.104.10", "", "connect", 443, nil).Success = true
+
+	r.nameTunnel("160.79.104.10", 443, "api.anthropic.com")
+
+	destinations := r.result(Observation{}).Destinations
+	if len(destinations) != 2 {
+		t.Fatalf("destinations = %+v, want the named tunnel and the one still unnamed", destinations)
+	}
+	named := destinationByHost(t, destinations, "api.anthropic.com")
+	if named.IP != "160.79.104.10" || named.Protocol != "connect" || named.Port != 443 {
+		t.Errorf("named tunnel = %+v, want connect to 160.79.104.10:443", named)
+	}
+	if !named.Success || named.Count != 1 {
+		t.Errorf("named tunnel = %+v, want one successful tunnel", named)
+	}
+	unnamed := destinationByHost(t, destinations, "160.79.104.10")
+	if unnamed.Count != 1 {
+		t.Errorf("unnamed tunnel count = %d, want 1 left", unnamed.Count)
+	}
+}
+
+func TestRecorderNamingTheLastIPTunnelRemovesTheIPEntry(t *testing.T) {
+	r := new(recorder)
+	r.observe("160.79.104.10", "160.79.104.10", "", "connect", 443, nil).Success = true
+
+	r.nameTunnel("160.79.104.10", 443, "api.anthropic.com")
+
+	destinations := r.result(Observation{}).Destinations
+	if len(destinations) != 1 || destinations[0].Host != "api.anthropic.com" {
+		t.Fatalf("destinations = %+v, want only the named tunnel", destinations)
+	}
+}
+
+func TestRecorderNameTunnelIgnoresAnUnknownTunnel(t *testing.T) {
+	r := new(recorder)
+	r.observe("api.example", "", "", "connect", 443, nil).Success = true
+
+	r.nameTunnel("203.0.113.7", 443, "other.example")
+
+	destinations := r.result(Observation{}).Destinations
+	if len(destinations) != 1 || destinations[0].Host != "api.example" {
+		t.Fatalf("destinations = %+v, want the hostname tunnel untouched and nothing invented", destinations)
+	}
+}
+
+func destinationByHost(t *testing.T, destinations []Destination, host string) Destination {
+	t.Helper()
+	for _, destination := range destinations {
+		if destination.Host == host {
+			return destination
+		}
+	}
+	t.Fatalf("no destination for host %q in %+v", host, destinations)
+	return Destination{}
+}
+
 func TestRecorderKeepsDestinationsDistinct(t *testing.T) {
 	var r recorder
 	r.observe("api.example", "203.0.113.7", "/v1/chat", "https", 443, nil)

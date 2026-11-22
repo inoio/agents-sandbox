@@ -1,6 +1,7 @@
 package analyser
 
 import (
+	"net"
 	"slices"
 	"strings"
 
@@ -69,7 +70,8 @@ func (s SessionFacts) networkFinding() (Finding, bool) {
 
 	current := s.Current.Effective()
 	allow := sortedUnique(append(slices.Clone(current.EgressAllow), used...))
-	if policyIsNarrowNone(current, allow) {
+	needsInterception := hostnameRulesNeedInterception(current)
+	if policyIsNarrowNone(current, allow) && !needsInterception {
 		return Finding{}, false
 	}
 
@@ -98,8 +100,26 @@ func (s SessionFacts) networkFinding() (Finding, bool) {
 			Text:        "The network policy is creation-only: it takes effect at the next VM creation.",
 		},
 	}
+	if needsInterception {
+		//exhaustruct:ignore // a config write names no secret and never removes
+		writes = append(writes, Write{
+			Scope:       ScopePerSlugUser,
+			ConfigKey:   "network.intercept-tls",
+			ConfigValue: string(network.InterceptOn),
+			Text: "Under the none profile a hostname rule admits only an intercepted connection, " +
+				"so this turns TLS interception on.",
+		})
+	}
 	//exhaustruct:ignore // EvidenceHash is stamped by ObservationFindings
 	return Finding{Evidence: evidence, Writes: writes, Kind: KindObservation}, true
+}
+
+// hostnameRulesNeedInterception reports whether the lock must turn TLS
+// interception on for its hostname rules to admit anything: under the runtime's
+// strict-hostname mode an allow rule authorizes only an intercepted connection,
+// and interception left at auto is off when no secret is configured.
+func hostnameRulesNeedInterception(policy network.Policy) bool {
+	return policy.InterceptTLS != network.InterceptOn && !policy.DisableStrict
 }
 
 // policyIsNarrowNone reports whether policy is already the terminal `none`
@@ -116,8 +136,9 @@ func policyIsNarrowNone(policy network.Policy, allow []string) bool {
 // only when its host has no denied destination: the channel records the tunnel's
 // acceptance separately from a request denied through it, so a host whose only
 // request was denied still carries a successful connect entry, and that tunnel
-// is not evidence the host is safe to allow. A denied destination is never a used
-// one.
+// is not evidence the host is safe to allow. A tunnel still recorded under an
+// address is not use either (see isAddressOnlyTunnel). A denied destination is
+// never a used one.
 func observedUsedHosts(destinations []channel.Destination) []string {
 	denied := deniedHosts(destinations)
 	var hosts []string
@@ -128,9 +149,20 @@ func observedUsedHosts(destinations []channel.Destination) []string {
 		if destination.Protocol == connectProtocol && slices.Contains(denied, destination.Host) {
 			continue
 		}
+		if isAddressOnlyTunnel(destination) {
+			continue
+		}
 		hosts = append(hosts, destination.Host)
 	}
 	return sortedUnique(hosts)
+}
+
+// isAddressOnlyTunnel reports whether destination is a CONNECT tunnel still
+// recorded under its IP. The channel names every tunnel that carried a TLS
+// handshake by its SNI hostname, so one left under an address never carried a
+// request, and an allow entry for an address breaks once it rotates.
+func isAddressOnlyTunnel(destination channel.Destination) bool {
+	return destination.Protocol == connectProtocol && net.ParseIP(destination.Host) != nil
 }
 
 // deniedHosts returns the sorted, de-duplicated hosts of the destinations the
@@ -151,7 +183,7 @@ func deniedHosts(destinations []channel.Destination) []string {
 func usedRequestCount(destinations []channel.Destination) int {
 	total := 0
 	for _, destination := range destinations {
-		if destination.Denied || !destination.Success {
+		if destination.Denied || !destination.Success || destination.Protocol == connectProtocol {
 			continue
 		}
 		total += destination.Count

@@ -69,14 +69,104 @@ func TestObservationNetworkDiffNeverWidens(t *testing.T) {
 		"the proposal states the per-slug scope is shared by every clone of the remote")
 }
 
+// TestObservationNetworkLockTurnsInterceptionOn: under the runtime's strict
+// hostname mode a hostname allow rule admits only an intercepted connection, so
+// a `none` lock with hostname entries and interception left at auto (off
+// without a secret) would block every destination it allows. The lock proposes
+// interception on with it.
+func TestObservationNetworkLockTurnsInterceptionOn(t *testing.T) {
+	s := SessionFacts{
+		Observation: channel.Observation{Destinations: []channel.Destination{
+			{Host: "api.example", Success: true, Count: 2},
+		}},
+	}
+
+	findings := ObservationFindings(s)
+
+	require.Len(t, findings, 1)
+	intercept := configWrite(t, findings[0], "network.intercept-tls")
+	require.Equal(t, ScopePerSlugUser, intercept.Scope)
+	require.Equal(t, string(network.InterceptOn), intercept.ConfigValue)
+	require.Contains(t, intercept.Text, "interception")
+}
+
+// TestObservationNetworkLockLeavesOutAddressOnlyTunnels: the channel names
+// every tunnel that carried a TLS handshake by its SNI hostname, so a tunnel
+// still recorded under an IP never carried a request (an abandoned
+// happy-eyeballs attempt, a pre-warmed connection). An address is no evidence of
+// use, and an allow entry for it would break when the address rotates.
+func TestObservationNetworkLockLeavesOutAddressOnlyTunnels(t *testing.T) {
+	s := SessionFacts{
+		Observation: channel.Observation{Destinations: []channel.Destination{
+			{Host: "160.79.104.10", IP: "160.79.104.10", Protocol: "connect", Success: true, Count: 1},
+			{Host: "2607:6bc0::10", IP: "2607:6bc0::10", Protocol: "connect", Success: true, Count: 1},
+			{Host: "api.example", IP: "160.79.104.10", Protocol: "connect", Success: true, Count: 2},
+			{Host: "api.example", Protocol: "https", Success: true, Count: 2},
+		}},
+	}
+
+	findings := ObservationFindings(s)
+
+	require.Len(t, findings, 1)
+	require.Equal(t, []string{"api.example"}, findings[0].Evidence.Destinations)
+	require.Equal(t, []string{"api.example"}, egressAllowWrite(t, findings[0]).ConfigValue)
+}
+
+// TestObservationNetworkLockKeepsInterceptionWhenItAlreadyWorks: interception
+// already on, or strict mode off, lets hostname rules work, so the lock writes
+// no interception setting.
+func TestObservationNetworkLockKeepsInterceptionWhenItAlreadyWorks(t *testing.T) {
+	for name, current := range map[string]network.Policy{
+		"interception on": {InterceptTLS: network.InterceptOn},
+		"strict mode off": {DisableStrict: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := SessionFacts{
+				Current: current,
+				Observation: channel.Observation{Destinations: []channel.Destination{
+					{Host: "api.example", Success: true, Count: 2},
+				}},
+			}
+
+			findings := ObservationFindings(s)
+
+			require.Len(t, findings, 1)
+			for _, write := range findings[0].Writes {
+				require.NotEqual(t, "network.intercept-tls", write.ConfigKey)
+			}
+		})
+	}
+}
+
+// TestObservationNetworkLockOnANarrowPolicyStillFixesInterception: a policy
+// already narrowed to exactly the used destinations, but without interception,
+// blocks them, so the finding is not silent: it proposes interception on.
+func TestObservationNetworkLockOnANarrowPolicyStillFixesInterception(t *testing.T) {
+	s := SessionFacts{
+		Current: network.Policy{
+			Profiles:    []network.Profile{network.ProfileNone},
+			EgressAllow: []string{"api.example"},
+		},
+		Observation: channel.Observation{Destinations: []channel.Destination{
+			{Host: "api.example", Success: true, Count: 3},
+		}},
+	}
+
+	findings := ObservationFindings(s)
+
+	require.Len(t, findings, 1)
+	configWrite(t, findings[0], "network.intercept-tls")
+}
+
 // TestObservationNetworkDiffIsSilentWhenAlreadyNarrow: a session whose used
 // destinations the current `none` policy already allows yields no finding —
 // there is nothing to change.
 func TestObservationNetworkDiffIsSilentWhenAlreadyNarrow(t *testing.T) {
 	s := SessionFacts{
 		Current: network.Policy{
-			Profiles:    []network.Profile{network.ProfileNone},
-			EgressAllow: []string{"api.example"},
+			Profiles:     []network.Profile{network.ProfileNone},
+			EgressAllow:  []string{"api.example"},
+			InterceptTLS: network.InterceptOn,
 		},
 		Observation: channel.Observation{Destinations: []channel.Destination{
 			{Host: "api.example", Success: true, Count: 3},
@@ -94,8 +184,9 @@ func TestObservationNetworkDiffIsSilentWhenAlreadyNarrow(t *testing.T) {
 func TestObservationNetworkFindingIsSilentWhenAlreadyNarrowEvenWithDenials(t *testing.T) {
 	s := SessionFacts{
 		Current: network.Policy{
-			Profiles:    []network.Profile{network.ProfileNone},
-			EgressAllow: []string{"api.example"},
+			Profiles:     []network.Profile{network.ProfileNone},
+			EgressAllow:  []string{"api.example"},
+			InterceptTLS: network.InterceptOn,
 		},
 		Observation: channel.Observation{Destinations: []channel.Destination{
 			{Host: "api.example", Success: true, Count: 3},
@@ -586,6 +677,17 @@ func TestUsedRequestCountSumsOnlyUsedDestinations(t *testing.T) {
 		{Host: "used2.example", Success: true, Count: 3},
 	})
 	require.Equal(t, 5, total)
+}
+
+// TestUsedRequestCountLeavesOutTunnels pins that an accepted CONNECT tunnel is
+// not a request: the requests inside it are counted on their own entries, so
+// counting the tunnel too would double the evidence.
+func TestUsedRequestCountLeavesOutTunnels(t *testing.T) {
+	total := usedRequestCount([]channel.Destination{
+		{Host: "api.example", Protocol: "connect", Success: true, Count: 4},
+		{Host: "api.example", Protocol: "https", Success: true, Count: 6},
+	})
+	require.Equal(t, 6, total)
 }
 
 // TestSecretFindingsSkipUnscopableCredentialsWithoutStopping pins that a
