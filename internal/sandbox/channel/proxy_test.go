@@ -811,6 +811,6 @@ func TestStopClosesProxyListener(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatalf("the proxy still accepts connections at %s after Stop", handle.Addr)
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond) //testenv:allow a negative assertion: the proxy must accept nothing after Stop
 	}
 }

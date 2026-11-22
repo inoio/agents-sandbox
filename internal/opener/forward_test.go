@@ -313,7 +313,9 @@ func TestForwarderKeepsReusedListenerWhenEarlierCallbackReturns(t *testing.T) {
 	<-firstReturned
 	// Give the earlier callback's return time to close the reused listener
 	// were it (wrongly) allowed to.
-	time.Sleep(150 * time.Millisecond)
+	time.Sleep(
+		150 * time.Millisecond,
+	) //testenv:allow a negative assertion: the returned callback's listener must stay open within the window
 
 	response, err := noRedirectClient.Get(fmt.Sprintf("http://127.0.0.1:%d/second?code=b", port))
 	if err != nil {
@@ -531,7 +533,7 @@ func waitForPortRelease(t *testing.T, port int) {
 			listener.Close()
 			return
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond) //testenv:allow polls until the OS releases the port
 	}
 	t.Fatalf("port %d still in use", port)
 }
