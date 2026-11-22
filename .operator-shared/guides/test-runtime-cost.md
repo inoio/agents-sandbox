@@ -85,7 +85,7 @@ as relative.
 | `cmd/agents-sandbox` | ~0.8 s | 300+ small tests; per-`Execute()` preflight, now dominated by `viperconfig.NewResolver` and `t.TempDir` cleanup |
 | `internal/testutil` | ~0.9 s | four module-wide contract scans (below) |
 | `internal/opener` | ~0.5 s | `TestForwarderKeepsReusedListenerWhenEarlierCallbackReturns` waits 150 ms for a wrong close to manifest |
-| `test/msb/driver` | ~0.5 s | deliberate pty timeout waits (`driver.WaitForTUI`/`driver.WaitForMarker`/`driver.WaitSettled`) |
+| `test/msb/driver` | ~0.5 s | deliberate pty timeout waits (`Session.WaitForTUI`/`Session.WaitForMarker`/`Session.WaitSettled`) |
 | `internal/sandbox/prepare` | ~0.4 s | many small tests, none over 0.1 s |
 | `internal/sandbox/image` | ~0.4 s | `TestHostOpenerShimTimesOutWithoutLauncher` (real shim subprocess, 0.1 s timeout) |
 | `internal/sandbox/state` | ~0.2 s | `TestCountActiveClients_AcquireVsCountRace` filesystem loop |

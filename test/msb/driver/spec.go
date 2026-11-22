@@ -44,7 +44,7 @@ type Spec struct {
 	// alternate-screen marker cannot announce that its UI is up.
 	KeepsNormalBuffer bool
 	// ReadyMarker, when set, is an output substring that announces a
-	// normal-buffer harness's UI is up — the readiness signal waitSettled
+	// normal-buffer harness's UI is up — the readiness signal WaitSettled
 	// replaces for a harness whose CLI prints a stable startup line (hermes'
 	// banner). It takes precedence over KeepsNormalBuffer's settle.
 	ReadyMarker string

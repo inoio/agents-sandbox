@@ -31,10 +31,10 @@ var testOnlyDependencies = []string{
 
 // TestProductionClosureLinksNoTesting enforces the "nothing test-only ships"
 // convention on the CLI's production closure: whatever a consumer builds from
-// ./cmd/agents-sandbox must not link testing or a test-support package. The
-// untagged test-support package under test/ (the shared launch driver) relies
-// on this gate: a production package that imported it would link testing into
-// every binary.
+// ./cmd/agents-sandbox must not link testing or a test-support package. A
+// production package that imported the untagged test-support package under
+// test/ (the shared launch driver) would link testing into every binary; the
+// driver's own closure is checked by TestDriverClosureLinksNoTesting.
 func TestProductionClosureLinksNoTesting(t *testing.T) {
 	root := moduleRoot(t)
 
