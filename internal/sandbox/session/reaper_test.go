@@ -28,35 +28,38 @@ func TestReapOnLastClient_ClientReattachesDuringWait(t *testing.T) {
 
 	slug := "reattachproj"
 	ui := &termiotest.Mock{}
-	sb := &msbtest.MockSandbox{
-		Name_: "test-vm",
-		ShellOut: map[string]msb.ShellResult{
-			"curl -sf http://127.0.0.1:4096/session/status": msbtest.NewTestResult(
-				true, 0, `{"s1":{"type":"busy","attempt":0}}`, "", nil,
-			),
+	leaseKey := state.Key{Slug: slug, Agent: "opencode"}
+
+	// The second session-status poll reattaches a client, so the next poll's
+	// client check aborts the reaper. Driving the reattach from the poll replaces
+	// the sleep that only guessed which poll would see it.
+	var statusPolls int
+	var releaseLease func()
+	t.Cleanup(func() {
+		if releaseLease != nil {
+			releaseLease()
+		}
+	})
+	sb := &msbtest.MockSandboxExecutor{
+		ExecFn: func(context.Context, string, []string, msb.ExecRequest) (msb.ShellResult, error) {
+			return msbtest.NewTestResult(true, 0, "", "", nil), nil
+		},
+		ShellFn: func(_ context.Context, command string, _ msb.ExecRequest) (msb.ShellResult, error) {
+			if command != "curl -sf http://127.0.0.1:4096/session/status" {
+				return msbtest.NewTestResult(false, 1, "", "", nil), nil
+			}
+			statusPolls++
+			if statusPolls == 2 {
+				releaseLease, _ = state.AcquireClientLease(leaseKey)
+			}
+			return msbtest.NewTestResult(true, 0, `{"s1":{"type":"busy","attempt":0}}`, "", nil), nil
 		},
 	}
-	sb.ExecOut = map[string]msb.ShellResult{
-		"sleep 1h": msbtest.NewTestResult(true, 0, "", "", nil),
-	}
-
-	// A client reattaches 20ms into the wait, so a later poll sees an active
-	// client and aborts the reaper.
-	hold := make(chan struct{})
-	defer close(hold)
-	go func() {
-		time.Sleep(20 * time.Millisecond)
-		release, _ := state.AcquireClientLease(state.Key{Slug: slug, Agent: "opencode"})
-		<-hold
-		if release != nil {
-			release()
-		}
-	}()
 
 	err := reapOnLastClient(
 		context.Background(),
 		opencodeResolved(t),
-		state.Key{Slug: slug, Agent: "opencode"},
+		leaseKey,
 		sb,
 		options.ReapPolicy{},
 		ui,

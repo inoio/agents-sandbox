@@ -2432,10 +2432,21 @@ func TestRunAttachReportsWatcherReadErrorsAfterTheAttach(t *testing.T) {
 		return count
 	}
 	linesDuringAttach := -1
+	sampled := make(chan struct{}, 1)
 	sb := &msbtest.MockSandbox{
-		MetricsErr: errors.New("metrics unsupported"),
+		MetricsFn: func(context.Context) (*msb.Metrics, error) {
+			select {
+			case sampled <- struct{}{}:
+			default:
+			}
+			return nil, errors.New("metrics unsupported")
+		},
 		AttachFn: func(context.Context) (int, error) {
-			time.Sleep(20 * pressureWatchInterval)
+			select {
+			case <-sampled:
+			case <-time.After(2 * time.Second):
+				t.Fatal("the pressure watcher did not sample during the attach")
+			}
 			linesDuringAttach = watcherLines()
 			return 0, nil
 		},
