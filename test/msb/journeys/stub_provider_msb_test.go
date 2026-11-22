@@ -43,8 +43,9 @@ func TestStubProviderTurnReachesTheProxy(t *testing.T) {
 	if !ok {
 		t.Fatalf("no smoke spec for agent %s", agentName)
 	}
-	// The stub's ProviderConfig is seeded as a managed launcher snippet, so an
-	// explicit --learn is used: the first-run menu is out of scope for the spike.
+	// The stub's ProviderConfig is provisioned through the launcher's `home:`
+	// manifest (StepSeedStub), so an explicit --learn is used: the first-run menu
+	// is out of scope for the spike.
 	ctx := &Context{
 		TB:     t,
 		Root:   root,

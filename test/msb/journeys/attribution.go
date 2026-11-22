@@ -69,6 +69,6 @@ var attributionJourney = Journey{
 		StepQuit(),
 		StepChooseExit(exitSaveAllKey),
 		StepAssertScopeWritten(attributionScope),
-		StepAssertNetworkNotWidened(runNetworkPolicy),
+		StepAssertNetworkNotWidened(runNetworkPolicy, stubHost),
 	},
 }

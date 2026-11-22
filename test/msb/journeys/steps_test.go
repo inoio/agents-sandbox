@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/firstrun"
@@ -18,55 +19,96 @@ import (
 // whatever the baseline, because none is exclusive and can only shrink egress.
 func TestWidenedBeyondAcceptsNarrowingToNone(t *testing.T) {
 	after := network.Policy{Profiles: []network.Profile{network.ProfilePublic}}
-	if widenedBeyond([]network.Profile{network.ProfileNone}, after) {
+	if widenedBeyond(networkPosture{profiles: []network.Profile{network.ProfileNone}}, after, nil) {
 		t.Error("widenedBeyond(none, public) = true, want false: narrowing to none must pass")
 	}
 }
 
 // TestWidenedBeyondFlagsAProfileTheBaselineDidNotAllow pins the guard's purpose:
-// a learned scope naming a profile the run did not already have is flagged.
+// a learned scope naming a profile or egress-allow host the run did not already
+// have is flagged, while the baseline's own allow entries and the journey's
+// allowed destinations pass.
 func TestWidenedBeyondFlagsAProfileTheBaselineDidNotAllow(t *testing.T) {
 	cases := []struct {
-		name     string
-		profiles []network.Profile
-		after    network.Policy
-		want     bool
+		name          string
+		learned       networkPosture
+		after         network.Policy
+		allowedEgress []string
+		want          bool
 	}{
 		{
-			name:     "public over a none baseline",
-			profiles: []network.Profile{network.ProfilePublic},
-			after:    network.Policy{Profiles: []network.Profile{network.ProfileNone}},
-			want:     true,
+			name:    "public over a none baseline",
+			learned: networkPosture{profiles: []network.Profile{network.ProfilePublic}},
+			after:   network.Policy{Profiles: []network.Profile{network.ProfileNone}},
+			want:    true,
 		},
 		{
-			name:     "private over a public baseline",
-			profiles: []network.Profile{network.ProfilePrivate},
-			after:    network.Policy{Profiles: []network.Profile{network.ProfilePublic}},
-			want:     true,
+			name:    "private over a public baseline",
+			learned: networkPosture{profiles: []network.Profile{network.ProfilePrivate}},
+			after:   network.Policy{Profiles: []network.Profile{network.ProfilePublic}},
+			want:    true,
 		},
 		{
-			name:     "public over an unset baseline",
-			profiles: []network.Profile{network.ProfilePublic},
-			after:    network.Policy{},
-			want:     true,
+			name:    "public over an unset baseline",
+			learned: networkPosture{profiles: []network.Profile{network.ProfilePublic}},
+			after:   network.Policy{},
+			want:    true,
 		},
 		{
-			name:     "a kept profile",
-			profiles: []network.Profile{network.ProfilePublic},
-			after:    network.Policy{Profiles: []network.Profile{network.ProfilePublic}},
-			want:     false,
+			name:    "a kept profile",
+			learned: networkPosture{profiles: []network.Profile{network.ProfilePublic}},
+			after:   network.Policy{Profiles: []network.Profile{network.ProfilePublic}},
+			want:    false,
 		},
 		{
-			name:     "a scope that wrote no profiles",
-			profiles: nil,
-			after:    network.Policy{Profiles: []network.Profile{network.ProfileNone}},
-			want:     false,
+			name:    "a scope that wrote no profiles",
+			learned: networkPosture{},
+			after:   network.Policy{Profiles: []network.Profile{network.ProfileNone}},
+			want:    false,
+		},
+		{
+			name: "an egress-allow host over a none baseline",
+			learned: networkPosture{
+				profiles:    []network.Profile{network.ProfileNone},
+				egressAllow: []string{"widened.example"},
+			},
+			after: network.Policy{Profiles: []network.Profile{network.ProfileNone}},
+			want:  true,
+		},
+		{
+			name: "the journey's own destination is allowed",
+			learned: networkPosture{
+				profiles:    []network.Profile{network.ProfileNone},
+				egressAllow: []string{"stub.example"},
+			},
+			after:         network.Policy{Profiles: []network.Profile{network.ProfileNone}},
+			allowedEgress: []string{"stub.example"},
+			want:          false,
+		},
+		{
+			name:    "a baseline allow entry is kept",
+			learned: networkPosture{egressAllow: []string{"kept.example"}},
+			after:   network.Policy{EgressAllow: []string{"kept.example"}},
+			want:    false,
+		},
+		{
+			name:    "an egress-allow host beyond the baseline's allow set",
+			learned: networkPosture{egressAllow: []string{"kept.example", "extra.example"}},
+			after:   network.Policy{EgressAllow: []string{"kept.example"}},
+			want:    true,
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := widenedBeyond(tc.profiles, tc.after); got != tc.want {
-				t.Errorf("widenedBeyond(%v, %v) = %t, want %t", tc.profiles, tc.after.Profiles, got, tc.want)
+			if got := widenedBeyond(tc.learned, tc.after, tc.allowedEgress); got != tc.want {
+				t.Errorf(
+					"widenedBeyond(%+v, %v, %v) = %t, want %t",
+					tc.learned,
+					tc.after,
+					tc.allowedEgress,
+					got,
+					tc.want,
+				)
 			}
 		})
 	}
@@ -318,19 +360,53 @@ func TestStepSeedLearnSessionSeedsIsolatedStateAndPreservesHomeVolume(t *testing
 	}
 }
 
-// TestStepSeedLearnSessionRequiresThePreRunVolume pins the ordering: a step run
-// before the preliminary launcher run has no home volume to copy and fails
-// rather than seeding a record the replay would discard.
+// TestStepSeedLearnSessionRequiresThePreRunVolume pins the guard's contract: the
+// step copies the HomeVolume the preliminary run recorded, so a state file with
+// no home volume — what a run that never reached a VM leaves — fails at the
+// missing-volume guard rather than seeding a record the replay would discard. A
+// missing state file fails earlier, in state.ReadState.
 func TestStepSeedLearnSessionRequiresThePreRunVolume(t *testing.T) {
 	const agentName = "opencode2"
-	root := t.TempDir()
-	if err := os.MkdirAll(driver.ProjectDir(root, agentName), 0o750); err != nil {
-		t.Fatalf("create project dir: %v", err)
+	newContext := func(t *testing.T) *Context {
+		t.Helper()
+		root := t.TempDir()
+		if err := os.MkdirAll(driver.ProjectDir(root, agentName), 0o750); err != nil {
+			t.Fatalf("create project dir: %v", err)
+		}
+		return &Context{TB: t, Root: root, Agent: agentName, Home: t.TempDir(), Stub: fakeStubProvider{}}
 	}
-	ctx := &Context{TB: t, Root: root, Agent: agentName, Home: t.TempDir(), Stub: fakeStubProvider{}}
-	if err := StepSeedLearnSession().Run(ctx); err == nil {
-		t.Error("no recorded home volume: got nil error, want failure")
-	}
+
+	t.Run("a state file with no home volume fails at the guard", func(t *testing.T) {
+		ctx := newContext(t)
+		identity, err := journeyIdentity(ctx)
+		if err != nil {
+			t.Fatalf("journeyIdentity: %v", err)
+		}
+		key := state.Key{Slug: identity.CheckoutSlug, Agent: agentName}
+
+		restore := withJourneyStatePaths(ctx.Home)
+		defer restore()
+		// Write a state file that exists but records no home volume.
+		if err := state.WithHomeState(key, func(_ *state.HomeState, _ bool) (bool, error) {
+			return true, nil
+		}); err != nil {
+			t.Fatalf("seed an empty home state: %v", err)
+		}
+
+		err = StepSeedLearnSession().Run(ctx)
+		if err == nil {
+			t.Fatal("a state with no home volume: got nil error, want the missing-volume guard")
+		}
+		if !strings.Contains(err.Error(), "no home volume") {
+			t.Errorf("error = %v, want the missing-home-volume guard", err)
+		}
+	})
+
+	t.Run("a missing state file fails at the read", func(t *testing.T) {
+		if err := StepSeedLearnSession().Run(newContext(t)); err == nil {
+			t.Error("no state file: got nil error, want a read failure")
+		}
+	})
 }
 
 // TestStepAssertLearnArtefactGone pins the deletion assertion: a missing learn
@@ -402,9 +478,13 @@ func TestRunNetworkPolicyDerivesTheRunsProfile(t *testing.T) {
 }
 
 // TestStepAssertNetworkNotWidened pins the changed step's context-derived
-// baseline: it reads the scope's launcher config and compares the profiles it
-// names against the builder's policy, so a scope that kept or narrowed the
-// posture passes, one that wrote nothing passes, and one that widened fails.
+// baseline: it reads the scope's launcher config and compares the network
+// posture it names — the profiles and the egress-allow list — against the
+// builder's policy plus the destinations the journey drove, so a scope that kept
+// or narrowed the posture passes, one that wrote nothing passes, and one that
+// widened fails. An egress-allow entry the journey did not drive (or the
+// baseline did not already allow) is a widening, because under none the allow
+// list is the egress.
 func TestStepAssertNetworkNotWidened(t *testing.T) {
 	const agentName = "opencode2"
 	newContext := func(t *testing.T) *Context {
@@ -448,6 +528,30 @@ func TestStepAssertNetworkNotWidened(t *testing.T) {
 		writeScope(t, c, "network:\n  profile: public\n")
 		if err := StepAssertNetworkNotWidened(runNetworkPolicy).Run(c); err == nil {
 			t.Error("a scope naming public over a none baseline: got nil error, want failure")
+		}
+	})
+
+	t.Run("the journey's egress-allow destination passes", func(t *testing.T) {
+		c := newContext(t)
+		writeScope(t, c, "network:\n  profile: none\n  egress-allow:\n    - stub.example\n")
+		if err := StepAssertNetworkNotWidened(runNetworkPolicy, "stub.example").Run(c); err != nil {
+			t.Errorf("a scope allowing the journey's destination: %v", err)
+		}
+	})
+
+	t.Run("an egress-allow host beyond the allowed set fails", func(t *testing.T) {
+		c := newContext(t)
+		writeScope(t, c, "network:\n  profile: none\n  egress-allow:\n    - widened.example\n")
+		if err := StepAssertNetworkNotWidened(runNetworkPolicy, "stub.example").Run(c); err == nil {
+			t.Error("a scope allowing an undeclared host: got nil error, want failure")
+		}
+	})
+
+	t.Run("an egress-allow host with no allowed set fails", func(t *testing.T) {
+		c := newContext(t)
+		writeScope(t, c, "network:\n  profile: none\n  egress-allow:\n    - widened.example\n")
+		if err := StepAssertNetworkNotWidened(runNetworkPolicy).Run(c); err == nil {
+			t.Error("a scope allowing a host no journey drove: got nil error, want failure")
 		}
 	})
 }

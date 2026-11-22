@@ -194,7 +194,9 @@ convention into an enforced gate. Reuses `internal/testutil`'s existing `TestMai
 
 - **UC1** — fresh install, no host config: the menu offers "Learn by using it"; drive the stub
   provider, exit, assert the exit prompt ("Review and save / Save all / Not now"), accept, and assert
-  the managed config and `env.secret.yaml` land in the per-slug user scope.
+  the static credential lands scoped in `env.secret.yaml` under the per-slug user scope. It asserts no
+  managed config: the provisioned provider file precedes `CaptureBaseline`, so the read-back reports
+  nothing changed (see below).
 - **UC4** — host config present: assert the menu offers "Learn from my host setup" and that
   `firstrun.SeedFromHost` pre-populates the per-slug scope (static secrets placeholdered, login stores
   dropped) before the session.
@@ -248,8 +250,14 @@ baseURL host is exactly the fallback host the assertion checks. The journey ther
 only that a `run --learn` session writes a stub-host-scoped credential and keeps the network posture;
 proving attribution over the fallback needs the product gap closed first (a follow-up, not #793).
 
-This also absorbs **#252**'s "the first turn round-trips and no first-run scaffolding appeared": that
-assertion belongs to a journey, not to the minimal startup gate.
+This also absorbs the "no first-run scaffolding appeared" half of **#252** (`StepAssertNoProjectScaffolding`):
+that assertion belongs to a journey, not to the minimal startup gate. The first-turn round-trip half is
+**not** covered by the automated tier: a journey's scope assertion is read-back-driven
+(`analyser.SessionFacts.secretFindings` iterates the read-back's static credentials and `credentialHosts`
+falls back to the config entry's hosts, since `channel.Attribution.Credential` is always empty), so
+UC1/UC4/attribution pass even if no request leaves the VM. Only the host-gated
+`TestStubProviderTurnReachesTheProxy` asserts a turn reached the proxy, by loading the saved observation;
+folding that assertion into the journey table is a follow-up.
 
 Non-interactive and dry-run behaviour are asserted per the repo's invariants (warn, never hang).
 
