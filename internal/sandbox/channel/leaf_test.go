@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"io"
+	"math/big"
 	"net"
 	"strconv"
 	"testing"
@@ -71,6 +72,14 @@ func TestSignLeafPropagatesCryptoErrors(t *testing.T) {
 	withSwap(t, &generateECKey, failingECKey)
 	if _, err := signLeaf(ca, "api.example"); err == nil {
 		t.Error("signLeaf succeeded with a failing key generator, want the error")
+	}
+}
+
+func TestSignLeafPropagatesSerialErrors(t *testing.T) {
+	ca := testCA(t)
+	withSwap(t, &randomSerial, func(io.Reader, *big.Int) (*big.Int, error) { return nil, errChannelSeam })
+	if _, err := signLeaf(ca, "api.example"); err == nil {
+		t.Error("signLeaf succeeded with a failing serial source, want the error")
 	}
 }
 

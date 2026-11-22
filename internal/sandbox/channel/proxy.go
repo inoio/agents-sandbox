@@ -28,6 +28,7 @@ import (
 // tests substitute them to exercise the error handling.
 var (
 	generateECKey     = ecdsa.GenerateKey
+	randomSerial      = rand.Int
 	createCertificate = x509.CreateCertificate
 	parseCertificate  = x509.ParseCertificate
 	writeCATempFile   = (*os.File).WriteString

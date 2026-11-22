@@ -81,7 +81,7 @@ func signLeaf(ca tls.Certificate, name string) (*tls.Certificate, error) {
 	if err != nil {
 		return nil, err
 	}
-	serial, err := rand.Int(rand.Reader, maxLeafSerial)
+	serial, err := randomSerial(rand.Reader, maxLeafSerial)
 	if err != nil {
 		return nil, err
 	}
