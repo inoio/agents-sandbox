@@ -269,7 +269,7 @@ func StepLaunchCommand(args ...string) Step {
 // the command and its arguments, with no journey flags appended. It is pure so
 // the step's arg handling is testable without starting a process.
 func commandArgv(binary string, args []string) []string {
-	argv := make([]string, 0, len(args)+1)
+	var argv []string
 	argv = append(argv, binary)
 	return append(argv, args...)
 }
@@ -920,7 +920,7 @@ func widenedBeyond(learned networkPosture, baseline network.Policy, allowedEgres
 		}
 	}
 
-	allowedHosts := make(map[string]bool, len(baseline.EgressAllow)+len(allowedEgress))
+	allowedHosts := make(map[string]bool)
 	for _, host := range baseline.EgressAllow {
 		allowedHosts[host] = true
 	}

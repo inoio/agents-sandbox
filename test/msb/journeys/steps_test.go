@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/firstrun"
 	"github.com/inoio/agents-sandbox/internal/sandbox/channel"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
@@ -175,16 +176,48 @@ func TestStepAssertFirstRunRecorded(t *testing.T) {
 	})
 
 	t.Run("a missing root state fails", func(t *testing.T) {
-		if err := StepAssertFirstRunRecorded(firstrun.ChoiceLearnByUsing).Run(newContext(t)); err == nil {
-			t.Error("missing root state file: got nil error, want failure")
+		err := StepAssertFirstRunRecorded(firstrun.ChoiceLearnByUsing).Run(newContext(t))
+		if err == nil {
+			t.Fatal("missing root state file: got nil error, want failure")
+		}
+		if !strings.Contains(err.Error(), "recorded no first-run decision") {
+			t.Errorf("error = %v, want the missing-state failure", err)
 		}
 	})
 
 	t.Run("a missing key fails", func(t *testing.T) {
 		c := newContext(t)
 		writeRootState(t, c, "schema: 1\nfirst_runs: {}\n")
-		if err := StepAssertFirstRunRecorded(firstrun.ChoiceLearnByUsing).Run(c); err == nil {
-			t.Error("missing key: got nil error, want failure")
+		err := StepAssertFirstRunRecorded(firstrun.ChoiceLearnByUsing).Run(c)
+		if err == nil {
+			t.Fatal("missing key: got nil error, want failure")
+		}
+		if !strings.Contains(err.Error(), "recorded no first-run decision under") {
+			t.Errorf("error = %v, want the missing-key failure", err)
+		}
+	})
+
+	t.Run("a malformed state file fails at the parse", func(t *testing.T) {
+		c := newContext(t)
+		writeRootState(t, c, "first_runs: [unclosed\n")
+		err := StepAssertFirstRunRecorded(firstrun.ChoiceLearnByUsing).Run(c)
+		if err == nil {
+			t.Fatal("malformed state: got nil error, want failure")
+		}
+		if !strings.Contains(err.Error(), "parse") {
+			t.Errorf("error = %v, want the parse failure", err)
+		}
+	})
+
+	t.Run("a choice no path records fails", func(t *testing.T) {
+		c := newContext(t)
+		writeRootState(t, c, "schema: 1\nfirst_runs: {}\n")
+		err := StepAssertFirstRunRecorded(firstrun.Choice("bogus")).Run(c)
+		if err == nil {
+			t.Fatal("an unmapped choice: got nil error, want failure")
+		}
+		if !strings.Contains(err.Error(), "records no RootState decision") {
+			t.Errorf("error = %v, want the unmapped-choice failure", err)
 		}
 	})
 
@@ -258,12 +291,25 @@ func TestStepAssertScopeExcludes(t *testing.T) {
 	}
 	if err := StepAssertScopeExcludes("auth.json").Run(ctx); err == nil {
 		t.Error("a copied login store: got nil error, want failure")
+	} else if !strings.Contains(err.Error(), "must drop") {
+		t.Errorf("error = %v, want the copied-login-store failure", err)
 	}
 	if err := os.Remove(loginStore); err != nil {
 		t.Fatalf("remove %s: %v", loginStore, err)
 	}
 	if err := StepAssertScopeExcludes("auth.json").Run(ctx); err != nil {
 		t.Errorf("an absent login store: %v", err)
+	}
+
+	unknownRoot := t.TempDir()
+	if err := os.MkdirAll(driver.ProjectDir(unknownRoot, "nonexistent"), 0o750); err != nil {
+		t.Fatalf("create the unknown agent's project dir: %v", err)
+	}
+	unknown := &Context{TB: t, Root: unknownRoot, Agent: "nonexistent", Home: t.TempDir()}
+	if err := StepAssertScopeExcludes("auth.json").Run(unknown); err == nil {
+		t.Error("an unknown agent: got nil error, want failure")
+	} else if !strings.Contains(err.Error(), "unknown agent") {
+		t.Errorf("error = %v, want the unknown-agent failure", err)
 	}
 }
 
@@ -352,12 +398,20 @@ func TestStepSeedLearnSessionSeedsIsolatedStateAndPreservesHomeVolume(t *testing
 	if dir := filepath.Dir(record.ArtefactPath); dir != wantDir {
 		t.Errorf("artefact dir = %q, want %q", dir, wantDir)
 	}
+	// Pinned literally, not via learnArtefactStartedUnix: a symbolic expectation
+	// moves with a mutated constant, so it could never fail.
+	if file := filepath.Base(record.ArtefactPath); file != "1763458200.json" {
+		t.Errorf("artefact file = %q, want %q", file, "1763458200.json")
+	}
 	observation, err := channel.Load(record.ArtefactPath)
 	if err != nil {
 		t.Fatalf("load the seeded artefact: %v", err)
 	}
 	if len(observation.Destinations) != 1 || observation.Destinations[0].Host != stubHost {
-		t.Errorf("seeded observation = %+v, want one destination at %q", observation, stubHost)
+		t.Fatalf("seeded observation = %+v, want one destination at %q", observation, stubHost)
+	}
+	if observation.Destinations[0].Count != 1 {
+		t.Errorf("seeded destination count = %d, want 1", observation.Destinations[0].Count)
 	}
 }
 
@@ -410,6 +464,18 @@ func TestStepSeedLearnSessionRequiresThePreRunVolume(t *testing.T) {
 		}
 		if !errors.Is(err, state.ErrStateNotFound) {
 			t.Errorf("error = %v, want a state.ReadState ErrStateNotFound failure", err)
+		}
+	})
+
+	t.Run("a missing stub provider fails", func(t *testing.T) {
+		ctx := newContext(t)
+		ctx.Stub = nil
+		err := StepSeedLearnSession().Run(ctx)
+		if err == nil {
+			t.Fatal("no stub provider: got nil error, want the ordering guard")
+		}
+		if !strings.Contains(err.Error(), "no stub provider") {
+			t.Errorf("error = %v, want the missing-stub guard", err)
 		}
 	})
 }
@@ -559,4 +625,64 @@ func TestStepAssertNetworkNotWidened(t *testing.T) {
 			t.Error("a scope allowing a host no journey drove: got nil error, want failure")
 		}
 	})
+}
+
+// TestWithJourneyStatePathsRestoresTheFactory pins the redirect's teardown: after
+// the returned restore runs, the config-path factory must be the one the step
+// replaced — the fail-fast test default, which panics on any call — not the
+// journey resolver. A removed restore leaves the journey resolver installed and
+// the next test writing the journey's isolated state.
+func TestWithJourneyStatePathsRestoresTheFactory(t *testing.T) {
+	home := t.TempDir()
+	restore := withJourneyStatePaths(home)
+	want := filepath.Join(home, isolatedStateDir, launcherConfigDirName)
+	if got := configpaths.Get().UserStateDir(); got != want {
+		t.Errorf("redirected UserStateDir() = %q, want %q", got, want)
+	}
+
+	restore()
+	defer func() {
+		if recover() == nil {
+			t.Error("the config-path factory was not restored: the fail-fast default must panic after restore")
+		}
+	}()
+	_ = configpaths.Get().UserStateDir()
+}
+
+// TestStringsFromSetting pins the config-list decoder used for
+// network.egress-allow: the accepted shapes decode, a blank scalar is empty, and
+// a non-string list entry — or an unexpected type — is rejected rather than
+// silently dropped or coerced.
+func TestStringsFromSetting(t *testing.T) {
+	cases := []struct {
+		name    string
+		in      any
+		want    []string
+		wantErr bool
+	}{
+		{name: "nil", in: nil, want: nil},
+		{name: "a scalar", in: "a.example", want: []string{"a.example"}},
+		{name: "a blank scalar", in: "   ", want: nil},
+		{name: "a string slice", in: []string{"a.example", "b.example"}, want: []string{"a.example", "b.example"}},
+		{name: "an any slice", in: []any{"a.example", "b.example"}, want: []string{"a.example", "b.example"}},
+		{name: "a non-string entry", in: []any{"a.example", 5}, wantErr: true},
+		{name: "an unexpected type", in: 5, wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := stringsFromSetting(tc.in)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("stringsFromSetting(%v) = %v, want an error", tc.in, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("stringsFromSetting(%v): %v", tc.in, err)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("stringsFromSetting(%v) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
 }

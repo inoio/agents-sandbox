@@ -3,6 +3,7 @@ package journeys
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
 	"net/http"
 	"net/url"
@@ -158,10 +159,14 @@ func TestStartStubProviderBindsAndAdvertises(t *testing.T) {
 		t.Errorf("provider baseURL = %q, want %q", got, want)
 	}
 
-	assertStubReachable(t, provider.Addr()+"/v1/models")
+	models := assertStubReachable(t, provider.Addr()+"/v1/models")
+	if !strings.Contains(models, `"object":"list"`) || !strings.Contains(models, `"id":"`+stubProviderModel+`"`) {
+		t.Errorf("GET /v1/models body = %q, want the model list naming %q", models, stubProviderModel)
+	}
 
 	provider.Stop()
 	provider.Stop() // idempotent
+	assertStubUnreachable(t, provider.Addr()+"/v1/models")
 }
 
 // TestStepSeedStubProvisionsThroughTheHomeManifest pins the fix for the
@@ -264,8 +269,9 @@ func providerBaseURL(t *testing.T, content string) string {
 
 // assertStubReachable issues one request to the stub through a proxy-free,
 // bounded client, so the test proves the listener really answers rather than
-// only that it bound.
-func assertStubReachable(t *testing.T, target string) {
+// only that it bound, asserts the stub's JSON content type, and returns the
+// response body.
+func assertStubReachable(t *testing.T, target string) string {
 	t.Helper()
 
 	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{Proxy: nil}}
@@ -276,6 +282,27 @@ func assertStubReachable(t *testing.T, target string) {
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		t.Errorf("GET %s status = %d, want 200", target, response.StatusCode)
+	}
+	if contentType := response.Header.Get("Content-Type"); contentType != "application/json" {
+		t.Errorf("GET %s Content-Type = %q, want application/json", target, contentType)
+	}
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatalf("read %s body: %v", target, err)
+	}
+	return string(body)
+}
+
+// assertStubUnreachable asserts the stub no longer answers, so Stop closed the
+// listener rather than only flipping a flag.
+func assertStubUnreachable(t *testing.T, target string) {
+	t.Helper()
+
+	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{Proxy: nil}}
+	response, err := client.Get(target)
+	if err == nil {
+		_ = response.Body.Close()
+		t.Fatalf("GET %s succeeded after Stop, want a refused connection", target)
 	}
 }
 
