@@ -48,9 +48,10 @@ MSB_GUEST_VM_CPUS ?= 2
 # MSB_GUEST_VM_CPUS-capped VMs wants a small fixed count instead.
 MSB_GUEST_PARALLEL ?= 2
 # Multiplier the in-guest KVM run applies to every smoke readiness and quit
-# ceiling. A nested guest starts a VM far slower, so budgets sized for a host
-# time out there. Passed as AGENTS_SANDBOX_MSB_TIMEOUT_FACTOR.
-MSB_GUEST_TIMEOUT_FACTOR ?= 2
+# ceiling. A nested guest starts a VM far slower, and shares the host's CPU with
+# whatever else runs there, so budgets sized for an idle host time out. Passed as
+# AGENTS_SANDBOX_MSB_TIMEOUT_FACTOR.
+MSB_GUEST_TIMEOUT_FACTOR ?= 3
 # Launcher-side VM-setup readiness ceilings for the in-guest KVM run: the
 # in-VM Docker engine and the agent serve daemon. Raised from the built-in 30s /
 # 60s, which a slow nested guest can exceed. Passed as

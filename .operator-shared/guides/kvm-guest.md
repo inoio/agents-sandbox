@@ -41,11 +41,13 @@ suite, with changes that only matter on a nested guest. The two `msb`-tagged pac
 VM's vCPUs are capped (`MSB_GUEST_VM_CPUS`, default 2, passed as `AGENTS_SANDBOX_MSB_VM_CPUS`), because a
 project VM otherwise claims every guest vCPU. The parallel-harness count defaults to
 `MSB_GUEST_PARALLEL` (2) when `MSB_PARALLEL` is unset, instead of the host-sized memory heuristic. And the
-readiness/quit ceilings scale (`MSB_GUEST_TIMEOUT_FACTOR`, default 2, passed as
+readiness/quit ceilings scale (`MSB_GUEST_TIMEOUT_FACTOR`, default 3, passed as
 `AGENTS_SANDBOX_MSB_TIMEOUT_FACTOR`), while the launcher's own VM-setup readiness ceilings are raised
 (`MSB_GUEST_DOCKER_READY_TIMEOUT`/`MSB_GUEST_DAEMON_READY_TIMEOUT`, default 90s / 180s, forwarded to the
 launcher's `AGENTS_SANDBOX_DOCKER_READY_TIMEOUT`/`AGENTS_SANDBOX_DAEMON_READY_TIMEOUT`), because a nested
-guest starts a VM and its services slower than the fixed host budgets allow.
+guest starts a VM and its services slower than the fixed host budgets allow. The ceilings absorb CPU
+starvation from any source: the guest shares the host's cores, so a busy host — or a concurrent `run`/`shell`
+on the guest that is not vCPU-capped with `--cpus` — can make a harness miss its ceiling.
 `make test-msb` and `make test-msb-cold` are unchanged.
 
 `up` prints the guest's SSH address and a next-steps checklist; cloud-init takes a few minutes on first boot. Once it

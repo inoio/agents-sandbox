@@ -208,3 +208,6 @@
 - `plans/2026-11-22-kvm-agent-up.md`
   - Description: Implementation plan for the same one-command bring-up (its tasks and tests); retire when folded into `guides/kvm-guest.md`.
   - Read If: Executing or reviewing the `kvm-agent-up` plan.
+- `plans/2026-11-22-kvm-guest-dedicated-cpu.md`
+  - Description: Contingency plan for making the in-guest `msb` suites reliable on a CPU-shared host: measure `steal`, then pin the guest's vCPUs (libvirt `cputune`) or dedicate host cores, versus keeping the timing/factor approach. Triggered only if the factor-3 sweep is not stable.
+  - Read If: The in-guest `make test-msb-in-vm` runs are still unstable after `MSB_GUEST_TIMEOUT_FACTOR=3`, or you are evaluating CPU pinning/dedication for the KVM guest.
