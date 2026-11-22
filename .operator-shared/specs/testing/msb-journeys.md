@@ -247,8 +247,14 @@ header names only; and `analyser.credentialHosts` (`internal/sandbox/analyser/ob
 come from the read-back config entry. The plan's "config-entry source but no hosts" is likewise
 unachievable: the credential must name the stub baseURL for the agent to reach the stub, and that
 baseURL host is exactly the fallback host the assertion checks. The journey therefore discriminates
-only that a `run --learn` session writes a stub-host-scoped credential and keeps the network posture;
-proving attribution over the fallback needs the product gap closed first (a follow-up, not #793).
+that a `run --learn` session writes a stub-host-scoped credential and narrows a broad network posture,
+not — as was intended — that observation attribution supersedes the config-entry fallback; proving the
+latter needs the product gap closed first (a follow-up, not #793). The journey runs under `public`
+rather than the agent spec's default `none`: under `none` the stub dial is denied, so the analyser
+records no used destination and writes no network posture, leaving `StepAssertNetworkNotWidened`
+vacuous; under `public` a turn that reaches the stub is a used destination, so the analyser's lock
+(`none` plus the used host) actually exercises the guard. The default `.invalid` advertised route still
+denies the dial, so this only bites on a host accept that pins a working route.
 
 This also absorbs #252's project-scaffolding check: `StepAssertNoProjectScaffolding` asserts the run
 creates no `.agents-sandbox` directory in the project, which belongs to a journey, not to the minimal
@@ -258,8 +264,8 @@ a journey's scope assertion is read-back-driven
 (`analyser.SessionFacts.secretFindings` iterates the read-back's static credentials and `credentialHosts`
 falls back to the config entry's hosts, since `channel.Attribution.Credential` is always empty), so
 UC1/UC4/attribution pass even if no request leaves the VM. Only the host-gated
-`TestStubProviderTurnReachesTheProxy` asserts a turn reached the proxy, by loading the saved observation;
-folding that assertion into the journey table is a follow-up.
+`TestHarnessJourneys/stub-provider-turn-reaches-the-proxy` subtest asserts a turn reached the proxy, by
+loading the saved observation; folding that assertion into the journey table is a follow-up.
 
 Non-interactive and dry-run behaviour are asserted per the repo's invariants (warn, never hang).
 
@@ -269,11 +275,12 @@ The surface sweep (`specs/testing/release-surface-testing.md`) carries a learn-m
 spine step that runs `make test-msb-journeys` once to warm the shared root. Journey agents then
 hand-drive the same flows under the sweep's isolation.
 
-**Shared-root interface (call).** The spine passes the sweep's root to the suite through the env vars
-the driver already resolves — `AGENTS_SANDBOX_SMOKE_ROOT=<sweep>/smoke` and
-`AGENTS_SANDBOX_MSB_TEST_HOME=<sweep>/msb` — so the suite's image/data home and reuse lock live inside
-the sweep root. No new interface and no second lock; the Go suite's existing reuse lock serializes the
-spine's invocation against any other carry-over run. The `test-msb-journeys` target derives both vars from its
+**Shared-root interface (call).** The spine passes the sweep's root to the suite through
+`AGENTS_SANDBOX_SMOKE_ROOT=<sweep>/smoke`, the env var `test/msb/driver` resolves; the suite's
+image/data home, temp tree, and reuse lock all live inside that root. (`AGENTS_SANDBOX_MSB_TEST_HOME`
+is the `internal/sandbox/msb` runtime's reuse home, which the journeys suite does not read.) No new
+interface and no second lock; the Go suite's existing reuse lock serializes the spine's invocation
+against any other carry-over run. The `test-msb-journeys` target derives the var from its
 `MSB_REUSE_ROOT` make variable, so the spine sets `MSB_REUSE_ROOT=<sweep>` when it invokes the target.
 
 - Exploratory finding → new/extended automated journey test (recorded as an issue, then implemented).
@@ -309,6 +316,5 @@ spine's invocation against any other carry-over run. The `test-msb-journeys` tar
 - v1 harness scope: opencode2 only; the journey spec is a table field with recorded exemptions.
 - `config learn` journey: seed the session record + a real home volume, no abnormal kill.
 - Assertions: semantic (env-var name, host scoping, placeholder, keys), not byte-for-byte goldens.
-- Shared root: the spine sets `AGENTS_SANDBOX_SMOKE_ROOT` / `AGENTS_SANDBOX_MSB_TEST_HOME` into the
-  sweep root; no new interface.
+- Shared root: the spine sets `AGENTS_SANDBOX_SMOKE_ROOT` into the sweep root; no new interface.
 - #252's first-turn assertion moves into the journeys suite; other areas tracked separately.

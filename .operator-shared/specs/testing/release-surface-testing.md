@@ -130,16 +130,19 @@ Failure modes the surface implies; each is pinned by a check in the task named.
 - [ ] **Step 4 [I]: Run the journeys suite (spine).** Run the automated learn-mode journeys (Task 15's flow) once,
   serially: this is the spine's automated-tier pass, and it warms the BuildKit layer cache the manual run reuses. The
   `test-msb-journeys` target derives the suite's root from its `MSB_REUSE_ROOT` make variable, so point that at the
-  sweep root — the target then sets `AGENTS_SANDBOX_SMOKE_ROOT=<root>/smoke` and
-  `AGENTS_SANDBOX_MSB_TEST_HOME=<root>/msb`, the shared-root interface the journeys design names, so the suite's data
-  home and reuse lock stay inside the sweep root:
+  sweep root — the target then sets `AGENTS_SANDBOX_SMOKE_ROOT=<root>/smoke`, the shared-root interface the journeys
+  design names, so the suite's data home and reuse lock stay inside the sweep root:
 
   ```bash
   MSB_REUSE_ROOT=<root> make test-msb-journeys
   ```
 
   Expected: the suite's preflight passes on this KVM host, the launcher builds, the runner images prebuild into
-  `<root>/smoke/data`, and every journey in the table passes (v1: UC1, UC4, `config learn`, attribution on opencode2).
+  `<root>/smoke/data`, every journey in the table passes (v1: UC1, UC4, `config learn`, attribution on opencode2), and
+  the host-gated `TestHarnessJourneys/stub-provider-turn-reaches-the-proxy` subtest passes. That spike is provisional:
+  it proves the agent's turn reaches the terminating proxy only when the advertised stub route resolves, so if it fails
+  on the default `http://agents-sandbox-stub.invalid`, pin `AGENTS_SANDBOX_JOURNEYS_STUB_ORIGIN` at a route that reaches
+  the host stub and rerun (see `specs/testing/msb-journeys.md`).
   A host without `/dev/kvm` or a reachable docker daemon skips, never fails. Evidence: the `go test` output. The suite
   reuses and keeps `<root>/smoke` and sweeps its own sandboxes at teardown; the manual Task 15 run drives `asb-dev`
   under the sweep's separate `<root>/data` home, so the warmed BuildKit layer cache is what the two share.

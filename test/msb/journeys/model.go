@@ -35,8 +35,17 @@ type Step struct {
 
 // Journey is one named scenario driven against one registered agent, composed of
 // steps drawn from the shared vocabulary in steps.go. No journey inlines a step.
+//
+// Network overrides the agent's spec network profile for this journey when set
+// (driver.Spec.NetworkOrDefault otherwise). The attribution journey sets it to a
+// profile that admits the stub, so the run's baseline is broad enough for the
+// analyser to actually narrow it and the network-not-widened assertion to have a
+// posture to check.
+//
+//exhaustruct:ignore
 type Journey struct {
-	Name  string
-	Agent string
-	Steps []Step
+	Name    string
+	Agent   string
+	Network string
+	Steps   []Step
 }

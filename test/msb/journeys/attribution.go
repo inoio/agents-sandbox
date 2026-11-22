@@ -1,5 +1,7 @@
 package journeys
 
+import "github.com/inoio/agents-sandbox/test/msb/driver"
+
 // attributionPrompt is the one message the journey sends, so the agent issues a
 // request at the stub provider's baseURL. A completed model turn is not
 // required; the journey asserts what the analyser wrote to the scope, not the
@@ -48,6 +50,14 @@ var attributionScope = ScopeWant{
 // asserts the learned scope keeps the credential scoped to the stub host while
 // not widening the network.
 //
+// It runs under a broad profile (driver.PublicNetwork) rather than the spec's
+// default none: under none the stub request is denied, so the analyser records
+// no used destination and writes no network posture, leaving the
+// network-not-widened assertion vacuous. Under public a turn that reaches the
+// stub is a used destination, so the analyser's lock (none + the used host)
+// actually exercises the guard. The default `.invalid` route still denies the
+// dial, so this only bites on a host accept that pins a working route.
+//
 // `--learn` skips the first-run menu (firstRunMenu returns early when --learn is
 // set), so firstrun.SeedFromHost does not run; the seeded host config reaches the
 // VM only because StepSeedStub's launcher config sets provision-host-config: true.
@@ -57,8 +67,9 @@ var attributionScope = ScopeWant{
 // is unreachable, so the stub-host assertion holds via the fallback regardless of
 // whether the observation saw the pair (see attributionScope).
 var attributionJourney = Journey{
-	Name:  "attribution-observed-pair",
-	Agent: opencode2AgentName,
+	Name:    "attribution-observed-pair",
+	Agent:   opencode2AgentName,
+	Network: driver.PublicNetwork,
 	Steps: []Step{
 		StepFreshHome(),
 		StepSeedStub(),

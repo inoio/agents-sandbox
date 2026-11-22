@@ -15,11 +15,18 @@ import (
 // not required, only that the agent issues a request to the stub host.
 const stubSpikePrompt = "hello"
 
-// TestStubProviderTurnReachesTheProxy is the Task 13 host-gated spike: it drives
-// a real `run --learn` on opencode2 against the host-side stub provider and
-// asserts the saved observation names the stub host, proving the agent's turn
-// traverses the host-owned terminating proxy. It is a human accept on a KVM
-// host and skips (never fails) without one; `make compile-all` compiles it.
+// runStubProviderTurnReachesTheProxy is the Task 13 host-gated spike, run as a
+// subtest of TestHarnessJourneys: it drives a real `run --learn` on opencode2
+// against the host-side stub provider and asserts the saved observation names
+// the stub host, proving the agent's turn traverses the host-owned terminating
+// proxy. It is a human accept on a KVM host and skips (never fails) without one
+// — TestHarnessJourneys's driver.Preflight owns the skip; `make compile-all`
+// compiles it.
+//
+// It shares the parent test's prepared root, binary, and reuse lock, so it must
+// not re-run driver.Prepare (a second Prepare caller registers a cleanup that
+// tears the shared root down and releases the lock when the first caller
+// returns).
 //
 // The advertised route defaults to the documented placeholder. When the default
 // route cannot reach the proxy, or the proxy cannot resolve it, a host accept
@@ -27,16 +34,8 @@ const stubSpikePrompt = "hello"
 // assertion is only that a destination for the stub host was *observed* — a
 // denied dial is still observed — so it passes as long as the turn reaches the
 // proxy at all.
-func TestStubProviderTurnReachesTheProxy(t *testing.T) {
-	driver.Preflight(t)
-	root, binary := driver.Prepare(t)
-	driver.PreflightDocker(t, root)
-	driver.SweepSandboxes(t, root, binary, "stub-spike")
-	t.Cleanup(func() { driver.SweepSandboxes(t, root, binary, "cleanup") })
-	if !driver.SmokeRootReused() {
-		t.Cleanup(func() { driver.CleanupRunnerImages(t, root) })
-	}
-	driver.PrebuildImages(t, root)
+func runStubProviderTurnReachesTheProxy(t *testing.T, root, binary string) {
+	t.Helper()
 
 	const agentName = "opencode2"
 	spec, ok := driver.Specs[agentName]

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/test/msb/driver"
 )
 
 // TestEveryRegisteredAgentIsCoveredOrExempted mirrors the startup-smoke
@@ -104,6 +105,16 @@ func TestAttributionJourneyRegistered(t *testing.T) {
 		}
 	}
 	t.Errorf("the attribution journey %q is not registered in Journeys", attributionJourney.Name)
+}
+
+// TestAttributionJourneyDrivesABroadBaseline pins the journey's network override:
+// it must run under a profile that admits the stub, because under the default
+// none the analyser records no used destination and writes no network posture,
+// leaving StepAssertNetworkNotWidened vacuous (see attributionJourney).
+func TestAttributionJourneyDrivesABroadBaseline(t *testing.T) {
+	if attributionJourney.Network != driver.PublicNetwork {
+		t.Errorf("attribution journey network = %q, want %q", attributionJourney.Network, driver.PublicNetwork)
+	}
 }
 
 // TestEveryJourneyStepIsNamedAndRunnable pins the runner's contract: a step
