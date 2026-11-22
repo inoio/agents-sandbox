@@ -1084,6 +1084,19 @@ func TestQuitIntervalKeepsPairsRapidAndWaitsBetweenThem(t *testing.T) {
 	}
 }
 
+// TestSandboxNames pins the `sandbox list -q` parser the start/teardown sweep
+// uses: one trimmed name per non-blank line, and empty output yields no names.
+func TestSandboxNames(t *testing.T) {
+	if got := sandboxNames(""); got != nil {
+		t.Errorf("sandboxNames(\"\") = %v, want nil", got)
+	}
+	got := sandboxNames("a\n\n  b  \n")
+	want := []string{"a", "b"}
+	if !slices.Equal(got, want) {
+		t.Errorf("sandboxNames = %v, want %v", got, want)
+	}
+}
+
 // TestHarnessConcurrencyForFreeMemory pins the memory-derived parallel-harness
 // count: as many smoke VMs as fit after the host reserve, floored, and never
 // fewer than one.

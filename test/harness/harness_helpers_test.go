@@ -250,6 +250,18 @@ func scaleTimeout(d time.Duration, factor float64) time.Duration {
 	return time.Duration(float64(d) * factor)
 }
 
+// sandboxNames parses `sandbox list -q` output into one trimmed name per
+// non-blank line. A name is a whole line, so it is trimmed, not split.
+func sandboxNames(output string) []string {
+	var names []string
+	for line := range strings.SplitSeq(output, "\n") {
+		if name := strings.TrimSpace(line); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
 // msbHomeUnderRoot is the private microsandbox home a suite root derives.
 func msbHomeUnderRoot(root string) string {
 	return filepath.Join(root, dataDirName, "agents-sandbox", "msb")

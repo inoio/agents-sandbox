@@ -224,9 +224,10 @@ configuration or state. Each run creates one temp root, shared by all subtests, 
   needs (a missing `TMPDIR` fails sandbox creation with `io error: no such file or directory`) — so overlapping runs
   never share a `HOME` or a seeded config, while `XDG_DATA_HOME` stays `<root>/data` so every harness shares one
   microsandbox home (the image cache);
-- the child environment is built from an **allowlist**, dropping inherited `HOME`, `XDG_*`,
+- the child environment is built from an **allowlist**, dropping inherited `HOME`, `XDG_*`, the other
   `AGENTS_SANDBOX_*`, `OPENCODE_SANDBOX_*`, and `MSB_*`; the inherited variables kept include `PATH`, `TERM`, `LANG`,
-  `LC_ALL`, `LC_CTYPE`, and the `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` family. It sets
+  `LC_ALL`, `LC_CTYPE`, the `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` family, and the two launcher readiness-timeout
+  overrides (`AGENTS_SANDBOX_DOCKER_READY_TIMEOUT`, `AGENTS_SANDBOX_DAEMON_READY_TIMEOUT`) the in-guest run raises. It sets
   `HOME=<root>/runs/<name>/home`, `XDG_CONFIG_HOME=<root>/runs/<name>/config`, `XDG_DATA_HOME=<root>/data`,
   `XDG_STATE_HOME=<root>/runs/<name>/state`, `XDG_CACHE_HOME=<root>/runs/<name>/cache`, and
   `TMPDIR=<root>/runs/<name>/tmp`; `TERM` defaults to `xterm-256color` when the
@@ -244,6 +245,13 @@ configuration or state. Each run creates one temp root, shared by all subtests, 
 - the child gets a sized terminal — the parent's window when the test process has a tty, else 40×120 — so a
   full-screen TUI does not render into a zero-column terminal;
 - the working directory is a temp project dir, so project config and the derived slug are throwaway;
+- the suite **sweeps the root's sandboxes at start and at teardown** (`sweepSandboxes`: `sandbox list -q`,
+  then `sandbox remove --force --yes` per name). The start sweep runs before the prebuild and the parallel
+  subtests, so a reused root never carries a previous run's stopped-but-persisted VM into this run, where
+  `EnsureProjectVM` would restart it (`started existing project VM`) and repay the whole start cost; the
+  teardown sweep stops a failed harness leaking a VM that points at a home the suite is about to delete. Both
+  are best-effort — a `list` or `remove` failure is logged, never fatal — because a sandbox mid create/cleanup
+  can make `list` itself fail;
 - consequently no real `~/.config/agents-sandbox`, `~/.local/{share,state}/agents-sandbox`, or
   `~/.cache/agents-sandbox` path is read or written, and the child starts from deterministic defaults.
 

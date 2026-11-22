@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -125,11 +124,16 @@ func TestHarnessSmoke(t *testing.T) {
 	preflight(t)
 	root, binary := prepare(t)
 	preflightDocker(t, root)
+	// Clear a reused root's leftovers before anything starts: a previous run
+	// that was killed, or whose teardown could not list, leaves a
+	// stopped-but-persisted sandbox that the next run's EnsureProjectVM would
+	// restart, paying the whole start cost again and skewing the timing.
+	sweepSandboxes(t, root, binary, "startup")
 	// Register cleanup after the docker preflight so a skip touches nothing, but
 	// before the prebuild so a prebuild failure cannot leak the root. t.Cleanup,
 	// not defer: it must run after the parallel subtests, which resume only once
 	// this function returns.
-	t.Cleanup(func() { cleanupSandboxes(t, root, binary) })
+	t.Cleanup(func() { sweepSandboxes(t, root, binary, "cleanup") })
 	if !smokeRootReused {
 		t.Cleanup(func() { cleanupRunnerImages(t, root) })
 	}
@@ -474,31 +478,30 @@ func buildHarnessImages(t *testing.T, root string) error {
 	return errors.Join(buildErrors...)
 }
 
-// cleanupSandboxes best-effort destroys any sandbox left in the isolated home,
-// so a failed harness cannot leak a VM pointing at a home the suite is about to
-// delete. The root's own removal is registered by prepare and runs after this.
-// It logs failures and never fails the test.
-func cleanupSandboxes(t *testing.T, root, binary string) {
+// sweepSandboxes best-effort destroys any sandbox left in the isolated home. It
+// runs at suite start — so a reused root never carries a previous run's
+// stopped-but-persisted VM into this run's subtests — and again at teardown, so
+// a failed harness cannot leak a VM pointing at a home the suite is about to
+// delete. when names the phase in its log lines. The root's own removal is
+// registered by prepare and runs after this. It logs failures and never fails
+// the test.
+func sweepSandboxes(t *testing.T, root, binary, when string) {
 	t.Helper()
 
 	list, cancelList := boundedLauncher(root, binary, "sandbox", "list", "-q")
 	out, err := list.Output()
 	cancelList()
 	if err != nil {
-		t.Logf("cleanup: list sandboxes: %v", err)
+		t.Logf("%s: list sandboxes: %v", when, err)
 	}
-	for line := range strings.SplitSeq(string(out), "\n") {
-		name := strings.TrimSpace(line)
-		if name == "" {
-			continue
-		}
+	for _, name := range sandboxNames(string(out)) {
 		// --yes is required: without it the non-interactive remove blocks on
 		// its confirmation prompt and fails.
 		remove, cancelRemove := boundedLauncher(root, binary, "sandbox", "remove", "--force", "--yes", name)
 		removeOut, removeErr := remove.CombinedOutput()
 		cancelRemove()
 		if removeErr != nil {
-			t.Logf("cleanup: remove sandbox %s: %v\n%s", name, removeErr, removeOut)
+			t.Logf("%s: remove sandbox %s: %v\n%s", when, name, removeErr, removeOut)
 		}
 	}
 }
