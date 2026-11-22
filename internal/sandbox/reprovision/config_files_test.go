@@ -410,8 +410,11 @@ func TestLoadConfigFilesProvisioningDisabled(t *testing.T) {
 // CLAUDE.md and its commands/agents/skills trees, codex's AGENTS.md,
 // AGENTS.override.md, and skills tree — are not removed, because the agent may
 // have written them inside the sandbox (/memory, an in-sandbox skill); deleting
-// them would discard in-VM content the launcher never wrote. The config files
-// (settings.json, config.toml) are still removed.
+// them would discard in-VM content the launcher never wrote. opencode declares a
+// broad "**" rule rather than named trees, so a config-shaped file it selects
+// under themes/, skills/, or plugins/ must be kept by the broad-glob narrowing.
+// The config files (settings.json, config.toml, opencode.json) and the
+// credential file (auth.json) are still removed.
 func TestLoadConfigFilesProvisioningDisabledKeepsInVMInstructionAndContentPaths(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	hostHome := t.TempDir()
@@ -437,6 +440,11 @@ func TestLoadConfigFilesProvisioningDisabledKeepsInVMInstructionAndContentPaths(
 		".codex/AGENTS.md",
 		".codex/AGENTS.override.md",
 		".codex/skills/foo/config.toml",
+		".config/opencode/opencode.json",
+		".config/opencode/themes/mytheme.json",
+		".config/opencode/skills/foo/config.json",
+		".config/opencode/plugins/x.yaml",
+		".local/share/opencode/auth.json",
 	} {
 		writeProvisionHostFile(rel)
 	}
@@ -469,6 +477,18 @@ func TestLoadConfigFilesProvisioningDisabledKeepsInVMInstructionAndContentPaths(
 				filepath.Join(vmHome, ".codex", "AGENTS.md"),
 				filepath.Join(vmHome, ".codex", "AGENTS.override.md"),
 				filepath.Join(vmHome, ".codex", "skills", "foo", "config.toml"),
+			},
+		},
+		{
+			agentName: "opencode",
+			removed: []string{
+				filepath.Join(vmHome, ".config", "opencode", "opencode.json"),
+				filepath.Join(vmHome, ".local", "share", "opencode", "auth.json"),
+			},
+			kept: []string{
+				filepath.Join(vmHome, ".config", "opencode", "themes", "mytheme.json"),
+				filepath.Join(vmHome, ".config", "opencode", "skills", "foo", "config.json"),
+				filepath.Join(vmHome, ".config", "opencode", "plugins", "x.yaml"),
 			},
 		},
 	}

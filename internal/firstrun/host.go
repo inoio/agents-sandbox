@@ -34,7 +34,9 @@ import (
 // skill bundling config.toml, a claude-code skill shipping settings.json) is not
 // the agent's own config, and the seed, which writes under the config dir by
 // base name, would let it overwrite the real one. Selecting only the single
-// launcher-managed files keeps that collision out of the seed.
+// launcher-managed files keeps that collision out of the seed. A broad-glob rule
+// (opencode's "**") is likewise narrowed to its dir's top level, where the
+// launcher's config and credential files live.
 //
 // The hash covers the home-relative path, not the absolute host path, so it is
 // stable across a moved home and is what a recorded decision compares against. A
@@ -91,9 +93,10 @@ func HostFiles(a agent.Agent, hostHome string) ([]string, string) {
 }
 
 // selectHostPaths returns the host paths under hostHome the provision rule
-// selects, in lexical order and without reading file contents. It mirrors
-// filewalk's rule walk (prune an unselected directory, skip an unselected file)
-// so the enumeration matches what agent.EvalProvisionRules would copy.
+// selects as managed single files, in lexical order and without reading file
+// contents. It mirrors filewalk's rule walk (prune an unselected directory, skip
+// an unselected file) so the enumeration matches what EvalManagedProvisionRules
+// would copy.
 func selectHostPaths(rule agent.ProvisionRule, hostHome string) []string {
 	srcRoot := filepath.Join(hostHome, rule.Dir)
 	var paths []string
@@ -107,13 +110,10 @@ func selectHostPaths(rule agent.ProvisionRule, hostHome string) []string {
 		if rel == "." {
 			return nil
 		}
-		if !agent.SelectProvisionRule(rule, rel, d.IsDir()) {
+		if !agent.SelectManagedProvisionFile(rule, rel, d.IsDir()) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
-			return nil
-		}
-		if d.IsDir() {
 			return nil
 		}
 		paths = append(paths, path)

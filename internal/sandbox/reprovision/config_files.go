@@ -668,13 +668,16 @@ func mirrorMaps(entries map[string]config.MirrorEntry) (map[string][]byte, map[s
 // instruction and content files — CLAUDE.md, AGENTS.md, and everything under the
 // skills, commands, agents, prompts, extensions, themes, and workflows trees —
 // are excluded, because the agent may also write those inside the sandbox and
-// deleting them would discard in-VM content the launcher never wrote.
+// deleting them would discard in-VM content the launcher never wrote. A
+// broad-glob rule (opencode's "**") is narrowed to its dir's top level, so a
+// config-shaped file the glob also selects inside a skill, theme, or plugin
+// directory is never removed.
 func (s configSubject) provisionDestinations(hostHome string) []string {
 	if s.provisioner == nil {
 		return nil
 	}
 	var dsts []string
-	_, _ = agent.EvalProvisionRules(
+	_, _ = agent.EvalManagedProvisionRules(
 		agent.ProvisionRulesWithoutContentTrees(s.provisionRules),
 		hostHome,
 		s.vmHome,

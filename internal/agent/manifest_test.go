@@ -322,6 +322,85 @@ func TestProvisionRulesWithoutContentTrees(t *testing.T) {
 	}
 }
 
+// TestIsBroadGlobPattern pins the classification the broad-glob narrowing
+// shares: only the recursive "**" glob is broad; a depth-one "*", an explicit
+// file or tree pattern, and a negation are not.
+func TestIsBroadGlobPattern(t *testing.T) {
+	cases := map[string]bool{
+		"**":             true,
+		"!**":            false,
+		"*":              false,
+		"/*":             false,
+		"settings.json":  false,
+		"/skills/":       false,
+		"!node_modules/": false,
+	}
+	for pattern, want := range cases {
+		if got := agent.IsBroadGlobPattern(pattern); got != want {
+			t.Errorf("IsBroadGlobPattern(%q) = %v, want %v", pattern, got, want)
+		}
+	}
+}
+
+// TestSelectManagedProvisionFileNarrowsBroadGlob pins the selection the
+// stale-removal set and the first-run host probe share: a broad-glob rule yields
+// only its dir's top-level files (honouring negations), never a nested file or a
+// directory it also selects.
+func TestSelectManagedProvisionFileNarrowsBroadGlob(t *testing.T) {
+	rule := agent.ProvisionRule{Dir: ".config/opencode", Patterns: []string{
+		"**", "!node_modules/", "!package*.json", "!.gitignore",
+	}}
+	cases := []struct {
+		rel   string
+		isDir bool
+		want  bool
+	}{
+		{rel: "opencode.json", want: true},
+		{rel: "themes/mytheme.json", want: false},
+		{rel: "skills/foo/config.json", want: false},
+		{rel: "plugins/x.yaml", want: false},
+		{rel: "themes", isDir: true, want: false},
+		{rel: "package.json", want: false},
+		{rel: ".gitignore", want: false},
+	}
+	for _, tc := range cases {
+		if got := agent.SelectManagedProvisionFile(rule, tc.rel, tc.isDir); got != tc.want {
+			t.Errorf("SelectManagedProvisionFile(%q, isDir=%v) = %v, want %v", tc.rel, tc.isDir, got, tc.want)
+		}
+	}
+}
+
+// TestEvalManagedProvisionRulesNarrowsBroadGlob pins the walk end to end: a
+// broad "**" rule copies the rule dir's top-level files (minus negations) and
+// none of the nested files or directories it also selects.
+func TestEvalManagedProvisionRulesNarrowsBroadGlob(t *testing.T) {
+	hostHome := t.TempDir()
+	vmHome := t.TempDir()
+	mustWrite(t, filepath.Join(hostHome, ".config/opencode/opencode.json"), `{"x":1}`)
+	mustWrite(t, filepath.Join(hostHome, ".config/opencode/package.json"), "{}")
+	mustWrite(t, filepath.Join(hostHome, ".config/opencode/themes/mytheme.json"), `{"t":1}`)
+	mustWrite(t, filepath.Join(hostHome, ".config/opencode/skills/foo/config.json"), `{"s":1}`)
+	rules := []agent.ProvisionRule{
+		{Dir: ".config/opencode", Patterns: []string{"**", "!package*.json"}},
+	}
+
+	var got []string
+	n, err := agent.EvalManagedProvisionRules(
+		rules, hostHome, vmHome,
+		func(dst string, _ []byte, _ os.FileMode) error {
+			got = append(got, filepath.ToSlash(dst))
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("EvalManagedProvisionRules: %v", err)
+	}
+	want := []string{filepath.ToSlash(filepath.Join(vmHome, ".config/opencode/opencode.json"))}
+	if n != 1 || !reflect.DeepEqual(got, want) {
+		t.Errorf("EvalManagedProvisionRules copied %d %v, want only the top-level config %v", n, got, want)
+	}
+}
+
 func TestValidateProvisionRules(t *testing.T) {
 	// Only the empty pattern and the bare "!" warn. Each is scoped to its own
 	// rule, and "!node_modules" (a legitimate negation) to a third, so a warning
