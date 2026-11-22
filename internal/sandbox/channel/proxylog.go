@@ -34,6 +34,7 @@ type proxyLog struct {
 	openLog            func() (*os.File, error)
 	lines              int
 	closed             bool
+	path               string
 	onHandshakeFailure func(connectTarget string)
 }
 
@@ -67,15 +68,20 @@ func (l *proxyLog) Printf(format string, args ...any) {
 
 // close closes the log file and returns its path and line count. The path is
 // empty when no file was written (a clean session, or an open that failed).
+// It is idempotent: a repeated call returns the same path and count, so the
+// artefact a second Stop builds is identical to the first.
 func (l *proxyLog) close() (string, int) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.closed {
+		return l.path, l.lines
+	}
 	l.closed = true
 	if l.file == nil {
 		return "", l.lines
 	}
-	path := l.file.Name()
+	l.path = l.file.Name()
 	_ = l.file.Close()
 	l.file = nil
-	return path, l.lines
+	return l.path, l.lines
 }

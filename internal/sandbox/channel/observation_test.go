@@ -144,26 +144,29 @@ func TestDestinationAddressOnlyTunnel(t *testing.T) {
 	}
 }
 
-// TestRecorderFailTunnelMarksTheLatestMatchingTunnel: goproxy reports a failed
-// handshake by its CONNECT target. The failure belongs to the tunnel that most
-// recently started a handshake to that target, which is the named entry when
-// the client sent SNI.
-func TestRecorderFailTunnelMarksTheLatestMatchingTunnel(t *testing.T) {
+// TestRecorderFailTunnelChargesTheTunnelUnderTheTarget: goproxy reports a
+// failed handshake by its CONNECT target. When a healthy host's named entry and
+// an address-only entry share that target's IP:port, the failure is charged to
+// the entry under the target itself — the failing tunnel stayed unnamed because
+// it sent no SNI before aborting — not to the named entry, which would blame a
+// healthy host and, on the after-run path, name it in the summary.
+func TestRecorderFailTunnelChargesTheTunnelUnderTheTarget(t *testing.T) {
 	r := new(recorder)
+	// The healthy host's tunnel, which merely shares the IP:port.
+	r.observe("api.example", "203.0.113.7", "", ConnectProtocol, 443, nil).Success = true
+	// A second client that sent no SNI, so its tunnel stayed under the address.
 	r.observe("203.0.113.7", "203.0.113.7", "", ConnectProtocol, 443, nil).Success = true
-	r.observe("203.0.113.7", "203.0.113.7", "", ConnectProtocol, 443, nil).Success = true
-	r.nameTunnel("203.0.113.7", 443, "api.example")
 
 	r.failTunnel("203.0.113.7:443")
 
 	destinations := r.result(Observation{}).Destinations
-	named := destinationByHost(t, destinations, "api.example")
-	if named.Failed != 1 || !named.HandshakeFailed() {
-		t.Errorf("named tunnel = %+v, want its one handshake failed", named)
+	underTarget := destinationByHost(t, destinations, "203.0.113.7")
+	if underTarget.Failed != 1 {
+		t.Errorf("address-only tunnel = %+v, want its one handshake failed", underTarget)
 	}
-	unnamed := destinationByHost(t, destinations, "203.0.113.7")
-	if unnamed.Failed != 0 {
-		t.Errorf("unnamed tunnel = %+v, want no failure", unnamed)
+	named := destinationByHost(t, destinations, "api.example")
+	if named.Failed != 0 {
+		t.Errorf("named tunnel = %+v, want the healthy host not charged", named)
 	}
 }
 
@@ -454,20 +457,35 @@ func TestRecorderResultUnionsObservedAndGivenArtefacts(t *testing.T) {
 
 // TestObservationCarriesNoValueBearingField pins the serialised shape of the
 // frozen artefact. A new field must not be able to carry a request body or a
-// header value, so the exact key set fails the test when it grows.
+// header value, so the exact key set fails the test when it grows. Every field
+// is populated, because an omitempty field on a zero value serialises no key
+// and would otherwise slip past the guard.
 func TestObservationCarriesNoValueBearingField(t *testing.T) {
+	seen := time.Date(2026, 11, 18, 9, 30, 0, 0, time.UTC)
 	wantKeys := map[string][]string{
 		"Destination": {
-			"channel", "count", "denied", "first_seen", "host", "ip",
+			"channel", "count", "denied", "failed", "first_seen", "host", "ip",
 			"last_seen", "path", "port", "protocol", "success",
 		},
 		"Attribution": {"credential", "header_names", "host", "path", "saw_placeholder", "saw_real"},
-		"Observation": {"attribution", "destinations"},
+		"Observation": {"attribution", "destinations", "proxy_log", "proxy_warnings"},
 	}
 	shapes := map[string]any{
-		"Destination": Destination{},
-		"Attribution": Attribution{},
-		"Observation": Observation{},
+		"Destination": Destination{
+			Host: "api.example", IP: "203.0.113.7", Port: 443, Protocol: "https",
+			Path: "/v1/chat", Success: true, Denied: true, Count: 1,
+			FirstSeen: seen, LastSeen: seen, Channel: observedViaProxy, Failed: 1,
+		},
+		"Attribution": Attribution{
+			Host: "api.example", Path: "/v1/chat", Credential: "EXAMPLE_API_TOKEN",
+			HeaderNames: []string{"authorization"}, SawReal: true, SawPlaceholder: true,
+		},
+		"Observation": Observation{
+			Destinations:  []Destination{{Host: "api.example"}},
+			Attribution:   []Attribution{{Host: "api.example"}},
+			ProxyLog:      "/state/learn/proxy-logs/1763458200.log",
+			ProxyWarnings: 1,
+		},
 	}
 	for name, shape := range shapes {
 		if got := jsonKeys(shape); !slices.Equal(got, wantKeys[name]) {

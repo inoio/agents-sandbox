@@ -134,25 +134,39 @@ func (r *recorder) nameTunnel(ip string, port uint16, hostname string) {
 // failTunnel records a failed terminating handshake (the client aborted, sent
 // EOF, or offered no acceptable version) of a tunnel it opened to
 // connectTarget. goproxy names only the target, so this is a heuristic, used
-// for reporting only: the failure is charged to the tunnel that most recently
-// started a handshake there, the SNI-named entry when the client sent a name,
-// else the entry under the target itself.
+// for reporting only: the failure is charged to the tunnel's own entry, the
+// entry recorded under the target itself (an unnamed, address-only tunnel, or a
+// tunnel opened by hostname). A named entry that merely shares the target's IP
+// is charged only when no entry under the target exists — otherwise a failure
+// from a client that sent no SNI would mark a healthy host that shares the same
+// IP:port.
 func (r *recorder) failTunnel(connectTarget string) {
 	host, port := splitHostPort(connectTarget)
 	if parsed := net.ParseIP(host); parsed != nil {
 		host = parsed.String()
 	}
-	var latest *Destination
+	var underTarget, sharingIP *Destination
 	for _, tunnel := range r.destinations {
-		if tunnel.Protocol != ConnectProtocol || tunnel.Port != port || (tunnel.Host != host && tunnel.IP != host) {
+		if tunnel.Protocol != ConnectProtocol || tunnel.Port != port {
 			continue
 		}
-		if latest == nil || !tunnel.LastSeen.Before(latest.LastSeen) {
-			latest = tunnel
+		switch {
+		case tunnel.Host == host:
+			if underTarget == nil || !tunnel.LastSeen.Before(underTarget.LastSeen) {
+				underTarget = tunnel
+			}
+		case tunnel.IP == host:
+			if sharingIP == nil || !tunnel.LastSeen.Before(sharingIP.LastSeen) {
+				sharingIP = tunnel
+			}
 		}
 	}
-	if latest != nil {
-		latest.Failed++
+	charged := underTarget
+	if charged == nil {
+		charged = sharingIP
+	}
+	if charged != nil {
+		charged.Failed++
 	}
 }
 

@@ -175,7 +175,8 @@ func assertArtefactKeys(t *testing.T, obs Observation) {
 		"destinations": true, "attribution": true,
 		"host": true, "ip": true, "port": true, "protocol": true, "path": true,
 		"success": true, "denied": true, "count": true, "first_seen": true,
-		"last_seen": true, "channel": true,
+		"last_seen": true, "channel": true, "failed": true,
+		"proxy_log": true, "proxy_warnings": true,
 		"credential": true, "header_names": true, "saw_real": true,
 		"saw_placeholder": true,
 	}

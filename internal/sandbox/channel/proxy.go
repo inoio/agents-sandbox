@@ -110,7 +110,7 @@ func Start(bindHost string, skipUpstreamVerify bool, openLog func() (*os.File, e
 	state.recorder = new(recorder)
 	state.caFile = caFile
 	state.log = &proxyLog{
-		mu: sync.Mutex{}, file: nil, openLog: openLog, lines: 0, closed: false,
+		mu: sync.Mutex{}, file: nil, openLog: openLog, lines: 0, closed: false, path: "",
 		onHandshakeFailure: state.failTunnel,
 	}
 	state.server = &http.Server{
@@ -323,7 +323,7 @@ func (s *proxyState) logger() *proxyLog {
 	if s.log == nil {
 		s.log = &proxyLog{
 			// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT reason="a counting-only log built for a state without Start; its start count is read by no caller"
-			mu: sync.Mutex{}, file: nil, openLog: nil, lines: 0, closed: false,
+			mu: sync.Mutex{}, file: nil, openLog: nil, lines: 0, closed: false, path: "",
 			onHandshakeFailure: s.failTunnel,
 		}
 	}
