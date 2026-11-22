@@ -136,7 +136,10 @@ unless it is cached with matching content (`createProjectVM` → `image.EnsureLo
 
 **`setup-sandbox`.** Provisions the agent config files, records boot provenance on a fresh boot
 (`recordImageProvenance`), runs startup hooks, starts dockerd and the agent daemon (or restarts the daemon when the
-plan asked for it), and resolves the attach target, including `--worktree` (`ResolveTarget`). Skipped under
+plan asked for it), and resolves the attach target, including `--worktree` (`ResolveTarget`). The dockerd and agent
+daemon readiness waits (`resolvedReadyTimeout`) take `RunOptions.DockerReadyTimeout`/`DaemonReadyTimeout` (the
+`docker-ready-timeout`/`daemon-ready-timeout` config keys) when positive, else the package default
+(`dockerdReadyTimeout` 30s / `daemonReadyTimeout` 60s). Skipped under
 `--dry-run-vm`. See `specs/vm/detached-jobs.md`, `../agents/opencode2.md`.
 
 **`attach`.** Opens the interactive session as a login shell (`runAttach`), with the notify watcher and host link

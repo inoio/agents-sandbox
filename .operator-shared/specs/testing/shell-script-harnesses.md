@@ -105,11 +105,11 @@ See [test isolation](test-isolation.md) for the Go-side seam contract this sits 
 
 ## Current state
 
-The migration is complete. Eighteen harnesses live in the Go `test/scripts` package —
+The migration is complete. Nineteen harnesses live in the Go `test/scripts` package —
 `open-backport-pr`, `backport-audit`, `changed-files`, `changed-targets`, `upstream-drift`,
 `enqueue-pr`, `event-base`, `brain-check`, `check`, `changelog`, `ci-guards`,
 `classify-changes`, `deadcode`, `surface-sweep`, `envelope`, `rebase-status`,
-`cleanup-merged-branches`, and `check-docs` — each driving its standalone `scripts/*.sh` or
+`cleanup-merged-branches`, `kvm-guest`, and `check-docs` — each driving its standalone `scripts/*.sh` or
 `ci/*.sh` tool through `RunScript` with go-git `gittest` fixtures and re-exec fakes; the two
 porcelain fixtures (`rebase-status`, `cleanup-merged-branches`) drive real git through the shared
 exec-git helper. The helpers are `GitIsolationEnvironment` in

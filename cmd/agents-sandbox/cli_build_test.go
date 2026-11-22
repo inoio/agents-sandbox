@@ -579,7 +579,11 @@ func TestBuildUsesCheckoutSlug(t *testing.T) {
 
 	t.Chdir(secondClone)
 	cmd, _ := setupCommandFixtures(t, cmdBuild)
-	mock := &msbtest.MockMsbClient{}
+	// A checkout's content-ref image is not cached on a fresh clone, so the build
+	// loads it; a cached content ref would be reused without a load instead.
+	mock := &msbtest.MockMsbClient{
+		ImageGetFn: func(context.Context, string) error { return errors.New("not cached") },
+	}
 	msbtest.WithMsbMock(t, mock)
 	// The default noop Docker mock reports no image ID, which would fall back to
 	// the name ref. Return a real ID so the build exercises the content ref.

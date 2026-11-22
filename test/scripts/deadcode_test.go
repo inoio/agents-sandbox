@@ -103,6 +103,23 @@ func TestDeadcode(t *testing.T) {
 		)
 	})
 
+	t.Run("finding under test/ is ignored", func(t *testing.T) {
+		t.Parallel()
+		h := newDeadcodeHarness(t, checker, "")
+		h.writeAllConfigurationsUnder("test/msb/driver/spec.go", h.deadLine, "Dead")
+
+		h.expect("finding under test/ is ignored", 0, "", nil)
+	})
+
+	t.Run("marker under test/ is not scanned", func(t *testing.T) {
+		t.Parallel()
+		h := newDeadcodeHarness(t, checker, "")
+		h.writeAllConfigurationsUnder("test/msb/driver/spec.go", h.deadLine, "Dead")
+		writeDoc(t, h.files, "test/msb/driver/absent.go\n")
+
+		h.expect("marker under test/ is not scanned", 0, "", nil)
+	})
+
 	t.Run("supplied checker is executed", func(t *testing.T) {
 		t.Parallel()
 		h := newDeadcodeHarness(t, checker, "")
@@ -192,12 +209,20 @@ type deadcodeReportPosition struct {
 // writeReport writes the report payload for one build-tag configuration.
 func (h *deadcodeHarness) writeReport(configuration string, line int, function string) {
 	h.t.Helper()
+	h.writeReportFor(configuration, h.source, line, function)
+}
+
+// writeReportFor writes the report payload for one build-tag configuration,
+// naming an explicit source file so a case can report a path that is
+// module-relative rather than the harness's own temp file.
+func (h *deadcodeHarness) writeReportFor(configuration, file string, line int, function string) {
+	h.t.Helper()
 	writeJSON(h.t, filepath.Join(h.reports, configuration+".json"), []deadcodeReportPackage{{
 		Name: "p",
 		Path: "example.com/p",
 		Funcs: []deadcodeReportFunc{{
 			Name:     function,
-			Position: deadcodeReportPosition{File: h.source, Line: line, Col: 6},
+			Position: deadcodeReportPosition{File: file, Line: line, Col: 6},
 		}},
 	}})
 }
@@ -215,6 +240,16 @@ func (h *deadcodeHarness) writeAllConfigurations(line int, function string) {
 	h.writeReport("integration", line, function)
 	h.writeReport("msb", line, function)
 	h.writeReport("integration+msb", line, function)
+}
+
+// writeAllConfigurationsUnder writes a finding for every build-tag
+// configuration, naming file as the finding's module-relative source path.
+func (h *deadcodeHarness) writeAllConfigurationsUnder(file string, line int, function string) {
+	h.t.Helper()
+	h.writeReportFor("no-tags", file, line, function)
+	h.writeReportFor("integration", file, line, function)
+	h.writeReportFor("msb", file, line, function)
+	h.writeReportFor("integration+msb", file, line, function)
 }
 
 // run drives ci/check-deadcode.sh with the fixture environment plus overrides.

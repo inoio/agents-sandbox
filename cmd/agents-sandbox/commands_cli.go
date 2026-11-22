@@ -444,6 +444,8 @@ func registerSharedRunShellFlags(cmd *cobra.Command) {
 	cmd.Flags().String(flagTmpSize, "", "Size of the /tmp tmpfs in the sandbox (default: min(2G, memory/2))")
 	cmd.Flags().String(flagDiskSize, "", "Size of the project VM root disk (e.g. 16G)")
 	cmd.Flags().String(flagWorkspaceQuota, "16G", "Guest-write quota for the /workspace bind mount (e.g. 32G)")
+	cmd.Flags().Duration(flagDockerReadyTimeout, 0, "Readiness timeout for the in-VM Docker engine (default 30s)")
+	cmd.Flags().Duration(flagDaemonReadyTimeout, 0, "Readiness timeout for the agent's serve daemon (default 60s)")
 	cmd.Flags().
 		StringSlice(flagNetwork, nil, "Network egress profile(s) for the VM: public, private, host, or none (default public); comma-separated or repeated")
 	cmd.Flags().

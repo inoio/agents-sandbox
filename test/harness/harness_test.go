@@ -148,6 +148,51 @@ func TestHeavyweightReadyTimeoutIsTheDocumentedCeiling(t *testing.T) {
 	}
 }
 
+// TestTimeoutFactorFromValue pins the smoke timeout-factor parsing: a positive
+// float scales the ceilings, and every other value (unset, zero, negative,
+// non-numeric) leaves them at 1, so a host run is unchanged.
+func TestTimeoutFactorFromValue(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value string
+		want  float64
+	}{
+		{"unset", "", 1},
+		{"zero", "0", 1},
+		{"negative", "-2", 1},
+		{"non-numeric", "fast", 1},
+		{"nan", "NaN", 1},
+		{"positive-inf", "+Inf", 1},
+		{"negative-inf", "-Inf", 1},
+		{"whole", "2", 2},
+		{"fractional", "1.5", 1.5},
+		{"padded", "  3  ", 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := timeoutFactorFromValue(tc.value); got != tc.want {
+				t.Errorf("timeoutFactorFromValue(%q) = %v, want %v", tc.value, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestScaleTimeout pins the ceiling scaler: a factor of 1 is the identity (so a
+// host run's ceilings are byte-for-byte unchanged — pinned on a duration beyond
+// float64's exact-integer range, where a multiply/round trip would drift) and
+// other factors multiply.
+func TestScaleTimeout(t *testing.T) {
+	const long = 3000 * time.Hour
+	if got := scaleTimeout(long, 1); got != long {
+		t.Errorf("scaleTimeout(f=1) = %s, want the exact %s", got, long)
+	}
+	if got := scaleTimeout(15*time.Second, 2); got != 30*time.Second {
+		t.Errorf("scaleTimeout(f=2) = %s, want 30s", got)
+	}
+	if got := scaleTimeout(15*time.Second, 0.5); got != 7500*time.Millisecond {
+		t.Errorf("scaleTimeout(f=0.5) = %s, want 7.5s", got)
+	}
+}
+
 // TestHermesSeedsAConfiguredHomeAndMarker pins how the smoke test reaches
 // hermes' interactive REPL without a real credential: it seeds a home config
 // that makes hermes consider a dummy, loopback provider configured and settles
@@ -470,9 +515,9 @@ func TestSeedHomeFilesUsesPrivateModes(t *testing.T) {
 // TestSawDaemonTimeout pins that the shared marker helper fires on the
 // launcher's real daemon-timeout phrase and stays quiet on unrelated output.
 func TestSawDaemonTimeout(t *testing.T) {
-	launcherPhrase := "opencode2 daemon did not become healthy within 1m0s: 401 unauthorized"
-	if !strings.Contains(launcherPhrase, "daemon did not become healthy") {
-		t.Fatalf("test phrase %q does not carry the launcher's daemon-timeout wording", launcherPhrase)
+	launcherPhrase := "opencode2 daemon did not become ready within 1m0s: 401 unauthorized"
+	if !strings.Contains(launcherPhrase, daemonTimeoutMarker) {
+		t.Fatalf("test phrase %q does not carry the launcher's marker %q", launcherPhrase, daemonTimeoutMarker)
 	}
 	if !sawDaemonTimeout([]byte("launcher output\n" + launcherPhrase)) {
 		t.Error("sawDaemonTimeout = false, want true for the launcher's daemon-timeout phrase")
@@ -542,27 +587,28 @@ func TestIsolatedEnvAllowlist(t *testing.T) {
 func TestSmokeRootStaysShortEnoughForSandboxSockets(t *testing.T) {
 	// os.MkdirTemp appends nine random characters after the pattern.
 	const mkdirTempSuffix = "123456789"
-	root := filepath.Join(smokeRootBase, smokeRootPrefix+mkdirTempSuffix)
+	root := filepath.Join(smokeRootBaseDefault, smokeRootPrefix+mkdirTempSuffix)
 	if !rootFitsSandboxSocket(root) {
 		t.Errorf(
-			"the default suite root %q derives a %d-byte sandbox control-socket path, at or above the %d-byte sun_path limit; keep smokeRootBase and smokeRootPrefix short",
+			"the default suite root %q derives a %d-byte sandbox control-socket path, at or above the %d-byte sun_path limit; keep smokeRootBaseDefault, any %s override, and smokeRootPrefix short",
 			root,
 			len(msbHomeUnderRoot(root))+sandboxSocketPathSuffix,
 			sunPathLimit,
+			smokeRootBaseEnv,
 		)
 	}
 }
 
-// shortTempDir creates a unique directory under smokeRootBase. Its path is short
-// enough for a reuse root's derived sandbox control socket, and being unique per
-// invocation keeps a test from sharing (and deleting) a fixed /tmp path another
-// concurrent run uses.
+// shortTempDir creates a unique directory under smokeRootBaseDefault. Its path
+// is short enough for a reuse root's derived sandbox control socket, and being
+// unique per invocation keeps a test from sharing (and deleting) a fixed /tmp
+// path another concurrent run uses.
 func shortTempDir(t *testing.T) string {
 	t.Helper()
-	// mkdtemp (the resolveSuiteRoot seam) with the short smokeRootBase, not
-	// t.TempDir: t.TempDir's test-named path under TMPDIR is too long for the
+	// mkdtemp (the resolveSuiteRoot seam) with the short smokeRootBaseDefault,
+	// not t.TempDir: t.TempDir's test-named path under TMPDIR is too long for the
 	// socket budget.
-	dir, err := mkdtemp(smokeRootBase, smokeRootPrefix+"t-")
+	dir, err := mkdtemp(smokeRootBaseDefault, smokeRootPrefix+"t-")
 	if err != nil {
 		t.Fatalf("create short temp dir: %v", err)
 	}
@@ -609,6 +655,66 @@ func TestResolveSuiteRootReusesEnv(t *testing.T) {
 	}
 	if reused || root == "" {
 		t.Errorf("resolveSuiteRoot = (%q, %v), want a fresh, non-reused root", root, reused)
+	}
+}
+
+// TestSmokeRootBaseOverride pins that AGENTS_SANDBOX_MSB_ROOT_BASE moves a fresh
+// suite root, so a host whose /tmp is a RAM-backed tmpfs can create roots on a
+// disk-backed base. The mkdtemp seam keeps the returned root short enough for the
+// socket budget regardless of the (necessarily short) base's own length.
+func TestSmokeRootBaseOverride(t *testing.T) {
+	originalMkdtemp := mkdtemp
+	t.Cleanup(func() { mkdtemp = originalMkdtemp })
+	var gotBase, gotPrefix string
+	mkdtemp = func(base, prefix string) (string, error) {
+		gotBase, gotPrefix = base, prefix
+		return filepath.Join(base, "root"), nil
+	}
+
+	base := shortTempDir(t)
+	t.Setenv(smokeRootReuseEnv, "")
+	t.Setenv(smokeRootBaseEnv, base)
+
+	root, reused, release, err := resolveSuiteRoot()
+	if err != nil {
+		t.Fatalf("resolveSuiteRoot: %v", err)
+	}
+	if release != nil {
+		t.Error("resolveSuiteRoot returned a lock release for a fresh root, want nil")
+	}
+	if reused {
+		t.Error("resolveSuiteRoot reused a root with the reuse env unset")
+	}
+	if gotBase != base {
+		t.Errorf("resolveSuiteRoot created under base %q, want the override %q", gotBase, base)
+	}
+	if gotPrefix != smokeRootPrefix {
+		t.Errorf("resolveSuiteRoot created with prefix %q, want %q", gotPrefix, smokeRootPrefix)
+	}
+	if want := filepath.Join(base, "root"); root != want {
+		t.Errorf("resolveSuiteRoot root = %q, want %q", root, want)
+	}
+}
+
+// TestSmokeRootBaseOverrideRejectsLongBase pins that a base which cannot fit the
+// socket budget is reported at resolution, not left to fail a harness later.
+func TestSmokeRootBaseOverrideRejectsLongBase(t *testing.T) {
+	longBase := filepath.Join(t.TempDir(), strings.Repeat("x", sunPathLimit))
+	if err := os.MkdirAll(longBase, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(smokeRootReuseEnv, "")
+	t.Setenv(smokeRootBaseEnv, longBase)
+
+	root, reused, release, err := resolveSuiteRoot()
+	if err == nil {
+		t.Fatal("resolveSuiteRoot = nil error, want a too-long base rejected")
+	}
+	if !strings.Contains(err.Error(), smokeRootBaseEnv) {
+		t.Errorf("resolveSuiteRoot error %q, want it to name %s", err, smokeRootBaseEnv)
+	}
+	if root != "" || reused || release != nil {
+		t.Errorf("resolveSuiteRoot = (%q, %v, release %v), want zero values on failure", root, reused, release != nil)
 	}
 }
 
@@ -838,6 +944,34 @@ func envMap(env []string) map[string]string {
 	return got
 }
 
+// TestIsolatedEnvForwardsLauncherReadyTimeouts pins the guest-only forwarding:
+// the suite's own AGENTS_SANDBOX_MSB_* variable is rewritten into the launcher's
+// config variable for the child, while a launcher variable exported on the host
+// is still dropped by the allowlist, so the isolation holds.
+func TestIsolatedEnvForwardsLauncherReadyTimeouts(t *testing.T) {
+	inherited := []string{
+		"AGENTS_SANDBOX_MSB_DOCKER_READY_TIMEOUT=90s",
+		"AGENTS_SANDBOX_MSB_DAEMON_READY_TIMEOUT=180s",
+		"AGENTS_SANDBOX_DOCKER_READY_TIMEOUT=1ns",
+		"HOME=/real",
+	}
+	got := envMap(isolatedEnv("/root", "/root", inherited))
+	for k, want := range map[string]string{
+		"AGENTS_SANDBOX_DOCKER_READY_TIMEOUT": "90s",
+		"AGENTS_SANDBOX_DAEMON_READY_TIMEOUT": "180s",
+	} {
+		if got[k] != want {
+			t.Errorf("%s = %q, want the forwarded %q", k, got[k], want)
+		}
+	}
+	if leaked := got["AGENTS_SANDBOX_MSB_DOCKER_READY_TIMEOUT"]; leaked != "" {
+		t.Errorf("AGENTS_SANDBOX_MSB_DOCKER_READY_TIMEOUT leaked into the child: %q", leaked)
+	}
+	if got["HOME"] != filepath.Join("/root", "home") {
+		t.Errorf("HOME = %q, want the isolated home", got["HOME"])
+	}
+}
+
 // TestIsolatedEnvKeepsDockerEndpoint pins that the docker endpoint variables
 // survive: the child needs the same daemon the preflight reaches, and they
 // carry no agents-sandbox config or state.
@@ -961,6 +1095,19 @@ func TestQuitIntervalKeepsPairsRapidAndWaitsBetweenThem(t *testing.T) {
 	}
 }
 
+// TestSandboxNames pins the `sandbox list -q` parser the start/teardown sweep
+// uses: one trimmed name per non-blank line, and empty output yields no names.
+func TestSandboxNames(t *testing.T) {
+	if got := sandboxNames(""); got != nil {
+		t.Errorf("sandboxNames(\"\") = %v, want nil", got)
+	}
+	got := sandboxNames("a\n\n  b  \n")
+	want := []string{"a", "b"}
+	if !slices.Equal(got, want) {
+		t.Errorf("sandboxNames = %v, want %v", got, want)
+	}
+}
+
 // TestHarnessConcurrencyForFreeMemory pins the memory-derived parallel-harness
 // count: as many smoke VMs as fit after the host reserve, floored, and never
 // fewer than one.
@@ -987,12 +1134,111 @@ func TestHarnessConcurrencyForFreeMemory(t *testing.T) {
 }
 
 // TestHarnessRunArgsCapTheSmokeMemory pins that a harness smoke run boots its VM
-// at the smoke memory, not the launcher's larger default, and passes --yes so
-// the launcher's first-run setup menu never blocks the pty before the harness.
+// at the smoke memory, not the launcher's larger default, passes --yes so the
+// launcher's first-run setup menu never blocks the pty before the harness, and
+// passes --no-rebuild so the run reuses the suite's prebuilt image without the
+// agent upgrade check (which, against the run's fresh machine-global state,
+// re-resolves each agent's latest release every run).
 func TestHarnessRunArgsCapTheSmokeMemory(t *testing.T) {
 	got := harnessRunArgs("opencode", "none")
-	want := []string{"run", "--agent", "opencode", "--network", "none", "--memory", smokeMemorySpec(), "--yes"}
+	want := []string{
+		"run",
+		"--agent",
+		"opencode",
+		"--network",
+		"none",
+		"--memory",
+		smokeMemorySpec(),
+		"--yes",
+		"--no-rebuild",
+	}
 	if !slices.Equal(got, want) {
 		t.Errorf("harnessRunArgs = %v, want %v", got, want)
+	}
+}
+
+// TestDockerStorageShellArgsReuseThePrebuiltImage pins that the docker-storage
+// sibling's `shell` reuses the suite's prebuilt image too: it drives a
+// docker-enabled opencode VM under the given network with --no-rebuild, so it
+// makes no release-resolution request.
+func TestDockerStorageShellArgsReuseThePrebuiltImage(t *testing.T) {
+	got := dockerStorageShellArgs("none")
+	want := []string{"shell", "--agent", "opencode", "--docker", "--network", "none", "--no-rebuild"}
+	if !slices.Equal(got, want) {
+		t.Errorf("dockerStorageShellArgs = %v, want %v", got, want)
+	}
+}
+
+// TestSmokeVMCPUsFromValue pins the per-VM vCPU cap parsing: a positive 8-bit
+// integer caps the VM, and every other value (unset, zero, non-numeric, or
+// beyond a uint8) leaves the launcher's default.
+func TestSmokeVMCPUsFromValue(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value string
+		want  uint8
+	}{
+		{"unset", "", 0},
+		{"zero", "0", 0},
+		{"positive", "2", 2},
+		{"padded", "  3  ", 3},
+		{"non-numeric", "abc", 0},
+		{"negative", "-1", 0},
+		{"beyond uint8", "256", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := smokeVMCPUsFromValue(tc.value); got != tc.want {
+				t.Errorf("smokeVMCPUsFromValue(%q) = %d, want %d", tc.value, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestWithVMCPUsAppendsOnlyWhenCapped pins that a zero cap leaves the argv
+// untouched (so a host run is unchanged) and a non-zero cap appends the
+// launcher's --cpus flag with the value.
+func TestWithVMCPUsAppendsOnlyWhenCapped(t *testing.T) {
+	base := []string{"run", "--agent", "opencode"}
+	if got := withVMCPUs(append([]string(nil), base...), 0); !slices.Equal(got, base) {
+		t.Errorf("withVMCPUs(cpus 0) = %v, want %v", got, base)
+	}
+	got := withVMCPUs(append([]string(nil), base...), 2)
+	want := []string{"run", "--agent", "opencode", "--cpus", "2"}
+	if !slices.Equal(got, want) {
+		t.Errorf("withVMCPUs(cpus 2) = %v, want %v", got, want)
+	}
+}
+
+// TestWithGitHubTokenAddsTheTokenWhenPresent pins that a prebuild child gets the
+// environment's GitHub API token, so its release-resolution requests
+// authenticate instead of sharing the anonymous api.github.com limit. GH_TOKEN
+// wins over GITHUB_TOKEN, matching the launcher's own precedence.
+func TestWithGitHubTokenAddsTheTokenWhenPresent(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		inherited []string
+		wantName  string
+		wantValue string
+	}{
+		{"gh-token", []string{"GH_TOKEN=ghp_x"}, "GH_TOKEN", "ghp_x"},
+		{"github-token", []string{"GITHUB_TOKEN=ghp_y"}, "GITHUB_TOKEN", "ghp_y"},
+		{"gh-token-wins", []string{"GH_TOKEN=ghp_x", "GITHUB_TOKEN=ghp_y"}, "GH_TOKEN", "ghp_x"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := withGitHubToken([]string{"PATH=/usr/bin"}, tc.inherited)
+			if value := envValue(got, tc.wantName); value != tc.wantValue {
+				t.Errorf("%s = %q, want %q", tc.wantName, value, tc.wantValue)
+			}
+		})
+	}
+}
+
+// TestWithGitHubTokenLeavesEnvUnchangedWhenAbsent pins that no token variable is
+// injected when the environment has none, so an anonymous host stays anonymous.
+func TestWithGitHubTokenLeavesEnvUnchangedWhenAbsent(t *testing.T) {
+	env := []string{"PATH=/usr/bin"}
+	got := withGitHubToken(env, []string{"PATH=/usr/bin"})
+	if !slices.Equal(got, env) {
+		t.Errorf("withGitHubToken = %v, want the env unchanged (%v)", got, env)
 	}
 }

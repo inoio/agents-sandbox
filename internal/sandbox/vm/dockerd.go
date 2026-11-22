@@ -215,8 +215,9 @@ func stringDirective(directives map[string]json.RawMessage, key string) (string,
 // running. An image with dockerd but without the rootless entrypoint predates
 // the rootless engine and must be rebuilt; the launcher never falls back to a
 // root-equivalent engine. The launch/readiness sequence is the shared
-// ensureDetachedService recipe.
-func startDockerdIfPresent(ctx context.Context, sb msb.Sandbox, ui termio.Logger) error {
+// ensureDetachedService recipe. readyTimeout overrides the readiness window
+// (docker-ready-timeout); zero uses dockerdReadyTimeoutDefault.
+func startDockerdIfPresent(ctx context.Context, sb msb.Sandbox, ui termio.Logger, readyTimeout time.Duration) error {
 	out, checkErr := sb.Shell(ctx, dockerdBinaryCheckCmd, msb.ExecRequest{User: RootUser})
 	if checkErr != nil {
 		return fmt.Errorf("while checking dockerd binary: %w", checkErr)
@@ -256,7 +257,7 @@ func startDockerdIfPresent(ctx context.Context, sb msb.Sandbox, ui termio.Logger
 			_, cleanupErr := sb.Shell(cleanupCtx, dockerdCleanupCmd, msb.ExecRequest{User: RootUser})
 			return cleanupErr
 		},
-		timeout:            dockerdReadyTimeout,
+		timeout:            resolvedReadyTimeout(readyTimeout, dockerdReadyTimeout),
 		pollInterval:       dockerdPollInterval,
 		alreadyHealthyNote: "using already running dockerd",
 		readyNote:          "dockerd is ready",

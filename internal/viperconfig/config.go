@@ -44,6 +44,13 @@ type Config struct {
 	AutoStopTimeout           time.Duration `mapstructure:"auto-stop-timeout"`
 	AutoStopMaxSessionRetries int           `mapstructure:"auto-stop-max-session-retries"`
 
+	// DockerReadyTimeout and DaemonReadyTimeout bound the in-VM Docker engine's
+	// and the agent serve daemon's readiness waits. Zero uses the built-in
+	// default (30s / 60s); a positive value overrides it for a slow host, such
+	// as a nested KVM guest.
+	DockerReadyTimeout time.Duration `mapstructure:"docker-ready-timeout"`
+	DaemonReadyTimeout time.Duration `mapstructure:"daemon-ready-timeout"`
+
 	// Network holds the egress and TLS-interception policy. Profiles and
 	// DNSServers have an env var and a flag; InterceptTLS and DisableStrict have
 	// an env var; EgressAllow, EgressDeny, and TLSBypass are config-file-only.
@@ -157,6 +164,8 @@ const (
 	keyAutoStopOnActiveSessions  = "auto-stop-on-active-sessions"
 	keyAutoStopTimeout           = "auto-stop-timeout"
 	keyAutoStopMaxSessionRetries = "auto-stop-max-session-retries"
+	keyDockerReadyTimeout        = "docker-ready-timeout"
+	keyDaemonReadyTimeout        = "daemon-ready-timeout"
 	keyNetworkProfile            = "network.profile"
 	keyNetworkDNSServers         = "network.dns-servers"
 	keyNetworkInterceptTLS       = "network.intercept-tls"

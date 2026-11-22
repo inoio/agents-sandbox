@@ -16,6 +16,11 @@ func TestMain(m *testing.M) {
 	Register("gh", fakeGhHandler)
 	Register("asb", surfaceSweepAsbHandler)
 	Register("docker", surfaceSweepDockerHandler)
+	Register("virsh", kvmGuestVirshHandler)
+	Register("ssh", kvmGuestSSHHandler)
+	Register("rsync", kvmGuestRsyncHandler)
+	Register("nft", kvmGuestNftHandler)
+	Register("id", kvmGuestIDHandler)
 	Register("faketool", func(args []string) (string, string, int) {
 		return "out:" + strings.Join(args, ","), "err\n", 3
 	})

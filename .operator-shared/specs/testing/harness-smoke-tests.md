@@ -12,7 +12,7 @@ read_if: Adding or changing the harness smoke tests, the `msb` build tag, `make 
 Harness support can break without any test noticing. `opencode2` did: its `DaemonProvider.DaemonHealthCmd`
 sent no credentials, v2's `serve` answers every `/api/*` route with `401` when unauthenticated, and
 `ensureDaemon` (`internal/sandbox/vm/daemon.go`) polled to its `daemonReadyTimeout` (60s) before failing. The
-daemon was healthy; the launcher could not see it, and the user got "… did not become healthy within 60s"
+daemon was healthy; the launcher could not see it, and the user got "… did not become ready within 60s"
 instead of a TUI. See `specs/agents/opencode2.md` for the fix.
 
 No existing test could catch it:
@@ -30,7 +30,9 @@ The same gap means a newly registered harness has no test that it starts at all.
 **Tag and location.** The suite lives in package `test/harness/` behind the build tag `msb` (a tag names the
 runtime it requires, as `integration` names a real docker daemon). `make test-msb` runs it, together with the
 `msb`-tagged real-client tests in `internal/sandbox/msb/` (`realstack_msb_test.go`); it is not part of
-`make check`, `make test`, or the default CI. `make compile-all` compiles it (`-tags 'integration msb'`) so a
+`make check`, `make test`, or the default CI. The KVM guest's `make kvm-run` drives `make test-msb-in-vm`
+instead: the same suite with the two packages serialized (`go test -p 1`), each smoke VM's vCPUs capped, and the
+readiness/quit ceilings scaled (see Isolation). `make compile-all` compiles it (`-tags 'integration msb'`) so a
 tagged-only compile regression is caught on every PR.
 
 **Scope of the assertion.** For every name in `agent.Names()`, the suite starts the harness the way a user does
@@ -42,7 +44,7 @@ tagged-only compile regression is caught on every PR.
    (see Readiness);
 2. the process then exited `0` after the harness's quit presses were written to the terminal; escalation
    (`SIGTERM`/`SIGKILL`) is cleanup only and fails the subtest if reached;
-3. the output never contains the daemon-timeout marker (`did not become healthy`).
+3. the output never contains the detached-service readiness-timeout marker (`did not become ready`).
 
 **`--yes` skips the launcher's first-run menu.** `run` on a checkout with no managed config layer offers the
 first-run setup menu (`internal/firstrun`) before the session. Under the suite's pty that menu is interactive and
@@ -50,6 +52,15 @@ blocks, so the harness never starts. `--yes` makes the launcher non-interactive 
 under `assumeYes`), so `firstrun.Prompt` warns and skips the menu; the run proceeds as a plain attach with no
 learning session. The warning line is harmless and unreserved. The menu itself is exercised by the
 `cmd/agents-sandbox` first-run tests; the smoke suite only needs it out of the way.
+
+**`--no-rebuild` keeps the runs off the release-resolution endpoints.** Both the harness `run` and the docker-storage
+`shell` pass `--no-rebuild`. The suite prebuilt every image, so the flag cannot change what is built; what it removes is
+the agent upgrade check. That check runs against the run's isolated root state (`XDG_STATE_HOME` is per run), so its
+once-a-day window is always expired and every harness would otherwise re-resolve its agent's newest release. For the five
+GitHub-backed agents (`opencode`, `codex`, `goose`, `hermes`, `oh-my-pi`) those lookups share the anonymous
+60-requests/hour `api.github.com` budget, which the suite has to stay under. The prebuild's `build` still resolves an
+unpinned version, so the suite pays that budget once per GitHub-backed agent there — authenticated when the environment
+carries a GitHub token (see Isolation).
 
 **The isolated launcher config turns host-config provisioning on.** `provision-host-config` is opt-in since the
 first-run change (default off), so a `SeedHomeFiles` seed — written under the isolated HOME for the agent's
@@ -98,6 +109,12 @@ harness whose startup is much slower raises the ceiling with `ReadyTimeout`: `he
 store, so its spec sets `heavyweightReadyTimeout` (120s). The override bounds either wait (marker or settle), not a
 sleep — hermes' banner marker ends its wait as soon as the CLI is up. An alternate-screen harness is bounded by the TUI
 marker wait (180s) instead.
+
+`AGENTS_SANDBOX_MSB_TIMEOUT_FACTOR` (a positive float, unset = 1) multiplies every readiness ceiling
+(`settledReadyTimeout`, `heavyweightReadyTimeout`, `tuiReadyTimeout`) and `quitTimeout`, so the in-guest
+`make test-msb-in-vm` can give a nested guest's slower start and teardown a proportionally larger budget. It does
+not scale the quit press/retry cadence: those are tuned to qwen-code's sub-1.2s "press again" chaining window and
+a longer interval would stop the exit chaining. At the default 1 a host run is byte-for-byte unchanged.
 
 **Harness table completeness.** A single table maps harness name to the key the smoke test taps, an optional network
 override, a `KeepsNormalBuffer` flag, an optional readiness marker, an optional readiness-timeout ceiling, and optional
@@ -182,19 +199,25 @@ manual testing showed three presses leave it, so the exception is gone and every
 **Isolation (hard requirement).** The child never reads or writes the developer's existing agents-sandbox
 configuration or state. Each run creates one temp root, shared by all subtests, and:
 
-- the root is created under a **short, fixed base** (`/tmp/asb-…`), not the host's `TMPDIR`: microsandbox
+- the root is created under a **short base** — `smokeRootBaseDefault` (`/tmp`) or the `AGENTS_SANDBOX_MSB_ROOT_BASE`
+  override — not the host's `TMPDIR`: microsandbox
   derives its sandbox control-socket path from the private home under `XDG_DATA_HOME` (`<root>/data/agents-sandbox/msb`)
   and rejects a derived path that does not fit a Unix socket's `sun_path` (104 bytes on macOS, the tighter
   target), so a long `TMPDIR` — macOS's default is ~49 bytes — would fail every harness before its TUI with
-  "sandbox runtime socket path is too long"; a fast unit test pins the budget (`msb` appends a fixed 50-byte
-  suffix and rejects a home above 55 bytes on Linux, microsandbox v0.7.8);
+  "sandbox runtime socket path is too long"; a created root (fresh or reused) is validated against the budget and
+  rejected when it does not fit, and a fast unit test pins the default and the budget (`msb` appends a fixed 50-byte
+  suffix and rejects a home above 55 bytes on Linux, microsandbox v0.7.8). The override exists because `/tmp` is a
+  RAM-backed tmpfs where systemd mounts it as one, which the 10+ GiB image cache would exhaust or spend the RAM; the
+  Makefile points it at the disk-backed `$(MSB_REUSE_ROOT)`;
 - the per-harness subtests run **in parallel**, bounded by a semaphore sized from the host's **free memory**
   (`harnessConcurrencyFor`: as many `smokeWorkingSetMiB` (1.5 GiB) VMs as fit after a fixed 2 GiB host reserve — the
   host OS, docker, and the concurrently running `internal/sandbox/msb` test binary — never fewer than one). The
   count is read via `sysinfo.AvailableMemoryMiB` (falling back to `TotalMemoryGiB`), and `AGENTS_SANDBOX_MSB_PARALLEL`
   overrides it. It is enforced by the semaphore, not `-parallel`, so even a bare `go test -tags msb ./...` cannot
   start a VM per harness; each smoke run boots its VM at `--memory` `smokeMemorySpec()` (2 GiB) instead of the
-  launcher's 4 GiB default. The working set, not the VM ceiling, sizes the count because a guest allocates only the
+  launcher's 4 GiB default, and — when `AGENTS_SANDBOX_MSB_VM_CPUS` is set (the in-guest `make test-msb-in-vm`
+  sets it) — caps vCPUs with `--cpus`, because a project VM otherwise claims every host vCPU and parallel
+  harnesses oversubscribe a nested guest. The working set, not the VM ceiling, sizes the count because a guest allocates only the
   pages it touches (virtio-mem); it tracks the heaviest harness (measured peaks under 0.5 GiB for pi, over 1 GiB for
   opencode2), so sizing on the lightest would oversubscribe the host. Each harness gets its own home base
   `<root>/runs/<name>` — created before the child starts by `prepareHome`, including its `TMPDIR`, which the launcher
@@ -212,9 +235,27 @@ configuration or state. Each run creates one temp root, shared by all subtests, 
   docker endpoint the runner-image build needs and hold no agents-sandbox config or state, so keeping them
   does not weaken the isolation — and the docker preflight runs under the same isolated environment, before
   any image build, so it can never certify a daemon the child cannot reach;
+- the launcher readiness-timeout overrides reach the child through the suite's **own namespace**, not the
+  launcher's: `AGENTS_SANDBOX_MSB_DOCKER_READY_TIMEOUT` / `AGENTS_SANDBOX_MSB_DAEMON_READY_TIMEOUT` (set by the
+  in-guest `make test-msb-in-vm`) are rewritten to `AGENTS_SANDBOX_DOCKER_READY_TIMEOUT` /
+  `AGENTS_SANDBOX_DAEMON_READY_TIMEOUT` in the child env. A host that happens to export the launcher's variable
+  still has it dropped by the allowlist, so only the suite's opt-in crosses;
+- the **prebuild** env additionally carries the environment's GitHub API token when one is set (`withGitHubToken`,
+  `GH_TOKEN` then `GITHUB_TOKEN`, matching the launcher's precedence). The prebuild's `build` resolves each unpinned
+  agent's latest release, and the GitHub-backed agents' requests would otherwise share the anonymous
+  60-requests/hour `api.github.com` limit. The launcher sends the token only to `api.github.com` — never into a VM,
+  whose secrets come from config files — so keeping it host-side does not weaken the isolation. The harness runs and the
+  docker-storage `shell` do not carry it: `--no-rebuild` leaves them nothing to resolve;
 - the child gets a sized terminal — the parent's window when the test process has a tty, else 40×120 — so a
   full-screen TUI does not render into a zero-column terminal;
 - the working directory is a temp project dir, so project config and the derived slug are throwaway;
+- the suite **sweeps the root's sandboxes at start and at teardown** (`sweepSandboxes`: `sandbox list -q`,
+  then `sandbox remove --force --yes` per name). The start sweep runs before the prebuild and the parallel
+  subtests, so a reused root never carries a previous run's stopped-but-persisted VM into this run, where
+  `EnsureProjectVM` would restart it (`started existing project VM`) and repay the whole start cost; the
+  teardown sweep stops a failed harness leaking a VM that points at a home the suite is about to delete. Both
+  are best-effort — a `list` or `remove` failure is logged, never fatal — because a sandbox mid create/cleanup
+  can make `list` itself fail;
 - consequently no real `~/.config/agents-sandbox`, `~/.local/{share,state}/agents-sandbox`, or
   `~/.cache/agents-sandbox` path is read or written, and the child starts from deterministic defaults.
 
@@ -234,8 +275,12 @@ between runs (resolved to an absolute path, validated to fit the socket-path bud
 root, so the microsandbox image cache under `<root>/data` survives and the per-run image transfer is paid once.
 The caching `make test-msb` sets it to the standing `$(MSB_REUSE_ROOT)/smoke` root, so the image cache and the
 docker layers survive and each agent's runner image is rebuilt in place under one tag; `make test-msb-cold` leaves
-it unset and so takes a fresh root. The default (unset) is a fresh root removed
-after the run; the reused directory is left in place. A reused root is held under an exclusive lock beside it for
+it unset and so takes a fresh root. `MSB_REUSE_ROOT` defaults to `/opt/asb-reuse`, not `/tmp`: the cache is 10+ GiB
+and `/tmp` is a RAM-backed tmpfs on hosts where systemd mounts it as one (`/var/tmp` is too on many), which either
+exhausts at the largest runner image or spends the RAM — while `/opt` is disk-backed and still short enough for the
+socket budget. The `msb-reuse-root` target creates it as the current user where the parent allows it and otherwise
+prints the `sudo install -d` command, and the KVM guest's cloud-init pre-creates it. The default (unset) is a fresh
+root removed after the run; the reused directory is left in place. A reused root is held under an exclusive lock beside it for
 the run's lifetime, so a second run that shares the root waits rather than racing: the run that finishes first
 would otherwise sweep every sandbox in the shared home, destroying the other's live VMs.
 

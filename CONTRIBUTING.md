@@ -153,6 +153,11 @@ This project defaults to **test-driven development**:
   off the merge path. The same suite also runs against rootless podman, kept opt-in behind the
   `run-integration-podman` label and run on the schedule: podman advertises only the classic builder, so it neither
   exercises the BuildKit path nor uses the cache, and it stays a tested engine without adding the build to every PR.
+- The `msb`-tagged suites (`make test-msb`, `make test-msb-journeys`) start real microsandbox VMs, so they need a KVM
+  host and stay **host-only**: `make compile-all` compiles them on every PR, but CI never runs them. The development VM
+  has no working `/dev/kvm`, so build a libvirt guest with `make kvm-up`, sync a checkout with `make kvm-sync`, and run
+  the suite inside it with `make kvm-run` (`KVM_RUN` selects the command, default `make test-msb`). See
+  `.operator-shared/guides/kvm-guest.md`.
 
 ## Documentation
 

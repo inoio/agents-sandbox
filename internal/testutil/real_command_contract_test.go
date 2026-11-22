@@ -359,3 +359,84 @@ func TestX(t *testing.T) {
 		})
 	}
 }
+
+// TestRealCommandScanCoversNonTestSourcesUnderTest pins the scan scope for the
+// ambient-tool half: a non-test .go file under test/ is scanned like a
+// *_test.go file, so the shared untagged driver package cannot hide an ambient
+// command behind a non-test file name. A file outside test/ is still scanned
+// only when it is a *_test.go file, and the default-build guard keeps an
+// msb-tagged file under test/ out of the scan.
+func TestRealCommandScanCoversNonTestSourcesUnderTest(t *testing.T) {
+	const modulePath = "example.com/mod"
+
+	tests := []struct {
+		name string
+		rel  string
+		file string
+		want []string
+	}{
+		{
+			name: "a non-test file under test/ is scanned",
+			rel:  "test/foo/helper.go",
+			file: `package foo
+
+import "os/exec"
+
+func Helper() { exec.Command("git", "status") }
+`,
+			want: []string{"exec.Command(git)"},
+		},
+		{
+			name: "a marker sanctions a non-test file under test/",
+			rel:  "test/foo/helper.go",
+			file: `package foo
+
+import "os/exec"
+
+func Helper() {
+	exec.Command("git", "status") //testenv:allow the fixture pins the git the driver drives
+}
+`,
+			want: nil,
+		},
+		{
+			name: "an msb-tagged file under test/ is not scanned",
+			rel:  "test/foo/helper.go",
+			file: `//go:build msb
+
+package foo
+
+import "os/exec"
+
+func Helper() { exec.Command("git", "status") }
+`,
+			want: nil,
+		},
+		{
+			name: "a non-test file outside test/ is not scanned",
+			rel:  "internal/foo/helper.go",
+			file: `package foo
+
+import "os/exec"
+
+func Helper() { exec.Command("git", "status") }
+`,
+			want: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeFixtureFile(t, root, tt.rel, tt.file)
+
+			var got []string
+			for _, use := range realCommandUses(t, root, modulePath, modulePackages(t, root)) {
+				got = append(got, use.what)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("realCommandUses() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

@@ -9,17 +9,21 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/hostlock"
 )
 
-// daemonTimeoutMarker is what the launcher prints when its daemon health probe
-// never succeeds. A harness whose output contains it never reached the TUI.
-const daemonTimeoutMarker = "did not become healthy"
+// daemonTimeoutMarker is the substring the launcher prints when a detached
+// service's readiness probe never succeeds (internal/sandbox/vm's
+// awaitJobReady: "<label> did not become ready within <timeout>"). A harness
+// whose output contains it never reached the TUI.
+const daemonTimeoutMarker = "did not become ready"
 
 // altScreenEnter is the terminal control sequence a harness emits as its
 // full-screen TUI takes over the alternate screen buffer.
@@ -46,8 +50,8 @@ const (
 )
 
 const (
-	// smokeRootBase and smokeRootPrefix place the suite's shared temp root at a
-	// short, fixed path instead of under the host's TMPDIR.
+	// smokeRootPrefix names the suite's shared temp roots; smokeRootBaseDefault
+	// is the base they are created under when smokeRootBaseEnv is unset.
 	//
 	// microsandbox derives its sandbox control-socket path from the private home
 	// under XDG_DATA_HOME (<root>/data/agents-sandbox/msb) and rejects a derived
@@ -56,8 +60,16 @@ const (
 	// macOS's default is already ~49 bytes — would push the derived path over
 	// the limit and fail every harness before its TUI with "sandbox runtime
 	// socket path is too long", so the root stays short.
-	smokeRootBase   = "/tmp"
-	smokeRootPrefix = "asb-"
+	smokeRootPrefix      = "asb-"
+	smokeRootBaseDefault = "/tmp"
+	// smokeRootBaseEnv overrides the base a fresh suite root is created under.
+	// /tmp is short and disk-backed on a stock host, but it is a RAM-backed tmpfs
+	// where systemd mounts it as one (and in the KVM guest), where the suite's
+	// 10+ GiB image cache would exhaust it or spend the RAM; the Makefile points
+	// this at the disk-backed $(MSB_REUSE_ROOT). The override must still keep the
+	// root within the socket budget, so a created root is validated like a reuse
+	// root.
+	smokeRootBaseEnv = "AGENTS_SANDBOX_MSB_ROOT_BASE"
 
 	// dataDirName is the XDG data directory isolatedEnv puts under the root; the
 	// private microsandbox home is nested inside it.
@@ -82,6 +94,16 @@ const (
 	// one image cache (see isolatedEnv/harnessHomeBase).
 	runsDirName = "runs"
 )
+
+// smokeRootBase returns the base a fresh suite root is created under: the
+// smokeRootBaseEnv override when set, else smokeRootBaseDefault.
+func smokeRootBase() string {
+	//testenv:allow the smoke suite reads its own fresh-root base override
+	if dir := os.Getenv(smokeRootBaseEnv); dir != "" {
+		return dir
+	}
+	return smokeRootBaseDefault
+}
 
 // smokeRootReuseEnv, when set, points the suite at an existing directory it
 // keeps between runs instead of a fresh temp root. The microsandbox image cache
@@ -141,7 +163,7 @@ func harnessConcurrencyFor(freeMiB int) int {
 }
 
 // harnessRunArgs is the `run` invocation a harness smoke subtest drives: the
-// agent and network under test, the smoke memory cap, and --yes.
+// agent and network under test, the smoke memory cap, --yes, and --no-rebuild.
 //
 // --yes makes the launcher non-interactive, which is what keeps the first-run
 // onboarding menu (internal/firstrun) from blocking the pty: termio treats
@@ -149,10 +171,96 @@ func harnessConcurrencyFor(freeMiB int) int {
 // as a plain run with no learning session and no host-config provisioning. A
 // run without it would sit at "How would you like to set up this checkout?"
 // until the readiness wait times out and the harness never starts.
+//
+// --no-rebuild reuses the image the suite already prebuilt and skips the agent
+// upgrade check. The check runs against the run's fresh machine-global root
+// state, so its once-a-day window is always expired and each harness would
+// re-resolve its agent's latest release; for the GitHub-backed agents that
+// spends the shared anonymous 60-requests/hour api.github.com budget the suite
+// as a whole has to stay under.
 func harnessRunArgs(name, network string) []string {
 	return []string{
-		"run", "--agent", name, "--network", network, "--memory", smokeMemorySpec(), "--yes",
+		"run", "--agent", name, "--network", network, "--memory", smokeMemorySpec(), "--yes", "--no-rebuild",
 	}
+}
+
+// dockerStorageShellArgs is the `shell` invocation the docker-storage sibling
+// subtest drives: a docker-enabled opencode VM under the given network. It
+// carries --no-rebuild for the same reason harnessRunArgs does.
+func dockerStorageShellArgs(network string) []string {
+	return []string{"shell", "--agent", "opencode", "--docker", "--network", network, "--no-rebuild"}
+}
+
+// smokeVMCPUsEnv caps each smoke VM's vCPU count. Unset (the default) leaves the
+// launcher's own default, every host CPU. The KVM guest sets it: a nested guest
+// has few vCPUs next to the host, so parallel harnesses each claiming every vCPU
+// oversubscribe it and slow every VM start.
+const smokeVMCPUsEnv = "AGENTS_SANDBOX_MSB_VM_CPUS"
+
+// cpusFlag is the launcher flag a vCPU-capped smoke run appends (see
+// withVMCPUs).
+const cpusFlag = "cpus"
+
+// smokeVMCPUsFromValue parses the vCPU cap: a positive, 8-bit integer caps each
+// smoke VM; anything else (unset, zero, non-numeric, out of range) leaves the
+// launcher's default. Kept pure so it is testable without the host, like
+// harnessConcurrencyFor.
+func smokeVMCPUsFromValue(value string) uint8 {
+	n, err := strconv.ParseUint(strings.TrimSpace(value), 10, 8)
+	if err != nil || n == 0 {
+		return 0
+	}
+	return uint8(n)
+}
+
+// withVMCPUs appends the launcher's --cpus flag when cpus is non-zero, leaving
+// args unchanged otherwise, so a run with no cap set is byte-for-byte what the
+// suite has always driven.
+func withVMCPUs(args []string, cpus uint8) []string {
+	if cpus == 0 {
+		return args
+	}
+	return append(args, "--"+cpusFlag, strconv.Itoa(int(cpus)))
+}
+
+// smokeTimeoutFactorEnv scales the smoke suite's readiness and quit ceilings.
+// Unset (the default) leaves them at 1, every host value. The KVM guest sets
+// it: a nested guest starts a VM and its services far slower, so the fixed
+// ceilings that fit a host time out there.
+const smokeTimeoutFactorEnv = "AGENTS_SANDBOX_MSB_TIMEOUT_FACTOR"
+
+// timeoutFactorFromValue parses the timeout factor: a positive, finite float
+// scales the ceilings; anything else (unset, zero, negative, NaN, infinite,
+// non-numeric) leaves them at 1, so a host run is unchanged. Kept pure so it is
+// testable without the host, like smokeVMCPUsFromValue.
+func timeoutFactorFromValue(value string) float64 {
+	factor, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil || math.IsNaN(factor) || math.IsInf(factor, 0) || factor <= 0 {
+		return 1
+	}
+	return factor
+}
+
+// scaleTimeout returns d multiplied by factor to the nearest nanosecond. A
+// factor of 1 is the identity, so an unset factor leaves every ceiling exactly
+// what the suite has always used.
+func scaleTimeout(d time.Duration, factor float64) time.Duration {
+	if factor == 1 {
+		return d
+	}
+	return time.Duration(float64(d) * factor)
+}
+
+// sandboxNames parses `sandbox list -q` output into one trimmed name per
+// non-blank line. A name is a whole line, so it is trimmed, not split.
+func sandboxNames(output string) []string {
+	var names []string
+	for line := range strings.SplitSeq(output, "\n") {
+		if name := strings.TrimSpace(line); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 // msbHomeUnderRoot is the private microsandbox home a suite root derives.
@@ -197,9 +305,10 @@ func acquireReuseLock(dir string) (func(), error) {
 // under (nil for a fresh root). A set smokeRootReuseEnv reuses that directory —
 // resolved to an absolute path and validated to fit the sandbox socket path
 // budget — so the microsandbox image cache under it survives between runs;
-// otherwise a fresh temp root is created for the caller to remove. The lock
-// serializes runs that share a root, so a finishing run's sandbox sweep cannot
-// destroy VMs another run is still using.
+// otherwise a fresh temp root is created under smokeRootBase() (the
+// smokeRootBaseEnv override, else smokeRootBaseDefault) for the caller to remove,
+// validated to the same budget. The lock serializes runs that share a root, so a
+// finishing run's sandbox sweep cannot destroy VMs another run is still using.
 func resolveSuiteRoot() (string, bool, func(), error) {
 	//testenv:allow the smoke suite reads its own reuse-root override
 	if dir := os.Getenv(smokeRootReuseEnv); dir != "" {
@@ -224,9 +333,19 @@ func resolveSuiteRoot() (string, bool, func(), error) {
 		}
 		return reuseRoot, true, release, nil
 	}
-	root, err := mkdtemp(smokeRootBase, smokeRootPrefix)
+	root, err := mkdtemp(smokeRootBase(), smokeRootPrefix)
 	if err != nil {
 		return "", false, nil, err
+	}
+	if !rootFitsSandboxSocket(root) {
+		_ = os.Remove(root)
+		return "", false, nil, fmt.Errorf(
+			"suite root %q derives a %d-byte sandbox control-socket path, at or above the %d-byte sun_path limit; set %s to a shorter base",
+			root,
+			len(msbHomeUnderRoot(root))+sandboxSocketPathSuffix,
+			sunPathLimit,
+			smokeRootBaseEnv,
+		)
 	}
 	return root, false, nil, nil
 }
@@ -542,12 +661,37 @@ func (s harnessSpec) readyTimeout() time.Duration {
 	return settledReadyTimeout
 }
 
+// smokeLauncherReadyTimeouts forwards a smoke-suite-namespaced override into
+// the launcher's own config variable name for the child. The suite reads the
+// harness var (set by the in-guest `make test-msb-in-vm` target) and writes the
+// launcher var into the child, so a host run that happens to export the
+// launcher's variable keeps the isolation the allowlist provides: only the
+// suite's own namespace crosses into the child.
+var smokeLauncherReadyTimeouts = []struct{ harness, launcher string }{
+	{"AGENTS_SANDBOX_MSB_DOCKER_READY_TIMEOUT", "AGENTS_SANDBOX_DOCKER_READY_TIMEOUT"},
+	{"AGENTS_SANDBOX_MSB_DAEMON_READY_TIMEOUT", "AGENTS_SANDBOX_DAEMON_READY_TIMEOUT"},
+}
+
+// launcherReadyTimeouts returns the launcher config variables to append to a
+// child environment: for each pair whose smoke-suite variable is set in
+// inheritedByName, the launcher variable with that value.
+func launcherReadyTimeouts(inheritedByName map[string]string) []string {
+	var overrides []string
+	for _, pair := range smokeLauncherReadyTimeouts {
+		if value, ok := inheritedByName[pair.harness]; ok && value != "" {
+			overrides = append(overrides, pair.launcher+"="+value)
+		}
+	}
+	return overrides
+}
+
 // isolatedEnv builds the child environment from inherited: it keeps only the
 // allowlisted variables (defaulting TERM when it is absent, empty, or "dumb"),
-// then appends a private HOME/XDG_*/TMPDIR tree rooted at homeBase, so the child
-// reads and writes no real agents-sandbox config or state. XDG_DATA_HOME stays
-// rooted at root so every harness shares one microsandbox home (the image cache)
-// while keeping its own HOME and config/state/cache dirs.
+// appends the launcher readiness-timeout overrides the suite was given, then a
+// private HOME/XDG_*/TMPDIR tree rooted at homeBase, so the child reads and
+// writes no real agents-sandbox config or state. XDG_DATA_HOME stays rooted at
+// root so every harness shares one microsandbox home (the image cache) while
+// keeping its own HOME and config/state/cache dirs.
 func isolatedEnv(root, homeBase string, inherited []string) []string {
 	inheritedByName := make(map[string]string, len(inherited))
 	for _, entry := range inherited {
@@ -567,6 +711,7 @@ func isolatedEnv(root, homeBase string, inherited []string) []string {
 		}
 	}
 	env = append(env, envTerm+"="+usableTerm(inheritedByName[envTerm]))
+	env = append(env, launcherReadyTimeouts(inheritedByName)...)
 	return append(env,
 		"HOME="+filepath.Join(homeBase, homeDirName),
 		"XDG_CONFIG_HOME="+filepath.Join(homeBase, configDirName),
@@ -575,6 +720,29 @@ func isolatedEnv(root, homeBase string, inherited []string) []string {
 		"XDG_CACHE_HOME="+filepath.Join(homeBase, cacheDirName),
 		"TMPDIR="+filepath.Join(homeBase, tmpDirName),
 	)
+}
+
+// smokeGitHubTokenEnvVars are the environment variables the smoke suite reads a
+// GitHub API token from, in the launcher's precedence order (GH_TOKEN wins over
+// GITHUB_TOKEN, matching internal/agent's githubToken).
+var smokeGitHubTokenEnvVars = []string{"GH_TOKEN", "GITHUB_TOKEN"}
+
+// withGitHubToken appends the environment's GitHub API token, when one is set, to
+// a prebuild child's env. The prebuild's `build` resolves each unpinned agent's
+// latest release, and the GitHub-backed agents' requests would otherwise share
+// the anonymous 60-requests/hour api.github.com limit; the token lifts them to
+// the authenticated limit. It is a deliberate exception to isolatedEnv's
+// allowlist — the launcher sends the token only to api.github.com (never into a
+// VM, whose secrets come from config files), so keeping it host-side does not
+// weaken the isolation. An absent token leaves env unchanged: the launcher falls
+// back to anonymous access.
+func withGitHubToken(env, inherited []string) []string {
+	for _, name := range smokeGitHubTokenEnvVars {
+		if value := envValue(inherited, name); value != "" {
+			return append(env, name+"="+value)
+		}
+	}
+	return env
 }
 
 // prepareHome creates the per-harness home tree isolatedEnv points the child at:

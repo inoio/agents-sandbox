@@ -53,6 +53,9 @@
 - `guides/go-version-support.md`
   - Description: The module's minimum Go version and why it cannot be lower, with the evidence and primary sources.
   - Read If: Changing the `go` directive, `.go-version`, or a Go pin; asking whether a lower Go version can be advertised; or diagnosing a dependency/promoted-field/GOTOOLCHAIN "requires a newer Go" error.
+- `guides/kvm-guest.md`
+  - Description: The host-only libvirt KVM guest for running the msb test suites - why the development VM cannot run them, the `scripts/kvm-guest.sh` provisioner and its `make kvm-up`/`kvm-sync`/`kvm-prime`/`kvm-run`/`kvm-down` targets, the disk-backed reuse root the guest pre-creates, the nested-KVM prerequisites, and the volatile host-firewall fix guest egress needs.
+  - Read If: Running the msb suites (`make test-msb`, `make test-msb-journeys`) and needing a KVM host; provisioning or destroying the libvirt guest; priming the guest's runner-image/msb cache from the host (`make kvm-prime`) or diagnosing a `prime` that copies nothing; diagnosing a guest with no DNS/egress behind Docker's `ip filter` table; or changing `scripts/kvm-guest.sh`.
 - `guides/mutation-testing.md`
   - Description: Mutation testing for Go in this repo: the gomutants choice, how to close survivors, and the multi-turn sweep runbook.
   - Read If: Evaluating or changing a Go mutation-testing tool or the `make mutation` target; triaging LIVED mutants from a sweep; picking a `SINCE` scope for a branch/PR sweep; coordinating a #268 survivor-reduction pass; or deciding whether a sweep may run in the VM (it may not - it OOMs).
@@ -179,5 +182,11 @@
 ### `plans/` - TDD implementation plans
 
 - `plans/2026-11-15-learn-mode-spike.md`
-  - Description: `worktree-layout.md` — the `/workspace` bind rule and guest-CWD derivation.
-  - Read If: Changing the `/workspace` bind-source resolution, guest-CWD derivation, the worktree mount rule, or the outside-worktree shared-git-dir mount; or diagnosing a session that hides the worktree it was launched from, a `git` command that cannot resolve inside the VM, or the `--worktree` host git-dir side effect.
+  - Description: Validation spike for learn mode: the host-run experiments behind the observation channel, with S1's per-harness home read-back still open (opencode2 only). Harness: `spike/learn-mode/`.
+  - Read If: Picking up the unrun per-harness read-back (S1), rerunning an experiment, or checking an unverified observation-channel assumption (proxy reachability under `none`, egress bypass, denial logging, DNS coverage, per-harness credential layout).
+- `plans/2026-11-21-msb-journeys.md`
+  - Description: Implementation plan for #793, the first slice of the harness-journeys acceptance harness: host-side libvirt KVM-guest tooling (`scripts/kvm-guest.sh` + `make kvm-*`), the `test/harness`→`test/msb/startup` rename with the shared untagged `test/msb/driver`, the gate-scope changes (dead-code `test/` filter, ambient scan over non-test `.go` under `test/`, the production-closure contract test), `make test-msb-journeys` with the named-step journey model, and the learn-mode journeys (UC1, UC4, `config learn`, attribution) plus the surface-sweep block.
+  - Read If: Executing #793; working on `scripts/kvm-guest.sh` or the `make kvm-*` targets; the `test/msb/{driver,startup,journeys}` rename and layout; the journeys' `Journey`/`Step` model; or the dead-code/ambient `test/` gate scope.
+- `plans/2026-11-22-msb-smoke-remedies.md`
+  - Description: Implementation plan for the in-guest smoke-suite reliability remedies: the start-of-run sandbox sweep, the `docker-ready-timeout`/`daemon-ready-timeout` config keys threaded into `internal/sandbox/vm`, the `AGENTS_SANDBOX_MSB_TIMEOUT_FACTOR` ceiling scaler, and the stale daemon-timeout marker.
+  - Read If: Working on the `test-msb-in-vm` guest target, the smoke suite's readiness/quit ceilings or start sweep, the VM readiness-timeout config keys, or the `MSB_GUEST_*` make variables.
