@@ -648,6 +648,31 @@ func TestKvmGuestSyncKeepsOneAuthorizedKeyLineOnRerun(t *testing.T) {
 	}
 }
 
+// TestKvmGuestSyncAppendsTheKeyAfterAMissingTrailingNewline pins the append: an
+// existing authorized_keys whose last line has no trailing newline must not have
+// the key line merged onto it — the merged line would both break the existing key
+// and hide the appended key's options from sshd.
+func TestKvmGuestSyncAppendsTheKeyAfterAMissingTrailingNewline(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestSyncEnv(t, dir)
+	authorizedPath := filepath.Join(dir, "home", ".ssh", "authorized_keys")
+	if err := os.MkdirAll(filepath.Dir(authorizedPath), 0o755); err != nil {
+		t.Fatalf("create .ssh: %v", err)
+	}
+	existing := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEXISTING existing@host"
+	if err := os.WriteFile(authorizedPath, []byte(existing), 0o600); err != nil {
+		t.Fatalf("seed authorized_keys: %v", err)
+	}
+
+	assertStatus(t, RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync"), 0)
+
+	authorized := readText(t, authorizedPath)
+	// The existing key must stand alone on its line, terminated by a newline, so
+	// the guest key's options start a new line rather than extend its comment.
+	assertContains(t, "authorized_keys", authorized, existing+"\n")
+	assertContains(t, "authorized_keys", authorized, `command="git-shell -c \"$SSH_ORIGINAL_COMMAND\"",restrict`)
+}
+
 // TestKvmGuestSyncFailsWhenTheGuestCannotReachTheHost pins the preflight: a guest
 // that cannot complete a git exchange with the host fails with the diagnostic and
 // never proceeds to the fetch. The probe must be a real git handshake, not a plain
@@ -686,7 +711,7 @@ func TestKvmGuestSyncRoutesOriginToTheHost(t *testing.T) {
 		argv,
 		`git config url."ssh://kvmhost@192.168.122.1/host/agents-sandbox/.git".insteadOf https://example.test/agents-sandbox.git`,
 	)
-	assertContains(t, "ssh argv", argv, "git config branch.feat/793-msb-journeys.remote origin")
+	assertContains(t, "ssh argv", argv, `git config branch."feat/793-msb-journeys".remote origin`)
 	assertContains(t, "ssh argv", argv, "core.sshCommand")
 	assertContains(t, "ssh argv", argv, "git config push.autoSetupRemote true")
 	assertNotContains(t, "ssh argv", argv, "git config --global")
@@ -753,9 +778,40 @@ func TestKvmGuestSyncPullsFromTheHostInsteadOfRsyncing(t *testing.T) {
 
 	argv := readText(t, filepath.Join(dir, "ssh-argv"))
 	assertContains(t, "ssh argv", argv, "git fetch origin --prune")
-	assertContains(t, "ssh argv", argv, "git checkout feat/793-msb-journeys")
-	assertContains(t, "ssh argv", argv, "git merge --ff-only origin/feat/793-msb-journeys")
+	assertContains(t, "ssh argv", argv, `git checkout "feat/793-msb-journeys"`)
+	assertContains(t, "ssh argv", argv, `git merge --ff-only origin/"feat/793-msb-journeys"`)
 	assertNotContains(t, "rsync argv", readText(t, filepath.Join(dir, "rsync-argv")), "agents-sandbox")
+}
+
+// TestKvmGuestSyncQuotesAShellMetacharacterBranch pins that a branch name with
+// the shell metacharacters git allows (`;`, `&`, `|`) is quoted in the remote
+// script, not left to split the command: a name like `feat/x;id` must reach git
+// as one argument, not run `id`.
+func TestKvmGuestSyncQuotesAShellMetacharacterBranch(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestSyncEnv(t, dir)
+	env["REPO_BRANCH"] = "feat/x;id"
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync")
+	assertStatus(t, result, 0)
+
+	argv := readText(t, filepath.Join(dir, "ssh-argv"))
+	assertContains(t, "ssh argv", argv, `git checkout "feat/x;id" && git merge --ff-only origin/"feat/x;id"`)
+}
+
+// TestKvmGuestSyncRejectsABranchNameThatCannotBeQuoted pins the guard: a branch
+// name carrying a double quote, backslash, dollar sign, or backtick cannot be
+// embedded safely in the remote `bash -lc` script even when double-quoted, so
+// sync refuses it before touching the host or the guest.
+func TestKvmGuestSyncRejectsABranchNameThatCannotBeQuoted(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestSyncEnv(t, dir)
+	env["REPO_BRANCH"] = "feat/$(id)"
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync")
+	assertStatus(t, result, 1)
+
+	assertContains(t, "stderr", result.Stderr, "branch name must not contain")
 }
 
 // TestKvmGuestSyncRefusesWhenTheGuestCannotFastForward pins that a diverged guest

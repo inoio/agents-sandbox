@@ -158,6 +158,20 @@ require_safe_agent_command() {
   done
 }
 
+# require_safe_branch rejects a branch name that cannot be embedded safely in the
+# guest shell string the sync commands build. A git branch name may contain shell
+# metacharacters (`;`, `&`, `|`, …), so the name is placed inside double quotes in
+# the remote `bash -lc` script; the double quote, backslash, dollar sign, and
+# backtick — the characters double quotes do not neutralize — must be absent.
+require_safe_branch() {
+  local branch="$1" char
+  for char in '"' '$' '`' "\\"; do
+    case "$branch" in
+      *"$char"*) die "the branch name must not contain a double quote, backslash, dollar sign, or backtick (it is embedded in a shell string): $branch" ;;
+    esac
+  done
+}
+
 usage() {
   cat <<'EOF'
 usage: kvm-guest.sh {up|render|ssh|sync|prime|run <cmd...>|agent [cmd]|agent-up [cmd]|agent-provision [name]|sync-back [branch]|firewall|down}
@@ -485,10 +499,11 @@ ssh_in() {
 configure_guest_remote() {
   local ip="$1" gateway="$2" repo_path="$3" host_url branch
   branch="${REPO_BRANCH:-main}"
+  require_safe_branch "$branch"
   host_url="ssh://$KVM_HOST_USER@$gateway$repo_path"
   log "routing the guest origin to $host_url"
   ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
-    -- "bash -lc 'set -e && cd ~/agents-sandbox && prev=\$(git config kvmguest.hostUrl 2>/dev/null || true); if [ -n \"\$prev\" ]; then git config --remove-section \"url.\$prev\" || true; fi; git config url.\"$host_url\".insteadOf $REPO_URL && git config kvmguest.hostUrl \"$host_url\" && git config push.autoSetupRemote true && git config branch.$branch.remote origin && git config branch.$branch.merge refs/heads/$branch && git config core.sshCommand \"ssh -i \$HOME/.ssh/id_kvm_guest -o StrictHostKeyChecking=accept-new\"'"
+    -- "bash -lc 'set -e && cd ~/agents-sandbox && prev=\$(git config kvmguest.hostUrl 2>/dev/null || true); if [ -n \"\$prev\" ]; then git config --remove-section \"url.\$prev\" || true; fi; git config url.\"$host_url\".insteadOf $REPO_URL && git config kvmguest.hostUrl \"$host_url\" && git config push.autoSetupRemote true && git config branch.\"$branch\".remote origin && git config branch.\"$branch\".merge refs/heads/\"$branch\" && git config core.sshCommand \"ssh -i \$HOME/.ssh/id_kvm_guest -o StrictHostKeyChecking=accept-new\"'"
 }
 
 # ensure_guest_git_key gives the guest a key that authenticates it to the host for
@@ -521,7 +536,7 @@ ensure_host_authorized_key() {
   mkdir -p "$HOME/.ssh"
   touch "$auth"
   chmod 600 "$auth"
-  if grep -qF "$pubkey" "$auth"; then
+  if grep -qF "$line" "$auth"; then
     return 0
   fi
   if grep -qF 'agents-sandbox-kvm-guest' "$auth"; then
@@ -535,6 +550,12 @@ ensure_host_authorized_key() {
       die "could not rewrite $auth (grep exited $rewrite_status); it is unchanged"
     fi
     mv "$auth.tmp" "$auth"
+  fi
+  # A last line with no trailing newline (written by printf, some editors, some
+  # config managers) would otherwise be merged onto the key line's options, which
+  # both breaks the previous key and hides the appended key from sshd.
+  if [ -s "$auth" ] && [ -n "$(tail -c 1 "$auth")" ]; then
+    printf '\n' >> "$auth"
   fi
   printf '%s\n' "$line" >> "$auth"
 }
@@ -575,12 +596,13 @@ ensure_guest_git_remote() {
 # changes are no longer copied.
 sync_in() {
   local ip branch
-  ip="$(require_guest_ip)"
   branch="${REPO_BRANCH:-main}"
+  require_safe_branch "$branch"
+  ip="$(require_guest_ip)"
   ensure_guest_git_remote "$ip"
   log "pulling $branch from the host into $VM_USER@$ip:~/agents-sandbox"
   ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
-    -- "bash -lc 'set -e && cd ~/agents-sandbox && git fetch origin --prune && git checkout $branch && git merge --ff-only origin/$branch'"
+    -- "bash -lc 'set -e && cd ~/agents-sandbox && git fetch origin --prune && git checkout \"$branch\" && git merge --ff-only origin/\"$branch\"'"
 }
 
 # sync_back fetches the guest checkout's branches back to the host: by default
