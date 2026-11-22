@@ -182,8 +182,14 @@ pinning the CWD themselves, and it closes the incident below.
 `make test-scrubbed` (a module copy outside any git checkout, run under `env -i` with an explicit variable allowlist
 and a pre-warmed module cache, with `-count=1` so Go's test cache is not consulted) and `make test-hermetic` (adds a
 loopback-only network namespace via `--netns`, isolating name resolution and sockets). The suite must stay green under
-both; the release gate is the strict tier's floor, and promotion toward the default `make test` follows a measured
-runtime budget, never a date (see `guides/test-runtime-cost.md`).
+both.
+
+The cadence is the release gate as the floor: the `hermetic` CI job runs `make test-hermetic` on every release tag and
+`release.needs` names it, so a red envelope refuses to publish. It is advisory on a pull request — the job exists but is
+not in the `protect main` ruleset — and promotion toward the default `make test` follows a measured runtime budget,
+never a date (see `guides/test-runtime-cost.md`). The hosted runner restricts unprivileged user namespaces
+(`kernel.apparmor_restrict_unprivileged_userns`), so the job lifts the restriction and warms the module cache before the
+offline, namespaced run (`specs/ci/ci-pipeline.md`).
 
 The `--netns` tier runs as uid 0 (`unshare --net --map-root-user`), so a test must not depend on the effective uid: a
 permission-denial fixture induces the read/write failure through a package seam, never `chmod`. The fixtures the tier
@@ -379,12 +385,11 @@ gate above. Every sanctioned use now carries a `//testenv:allow <reason>` marker
   reachable from a test, route it through a seam the same way rather than asserting against the runner's hardware.
   The gate's `hostProbeCalls` list should grow with each such production read, so a direct call from a test cannot
   reintroduce the dependency unnoticed.
-- **Git identity from the ambient CWD.** Untagged `cmd/**` and `prepare`/`session` tests call
-  `git.MustCheckoutSlug`/`MustRepoSlug`/`ResolveIdentity` on the suite's real checkout, so the suite must run inside
-  the repo (the `Must*` variants panic otherwise). Read-only and self-consistent — the fixture lands under the mock
-  state dir for that same key — but it is the last sizable ambient dependency not behind a seam. A
-  `testutil.CheckoutSlug(t)` helper that owns the one intentional resolution (or `t.Chdir(testutil.InitRepo(t))`
-  first) would centralize it.
+- **Git identity from the ambient CWD — resolved by the envelope.** Untagged `cmd/**` and `prepare`/`session` tests
+  call `git.MustCheckoutSlug`/`MustRepoSlug`/`ResolveIdentity` on the ambient CWD. The envelope runs from a copy
+  outside any git checkout, and `ResolveIdentity` falls back to a path-derived non-repo identity rather than erroring,
+  so the suite stays green and no default-suite test depends on the module's real checkout. No seam and no gate: the
+  read is total, and the sites that read a slug after `t.Chdir` into their own fixture repo are already deterministic.
 - **Wall-clock waits.** Several tests `time.Sleep` through interval seams (`spinnerInterval`,
   `pressureWatchInterval`); under load they are slower but not host-dependent. Prefer channel synchronization where a
   test does not need the interval dwell. `watchReconnectPolicy` moved behind the `watchClock` seam, so the notify
