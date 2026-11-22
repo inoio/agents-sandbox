@@ -46,7 +46,13 @@ type RunOptions struct {
 	ReapPolicy  ReapPolicy
 	IdleTimeout time.Duration
 	CPUs        uint8
-	Rebuild     bool
+	// DockerReadyTimeout and DaemonReadyTimeout override the in-VM Docker
+	// engine's and the agent serve daemon's readiness waits (the
+	// docker-ready-timeout / daemon-ready-timeout config keys). Zero uses the
+	// vm package's built-in default.
+	DockerReadyTimeout time.Duration
+	DaemonReadyTimeout time.Duration
+	Rebuild            bool
 	// NoRebuild reuses the existing runner image even when its inputs changed
 	// and skips the agent upgrade check. A missing image is still built.
 	NoRebuild bool

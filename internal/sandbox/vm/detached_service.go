@@ -9,6 +9,17 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
+// resolvedReadyTimeout returns override when it is positive, else fallback. The
+// fallback is the package default (dockerdReadyTimeout / daemonReadyTimeout),
+// which a test overrides; an unset or non-positive run-supplied override keeps
+// it, so production without the config key is unchanged.
+func resolvedReadyTimeout(override, fallback time.Duration) time.Duration {
+	if override > 0 {
+		return override
+	}
+	return fallback
+}
+
 // detachedService is the ingredient table for ensureDetachedService: the helper
 // identity (kill rediscovery and the launch marker), the health probe, how the
 // fresh launch is prepared, and the verbose notes each service words

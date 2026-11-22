@@ -66,6 +66,26 @@ func TestRunAndShellHaveDockerFlags(t *testing.T) {
 	}
 }
 
+// TestRunAndShellHaveReadyTimeoutFlags pins that both VM-setup commands expose
+// the readiness-timeout overrides, so the config keys are settable via a flag
+// and not only via env/config.
+func TestRunAndShellHaveReadyTimeoutFlags(t *testing.T) {
+	for _, name := range []string{cmdRun, cmdShell} {
+		t.Run(name, func(t *testing.T) {
+			cmd, _ := setupCommandFixtures(t, name, "--help")
+			foundCmd, _, err := cmd.Find([]string{name})
+			if err != nil {
+				t.Fatalf("Find %q: %v", name, err)
+			}
+			for _, flagName := range []string{flagDockerReadyTimeout, flagDaemonReadyTimeout} {
+				if flag := foundCmd.Flags().Lookup(flagName); flag == nil {
+					t.Errorf("%s command must have --%s flag", name, flagName)
+				}
+			}
+		})
+	}
+}
+
 // TestRunCommandHasLearnFlag pins the run-only --learn flag: it is a run flag
 // (like --serve-only) and is absent from shell.
 func TestRunCommandHasLearnFlag(t *testing.T) {

@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -18,9 +19,11 @@ import (
 	"github.com/inoio/agents-sandbox/internal/hostlock"
 )
 
-// daemonTimeoutMarker is what the launcher prints when its daemon health probe
-// never succeeds. A harness whose output contains it never reached the TUI.
-const daemonTimeoutMarker = "did not become healthy"
+// daemonTimeoutMarker is the substring the launcher prints when a detached
+// service's readiness probe never succeeds (internal/sandbox/vm's
+// awaitJobReady: "<label> did not become ready within <timeout>"). A harness
+// whose output contains it never reached the TUI.
+const daemonTimeoutMarker = "did not become ready"
 
 // altScreenEnter is the terminal control sequence a harness emits as its
 // full-screen TUI takes over the alternate screen buffer.
@@ -218,6 +221,46 @@ func withVMCPUs(args []string, cpus uint8) []string {
 		return args
 	}
 	return append(args, "--"+cpusFlag, strconv.Itoa(int(cpus)))
+}
+
+// smokeTimeoutFactorEnv scales the smoke suite's readiness and quit ceilings.
+// Unset (the default) leaves them at 1, every host value. The KVM guest sets
+// it: a nested guest starts a VM and its services far slower, so the fixed
+// ceilings that fit a host time out there.
+const smokeTimeoutFactorEnv = "AGENTS_SANDBOX_MSB_TIMEOUT_FACTOR"
+
+// timeoutFactorFromValue parses the timeout factor: a positive, finite float
+// scales the ceilings; anything else (unset, zero, negative, NaN, infinite,
+// non-numeric) leaves them at 1, so a host run is unchanged. Kept pure so it is
+// testable without the host, like smokeVMCPUsFromValue.
+func timeoutFactorFromValue(value string) float64 {
+	factor, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil || math.IsNaN(factor) || math.IsInf(factor, 0) || factor <= 0 {
+		return 1
+	}
+	return factor
+}
+
+// scaleTimeout returns d multiplied by factor to the nearest nanosecond. A
+// factor of 1 is the identity, so an unset factor leaves every ceiling exactly
+// what the suite has always used.
+func scaleTimeout(d time.Duration, factor float64) time.Duration {
+	if factor == 1 {
+		return d
+	}
+	return time.Duration(float64(d) * factor)
+}
+
+// sandboxNames parses `sandbox list -q` output into one trimmed name per
+// non-blank line. A name is a whole line, so it is trimmed, not split.
+func sandboxNames(output string) []string {
+	var names []string
+	for line := range strings.SplitSeq(output, "\n") {
+		if name := strings.TrimSpace(line); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 // msbHomeUnderRoot is the private microsandbox home a suite root derives.
@@ -618,12 +661,37 @@ func (s harnessSpec) readyTimeout() time.Duration {
 	return settledReadyTimeout
 }
 
+// smokeLauncherReadyTimeouts forwards a smoke-suite-namespaced override into
+// the launcher's own config variable name for the child. The suite reads the
+// harness var (set by the in-guest `make test-msb-in-vm` target) and writes the
+// launcher var into the child, so a host run that happens to export the
+// launcher's variable keeps the isolation the allowlist provides: only the
+// suite's own namespace crosses into the child.
+var smokeLauncherReadyTimeouts = []struct{ harness, launcher string }{
+	{"AGENTS_SANDBOX_MSB_DOCKER_READY_TIMEOUT", "AGENTS_SANDBOX_DOCKER_READY_TIMEOUT"},
+	{"AGENTS_SANDBOX_MSB_DAEMON_READY_TIMEOUT", "AGENTS_SANDBOX_DAEMON_READY_TIMEOUT"},
+}
+
+// launcherReadyTimeouts returns the launcher config variables to append to a
+// child environment: for each pair whose smoke-suite variable is set in
+// inheritedByName, the launcher variable with that value.
+func launcherReadyTimeouts(inheritedByName map[string]string) []string {
+	var overrides []string
+	for _, pair := range smokeLauncherReadyTimeouts {
+		if value, ok := inheritedByName[pair.harness]; ok && value != "" {
+			overrides = append(overrides, pair.launcher+"="+value)
+		}
+	}
+	return overrides
+}
+
 // isolatedEnv builds the child environment from inherited: it keeps only the
 // allowlisted variables (defaulting TERM when it is absent, empty, or "dumb"),
-// then appends a private HOME/XDG_*/TMPDIR tree rooted at homeBase, so the child
-// reads and writes no real agents-sandbox config or state. XDG_DATA_HOME stays
-// rooted at root so every harness shares one microsandbox home (the image cache)
-// while keeping its own HOME and config/state/cache dirs.
+// appends the launcher readiness-timeout overrides the suite was given, then a
+// private HOME/XDG_*/TMPDIR tree rooted at homeBase, so the child reads and
+// writes no real agents-sandbox config or state. XDG_DATA_HOME stays rooted at
+// root so every harness shares one microsandbox home (the image cache) while
+// keeping its own HOME and config/state/cache dirs.
 func isolatedEnv(root, homeBase string, inherited []string) []string {
 	inheritedByName := make(map[string]string, len(inherited))
 	for _, entry := range inherited {
@@ -643,6 +711,7 @@ func isolatedEnv(root, homeBase string, inherited []string) []string {
 		}
 	}
 	env = append(env, envTerm+"="+usableTerm(inheritedByName[envTerm]))
+	env = append(env, launcherReadyTimeouts(inheritedByName)...)
 	return append(env,
 		"HOME="+filepath.Join(homeBase, homeDirName),
 		"XDG_CONFIG_HOME="+filepath.Join(homeBase, configDirName),

@@ -25,6 +25,9 @@ func validate(v *viper.Viper) error {
 	if err := validateAutoStopTimeout(v); err != nil {
 		return err
 	}
+	if err := validateReadyTimeouts(v); err != nil {
+		return err
+	}
 	if err := normalizeNetworkProfile(v); err != nil {
 		return err
 	}
@@ -319,6 +322,19 @@ func validateAutoStopTimeout(v *viper.Viper) error {
 	// of 1 can never differ from 0.
 	if d <= 0 { // gomutants:disable INTEGER_INCREMENT reason="d is already <= 0 at this point, so a bound of 1 is equivalent"
 		return fmt.Errorf("launcher config %s must be > 0, got %v", keyAutoStopTimeout, d)
+	}
+	return nil
+}
+
+// validateReadyTimeouts rejects a negative readiness timeout for the in-VM
+// Docker engine or the agent serve daemon. Zero is the sentinel for the
+// built-in default and is allowed; a negative value would make the readiness
+// deadline expire at once, failing every VM start.
+func validateReadyTimeouts(v *viper.Viper) error {
+	for _, key := range []string{keyDockerReadyTimeout, keyDaemonReadyTimeout} {
+		if d := v.GetDuration(key); d < 0 {
+			return fmt.Errorf("launcher config %s must be >= 0, got %v", key, d)
+		}
 	}
 	return nil
 }

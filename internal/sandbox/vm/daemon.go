@@ -45,6 +45,8 @@ func daemonHealth(seams options.Seams) func(
 // for a config restart), it kills any stale daemon job, launches a fresh one,
 // and waits until healthy or timeout. An agent without a daemon provider is a
 // no-op. The health probe comes from seams (the production default when nil).
+// readyTimeout overrides the readiness window (daemon-ready-timeout); zero uses
+// daemonReadyTimeout.
 func ensureDaemon(
 	ctx context.Context,
 	a agent.Resolved,
@@ -52,6 +54,7 @@ func ensureDaemon(
 	sb msb.Sandbox,
 	ui termio.Logger,
 	seams options.Seams,
+	readyTimeout time.Duration,
 ) error {
 	provider := a.Daemon
 	if provider == nil {
@@ -74,7 +77,7 @@ func ensureDaemon(
 		launchArgs: func(context.Context) ([]string, string, error) {
 			return command.Args, "starting " + a.Profile.Name() + " serve daemon", nil
 		},
-		timeout:               daemonReadyTimeout,
+		timeout:               resolvedReadyTimeout(readyTimeout, daemonReadyTimeout),
 		pollInterval:          daemonPollInterval,
 		skipPreCheck:          force,
 		alreadyHealthyNote:    a.Profile.Name() + " daemon already healthy",

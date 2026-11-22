@@ -12,7 +12,7 @@ read_if: Adding or changing the harness smoke tests, the `msb` build tag, `make 
 Harness support can break without any test noticing. `opencode2` did: its `DaemonProvider.DaemonHealthCmd`
 sent no credentials, v2's `serve` answers every `/api/*` route with `401` when unauthenticated, and
 `ensureDaemon` (`internal/sandbox/vm/daemon.go`) polled to its `daemonReadyTimeout` (60s) before failing. The
-daemon was healthy; the launcher could not see it, and the user got "… did not become healthy within 60s"
+daemon was healthy; the launcher could not see it, and the user got "… did not become ready within 60s"
 instead of a TUI. See `specs/agents/opencode2.md` for the fix.
 
 No existing test could catch it:
@@ -31,8 +31,8 @@ The same gap means a newly registered harness has no test that it starts at all.
 runtime it requires, as `integration` names a real docker daemon). `make test-msb` runs it, together with the
 `msb`-tagged real-client tests in `internal/sandbox/msb/` (`realstack_msb_test.go`); it is not part of
 `make check`, `make test`, or the default CI. The KVM guest's `make kvm-run` drives `make test-msb-in-vm`
-instead: the same suite with the two packages serialized (`go test -p 1`) and each smoke VM's vCPUs capped
-(see Isolation). `make compile-all` compiles it (`-tags 'integration msb'`) so a
+instead: the same suite with the two packages serialized (`go test -p 1`), each smoke VM's vCPUs capped, and the
+readiness/quit ceilings scaled (see Isolation). `make compile-all` compiles it (`-tags 'integration msb'`) so a
 tagged-only compile regression is caught on every PR.
 
 **Scope of the assertion.** For every name in `agent.Names()`, the suite starts the harness the way a user does
@@ -44,7 +44,7 @@ tagged-only compile regression is caught on every PR.
    (see Readiness);
 2. the process then exited `0` after the harness's quit presses were written to the terminal; escalation
    (`SIGTERM`/`SIGKILL`) is cleanup only and fails the subtest if reached;
-3. the output never contains the daemon-timeout marker (`did not become healthy`).
+3. the output never contains the detached-service readiness-timeout marker (`did not become ready`).
 
 **`--yes` skips the launcher's first-run menu.** `run` on a checkout with no managed config layer offers the
 first-run setup menu (`internal/firstrun`) before the session. Under the suite's pty that menu is interactive and
@@ -109,6 +109,12 @@ harness whose startup is much slower raises the ceiling with `ReadyTimeout`: `he
 store, so its spec sets `heavyweightReadyTimeout` (120s). The override bounds either wait (marker or settle), not a
 sleep — hermes' banner marker ends its wait as soon as the CLI is up. An alternate-screen harness is bounded by the TUI
 marker wait (180s) instead.
+
+`AGENTS_SANDBOX_MSB_TIMEOUT_FACTOR` (a positive float, unset = 1) multiplies every readiness ceiling
+(`settledReadyTimeout`, `heavyweightReadyTimeout`, `tuiReadyTimeout`) and `quitTimeout`, so the in-guest
+`make test-msb-in-vm` can give a nested guest's slower start and teardown a proportionally larger budget. It does
+not scale the quit press/retry cadence: those are tuned to qwen-code's sub-1.2s "press again" chaining window and
+a longer interval would stop the exit chaining. At the default 1 a host run is byte-for-byte unchanged.
 
 **Harness table completeness.** A single table maps harness name to the key the smoke test taps, an optional network
 override, a `KeepsNormalBuffer` flag, an optional readiness marker, an optional readiness-timeout ceiling, and optional
@@ -229,6 +235,11 @@ configuration or state. Each run creates one temp root, shared by all subtests, 
   docker endpoint the runner-image build needs and hold no agents-sandbox config or state, so keeping them
   does not weaken the isolation — and the docker preflight runs under the same isolated environment, before
   any image build, so it can never certify a daemon the child cannot reach;
+- the launcher readiness-timeout overrides reach the child through the suite's **own namespace**, not the
+  launcher's: `AGENTS_SANDBOX_MSB_DOCKER_READY_TIMEOUT` / `AGENTS_SANDBOX_MSB_DAEMON_READY_TIMEOUT` (set by the
+  in-guest `make test-msb-in-vm`) are rewritten to `AGENTS_SANDBOX_DOCKER_READY_TIMEOUT` /
+  `AGENTS_SANDBOX_DAEMON_READY_TIMEOUT` in the child env. A host that happens to export the launcher's variable
+  still has it dropped by the allowlist, so only the suite's opt-in crosses;
 - the **prebuild** env additionally carries the environment's GitHub API token when one is set (`withGitHubToken`,
   `GH_TOKEN` then `GITHUB_TOKEN`, matching the launcher's precedence). The prebuild's `build` resolves each unpinned
   agent's latest release, and the GitHub-backed agents' requests would otherwise share the anonymous
@@ -238,6 +249,13 @@ configuration or state. Each run creates one temp root, shared by all subtests, 
 - the child gets a sized terminal — the parent's window when the test process has a tty, else 40×120 — so a
   full-screen TUI does not render into a zero-column terminal;
 - the working directory is a temp project dir, so project config and the derived slug are throwaway;
+- the suite **sweeps the root's sandboxes at start and at teardown** (`sweepSandboxes`: `sandbox list -q`,
+  then `sandbox remove --force --yes` per name). The start sweep runs before the prebuild and the parallel
+  subtests, so a reused root never carries a previous run's stopped-but-persisted VM into this run, where
+  `EnsureProjectVM` would restart it (`started existing project VM`) and repay the whole start cost; the
+  teardown sweep stops a failed harness leaking a VM that points at a home the suite is about to delete. Both
+  are best-effort — a `list` or `remove` failure is logged, never fatal — because a sandbox mid create/cleanup
+  can make `list` itself fail;
 - consequently no real `~/.config/agents-sandbox`, `~/.local/{share,state}/agents-sandbox`, or
   `~/.cache/agents-sandbox` path is read or written, and the child starts from deterministic defaults.
 

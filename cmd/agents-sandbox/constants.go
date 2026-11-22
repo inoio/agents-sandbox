@@ -54,12 +54,16 @@ const (
 	flagTmpSize        = "tmp-size"
 	flagDiskSize       = "disk-size"
 	flagWorkspaceQuota = "workspace-quota"
-	flagDryRun         = runoptions.FlagDryRun
-	flagDryRunShort    = "n"
-	flagDryRunVM       = runoptions.FlagDryRunVM
-	flagForce          = "force"
-	flagPurge          = "purge"
-	flagOlderThan      = "older-than"
+	// The readiness-timeout flags share their names with the config keys so
+	// bindConfigFlags binds them (see internal/viperconfig's registry).
+	flagDockerReadyTimeout = "docker-ready-timeout"
+	flagDaemonReadyTimeout = "daemon-ready-timeout"
+	flagDryRun             = runoptions.FlagDryRun
+	flagDryRunShort        = "n"
+	flagDryRunVM           = runoptions.FlagDryRunVM
+	flagForce              = "force"
+	flagPurge              = "purge"
+	flagOlderThan          = "older-than"
 	// flagAge is the deprecated alias for --older-than.
 	flagAge        = "age"
 	flagWorktree   = runoptions.FlagWorktree

@@ -148,6 +148,51 @@ func TestHeavyweightReadyTimeoutIsTheDocumentedCeiling(t *testing.T) {
 	}
 }
 
+// TestTimeoutFactorFromValue pins the smoke timeout-factor parsing: a positive
+// float scales the ceilings, and every other value (unset, zero, negative,
+// non-numeric) leaves them at 1, so a host run is unchanged.
+func TestTimeoutFactorFromValue(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value string
+		want  float64
+	}{
+		{"unset", "", 1},
+		{"zero", "0", 1},
+		{"negative", "-2", 1},
+		{"non-numeric", "fast", 1},
+		{"nan", "NaN", 1},
+		{"positive-inf", "+Inf", 1},
+		{"negative-inf", "-Inf", 1},
+		{"whole", "2", 2},
+		{"fractional", "1.5", 1.5},
+		{"padded", "  3  ", 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := timeoutFactorFromValue(tc.value); got != tc.want {
+				t.Errorf("timeoutFactorFromValue(%q) = %v, want %v", tc.value, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestScaleTimeout pins the ceiling scaler: a factor of 1 is the identity (so a
+// host run's ceilings are byte-for-byte unchanged — pinned on a duration beyond
+// float64's exact-integer range, where a multiply/round trip would drift) and
+// other factors multiply.
+func TestScaleTimeout(t *testing.T) {
+	const long = 3000 * time.Hour
+	if got := scaleTimeout(long, 1); got != long {
+		t.Errorf("scaleTimeout(f=1) = %s, want the exact %s", got, long)
+	}
+	if got := scaleTimeout(15*time.Second, 2); got != 30*time.Second {
+		t.Errorf("scaleTimeout(f=2) = %s, want 30s", got)
+	}
+	if got := scaleTimeout(15*time.Second, 0.5); got != 7500*time.Millisecond {
+		t.Errorf("scaleTimeout(f=0.5) = %s, want 7.5s", got)
+	}
+}
+
 // TestHermesSeedsAConfiguredHomeAndMarker pins how the smoke test reaches
 // hermes' interactive REPL without a real credential: it seeds a home config
 // that makes hermes consider a dummy, loopback provider configured and settles
@@ -470,9 +515,9 @@ func TestSeedHomeFilesUsesPrivateModes(t *testing.T) {
 // TestSawDaemonTimeout pins that the shared marker helper fires on the
 // launcher's real daemon-timeout phrase and stays quiet on unrelated output.
 func TestSawDaemonTimeout(t *testing.T) {
-	launcherPhrase := "opencode2 daemon did not become healthy within 1m0s: 401 unauthorized"
-	if !strings.Contains(launcherPhrase, "daemon did not become healthy") {
-		t.Fatalf("test phrase %q does not carry the launcher's daemon-timeout wording", launcherPhrase)
+	launcherPhrase := "opencode2 daemon did not become ready within 1m0s: 401 unauthorized"
+	if !strings.Contains(launcherPhrase, daemonTimeoutMarker) {
+		t.Fatalf("test phrase %q does not carry the launcher's marker %q", launcherPhrase, daemonTimeoutMarker)
 	}
 	if !sawDaemonTimeout([]byte("launcher output\n" + launcherPhrase)) {
 		t.Error("sawDaemonTimeout = false, want true for the launcher's daemon-timeout phrase")
@@ -899,6 +944,34 @@ func envMap(env []string) map[string]string {
 	return got
 }
 
+// TestIsolatedEnvForwardsLauncherReadyTimeouts pins the guest-only forwarding:
+// the suite's own AGENTS_SANDBOX_MSB_* variable is rewritten into the launcher's
+// config variable for the child, while a launcher variable exported on the host
+// is still dropped by the allowlist, so the isolation holds.
+func TestIsolatedEnvForwardsLauncherReadyTimeouts(t *testing.T) {
+	inherited := []string{
+		"AGENTS_SANDBOX_MSB_DOCKER_READY_TIMEOUT=90s",
+		"AGENTS_SANDBOX_MSB_DAEMON_READY_TIMEOUT=180s",
+		"AGENTS_SANDBOX_DOCKER_READY_TIMEOUT=1ns",
+		"HOME=/real",
+	}
+	got := envMap(isolatedEnv("/root", "/root", inherited))
+	for k, want := range map[string]string{
+		"AGENTS_SANDBOX_DOCKER_READY_TIMEOUT": "90s",
+		"AGENTS_SANDBOX_DAEMON_READY_TIMEOUT": "180s",
+	} {
+		if got[k] != want {
+			t.Errorf("%s = %q, want the forwarded %q", k, got[k], want)
+		}
+	}
+	if leaked := got["AGENTS_SANDBOX_MSB_DOCKER_READY_TIMEOUT"]; leaked != "" {
+		t.Errorf("AGENTS_SANDBOX_MSB_DOCKER_READY_TIMEOUT leaked into the child: %q", leaked)
+	}
+	if got["HOME"] != filepath.Join("/root", "home") {
+		t.Errorf("HOME = %q, want the isolated home", got["HOME"])
+	}
+}
+
 // TestIsolatedEnvKeepsDockerEndpoint pins that the docker endpoint variables
 // survive: the child needs the same daemon the preflight reaches, and they
 // carry no agents-sandbox config or state.
@@ -1019,6 +1092,19 @@ func TestQuitIntervalKeepsPairsRapidAndWaitsBetweenThem(t *testing.T) {
 	// The pair must stay inside qwen-code's measured chaining window (~1.2s).
 	if quitPressInterval >= quitRetryInterval {
 		t.Errorf("quitPressInterval %s is not shorter than quitRetryInterval %s", quitPressInterval, quitRetryInterval)
+	}
+}
+
+// TestSandboxNames pins the `sandbox list -q` parser the start/teardown sweep
+// uses: one trimmed name per non-blank line, and empty output yields no names.
+func TestSandboxNames(t *testing.T) {
+	if got := sandboxNames(""); got != nil {
+		t.Errorf("sandboxNames(\"\") = %v, want nil", got)
+	}
+	got := sandboxNames("a\n\n  b  \n")
+	want := []string{"a", "b"}
+	if !slices.Equal(got, want) {
+		t.Errorf("sandboxNames = %v, want %v", got, want)
 	}
 }
 
