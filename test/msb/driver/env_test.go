@@ -327,7 +327,7 @@ func TestIsolatedEnvSharesDataKeepsHome(t *testing.T) {
 			first["XDG_STATE_HOME"],
 		)
 	}
-	wantData := filepath.Join(root, DataDirName)
+	wantData := filepath.Join(root, dataDirName)
 	for name, env := range map[string]map[string]string{"opencode": first, "pi": second} {
 		if env["XDG_DATA_HOME"] != wantData {
 			t.Errorf("%s XDG_DATA_HOME = %q, want the shared %q", name, env["XDG_DATA_HOME"], wantData)

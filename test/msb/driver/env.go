@@ -8,9 +8,9 @@ import (
 	"strings"
 )
 
-// DataDirName is the XDG data directory IsolatedEnv puts under the root; the
+// dataDirName is the XDG data directory IsolatedEnv puts under the root; the
 // private microsandbox home is nested inside it.
-const DataDirName = "data"
+const dataDirName = "data"
 
 // homeDirName is the isolated HOME directory under a run's home base; the
 // child's home files (including a seeded harness config) live beneath it.
@@ -28,7 +28,7 @@ const (
 
 // runsDirName holds one directory per harness run, so concurrently running
 // harnesses get separate HOME/XDG_CONFIG/XDG_STATE/XDG_CACHE trees. The
-// microsandbox home stays shared under DataDirName so every harness reuses one
+// microsandbox home stays shared under dataDirName so every harness reuses one
 // image cache (see IsolatedEnv/HomeBase).
 const runsDirName = "runs"
 
@@ -79,7 +79,7 @@ func IsolatedEnv(root, homeBase string, inherited []string) []string {
 	return append(env,
 		"HOME="+filepath.Join(homeBase, homeDirName),
 		"XDG_CONFIG_HOME="+filepath.Join(homeBase, configDirName),
-		"XDG_DATA_HOME="+filepath.Join(root, DataDirName),
+		"XDG_DATA_HOME="+filepath.Join(root, dataDirName),
 		"XDG_STATE_HOME="+filepath.Join(homeBase, stateDirName),
 		"XDG_CACHE_HOME="+filepath.Join(homeBase, cacheDirName),
 		"TMPDIR="+filepath.Join(homeBase, tmpDirName),

@@ -1,4 +1,4 @@
-package harness
+package driver
 
 import (
 	"errors"
@@ -17,11 +17,11 @@ import (
 )
 
 // seedProjectDirs creates every project dir a smoke run builds an image in, so
-// harnessRunnerImageTags can resolve all of them.
+// HarnessRunnerImageTags can resolve all of them.
 func seedProjectDirs(t *testing.T, root string) {
 	t.Helper()
-	for _, pair := range suiteProjectAgents() {
-		if err := os.MkdirAll(projectDir(root, pair.Project), 0o755); err != nil {
+	for _, pair := range SuiteProjectAgents() {
+		if err := os.MkdirAll(ProjectDir(root, pair.Project), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -34,9 +34,9 @@ func expectedTags(t *testing.T, root string) map[string]string {
 	t.Helper()
 	want := map[string]string{}
 	for _, name := range agent.Names() {
-		want[name] = tagFor(t, projectDir(root, name), name)
+		want[name] = tagFor(t, ProjectDir(root, name), name)
 	}
-	want[dockerStorageProject] = tagFor(t, projectDir(root, dockerStorageProject), "opencode")
+	want[DockerStorageProject] = tagFor(t, ProjectDir(root, DockerStorageProject), "opencode")
 	return want
 }
 
@@ -44,16 +44,16 @@ func expectedTags(t *testing.T, root string) map[string]string {
 // cleanup share: every harness in its own project dir, plus the docker-enabled
 // docker-storage pair.
 func TestSuiteProjectAgentsCoverEveryBuiltImage(t *testing.T) {
-	pairs := suiteProjectAgents()
+	pairs := SuiteProjectAgents()
 	if len(pairs) != len(agent.Names())+1 {
 		t.Fatalf("pairs = %d, want one per harness plus docker-storage (%d)", len(pairs), len(agent.Names())+1)
 	}
 	for _, name := range agent.Names() {
-		if !slices.Contains(pairs, projectAgent{Project: name, Agent: name}) {
+		if !slices.Contains(pairs, ProjectAgent{Project: name, Agent: name}) {
 			t.Errorf("missing pair for harness %s; got %v", name, pairs)
 		}
 	}
-	if !slices.Contains(pairs, projectAgent{Project: dockerStorageProject, Agent: "opencode", Docker: true}) {
+	if !slices.Contains(pairs, ProjectAgent{Project: DockerStorageProject, Agent: "opencode", Docker: true}) {
 		t.Errorf("missing the docker-enabled docker-storage pair; got %v", pairs)
 	}
 	docker := 0
@@ -79,9 +79,9 @@ func tagFor(t *testing.T, dir, agentName string) string {
 func TestHarnessRunnerImageTagsCoverEveryProject(t *testing.T) {
 	root := t.TempDir()
 	seedProjectDirs(t, root)
-	got, err := harnessRunnerImageTags(root)
+	got, err := HarnessRunnerImageTags(root)
 	if err != nil {
-		t.Fatalf("harnessRunnerImageTags: %v", err)
+		t.Fatalf("HarnessRunnerImageTags: %v", err)
 	}
 	want := expectedTags(t, root)
 	if len(got) != len(want) {
@@ -102,11 +102,11 @@ func TestHarnessRunnerImageTagsArePathScoped(t *testing.T) {
 	first, second := t.TempDir(), t.TempDir()
 	seedProjectDirs(t, first)
 	seedProjectDirs(t, second)
-	firstTags, err := harnessRunnerImageTags(first)
+	firstTags, err := HarnessRunnerImageTags(first)
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondTags, err := harnessRunnerImageTags(second)
+	secondTags, err := HarnessRunnerImageTags(second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,10 +126,10 @@ func TestHarnessRunnerImageTagsSkipsUnresolvableProject(t *testing.T) {
 	root := t.TempDir()
 	seedProjectDirs(t, root)
 	missing := agent.Names()[0]
-	if err := os.RemoveAll(projectDir(root, missing)); err != nil {
+	if err := os.RemoveAll(ProjectDir(root, missing)); err != nil {
 		t.Fatal(err)
 	}
-	got, err := harnessRunnerImageTags(root)
+	got, err := HarnessRunnerImageTags(root)
 	if !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("err = %v, want it wrapping fs.ErrNotExist for the missing project dir", err)
 	}
@@ -140,18 +140,18 @@ func TestHarnessRunnerImageTagsSkipsUnresolvableProject(t *testing.T) {
 		if name == missing {
 			continue
 		}
-		if !slices.Contains(got, tagFor(t, projectDir(root, name), name)) {
+		if !slices.Contains(got, tagFor(t, ProjectDir(root, name), name)) {
 			t.Errorf("missing tag for the resolvable project %s", name)
 		}
 	}
-	dockerTag := tagFor(t, projectDir(root, dockerStorageProject), "opencode")
+	dockerTag := tagFor(t, ProjectDir(root, DockerStorageProject), "opencode")
 	if !slices.Contains(got, dockerTag) {
 		t.Errorf("missing the docker-storage tag %q after a skip; got %v", dockerTag, got)
 	}
 }
 
 func TestHarnessRunnerImageTagsAllMissing(t *testing.T) {
-	tags, err := harnessRunnerImageTags(t.TempDir())
+	tags, err := HarnessRunnerImageTags(t.TempDir())
 	if err == nil {
 		t.Error("no project dirs = nil error, want every skipped dir reported")
 	}
@@ -160,7 +160,7 @@ func TestHarnessRunnerImageTagsAllMissing(t *testing.T) {
 	}
 }
 
-// recordingTB captures the diagnostics cleanupRunnerImages emits. Embedding
+// recordingTB captures the diagnostics CleanupRunnerImages emits. Embedding
 // testing.TB satisfies its private method; Logf is the recorded call.
 type recordingTB struct {
 	testing.TB
@@ -195,7 +195,7 @@ func TestCleanupRunnerImagesIsBestEffort(t *testing.T) {
 		return nil, nil
 	}
 	recorder := &recordingTB{TB: t}
-	cleanupRunnerImages(recorder, root) // must not fail the test or stop after the first error
+	CleanupRunnerImages(recorder, root) // must not fail the test or stop after the first error
 	if len(removed) != len(agent.Names())+1 {
 		t.Errorf("attempted %d removals, want one per project (%d)", len(removed), len(agent.Names())+1)
 	}
@@ -218,7 +218,7 @@ func TestCleanupRunnerImagesRemovesNothingWithoutProjectDirs(t *testing.T) {
 		return nil, nil
 	}
 	recorder := &recordingTB{TB: t}
-	cleanupRunnerImages(recorder, t.TempDir())
+	CleanupRunnerImages(recorder, t.TempDir())
 	if calls != 0 {
 		t.Errorf("removals attempted = %d, want 0 when no tag can be derived", calls)
 	}

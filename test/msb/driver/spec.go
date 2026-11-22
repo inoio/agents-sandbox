@@ -20,6 +20,14 @@ const (
 // render runs under.
 const PublicNetwork = "public"
 
+// NetworkNone is the secure default network policy a smoke run boots under when
+// its spec names no network.
+const NetworkNone = "none"
+
+// opencodeAgentName is the agent the docker-storage smoke and the runner-image
+// prebuild both build.
+const opencodeAgentName = "opencode"
+
 // Spec describes how to drive one harness to its TUI and out of it.
 //
 //exhaustruct:ignore
@@ -155,9 +163,9 @@ var Specs = map[string]Spec{
 	// including from the folder-trust dialog it may show before the session.
 	"mistral-vibe": {QuitKey: []byte{CtrlC}, Network: "", KeepsNormalBuffer: false},
 	// opencode's editor owns Ctrl-C, so its TUI leaves on Ctrl-D.
-	"opencode":  {QuitKey: []byte{CtrlD}, Network: "", KeepsNormalBuffer: false},
-	"opencode2": {QuitKey: []byte{CtrlD}, Network: "", KeepsNormalBuffer: false},
-	"pi":        {QuitKey: []byte{CtrlD}, Network: "", KeepsNormalBuffer: false},
+	opencodeAgentName: {QuitKey: []byte{CtrlD}, Network: "", KeepsNormalBuffer: false},
+	"opencode2":       {QuitKey: []byte{CtrlD}, Network: "", KeepsNormalBuffer: false},
+	"pi":              {QuitKey: []byte{CtrlD}, Network: "", KeepsNormalBuffer: false},
 }
 
 // settledReadyTimeout bounds the readiness wait for a harness whose TUI keeps
@@ -288,6 +296,7 @@ type TB interface {
 	Helper()
 	Logf(string, ...any)
 	Fatalf(string, ...any)
+	Skipf(string, ...any)
 	TempDir() string
 	Cleanup(func())
 }

@@ -1,9 +1,4 @@
-// Package harness holds end-to-end smoke tests that start every registered
-// coding-agent harness in a real microsandbox VM and assert it reaches its
-// full-screen TUI. The VM-driven test lives behind the `msb` build tag; the
-// untagged helpers here are compiled only into test binaries — the suite root
-// and reuse lock.
-package harness
+package driver
 
 import (
 	"fmt"
@@ -11,10 +6,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/inoio/agents-sandbox/internal/hostlock"
-	"github.com/inoio/agents-sandbox/test/msb/driver"
+	"github.com/inoio/agents-sandbox/internal/sysinfo"
 )
 
 const (
@@ -50,14 +44,14 @@ func smokeRootBase() string {
 	return smokeRootBaseDefault
 }
 
-// smokeRootReuseEnv, when set, points the suite at an existing directory it
-// keeps between runs instead of a fresh temp root. The microsandbox image cache
-// lives under the root's data dir, so a reused root skips the multi-GB
+// SmokeRootReuseEnv points the suite at an existing directory it keeps between
+// runs instead of a fresh temp root. The microsandbox image cache lives under
+// the root's data dir, so a reused root skips the multi-GB
 // `docker save | msb ImageLoad` that each harness prebuild otherwise repays.
 // Local iteration only: unset (the default) creates and removes a fresh root.
-const smokeRootReuseEnv = "AGENTS_SANDBOX_SMOKE_ROOT"
+const SmokeRootReuseEnv = "AGENTS_SANDBOX_SMOKE_ROOT"
 
-// A sandbox's control-socket path is microsandbox's private home (msbHomeUnderRoot)
+// A sandbox's control-socket path is microsandbox's private home (MsbHomeUnderRoot)
 // plus a fixed suffix microsandbox appends; it must stay below a Unix socket's
 // sun_path limit (104 bytes on macOS, the tighter of the two targets) or every
 // harness fails before its TUI with "sandbox runtime socket path is too long".
@@ -66,48 +60,74 @@ const (
 	sunPathLimit            = 104
 )
 
-// smokeMemoryGiB is the memory each smoke harness VM boots with — the VM's
+// SmokeMemoryGiB is the memory each smoke harness VM boots with — the VM's
 // ceiling, passed to the launcher as --memory. A harness only has to reach its
 // TUI, and the launcher's default project-VM size (4 GiB) multiplies across the
 // parallel harnesses, so the smoke run boots each smaller.
-const smokeMemoryGiB = 2
+const SmokeMemoryGiB = 2
 
-// smokeWorkingSetMiB is the host memory a smoke VM is assumed to occupy when
+// SmokeWorkingSetMiB is the host memory a smoke VM is assumed to occupy when
 // the parallel-harness count is sized. A guest allocates only the pages it
 // touches (virtio-mem), so the divisor is an expected working set, not
-// smokeMemoryGiB's ceiling. It tracks the heaviest harness, not the lightest:
+// SmokeMemoryGiB's ceiling. It tracks the heaviest harness, not the lightest:
 // measured peaks are under 0.5 GiB for pi and over 1 GiB for opencode2, so
 // sizing on pi would oversubscribe the host.
-const smokeWorkingSetMiB = 1536
+const SmokeWorkingSetMiB = 1536
 
-// harnessHostReserveMiB is held back from the host's free memory before the
+// HarnessHostReserveMiB is held back from the host's free memory before the
 // parallel-harness count is sized: it covers the host OS, the docker daemon,
 // and the internal/sandbox/msb test binary, which runs one real VM at the same
 // time as this suite.
-const harnessHostReserveMiB = 2048
+const HarnessHostReserveMiB = 2048
 
-// harnessConcurrencyOverrideEnv forces the parallel-harness count, for a host
+// HarnessConcurrencyOverrideEnv forces the parallel-harness count, for a host
 // the memory heuristic sizes badly or for debugging. Unset (or empty) uses the
 // memory-derived default.
-const harnessConcurrencyOverrideEnv = "AGENTS_SANDBOX_MSB_PARALLEL"
+const HarnessConcurrencyOverrideEnv = "AGENTS_SANDBOX_MSB_PARALLEL"
 
-// smokeMemorySpec is the launcher --memory value for a smoke VM.
-func smokeMemorySpec() string {
-	return fmt.Sprintf("%dG", smokeMemoryGiB)
+// agentFlag is the launcher flag naming the agent a run or build drives.
+const agentFlag = "--agent"
+
+// SmokeMemorySpec is the launcher --memory value for a smoke VM.
+func SmokeMemorySpec() string {
+	return fmt.Sprintf("%dG", SmokeMemoryGiB)
 }
 
-// harnessConcurrencyFor returns how many harnesses may run at once given the
+// HarnessConcurrencyFor returns how many harnesses may run at once given the
 // host's free memory in MiB: as many smoke VMs as fit after the host reserve,
-// never fewer than one. The msb-tagged suite wraps it with the host reading, so
+// never fewer than one. HarnessConcurrency wraps it with the host reading, so
 // the memory policy is testable without the host.
-func harnessConcurrencyFor(freeMiB int) int {
-	if usable := freeMiB - harnessHostReserveMiB; usable >= smokeWorkingSetMiB {
-		return usable / smokeWorkingSetMiB
+func HarnessConcurrencyFor(freeMiB int) int {
+	if usable := freeMiB - HarnessHostReserveMiB; usable >= SmokeWorkingSetMiB {
+		return usable / SmokeWorkingSetMiB
 	}
 	return 1
 }
 
-// harnessRunArgs is the `run` invocation a harness smoke subtest drives: the
+// HarnessConcurrency is the number of harness VMs to run at once: an explicit
+// HarnessConcurrencyOverrideEnv override, else the count the host's free memory
+// fits, else one. It is enforced by a semaphore in the smoke suite, not only by
+// `-parallel`, so even a bare `go test -tags msb ./...` cannot start a VM per
+// harness.
+func HarnessConcurrency() int {
+	//testenv:allow the smoke suite sizes its parallelism from its own override
+	if override := os.Getenv(HarnessConcurrencyOverrideEnv); override != "" {
+		if n, err := strconv.Atoi(override); err == nil && n > 0 {
+			return n
+		}
+	}
+	//testenv:allow the smoke suite sizes its parallelism from the host's RAM
+	if free, ok := sysinfo.AvailableMemoryMiB(); ok {
+		return HarnessConcurrencyFor(int(free))
+	}
+	//testenv:allow the smoke suite sizes its parallelism from the host's RAM
+	if total := sysinfo.TotalMemoryGiB(); total > 0 {
+		return HarnessConcurrencyFor(total * 1024)
+	}
+	return 1
+}
+
+// HarnessRunArgs is the `run` invocation a harness smoke subtest drives: the
 // agent and network under test, the smoke memory cap, --yes, and --no-rebuild.
 //
 // --yes makes the launcher non-interactive, which is what keeps the first-run
@@ -123,17 +143,17 @@ func harnessConcurrencyFor(freeMiB int) int {
 // re-resolve its agent's latest release; for the GitHub-backed agents that
 // spends the shared anonymous 60-requests/hour api.github.com budget the suite
 // as a whole has to stay under.
-func harnessRunArgs(name, network string) []string {
+func HarnessRunArgs(name, network string) []string {
 	return []string{
-		"run", "--agent", name, "--network", network, "--memory", smokeMemorySpec(), "--yes", "--no-rebuild",
+		"run", agentFlag, name, "--network", network, "--memory", SmokeMemorySpec(), "--yes", "--no-rebuild",
 	}
 }
 
-// dockerStorageShellArgs is the `shell` invocation the docker-storage sibling
+// DockerStorageShellArgs is the `shell` invocation the docker-storage sibling
 // subtest drives: a docker-enabled opencode VM under the given network. It
-// carries --no-rebuild for the same reason harnessRunArgs does.
-func dockerStorageShellArgs(network string) []string {
-	return []string{"shell", "--agent", "opencode", "--docker", "--network", network, "--no-rebuild"}
+// carries --no-rebuild for the same reason HarnessRunArgs does.
+func DockerStorageShellArgs(network string) []string {
+	return []string{"shell", agentFlag, opencodeAgentName, "--docker", "--network", network, "--no-rebuild"}
 }
 
 // smokeVMCPUsEnv caps each smoke VM's vCPU count. Unset (the default) leaves the
@@ -143,13 +163,22 @@ func dockerStorageShellArgs(network string) []string {
 const smokeVMCPUsEnv = "AGENTS_SANDBOX_MSB_VM_CPUS"
 
 // cpusFlag is the launcher flag a vCPU-capped smoke run appends (see
-// withVMCPUs).
+// WithVMCPUs).
 const cpusFlag = "cpus"
+
+// SmokeVMCPUs is the per-VM vCPU cap each smoke run carries, read from the
+// environment: the KVM guest sets smokeVMCPUsEnv so parallel harnesses do not
+// each claim every guest vCPU. Zero (unset or invalid) leaves the launcher's own
+// default; smokeVMCPUsFromValue holds the parsing policy.
+func SmokeVMCPUs() uint8 {
+	//testenv:allow the smoke suite reads its own per-VM vCPU cap
+	return smokeVMCPUsFromValue(os.Getenv(smokeVMCPUsEnv))
+}
 
 // smokeVMCPUsFromValue parses the vCPU cap: a positive, 8-bit integer caps each
 // smoke VM; anything else (unset, zero, non-numeric, out of range) leaves the
 // launcher's default. Kept pure so it is testable without the host, like
-// harnessConcurrencyFor.
+// HarnessConcurrencyFor.
 func smokeVMCPUsFromValue(value string) uint8 {
 	n, err := strconv.ParseUint(strings.TrimSpace(value), 10, 8)
 	if err != nil || n == 0 {
@@ -158,25 +187,25 @@ func smokeVMCPUsFromValue(value string) uint8 {
 	return uint8(n)
 }
 
-// withVMCPUs appends the launcher's --cpus flag when cpus is non-zero, leaving
+// WithVMCPUs appends the launcher's --cpus flag when cpus is non-zero, leaving
 // args unchanged otherwise, so a run with no cap set is byte-for-byte what the
 // suite has always driven.
-func withVMCPUs(args []string, cpus uint8) []string {
+func WithVMCPUs(args []string, cpus uint8) []string {
 	if cpus == 0 {
 		return args
 	}
 	return append(args, "--"+cpusFlag, strconv.Itoa(int(cpus)))
 }
 
-// msbHomeUnderRoot is the private microsandbox home a suite root derives.
-func msbHomeUnderRoot(root string) string {
-	return filepath.Join(root, driver.DataDirName, "agents-sandbox", "msb")
+// MsbHomeUnderRoot is the private microsandbox home a suite root derives.
+func MsbHomeUnderRoot(root string) string {
+	return filepath.Join(root, dataDirName, "agents-sandbox", "msb")
 }
 
-// rootFitsSandboxSocket reports whether root's derived sandbox control-socket
+// RootFitsSandboxSocket reports whether root's derived sandbox control-socket
 // path stays below the sun_path limit.
-func rootFitsSandboxSocket(root string) bool {
-	return len(msbHomeUnderRoot(root))+sandboxSocketPathSuffix < sunPathLimit
+func RootFitsSandboxSocket(root string) bool {
+	return len(MsbHomeUnderRoot(root))+sandboxSocketPathSuffix < sunPathLimit
 }
 
 // reuseLockSuffix names the lock file that serializes runs sharing a reused
@@ -184,49 +213,49 @@ func rootFitsSandboxSocket(root string) bool {
 // in the microsandbox home under it.
 const reuseLockSuffix = ".lock"
 
-// reuseLockPath is the lock file that serializes runs sharing the reused root
+// ReuseLockPath is the lock file that serializes runs sharing the reused root
 // dir.
-func reuseLockPath(dir string) string {
+func ReuseLockPath(dir string) string {
 	return filepath.Join(filepath.Dir(dir), filepath.Base(dir)+reuseLockSuffix)
 }
 
-// acquireReuseLock blocks until this run holds the exclusive lock for the reused
+// AcquireReuseLock blocks until this run holds the exclusive lock for the reused
 // root dir, waiting out any other run that shares it. Two runs that share a root
 // would otherwise race on the sandbox sweep: whichever finishes first removes
 // every sandbox in the home, including the other's live VMs. dir is absolute,
 // so the lock path is stable across working directories. It returns the release.
-func acquireReuseLock(dir string) (func(), error) {
+func AcquireReuseLock(dir string) (func(), error) {
 	return hostlock.AcquireExclusive(filepath.Dir(dir), filepath.Base(dir)+reuseLockSuffix)
 }
 
-// resolveSuiteRoot returns the suite's shared root, whether it is a reused
+// ResolveSuiteRoot returns the suite's shared root, whether it is a reused
 // directory, and the release for the exclusive lock a reused directory is held
-// under (nil for a fresh root). A set smokeRootReuseEnv reuses that directory —
+// under (nil for a fresh root). A set SmokeRootReuseEnv reuses that directory —
 // resolved to an absolute path and validated to fit the sandbox socket path
 // budget — so the microsandbox image cache under it survives between runs;
 // otherwise a fresh temp root is created under smokeRootBase() (the
 // smokeRootBaseEnv override, else smokeRootBaseDefault) for the caller to remove,
 // validated to the same budget. The lock serializes runs that share a root, so a
 // finishing run's sandbox sweep cannot destroy VMs another run is still using.
-func resolveSuiteRoot() (string, bool, func(), error) {
+func ResolveSuiteRoot() (string, bool, func(), error) {
 	//testenv:allow the smoke suite reads its own reuse-root override
-	if dir := os.Getenv(smokeRootReuseEnv); dir != "" {
+	if dir := os.Getenv(SmokeRootReuseEnv); dir != "" {
 		reuseRoot, err := absPath(dir)
 		if err != nil {
 			return "", false, nil, fmt.Errorf("resolve reuse root %s: %w", dir, err)
 		}
-		if !rootFitsSandboxSocket(reuseRoot) {
+		if !RootFitsSandboxSocket(reuseRoot) {
 			return "", false, nil, fmt.Errorf(
 				"%s=%q derives a %d-byte sandbox control-socket path, at or above the %d-byte sun_path limit",
-				smokeRootReuseEnv, reuseRoot,
-				len(msbHomeUnderRoot(reuseRoot))+sandboxSocketPathSuffix, sunPathLimit)
+				SmokeRootReuseEnv, reuseRoot,
+				len(MsbHomeUnderRoot(reuseRoot))+sandboxSocketPathSuffix, sunPathLimit)
 		}
 		// reuseRoot is an explicit operator opt-in (the reuse root), not request
 		// data.
 		if err = os.MkdirAll(reuseRoot, 0o750); err != nil {
 			return "", false, nil, fmt.Errorf("create reuse root %s: %w", reuseRoot, err)
 		}
-		release, err := acquireReuseLock(reuseRoot)
+		release, err := AcquireReuseLock(reuseRoot)
 		if err != nil {
 			return "", false, nil, fmt.Errorf("lock reuse root %s: %w", reuseRoot, err)
 		}
@@ -236,12 +265,12 @@ func resolveSuiteRoot() (string, bool, func(), error) {
 	if err != nil {
 		return "", false, nil, err
 	}
-	if !rootFitsSandboxSocket(root) {
+	if !RootFitsSandboxSocket(root) {
 		_ = os.Remove(root)
 		return "", false, nil, fmt.Errorf(
 			"suite root %q derives a %d-byte sandbox control-socket path, at or above the %d-byte sun_path limit; set %s to a shorter base",
 			root,
-			len(msbHomeUnderRoot(root))+sandboxSocketPathSuffix,
+			len(MsbHomeUnderRoot(root))+sandboxSocketPathSuffix,
 			sunPathLimit,
 			smokeRootBaseEnv,
 		)
@@ -249,31 +278,7 @@ func resolveSuiteRoot() (string, bool, func(), error) {
 	return root, false, nil, nil
 }
 
-// The quit loop taps the harness's key in pairs until the process exits (see
-// quit). quitPressInterval keeps the two presses of a pair within the window a
-// repeated-key exit's "press again" prompt allows — qwen-code's was measured
-// under 1.2s, and a slower cadence stops the exit chaining — while
-// quitRetryInterval spaces the pairs out, so a harness that has caught the quit
-// can finish tearing down (and emit its alternate-screen leave) before the loop
-// writes another press. quitTimeout bounds the whole sequence.
-const (
-	quitPressInterval = 400 * time.Millisecond
-	quitRetryInterval = 2 * time.Second
-	quitTimeout       = 15 * time.Second
-)
-
-// quitIntervalAfterPress returns the wait before the next quit press: a pair's
-// two presses are one quitPressInterval apart, and the even press ends the pair,
-// after which the loop waits quitRetryInterval for the harness to exit or to
-// signal its teardown.
-func quitIntervalAfterPress(presses int) time.Duration {
-	if presses%2 == 0 {
-		return quitRetryInterval
-	}
-	return quitPressInterval
-}
-
-// mkdtemp is the seam resolveSuiteRoot creates a fresh root through, and absPath
+// mkdtemp is the seam ResolveSuiteRoot creates a fresh root through, and absPath
 // the seam it resolves the reuse root through. A test replaces one to assert its
 // failure branch.
 var (

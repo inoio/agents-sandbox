@@ -26,13 +26,18 @@ import (
 func runDockerStorageDriverSmoke(t *testing.T, root, binary string) {
 	t.Helper()
 
-	dir := projectDir(root, dockerStorageProject)
+	dir := driver.ProjectDir(root, driver.DockerStorageProject)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("create project dir: %v", err)
 	}
 
-	ses := driver.MustStartUnderPTY(t, dir, driver.IsolatedEnv(root, root, os.Environ()),
-		append([]string{binary}, withVMCPUs(dockerStorageShellArgs(networkNone), smokeVMCPUs())...)...)
+	ses := driver.MustStartUnderPTY(
+		t,
+		dir,
+		driver.IsolatedEnv(root, root, os.Environ()),
+		append(
+			[]string{binary},
+			driver.WithVMCPUs(driver.DockerStorageShellArgs(driver.NetworkNone), driver.SmokeVMCPUs())...)...)
 	defer ses.Close()
 
 	// The shell prints no startup marker, and its attach takes the terminal only
@@ -76,7 +81,7 @@ func runDockerStorageDriverSmoke(t *testing.T, root, binary string) {
 	if err := ses.Write([]byte("exit\n")); err != nil {
 		t.Fatalf("write exit: %v", err)
 	}
-	if code, err := ses.WaitExit(quitTimeout); err != nil {
+	if code, err := ses.WaitExit(driver.QuitTimeout); err != nil {
 		t.Fatalf("shell did not exit: %v\n%s", err, output)
 	} else if code != 0 {
 		t.Fatalf("shell exited %d, want 0\n%s", code, output)
@@ -155,7 +160,7 @@ const fuseDriverMarker = "fuse-overlayfs"
 func writeUntilMarker(t *testing.T, ses *driver.Session, command, marker string) {
 	t.Helper()
 
-	deadline := time.Now().Add(tuiReadyTimeout)
+	deadline := time.Now().Add(driver.TuiReadyTimeout)
 	needle := driver.MarkerText(marker)
 	for {
 		if strings.Contains(driver.MarkerText(string(ses.Output())), needle) {
@@ -165,12 +170,12 @@ func writeUntilMarker(t *testing.T, ses *driver.Session, command, marker string)
 			t.Fatalf("session exited before %q appeared:\n%s", marker, driver.StripANSI(ses.Output()))
 		}
 		if !time.Now().Before(deadline) {
-			t.Fatalf("%q never appeared within %s:\n%s", marker, tuiReadyTimeout, driver.StripANSI(ses.Output()))
+			t.Fatalf("%q never appeared within %s:\n%s", marker, driver.TuiReadyTimeout, driver.StripANSI(ses.Output()))
 		}
 		if err := ses.Write([]byte(command)); err != nil {
 			t.Fatalf("write %q: %v", command, err)
 		}
-		time.Sleep(quitPressInterval)
+		time.Sleep(driver.QuitPressInterval)
 	}
 }
 
@@ -183,7 +188,7 @@ func writeAndAwaitMarker(t *testing.T, ses *driver.Session, command, marker stri
 	if err := ses.Write([]byte(command)); err != nil {
 		t.Fatalf("write %q: %v", command, err)
 	}
-	if err := ses.WaitForMarker(marker, tuiReadyTimeout); err != nil {
+	if err := ses.WaitForMarker(marker, driver.TuiReadyTimeout); err != nil {
 		t.Fatalf("await %q: %v\n%s", marker, err, driver.StripANSI(ses.Output()))
 	}
 }

@@ -577,3 +577,20 @@ func TestPTYHonoursWorkingDirectoryAndEnv(t *testing.T) {
 		}
 	}
 }
+
+// TestTuiLeft pins the alternate-screen-leave signal the quit loop stops tapping
+// on: an alternate-screen harness emits it while giving the screen back as it
+// tears down, and falls back to cooked mode there, so a further tap would be
+// reprocessed as SIGINT and kill it mid-teardown. It must not fire on the enter
+// sequence the readiness wait watches for.
+func TestTuiLeft(t *testing.T) {
+	if !TuiLeft([]byte("tui output\n\x1b[?1049lbye")) {
+		t.Error("TuiLeft = false, want true for the alternate-screen leave sequence")
+	}
+	if TuiLeft([]byte("tui output\nstill up")) {
+		t.Error("TuiLeft = true, want false without the leave sequence")
+	}
+	if TuiLeft([]byte("launcher output\n\x1b[?1049htui")) {
+		t.Error("TuiLeft = true for the enter sequence, want false")
+	}
+}
