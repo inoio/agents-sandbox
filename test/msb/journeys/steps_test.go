@@ -3,10 +3,13 @@ package journeys
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/firstrun"
+	"github.com/inoio/agents-sandbox/internal/sandbox/channel"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/test/msb/driver"
 )
 
@@ -210,5 +213,154 @@ func TestStepAssertScopeExcludes(t *testing.T) {
 	}
 	if err := StepAssertScopeExcludes("auth.json").Run(ctx); err != nil {
 		t.Errorf("an absent login store: %v", err)
+	}
+}
+
+// fakeStubProvider is a StubProvider for a step test: StepSeedLearnSession only
+// needs one present, and it reads the advertised host from the package's
+// stubHost rather than the provider.
+type fakeStubProvider struct{}
+
+func (fakeStubProvider) Addr() string                      { return "http://stub.invalid" }
+func (fakeStubProvider) ProviderConfig() map[string]string { return nil }
+func (fakeStubProvider) Stop()                             {}
+
+// TestCommandArgvAppendsNoJourneyFlags pins StepLaunchCommand's arg handling:
+// the built binary and the command's own arguments, with none of the run flags
+// StepLaunch adds (config learn accepts none, so an appended --agent would fail
+// on an unknown flag).
+func TestCommandArgvAppendsNoJourneyFlags(t *testing.T) {
+	got := commandArgv("/tmp/agents-sandbox", []string{"config", "learn"})
+	want := []string{"/tmp/agents-sandbox", "config", "learn"}
+	if !slices.Equal(got, want) {
+		t.Errorf("commandArgv = %v, want %v", got, want)
+	}
+}
+
+// TestStepLaunchCommandRefusesANonDefaultAgent pins the coupling the step
+// records: the flagless command resolves agent.DefaultAgentName, so a journey
+// driving any other agent must fail rather than replay a record keyed under a
+// different agent.
+func TestStepLaunchCommandRefusesANonDefaultAgent(t *testing.T) {
+	ctx := &Context{TB: t, Agent: "pi", Root: t.TempDir(), Home: t.TempDir()}
+	if err := StepLaunchCommand("config", "learn").Run(ctx); err == nil {
+		t.Error("a non-default agent: got nil error, want the coupling failure")
+	}
+	if ctx.Session != nil {
+		t.Error("the step started a session despite refusing the agent")
+	}
+}
+
+// TestStepSeedLearnSessionSeedsIsolatedStateAndPreservesHomeVolume pins the
+// seeding step: it records the replay session with the home volume the
+// preliminary run left in the isolated state, saves an artefact naming the stub
+// host, and confines every write under the journey's home rather than the
+// developer's real XDG state.
+func TestStepSeedLearnSessionSeedsIsolatedStateAndPreservesHomeVolume(t *testing.T) {
+	const agentName = "opencode2"
+	root := t.TempDir()
+	if err := os.MkdirAll(driver.ProjectDir(root, agentName), 0o750); err != nil {
+		t.Fatalf("create project dir: %v", err)
+	}
+	home := t.TempDir()
+	ctx := &Context{TB: t, Root: root, Agent: agentName, Home: home, Stub: fakeStubProvider{}}
+
+	identity, err := journeyIdentity(ctx)
+	if err != nil {
+		t.Fatalf("journeyIdentity: %v", err)
+	}
+	key := state.Key{Slug: identity.CheckoutSlug, Agent: agentName}
+
+	restore := withJourneyStatePaths(home)
+	defer restore()
+	if err := state.WithHomeState(key, func(cur *state.HomeState, _ bool) (bool, error) {
+		cur.HomeVolume = "vol-real"
+		return true, nil
+	}); err != nil {
+		t.Fatalf("seed the pre-run home volume: %v", err)
+	}
+
+	if err := StepSeedLearnSession().Run(ctx); err != nil {
+		t.Fatalf("StepSeedLearnSession: %v", err)
+	}
+
+	record, ok, err := state.ReadLearnSession(key)
+	if err != nil {
+		t.Fatalf("ReadLearnSession: %v", err)
+	}
+	if !ok {
+		t.Fatal("ReadLearnSession ok = false, want the seeded session")
+	}
+	if record.HomeVolume != "vol-real" {
+		t.Errorf("recorded HomeVolume = %q, want the pre-run's vol-real", record.HomeVolume)
+	}
+	if record.ArtefactPath == "" {
+		t.Fatal("recorded ArtefactPath is empty, want the saved artefact")
+	}
+	wantDir := filepath.Join(home, isolatedStateDir, launcherConfigDirName, isolatedLearnDirName, key.Slug)
+	if dir := filepath.Dir(record.ArtefactPath); dir != wantDir {
+		t.Errorf("artefact dir = %q, want %q", dir, wantDir)
+	}
+	observation, err := channel.Load(record.ArtefactPath)
+	if err != nil {
+		t.Fatalf("load the seeded artefact: %v", err)
+	}
+	if len(observation.Destinations) != 1 || observation.Destinations[0].Host != stubHost {
+		t.Errorf("seeded observation = %+v, want one destination at %q", observation, stubHost)
+	}
+}
+
+// TestStepSeedLearnSessionRequiresThePreRunVolume pins the ordering: a step run
+// before the preliminary launcher run has no home volume to copy and fails
+// rather than seeding a record the replay would discard.
+func TestStepSeedLearnSessionRequiresThePreRunVolume(t *testing.T) {
+	const agentName = "opencode2"
+	root := t.TempDir()
+	if err := os.MkdirAll(driver.ProjectDir(root, agentName), 0o750); err != nil {
+		t.Fatalf("create project dir: %v", err)
+	}
+	ctx := &Context{TB: t, Root: root, Agent: agentName, Home: t.TempDir(), Stub: fakeStubProvider{}}
+	if err := StepSeedLearnSession().Run(ctx); err == nil {
+		t.Error("no recorded home volume: got nil error, want failure")
+	}
+}
+
+// TestStepAssertLearnArtefactGone pins the deletion assertion: a missing learn
+// directory passes, a lingering artefact fails, and an emptied directory passes
+// again.
+func TestStepAssertLearnArtefactGone(t *testing.T) {
+	const agentName = "opencode2"
+	root := t.TempDir()
+	if err := os.MkdirAll(driver.ProjectDir(root, agentName), 0o750); err != nil {
+		t.Fatalf("create project dir: %v", err)
+	}
+	ctx := &Context{TB: t, Root: root, Agent: agentName, Home: t.TempDir()}
+	identity, err := journeyIdentity(ctx)
+	if err != nil {
+		t.Fatalf("journeyIdentity: %v", err)
+	}
+
+	if err := StepAssertLearnArtefactGone().Run(ctx); err != nil {
+		t.Errorf("a missing learn directory: %v", err)
+	}
+
+	dir := filepath.Join(
+		ctx.Home, isolatedStateDir, launcherConfigDirName, isolatedLearnDirName, identity.CheckoutSlug,
+	)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("create learn dir: %v", err)
+	}
+	artefact := filepath.Join(dir, "1763458200.json")
+	if err := os.WriteFile(artefact, []byte("{}"), 0o600); err != nil {
+		t.Fatalf("write %s: %v", artefact, err)
+	}
+	if err := StepAssertLearnArtefactGone().Run(ctx); err == nil {
+		t.Error("a lingering artefact: got nil error, want failure")
+	}
+	if err := os.Remove(artefact); err != nil {
+		t.Fatalf("remove %s: %v", artefact, err)
+	}
+	if err := StepAssertLearnArtefactGone().Run(ctx); err != nil {
+		t.Errorf("an emptied learn directory: %v", err)
 	}
 }

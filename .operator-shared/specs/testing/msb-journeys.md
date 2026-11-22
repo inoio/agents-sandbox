@@ -189,7 +189,14 @@ convention into an enforced gate. Reuses `internal/testutil`'s existing `TestMai
   **Call:** seed the `state.LearnSession` record and a real home volume (what the CLI tests already
   do) rather than abnormally killing a launcher mid-turn. Avoids an abnormal-kill path and a leaked
   VM the suite's clean-quit model would not cover; the journey exercises the analysis, which is the
-  unit `config learn` owns.
+  unit `config learn` owns. The CLI test's seams (`seedLearnState`, `stubLearnHomeVolume`) are
+  unavailable to a blackbox suite that drives the real binary, and there is no `volume create` — the
+  volume commands only replace an existing home volume — so the journey obtains the real volume from
+  a **preliminary `run --learn`** that reaches the TUI, quits, and answers the exit prompt with
+  "Not now": it creates the VM and home volume, provisions the stub provider into the home (where it
+  persists for the replay's read-back), writes nothing, and clears its own session record. The
+  journey then seeds the record and a scrubbed observation through `state.RecordLearnSession` and
+  `channel.Save` under an isolated state root.
 
 **Assertion granularity (call).** A journey asserts the *semantic* effect, not a byte-for-byte
 golden: the credential's env-var name appears in `env.secret.yaml` with its host scoping, the managed
@@ -204,10 +211,15 @@ provider config (through the `home:` manifest) during `prepareSandbox`, **before
 so a provisioned provider file is never "changed" and UC1 gets no `${ENVVAR}` placeholder or config-key
 assertion. UC1 therefore asserts the static-secret write only.
 
-UC4 is the journey that asserts the placeholder and keys, and it does so without the changed-config
-write-back: the host-seed choice runs `firstrun.SeedFromHost` before the session, which writes the
-placeholdered managed config (and the login store it drops) ahead of the baseline, so the assertion does
-not depend on the session editing anything.
+UC4 is the journey that asserts the placeholder and keys from the host seed, and it does so without
+the changed-config write-back: the host-seed choice runs `firstrun.SeedFromHost` before the session,
+which writes the placeholdered managed config (and the login store it drops) ahead of the baseline, so
+the assertion does not depend on the session editing anything. The `config learn` replay also asserts
+the placeholder, but through the changed-config write-back: its seeded baseline is empty (the
+journey cannot synthesize the run's real baseline, whose hashes live only in the volume), so every
+read-back path is "changed" and the provisioned provider file reaches `ManagedConfigFindings` and is
+written back placeholdered. The seeded baseline is therefore load-bearing — a future change that
+records the real baseline would drop the replay's managed-config assertion.
 
 This also absorbs **#252**'s "the first turn round-trips and no first-run scaffolding appeared": that
 assertion belongs to a journey, not to the minimal startup gate.

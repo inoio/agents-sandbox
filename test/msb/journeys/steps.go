@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"go.yaml.in/yaml/v4"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/firstrun"
 	"github.com/inoio/agents-sandbox/internal/git"
+	"github.com/inoio/agents-sandbox/internal/sandbox/channel"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/viperconfig"
@@ -43,13 +45,37 @@ const learnExitPromptMarker = "Save what agents-sandbox learned from this sessio
 // learn, whose exit keys are unexported.
 const exitSaveAllKey = "s"
 
+// exitNotNowKey answers the learn exit prompt with "n" (Not now): the
+// preliminary `config learn` journey run reaches the TUI, quits, and writes
+// nothing, leaving the home volume and VM-derived state it created for the
+// replay. The key is named here for the same reason as exitSaveAllKey.
+const exitNotNowKey = "n"
+
+// The applier's per-finding prompt belongs to analyser's unexported
+// applyFindingKey and applyPrompt, so both are named here like the exit keys:
+// applyFindingKey answers one finding's Select with "a" (Apply), and
+// applyPromptMarker is the question's last line, matched after driver.MarkerText
+// normalizes it.
+const (
+	applyFindingKey   = "a"
+	applyPromptMarker = "Apply this change?"
+)
+
+// learnArtefactStartedUnix names the seeded artefact: channel.Save keys a
+// session's artefact by its start time, and config learn loads it back through
+// the recorded path. Any fixed instant works; it only has to be the same one the
+// record and the save use.
+const learnArtefactStartedUnix = 1763458200
+
 // The isolated XDG tree driver.IsolatedEnv roots under a journey's home base:
-// the launcher's config lives under config/agents-sandbox and its project state
-// under state/agents-sandbox. The names mirror driver.env.go's private
-// constants, which the journeys package cannot import.
+// the launcher's config lives under config/agents-sandbox, its project state
+// under state/agents-sandbox, and its learn artefacts under
+// state/agents-sandbox/learn/<checkout-slug>. The names mirror driver.env.go
+// and channel's private constants, which the journeys package cannot import.
 const (
 	isolatedConfigDir     = "config"
 	isolatedStateDir      = "state"
+	isolatedLearnDirName  = "learn"
 	launcherConfigDirName = "agents-sandbox"
 )
 
@@ -214,6 +240,212 @@ func StepChooseExit(key string) Step {
 		}
 		return nil
 	}}
+}
+
+// StepLaunchCommand starts the built launcher under the journey's isolated
+// environment with the project directory as its CWD and stores the session, like
+// StepLaunch but appending no journey flags. It drives a subcommand that takes
+// none of the run flags StepLaunch adds (--agent, --network, --memory,
+// --no-rebuild, the CPU cap): `config learn` declares no flags, so a StepLaunch
+// call would fail on an unknown flag.
+//
+// The command resolves its agent from the resolver the root installs (falling
+// back to agent.DefaultAgentName), not from a flag, so the journey's agent must
+// be that default or the record it replays is keyed under a different agent; the
+// step fails rather than drive a command the journey cannot assert.
+func StepLaunchCommand(args ...string) Step {
+	return Step{Name: "launch " + strings.Join(args, " "), Run: func(c *Context) error {
+		if c.Agent != agent.DefaultAgentName {
+			return fmt.Errorf(
+				"StepLaunchCommand drives a flagless command resolving agent %q, but the journey drives %q",
+				agent.DefaultAgentName,
+				c.Agent,
+			)
+		}
+		argv := commandArgv(c.Binary, args)
+		//testenv:allow the journey launcher runs under the host environment it isolates from
+		env := driver.IsolatedEnv(c.Root, c.Home, os.Environ())
+		c.Session = driver.MustStartUnderPTY(c.TB, driver.ProjectDir(c.Root, c.Agent), env, argv...)
+		return nil
+	}}
+}
+
+// commandArgv is the argv StepLaunchCommand builds: the built binary followed by
+// the command and its arguments, with no journey flags appended. It is pure so
+// the step's arg handling is testable without starting a process.
+func commandArgv(binary string, args []string) []string {
+	argv := make([]string, 0, len(args)+1)
+	argv = append(argv, binary)
+	return append(argv, args...)
+}
+
+// StepSeedLearnSession seeds the state a `config learn` replay reads: it copies
+// the HomeVolume the preliminary run recorded into a fresh LearnSession, saves an
+// observation naming the stub host as the session's artefact, and records both
+// through the production helpers. The replay then runs as if the owning process
+// were gone.
+//
+// The write goes through an isolated config-path resolver rooted at the
+// journey's home (see withJourneyStatePaths), never the developer's real XDG
+// state, and the recorded home volume is preserved so the replay does not
+// discard the session as volume-recreated.
+func StepSeedLearnSession() Step {
+	return Step{Name: "seed the recorded learn session", Run: func(c *Context) error {
+		if c.Stub == nil {
+			return errors.New("no stub provider: StepSeedStub must run before StepSeedLearnSession")
+		}
+		identity, err := journeyIdentity(c)
+		if err != nil {
+			return err
+		}
+		key := state.Key{Slug: identity.CheckoutSlug, Agent: c.Agent}
+		//exhaustruct:ignore // an observation names only the destination the secret finding rests on
+		observation := channel.Observation{
+			Destinations: []channel.Destination{{
+				Host:     stubHost,
+				Protocol: "https",
+				Success:  true,
+				Count:    1,
+			}},
+		}
+
+		restore := withJourneyStatePaths(c.Home)
+		defer restore()
+
+		homeState, err := state.ReadState(key)
+		if err != nil {
+			return fmt.Errorf("read the pre-run state for %s/%s: %w", key.Slug, key.Agent, err)
+		}
+		if homeState.HomeVolume == "" {
+			return fmt.Errorf("the preliminary run recorded no home volume for %s/%s", key.Slug, key.Agent)
+		}
+		artefactPath, err := channel.Save(key.Slug, learnArtefactStartedUnix, observation)
+		if err != nil {
+			return fmt.Errorf("save the seed artefact: %w", err)
+		}
+		record := state.LearnSession{
+			StartedAt:    time.Unix(learnArtefactStartedUnix, 0).UTC(),
+			HomeVolume:   homeState.HomeVolume,
+			ArtefactPath: artefactPath,
+			// An empty baseline makes every provisioned config path "changed"
+			// for the replay, so the stub provider's config reaches the
+			// managed-config write-back (see configLearnScope). The journey
+			// cannot synthesize the run's real baseline, whose hashes live only
+			// in the volume.
+			Baseline: nil,
+		}
+		if err := state.RecordLearnSession(key, record); err != nil {
+			return fmt.Errorf("record the seed session: %w", err)
+		}
+		return nil
+	}}
+}
+
+// StepAnswerApplyPrompts answers each of the replay's per-finding apply prompts
+// with Apply ("a"), then waits for the process to exit 0. `config learn` runs
+// the analysis with AcceptAll off (learn.Analyse), so the applier puts one
+// Select per finding — network, secret, and the managed config — and a single
+// written line only answers the first. The step taps the apply key on the quit
+// cadence until the process leaves, so the finding count is not a constant the
+// journey pins, and the post-answer wait reuses StepChooseExit's scaled budget.
+func StepAnswerApplyPrompts() Step {
+	return Step{Name: "answer the apply prompts", Run: func(c *Context) error {
+		ses, err := session(c)
+		if err != nil {
+			return err
+		}
+		budget := driver.ScaleTimeout(driver.ExitSaveTimeout, driver.SmokeTimeoutFactor())
+		return answerApplyPrompts(ses, budget)
+	}}
+}
+
+// answerApplyPrompts writes one Apply answer per prompt until the process exits
+// and reports its exit code. It stops on exit rather than on a fixed finding
+// count, so an extra buffered answer is harmless and a prompt it has not yet seen
+// is still answered. An answer written after the process has exited is not an
+// error; one written while it is alive and fails is.
+func answerApplyPrompts(ses *driver.Session, budget time.Duration) error {
+	deadline := time.Now().Add(budget)
+	answer := []byte(applyFindingKey + "\n")
+	for !ses.HasExited() {
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("the replay did not exit within %s while answering the apply prompts", budget)
+		}
+		if err := ses.Write(answer); err != nil {
+			if ses.HasExited() {
+				break
+			}
+			return fmt.Errorf("write an apply answer: %w", err)
+		}
+		time.Sleep(driver.QuitPressInterval) //testenv:allow taps a child pty's prompts, which have no in-process signal
+	}
+	code, err := ses.WaitExit(time.Second)
+	if err != nil {
+		return fmt.Errorf("the replay did not exit after the apply prompts: %w", err)
+	}
+	if code != 0 {
+		return fmt.Errorf("the replay exited %d, want 0", code)
+	}
+	return nil
+}
+
+// StepAssertLearnArtefactGone asserts the isolated learn-artefact directory
+// holds no artefact, so a consumed replay deleted the capture it loaded. An
+// absent directory passes: a replay that never saved one leaves none, and the
+// deletion is a no-op on a missing path.
+func StepAssertLearnArtefactGone() Step {
+	return Step{Name: "assert the learn artefact was deleted", Run: func(c *Context) error {
+		identity, err := journeyIdentity(c)
+		if err != nil {
+			return err
+		}
+		dir := filepath.Join(
+			c.Home, isolatedStateDir, launcherConfigDirName, isolatedLearnDirName, identity.CheckoutSlug,
+		)
+		entries, err := os.ReadDir(dir)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("read %s: %w", dir, err)
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				return fmt.Errorf("the replay left the learn artefact %s behind", filepath.Join(dir, entry.Name()))
+			}
+		}
+		return nil
+	}}
+}
+
+// journeyStatePaths is the isolated config-path resolver the seeding steps use:
+// the real resolver with only the user-state dir redirected under the journey's
+// home. state.RecordLearnSession and channel.Save resolve through
+// configpaths.Get(), which a test build installs as a fail-fast double and which
+// would otherwise write the developer's real XDG state; the redirect keeps the
+// production state and artefact formats while confining every write to the
+// journey's isolated tree.
+type journeyStatePaths struct {
+	configpaths.ConfigPaths
+
+	stateDir string
+}
+
+// UserStateDir returns the journey's isolated state root.
+func (p journeyStatePaths) UserStateDir() string { return p.stateDir }
+
+// withJourneyStatePaths installs the isolated resolver rooted at home and
+// returns the restore. The journeys run one at a time, so the process-global
+// swap cannot race another journey.
+func withJourneyStatePaths(home string) func() {
+	previous := configpaths.Get
+	configpaths.Get = func() configpaths.ConfigPaths { //nolint:reassign // the seeding steps write through production helpers that resolve through this factory
+		return journeyStatePaths{
+			ConfigPaths: configpaths.NewRealConfigPaths(),
+			stateDir:    filepath.Join(home, isolatedStateDir, launcherConfigDirName),
+		}
+	}
+	return func() { configpaths.Get = previous } //nolint:reassign // restore the factory the seeding step replaced
 }
 
 // StepAssertScopeWritten asserts want's semantic effects in the per-slug user

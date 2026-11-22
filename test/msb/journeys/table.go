@@ -10,6 +10,7 @@ package journeys
 var Journeys = []Journey{
 	uc1Journey,
 	uc4Journey,
+	configLearnJourney,
 }
 
 // notCoveredInV1 is the recorded reason for every registered agent the journeys
