@@ -246,6 +246,8 @@ func TestSummarizeDoesNotCountADeniedHostsTunnel(t *testing.T) {
 
 	if summary.ServicesReached != 1 || len(summary.Denied) != 1 {
 		t.Errorf("summary = %+v, want api.example reached and dead.example only denied", summary)
+	}
+}
 
 // TestSummarizeCarriesTheProxyLogAndNamesFailedHandshakes: a tunnel whose every
 // handshake failed still counts as reached (a pinned client looks the same),
