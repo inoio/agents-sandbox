@@ -190,8 +190,8 @@ snippets the drop-in copy of your host file). Settings the agent saves there ins
 agents-sandbox sets every key it writes to its own value again — so a setting from a snippet, such as a
 `permissions.deny` entry or codex's `sandbox_mode`, cannot be changed from inside the VM for good — and removes a key
 it wrote last time but no longer writes. Every other key is left alone. When the file already holds the launcher's
-values, it is not touched at all, so its formatting and comments survive. A file the agent left
-unreadable is replaced by the launcher's content. To make an in-VM setting portable across projects and machines, put
+values, it is not touched at all, so its formatting and comments survive. A file that is not valid
+JSON, TOML, or YAML is replaced by the launcher's content. To make an in-VM setting portable across projects and machines, put
 it in a snippet, or let [learn mode]({% link learn-your-setup.md %}) propose it.
 
 See the [permissions example](#example-permissions) for a concrete snippet.

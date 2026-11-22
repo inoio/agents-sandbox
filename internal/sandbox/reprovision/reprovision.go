@@ -187,9 +187,16 @@ type sandboxConfigStore struct {
 	written *[]string
 }
 
-func (s *sandboxConfigStore) read(path string) []byte {
-	content, _ := s.fs.Read(s.ctx, path)
-	return content
+func (s *sandboxConfigStore) read(path string) ([]byte, bool) {
+	exists, err := s.fs.Exists(s.ctx, path)
+	if err != nil {
+		return nil, false
+	}
+	if !exists {
+		return nil, true
+	}
+	content, err := s.fs.Read(s.ctx, path)
+	return content, err == nil
 }
 
 func (s *sandboxConfigStore) write(path string, data []byte, mode os.FileMode) error {

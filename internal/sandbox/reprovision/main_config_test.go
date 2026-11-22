@@ -137,15 +137,40 @@ func TestProvisionReplacesAMainConfigItCannotDecode(t *testing.T) {
 	}
 }
 
-func TestProvisionReplacesAMainConfigItCannotRead(t *testing.T) {
+// TestProvisionLeavesAMainConfigItCannotRead: the agent's settings may be in a
+// file a transient read failure hides, so neither it nor its base is touched.
+func TestProvisionLeavesAMainConfigItCannotRead(t *testing.T) {
 	fs := msbtest.NewTestFS(map[string][]byte{codexMainConfig: []byte(agentTrust)})
 	fs.ReadErr = errors.New("read boom")
 
 	provisionInto(t, fs, codexConfigFiles("model = \"gpt-5\"\n"))
 
-	if string(fs.Writes[codexMainConfig]) != "model = \"gpt-5\"\n" {
-		t.Errorf("main config = %q, want the launcher's content", fs.Writes[codexMainConfig])
+	if len(fs.Writes) != 0 || len(fs.Removed) != 0 {
+		t.Errorf(
+			"writes = %v, removed = %v; want the unreadable main config and its base left alone",
+			fs.Writes,
+			fs.Removed,
+		)
 	}
+}
+
+func TestProvisionLeavesAMainConfigWhoseExistenceCannotBeChecked(t *testing.T) {
+	fs := existsFailingFS{msbtest.NewTestFS(nil)}
+
+	sb := &msbtest.MockSandbox{FSValue_: fs, ShellCalls: &[]string{}}
+	if err := Provision(context.Background(), sb, codexConfigFiles("model = \"gpt-5\"\n")); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if len(fs.Writes) != 0 {
+		t.Errorf("writes = %v, want nothing written", fs.Writes)
+	}
+}
+
+// existsFailingFS cannot tell whether a file exists.
+type existsFailingFS struct{ *msbtest.TestFS }
+
+func (existsFailingFS) Exists(context.Context, string) (bool, error) {
+	return false, errors.New("exists boom")
 }
 
 func TestProvisionRemovesAMainConfigLeftWithoutKeys(t *testing.T) {
@@ -230,18 +255,24 @@ func TestMaterializeKeepsTheAgentsOwnMainConfig(t *testing.T) {
 	}
 }
 
-func TestHostConfigStoreReadsAnUnreadableOrOutsidePathAsAbsent(t *testing.T) {
+func TestHostConfigStoreTellsAnUnreadableFileFromAMissingOne(t *testing.T) {
 	target := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(target, ".codex", "config.toml"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	store := hostConfigStore{vmHome: VMHomeDir, targetDir: target}
 
-	if content := store.read(codexMainConfig); len(content) != 0 {
-		t.Errorf("read of a directory = %q, want nothing", content)
+	if _, readable := store.read(codexMainConfig); readable {
+		t.Error("a directory at the main config path read as readable")
 	}
-	if content := store.read("/elsewhere/x"); len(content) != 0 {
-		t.Errorf("read outside the home = %q, want nothing", content)
+	if content, readable := store.read("/home/dev/.missing"); !readable || content != nil {
+		t.Errorf("read of a missing file = %q, %v; want absent", content, readable)
+	}
+	if content, readable := store.read("/home/dev/.codex/config.toml/below"); !readable || content != nil {
+		t.Errorf("read below a file = %q, %v; want absent", content, readable)
+	}
+	if content, readable := store.read("/elsewhere/x"); !readable || content != nil {
+		t.Errorf("read outside the home = %q, %v; want absent", content, readable)
 	}
 }
 

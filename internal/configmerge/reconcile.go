@@ -71,6 +71,7 @@ func Reconcile(configPath string, base, live, launcher []byte) (Reconciliation, 
 	// A document decoded from the same format always marshals; a failure is
 	// still reported, and the caller writes the launcher document instead.
 	content, err := marshalConfig(configPath, result)
+	// gomutants:disable-next-line RETURN_ERROR_NIL reason="a document decoded from the same format always marshals, so err is always nil"
 	return Reconciliation{Action: ReconcileWrite, Content: content}, err
 }
 

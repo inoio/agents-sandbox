@@ -1,10 +1,12 @@
 package reprovision
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 // chmodPath is the file-permission seam. A real filesystem makes Chmod's failure
@@ -99,11 +101,16 @@ func targetPath(vmPath, vmHome, targetDir string) (string, error) {
 // path under vmHome into targetDir.
 type hostConfigStore struct{ vmHome, targetDir string }
 
-func (s hostConfigStore) read(vmPath string) []byte {
-	// A path outside the home maps to "", which reads as absent.
+func (s hostConfigStore) read(vmPath string) ([]byte, bool) {
+	// A path outside the home maps to "", which reads as absent; a write to
+	// it reports the error.
 	dest, _ := targetPath(vmPath, s.vmHome, s.targetDir)
-	content, _ := os.ReadFile(dest)
-	return content
+	content, err := os.ReadFile(dest)
+	// A parent that is not a directory means the file cannot exist either.
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+		return nil, true
+	}
+	return content, err == nil
 }
 
 func (s hostConfigStore) write(vmPath string, data []byte, mode os.FileMode) error {

@@ -161,15 +161,17 @@ func TestMaterializeRejectsRemovalPathOutsideVMHome(t *testing.T) {
 // the merged step.
 func TestMaterializeReportsMergedWriteFailure(t *testing.T) {
 	target := t.TempDir()
-	// A regular file where the merged config's parent directory must go makes
-	// MkdirAll fail with ENOTDIR.
-	if err := os.WriteFile(filepath.Join(target, ".config"), []byte("x"), 0o644); err != nil {
+	// A regular file where the base's parent directory must go makes MkdirAll
+	// fail with ENOTDIR. (A blocked main config path reads as unreadable and is
+	// left alone instead.)
+	if err := os.WriteFile(filepath.Join(target, ".local"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cf := &ConfigFiles{
-		HasSnippets: true,
-		Merged:      []byte("{}\n"),
-		MergedPath:  opencodeMergedPath,
+		HasSnippets:    true,
+		Merged:         []byte("{}\n"),
+		MergedPath:     opencodeMergedPath,
+		MergedBasePath: mainConfigBasePath(VMHomeDir, opencodeMergedPath),
 	}
 
 	err := Materialize(cf, VMHomeDir, target)
