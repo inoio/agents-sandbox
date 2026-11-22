@@ -193,6 +193,14 @@ signal appears and only waits for the exit:
   cannot stand in for the guest-side signal, though: the attach owns the host pty and restores it only after the guest
   process has already exited, so it never observes the guest's earlier restore.
 
+**A stalled pty write fails, it does not hang.** A harness that has stopped reading its pty fills the kernel's
+terminal buffer, where a bare write to the pty master blocks forever and outlasts every caller's deadline — the tap
+loop's budget and `HasExited` check both become unreachable. `driver.Session.Write` polls the master for room and
+bounds the wait by `ptyWriteTimeout` (5s), so a stalled slave returns a timeout error instead; the readiness and quit
+loops then fail with the harness/step named (the marker or quit key they were driving) rather than wedging the suite
+until `go test -timeout`. The master is a blocking descriptor on which `os.File.SetWriteDeadline` is a no-op, which is
+why the bound is a poll, not a deadline.
+
 The cadence serves two constraints that pull against each other. The arm and fire
 presses must stay within the window the harness's "press again" prompt allows, and `qwen-code`'s was measured at under
 1.2s (a 0.8s gap still chained; a 1.2s gap did not). But a teardown can outlast one press interval, and a press written
