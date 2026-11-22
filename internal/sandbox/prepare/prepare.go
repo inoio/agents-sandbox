@@ -45,7 +45,7 @@ type Session struct {
 	servePortDeferred bool
 	key               state.Key
 	homeVolume        string
-	limits            plannedLimits
+	appliedLimits     AppliedLimits
 }
 
 // Cleanup releases the sandbox handle. It is safe to call on a nil session.
@@ -103,11 +103,20 @@ type AppliedLimits struct {
 
 // AppliedLimits returns the resource limits the run applied.
 func (s *Session) AppliedLimits() AppliedLimits {
+	return s.appliedLimits
+}
+
+// appliedLimitsOf copies the string-only limit values out of a plan's
+// plannedLimits. The session stores those rather than the plan's limits so its
+// boxed value does not reach options.RunOptions (and so *lifecycle.Trace) by
+// reflection, which would mark Trace's exported methods live for the deadcode
+// gate.
+func appliedLimitsOf(limits plannedLimits) AppliedLimits {
 	return AppliedLimits{
-		Memory:         s.limits.memory,
-		DiskSize:       s.limits.diskSize,
-		WorkspaceQuota: s.limits.workspaceQuota,
-		TmpSize:        s.limits.tmpSize,
+		Memory:         limits.memory,
+		DiskSize:       limits.diskSize,
+		WorkspaceQuota: limits.workspaceQuota,
+		TmpSize:        limits.tmpSize,
 	}
 }
 
@@ -269,7 +278,7 @@ func newSession(
 		servePortDeferred: plan.decision.ServePortDeferred,
 		key:               session.key,
 		homeVolume:        plan.homeVolume,
-		limits:            plan.limits,
+		appliedLimits:     appliedLimitsOf(plan.limits),
 	}
 }
 

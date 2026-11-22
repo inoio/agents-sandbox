@@ -163,7 +163,7 @@ func selectOfferHit(
 		return markerSignal(pressure.EvidenceOOMLog, marker), marker.OOMSeenAt, true
 	case headroomTripped && headroomNeedsOffer(marker):
 		return headroomSignal, headroomSeenAt(marker, time.Now()), true
-	case !headroomTripped && unansweredHeadroom(marker):
+	case unansweredHeadroom(marker):
 		// The recorded headroom condition was never answered, but the fresh
 		// metrics read has recovered. Offer it from the marker so a
 		// non-interactive run's promise is kept.

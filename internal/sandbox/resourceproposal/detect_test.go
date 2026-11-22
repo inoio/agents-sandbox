@@ -127,6 +127,9 @@ func TestDetectAndOfferMemoryRaiseOffersAndPersists(t *testing.T) {
 	if marker == nil || !marker.OOMSeenAt.Equal(kill) || marker.OfferedAt.IsZero() {
 		t.Fatalf("marker = %+v, want the kill recorded and answered", marker)
 	}
+	if marker.Evidence != string(pressure.EvidenceOOMLog) || marker.Victim != "opencode" {
+		t.Errorf("marker = %+v, want the OOM-log identity recorded from the log hit", marker)
+	}
 	if got := resolveMemory(t, k.Slug); got != "8192M" {
 		t.Errorf("persisted memory = %q, want 8192M", got)
 	}
@@ -579,6 +582,9 @@ func TestDetectAndOfferMemoryRaiseUnansweredOOMWithoutLogOffers(t *testing.T) {
 	}
 	if marker.Kind != "memory" || marker.Evidence != string(pressure.EvidenceOOMLog) {
 		t.Errorf("marker = %+v, want an OOM-log hit reconstructed from the marker", marker)
+	}
+	if !marker.OOMSeenAt.Equal(kill) {
+		t.Errorf("marker.OOMSeenAt = %v, want the recorded kill %v preserved", marker.OOMSeenAt, kill)
 	}
 }
 
