@@ -88,13 +88,13 @@ phase); "smoke" names a depth, not a phase. Targets: `make test-msb` (startup, u
 CI-facing); only the package path changes.
 
 `driver` is **untagged** so its unit tests run in the default `make test` and never start a VM. The
-**harness table** (`harnessSpecs`, quit keys, seeds, readiness markers) moves into `driver` — both
+**harness table** (`driver.Specs`, quit keys, seeds, readiness markers) moves into `driver` — both
 suites need "how to start and quit harness X", and keeping the table untagged keeps its
 completeness test running in the default suite (the tagged-only-package trap).
 
 ### Shared machinery: A1
 
-- **A1 — extract a shared driver package** (chosen): pty session, `isolatedEnv`, root resolution +
+- **A1 — extract a shared driver package** (chosen): pty session, `driver.IsolatedEnv`, root resolution +
   reuse lock, readiness matching, harness table, into `test/msb/driver`.
 - **A2 — self-contained journeys suite:** rejected; two drivers that drift, and the pty
   `TCSANOW`/buffer quirks are exactly what must be fixed once.
@@ -142,8 +142,10 @@ other harnesses is tracked separately (the "extend to all agents" issue).
 
 Add `internal/testutil/production_closure_contract_test.go`: run `go list -deps ./cmd/agents-sandbox`
 (no `-test`, so it is the production closure) and fail if `testing` or any test-support package
-appears. Converts the "nothing test-only ships" convention into an enforced gate, and is what keeps
-the shared `driver` honest. Reuses `internal/testutil`'s existing `TestMain`.
+appears. A sibling check, `TestDriverClosureLinksNoTesting`, runs the same scan over `./test/msb/driver`
+— the shared untagged driver the suites import — so a production package leaked into the driver fails
+there, where the cmd closure cannot see it. Together they convert the "nothing test-only ships"
+convention into an enforced gate. Reuses `internal/testutil`'s existing `TestMain`.
 
 ## Journey suite v1 (learn mode)
 

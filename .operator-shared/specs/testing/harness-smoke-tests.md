@@ -111,7 +111,7 @@ sleep — hermes' banner marker ends its wait as soon as the CLI is up. An alter
 marker wait (180s) instead.
 
 `AGENTS_SANDBOX_MSB_TIMEOUT_FACTOR` (a positive float, unset = 1) multiplies every readiness ceiling
-(`settledReadyTimeout`, `heavyweightReadyTimeout`, `tuiReadyTimeout`) and `quitTimeout`, so the in-guest
+(`settledReadyTimeout`, `heavyweightReadyTimeout`, `driver.TuiReadyTimeout`) and `driver.QuitTimeout`, so the in-guest
 `make test-msb-in-vm` can give a nested guest's slower start and teardown a proportionally larger budget. It does
 not scale the quit press/retry cadence: those are tuned to qwen-code's sub-1.2s "press again" chaining window and
 a longer interval would stop the exit chaining. At the default 1 a host run is byte-for-byte unchanged.

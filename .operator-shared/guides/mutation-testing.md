@@ -300,7 +300,7 @@ would re-derive is not redundant code either: dropping it would ignore an error,
   `t.Errorf` (the test framework's own output goes to stdout too), then assert the read end contains the error's path —
   the mutated branch prints nothing, or `<nil>` when the condition is negated.
 - **A best-effort helper's `t.Logf` diagnostics are observable through a recording `testing.TB`; assert them instead of
-  recording a "log only" claim.** `cleanupRunnerImages` logs a skipped project dir and each failed `docker rmi`; a
+  recording a "log only" claim.** `CleanupRunnerImages` logs a skipped project dir and each failed `docker rmi`; a
   `recordingTB{TB: t}` that overrides `Logf` (embedding `testing.TB` supplies its private method) pins the failure text,
   which kills the `STATEMENT_REMOVE` and the `BRANCH_IF`. Add a case that logs nothing on the success path: the
   `CONDITIONALS_NEGATION` (`err != nil` → `==`) inverts *which* outcomes are reported, so only that case kills it.
@@ -424,7 +424,7 @@ would re-derive is not redundant code either: dropping it would ignore an error,
   error under the mutant and a block-then-success under the original. The "must not have returned" window costs
   nothing and cannot be flaky: the correct code cannot return while the lock is held.
 - **A "drop the rune" sentinel is equivalent under any negative value — record it.** `strings.Map`'s contract drops the
-  rune for *any* negative mapping result, so `markerText`'s `return -1` mutated to `return -2` changes nothing; a
+  rune for *any* negative mapping result, so `MarkerText`'s `return -1` mutated to `return -2` changes nothing; a
   `// gomutants:disable-next-line INTEGER_INCREMENT reason="strings.Map drops the rune for any negative mapping"` closes
   it. Confirm the stdlib's documented tolerance before assuming a sentinel's exact value is load-bearing.
 - **A wall-clock budget constant is observable as an exact value; pin it with a literal test.** `heavyweightReadyTimeout`'s
