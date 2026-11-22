@@ -24,7 +24,7 @@ var secretValuePatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\bx-auth-token\s*[:=]\s*` + tokenChars + `{8,}`),
 	// A URL with userinfo: a password (possibly with an empty user or a '/'), or
 	// a long token as the user name.
-	regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.-]*://[^\s@?#'"]*:[^\s@?#'"]*@`),
+	regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.-]*://[^\s@?#'"]*:[^\s@?#'"$\{][^\s@?#'"]*@`),
 	regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.-]*://[A-Za-z0-9._~-]{12,}@`),
 	// A credential in a query string or a key=value connection string.
 	regexp.MustCompile(
@@ -33,7 +33,7 @@ var secretValuePatterns = []*regexp.Regexp{
 	),
 	regexp.MustCompile(`(?i)(^|[\s;])(password|passwd|pwd)=[^\s;'"$\{]`),
 	// A credential passed as a command-line flag value in the same string.
-	regexp.MustCompile(`(?i)(^|\s)--?(token|password|passwd|api-?key|secret|auth)(=|\s+)[^\s'"$\{-]`),
+	regexp.MustCompile(`(?i)(^|\s)--?[a-z-]*(token|password|passwd|api-?key|secret|auth)(=|\s+)[^\s'"$\{-]`),
 	// Well-known vendor token prefixes, also inside a command ("echo sk-...").
 	regexp.MustCompile(`\b(sk|rk)_(live|test)_[A-Za-z0-9]{10,}`),
 	regexp.MustCompile(`\b(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}`),
@@ -78,23 +78,80 @@ func looksLikeSecretValue(value string) bool {
 	return false
 }
 
-// credentialFlags are command-line flags whose next argument is a credential.
-var credentialFlags = []string{"--token", "--password", "--passwd", "--api-key", "--apikey", "--secret", "--auth"}
-
 // argumentsLeakValue reports whether a list of command arguments passes a
-// literal credential after a credential flag (["--token", "abc..."]).
+// literal credential through a flag that names a secret: "--access-token abc"
+// as two elements, or "--client-secret=abc" as one. A flag naming where a
+// secret lives (--token-file, --password-stdin) passes none.
 func argumentsLeakValue(arguments []any) bool {
-	for index := 0; index+1 < len(arguments); index++ {
-		flag, isFlag := arguments[index].(string)
-		value, isValue := arguments[index+1].(string)
-		if !isFlag || !isValue || !slices.Contains(credentialFlags, strings.ToLower(flag)) {
+	for index, argument := range arguments {
+		flag, isString := argument.(string)
+		if !isString || !strings.HasPrefix(flag, "-") {
 			continue
 		}
-		if !isPlaceholderReference(value) && strings.TrimSpace(value) != "" && !strings.HasPrefix(value, "-") {
+		name, value, joined := strings.Cut(strings.TrimLeft(flag, "-"), "=")
+		if !flagNamesASecret(name) {
+			continue
+		}
+		if !joined {
+			next, hasNext := "", index+1 < len(arguments)
+			if hasNext {
+				next, _ = arguments[index+1].(string)
+			}
+			value = next
+		}
+		if literalCredential(value) {
 			return true
 		}
 	}
 	return false
+}
+
+// flagNamesASecret reports whether a flag name names a secret itself, not a
+// place one is read from.
+func flagNamesASecret(name string) bool {
+	if !looksLikeSecretShapedKey(name) && !leafMarkerName(name) {
+		return false
+	}
+	segments := keySegments(name)
+	last := segments[len(segments)-1]
+	return !slices.Contains([]string{"FILE", "PATH", "ENV", "STDIN", "DIR", "NAME", "HELPER", "COMMAND", "CMD"}, last)
+}
+
+func leafMarkerName(name string) bool {
+	return slices.ContainsFunc(keySegments(name), func(segment string) bool {
+		return slices.Contains(leafSecretKeyMarkers, segment)
+	})
+}
+
+// literalCredential reports whether value would be a literal credential: not
+// empty, not a reference, and not another flag.
+func literalCredential(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	return trimmed != "" && !strings.HasPrefix(trimmed, "-") && !isPlaceholderReference(trimmed)
+}
+
+// assignmentPattern matches an environment assignment NAME=value.
+var assignmentPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)=(.*)$`)
+
+// assignmentLeaksValue reports whether node is a NAME=value string (an env
+// array entry, a docker "-e" argument) whose value the env-table rule does not
+// clear.
+func assignmentLeaksValue(node any) bool {
+	text, isString := node.(string)
+	if !isString {
+		return false
+	}
+	match := assignmentPattern.FindStringSubmatch(text)
+	return match != nil && !envEntryIsSafe(match[1], match[2])
+}
+
+// nameValuePairLeaksValue reports whether a mapping is a {name, value} env
+// entry (the Kubernetes-style list form) whose value the env-table rule does
+// not clear.
+func nameValuePairLeaksValue(entry map[string]any) bool {
+	name, hasName := entry["name"].(string)
+	value, hasValue := entry["value"].(string)
+	return hasName && hasValue && !envEntryIsSafe(name, value)
 }
 
 // isPlaceholderReference reports whether value is an explicit reference to a
@@ -121,7 +178,7 @@ var headerTableKeys = []string{"headers", "http_headers"}
 // safeHeaderNames are headers that carry no credential.
 var safeHeaderNames = []string{
 	"accept", "accept-encoding", "accept-language", "content-type", "user-agent", "anthropic-beta",
-	"anthropic-version", "openai-beta", "x-request-id", "cache-control",
+	"anthropic-version", "openai-beta", "x-request-id", "cache-control", "content-length",
 }
 
 func keyIsOneOf(key string, names []string) bool {
@@ -181,13 +238,13 @@ func envEntryIsSafe(key, value string) bool {
 }
 
 // headerEntryIsSafe reports whether a header-table entry carries no credential:
-// an explicit reference, empty, a number, or a header known to carry none.
+// an explicit reference, empty, or a header known to carry none (a number is a
+// credential under any other header: an API key can be numeric).
 func headerEntryIsSafe(name, value string) bool {
 	if looksLikeSecretValue(value) {
 		return false
 	}
-	if isPlaceholderReference(value) || strings.TrimSpace(value) == "" || isNonSecretScalar(value) ||
-		onlyPlaceholdersCarrySecrets(value) {
+	if isPlaceholderReference(value) || strings.TrimSpace(value) == "" || onlyPlaceholdersCarrySecrets(value) {
 		return true
 	}
 	return keyIsOneOf(name, safeHeaderNames)
@@ -199,8 +256,13 @@ var placeholder = regexp.MustCompile(`\$\{[^}]*\}|\{(env|file):[^}]*\}`)
 // tokenRun matches a run of token characters long enough to be a credential.
 var tokenRun = regexp.MustCompile(`[A-Za-z0-9_-]{8,}`)
 
+// literalSecretLength is the length from which a token run left beside a
+// placeholder counts as a literal secret even without a digit.
+const literalSecretLength = 16
+
 // onlyPlaceholdersCarrySecrets reports whether value holds a placeholder and,
-// with every placeholder removed, no token-like run with a digit is left: a
+// with every placeholder removed, no token-like run with a digit, and none of
+// literalSecretLength or more, is left: a
 // header line built around a placeholder ("x-api-key: ${X_API_KEY}") carries
 // its credential only through the reference.
 func onlyPlaceholdersCarrySecrets(value string) bool {
@@ -208,7 +270,7 @@ func onlyPlaceholdersCarrySecrets(value string) bool {
 		return false
 	}
 	for _, run := range tokenRun.FindAllString(placeholder.ReplaceAllString(value, ""), -1) {
-		if strings.ContainsAny(run, "0123456789") {
+		if strings.ContainsAny(run, "0123456789") || len(run) >= literalSecretLength {
 			return false
 		}
 	}
@@ -221,12 +283,19 @@ func isSecretTable(key string, value any) bool {
 	return (keyIsOneOf(key, envTableKeys) || keyIsOneOf(key, headerTableKeys)) && stringKeyedEntries(value) != nil
 }
 
-// isFilesystemPath reports whether value is an absolute or home-relative path
-// without spaces: configuration (a key file's location), never the key itself.
+// isFilesystemPath reports whether value is an absolute or home-relative path:
+// configuration (a key file's location), never the key itself.
 func isFilesystemPath(value string) bool {
 	trimmed := strings.TrimSpace(value)
-	return (strings.HasPrefix(trimmed, "/") || strings.HasPrefix(trimmed, "~/")) && !strings.ContainsAny(trimmed, " \t")
+	if !strings.HasPrefix(trimmed, "/") && !strings.HasPrefix(trimmed, "~/") {
+		return false
+	}
+	// A path has at least two components and path characters only; base64
+	// (which can start with '/') carries '+' or '=' or has a single slash.
+	return strings.Count(trimmed, "/") >= 2 && filesystemPathChars.MatchString(trimmed)
 }
+
+var filesystemPathChars = regexp.MustCompile(`^[A-Za-z0-9._~/-]+$`)
 
 // isNonSecretScalar reports whether value is a number or a boolean word, which
 // config files hold as strings (Claude Code requires env values to be strings).
@@ -243,7 +312,8 @@ func isNonSecretScalar(value string) bool {
 }
 
 // tableLeaksValue reports whether key names an env or header table that holds
-// an entry its rule does not clear. A non-string entry is not a credential.
+// an entry its rule does not clear. A nested table or list under it holds no
+// configuration names, so any raw value inside it is a credential.
 func tableLeaksValue(key string, value any) bool {
 	var entryIsSafe func(name, value string) bool
 	switch {
@@ -255,7 +325,12 @@ func tableLeaksValue(key string, value any) bool {
 		return false
 	}
 	for entryKey, entryValue := range stringKeyedEntries(value) {
-		if text, ok := entryValue.(string); ok && !entryIsSafe(entryKey, text) {
+		text, isString := entryValue.(string)
+		if isString && !entryIsSafe(entryKey, text) {
+			return true
+		}
+		// A nested table or list is walked like any other value.
+		if !isString && (entryLeaksValue(entryKey, entryValue) || holdsRawSecretString(entryValue, false)) {
 			return true
 		}
 	}

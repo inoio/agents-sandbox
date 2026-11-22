@@ -373,7 +373,6 @@ func TestSanitizeConfigGuardAcceptsAReferenceOnlyPluralKey(t *testing.T) {
 	documents := []string{
 		`{"tokens":["${T}"]}`,
 		`{"maxTokens":4096}`,
-		`{"secrets":[4096]}`,
 		`{"passwords":[""]}`,
 		`{"keys":[true,null]}`,
 		`{"credentials":{"a":"${CRED_A}"}}`,
@@ -807,6 +806,68 @@ func TestSanitizeConfigReviewCases(t *testing.T) {
 			`{"mcp":{"x":{"headers":{"Content-Type":"application/json","anthropic-beta":"x-2025"}}}}`,
 		},
 		"risk word": {"opencode.json", `{"agent":{"x":{"prompt":"run the risk-assessment-tool"}}}`},
+	}
+	for name, tc := range accepted {
+		t.Run("accepts "+name, func(t *testing.T) {
+			if _, ok := SanitizeConfig(
+				[]byte(tc.content),
+				SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+			); !ok {
+				t.Errorf("SanitizeConfig refused %s", tc.content)
+			}
+		})
+	}
+}
+
+// TestSanitizeConfigSecondReviewCases pins the second review round's bypasses
+// and false positives.
+func TestSanitizeConfigSecondReviewCases(t *testing.T) {
+	refused := map[string]struct{ path, content string }{
+		"numeric password json": {"opencode.json", `{"mcp":{"x":{"password":84736251}}}`},
+		"numeric password yaml": {"config.yaml", "db:\n  password: 84736251\n"},
+		"numeric api key":       {"opencode.json", `{"x":{"apiKey":12345678901234}}`},
+		"pass key":              {"opencode.json", `{"x":{"pass":"hunter2pass"}}`},
+		"db_pass key":           {"opencode.json", `{"x":{"db_pass":"hunter2pass"}}`},
+		"pin key":               {"opencode.json", `{"x":{"pin":"1234"}}`},
+		"nested table in env":   {"opencode.json", `{"env":{"cfg":{"password":"hunter2pass"}}}`},
+		"nested table in env 2": {"opencode.json", `{"environment":{"prod":{"apiKey":"abc123def456"}}}`},
+		"header list value":     {"opencode.json", `{"headers":{"X-Auth":["abc123def456"]}}`},
+		"env array":             {"opencode.json", `{"x":{"env":["DB_PASSWORD=hunter2pass"]}}`},
+		"env array yaml":        {"config.yaml", "env:\n  - GITHUB_PAT=abc123def456\n"},
+		"docker -e arg": {
+			"config.toml",
+			"[mcp_servers.x]\nargs = [\"run\", \"-e\", \"API_KEY=abc123def456\"]\n",
+		},
+		"access token flag":        {"config.toml", "args = [\"--access-token\", \"abcdef\"]\n"},
+		"access token flag joined": {"config.toml", "args = [\"--access-token=abcdef\"]\n"},
+		"client secret flag":       {"config.toml", "args = [\"--client-secret\", \"abcdef\"]\n"},
+		"path-shaped secret":       {"settings.json", `{"env":{"API_SECRET":"/x8Kd93jfLq0aB+zz=="}}`},
+		"literal beside placeholder": {
+			"settings.json",
+			`{"env":{"OTEL_EXPORTER_OTLP_HEADERS":"Authorization=Bearer ${X},X-Other=abcdefghijklmnopqrst"}}`,
+		},
+		"numeric header": {"opencode.json", `{"headers":{"X-Api-Key":"12345678901234"}}`},
+	}
+	for name, tc := range refused {
+		t.Run("refuses "+name, func(t *testing.T) {
+			if _, ok := SanitizeConfig(
+				[]byte(tc.content),
+				SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+			); ok {
+				t.Errorf("SanitizeConfig accepted %s", tc.content)
+			}
+		})
+	}
+
+	accepted := map[string]struct{ path, content string }{
+		"placeholder url password":   {"settings.json", `{"env":{"DATABASE_URL":"postgres://app:${DB_PW}@db/x"}}`},
+		"placeholder url password 2": {"opencode.json", `{"x":{"url":"https://u:${X}@h.example/p"}}`},
+		"permission with url token": {
+			"settings.json",
+			`{"permissions":{"allow":["Bash(git push https://x:${TOKEN}@github.com:*)"]}}`,
+		},
+		"max tokens number":      {"opencode.json", `{"x":{"maxTokens":4096,"max_tokens":8192}}`},
+		"numeric content length": {"opencode.json", `{"headers":{"Content-Length":"42"}}`},
 	}
 	for name, tc := range accepted {
 		t.Run("accepts "+name, func(t *testing.T) {

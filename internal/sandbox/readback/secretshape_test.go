@@ -106,13 +106,14 @@ func TestHeaderEntryIsSafe(t *testing.T) {
 		name, value string
 		want        bool
 	}{
-		"content type":         {"Content-Type", "application/json", true},
-		"placeholder":          {"X-Custom-Auth", "${CUSTOM_AUTH}", true},
-		"placeholdered bearer": {"Authorization", "Bearer ${TOKEN}", true},
-		"number":               {"X-Retry", "3", true},
-		"unknown header":       {"X-Custom-Auth", "abcdef", false},
-		"shaped value":         {"Accept", "Bearer abcdefgh12345678", false},
-		"literal with a digit": {"X-Custom", "id ${X} abc123def456", false},
+		"content type":           {"Content-Type", "application/json", true},
+		"placeholder":            {"X-Custom-Auth", "${CUSTOM_AUTH}", true},
+		"placeholdered bearer":   {"Authorization", "Bearer ${TOKEN}", true},
+		"number, unknown header": {"X-Retry", "3", false},
+		"number, known header":   {"Content-Length", "42", true},
+		"unknown header":         {"X-Custom-Auth", "abcdef", false},
+		"shaped value":           {"Accept", "Bearer abcdefgh12345678", false},
+		"literal with a digit":   {"X-Custom", "id ${X} abc123def456", false},
 	}
 	for label, tc := range cases {
 		if got := headerEntryIsSafe(tc.name, tc.value); got != tc.want {
@@ -134,5 +135,14 @@ func TestStringKeyedEntriesReadsAnyKeyedMaps(t *testing.T) {
 	}
 	if stringKeyedEntries("not a table") != nil {
 		t.Error("a scalar yielded entries")
+	}
+}
+
+func TestNameValuePairIsJudgedByTheEnvRule(t *testing.T) {
+	if !decodedHoldsUndeclaredSecretValue(map[string]any{"name": "DB_PASSWORD", "value": "hunter2pass"}) {
+		t.Error("a {name, value} env entry holding a password was accepted")
+	}
+	if decodedHoldsUndeclaredSecretValue(map[string]any{"name": "LOG_LEVEL", "value": "debug"}) {
+		t.Error("a {name, value} env entry holding configuration was refused")
 	}
 }

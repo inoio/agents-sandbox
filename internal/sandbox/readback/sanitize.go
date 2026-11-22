@@ -346,7 +346,7 @@ func isKeyChar(b byte) bool {
 // a secret list is routinely spelled in the plural (tokens, apiKeys).
 var secretShapedKeyMarkers = []string{
 	"KEY", tokenCountMarker, "SECRET", "PASSWORD", "PASS", "PASSWD", "PWD", "AUTHORIZATION", "CREDENTIAL",
-	"APIKEY", "ACCESSKEY", "PRIVATEKEY", "AUTHTOKEN",
+	"APIKEY", "ACCESSKEY", "PRIVATEKEY", "AUTHTOKEN", "PIN",
 }
 
 // tokenCountMarker is the one marker that also names a count (max tokens), so a
@@ -363,8 +363,9 @@ var leafSecretKeyMarkers = []string{"AUTH", "COOKIE", "SESSION"}
 // marker except TOKEN.
 func namesAStoredSecret(key string) bool {
 	return slices.ContainsFunc(keySegments(key), func(segment string) bool {
-		marker := strings.TrimSuffix(segment, "S")
-		return marker != tokenCountMarker && (slices.Contains(secretShapedKeyMarkers, marker) || marker == "PIN")
+		singular := strings.TrimSuffix(segment, "S")
+		return segment != tokenCountMarker && singular != tokenCountMarker &&
+			(slices.Contains(secretShapedKeyMarkers, segment) || slices.Contains(secretShapedKeyMarkers, singular))
 	})
 }
 
@@ -401,7 +402,8 @@ func looksLikeSecretShapedKey(key string) bool {
 // trailing S folds the plural to its marker; the singular markers carry no
 // trailing S, so a singular segment is unchanged.
 func isSecretShapedSegment(segment string) bool {
-	return slices.Contains(secretShapedKeyMarkers, strings.TrimSuffix(segment, "S"))
+	return slices.Contains(secretShapedKeyMarkers, segment) ||
+		slices.Contains(secretShapedKeyMarkers, strings.TrimSuffix(segment, "S"))
 }
 
 // keySegments splits key into its uppercased word segments on separators and
@@ -441,6 +443,9 @@ func keySegments(key string) []string {
 func decodedHoldsUndeclaredSecretValue(node any) bool {
 	switch typed := node.(type) {
 	case map[string]any:
+		if nameValuePairLeaksValue(typed) {
+			return true
+		}
 		for key, child := range typed {
 			if entryLeaksValue(key, child) {
 				return true
@@ -454,7 +459,8 @@ func decodedHoldsUndeclaredSecretValue(node any) bool {
 			}
 		}
 	case []any:
-		return argumentsLeakValue(typed) || slices.ContainsFunc(typed, decodedHoldsUndeclaredSecretValue)
+		return argumentsLeakValue(typed) || slices.ContainsFunc(typed, assignmentLeaksValue) ||
+			slices.ContainsFunc(typed, decodedHoldsUndeclaredSecretValue)
 	case string:
 		return looksLikeSecretValue(typed)
 	}
@@ -501,9 +507,14 @@ func holdsRawSecretString(node any, allowNumbers bool) bool {
 				return true
 			}
 		}
+	case string:
+		return isUndeclaredSecretValue(typed, allowNumbers)
+	case bool, nil:
+		return false
 	default:
-		text, _ := typed.(string)
-		return isUndeclaredSecretValue(text, allowNumbers)
+		// A number decoded as a number: a token count under TOKEN, otherwise a
+		// stored secret such as a numeric password or PIN.
+		return !allowNumbers
 	}
 	return false
 }
