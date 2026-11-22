@@ -17,13 +17,15 @@ import (
 // as the startup smoke does, so a journey's budget only has to absorb its VM
 // start. A step's error aborts its journey and names the failing step, so a
 // scenario reads top-to-bottom and a failure points at one line.
+//
+// Every journey drives driver.ProjectDir(root, Agent), so all v1 journeys share
+// one project slug and hence one microsandbox VM and home volume, and the sweep
+// only runs at suite start and teardown. Per-journey state a step asserts must
+// therefore live in that journey's isolated HOME (a fresh t.TempDir per subtest,
+// via driver.IsolatedEnv), never in the shared volume or project dir; a future
+// journey that depends on a clean shared VM must add its own reset.
 func TestHarnessJourneys(t *testing.T) {
 	driver.Preflight(t)
-	if len(Journeys) == 0 {
-		// Until Phase 2 adds journeys, building the launcher and prebuilding
-		// every runner image would be a multi-minute no-op. Skip before either.
-		t.Skip("no journeys defined")
-	}
 	root, binary := driver.Prepare(t)
 	driver.PreflightDocker(t, root)
 	// Clear a reused root's leftovers before anything starts, and sweep again at
@@ -43,6 +45,9 @@ func TestHarnessJourneys(t *testing.T) {
 			if !ok {
 				t.Fatalf("journey %q names agent %q with no smoke spec", journey.Name, journey.Agent)
 			}
+			if journey.Network != "" {
+				spec.Network = journey.Network
+			}
 			ctx := &Context{
 				TB:      t,
 				Root:    root,
@@ -59,4 +64,12 @@ func TestHarnessJourneys(t *testing.T) {
 			}
 		})
 	}
+
+	// The host-gated stub spike runs last, sharing this test's prepared root and
+	// reuse lock: a separate top-level test would re-enter driver.Prepare, whose
+	// per-caller cleanup tears the shared root down and releases the lock when
+	// the first caller returns.
+	t.Run("stub-provider-turn-reaches-the-proxy", func(t *testing.T) {
+		runStubProviderTurnReachesTheProxy(t, root, binary)
+	})
 }

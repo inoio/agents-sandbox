@@ -279,12 +279,13 @@ test-msb-cold: msb-reuse-root
 # The harness-journey acceptance suite: drives full user journeys (v1: learn
 # mode on opencode2) through real harnesses in real VMs, beyond the startup
 # smoke's "the TUI came up" gate. It shares test-msb's standing reuse root and
-# image cache (so a journey's budget only absorbs its VM start), and the shared
-# reuse lock serializes the two targets. Host-only; excluded from test/check via
-# the `msb` build tag. See .operator-shared/specs/testing/msb-journeys.md.
+# image cache through AGENTS_SANDBOX_SMOKE_ROOT (so a journey's budget only
+# absorbs its VM start), and the shared reuse lock serializes the two targets;
+# it does not read AGENTS_SANDBOX_MSB_TEST_HOME, the internal/sandbox/msb
+# runtime's reuse home. Host-only; excluded from test/check via the `msb` build
+# tag. See .operator-shared/specs/testing/msb-journeys.md.
 test-msb-journeys: msb-reuse-root
 	AGENTS_SANDBOX_SMOKE_ROOT=$(MSB_REUSE_ROOT)/smoke \
-	AGENTS_SANDBOX_MSB_TEST_HOME=$(MSB_REUSE_ROOT)/msb \
 	AGENTS_SANDBOX_MSB_PARALLEL=$(MSB_PARALLEL) \
 	CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/msb/journeys/...
 

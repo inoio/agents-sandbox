@@ -21,6 +21,9 @@ type Context struct {
 	Home   string      // this journey's isolated HOME base (HOME and the XDG dirs)
 	// Session is set by StepLaunch and driven by the later steps.
 	Session *driver.Session
+	// Stub is set by StepSeedStub: the host-side destination the journey's
+	// agent sends to, kept so a later step or a host accept can inspect it.
+	Stub StubProvider
 }
 
 // Step is one named action in a journey. A step's Run returns an error; the
@@ -32,8 +35,17 @@ type Step struct {
 
 // Journey is one named scenario driven against one registered agent, composed of
 // steps drawn from the shared vocabulary in steps.go. No journey inlines a step.
+//
+// Network overrides the agent's spec network profile for this journey when set
+// (driver.Spec.NetworkOrDefault otherwise). The attribution journey sets it to a
+// profile that admits the stub, so the run's baseline is broad enough for the
+// analyser to actually narrow it and the network-not-widened assertion to have a
+// posture to check.
+//
+//exhaustruct:ignore
 type Journey struct {
-	Name  string
-	Agent string
-	Steps []Step
+	Name    string
+	Agent   string
+	Network string
+	Steps   []Step
 }
