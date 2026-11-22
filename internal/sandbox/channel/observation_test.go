@@ -124,6 +124,26 @@ func destinationByHost(t *testing.T, destinations []Destination, host string) De
 	return Destination{}
 }
 
+func TestDestinationAddressOnlyTunnel(t *testing.T) {
+	cases := map[string]struct {
+		destination Destination
+		want        bool
+	}{
+		"IPv4 tunnel":       {Destination{Host: "160.79.104.10", Protocol: ConnectProtocol}, true},
+		"IPv6 tunnel":       {Destination{Host: "2607:6bc0::10", Protocol: ConnectProtocol}, true},
+		"named tunnel":      {Destination{Host: "api.example", IP: "160.79.104.10", Protocol: ConnectProtocol}, false},
+		"request to an IP":  {Destination{Host: "160.79.104.10", Protocol: "https"}, false},
+		"request to a host": {Destination{Host: "api.example", Protocol: "https"}, false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := tc.destination.AddressOnlyTunnel(); got != tc.want {
+				t.Errorf("AddressOnlyTunnel(%+v) = %v, want %v", tc.destination, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestRecorderKeepsDestinationsDistinct(t *testing.T) {
 	var r recorder
 	r.observe("api.example", "203.0.113.7", "/v1/chat", "https", 443, nil)
