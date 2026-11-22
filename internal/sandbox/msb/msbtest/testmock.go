@@ -618,12 +618,9 @@ type MockSandbox struct {
 	ExecStreamUser string
 	ExecStreamEnv  map[string]string
 
-	// Metrics and Logs back the seam's resource-pressure reads. MetricsFn, when
-	// set, overrides MetricsResult/MetricsErr, so a test can signal each sample
-	// instead of racing the sampling interval.
+	// Metrics and Logs back the seam's resource-pressure reads.
 	MetricsResult *msb.Metrics
 	MetricsErr    error
-	MetricsFn     func(ctx context.Context) (*msb.Metrics, error)
 	LogsResult    []msb.LogEntry
 	LogsErr       error
 	// LogsOptions records every LogQuery passed to Logs.
@@ -744,10 +741,7 @@ func (m *MockSandbox) Destroy(_ context.Context, _ msb.LifecycleOptions) error {
 func (m *MockSandbox) DidDestroy() bool { return m.Destroyed }
 func (m *MockSandbox) Close() error     { return m.CloseErr }
 
-func (m *MockSandbox) Metrics(ctx context.Context) (*msb.Metrics, error) {
-	if m.MetricsFn != nil {
-		return m.MetricsFn(ctx)
-	}
+func (m *MockSandbox) Metrics(_ context.Context) (*msb.Metrics, error) {
 	return m.MetricsResult, m.MetricsErr
 }
 
