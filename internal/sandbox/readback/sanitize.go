@@ -87,7 +87,7 @@ func holdsUndeclaredSecretValue(path, content string) bool {
 	}
 	// The decoder reads only a YAML stream's first document, so a later one
 	// cannot be checked and the file is refused.
-	if format == configdecode.FormatYAML && yamlDocumentSeparator.MatchString(content) {
+	if format == configdecode.FormatYAML && holdsLaterYAMLDocument(content) {
 		return true
 	}
 	decoded, err := configdecode.Decode(format, []byte(content))
@@ -97,8 +97,33 @@ func holdsUndeclaredSecretValue(path, content string) bool {
 	return decodedHoldsUndeclaredSecretValue(decoded)
 }
 
-// yamlDocumentSeparator matches a YAML document separator after the first line.
-var yamlDocumentSeparator = regexp.MustCompile(`\n---(\s|$)`)
+// yamlDocumentMarker matches a line that opens or closes a YAML document.
+var yamlDocumentMarker = regexp.MustCompile(`^(---|\.\.\.)(\s|$)`)
+
+// holdsLaterYAMLDocument reports whether content holds a YAML document after its
+// first one. A '---' line on its own only opens the first document as long as
+// nothing precedes it but blank lines and comments; every other marker — a
+// '---', whenever it appears, and a '...' after any content — is followed by a
+// document the caller's first-document decode cannot check. A '---' inside a
+// block scalar is indented or a plain scalar's continuation, so it opens no
+// line of its own.
+func holdsLaterYAMLDocument(content string) bool {
+	seenContent := false
+	for line := range strings.Lines(content) {
+		trimmed := strings.TrimRight(line, "\r\n")
+		switch {
+		case yamlDocumentMarker.MatchString(line):
+			if seenContent || strings.HasPrefix(trimmed, "...") {
+				return true
+			}
+		case strings.TrimSpace(trimmed) == "" || strings.HasPrefix(strings.TrimSpace(trimmed), "#"):
+			// A blank line or a comment may precede the first document marker.
+		default:
+			seenContent = true
+		}
+	}
+	return false
+}
 
 // substituteCredentialValues replaces each credential's value in content. The
 // default form replaces every occurrence of the value with its ${ENVVAR}

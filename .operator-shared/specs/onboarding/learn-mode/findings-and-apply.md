@@ -91,7 +91,8 @@ same check, so it never copies a host config file the merge would not read.
   `*_EXPORTER`, `DISABLE_*`, `ENABLE_*`, `NO_*`, `USE_*`, `SKIP_*`, the proxy variables; headers: `Content-Type`,
   `Accept*`, `User-Agent`, `anthropic-beta`, …), and its value is not secret-shaped.
 
-A YAML file with more than one document is refused, because the decoder reads only the first. The rule is
+A YAML file with more than one document is refused, because the decoder reads only the first (a leading `---` that
+opens the first document, after nothing but blank lines and comments, is no second document). The rule is
 deliberately conservative: an unknown entry refuses the file rather than risk a missed credential, so a refused file
 stays in the sandbox. A placeholder as a URL password (`postgres://app:${DB_PW}@db`) is not a credential, so the
 sanitizer's own substituted output passes. It remains a heuristic, and these are not caught: an unshaped raw value

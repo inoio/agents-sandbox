@@ -84,8 +84,8 @@ so every clone of it shares the same settings. It proposes:
 - a static secret for each credential it can attribute to a destination;
 - a managed copy of each agent config file the session created or changed that the launcher merges, written to the same
   per-slug user config with each static secret value replaced by a placeholder. The value itself goes to
-  `env.secret.yaml`; a file that holds only a sign-in, a credential the launcher cannot attribute to a destination, or
-  a value that looks like a credential it cannot replace, stays in the sandbox.
+  `env.secret.yaml`; a file that holds only a sign-in, a credential the launcher cannot attribute to a destination, a
+  value that looks like a credential it cannot replace, or more than one YAML document, stays in the sandbox.
 
 It never removes a setting you wrote and never widens your network policy: the proposed allow set is your current set
 plus only what the session reached, and a denied destination is reported but never allowed. The network policy applies

@@ -69,7 +69,7 @@ func looksLikeSecretValue(value string) bool {
 		}
 	}
 	for _, pattern := range digitTokenPatterns {
-		// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT reason="any negative limit means all matches"
+		// gomutants:disable-next-line INTEGER_INCREMENT reason="any limit above 0 still reports a matching value, so only the shape tests' -1 limit can tell 1 from 2"
 		for _, match := range pattern.FindAllStringSubmatch(value, -1) {
 			// gomutants:disable-next-line INTEGER_DECREMENT reason="the whole match adds only the scheme word or sk- prefix, which holds no digit or '='"
 			if strings.ContainsAny(match[1], "0123456789=") {
@@ -267,7 +267,7 @@ func onlyPlaceholdersCarrySecrets(value string) bool {
 	if !placeholder.MatchString(value) {
 		return false
 	}
-	// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT reason="any negative limit means all matches"
+	// gomutants:disable-next-line INTEGER_INCREMENT reason="any limit above 0 still reports a matching run, so only the shape tests' -1 limit can tell 1 from 2"
 	for _, run := range tokenRun.FindAllString(placeholder.ReplaceAllString(value, ""), -1) {
 		if strings.ContainsAny(run, "0123456789") || len(run) >= literalSecretLength {
 			return false

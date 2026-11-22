@@ -411,6 +411,32 @@ func TestSanitizeConfigRefusesACredentialNotAllowed(t *testing.T) {
 	require.False(t, ok)
 }
 
+// TestHoldsLaterYAMLDocument pins the multi-document decision directly: the
+// marker is a document start only when nothing but blank lines and comments
+// precedes it.
+func TestHoldsLaterYAMLDocument(t *testing.T) {
+	for name, tc := range map[string]struct {
+		content string
+		want    bool
+	}{
+		"one document":                     {"model: x\n", false},
+		"comment then a document start":    {"# agent config\n---\nmodel: x\n", false},
+		"blank lines then a start":         {"\n\n---\nmodel: x\n", false},
+		"a start alone":                    {"---\nmodel: x\n", false},
+		"a document start without content": {"---\n", false},
+		"no content":                       {"", false},
+		"comment only":                     {"# agent config\n", false},
+		"second document":                  {"model: x\n---\nnote: y\n", true},
+		"second start only":                {"model: x\n---\n", true},
+		"document after a comment":         {"model: x\n# note\n---\nnote: y\n", true},
+		"document end marker":              {"model: x\n...\n", true},
+	} {
+		if got := holdsLaterYAMLDocument(tc.content); got != tc.want {
+			t.Errorf("%s: holdsLaterYAMLDocument(%q) = %v, want %v", name, tc.content, got, tc.want)
+		}
+	}
+}
+
 // TestHoldsUndeclaredSecretValueUnknownFormat pins the unknown-format fallback:
 // a path configdecode does not know cannot be decoded, so nothing is reported.
 func TestHoldsUndeclaredSecretValueUnknownFormat(t *testing.T) {
@@ -904,7 +930,13 @@ func TestSanitizeConfigGuardRuleBoundaries(t *testing.T) {
 	refused := map[string]struct{ path, content string }{
 		"escaped token":   {"settings.json", `{"x":"Bearer abc` + jsonEscapedDigits + `def456"}`},
 		"second document": {"config.yaml", "model: x\n---\nnote: y\n"},
-		"auth literal":    {"settings.json", `{"auth":"opaque"}`},
+		"document after a comment": {
+			"config.yaml",
+			"model: x\n# a note\n---\nnote: y\n",
+		},
+		"second document without content": {"config.yaml", "model: x\n---\n"},
+		"document end marker":             {"config.yaml", "model: x\n...\n"},
+		"auth literal":                    {"settings.json", `{"auth":"opaque"}`},
 	}
 	for name, tc := range refused {
 		if _, ok := SanitizeConfig(
@@ -915,11 +947,18 @@ func TestSanitizeConfigGuardRuleBoundaries(t *testing.T) {
 		}
 	}
 	accepted := map[string]struct{ path, content string }{
-		"single yaml document":   {"config.yaml", "model: x\nnote: y\n"},
-		"toml string with ---":   {"config.toml", "prompt = \"\"\"\nintro\n---\nmore\n\"\"\"\n"},
-		"boolean under password": {"settings.json", `{"passwordRequired":true,"pin":null}`},
-		"quoted token count":     {"settings.json", `{"MAX_TOKENS":"8192"}`},
-		"auth reference":         {"settings.json", `{"auth":"${AUTH}","session":""}`},
+		"single yaml document": {"config.yaml", "model: x\nnote: y\n"},
+		"comment then document start": {
+			"config.yaml",
+			"# agent config\n---\nmodel: x\n",
+		},
+		"blank lines then document start": {"config.yaml", "\n\n---\nmodel: x\n"},
+		"document start alone":            {"config.yaml", "---\nmodel: x\n"},
+		"empty document":                  {"config.yaml", "# only a comment\n"},
+		"toml string with ---":            {"config.toml", "prompt = \"\"\"\nintro\n---\nmore\n\"\"\"\n"},
+		"boolean under password":          {"settings.json", `{"passwordRequired":true,"pin":null}`},
+		"quoted token count":              {"settings.json", `{"MAX_TOKENS":"8192"}`},
+		"auth reference":                  {"settings.json", `{"auth":"${AUTH}","session":""}`},
 	}
 	for name, tc := range accepted {
 		if _, ok := SanitizeConfig(
