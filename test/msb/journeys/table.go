@@ -1,5 +1,10 @@
 package journeys
 
+// opencode2AgentName is the agent the v1 learn-mode journeys drive: the
+// S1-verified profile. It is a named constant so the journey table and each
+// journey literal cannot drift apart.
+const opencode2AgentName = "opencode2"
+
 // Journeys is the journey table: one entry per scenario the suite drives. v1
 // covers opencode2 only, with the learn-mode journeys (UC1, UC4, `config learn`,
 // attribution) landing across Phase 2; a journey is added here as a literal once
@@ -11,6 +16,7 @@ var Journeys = []Journey{
 	uc1Journey,
 	uc4Journey,
 	configLearnJourney,
+	attributionJourney,
 }
 
 // notCoveredInV1 is the recorded reason for every registered agent the journeys

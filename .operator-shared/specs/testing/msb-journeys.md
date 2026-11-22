@@ -221,6 +221,20 @@ read-back path is "changed" and the provisioned provider file reaches `ManagedCo
 written back placeholdered. The seeded baseline is therefore load-bearing — a future change that
 records the real baseline would drop the replay's managed-config assertion.
 
+**Attribution journey (v1 limitation).** The attribution journey (`test/msb/journeys/attribution.go`)
+drives `run --learn` against the host-side stub and asserts the learned scope keeps the credential
+scoped to the stub host and does not widen the network. It does **not** demonstrate that observation
+attribution supersedes the config-entry fallback: v1 never populates the attribution's credential.
+`recorder.attribute` (`internal/sandbox/channel/observation.go`) records header NAMES only and
+initialises `Attribution.Credential` to `""`; the proxy (`internal/sandbox/channel/proxy.go`) passes
+header names only; and `analyser.credentialHosts` (`internal/sandbox/analyser/observation.go`) matches
+`entry.Credential == credential.EnvVar`, so its attribution branch is unreachable and hosts always
+come from the read-back config entry. The plan's "config-entry source but no hosts" is likewise
+unachievable: the credential must name the stub baseURL for the agent to reach the stub, and that
+baseURL host is exactly the fallback host the assertion checks. The journey therefore discriminates
+only that a `run --learn` session writes a stub-host-scoped credential and keeps the network posture;
+proving attribution over the fallback needs the product gap closed first (a follow-up, not #793).
+
 This also absorbs **#252**'s "the first turn round-trips and no first-run scaffolding appeared": that
 assertion belongs to a journey, not to the minimal startup gate.
 

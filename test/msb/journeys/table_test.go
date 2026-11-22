@@ -88,6 +88,22 @@ func journeyCoverageProblems(journeys []Journey, exemptions map[string]string, r
 	return problems
 }
 
+// TestAttributionJourneyRegistered pins that the attribution journey is in the
+// table, so the suite drives a `run --learn` session against the stub and
+// asserts the learned scope. Without this entry the journey file would compile
+// but never run.
+func TestAttributionJourneyRegistered(t *testing.T) {
+	for _, journey := range Journeys {
+		if journey.Name == attributionJourney.Name {
+			if journey.Agent != "opencode2" {
+				t.Errorf("attribution journey agent = %q, want opencode2", journey.Agent)
+			}
+			return
+		}
+	}
+	t.Errorf("the attribution journey %q is not registered in Journeys", attributionJourney.Name)
+}
+
 // TestEveryJourneyStepIsNamedAndRunnable pins the runner's contract: a step
 // failure names the step, so every step carries a non-empty Name and a Run, and
 // a journey is non-empty and names its agent.

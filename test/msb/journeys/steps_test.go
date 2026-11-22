@@ -364,3 +364,82 @@ func TestStepAssertLearnArtefactGone(t *testing.T) {
 		t.Errorf("an emptied learn directory: %v", err)
 	}
 }
+
+// TestRunNetworkPolicyDerivesTheRunsProfile pins the network-not-widened
+// baseline: the policy is the profile the journey's spec passes to `--network`,
+// so a learned scope is compared against the posture the run actually had rather
+// than a literal built before the Context exists. opencode2's spec names no
+// profile, so the baseline is the secure default none.
+func TestRunNetworkPolicyDerivesTheRunsProfile(t *testing.T) {
+	cases := []struct {
+		name string
+		spec driver.Spec
+		want []network.Profile
+	}{
+		{name: "an unset spec defaults to none", spec: driver.Spec{}, want: []network.Profile{network.ProfileNone}},
+		{
+			name: "the spec's own profile wins",
+			spec: driver.Spec{Network: driver.PublicNetwork},
+			want: []network.Profile{network.ProfilePublic},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := runNetworkPolicy(&Context{Spec: tc.spec})
+			if !slices.Equal(got.Profiles, tc.want) {
+				t.Errorf("runNetworkPolicy(%+v).Profiles = %v, want %v", tc.spec, got.Profiles, tc.want)
+			}
+		})
+	}
+}
+
+// TestStepAssertNetworkNotWidened pins the changed step's context-derived
+// baseline: it reads the scope's launcher config and compares the profiles it
+// names against the builder's policy, so a scope that kept or narrowed the
+// posture passes, one that wrote nothing passes, and one that widened fails.
+func TestStepAssertNetworkNotWidened(t *testing.T) {
+	const agentName = "opencode2"
+	newContext := func(t *testing.T) *Context {
+		t.Helper()
+		root := t.TempDir()
+		if err := os.MkdirAll(driver.ProjectDir(root, agentName), 0o750); err != nil {
+			t.Fatalf("create project dir: %v", err)
+		}
+		return &Context{TB: t, Root: root, Agent: agentName, Spec: driver.Spec{}, Home: t.TempDir()}
+	}
+	writeScope := func(t *testing.T, c *Context, body string) {
+		t.Helper()
+		dir, err := journeyScopeDir(c)
+		if err != nil {
+			t.Fatalf("journeyScopeDir: %v", err)
+		}
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			t.Fatalf("create scope dir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(body), 0o600); err != nil {
+			t.Fatalf("write scope config: %v", err)
+		}
+	}
+
+	t.Run("a kept posture passes", func(t *testing.T) {
+		c := newContext(t)
+		writeScope(t, c, "network:\n  profile: none\n")
+		if err := StepAssertNetworkNotWidened(runNetworkPolicy).Run(c); err != nil {
+			t.Errorf("a scope keeping none: %v", err)
+		}
+	})
+
+	t.Run("a scope with no network block passes", func(t *testing.T) {
+		if err := StepAssertNetworkNotWidened(runNetworkPolicy).Run(newContext(t)); err != nil {
+			t.Errorf("a scope with no network block: %v", err)
+		}
+	})
+
+	t.Run("a widened posture fails", func(t *testing.T) {
+		c := newContext(t)
+		writeScope(t, c, "network:\n  profile: public\n")
+		if err := StepAssertNetworkNotWidened(runNetworkPolicy).Run(c); err == nil {
+			t.Error("a scope naming public over a none baseline: got nil error, want failure")
+		}
+	})
+}

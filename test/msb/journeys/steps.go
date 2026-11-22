@@ -587,10 +587,28 @@ func firstRunStateFile(c *Context) string {
 	return filepath.Join(c.Home, isolatedStateDir, launcherConfigDirName, "state.yaml")
 }
 
+// runNetworkPolicy is the policy a StepLaunch run under this journey already had:
+// the profile its spec passes to `--network`, parsed. The journey literal is built
+// before a Context exists, so StepAssertNetworkNotWidened takes this as a builder
+// and derives the baseline when the step runs. The spec's profile is a validated
+// name, so the parse cannot fail; an empty policy (rather than a panic) makes a
+// hypothetical failure strict rather than silently lenient.
+func runNetworkPolicy(c *Context) network.Policy {
+	profiles, err := network.ParseProfiles([]string{c.Spec.NetworkOrDefault()})
+	if err != nil {
+		return network.Policy{}
+	}
+	//exhaustruct:ignore // only the profile is the baseline; every other policy field is zero
+	return network.Policy{Profiles: profiles}
+}
+
 // StepAssertNetworkNotWidened asserts the scope's launcher config names no
 // network profile the run did not already have, so a learning session narrowed
-// or kept the posture instead of widening it.
-func StepAssertNetworkNotWidened(after network.Policy) Step {
+// or kept the posture instead of widening it. baseline derives the run's
+// pre-overlay policy from the context at run time, because the journey literal
+// predates the Context; runNetworkPolicy is the builder for a run StepLaunch
+// started.
+func StepAssertNetworkNotWidened(baseline func(*Context) network.Policy) Step {
 	return Step{Name: "assert the network policy was not widened", Run: func(c *Context) error {
 		dir, err := journeyScopeDir(c)
 		if err != nil {
@@ -600,6 +618,7 @@ func StepAssertNetworkNotWidened(after network.Policy) Step {
 		if err != nil {
 			return err
 		}
+		after := baseline(c)
 		if widenedBeyond(profiles, after) {
 			return fmt.Errorf("the learned scope named network profile(s) %v beyond %v", profiles, after.Profiles)
 		}

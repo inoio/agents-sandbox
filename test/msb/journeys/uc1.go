@@ -45,7 +45,7 @@ var uc1Scope = ScopeWant{
 // choice turns learn mode on for the session through Outcome.Apply.
 var uc1Journey = Journey{
 	Name:  "uc1-learn-by-using",
-	Agent: "opencode2",
+	Agent: opencode2AgentName,
 	Steps: []Step{
 		StepFreshHome(),
 		StepSeedStub(),

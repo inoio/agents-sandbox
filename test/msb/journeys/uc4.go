@@ -58,7 +58,7 @@ var uc4Scope = ScopeWant{
 // config's provider baseURL can carry the stub's runtime address.
 var uc4Journey = Journey{
 	Name:  "uc4-learn-from-host",
-	Agent: "opencode2",
+	Agent: opencode2AgentName,
 	Steps: []Step{
 		StepFreshHome(),
 		StepSeedStub(),
