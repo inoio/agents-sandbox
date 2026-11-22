@@ -1,15 +1,15 @@
 // Package harness holds end-to-end smoke tests that start every registered
 // coding-agent harness in a real microsandbox VM and assert it reaches its
 // full-screen TUI. The VM-driven test lives behind the `msb` build tag; the
-// untagged helpers here are compiled only into test binaries — the harness
-// table, the child environment allowlist, and the output helpers.
+// untagged helpers here are compiled only into test binaries — the child
+// environment allowlist, the isolated home seeding, and the suite root and
+// reuse lock.
 package harness
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -17,37 +17,14 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/hostlock"
+	"github.com/inoio/agents-sandbox/test/msb/driver"
 )
-
-// daemonTimeoutMarker is the substring the launcher prints when a detached
-// service's readiness probe never succeeds (internal/sandbox/vm's
-// awaitJobReady: "<label> did not become ready within <timeout>"). A harness
-// whose output contains it never reached the TUI.
-const daemonTimeoutMarker = "did not become ready"
-
-// altScreenEnter is the terminal control sequence a harness emits as its
-// full-screen TUI takes over the alternate screen buffer.
-const altScreenEnter = "\x1b[?1049h"
 
 // altScreenLeave is the sequence the same harness emits as it gives the
 // alternate screen back while quitting: its own teardown signal, and the point
 // past which a further quit tap would reach a terminal the harness has already
 // restored to cooked mode.
 const altScreenLeave = "\x1b[?1049l"
-
-// escapeByte starts an ANSI escape sequence.
-const escapeByte = 0x1b
-
-const (
-	// envTerm is the terminal type variable a full-screen TUI reads.
-	envTerm = "TERM"
-	// defaultTerm is the terminfo entry a harness runs under when the test
-	// process has no usable one.
-	defaultTerm = "xterm-256color"
-	// termDumb is the terminfo entry that suppresses terminal control
-	// sequences; a harness cannot render its TUI under it.
-	termDumb = "dumb"
-)
 
 const (
 	// smokeRootPrefix names the suite's shared temp roots; smokeRootBaseDefault
@@ -223,46 +200,6 @@ func withVMCPUs(args []string, cpus uint8) []string {
 	return append(args, "--"+cpusFlag, strconv.Itoa(int(cpus)))
 }
 
-// smokeTimeoutFactorEnv scales the smoke suite's readiness and quit ceilings.
-// Unset (the default) leaves them at 1, every host value. The KVM guest sets
-// it: a nested guest starts a VM and its services far slower, so the fixed
-// ceilings that fit a host time out there.
-const smokeTimeoutFactorEnv = "AGENTS_SANDBOX_MSB_TIMEOUT_FACTOR"
-
-// timeoutFactorFromValue parses the timeout factor: a positive, finite float
-// scales the ceilings; anything else (unset, zero, negative, NaN, infinite,
-// non-numeric) leaves them at 1, so a host run is unchanged. Kept pure so it is
-// testable without the host, like smokeVMCPUsFromValue.
-func timeoutFactorFromValue(value string) float64 {
-	factor, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
-	if err != nil || math.IsNaN(factor) || math.IsInf(factor, 0) || factor <= 0 {
-		return 1
-	}
-	return factor
-}
-
-// scaleTimeout returns d multiplied by factor to the nearest nanosecond. A
-// factor of 1 is the identity, so an unset factor leaves every ceiling exactly
-// what the suite has always used.
-func scaleTimeout(d time.Duration, factor float64) time.Duration {
-	if factor == 1 {
-		return d
-	}
-	return time.Duration(float64(d) * factor)
-}
-
-// sandboxNames parses `sandbox list -q` output into one trimmed name per
-// non-blank line. A name is a whole line, so it is trimmed, not split.
-func sandboxNames(output string) []string {
-	var names []string
-	for line := range strings.SplitSeq(output, "\n") {
-		if name := strings.TrimSpace(line); name != "" {
-			names = append(names, name)
-		}
-	}
-	return names
-}
-
 // msbHomeUnderRoot is the private microsandbox home a suite root derives.
 func msbHomeUnderRoot(root string) string {
 	return filepath.Join(root, dataDirName, "agents-sandbox", "msb")
@@ -363,19 +300,6 @@ var isolatedEnvKeep = []string{
 	"DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG",
 }
 
-// publicNetwork is the `--network` profile a harness that needs egress to
-// render runs under.
-const publicNetwork = "public"
-
-// Terminal keys that leave a harness's full-screen TUI: Ctrl-D is `opencode`'s,
-// `opencode2`'s, `pi`'s, and `oh-my-pi`'s documented `app_exit`/`app.exit`, and Ctrl-C is the
-// interrupt `claude-code` announces as its exit ("Press Ctrl-C again to exit")
-// and `codex`, `qwen-code`, `grok-build`, and `mistral-vibe` quit on.
-const (
-	ctrlC = 0x03
-	ctrlD = 0x04
-)
-
 // The quit loop taps the harness's key in pairs until the process exits (see
 // quit). quitPressInterval keeps the two presses of a pair within the window a
 // repeated-key exit's "press again" prompt allows — qwen-code's was measured
@@ -400,298 +324,12 @@ func quitIntervalAfterPress(presses int) time.Duration {
 	return quitPressInterval
 }
 
-// harnessSpecs maps every registered harness to how the smoke test drives it.
-// It must stay in sync with agent.Names(); the smoke test asserts the two key
-// sets are equal.
-var harnessSpecs = map[string]harnessSpec{
-	// claude-code checks in with its API before it draws anything, so it needs
-	// egress, and its renderer keeps the terminal's normal buffer, so the
-	// alternate screen never announces that its UI is up. Its startup splash
-	// prints the product name, which readies the subtest. Its first run stops at
-	// onboarding (a theme picker and a workspace-trust dialog) whose only quit
-	// key aborts with exit 1, so the subtest seeds its first-run state through
-	// the launcher's home: manifest (SeedHomeManifest) and lands on the prompt.
-	"claude-code": {
-		QuitKey:           []byte{ctrlC},
-		Network:           publicNetwork,
-		KeepsNormalBuffer: true,
-		ReadyMarker:       claudeCodeReadyMarker,
-		SeedHomeManifest:  map[string]string{claudeCodeConfigPath: claudeCodeSmokeConfig},
-	},
-	// codex quits on Ctrl-C and may reach its API at startup, so it gets
-	// egress like claude-code; its TUI uses the alternate screen.
-	"codex": {QuitKey: []byte{ctrlC}, Network: publicNetwork, KeepsNormalBuffer: false},
-	// hermes' classic CLI keeps the terminal's normal buffer, so the alternate
-	// screen never announces that its UI is up. The subtest seeds a home config
-	// that makes a dummy, loopback provider count as configured, so hermes starts
-	// the classic CLI REPL instead of stopping at its first-run setup guard (which
-	// always exits 1 without a real provider); Ctrl-D then leaves the REPL with
-	// exit 0. The seeded endpoint is loopback, so it runs under the default
-	// `--network none`; the startup banner is the readiness marker. Its runner
-	// image carries a whole Python/Node tool store, so its startup is the slowest
-	// of the harnesses.
-	"hermes": {
-		QuitKey:           []byte{ctrlD},
-		KeepsNormalBuffer: true,
-		ReadyMarker:       hermesReadyMarker,
-		ReadyTimeout:      heavyweightReadyTimeout,
-		SeedHomeFiles:     map[string]string{hermesConfigPath: hermesSmokeConfig},
-	},
-	// oh-my-pi reaches its TUI without credentials, like pi, which it forks.
-	// Its renderer keeps the terminal's normal buffer (it borrows the alternate
-	// screen only while resizing or for fullscreen overlays), so readiness is a
-	// marker rather than the alternate screen: with no model configured it prints
-	// its "No default model selected" warning above the editor's prompt bar. The
-	// subtest seeds a home config that turns off the first-run setup wizard, a
-	// fullscreen overlay that would otherwise come up before the editor. It needs
-	// no egress, so it runs under the default `--network none`.
-	"oh-my-pi": {
-		QuitKey:           []byte{ctrlD},
-		KeepsNormalBuffer: true,
-		ReadyMarker:       ohMyPiReadyMarker,
-		SeedHomeFiles:     map[string]string{ohMyPiConfigPath: ohMyPiSmokeConfig},
-	},
-	// kimi-code's regular TUI mode renders into the terminal's normal buffer, so
-	// its welcome banner is the readiness marker. With no provider it starts
-	// logged out at the prompt and needs no egress. The first open of /workspace
-	// would show a workspace-trust dialog, so the subtest seeds a launcher config
-	// snippet that turns the trust requirement off; it merges into config.toml,
-	// which is the merged-config target and so cannot come through the home:
-	// manifest. Ctrl-D exits on a second press, which the repeated tap covers.
-	"kimi-code": {
-		QuitKey:           []byte{ctrlD},
-		KeepsNormalBuffer: true,
-		ReadyMarker:       kimiCodeReadyMarker,
-		SeedAgentSnippets: map[string]string{kimiCodeSmokeSnippet: kimiCodeSmokeConfig},
-	},
-	// qwen-code draws its TUI on the alternate screen and, with no provider
-	// configured, starts at its auth dialog, so it needs no seed and no egress.
-	// It ignores the first Ctrl-C and exits on the second, which the repeated tap
-	// covers.
-	"qwen-code": {QuitKey: []byte{ctrlC}, Network: "", KeepsNormalBuffer: false},
-	// goose's session REPL keeps the terminal's normal buffer, so the goose in its
-	// greeting is the readiness marker. Without a provider it would start the
-	// interactive configure flow or exit 1, so the subtest seeds a launcher config
-	// snippet naming a local Ollama provider (no key, no request until a prompt)
-	// and declining telemetry, which would otherwise ask first. Ctrl-D leaves the
-	// REPL.
-	"goose": {
-		QuitKey:           []byte{ctrlD},
-		KeepsNormalBuffer: true,
-		ReadyMarker:       gooseReadyMarker,
-		SeedAgentSnippets: map[string]string{gooseSmokeSnippet: gooseSmokeConfig},
-	},
-	// grok-build's fullscreen TUI (its default screen mode) uses the alternate
-	// screen. With no credential it comes up on its device-code sign-in screen
-	// ("Waiting for approval…"), which still satisfies the TUI assertion, so it
-	// needs no seed and no egress; Ctrl-C leaves it with exit 0.
-	"grok-build": {QuitKey: []byte{ctrlC}, Network: "", KeepsNormalBuffer: false},
-	// mistral-vibe's Rust TUI draws on the alternate screen. Ctrl-C leaves it,
-	// including from the folder-trust dialog it may show before the session.
-	"mistral-vibe": {QuitKey: []byte{ctrlC}, Network: "", KeepsNormalBuffer: false},
-	// opencode's editor owns Ctrl-C, so its TUI leaves on Ctrl-D.
-	"opencode":  {QuitKey: []byte{ctrlD}, Network: "", KeepsNormalBuffer: false},
-	"opencode2": {QuitKey: []byte{ctrlD}, Network: "", KeepsNormalBuffer: false},
-	"pi":        {QuitKey: []byte{ctrlD}, Network: "", KeepsNormalBuffer: false},
-}
-
-// harnessSpec describes how to drive one harness to its TUI and out of it.
-//
-//exhaustruct:ignore
-type harnessSpec struct {
-	// QuitKey leaves the harness's full-screen TUI. The smoke test taps it
-	// until the process goes, because a harness can paint its TUI seconds
-	// before it accepts input and can need the key more than once.
-	QuitKey []byte
-	// Network overrides the default `--network none` when a harness needs
-	// egress to render.
-	Network string
-	// KeepsNormalBuffer declares a harness whose TUI renders into the
-	// terminal's normal buffer instead of the alternate screen, so the
-	// alternate-screen marker cannot announce that its UI is up.
-	KeepsNormalBuffer bool
-	// ReadyMarker, when set, is an output substring that announces a
-	// normal-buffer harness's UI is up — the readiness signal waitSettled
-	// replaces for a harness whose CLI prints a stable startup line (hermes'
-	// banner). It takes precedence over KeepsNormalBuffer's settle.
-	ReadyMarker string
-	// ReadyTimeout overrides the readiness wait for a KeepsNormalBuffer
-	// harness; zero uses the shared default. It bounds either the marker wait
-	// or the settle. It is ignored for an alternate-screen harness, whose
-	// readiness is the alternate-screen marker rather than a wall clock.
-	ReadyTimeout time.Duration
-	// SeedHomeFiles maps a home-relative path to its content, written under the
-	// isolated HOME (<root>/home) before the run so the launcher provisions it
-	// into the VM. It is how a harness that needs host-side configuration (a
-	// provider block, a settled opt-in) starts headful without credentials.
-	SeedHomeFiles map[string]string
-	// SeedHomeManifest maps a VM-home-relative target path to its content,
-	// provisioned through the launcher config's `home:` key rather than the
-	// agent's ProvisionRules. Use it for a harness whose first-run state lives
-	// outside the paths its ProvisionRules copy (claude-code's ~/.claude.json,
-	// beside the ~/.claude/settings.json the rules carry); a file the rules
-	// already copy belongs in SeedHomeFiles.
-	SeedHomeManifest map[string]string
-	// SeedAgentSnippets maps a snippet file name to its content, written into
-	// the agent's launcher config dir (XDG_CONFIG_HOME/agents-sandbox/<config
-	// dir>) so the launcher merges it into the agent's config. Use it for a
-	// harness whose settings live in its merged-config file, which neither the
-	// ProvisionRules nor the home: manifest may write.
-	SeedAgentSnippets map[string]string
-}
-
-// settledReadyTimeout bounds the readiness wait for a harness whose TUI keeps
-// the terminal's normal buffer, where no marker announces that its UI is up. It
-// covers the launcher's image load and VM start — about 14s on a cold host when
-// the image prebuild has already run — with margin. A harness whose runner image
-// loads far slower overrides it (see harnessSpec.ReadyTimeout).
-const settledReadyTimeout = 25 * time.Second
-
-// heavyweightReadyTimeout bounds the readiness wait for a KeepsNormalBuffer
-// harness whose startup is much slower than the lightweight agents the shared
-// budget was measured on: hermes carries a whole Python/Node tool store. It is a
-// ceiling, not a sleep — hermes' banner marker ends the wait as soon as the CLI
-// is up — so a slow cold start fails the subtest only when it genuinely hangs.
-const heavyweightReadyTimeout = 120 * time.Second
-
-// hermesReadyMarker is the startup line hermes' classic CLI prints before it
-// accepts input (show_banner: "Hermes Agent v<version> (<date>)"). It is stable
-// across releases, unlike the version itself.
-const hermesReadyMarker = "Hermes Agent v"
-
-// claudeCodeReadyMarker is the product name claude-code's startup splash prints
-// before its prompt is live. Its renderer keeps the normal buffer and emits no
-// alternate-screen sequence, so without a marker its subtest would wait out the
-// whole settle.
-const claudeCodeReadyMarker = "Claude Code"
-
-// claudeCodeConfigPath is the file claude-code keeps its first-run state in,
-// home-relative. It sits beside .claude/settings.json, which the launcher's
-// claude-code ProvisionRules copy, so the smoke test seeds it through the
-// launcher config's home: manifest (SeedHomeManifest) instead.
-const claudeCodeConfigPath = ".claude.json"
-
-// claudeCodeSmokeConfig skips claude-code's first-run flow so the subtest lands
-// on the prompt, where its repeated Ctrl-C quits 0. hasCompletedOnboarding drops
-// the theme picker; the /workspace project entry accepts the workspace-trust
-// dialog for the guest working directory the subtest runs in (the throwaway
-// project dir is not a repository, so it binds at /workspace). Without it the
-// onboarding's only quit key aborts the launch with exit 1, which the subtest's
-// exit-0 assertion rejects. Both keys are the guest's, not the host's.
-const claudeCodeSmokeConfig = `{"hasCompletedOnboarding": true, "projects": {"/workspace": {"hasTrustDialogAccepted": true}}}`
-
-// kimiCodeReadyMarker is the title of kimi-code's welcome banner, printed when
-// its prompt comes up.
-const kimiCodeReadyMarker = "Welcome to Kimi Code!"
-
-// kimiCodeSmokeSnippet is the launcher config snippet the subtest seeds; it
-// matches kimi-code's config*.toml snippet pattern.
-const kimiCodeSmokeSnippet = "config-smoke.toml"
-
-// kimiCodeSmokeConfig treats every workspace as trusted, so kimi-code skips the
-// trust dialog it shows the first time a workspace is opened.
-const kimiCodeSmokeConfig = `[workspace]
-require_trust = false
-`
-
-// gooseReadyMarker is the goose drawn at the start of goose's session greeting,
-// printed once the session is built and the REPL is about to read input.
-const gooseReadyMarker = "__( O)>"
-
-// gooseSmokeSnippet is the launcher config snippet the subtest seeds; it matches
-// goose's config*.{yml,yaml} snippet pattern.
-const gooseSmokeSnippet = "config-smoke.yaml"
-
-// gooseSmokeConfig configures a local Ollama provider, which needs no key and
-// sends nothing until a prompt, and records the telemetry choice so the
-// first-run consent prompt does not come up.
-const gooseSmokeConfig = `GOOSE_PROVIDER: ollama
-GOOSE_MODEL: qwen3
-GOOSE_TELEMETRY_ENABLED: false
-`
-
-// ohMyPiReadyMarker is the warning oh-my-pi prints when it starts its editor
-// with no model configured, which is exactly the smoke run: the seeded config
-// turns off the setup wizard and sets no model, and the child's restricted
-// environment carries no API-key variables. It renders just above the editor's
-// prompt bar, so it marks the editor being up; like claude-code, oh-my-pi keeps
-// the normal buffer and emits no alternate-screen sequence.
-const ohMyPiReadyMarker = "No default model selected"
-
-// hermesConfigPath is hermes' config file, home-relative, provisioned into the
-// guest from the host's ~/.hermes/config.yaml.
-const hermesConfigPath = ".hermes/config.yaml"
-
-// hermesSmokeConfig makes hermes start its interactive REPL without a real
-// credential: the model block's custom, loopback base_url (and dummy api_key)
-// satisfies hermes' "any provider configured" check, so the classic CLI starts
-// instead of the first-run setup guard, which exits 1 with no provider. The
-// endpoint is a closed loopback port, so no request leaves the VM; the deeper
-// model keys only matter once a message is submitted. The telemetry block
-// settles the shared-metrics opt-in so hermes does not show that prompt before
-// the REPL (offer_version must match hermes' current OFFER_VERSION).
-const hermesSmokeConfig = `model:
-  provider: custom
-  default: local-model
-  base_url: http://127.0.0.1:9/v1
-  api_key: dummy
-telemetry:
-  shared_metrics:
-    enabled: false
-    send: false
-    offer_version: 2
-`
-
-// ohMyPiConfigPath is omp's global config file, home-relative, provisioned
-// into the guest from the host's ~/.omp/agent/config.yml.
-const ohMyPiConfigPath = ".omp/agent/config.yml"
-
-// ohMyPiSmokeConfig turns off omp's first-run setup wizard (provider sign-in,
-// model, and theme scenes), so the smoke test lands in the editor.
-const ohMyPiSmokeConfig = `startup:
-  setupWizard: false
-`
-
-// readyTimeout returns the readiness wait for this harness: its per-harness
-// override when set, otherwise settledReadyTimeout.
-func (s harnessSpec) readyTimeout() time.Duration {
-	if s.ReadyTimeout > 0 {
-		return s.ReadyTimeout
-	}
-	return settledReadyTimeout
-}
-
-// smokeLauncherReadyTimeouts forwards a smoke-suite-namespaced override into
-// the launcher's own config variable name for the child. The suite reads the
-// harness var (set by the in-guest `make test-msb-in-vm` target) and writes the
-// launcher var into the child, so a host run that happens to export the
-// launcher's variable keeps the isolation the allowlist provides: only the
-// suite's own namespace crosses into the child.
-var smokeLauncherReadyTimeouts = []struct{ harness, launcher string }{
-	{"AGENTS_SANDBOX_MSB_DOCKER_READY_TIMEOUT", "AGENTS_SANDBOX_DOCKER_READY_TIMEOUT"},
-	{"AGENTS_SANDBOX_MSB_DAEMON_READY_TIMEOUT", "AGENTS_SANDBOX_DAEMON_READY_TIMEOUT"},
-}
-
-// launcherReadyTimeouts returns the launcher config variables to append to a
-// child environment: for each pair whose smoke-suite variable is set in
-// inheritedByName, the launcher variable with that value.
-func launcherReadyTimeouts(inheritedByName map[string]string) []string {
-	var overrides []string
-	for _, pair := range smokeLauncherReadyTimeouts {
-		if value, ok := inheritedByName[pair.harness]; ok && value != "" {
-			overrides = append(overrides, pair.launcher+"="+value)
-		}
-	}
-	return overrides
-}
-
 // isolatedEnv builds the child environment from inherited: it keeps only the
 // allowlisted variables (defaulting TERM when it is absent, empty, or "dumb"),
-// appends the launcher readiness-timeout overrides the suite was given, then a
-// private HOME/XDG_*/TMPDIR tree rooted at homeBase, so the child reads and
-// writes no real agents-sandbox config or state. XDG_DATA_HOME stays rooted at
-// root so every harness shares one microsandbox home (the image cache) while
-// keeping its own HOME and config/state/cache dirs.
+// then appends a private HOME/XDG_*/TMPDIR tree rooted at homeBase, so the child
+// reads and writes no real agents-sandbox config or state. XDG_DATA_HOME stays
+// rooted at root so every harness shares one microsandbox home (the image cache)
+// while keeping its own HOME and config/state/cache dirs.
 func isolatedEnv(root, homeBase string, inherited []string) []string {
 	inheritedByName := make(map[string]string, len(inherited))
 	for _, entry := range inherited {
@@ -703,15 +341,14 @@ func isolatedEnv(root, homeBase string, inherited []string) []string {
 
 	env := make([]string, 0, len(isolatedEnvKeep)+7)
 	for _, name := range isolatedEnvKeep {
-		if name == envTerm {
+		if name == driver.EnvTerm {
 			continue
 		}
 		if value, ok := inheritedByName[name]; ok {
 			env = append(env, name+"="+value)
 		}
 	}
-	env = append(env, envTerm+"="+usableTerm(inheritedByName[envTerm]))
-	env = append(env, launcherReadyTimeouts(inheritedByName)...)
+	env = append(env, driver.EnvTerm+"="+driver.UsableTerm(inheritedByName[driver.EnvTerm]))
 	return append(env,
 		"HOME="+filepath.Join(homeBase, homeDirName),
 		"XDG_CONFIG_HOME="+filepath.Join(homeBase, configDirName),
@@ -762,7 +399,7 @@ func prepareHome(homeBase string) error {
 
 // seedHomeFiles writes each home-relative file under the run's isolated HOME
 // (<homeBase>/home/<rel>), creating parent directories, so the launcher
-// provisions it into the VM (see harnessSpec.SeedHomeFiles).
+// provisions it into the VM (see driver.Spec.SeedHomeFiles).
 //
 // It writes through mkdirAll and writeFile, seams a test can replace to assert
 // the seed's private modes without depending on the process umask.
@@ -781,7 +418,7 @@ func seedHomeFiles(homeBase string, files map[string]string) error {
 
 // seedAgentSnippets writes each snippet into the agent's config dir under the
 // run's isolated launcher config dir, where the launcher's snippet merge reads
-// it (see harnessSpec.SeedAgentSnippets). A nil or empty map writes nothing.
+// it (see driver.Spec.SeedAgentSnippets). A nil or empty map writes nothing.
 //
 // It uses the same mkdirAll/writeFile seams as seedHomeFiles.
 func seedAgentSnippets(homeBase, agentConfigDirName string, snippets map[string]string) error {
@@ -861,53 +498,6 @@ var (
 	absPath   = filepath.Abs
 )
 
-// usableTerm returns the TERM to run the child under: the inherited value
-// unless it is absent, empty, or "dumb", in which case the harness is given a
-// modern terminfo entry so its full-screen TUI can render.
-func usableTerm(value string) string {
-	if value == "" || value == termDumb {
-		return defaultTerm
-	}
-	return value
-}
-
-// stripANSI removes CSI escape sequences (ESC '[' ... final byte) from b so
-// captured pty output can be searched as plain text.
-func stripANSI(b []byte) string {
-	stripped := make([]byte, 0, len(b))
-	for i := 0; i < len(b); i++ {
-		if b[i] == escapeByte && i+1 < len(b) && b[i+1] == '[' {
-			i = ansiSequenceEnd(b, i)
-			continue
-		}
-		stripped = append(stripped, b[i])
-	}
-	return string(stripped)
-}
-
-// ansiSequenceEnd returns the index of the final byte of the CSI sequence
-// starting at b[start] (ESC '['), or len(b)-1 when the sequence is truncated.
-func ansiSequenceEnd(b []byte, start int) int {
-	for i := start + 2; i < len(b); i++ {
-		if isANSIFinalByte(b[i]) {
-			return i
-		}
-	}
-	return len(b) - 1
-}
-
-// isANSIFinalByte reports whether c terminates a CSI escape sequence; final
-// bytes occupy the range '@' through '~' (0x40 to 0x7e).
-func isANSIFinalByte(c byte) bool {
-	return c >= 0x40 && c <= 0x7e
-}
-
-// tuiStarted reports whether the accumulated output shows a harness taking
-// over the alternate screen, the signal that its full-screen TUI came up.
-func tuiStarted(output []byte) bool {
-	return bytes.Contains(output, []byte(altScreenEnter))
-}
-
 // tuiLeft reports whether the accumulated output shows a harness giving the
 // alternate screen back, the signal that an alternate-screen harness caught the
 // quit and is tearing down rather than still listening for a further tap.
@@ -927,10 +517,4 @@ func teardownStarted(ses *ptySession, presses int) bool {
 		return true
 	}
 	return !ses.inRawMode()
-}
-
-// sawDaemonTimeout reports whether the captured output contains the launcher's
-// daemon-timeout marker; a harness whose output does never reached the TUI.
-func sawDaemonTimeout(output []byte) bool {
-	return strings.Contains(string(output), daemonTimeoutMarker)
 }

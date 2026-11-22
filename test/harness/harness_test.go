@@ -11,237 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/hostlock"
+	"github.com/inoio/agents-sandbox/test/msb/driver"
 )
-
-func TestHarnessSpecsCoverEveryRegisteredAgent(t *testing.T) {
-	names := agent.Names()
-	if len(names) == 0 {
-		t.Fatal("no agents registered")
-	}
-	for _, name := range names {
-		if _, ok := harnessSpecs[name]; !ok {
-			t.Errorf("registered harness %q has no smoke-test spec; add its quit key", name)
-		}
-	}
-	for name := range harnessSpecs {
-		if _, ok := agent.Lookup(name); !ok {
-			t.Errorf("smoke-test spec %q matches no registered harness", name)
-		}
-	}
-}
-
-// TestHarnessSpecsQuitKeyNonEmpty pins that every harness names the key the
-// smoke test taps until its process goes.
-func TestHarnessSpecsQuitKeyNonEmpty(t *testing.T) {
-	for name, spec := range harnessSpecs {
-		if len(spec.QuitKey) == 0 {
-			t.Errorf("harness %q has no key for the smoke test to press", name)
-		}
-	}
-}
-
-// TestOhMyPiSeedsAHomeConfigWithoutSetupWizard pins how the smoke test reaches
-// oh-my-pi's editor: the seeded home config turns off the first-run setup
-// wizard, which would otherwise take over the screen, and no egress is needed.
-func TestOhMyPiSeedsAHomeConfigWithoutSetupWizard(t *testing.T) {
-	spec, ok := harnessSpecs["oh-my-pi"]
-	if !ok {
-		t.Fatal("oh-my-pi has no smoke-test spec")
-	}
-	if !spec.KeepsNormalBuffer {
-		t.Error("oh-my-pi KeepsNormalBuffer = false; its TUI renders in the normal buffer")
-	}
-	if spec.ReadyMarker != ohMyPiReadyMarker {
-		t.Errorf("oh-my-pi ReadyMarker = %q, want %q; without it the subtest waits out the settle",
-			spec.ReadyMarker, ohMyPiReadyMarker)
-	}
-	if spec.Network != "" {
-		t.Errorf("oh-my-pi Network = %q, want the default `none`", spec.Network)
-	}
-	cfg, ok := spec.SeedHomeFiles[ohMyPiConfigPath]
-	if !ok {
-		t.Fatalf("oh-my-pi SeedHomeFiles missing %s", ohMyPiConfigPath)
-	}
-	if !strings.Contains(cfg, "setupWizard: false") {
-		t.Errorf("oh-my-pi seeded config must turn off the setup wizard:\n%s", cfg)
-	}
-}
-
-// TestKimiCodeSeedsATrustedWorkspaceThroughASnippet pins how the smoke test
-// reaches kimi-code's prompt: config.toml is the merged-config target, so the
-// trust opt-out is seeded as a launcher config snippet, the welcome banner
-// marks the normal-buffer UI being up, and no egress is needed.
-func TestKimiCodeSeedsATrustedWorkspaceThroughASnippet(t *testing.T) {
-	spec, ok := harnessSpecs["kimi-code"]
-	if !ok {
-		t.Fatal("kimi-code has no smoke-test spec")
-	}
-	if !spec.KeepsNormalBuffer || spec.ReadyMarker != kimiCodeReadyMarker {
-		t.Errorf("kimi-code KeepsNormalBuffer = %v, ReadyMarker = %q; want true and %q",
-			spec.KeepsNormalBuffer, spec.ReadyMarker, kimiCodeReadyMarker)
-	}
-	if spec.Network != "" {
-		t.Errorf("kimi-code Network = %q, want the default `none`", spec.Network)
-	}
-	cfg, ok := spec.SeedAgentSnippets[kimiCodeSmokeSnippet]
-	if !ok {
-		t.Fatalf("kimi-code SeedAgentSnippets missing %s", kimiCodeSmokeSnippet)
-	}
-	if !strings.Contains(cfg, "require_trust = false") {
-		t.Errorf("kimi-code seeded config must skip the workspace-trust prompt:\n%s", cfg)
-	}
-}
-
-// TestGooseSeedsAProviderThroughASnippet pins how the smoke test reaches goose's
-// REPL: config.yaml is the merged-config target, so the provider and the
-// telemetry choice are seeded as a launcher config snippet, the greeting marks
-// the normal-buffer REPL being up, and no egress is needed.
-func TestGooseSeedsAProviderThroughASnippet(t *testing.T) {
-	spec, ok := harnessSpecs["goose"]
-	if !ok {
-		t.Fatal("goose has no smoke-test spec")
-	}
-	if !spec.KeepsNormalBuffer || spec.ReadyMarker != gooseReadyMarker {
-		t.Errorf("goose KeepsNormalBuffer = %v, ReadyMarker = %q; want true and %q",
-			spec.KeepsNormalBuffer, spec.ReadyMarker, gooseReadyMarker)
-	}
-	if spec.Network != "" {
-		t.Errorf("goose Network = %q, want the default `none`", spec.Network)
-	}
-	cfg, ok := spec.SeedAgentSnippets[gooseSmokeSnippet]
-	if !ok {
-		t.Fatalf("goose SeedAgentSnippets missing %s", gooseSmokeSnippet)
-	}
-	for _, want := range []string{"GOOSE_PROVIDER: ollama", "GOOSE_TELEMETRY_ENABLED: false"} {
-		if !strings.Contains(cfg, want) {
-			t.Errorf("goose seeded config must contain %q:\n%s", want, cfg)
-		}
-	}
-}
-
-// TestReadyTimeoutPrefersThePerHarnessOverride pins the readiness-budget
-// selection: a spec that names an override uses it, and one that leaves it
-// unset falls back to the shared default.
-func TestReadyTimeoutPrefersThePerHarnessOverride(t *testing.T) {
-	if got := (harnessSpec{ReadyTimeout: 90 * time.Second}).readyTimeout(); got != 90*time.Second {
-		t.Errorf("readyTimeout() = %s, want the override 90s", got)
-	}
-	if got := (harnessSpec{}).readyTimeout(); got != settledReadyTimeout {
-		t.Errorf("readyTimeout() = %s, want the fallback %s", got, settledReadyTimeout)
-	}
-	// The smallest positive override must win over the fallback: a
-	// truthiness test (`> 1`) would drop it.
-	if got := (harnessSpec{ReadyTimeout: time.Nanosecond}).readyTimeout(); got != time.Nanosecond {
-		t.Errorf("readyTimeout() = %s, want the nanosecond override", got)
-	}
-}
-
-// TestHeavyweightReadyTimeoutIsTheDocumentedCeiling pins the readiness ceiling
-// hermes' slower startup is given: it is a wall-clock budget, so its value is
-// the contract (a smaller one would fail a slow cold start).
-func TestHeavyweightReadyTimeoutIsTheDocumentedCeiling(t *testing.T) {
-	if heavyweightReadyTimeout != 120*time.Second {
-		t.Errorf("heavyweightReadyTimeout = %s, want 120s", heavyweightReadyTimeout)
-	}
-}
-
-// TestTimeoutFactorFromValue pins the smoke timeout-factor parsing: a positive
-// float scales the ceilings, and every other value (unset, zero, negative,
-// non-numeric) leaves them at 1, so a host run is unchanged.
-func TestTimeoutFactorFromValue(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		value string
-		want  float64
-	}{
-		{"unset", "", 1},
-		{"zero", "0", 1},
-		{"negative", "-2", 1},
-		{"non-numeric", "fast", 1},
-		{"nan", "NaN", 1},
-		{"positive-inf", "+Inf", 1},
-		{"negative-inf", "-Inf", 1},
-		{"whole", "2", 2},
-		{"fractional", "1.5", 1.5},
-		{"padded", "  3  ", 3},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := timeoutFactorFromValue(tc.value); got != tc.want {
-				t.Errorf("timeoutFactorFromValue(%q) = %v, want %v", tc.value, got, tc.want)
-			}
-		})
-	}
-}
-
-// TestScaleTimeout pins the ceiling scaler: a factor of 1 is the identity (so a
-// host run's ceilings are byte-for-byte unchanged — pinned on a duration beyond
-// float64's exact-integer range, where a multiply/round trip would drift) and
-// other factors multiply.
-func TestScaleTimeout(t *testing.T) {
-	const long = 3000 * time.Hour
-	if got := scaleTimeout(long, 1); got != long {
-		t.Errorf("scaleTimeout(f=1) = %s, want the exact %s", got, long)
-	}
-	if got := scaleTimeout(15*time.Second, 2); got != 30*time.Second {
-		t.Errorf("scaleTimeout(f=2) = %s, want 30s", got)
-	}
-	if got := scaleTimeout(15*time.Second, 0.5); got != 7500*time.Millisecond {
-		t.Errorf("scaleTimeout(f=0.5) = %s, want 7.5s", got)
-	}
-}
-
-// TestHermesSeedsAConfiguredHomeAndMarker pins how the smoke test reaches
-// hermes' interactive REPL without a real credential: it seeds a home config
-// that makes hermes consider a dummy, loopback provider configured and settles
-// its shared-metrics offer, and it waits for the CLI's startup banner instead of
-// a fixed settle. Without the seed hermes stops at its first-run setup guard and
-// exits 1; the banner is a stronger readiness signal than the wall-clock settle.
-func TestHermesSeedsAConfiguredHomeAndMarker(t *testing.T) {
-	spec, ok := harnessSpecs["hermes"]
-	if !ok {
-		t.Fatal("hermes has no smoke-test spec")
-	}
-	if !spec.KeepsNormalBuffer {
-		t.Error("hermes KeepsNormalBuffer = false; its classic CLI renders in the normal buffer")
-	}
-	if spec.ReadyMarker == "" {
-		t.Error("hermes ReadyMarker is empty; the classic CLI emits no alternate-screen marker to wait for")
-	}
-	if spec.ReadyTimeout != heavyweightReadyTimeout {
-		t.Errorf("hermes ReadyTimeout = %s, want %s", spec.ReadyTimeout, heavyweightReadyTimeout)
-	}
-	if spec.Network != "" {
-		t.Errorf("hermes Network = %q, want the default `none` (the seeded provider is loopback)", spec.Network)
-	}
-	cfg, ok := spec.SeedHomeFiles[hermesConfigPath]
-	if !ok {
-		t.Fatalf("hermes SeedHomeFiles missing %s", hermesConfigPath)
-	}
-	for _, want := range []string{"model:", "base_url:", "telemetry:", "shared_metrics:", "offer_version:"} {
-		if !strings.Contains(cfg, want) {
-			t.Errorf("hermes seeded config missing %q:\n%s", want, cfg)
-		}
-	}
-}
-
-// TestClaudeCodeReadiesOnAMarker pins that claude-code's normal-buffer renderer
-// also readies on a startup marker, rather than its subtest waiting out the
-// whole settle.
-func TestClaudeCodeReadiesOnAMarker(t *testing.T) {
-	spec, ok := harnessSpecs["claude-code"]
-	if !ok {
-		t.Fatal("claude-code has no smoke-test spec")
-	}
-	if !spec.KeepsNormalBuffer {
-		t.Error("claude-code KeepsNormalBuffer = false; its renderer keeps the normal buffer")
-	}
-	if spec.ReadyMarker == "" {
-		t.Error("claude-code ReadyMarker is empty; its subtest would wait out the settle")
-	}
-}
 
 // TestSeedHomeFiles pins that seeds are written under the isolated HOME
 // (<root>/home/...) with parents created, so the launcher provisions them into
@@ -249,8 +22,8 @@ func TestClaudeCodeReadiesOnAMarker(t *testing.T) {
 func TestSeedHomeFiles(t *testing.T) {
 	root := t.TempDir()
 	files := map[string]string{
-		hermesConfigPath: "model: {}\n",
-		".config/x":      "y",
+		driver.HermesConfigPath: "model: {}\n",
+		".config/x":             "y",
 	}
 	if err := seedHomeFiles(root, files); err != nil {
 		t.Fatalf("seedHomeFiles: %v", err)
@@ -266,29 +39,6 @@ func TestSeedHomeFiles(t *testing.T) {
 	}
 }
 
-// TestClaudeCodeSeedsItsFirstRunState pins why and how claude-code is seeded:
-// its first run stops at onboarding, whose only quit key aborts with exit 1, so
-// its subtest seeds the first-run state claude-code keeps outside its
-// ProvisionRules paths through the launcher's home: manifest.
-func TestClaudeCodeSeedsItsFirstRunState(t *testing.T) {
-	spec, ok := harnessSpecs["claude-code"]
-	if !ok {
-		t.Fatal("claude-code has no smoke-test spec")
-	}
-	cfg, ok := spec.SeedHomeManifest[claudeCodeConfigPath]
-	if !ok {
-		t.Fatalf("claude-code SeedHomeManifest missing %s", claudeCodeConfigPath)
-	}
-	for _, want := range []string{"hasCompletedOnboarding", "/workspace", "hasTrustDialogAccepted"} {
-		if !strings.Contains(cfg, want) {
-			t.Errorf("claude-code seeded config missing %q:\n%s", want, cfg)
-		}
-	}
-	if len(spec.SeedHomeFiles) != 0 {
-		t.Errorf("claude-code SeedHomeFiles = %v; want the home: manifest", spec.SeedHomeFiles)
-	}
-}
-
 // TestSeedLauncherConfig pins that the isolated launcher config enables
 // host-config provisioning and carries the home: manifest. The opt-in is what
 // makes the agent's ProvisionRules copy a harness's SeedHomeFiles; the manifest
@@ -298,8 +48,8 @@ func TestClaudeCodeSeedsItsFirstRunState(t *testing.T) {
 func TestSeedLauncherConfig(t *testing.T) {
 	homeBase := t.TempDir()
 	files := map[string]string{
-		claudeCodeConfigPath: claudeCodeSmokeConfig,
-		".nested/seed":       "content",
+		driver.ClaudeCodeConfigPath: driver.ClaudeCodeSmokeConfig,
+		".nested/seed":              "content",
 	}
 	if err := seedLauncherConfig(homeBase, files); err != nil {
 		t.Fatalf("seedLauncherConfig: %v", err)
@@ -452,7 +202,7 @@ func TestSeedHomeFilesReportsFailures(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(root, homeDirName), []byte("x"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		err := seedHomeFiles(root, map[string]string{hermesConfigPath: "y"})
+		err := seedHomeFiles(root, map[string]string{driver.HermesConfigPath: "y"})
 		if err == nil {
 			t.Fatal("seedHomeFiles = nil, want an error when a parent cannot be created")
 		}
@@ -469,7 +219,7 @@ func TestSeedHomeFilesReportsFailures(t *testing.T) {
 		if err := os.MkdirAll(filepath.Join(root, homeDirName, ".hermes", "config.yaml"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		err := seedHomeFiles(root, map[string]string{hermesConfigPath: "y"})
+		err := seedHomeFiles(root, map[string]string{driver.HermesConfigPath: "y"})
 		if err == nil {
 			t.Fatal("seedHomeFiles = nil, want an error when the target cannot be written")
 		}
@@ -501,7 +251,7 @@ func TestSeedHomeFilesUsesPrivateModes(t *testing.T) {
 		return os.WriteFile(name, data, perm)
 	}
 
-	if err := seedHomeFiles(root, map[string]string{hermesConfigPath: "model: {}\n"}); err != nil {
+	if err := seedHomeFiles(root, map[string]string{driver.HermesConfigPath: "model: {}\n"}); err != nil {
 		t.Fatalf("seedHomeFiles: %v", err)
 	}
 	if dirMode != 0o750 {
@@ -509,21 +259,6 @@ func TestSeedHomeFilesUsesPrivateModes(t *testing.T) {
 	}
 	if fileMode != 0o600 {
 		t.Errorf("seed file mode = %#o, want 0o600", fileMode)
-	}
-}
-
-// TestSawDaemonTimeout pins that the shared marker helper fires on the
-// launcher's real daemon-timeout phrase and stays quiet on unrelated output.
-func TestSawDaemonTimeout(t *testing.T) {
-	launcherPhrase := "opencode2 daemon did not become ready within 1m0s: 401 unauthorized"
-	if !strings.Contains(launcherPhrase, daemonTimeoutMarker) {
-		t.Fatalf("test phrase %q does not carry the launcher's marker %q", launcherPhrase, daemonTimeoutMarker)
-	}
-	if !sawDaemonTimeout([]byte("launcher output\n" + launcherPhrase)) {
-		t.Error("sawDaemonTimeout = false, want true for the launcher's daemon-timeout phrase")
-	}
-	if sawDaemonTimeout([]byte("launcher output\nno daemon timeout here")) {
-		t.Error("sawDaemonTimeout = true, want false for unrelated output")
 	}
 }
 
@@ -944,34 +679,6 @@ func envMap(env []string) map[string]string {
 	return got
 }
 
-// TestIsolatedEnvForwardsLauncherReadyTimeouts pins the guest-only forwarding:
-// the suite's own AGENTS_SANDBOX_MSB_* variable is rewritten into the launcher's
-// config variable for the child, while a launcher variable exported on the host
-// is still dropped by the allowlist, so the isolation holds.
-func TestIsolatedEnvForwardsLauncherReadyTimeouts(t *testing.T) {
-	inherited := []string{
-		"AGENTS_SANDBOX_MSB_DOCKER_READY_TIMEOUT=90s",
-		"AGENTS_SANDBOX_MSB_DAEMON_READY_TIMEOUT=180s",
-		"AGENTS_SANDBOX_DOCKER_READY_TIMEOUT=1ns",
-		"HOME=/real",
-	}
-	got := envMap(isolatedEnv("/root", "/root", inherited))
-	for k, want := range map[string]string{
-		"AGENTS_SANDBOX_DOCKER_READY_TIMEOUT": "90s",
-		"AGENTS_SANDBOX_DAEMON_READY_TIMEOUT": "180s",
-	} {
-		if got[k] != want {
-			t.Errorf("%s = %q, want the forwarded %q", k, got[k], want)
-		}
-	}
-	if leaked := got["AGENTS_SANDBOX_MSB_DOCKER_READY_TIMEOUT"]; leaked != "" {
-		t.Errorf("AGENTS_SANDBOX_MSB_DOCKER_READY_TIMEOUT leaked into the child: %q", leaked)
-	}
-	if got["HOME"] != filepath.Join("/root", "home") {
-		t.Errorf("HOME = %q, want the isolated home", got["HOME"])
-	}
-}
-
 // TestIsolatedEnvKeepsDockerEndpoint pins that the docker endpoint variables
 // survive: the child needs the same daemon the preflight reaches, and they
 // carry no agents-sandbox config or state.
@@ -1007,17 +714,17 @@ func TestIsolatedEnvDefaultsTerm(t *testing.T) {
 		value string
 		want  string
 	}{
-		{name: "absent", set: false, value: "", want: defaultTerm},
-		{name: "empty", set: true, value: "", want: defaultTerm},
-		{name: "dumb", set: true, value: termDumb, want: defaultTerm},
+		{name: "absent", set: false, value: "", want: driver.DefaultTerm},
+		{name: "empty", set: true, value: "", want: driver.DefaultTerm},
+		{name: "dumb", set: true, value: driver.TermDumb, want: driver.DefaultTerm},
 		{name: "present", set: true, value: "screen-256color", want: "screen-256color"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			inherited := []string{"PATH=/usr/bin:/bin"}
 			if test.set {
-				inherited = append(inherited, envTerm+"="+test.value)
+				inherited = append(inherited, driver.EnvTerm+"="+test.value)
 			}
-			if got := envValue(isolatedEnv("/root", "/root", inherited), envTerm); got != test.want {
+			if got := envValue(isolatedEnv("/root", "/root", inherited), driver.EnvTerm); got != test.want {
 				t.Errorf("TERM = %q, want %q", got, test.want)
 			}
 		})
@@ -1032,25 +739,6 @@ func envValue(env []string, name string) string {
 		}
 	}
 	return ""
-}
-
-func TestStripANSI(t *testing.T) {
-	if got := stripANSI([]byte("\x1b[31mred\x1b[0m")); got != "red" {
-		t.Errorf("stripANSI = %q, want %q", got, "red")
-	}
-	// A sequence truncated by the end of the buffer is dropped too.
-	if got := stripANSI([]byte("red\x1b[3")); got != "red" {
-		t.Errorf("stripANSI = %q, want %q for a truncated sequence", got, "red")
-	}
-}
-
-func TestTUIStarted(t *testing.T) {
-	if !tuiStarted([]byte("launcher output\n\x1b[?1049htui")) {
-		t.Error("tuiStarted = false, want true for alternate-screen enter sequence")
-	}
-	if tuiStarted([]byte("launcher output\nno tui yet")) {
-		t.Error("tuiStarted = true, want false without the sequence")
-	}
 }
 
 // TestTuiLeft pins the alternate-screen-leave signal the quit loop stops tapping
@@ -1092,19 +780,6 @@ func TestQuitIntervalKeepsPairsRapidAndWaitsBetweenThem(t *testing.T) {
 	// The pair must stay inside qwen-code's measured chaining window (~1.2s).
 	if quitPressInterval >= quitRetryInterval {
 		t.Errorf("quitPressInterval %s is not shorter than quitRetryInterval %s", quitPressInterval, quitRetryInterval)
-	}
-}
-
-// TestSandboxNames pins the `sandbox list -q` parser the start/teardown sweep
-// uses: one trimmed name per non-blank line, and empty output yields no names.
-func TestSandboxNames(t *testing.T) {
-	if got := sandboxNames(""); got != nil {
-		t.Errorf("sandboxNames(\"\") = %v, want nil", got)
-	}
-	got := sandboxNames("a\n\n  b  \n")
-	want := []string{"a", "b"}
-	if !slices.Equal(got, want) {
-		t.Errorf("sandboxNames = %v, want %v", got, want)
 	}
 }
 

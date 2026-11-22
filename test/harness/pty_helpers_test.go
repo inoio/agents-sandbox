@@ -15,6 +15,8 @@ import (
 
 	"github.com/creack/pty"
 	"golang.org/x/sys/unix"
+
+	"github.com/inoio/agents-sandbox/test/msb/driver"
 )
 
 const (
@@ -207,7 +209,7 @@ func (s *ptySession) inRawMode() bool {
 func (s *ptySession) waitForTUI(timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {
-		if tuiStarted(s.output()) && !s.hasExited() {
+		if driver.TUIStarted(s.output()) && !s.hasExited() {
 			return nil
 		}
 		if s.hasExited() {
@@ -230,7 +232,7 @@ func (s *ptySession) waitForTUI(timeout time.Duration) error {
 // message can show what the child did print.
 func (s *ptySession) exitedWithoutTUIError() error {
 	s.drainOutput(ptyDrainGrace)
-	if tuiStarted(s.output()) {
+	if driver.TUIStarted(s.output()) {
 		return fmt.Errorf(
 			"process entered the alternate screen but had already exited (%s); a TUI seen only after exit proves nothing about handling input; output: %s",
 			s.exitStatus(),
@@ -280,7 +282,7 @@ func markerText(s string) string {
 			return -1
 		}
 		return r
-	}, stripANSI([]byte(s)))
+	}, driver.StripANSI([]byte(s)))
 }
 
 // waitForMarker blocks until the child's output contains marker while the child
@@ -408,7 +410,7 @@ func (s *ptySession) exitStatus() string {
 // sequences, for an error message. The cut lands on a rune boundary by
 // dropping any partial rune the byte offset splits.
 func (s *ptySession) outputTail() string {
-	text := stripANSI(s.output())
+	text := driver.StripANSI(s.output())
 	if len(text) > ptyOutputTailLimit {
 		text = "…" + strings.ToValidUTF8(text[len(text)-ptyOutputTailLimit:], "")
 	}

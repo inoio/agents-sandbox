@@ -11,12 +11,14 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/sysinfo"
+	"github.com/inoio/agents-sandbox/test/msb/driver"
 )
 
 const (
@@ -92,16 +94,6 @@ func smokeVMCPUs() uint8 {
 	return smokeVMCPUsFromValue(os.Getenv(smokeVMCPUsEnv))
 }
 
-// smokeTimeoutFactor is the multiplier every smoke readiness and quit ceiling
-// carries, read from the environment: the KVM guest sets
-// AGENTS_SANDBOX_MSB_TIMEOUT_FACTOR, so a nested guest's slower VM start does
-// not blow a budget sized for a host. One (unset or invalid) leaves every
-// ceiling unchanged. It reads the environment, so it lives in the msb-tagged
-// file; timeoutFactorFromValue holds the parsing policy.
-func smokeTimeoutFactor() float64 {
-	return timeoutFactorFromValue(os.Getenv(smokeTimeoutFactorEnv))
-}
-
 // TestHarnessSmoke starts every registered harness the way a user does
 // (`agents-sandbox run --agent <name>`) inside a real microsandbox VM and
 // asserts it reaches its full-screen TUI, exits 0 on its quit key, and never
@@ -124,16 +116,11 @@ func TestHarnessSmoke(t *testing.T) {
 	preflight(t)
 	root, binary := prepare(t)
 	preflightDocker(t, root)
-	// Clear a reused root's leftovers before anything starts: a previous run
-	// that was killed, or whose teardown could not list, leaves a
-	// stopped-but-persisted sandbox that the next run's EnsureProjectVM would
-	// restart, paying the whole start cost again and skewing the timing.
-	sweepSandboxes(t, root, binary, "startup")
 	// Register cleanup after the docker preflight so a skip touches nothing, but
 	// before the prebuild so a prebuild failure cannot leak the root. t.Cleanup,
 	// not defer: it must run after the parallel subtests, which resume only once
 	// this function returns.
-	t.Cleanup(func() { sweepSandboxes(t, root, binary, "cleanup") })
+	t.Cleanup(func() { cleanupSandboxes(t, root, binary) })
 	if !smokeRootReused {
 		t.Cleanup(func() { cleanupRunnerImages(t, root) })
 	}
@@ -142,7 +129,7 @@ func TestHarnessSmoke(t *testing.T) {
 	slots := make(chan struct{}, harnessConcurrency())
 	t.Logf("running up to %d smoke subtests in parallel", cap(slots))
 	for _, name := range agent.Names() {
-		spec, ok := harnessSpecs[name]
+		spec, ok := driver.Specs[name]
 		if !ok {
 			t.Fatalf("harness %q has no smoke-test spec", name)
 		}
@@ -174,18 +161,23 @@ func TestHarnessSmoke(t *testing.T) {
 				append([]string{binary}, withVMCPUs(harnessRunArgs(name, network), smokeVMCPUs())...)...,
 			)
 			if err := waitReady(ses, spec); err != nil {
-				t.Fatalf("harness %s did not reach its TUI: %v\n--- output ---\n%s", name, err, stripANSI(ses.output()))
+				t.Fatalf(
+					"harness %s did not reach its TUI: %v\n--- output ---\n%s",
+					name,
+					err,
+					driver.StripANSI(ses.output()),
+				)
 			}
 			code, err := quit(ses, spec)
 			if err != nil {
 				t.Fatalf("harness %s did not exit: %v\n--- output ---\n%s",
-					name, err, stripANSI(ses.output()))
+					name, err, driver.StripANSI(ses.output()))
 			}
 			if code != 0 {
-				t.Fatalf("harness %s exited %d, want 0\n--- output ---\n%s", name, code, stripANSI(ses.output()))
+				t.Fatalf("harness %s exited %d, want 0\n--- output ---\n%s", name, code, driver.StripANSI(ses.output()))
 			}
-			if sawDaemonTimeout(ses.output()) {
-				t.Fatalf("harness %s reported a daemon timeout:\n%s", name, stripANSI(ses.output()))
+			if driver.SawDaemonTimeout(ses.output()) {
+				t.Fatalf("harness %s reported a daemon timeout:\n%s", name, driver.StripANSI(ses.output()))
 			}
 		})
 	}
@@ -241,13 +233,12 @@ func TestHarnessSmoke(t *testing.T) {
 //     though: the attach owns the host pty and only restores it after the guest
 //     process has already exited, so it never observes the guest's earlier
 //     restore.
-func quit(ses *ptySession, spec harnessSpec) (int, error) {
-	budget := scaleTimeout(quitTimeout, smokeTimeoutFactor())
-	deadline := time.Now().Add(budget)
+func quit(ses *ptySession, spec driver.Spec) (int, error) {
+	deadline := time.Now().Add(quitTimeout)
 	interval := quitPressInterval
 	for presses := 1; ; presses++ {
 		if teardownStarted(ses, presses) {
-			return waitExitWithin(ses, deadline, budget, presses, spec)
+			return waitExitWithin(ses, deadline, presses, spec)
 		}
 		if err := ses.write(spec.QuitKey); err != nil {
 			return 0, err
@@ -257,7 +248,7 @@ func quit(ses *ptySession, spec harnessSpec) (int, error) {
 			return code, nil
 		}
 		if !time.Now().Before(deadline) {
-			return 0, quitTimeoutError(presses, spec, budget, err)
+			return 0, quitTimeoutError(presses, spec, err)
 		}
 		interval = quitIntervalAfterPress(presses)
 	}
@@ -266,25 +257,19 @@ func quit(ses *ptySession, spec harnessSpec) (int, error) {
 // waitExitWithin waits out the remaining quit budget for a process that has
 // begun tearing down, returning its exit code or the same timeout error the
 // tapping loop reports.
-func waitExitWithin(
-	ses *ptySession,
-	deadline time.Time,
-	budget time.Duration,
-	presses int,
-	spec harnessSpec,
-) (int, error) {
+func waitExitWithin(ses *ptySession, deadline time.Time, presses int, spec driver.Spec) (int, error) {
 	code, err := ses.waitExit(time.Until(deadline))
 	if err == nil {
 		return code, nil
 	}
-	return 0, quitTimeoutError(presses, spec, budget, err)
+	return 0, quitTimeoutError(presses, spec, err)
 }
 
-// quitTimeoutError reports that a harness did not exit within budget after
+// quitTimeoutError reports that a harness did not exit within quitTimeout after
 // presses taps of its key.
-func quitTimeoutError(presses int, spec harnessSpec, budget time.Duration, err error) error {
+func quitTimeoutError(presses int, spec driver.Spec, err error) error {
 	return fmt.Errorf("%d presses of %#x within %s did not exit it: %w",
-		presses, spec.QuitKey, budget, err)
+		presses, spec.QuitKey, quitTimeout, err)
 }
 
 // waitReady blocks until the harness can be driven with its quit key. A harness
@@ -292,15 +277,14 @@ func quitTimeoutError(presses int, spec harnessSpec, budget time.Duration, err e
 // that takes over the alternate screen announces it with the screen; one that
 // keeps the terminal's normal buffer and has neither marker is given the
 // launcher's start-up time instead.
-func waitReady(ses *ptySession, spec harnessSpec) error {
-	factor := smokeTimeoutFactor()
+func waitReady(ses *ptySession, spec driver.Spec) error {
 	if spec.ReadyMarker != "" {
-		return ses.waitForMarker(spec.ReadyMarker, scaleTimeout(spec.readyTimeout(), factor))
+		return ses.waitForMarker(spec.ReadyMarker, spec.ReadyTimeout())
 	}
 	if spec.KeepsNormalBuffer {
-		return ses.waitSettled(scaleTimeout(spec.readyTimeout(), factor))
+		return ses.waitSettled(spec.ReadyTimeout())
 	}
-	return ses.waitForTUI(scaleTimeout(tuiReadyTimeout, factor))
+	return ses.waitForTUI(tuiReadyTimeout)
 }
 
 // preflight skips the suite when the host cannot run it at all: an unsupported
@@ -478,30 +462,31 @@ func buildHarnessImages(t *testing.T, root string) error {
 	return errors.Join(buildErrors...)
 }
 
-// sweepSandboxes best-effort destroys any sandbox left in the isolated home. It
-// runs at suite start — so a reused root never carries a previous run's
-// stopped-but-persisted VM into this run's subtests — and again at teardown, so
-// a failed harness cannot leak a VM pointing at a home the suite is about to
-// delete. when names the phase in its log lines. The root's own removal is
-// registered by prepare and runs after this. It logs failures and never fails
-// the test.
-func sweepSandboxes(t *testing.T, root, binary, when string) {
+// cleanupSandboxes best-effort destroys any sandbox left in the isolated home,
+// so a failed harness cannot leak a VM pointing at a home the suite is about to
+// delete. The root's own removal is registered by prepare and runs after this.
+// It logs failures and never fails the test.
+func cleanupSandboxes(t *testing.T, root, binary string) {
 	t.Helper()
 
 	list, cancelList := boundedLauncher(root, binary, "sandbox", "list", "-q")
 	out, err := list.Output()
 	cancelList()
 	if err != nil {
-		t.Logf("%s: list sandboxes: %v", when, err)
+		t.Logf("cleanup: list sandboxes: %v", err)
 	}
-	for _, name := range sandboxNames(string(out)) {
+	for line := range strings.SplitSeq(string(out), "\n") {
+		name := strings.TrimSpace(line)
+		if name == "" {
+			continue
+		}
 		// --yes is required: without it the non-interactive remove blocks on
 		// its confirmation prompt and fails.
 		remove, cancelRemove := boundedLauncher(root, binary, "sandbox", "remove", "--force", "--yes", name)
 		removeOut, removeErr := remove.CombinedOutput()
 		cancelRemove()
 		if removeErr != nil {
-			t.Logf("%s: remove sandbox %s: %v\n%s", when, name, removeErr, removeOut)
+			t.Logf("cleanup: remove sandbox %s: %v\n%s", name, removeErr, removeOut)
 		}
 	}
 }
