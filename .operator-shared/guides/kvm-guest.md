@@ -187,9 +187,11 @@ The guest's git remote is the **host repository**, not GitHub. The host generate
 rebuild reuses it instead of accumulating `authorized_keys` lines), authorizes its public half in the host's
 `~/.ssh/authorized_keys` restricted to `git-shell`, and installs the private half in the guest. A
 `url."ssh://<host-user>@<gateway><repo-path>".insteadOf <repo-url>` rewrite then routes the guest's single `origin`
-remote — the clone the boot made — to the host, reached at the bridge gateway over the guest→host SSH. `make kvm-sync`
-applies that setup and pulls: `git fetch origin --prune`, switch to the host branch, `git merge --ff-only`. Uncommitted
-host work is not copied; a diverged guest branch refuses rather than being reset.
+remote — the clone the boot made — to the host, reached at the bridge gateway over the guest→host SSH. The rewrite lives
+in the guest **repository** config (`~/agents-sandbox/.git/config`), not `~/.gitconfig`, so `make kvm-agent-provision`
+(writes only the host git name/email into `~/.gitconfig`) does not wipe it. `make kvm-sync` applies that setup and pulls:
+`git fetch origin --prune`, switch to the host branch, `git merge --ff-only`. Uncommitted host work is not copied; a
+diverged guest branch refuses rather than being reset.
 
 The agent pushes its branches straight to the host with plain `git push`, so the host's worktrees see them without a
 fetch. A branch checked out in a host worktree is refused (`branch is currently checked out`), so the host's current

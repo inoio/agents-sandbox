@@ -474,14 +474,17 @@ ssh_in() {
 # configure_guest_remote routes the guest checkout's single origin remote to the
 # host: a url.<host>.insteadOf rewrite sends every git operation on origin to the
 # host repository, while origin keeps the URL the boot clone recorded. The branch
-# upstream is pinned to origin and the guest's git uses the dedicated key.
+# upstream is pinned to origin and the guest's git uses the dedicated key. Each
+# setting is repository-local (in ~/agents-sandbox/.git/config), not --global:
+# `agent-provision` truncates the guest's ~/.gitconfig, which would wipe a global
+# rewrite and send the agent's pushes back to GitHub.
 configure_guest_remote() {
   local ip="$1" gateway="$2" repo_path="$3" host_url branch
   branch="${REPO_BRANCH:-main}"
   host_url="ssh://$KVM_HOST_USER@$gateway$repo_path"
   log "routing the guest origin to $host_url"
   ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
-    -- "bash -lc 'set -e && cd ~/agents-sandbox && git config --global url.\"$host_url\".insteadOf $REPO_URL && git config branch.$branch.remote origin && git config branch.$branch.merge refs/heads/$branch && git config core.sshCommand \"ssh -i \$HOME/.ssh/id_kvm_guest -o StrictHostKeyChecking=accept-new\"'"
+    -- "bash -lc 'set -e && cd ~/agents-sandbox && git config url.\"$host_url\".insteadOf $REPO_URL && git config branch.$branch.remote origin && git config branch.$branch.merge refs/heads/$branch && git config core.sshCommand \"ssh -i \$HOME/.ssh/id_kvm_guest -o StrictHostKeyChecking=accept-new\"'"
 }
 
 # ensure_guest_git_key gives the guest a key that authenticates it to the host for
@@ -524,16 +527,20 @@ ensure_host_authorized_key() {
   printf '%s\n' "$line" >> "$auth"
 }
 
-# probe_guest_to_host_ssh checks that the guest can reach the host for git, so a
-# host without sshd (or one refusing the key) fails with a diagnostic instead of
-# an opaque git error. There is no fallback transport.
+# probe_guest_to_host_ssh checks that the guest can complete a git exchange with
+# the host, so a host without sshd (or one refusing the key) fails with a
+# diagnostic instead of an opaque git error. There is no fallback transport. It
+# runs a real `git ls-remote`: the key is forced through `git-shell`, which rejects
+# any command but git-upload-pack/git-receive-pack, so a plain `ssh … true` would
+# always fail on a correctly configured host. Relies on configure_guest_remote
+# having set the rewrite and core.sshCommand.
 probe_guest_to_host_ssh() {
   local ip="$1" gateway="$2"
   if ! ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=8 -o LogLevel=ERROR \
       "$VM_USER@$ip" \
-      "ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i ~/.ssh/id_kvm_guest $KVM_HOST_USER@$gateway true" \
+      "bash -lc 'cd ~/agents-sandbox && git ls-remote origin >/dev/null 2>&1'" \
       >/dev/null 2>&1; then
-    die "the guest cannot reach the host over SSH at $gateway for git.
+    die "the guest cannot reach the host over SSH at $KVM_HOST_USER@$gateway for git.
     On the host: run sshd and accept the guest's key (authorized in $HOME/.ssh/authorized_keys),
     and install git-shell. Retry: $0 sync"
   fi

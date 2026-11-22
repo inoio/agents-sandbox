@@ -81,11 +81,14 @@ reach the host; only host→guest SSH exists today.
 - **Key ownership — host-generated.** The host generates one keypair (in a host-global state dir) and
   injects the private half into the guest. Stable across `kvm-down`/`kvm-up`; one `authorized_keys`
   line.
-- **Remote form — a URL rewrite, keeping the single `origin` remote.** The guest's `origin` keeps the
-  repository URL recorded by the boot clone, and the bootstrap adds
-  `url."ssh://<host-user>@<gateway><repo-path>".insteadOf <repo-url>` so every git operation on `origin`
-  goes to the host. Chosen over `git remote set-url origin <host>` because it keeps `origin`'s recorded
-  URL (visible to anything that reads `.git/config`) and reuses the rewrite mechanism #831 already
+- **Remote form — a repository-local URL rewrite, keeping the single `origin` remote.** The guest's
+  `origin` keeps the repository URL recorded by the boot clone, and the bootstrap adds
+  `url."ssh://<host-user>@<gateway><repo-path>".insteadOf <repo-url>` in the guest's **repository**
+  config (`~/agents-sandbox/.git/config`, not `--global`) so every git operation on `origin` goes to
+  the host. Repository-local, beside `core.sshCommand`, because `agent-provision` truncates the guest's
+  `~/.gitconfig`; a `--global` rewrite would be wiped by it, silently sending the agent's pushes back to
+  GitHub. Chosen over `git remote set-url origin <host>` because it keeps `origin`'s recorded URL
+  (visible to anything that reads `.git/config`) and reuses the rewrite mechanism #831 already
   established, rather than deleting it. **Verified caveat:** `git remote get-url` and `git remote -v`
   *apply* the rewrite and print the host, so `gh`'s remote-based repository inference sees the host; use
   `gh --repo <owner/repo>` or `GH_REPO`.
@@ -126,14 +129,17 @@ talks to GitHub, and the host rewrite replaces them.
 2. Resolve the host repository path with `git -C "$repo_root" rev-parse --path-format=absolute
    --git-common-dir`.
 3. Generate/authorize the host key and install the private half in the guest.
-4. In the guest: `git config --global url."ssh://<host-user>@<gateway><repo-path>".insteadOf
-   "$REPO_URL"`, pin `branch.<REPO_BRANCH>.remote`/`merge` to `origin`, and set
-   `core.sshCommand` to use the guest key. `<host-user>` is the account running the script, not
-   `VM_USER`.
-5. **Preflight guest→host SSH** (mirroring the existing egress probe): from the guest,
-   `ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i ~/.ssh/id_kvm_guest <host-user>@<gateway>
-   true`. On failure, die with a diagnostic pointing at the host's `openssh-server` and `git-shell`,
-   instead of letting the first `git fetch` fail with an opaque ssh error and no fallback transport.
+4. In the guest: `git config url."ssh://<host-user>@<gateway><repo-path>".insteadOf "$REPO_URL"`
+   (repository-local in `~/agents-sandbox/.git/config`, so `agent-provision`'s `~/.gitconfig` write does
+   not wipe it), pin `branch.<REPO_BRANCH>.remote`/`merge` to `origin`, and set `core.sshCommand` to use
+   the guest key. `<host-user>` is the account running the script, not `VM_USER`.
+5. **Preflight guest→host git** (mirroring the existing egress probe): from the guest,
+   `cd ~/agents-sandbox && git ls-remote origin`. A bare `ssh … true` cannot be the probe: the key is
+   forced through `git-shell`, which rejects any command but `git-upload-pack`/`git-receive-pack`, so
+   `ssh … true` would fail on a correctly configured host (verified). `ls-remote` runs a full
+   `git-upload-pack` handshake, which `git-shell` accepts. On failure, die with a diagnostic pointing at
+   the host's `openssh-server` and `git-shell`, instead of letting the first `git fetch` fail with an
+   opaque ssh error and no fallback transport.
 
 ### `kvm-sync` (replaces the rsync)
 

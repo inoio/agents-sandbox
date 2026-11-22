@@ -648,21 +648,29 @@ func TestKvmGuestSyncKeepsOneAuthorizedKeyLineOnRerun(t *testing.T) {
 }
 
 // TestKvmGuestSyncFailsWhenTheGuestCannotReachTheHost pins the preflight: a guest
-// that cannot ssh to the host fails with the diagnostic.
+// that cannot complete a git exchange with the host fails with the diagnostic and
+// never proceeds to the fetch. The probe must be a real git handshake, not a plain
+// command: the key is forced through `git-shell`, which rejects anything but
+// git-upload-pack/git-receive-pack, so `ssh … true` would always fail on a
+// correctly configured host.
 func TestKvmGuestSyncFailsWhenTheGuestCannotReachTheHost(t *testing.T) {
 	dir := t.TempDir()
 	env := kvmGuestSyncEnv(t, dir)
-	env["SSH_FAIL_CONTAINS"] = "@192.168.122.1 true"
+	env["SSH_FAIL_CONTAINS"] = "git ls-remote origin"
 
 	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync")
 	assertStatus(t, result, 1)
 
 	assertContains(t, "stderr", result.Stderr, "cannot reach the host over SSH")
+	assertContains(t, "ssh argv", readText(t, filepath.Join(dir, "ssh-argv")), "git ls-remote origin")
+	assertNotContains(t, "ssh argv", readText(t, filepath.Join(dir, "ssh-argv")), "git fetch origin")
 }
 
 // TestKvmGuestSyncRoutesOriginToTheHost pins that the guest's single remote is
-// routed to the host by a URL rewrite — the recorded origin URL is kept, and git
-// operations go to the host repository.
+// routed to the host by a repository-local URL rewrite — the recorded origin URL
+// is kept, and git operations go to the host repository. The rewrite is
+// repository-local (not `--global`): `agent-provision` truncates the guest's
+// ~/.gitconfig, which would wipe a global rewrite and send pushes back to GitHub.
 func TestKvmGuestSyncRoutesOriginToTheHost(t *testing.T) {
 	dir := t.TempDir()
 	env := kvmGuestSyncEnv(t, dir)
@@ -675,10 +683,11 @@ func TestKvmGuestSyncRoutesOriginToTheHost(t *testing.T) {
 		t,
 		"ssh argv",
 		argv,
-		`git config --global url."ssh://kvmhost@192.168.122.1/host/agents-sandbox/.git".insteadOf https://example.test/agents-sandbox.git`,
+		`git config url."ssh://kvmhost@192.168.122.1/host/agents-sandbox/.git".insteadOf https://example.test/agents-sandbox.git`,
 	)
 	assertContains(t, "ssh argv", argv, "git config branch.feat/793-msb-journeys.remote origin")
 	assertContains(t, "ssh argv", argv, "core.sshCommand")
+	assertNotContains(t, "ssh argv", argv, "git config --global")
 	assertNotContains(t, "ssh argv", argv, "git remote add")
 }
 

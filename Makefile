@@ -310,9 +310,9 @@ test-msb-in-vm: msb-reuse-root
 	CGO_ENABLED=1 go test -tags msb -p 1 -timeout 60m -count=1 ./test/msb/startup/... ./internal/sandbox/msb/...
 
 # Host-only KVM-guest workflow. These build a libvirt guest (cloud-init seeds
-# docker, Go, msb, and the repo), sync a checkout into it, and run a command
-# there — the msb suites need a KVM host, which the dev VM is not. They are
-# never run by CI. See .operator-shared/guides/kvm-guest.md.
+# docker, Go, msb, and the repo), pull a checkout into it from the host, and run
+# a command there — the msb suites need a KVM host, which the dev VM is not. They
+# are never run by CI. See .operator-shared/guides/kvm-guest.md.
 kvm-up:
 	scripts/kvm-guest.sh up
 
