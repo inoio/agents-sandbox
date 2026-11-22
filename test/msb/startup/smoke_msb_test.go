@@ -54,10 +54,7 @@ func TestHarnessSmoke(t *testing.T) {
 		if !ok {
 			t.Fatalf("harness %q has no smoke-test spec", name)
 		}
-		network := spec.Network
-		if network == "" {
-			network = driver.NetworkNone
-		}
+		network := spec.NetworkOrDefault()
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			slots <- struct{}{}

@@ -264,10 +264,17 @@ func RootFitsSandboxSocket(root string) bool {
 // in the microsandbox home under it.
 const reuseLockSuffix = ".lock"
 
+// reuseLockName is the lock file's base name for the root dir: the root's own
+// base name plus reuseLockSuffix. The lock is keyed by name and held in the
+// root's parent dir (see ReuseLockPath and AcquireReuseLock).
+func reuseLockName(dir string) string {
+	return filepath.Base(dir) + reuseLockSuffix
+}
+
 // ReuseLockPath is the lock file that serializes runs sharing the reused root
 // dir.
 func ReuseLockPath(dir string) string {
-	return filepath.Join(filepath.Dir(dir), filepath.Base(dir)+reuseLockSuffix)
+	return filepath.Join(filepath.Dir(dir), reuseLockName(dir))
 }
 
 // AcquireReuseLock blocks until this run holds the exclusive lock for the reused
@@ -276,7 +283,7 @@ func ReuseLockPath(dir string) string {
 // every sandbox in the home, including the other's live VMs. dir is absolute,
 // so the lock path is stable across working directories. It returns the release.
 func AcquireReuseLock(dir string) (func(), error) {
-	return hostlock.AcquireExclusive(filepath.Dir(dir), filepath.Base(dir)+reuseLockSuffix)
+	return hostlock.AcquireExclusive(filepath.Dir(dir), reuseLockName(dir))
 }
 
 // ResolveSuiteRoot returns the suite's shared root, whether it is a reused

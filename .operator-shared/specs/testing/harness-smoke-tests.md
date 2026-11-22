@@ -163,7 +163,7 @@ so it binds at `/workspace`), so claude-code reaches its prompt, where repeated 
 
 **Tap until it goes, then assert the exit.** `driver.Quit` taps the harness's key in pairs until the process exits, for at most
 `driver.QuitTimeout` (15s), then asserts exit code 0. The two presses of a pair are one `driver.QuitPressInterval` (400ms) apart, so a
-repeated-key exit chains; every pair is followed by `quitRetryInterval` (2s) before the next pair, so a harness that has
+repeated-key exit chains; every pair is followed by a 2s retry interval before the next pair, so a harness that has
 caught the quit can finish tearing down before another press is written. The loop also stops tapping once either teardown
 signal appears and only waits for the exit:
 

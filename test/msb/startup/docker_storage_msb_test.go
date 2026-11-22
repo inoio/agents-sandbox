@@ -7,7 +7,6 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/inoio/agents-sandbox/test/msb/driver"
 )
@@ -161,22 +160,8 @@ func writeUntilMarker(t *testing.T, ses *driver.Session, command, marker string)
 	t.Helper()
 
 	budget := driver.ScaleTimeout(driver.TuiReadyTimeout, driver.SmokeTimeoutFactor())
-	deadline := time.Now().Add(budget)
-	needle := driver.MarkerText(marker)
-	for {
-		if strings.Contains(driver.MarkerText(string(ses.Output())), needle) {
-			return
-		}
-		if ses.HasExited() {
-			t.Fatalf("session exited before %q appeared:\n%s", marker, driver.StripANSI(ses.Output()))
-		}
-		if !time.Now().Before(deadline) {
-			t.Fatalf("%q never appeared within %s:\n%s", marker, budget, driver.StripANSI(ses.Output()))
-		}
-		if err := ses.Write([]byte(command)); err != nil {
-			t.Fatalf("write %q: %v", command, err)
-		}
-		time.Sleep(driver.QuitPressInterval)
+	if err := driver.TapUntilMarker(ses, []byte(command), marker, budget); err != nil {
+		t.Fatalf("%v:\n%s", err, driver.StripANSI(ses.Output()))
 	}
 }
 

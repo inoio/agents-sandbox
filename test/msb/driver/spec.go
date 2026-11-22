@@ -289,6 +289,15 @@ func (s Spec) ReadyTimeout() time.Duration {
 	return settledReadyTimeout
 }
 
+// NetworkOrDefault is the `--network` value a run under this spec uses: the
+// harness's own profile when it names one, else the secure default.
+func (s Spec) NetworkOrDefault() string {
+	if s.Network != "" {
+		return s.Network
+	}
+	return NetworkNone
+}
+
 // TB is the subset of testing.TB the driver helpers need. It is declared here so
 // the driver's non-test files compile without importing testing; a suite passes
 // the *testing.T (or *testing.B) it is driving.
@@ -297,6 +306,5 @@ type TB interface {
 	Logf(string, ...any)
 	Fatalf(string, ...any)
 	Skipf(string, ...any)
-	TempDir() string
 	Cleanup(func())
 }

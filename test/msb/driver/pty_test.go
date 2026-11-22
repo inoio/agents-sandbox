@@ -184,6 +184,46 @@ func TestPTYWaitForMarkerReturnsOnceTheMarkerAppears(t *testing.T) {
 	}
 }
 
+// TestTapUntilMarkerWritesUntilTheMarkerAppears pins the tap-until-marker loop
+// the docker-storage readiness probe and the journey quit step share: a child
+// that prints its marker only after it receives the key is readied by repeated
+// writes.
+func TestTapUntilMarkerWritesUntilTheMarkerAppears(t *testing.T) {
+	ses := MustStartUnderPTY(t, "", nil, "/bin/sh", "-c", `read x; printf 'READY_MARKER'; sleep 30`)
+	defer ses.Close()
+
+	if err := TapUntilMarker(ses, []byte("q\n"), "READY_MARKER", 5*time.Second); err != nil {
+		t.Fatalf("TapUntilMarker: %v", err)
+	}
+}
+
+// TestTapUntilMarkerReportsTimeout pins the budget bound: a child that never
+// prints the marker and never exits fails with the marker named.
+func TestTapUntilMarkerReportsTimeout(t *testing.T) {
+	ses := MustStartUnderPTY(t, "", nil, "/bin/sh", "-c", "sleep 30")
+	defer ses.Close()
+
+	err := TapUntilMarker(ses, []byte("q"), "NEVER", 50*time.Millisecond)
+	if err == nil {
+		t.Fatal("TapUntilMarker = nil, want a timeout error")
+	}
+	if !strings.Contains(err.Error(), "NEVER") {
+		t.Errorf("error %q does not name the marker", err)
+	}
+}
+
+// TestTapUntilMarkerReportsChildExit pins that a child that exits before the
+// marker appears is reported as such, not waited out.
+func TestTapUntilMarkerReportsChildExit(t *testing.T) {
+	ses := MustStartUnderPTY(t, "", nil, "/bin/sh", "-c", "printf 'launcher output'; exit 3")
+	defer ses.Close()
+
+	err := TapUntilMarker(ses, []byte("q"), "NEVER", 5*time.Second)
+	if err == nil || !strings.Contains(err.Error(), "exited") {
+		t.Fatalf("TapUntilMarker = %v, want an exited-before error", err)
+	}
+}
+
 // TestMarkerTextCollapsesWhitespaceAndANSI pins the marker normalization: escape
 // sequences and every whitespace character go, so a marker matches output whose
 // spaces were rendered as cursor moves.

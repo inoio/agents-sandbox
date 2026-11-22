@@ -338,6 +338,35 @@ func (s *Session) WaitForMarker(marker string, timeout time.Duration) error {
 	}
 }
 
+// TapUntilMarker writes key to the session on the quit-press interval until its
+// output contains marker, the session exits, or budget elapses. It is how a
+// session with no startup marker is readied — the docker-storage shell's attach
+// takes the terminal only after the VM is up, so a single write can be lost to
+// the mode switch — and how a journey taps the quit key until the launcher's
+// learn exit prompt appears, without waiting out the process exit. The marker is
+// assembled at runtime by the caller so the pty's echoed input never matches it.
+// It returns nil once marker appears; otherwise an error naming marker and why
+// it stopped.
+func TapUntilMarker(ses *Session, key []byte, marker string, budget time.Duration) error {
+	needle := MarkerText(marker)
+	deadline := time.Now().Add(budget)
+	for {
+		if strings.Contains(MarkerText(string(ses.Output())), needle) {
+			return nil
+		}
+		if ses.HasExited() {
+			return fmt.Errorf("session exited before %q appeared", marker)
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("%q never appeared within %s", marker, budget)
+		}
+		if err := ses.Write(key); err != nil {
+			return fmt.Errorf("write %q: %w", key, err)
+		}
+		time.Sleep(QuitPressInterval)
+	}
+}
+
 // WaitExit blocks until the child exits and returns its exit code. A process
 // that exited successfully yields 0; one killed by a signal, -1. Only a wait
 // that does not complete within the timeout (or fails outright) is an error.

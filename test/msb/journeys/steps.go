@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"go.yaml.in/yaml/v4"
 
@@ -78,7 +77,7 @@ func StepLaunch(args ...string) Step {
 		argv = append(argv, c.Binary)
 		argv = append(argv, args...)
 		argv = append(argv, "--agent", c.Agent)
-		argv = append(argv, "--network", journeyNetwork(c.Spec))
+		argv = append(argv, "--network", c.Spec.NetworkOrDefault())
 		argv = append(argv, "--memory", driver.SmokeMemorySpec(), "--no-rebuild")
 		argv = driver.WithVMCPUs(argv, driver.SmokeVMCPUs())
 		//testenv:allow the journey launcher runs under the host environment it isolates from
@@ -109,7 +108,10 @@ func StepAssertFirstRunOffered(choice firstrun.Choice) Step {
 		if err != nil {
 			return err
 		}
-		if err := ses.WaitForMarker(string(choice), driver.TuiReadyTimeout); err != nil {
+		if err := ses.WaitForMarker(
+			string(choice),
+			driver.ScaleTimeout(driver.TuiReadyTimeout, driver.SmokeTimeoutFactor()),
+		); err != nil {
 			return fmt.Errorf("first-run menu did not offer %q: %w", choice, err)
 		}
 		return nil
@@ -142,7 +144,8 @@ func StepSendPrompt(prompt string) Step {
 // StepQuit taps the harness's quit key until the launcher's learn exit prompt
 // appears, so the journey can answer it in StepChooseExit. It stops once the
 // prompt is up rather than waiting for the process to exit, which the prompt
-// holds open.
+// holds open. The wait reuses the driver's tapping cadence and scales its budget
+// with the smoke timeout factor, like driver.Quit.
 func StepQuit() Step {
 	return Step{Name: "quit the harness", Run: func(c *Context) error {
 		ses, err := session(c)
@@ -152,23 +155,8 @@ func StepQuit() Step {
 		if len(c.Spec.QuitKey) == 0 {
 			return errors.New("the harness has no quit key")
 		}
-		needle := driver.MarkerText(learnExitPromptMarker)
-		deadline := time.Now().Add(driver.QuitTimeout)
-		for {
-			if strings.Contains(driver.MarkerText(string(ses.Output())), needle) {
-				return nil
-			}
-			if ses.HasExited() {
-				return fmt.Errorf("the launcher exited before the learn exit prompt")
-			}
-			if !time.Now().Before(deadline) {
-				return fmt.Errorf("the learn exit prompt did not appear within %s", driver.QuitTimeout)
-			}
-			if err := ses.Write(c.Spec.QuitKey); err != nil {
-				return err
-			}
-			time.Sleep(driver.QuitPressInterval)
-		}
+		budget := driver.ScaleTimeout(driver.QuitTimeout, driver.SmokeTimeoutFactor())
+		return driver.TapUntilMarker(ses, c.Spec.QuitKey, learnExitPromptMarker, budget)
 	}}
 }
 
@@ -185,7 +173,7 @@ func StepChooseExit(key string) Step {
 		if err = writeLine(c, key); err != nil {
 			return err
 		}
-		code, err := ses.WaitExit(driver.ExitSaveTimeout)
+		code, err := ses.WaitExit(driver.ScaleTimeout(driver.ExitSaveTimeout, driver.SmokeTimeoutFactor()))
 		if err != nil {
 			return fmt.Errorf("the launcher did not exit after the exit prompt: %w", err)
 		}
@@ -276,15 +264,6 @@ func StepAssertSessionCleared() Step {
 		}
 		return nil
 	}}
-}
-
-// journeyNetwork is the launcher --network value a journey runs under: the
-// harness's own profile when it names one, else the secure default.
-func journeyNetwork(spec driver.Spec) string {
-	if spec.Network != "" {
-		return spec.Network
-	}
-	return driver.NetworkNone
 }
 
 // session returns the context's launched session, or an error when no
