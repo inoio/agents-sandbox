@@ -194,9 +194,9 @@ mismatched; the failure is sandbox-specific, on a long-lived project sandbox. Th
 at sandbox *creation*: a stop/start does not bring it back, but recreating the sandbox
 (`agents-sandbox sandbox remove <name>`; the home volume is kept) does. A sandbox created before the
 runtime gained the slot therefore never has one for its whole life. The memory-raise offer no longer
-depends on the slot (`specs/resources/resource-limit-proposal.md` §3 uses the configured memory as a
-fallback basis); the remedy for an affected sandbox is the recreate in step 3 of "Diagnosing a missing
-metrics slot" below.
+depends on the slot (`specs/resources/resource-limit-proposal.md` §3 uses the memory the run applied
+as a fallback basis); the remedy for an affected sandbox is the recreate in step 3 of "Diagnosing a
+missing metrics slot" below.
 
 **Guest kernel OOM messages — persisted logs via the `system` source.** The SDK exposes
 `SandboxHandle.Logs(ctx, LogOptions)`/`Sandbox.Logs` with `LogSourceSystem`, which the docs describe
@@ -358,14 +358,14 @@ the launcher cannot repair it.
    `github.com/superradcompany/microsandbox/sdk/go`; the launcher compares it via `PinnedRuntimeVersion`).
    A mismatch is the first suspect.
 2. **Fresh sandbox vs the failing one.** Run the launcher in a brand-new project and watch prepare:
-   `mkdir /tmp/metrics-probe && cd /tmp/metrics-probe && git init && agents-sandbox shell --verbose`.
+   `mkdir /tmp/metrics-probe && cd /tmp/metrics-probe && git init && agents-sandbox shell --log-level verbose`.
    A slot error for a *fresh* sandbox means the runtime cannot provide the slot at all; if only the
    long-lived project sandbox fails, the sandbox record (or the runtime process that started it) is
    stale.
-3. **Restart, then recreate, the failing sandbox.** `agents-sandbox stop <name>` and re-run; if the
-   slot does not return, `agents-sandbox sandbox remove <name>` (the home volume is kept) and let the
-   next run recreate the VM. A recreate that fixes it points at a sandbox created before the slot
-   existed, or by an older runtime.
+3. **Restart, then recreate, the failing sandbox.** Run `agents-sandbox stop` from the failing
+   checkout and re-run; if the slot does not return, `agents-sandbox sandbox remove <name>` (the home
+   volume is kept) and let the next run recreate the VM. A recreate that fixes it points at a sandbox
+   created before the slot existed, or by an older runtime.
 4. **Direct SDK probe (bypasses the launcher).** From the checkout root, drop this in `probe/main.go`
    and run `CGO_ENABLED=1 go run ./probe` (delete it afterwards):
 

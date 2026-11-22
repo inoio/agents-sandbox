@@ -47,7 +47,9 @@ func offerMemoryRaiseAfterAttach(
 	raised := resourceproposal.DetectAndOfferMemoryRaise(
 		ctx, k, sb, marker,
 		resourceproposal.MemoryLimits{
-			CurrentMiB:         0,
+			CurrentMiB: 0,
+			// opts carries the limits the run applied: Run and Shell replace
+			// the CLI-resolved values with prepare's applied limits.
 			FallbackCurrentMiB: options.ParseMemory(opts.Memory),
 			BootMaxMiB:         bootMaxMemoryMiB(),
 			HostAvailableMiB:   hostAvailableMiB,

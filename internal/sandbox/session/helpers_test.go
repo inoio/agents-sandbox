@@ -11,6 +11,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
+	"github.com/inoio/agents-sandbox/internal/sandbox/prepare"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
 
@@ -116,6 +117,7 @@ type fakePrepared struct {
 	guestCWD          string
 	key               state.Key
 	homeVolume        string
+	limits            prepare.AppliedLimits
 }
 
 func (f *fakePrepared) Cleanup() {}
@@ -133,6 +135,8 @@ func (f *fakePrepared) GuestCWD() string { return f.guestCWD }
 func (f *fakePrepared) Key() state.Key { return f.key }
 
 func (f *fakePrepared) HomeVolume() string { return f.homeVolume }
+
+func (f *fakePrepared) AppliedLimits() prepare.AppliedLimits { return f.limits }
 
 // fakeLearnRun is a learnSession double that records each lifecycle call's name,
 // so a test can assert the order session.Run drives it in without a real

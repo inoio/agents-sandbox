@@ -1181,6 +1181,33 @@ func TestSessionGuestCWD(t *testing.T) {
 	}
 }
 
+// TestNewSessionExposesThePlanLimitsNotTheConfigured pins that the prepared
+// session carries the plan's applied limits, which include raises accepted while
+// planning, not the run's CLI-resolved values: the post-attach offers build on
+// AppliedLimits, and the two differ after a same-run raise.
+func TestNewSessionExposesThePlanLimitsNotTheConfigured(t *testing.T) {
+	opts := options.RunOptions{
+		Agent: "opencode", Memory: "4G", DiskSize: "2G", WorkspaceQuota: "8G", TmpSize: "1G",
+		ServeHostPort: 4096,
+	}
+	plan := reconfigPlan{limits: plannedLimits{
+		memory: "12G", diskSize: "4G", workspaceQuota: "16G", tmpSize: "2G",
+	}}
+
+	s := newSession(
+		nil,
+		sessionIdentity{key: state.Key{Slug: "s", Agent: "opencode"}},
+		"/target",
+		opts,
+		plan,
+	)
+
+	want := AppliedLimits{Memory: "12G", DiskSize: "4G", WorkspaceQuota: "16G", TmpSize: "2G"}
+	if got := s.AppliedLimits(); got != want {
+		t.Errorf("AppliedLimits() = %+v, want the plan's %+v, not the configured values", got, want)
+	}
+}
+
 func symlinkedDir(t *testing.T) (realDir, linkDir string) {
 	t.Helper()
 	realDir, err := filepath.EvalSymlinks(t.TempDir())

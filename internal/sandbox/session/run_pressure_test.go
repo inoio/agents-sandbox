@@ -14,6 +14,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/prepare"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -276,6 +277,67 @@ func TestOfferMemoryRaiseAfterAttachUsesConfiguredMemoryWhenMetricsFail(t *testi
 
 	if inputDefault != "5G" {
 		t.Errorf("Input default = %q, want 5G from the run's configured memory", inputDefault)
+	}
+}
+
+// TestRunOffersFromTheAppliedMemoryLimit pins that Run hands the post-attach
+// offer the memory the run applied rather than the CLI-resolved value: a raise
+// accepted in prepare for this same run is the offer's basis, so the offer
+// cannot persist a value below the live limit (the stale-value regression).
+func TestRunOffersFromTheAppliedMemoryLimit(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_MEMORY", "")
+	t.Setenv("OPENCODE_SANDBOX_MEMORY", "")
+	k := state.Key{Slug: "appliedmemory", Agent: "opencode"}
+	seedSessionHomeState(t, k)
+	var inputDefault string
+	ui := &termiotest.Mock{
+		IsInteractiveResult: true,
+		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
+		InputFn: func(_ string, defaultValue string) (string, error) {
+			inputDefault = defaultValue
+			return defaultValue, nil
+		},
+	}
+	sb := &msbtest.MockSandbox{
+		AttachCode: -1,
+		Name_:      "test-vm",
+		LogsResult: []msb.LogEntry{sessionOOMLogLine(time.Now())},
+		MetricsErr: errors.New("sandbox 199 has no verified live metrics slot"),
+	}
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{sb: sb, target: "/workspace", key: k, limits: prepare.AppliedLimits{Memory: "12G"}}, nil
+	}
+	defer func() { prepareSandbox = orig }()
+
+	// The attach ends abnormally (signal death), so Run returns an ExitError;
+	// the offer's basis is what this test asserts.
+	_ = Run(context.Background(), resolvedRunOptions(t, options.RunOptions{
+		Agent: "opencode", Memory: "4G", ReapPolicy: options.NewReapPolicy(true, 5),
+	}), options.ModeRun, ui)
+
+	if inputDefault != "15G" {
+		t.Errorf("Input default = %q, want 15G from the session's applied memory", inputDefault)
+	}
+}
+
+// TestApplyAppliedLimitsReplacesEveryLimit pins that the run's configured limits
+// are replaced by the applied ones, not merged, so a same-run raise reaches both
+// the memory offer and the disk offer's bases; the other options are kept.
+func TestApplyAppliedLimitsReplacesEveryLimit(t *testing.T) {
+	ses := &fakePrepared{limits: prepare.AppliedLimits{
+		Memory: "12G", DiskSize: "4G", WorkspaceQuota: "16G", TmpSize: "2G",
+	}}
+	got := applyAppliedLimits(ses, options.RunOptions{
+		Agent: "opencode", Memory: "4G", DiskSize: "2G", WorkspaceQuota: "8G", TmpSize: "1G",
+	})
+
+	if got.Memory != "12G" || got.DiskSize != "4G" || got.WorkspaceQuota != "16G" || got.TmpSize != "2G" {
+		t.Errorf("applyAppliedLimits = %+v, want the applied limits", got)
+	}
+	if got.Agent != "opencode" {
+		t.Errorf("applyAppliedLimits dropped the other options: %+v", got)
 	}
 }
 

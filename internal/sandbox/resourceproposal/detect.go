@@ -19,9 +19,10 @@ type MemoryLimits struct {
 	// metrics limit, then to FallbackCurrentMiB.
 	CurrentMiB uint32
 	// FallbackCurrentMiB is the memory basis used when neither CurrentMiB nor
-	// the live metrics limit is known (the run's configured memory). The
-	// post-attach path on a runtime that reports no live metrics uses it to
-	// offer a raise in-session instead of deferring to the next launch.
+	// the live metrics limit is known: the memory the run applied, including a
+	// raise accepted while planning. The post-attach path on a runtime that
+	// reports no live metrics uses it to offer a raise in-session instead of
+	// deferring to the next launch.
 	FallbackCurrentMiB uint32
 	// BootMaxMiB is the VM's boot maximum (host RAM at creation).
 	BootMaxMiB uint32
@@ -129,10 +130,10 @@ func DetectAndOfferMemoryRaise(
 		OfferedAt: time.Time{},
 	}, ui)
 
-	// A raise needs a known basis. Without one (an OOM line whose metrics read
-	// failed) SuggestRaise(0, …) would pre-fill a decrease, so record the hit
-	// unanswered and let the next launch — which knows the configured memory —
-	// offer it.
+	// A raise needs a known basis. Without one SuggestRaise(0, …) would pre-fill
+	// a decrease, so record the hit unanswered and let the next launch offer it.
+	// The post-attach path supplies the applied memory as the fallback, so this
+	// is reached only when neither the live limit nor the fallback is known.
 	if limits.CurrentMiB == 0 {
 		ui.Verbosef("recorded a VM memory-limit hit with no known limit; a later run will offer a raise")
 		return ""
