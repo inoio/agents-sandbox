@@ -10,6 +10,9 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/readback"
 )
 
+// egressAllowKey is the config key of the network allow list the lock writes.
+const egressAllowKey = "network.egress-allow"
+
 // evidenceChannelProxy and evidenceChannelReadback name where a finding's
 // evidence came from: the terminating proxy's observation, or the home
 // read-back.
@@ -17,11 +20,6 @@ const (
 	evidenceChannelProxy    = "proxy"
 	evidenceChannelReadback = "readback"
 )
-
-// connectProtocol is the channel's protocol marker for an accepted CONNECT
-// tunnel. The tunnel is recorded as its own successful destination, separately
-// from the request that travelled through it.
-const connectProtocol = "connect"
 
 // SessionFacts is everything the after-run analysis needs from one finished
 // session: the home read-back, the observation channel's scrubbed capture, and
@@ -63,14 +61,17 @@ func (s SessionFacts) networkFinding() (Finding, bool) {
 	destinations := s.Observation.Destinations
 	used := observedUsedHosts(destinations)
 	denied := deniedHosts(destinations)
-	if len(used) == 0 && len(denied) == 0 {
+	if len(used) == 0 {
 		return Finding{}, false
 	}
 
 	current := s.Current.Effective()
 	allow := sortedUnique(append(slices.Clone(current.EgressAllow), used...))
 	if policyIsNarrowNone(current, allow) {
-		return Finding{}, false
+		if !hostnameRulesNeedInterception(current) {
+			return Finding{}, false
+		}
+		return interceptionFinding(current, used), true
 	}
 
 	//exhaustruct:ignore // a network finding carries no credential header names
@@ -93,13 +94,100 @@ func (s SessionFacts) networkFinding() (Finding, bool) {
 		//exhaustruct:ignore // a config write names no secret and never removes
 		{
 			Scope:       ScopePerSlugUser,
-			ConfigKey:   "network.egress-allow",
+			ConfigKey:   egressAllowKey,
 			ConfigValue: allow,
-			Text:        "The network policy is creation-only: it takes effect at the next VM creation.",
+			Text:        egressAllowText(current, used),
 		},
+	}
+	if hostnameRulesNeedInterception(current) {
+		writes = append(writes, interceptionWrite())
 	}
 	//exhaustruct:ignore // EvidenceHash is stamped by ObservationFindings
 	return Finding{Evidence: evidence, Writes: writes, Kind: KindObservation}, true
+}
+
+// interceptionWrite turns TLS interception on in the per-slug scope.
+func interceptionWrite() Write {
+	//exhaustruct:ignore // a config write names no secret and never removes
+	return Write{
+		Scope:       ScopePerSlugUser,
+		ConfigKey:   "network.intercept-tls",
+		ConfigValue: string(network.InterceptOn),
+		Text: "Under the strict-hostname mode a hostname rule admits only an intercepted connection, " +
+			"so this turns TLS interception on.",
+	}
+}
+
+// interceptionFinding is the finding for a none policy already narrowed to the
+// used hosts but without interception: outside learn mode, where the overlay
+// no longer forces interception, it blocks every host it allows. Its evidence
+// names the hosts but no per-session count, so a decline sticks (a user whose
+// secret already turns interception on declines it once).
+func interceptionFinding(current network.Policy, used []string) Finding {
+	write := interceptionWrite()
+	if bypassed := bypassedHosts(used, current.TLSBypass); len(bypassed) > 0 {
+		write.Text += " These hosts are in tls-bypass, so the strict-hostname mode keeps them denied: " +
+			strings.Join(bypassed, ", ") + "."
+	}
+	//exhaustruct:ignore // an interception finding carries no count, denials, or header names
+	evidence := Evidence{
+		Summary:      "turn on TLS interception so the none profile's hostname rules admit connections",
+		Destinations: used,
+		Channel:      evidenceChannelProxy,
+	}
+	//exhaustruct:ignore // EvidenceHash is stamped by ObservationFindings
+	return Finding{Evidence: evidence, Writes: []Write{write}, Kind: KindObservation}
+}
+
+// egressAllowText states when the lock takes effect and names the used hosts it
+// cannot open: under the strict-hostname mode a host that is both allowlisted
+// and in tls-bypass stays denied, so the lock must not promise it works.
+func egressAllowText(current network.Policy, used []string) string {
+	text := "The network policy is creation-only: it takes effect at the next VM creation."
+	if current.DisableStrict {
+		return text
+	}
+	bypassed := bypassedHosts(used, current.TLSBypass)
+	if len(bypassed) == 0 {
+		return text
+	}
+	return text + " These hosts are in tls-bypass, so the strict-hostname mode keeps them denied: " +
+		strings.Join(bypassed, ", ") + "."
+}
+
+// bypassedHosts returns the hosts a tls-bypass entry covers, compared without
+// regard to case.
+func bypassedHosts(hosts, bypass []string) []string {
+	var covered []string
+	for _, host := range hosts {
+		for _, entry := range bypass {
+			if bypassCovers(strings.ToLower(entry), strings.ToLower(host)) {
+				covered = append(covered, host)
+				break
+			}
+		}
+	}
+	return covered
+}
+
+// bypassCovers reports whether a tls-bypass entry covers host: an exact host,
+// or a "*.suffix" entry covering the suffix's subdomains (not the suffix
+// itself, and not a host that merely ends in the same letters).
+func bypassCovers(entry, host string) bool {
+	if suffix, wildcard := strings.CutPrefix(entry, "*."); wildcard {
+		return strings.HasSuffix(host, "."+suffix)
+	}
+	return host == entry
+}
+
+// hostnameRulesNeedInterception reports whether the lock must turn TLS
+// interception on for its hostname rules to admit anything: under the runtime's
+// strict-hostname mode an allow rule authorizes only an intercepted connection,
+// and interception left at auto is off when no secret is configured. With a
+// secret configured, auto already intercepts and the write only makes it
+// explicit (one VM recreate).
+func hostnameRulesNeedInterception(policy network.Policy) bool {
+	return policy.InterceptTLS != network.InterceptOn && !policy.DisableStrict
 }
 
 // policyIsNarrowNone reports whether policy is already the terminal `none`
@@ -116,8 +204,9 @@ func policyIsNarrowNone(policy network.Policy, allow []string) bool {
 // only when its host has no denied destination: the channel records the tunnel's
 // acceptance separately from a request denied through it, so a host whose only
 // request was denied still carries a successful connect entry, and that tunnel
-// is not evidence the host is safe to allow. A denied destination is never a used
-// one.
+// is not evidence the host is safe to allow. A tunnel still recorded under an
+// address is not use either (see channel.Destination.AddressOnlyTunnel). A denied destination is
+// never a used one.
 func observedUsedHosts(destinations []channel.Destination) []string {
 	denied := deniedHosts(destinations)
 	var hosts []string
@@ -125,7 +214,10 @@ func observedUsedHosts(destinations []channel.Destination) []string {
 		if destination.Denied || !destination.Success || destination.Host == "" {
 			continue
 		}
-		if destination.Protocol == connectProtocol && slices.Contains(denied, destination.Host) {
+		if destination.Protocol == channel.ConnectProtocol && slices.Contains(denied, destination.Host) {
+			continue
+		}
+		if destination.AddressOnlyTunnel() {
 			continue
 		}
 		hosts = append(hosts, destination.Host)
@@ -151,7 +243,7 @@ func deniedHosts(destinations []channel.Destination) []string {
 func usedRequestCount(destinations []channel.Destination) int {
 	total := 0
 	for _, destination := range destinations {
-		if destination.Denied || !destination.Success {
+		if destination.Denied || !destination.Success || destination.Protocol == channel.ConnectProtocol {
 			continue
 		}
 		total += destination.Count

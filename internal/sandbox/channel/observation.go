@@ -2,6 +2,7 @@ package channel
 
 import (
 	"cmp"
+	"net"
 	"slices"
 	"strings"
 	"time"
@@ -27,6 +28,19 @@ type Destination struct {
 	FirstSeen time.Time `json:"first_seen"` // first request observed
 	LastSeen  time.Time `json:"last_seen"`  // most recent request observed
 	Channel   string    `json:"channel"`    // which observer saw it, e.g. "proxy-terminate"
+}
+
+// ConnectProtocol is the protocol of an accepted CONNECT tunnel's entry.
+const ConnectProtocol = "connect"
+
+// AddressOnlyTunnel reports whether d is a CONNECT tunnel still recorded under
+// its IP. The proxy names every tunnel that carried a TLS handshake with SNI by
+// that hostname, and the requests inside any tunnel are recorded on their own
+// entries, so an address-only tunnel is no evidence of use on its own: it is an
+// abandoned attempt (happy eyeballs, a pre-warmed connection) or non-HTTP
+// traffic the channel cannot attribute to a host.
+func (d Destination) AddressOnlyTunnel() bool {
+	return d.Protocol == ConnectProtocol && net.ParseIP(d.Host) != nil
 }
 
 // Attribution records that a credential was sent to a destination, as the
@@ -80,6 +94,27 @@ func (r *recorder) observe(host, ip, path, protocol string, port uint16, headerN
 	destination.LastSeen = now
 	r.attribute(host, path, headerNames)
 	return destination
+}
+
+// nameTunnel moves one tunnel opened to ip:port onto hostname, the name the
+// client sent as TLS SNI. The msb runtime opens its tunnels by IP and names the
+// host only in the handshake, so without this every tunnel would be recorded
+// under an address. The IP stays on the named entry; the IP-only entry loses
+// the one tunnel and disappears once it has none left. A tunnel this recorder
+// never saw is ignored.
+func (r *recorder) nameTunnel(ip string, port uint16, hostname string) {
+	for index, tunnel := range r.destinations {
+		if tunnel.Host != ip || tunnel.IP != ip || tunnel.Protocol != ConnectProtocol || tunnel.Port != port {
+			continue
+		}
+		named := r.observe(hostname, ip, "", ConnectProtocol, port, nil)
+		named.Success = true
+		tunnel.Count--
+		if tunnel.Count <= 0 {
+			r.destinations = slices.Delete(r.destinations, index, index+1)
+		}
+		return
+	}
 }
 
 // deny records that a request to a destination was refused by this proxy's own

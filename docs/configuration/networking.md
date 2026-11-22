@@ -57,7 +57,13 @@ network:
   profile: none
   egress-allow:
     - api.example.com
+  intercept-tls: on
 ```
+
+Under `none`, a hostname entry admits a TLS connection only when it is intercepted (see
+[TLS interception and the strict-hostname mode](#tls-interception-and-the-strict-hostname-mode)). With a configured
+secret, interception is already on; without one, set `intercept-tls: on`, or every connection to the allowed host fails
+during the TLS handshake.
 
 Profile and lists can be combined, e.g. a `private` profile with an `egress-allow: [.internal]` exception.
 

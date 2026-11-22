@@ -160,7 +160,9 @@ func TestLeafIssuerDoesNotCacheAFailedSignature(t *testing.T) {
 
 func TestMITMTLSConfigFallsBackToTheConnectTargetWithoutSNI(t *testing.T) {
 	ca := testCA(t)
-	config, err := mitmTLSConfig(ca)("127.0.0.1:443", &goproxy.ProxyCtx{})
+	var nameCalls []string
+	config, err := mitmTLSConfig(ca, func(target, name string) { nameCalls = append(nameCalls, target+"="+name) })(
+		"127.0.0.1:443", &goproxy.ProxyCtx{})
 	if err != nil {
 		t.Fatalf("mitmTLSConfig: %v", err)
 	}
@@ -175,6 +177,12 @@ func TestMITMTLSConfigFallsBackToTheConnectTargetWithoutSNI(t *testing.T) {
 		t.Fatalf("GetCertificate: %v", err)
 	}
 	verifiedLeaf(t, ca, *named, "api.example")
+	if len(nameCalls) != 1 || nameCalls[0] != "127.0.0.1:443=api.example" {
+		t.Errorf("server names learned = %v, want only the SNI handshake reported", nameCalls)
+	}
+	if !config.SessionTicketsDisabled {
+		t.Error("session tickets are on; a resumed handshake would skip GetCertificate and leave its tunnel unnamed")
+	}
 }
 
 func failingECKey(_ elliptic.Curve, _ io.Reader) (*ecdsa.PrivateKey, error) {

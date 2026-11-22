@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
@@ -473,6 +474,9 @@ func applyPrompt(finding Finding) string {
 	if finding.Evidence.Summary != "" {
 		lines = append(lines, finding.Evidence.Summary)
 	}
+	if allow, ok := egressAllowValue(finding); ok {
+		lines = append(lines, destinationLines(finding.Evidence, allow)...)
+	}
 	for _, write := range finding.Writes {
 		if write.Text != "" {
 			lines = append(lines, write.Text)
@@ -480,6 +484,54 @@ func applyPrompt(finding Finding) string {
 	}
 	lines = append(lines, "Apply this change?")
 	return strings.Join(lines, "\n")
+}
+
+// egressAllowValue returns the allow list a finding writes, and whether it
+// writes one at all: only the observed egress lock renders its destinations,
+// because a secret's or a config finding's (config harden's wildcard drop)
+// destinations are not observed egress.
+func egressAllowValue(finding Finding) ([]string, bool) {
+	if finding.Kind != KindObservation {
+		return nil, false
+	}
+	for _, write := range finding.Writes {
+		if write.ConfigKey == egressAllowKey && !write.Remove {
+			allow, _ := write.ConfigValue.([]string)
+			return allow, true
+		}
+	}
+	return nil, false
+}
+
+// destinationLines renders the destinations a finding rests on, so a proposed
+// egress lock shows what it would allow before the user accepts it: each used
+// destination, the request count and the channel that saw them, the entries
+// already allowed that the write keeps, and the denied destinations apart,
+// because they are never allowed.
+func destinationLines(evidence Evidence, allow []string) []string {
+	var lines []string
+	if len(evidence.Destinations) > 0 {
+		observed := "observed by the " + evidence.Channel
+		if evidence.Count > 0 {
+			observed = fmt.Sprintf("%d requests %s", evidence.Count, observed)
+		}
+		lines = append(lines, "Allowed ("+observed+"):")
+		for _, destination := range evidence.Destinations {
+			lines = append(lines, "  + "+destination)
+		}
+	}
+	for _, entry := range allow {
+		if !slices.Contains(evidence.Destinations, entry) {
+			lines = append(lines, "  = "+entry+" (already allowed)")
+		}
+	}
+	if len(evidence.Denied) > 0 {
+		lines = append(lines, "Denied, not allowed:")
+		for _, destination := range evidence.Denied {
+			lines = append(lines, "  - "+destination)
+		}
+	}
+	return lines
 }
 
 // executeWrite performs one planned write and returns the directory it wrote to.
