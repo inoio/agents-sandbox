@@ -38,6 +38,13 @@ var ambientEnvCalls = map[string]bool{
 	"Getenv": true, "LookupEnv": true, "Setenv": true, "Unsetenv": true, "Environ": true,
 }
 
+// ambientTimeCalls are the time package's blocking waits. A test that waits on
+// the clock for an event is load-dependent; it should block on the seam's signal
+// instead. A genuine dwell (a poll cadence, a negative assertion that something
+// does not happen within a window) keeps the sleep under a reason-bearing
+// //testenv:allow marker.
+var ambientTimeCalls = map[string]bool{"Sleep": true}
+
 // ambientDeviceCalls are the os package's file functions, flagged only when the
 // path argument is a literal device path (under /dev), which is host state no
 // temp-dir fixture can imitate.
@@ -251,6 +258,8 @@ func ambientCallKind(importPath, name string, call *ast.CallExpr) string {
 		return "os." + name + "(device path)"
 	case importPath == "syscall" && name == "Kill":
 		return "syscall.Kill"
+	case importPath == "time" && ambientTimeCalls[name]:
+		return "time." + name
 	case importPath == "os/exec" && (name == "Command" || name == "CommandContext"):
 		toolIndex := 0
 		if name == "CommandContext" {
@@ -489,6 +498,28 @@ import (
 func TestX(t *testing.T) { _ = syscall.Kill(1, syscall.SIGINT) }
 `,
 			want: []string{"syscall.Kill"},
+		},
+		{
+			name: "a time.Sleep wait is flagged",
+			file: `package example
+import (
+	"testing"
+	"time"
+)
+func TestX(t *testing.T) { time.Sleep(time.Millisecond) }
+`,
+			want: []string{"time.Sleep"},
+		},
+		{
+			name: "a marker sanctions a genuine dwell",
+			file: `package example
+import (
+	"testing"
+	"time"
+)
+func TestX(t *testing.T) { time.Sleep(time.Millisecond) } //testenv:allow proves the proxy refuses after Stop
+`,
+			want: nil,
 		},
 		{
 			name: "an absolute-path exec is flagged",
