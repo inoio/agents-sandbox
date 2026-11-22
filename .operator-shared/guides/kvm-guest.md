@@ -32,6 +32,7 @@ make kvm-run                # run KVM_RUN (default: make test-msb-in-vm) in the 
 make kvm-run KVM_RUN='make test-msb'          # the host variant, unchanged
 make kvm-run KVM_RUN='make test-msb-journeys'
 make kvm-down               # destroy the guest and its disk (the base image stays cached)
+make kvm-agent-up           # one command: ensure up + cloud-init + sync + provision + attach
 ```
 
 `make kvm-run` defaults to `make test-msb-in-vm`, the in-guest variant of `make test-msb`: the same caching
@@ -131,6 +132,11 @@ make kvm-sync              # the checkout, so the guest has the `config provisio
 make kvm-agent-provision   # materialize the agent config into the guest home
 make kvm-agent             # attach the agent session
 ```
+
+The one-command path is `make kvm-agent-up`: it ensures the guest is running (idempotent — a created, stopped, or
+running guest all work), waits for cloud-init, syncs the checkout, materializes the config, and attaches, reading
+`LITELLM_API_KEY` from the host environment (extend the credential set with `KVM_AGENT`). It fails fast when the key
+is unset. The three commands above stay for manual control.
 
 `make kvm-agent-provision` runs the launcher's own `config provision` **in the guest** — so it writes exactly the
 config a sandbox would receive (merged snippets, verbatim mirror, host drop-in, home files), reusing the launcher's

@@ -12,6 +12,10 @@ seams and the launcher's unit tests; the rest needs a real hypervisor, so it is 
 Run the `make` commands from a checkout of the branch on the **KVM host**, not in the development VM. The workflow and
 its rationale are in `guides/kvm-guest.md`.
 
+`make kvm-agent-up` is the one-command path: it ensures the guest is running, waits for cloud-init, syncs, provisions,
+and attaches, reading `LITELLM_API_KEY` from the environment. The T1–T6 steps below stay the per-step detail for
+diagnosing that flow.
+
 ## Automated preflight (development VM; no KVM)
 
 Record these as the non-manual half of the accept:
