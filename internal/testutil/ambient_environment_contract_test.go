@@ -102,10 +102,11 @@ type ambientUse struct {
 // TestUntaggedTestsReachNoUnsanctionedEnvironment enforces the ambient half of
 // the test-isolation contract: a *_test.go the default build compiles must not
 // open a real socket, read or write the process environment, stat a device path,
-// send a signal, exec an absolute-path binary, or read a host figure through a
-// known host-probe function unless the line carries a reason-bearing
-// //testenv:allow marker. The check reads the source, so a site is sanctioned in
-// place rather than through a maintained allowlist; the fixture test below pins
+// send a signal, exec an absolute-path binary, read a host figure through a
+// known host-probe function, or wait on the clock (`time.Sleep`) unless the line
+// carries a reason-bearing //testenv:allow marker. The check reads the source, so
+// a site is sanctioned in place rather than through a maintained allowlist; the
+// fixture test below pins
 // the scanner.
 func TestUntaggedTestsReachNoUnsanctionedEnvironment(t *testing.T) {
 	root := moduleRoot(t)
@@ -411,10 +412,11 @@ type testSource struct {
 
 // TestAmbientEnvironmentUses pins the scanner: each ambient surface is flagged
 // (a socket, the process environment, a device path, a signal, an absolute-path
-// exec, a host-figure probe), a //testenv:allow marker with a reason on the
-// statement sanctions it, a marker without a reason does not, a device-path
-// check is flagged while an ordinary temp path is not, and an absolute-path exec
-// is flagged while a bare non-ambient tool and os.Args[0] are not. The
+// exec, a host-figure probe, a clock wait), a //testenv:allow marker with a
+// reason on the statement sanctions it, a marker without a reason does not, a
+// device-path check is flagged while an ordinary temp path is not, and an
+// absolute-path exec is flagged while a bare non-ambient tool and os.Args[0]
+// are not. The
 // default-build file filter itself is exercised by TestRealCommandUses.
 func TestAmbientEnvironmentUses(t *testing.T) {
 	tests := []struct {

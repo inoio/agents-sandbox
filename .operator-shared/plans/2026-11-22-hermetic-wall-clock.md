@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Only default-build test files are in scope. The `time.Sleep` sites in `msb`-tagged files (`internal/sandbox/msb/*_msb_test.go`, `internal/sandbox/readback/readback_msb_test.go`) and `test/harness/*_msb_test.go` are out of scope: the design's non-goals exclude the `msb`/`test/harness` suites from hermeticity, and the gate skips non-default-build files.
+- Only default-build test files are in scope. The `time.Sleep` sites in `msb`-tagged files (`internal/sandbox/msb/*_msb_test.go`, `internal/sandbox/readback/readback_msb_test.go`, `test/harness/*_msb_test.go`) are out of scope: the design's non-goals exclude the `msb` suite from hermeticity, and the gate skips non-default-build files. Default-build files under `test/harness/` (e.g. `test/harness/pty_test.go`, which carries no build constraint) *are* in scope, so their dwells are marked like any other.
 - A seam override is restored in `t.Cleanup` (`specs/testing/test-isolation.md`); the suite must stay idempotent under `-count>1`.
 - The gate category is added **last**, after every site is converted or marked, so each conversion task leaves `make test` green on its own.
 - Format/lint with `make fmt`/`make lint` (golangci-lint), never `gofmt`/`go vet`.
@@ -130,18 +130,20 @@ git commit -m "test(session): drive reaper/attach interleavings from the mock, n
 ### Task 4: mark the genuine dwells
 
 **Files:**
-- Test: `internal/opener/forward_test.go`, `internal/sandbox/channel/proxy_test.go`, `internal/sandbox/session/pressure_watch_test.go`, `internal/termio/spinner_test.go`
+- Test: `internal/opener/forward_test.go`, `internal/sandbox/channel/proxy_test.go`, `internal/sandbox/session/pressure_watch_test.go`, `internal/termio/spinner_test.go`, `test/harness/pty_test.go`
 
 **Interfaces:**
 - Produces: a reason-bearing `//testenv:allow <reason>` marker on each kept sleep's statement, sanctioned by the gate already in `TestUntaggedTestsReachNoUnsanctionedEnvironment`.
 
-Five sleeps are the behavior under test, not an event wait. Mark each, on the sleep's own line, with a reason naming the dwell:
+Seven sleeps are the behavior under test, not an event wait. Mark each, on the sleep's own line, with a reason naming the dwell:
 
 - `internal/opener/forward_test.go:316` — `150ms`, a **negative** assertion: a returned callback's listener must not have closed within the window.
-- `internal/opener/forward_test.go:534` — `10ms`, `waitForPortFree`'s poll cadence waiting for the OS to release a port.
+- `internal/opener/forward_test.go:534` — `10ms`, `waitForPortRelease`'s poll cadence waiting for the OS to release a port.
 - `internal/sandbox/channel/proxy_test.go:814` — `10ms`, a **negative** assertion: the proxy must not accept connections after `Stop`.
 - `internal/sandbox/session/pressure_watch_test.go:180` — `20ms`, a **negative** assertion: sampling must not continue after `stop`.
 - `internal/termio/spinner_test.go:98` — `5 * spinnerInterval`, the animation-frame cadence that *is* the behavior (a frame must be drawn before `finish`).
+- `test/harness/pty_test.go:314` — `5ms`, `waitForOutput`'s poll cadence reading a child PTY's output, which has no in-process signal.
+- `test/harness/pty_test.go:589` — `10ms`, the same PTY-output poll on a resolved temp dir plus a marker.
 
 - [ ] **Step 1: Add the markers**
 
@@ -150,7 +152,7 @@ For each site, append `//testenv:allow <what the dwell proves>` to the sleep's s
 - [ ] **Step 2: Confirm no unmarked sleep remains in the default suite**
 
 Run: `git grep -n "time.Sleep" -- '*_test.go' :!*_msb_test.go`
-Expected: only the five marked sites (plus the msb/harness files, which are out of scope).
+Expected: only the seven marked sites (the five dwells above plus the two `test/harness/pty_test.go` PTY-output polls); the `*_msb_test.go` files are out of scope and excluded.
 
 - [ ] **Step 3: Run the affected packages**
 
@@ -160,7 +162,7 @@ Expected: PASS.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add internal/opener/forward_test.go internal/sandbox/channel/proxy_test.go internal/sandbox/session/pressure_watch_test.go internal/termio/spinner_test.go
+git add internal/opener/forward_test.go internal/sandbox/channel/proxy_test.go internal/sandbox/session/pressure_watch_test.go internal/termio/spinner_test.go test/harness/pty_test.go
 git commit -m "test: mark the genuine wall-clock dwells with a reason"
 ```
 
