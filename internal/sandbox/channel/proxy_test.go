@@ -217,6 +217,78 @@ func TestProxyStreamsSSEResponseIncrementally(t *testing.T) {
 	}
 }
 
+// TestProxyTerminatesForTheSNIHostnameOfAnIPConnect mirrors the msb runtime
+// under T2: it opens the tunnel by IP (CONNECT 127.0.0.1:<port>) but verifies the
+// proxy's certificate against the hostname it sends as SNI. The leaf must be
+// issued for that hostname, or the runtime rejects the handshake and the
+// agent's request never leaves the VM.
+func TestProxyTerminatesForTheSNIHostnameOfAnIPConnect(t *testing.T) {
+	handle, err := Start("127.0.0.1", true)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer handle.Stop()
+
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+	upstreamURL, err := url.Parse(upstream.URL)
+	if err != nil {
+		t.Fatalf("parse upstream URL: %v", err)
+	}
+	const sniHostname = "localhost"
+
+	//testenv:allow dials the test's own loopback proxy, which Start bound a moment ago
+	conn, err := net.Dial("tcp", handle.Addr)
+	if err != nil {
+		t.Fatalf("dial proxy: %v", err)
+	}
+	defer conn.Close()
+	connectTarget := upstreamURL.Host // 127.0.0.1:<port>, an IP like the runtime sends
+	if _, err := io.WriteString(
+		conn,
+		"CONNECT "+connectTarget+" HTTP/1.1\r\nHost: "+connectTarget+"\r\n\r\n",
+	); err != nil {
+		t.Fatalf("write CONNECT: %v", err)
+	}
+	reader := bufio.NewReader(conn)
+	connectResponse, err := http.ReadResponse(reader, nil)
+	if err != nil {
+		t.Fatalf("read CONNECT response: %v", err)
+	}
+	if connectResponse.StatusCode != http.StatusOK {
+		t.Fatalf("CONNECT status = %d, want 200", connectResponse.StatusCode)
+	}
+
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM([]byte(handle.CAPEM())) {
+		t.Fatal("the proxy CA did not parse")
+	}
+	tlsConn := tls.Client(conn, &tls.Config{ServerName: sniHostname, RootCAs: pool, MinVersion: tls.VersionTLS12})
+	if err := tlsConn.Handshake(); err != nil {
+		t.Fatalf("handshake with SNI %q over an IP CONNECT: %v", sniHostname, err)
+	}
+
+	request := "GET /v1/messages HTTP/1.1\r\nHost: " + sniHostname + ":" + upstreamURL.Port() + "\r\nConnection: close\r\n\r\n"
+	if _, err := io.WriteString(tlsConn, request); err != nil {
+		t.Fatalf("write request: %v", err)
+	}
+	response, err := http.ReadResponse(bufio.NewReader(tlsConn), nil)
+	if err != nil {
+		t.Fatalf("read response: %v", err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", response.StatusCode, http.StatusOK)
+	}
+
+	destination := destinationFor(t, handle.Stop().Destinations, "https")
+	if destination.Host != sniHostname {
+		t.Errorf("https destination host = %q, want the SNI hostname %q", destination.Host, sniHostname)
+	}
+}
+
 func TestProxyRecordsDeniedDestination(t *testing.T) {
 	handle, err := Start("127.0.0.1", false)
 	if err != nil {

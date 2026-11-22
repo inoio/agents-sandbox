@@ -116,6 +116,13 @@ the runtime trusts ours. It remains the fallback only if a future runtime cannot
 
 Once our CA is trusted upstream, the spike confirmed `curl`, `git` over HTTPS, and `npm` work through termination.
 
+**The proxy issues its terminating certificate for the SNI name, not the CONNECT target.** The runtime opens its tunnel
+to our proxy by the destination's IP (`CONNECT 160.79.104.10:443`) but verifies our certificate against the hostname it
+sends as SNI (`api.anthropic.com`). A certificate for the CONNECT target fails that handshake (`tls: bad certificate`),
+and every request through the channel dies before it is seen. The leaf is therefore signed per ClientHello name, with
+the CONNECT target as the fallback for a client that sends no SNI. Because the CONNECT target is an IP, the hostname
+of a destination is known only from the terminated request, never from the tunnel.
+
 The trust is VM-creation state and does not survive a recreate on its own; a learning session that recreates the VM
 re-establishes it with that session's fresh CA.
 
@@ -179,7 +186,7 @@ path.
 
 ## Open validation
 
-The spike settled the channel but left five checks unrun; none blocks the design, and each is a known limitation of
+The spike settled the channel but left four checks unrun; none blocks the design, and each is a known limitation of
 what the proposal may claim until it is closed:
 
 - **Policy-denied destinations are invisible under T2** — the runtime enforces the guest's egress before the proxy is
@@ -194,7 +201,9 @@ what the proposal may claim until it is closed:
 - **Certificate pinning** — no pinning client was available to test, so the fallback to config-derived attribution
   is used with a warning, unverified.
 - **`msb-trust java` / `chrome`** — the base image has neither, so the Java/Chrome trust imports are unverified.
-- **The end-to-end agent turn through the proxy** — measured only with synthetic operations; the real streaming turn
-  is a host-accept step for the channel (the proxy surface `#149` has landed, so it is measurable, not blocked).
+
+
+The end-to-end agent turn through the proxy was verified on 2026-11-22: a model turn completes in a learning session for
+claude-code, pi, and codex (it had failed on the CONNECT-target certificate above, #812).
 
 The per-harness read-back check (S1) is an open item on the [home read-back](home-read-back.md) page.

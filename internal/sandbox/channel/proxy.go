@@ -148,7 +148,7 @@ func terminateProxy(ca tls.Certificate, state *proxyState, skipUpstreamVerify bo
 	mitm := &goproxy.ConnectAction{
 		Action:    goproxy.ConnectMitm,
 		Hijack:    nil,
-		TLSConfig: goproxy.TLSConfigFromCA(&ca),
+		TLSConfig: mitmTLSConfig(ca),
 	}
 	proxy.OnRequest().HandleConnect(goproxy.FuncHttpsHandler(
 		func(host string, _ *goproxy.ProxyCtx) (*goproxy.ConnectAction, string) {
