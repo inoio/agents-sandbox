@@ -292,6 +292,14 @@ func SetUpSandbox(
 		provisioned = false
 	}
 
+	if boot == VMBootCreated && cfs.SuggestedSnippetDir != "" {
+		ui.Infof(
+			"Tip: put %s settings in %s; see 'agents-sandbox config agent'.",
+			a.Profile.Name(),
+			cfs.SuggestedSnippetDir,
+		)
+	}
+
 	// Record image provenance and the agent version baseline on a fresh boot.
 	if boot.Booted() {
 		recordImageProvenance(ctx, k, a, sb, ui)

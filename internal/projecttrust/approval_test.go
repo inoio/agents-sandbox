@@ -629,3 +629,29 @@ func TestRefreshSecretFileInputWithoutAChangeDoesNotWrite(t *testing.T) {
 	}
 	require.Zero(t, writes, "an approval with nothing to refresh must not be rewritten")
 }
+
+// TestIgnoredWarningNamesAPathOnce: config.yaml carries both launcher settings
+// and a home: entry, two inputs at one path, and the warning names it once.
+func TestIgnoredWarningNamesAPathOnce(t *testing.T) {
+	decision := Evaluate(projectionOf(
+		Input{
+			Path:    "/repo/.agents-sandbox/config.yaml",
+			Kind:    KindLauncherConfig,
+			Entries: []string{`network.profile: "none"`},
+		},
+		Input{
+			Path:    "/repo/.agents-sandbox/config.yaml",
+			Kind:    KindHomeManifest,
+			Entries: []string{`.gitconfig: "gitconfig"`},
+		},
+		Input{Path: "/repo/.agents-sandbox/env", Kind: KindEnv, Entries: []string{"A"}},
+	), state.ApprovedProjectLayer{})
+
+	warning := IgnoredWarning(decision)
+	if count := strings.Count(warning, "config.yaml"); count != 1 {
+		t.Errorf("warning names config.yaml %d times, want once:\n%s", count, warning)
+	}
+	if !strings.Contains(warning, "/repo/.agents-sandbox/env") {
+		t.Errorf("warning lost the other path:\n%s", warning)
+	}
+}
