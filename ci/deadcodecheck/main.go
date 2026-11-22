@@ -326,6 +326,9 @@ func Check(findings []Finding, markers []Marker, checkStale bool) Diagnosis {
 
 	used := make([]bool, len(markers))
 	for _, finding := range mergeSources(findings) {
+		if isTestSource(finding.File) {
+			continue
+		}
 		excused := false
 		for i, marker := range markers {
 			if marker.File != finding.File {
@@ -349,6 +352,17 @@ func Check(findings []Finding, markers []Marker, checkStale bool) Diagnosis {
 		}
 	}
 	return diagnosis
+}
+
+// testSourcePrefix names the module subtree whose non-test .go files are test
+// code: nothing in a main package is meant to reach them, so the gate neither
+// reports a finding there nor scans a marker there.
+const testSourcePrefix = "test/"
+
+// isTestSource reports whether a module-relative source path (always
+// slash-separated) lies under the test/ subtree.
+func isTestSource(path string) bool {
+	return strings.HasPrefix(path, testSourcePrefix)
 }
 
 // mergeSources collapses findings reported by several build-tag configurations
@@ -449,6 +463,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	var markers []Marker
 	var unusable []string
 	for _, path := range paths {
+		// A marker under test/ is out of the gate's scope: test/ is test code,
+		// so nothing there can be an unmarked finding, and scanning it would
+		// report the marker as excusing nothing.
+		if isTestSource(path) {
+			continue
+		}
 		src, err := os.ReadFile(path)
 		if err != nil {
 			fmt.Fprintf(stderr, "deadcodecheck: %v\n", err)
