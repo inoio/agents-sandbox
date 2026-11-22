@@ -877,6 +877,11 @@ func TestApplyPromptSurfacesWriteText(t *testing.T) {
 // apart, because they are never allowed.
 func TestApplyPromptListsTheProposedDestinations(t *testing.T) {
 	finding := Finding{
+		Writes: []Write{{
+			Scope:       ScopePerSlugUser,
+			ConfigKey:   "network.egress-allow",
+			ConfigValue: []string{"already.example", "api.anthropic.com", "raw.githubusercontent.com"},
+		}},
 		Evidence: Evidence{
 			Summary:      "lock egress to the destinations this session used",
 			Destinations: []string{"api.anthropic.com", "raw.githubusercontent.com"},
@@ -894,6 +899,7 @@ func TestApplyPromptListsTheProposedDestinations(t *testing.T) {
 		"  + raw.githubusercontent.com",
 		"12 requests observed by the proxy",
 		"  - evil.example",
+		"  = already.example (already allowed)",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt = %q; want it to contain %q", prompt, want)
@@ -905,12 +911,33 @@ func TestApplyPromptListsTheProposedDestinations(t *testing.T) {
 }
 
 func TestApplyPromptOmitsAZeroRequestCount(t *testing.T) {
-	finding := Finding{Evidence: Evidence{Destinations: []string{"tunnel-only.example"}, Channel: "proxy"}}
+	finding := Finding{
+		Writes: []Write{
+			{Scope: ScopePerSlugUser, ConfigKey: "network.egress-allow", ConfigValue: []string{"tunnel-only.example"}},
+		},
+		Evidence: Evidence{Destinations: []string{"tunnel-only.example"}, Channel: "proxy"},
+	}
 
 	prompt := applyPrompt(finding)
 
 	if strings.Contains(prompt, "0 requests") || !strings.Contains(prompt, "Allowed (observed by the proxy):") {
 		t.Errorf("prompt = %q; want the channel without a zero request count", prompt)
+	}
+}
+
+// TestApplyPromptListsDestinationsOnlyForTheEgressLock: a secret or a config
+// finding also carries destinations (the hosts a secret is substituted for), but
+// they are not allowed egress, so only the lock renders the allow list.
+func TestApplyPromptListsDestinationsOnlyForTheEgressLock(t *testing.T) {
+	finding := Finding{
+		Evidence: Evidence{Summary: "save the key", Destinations: []string{"api.example"}, Channel: "readback"},
+		Writes:   []Write{{Scope: ScopePerSlugUser, ConfigKey: "secrets"}},
+	}
+
+	prompt := applyPrompt(finding)
+
+	if strings.Contains(prompt, "Allowed") || strings.Contains(prompt, "  + ") {
+		t.Errorf("prompt = %q; want no allow list for a finding that writes no egress-allow", prompt)
 	}
 }
 

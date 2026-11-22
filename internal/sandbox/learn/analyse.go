@@ -145,7 +145,7 @@ func summarize(a Analysis, results []analyser.ApplyResult) Summary {
 	services := map[string]bool{}
 	denied := map[string]bool{}
 	for _, destination := range a.Observation.Destinations {
-		if destination.Host == "" {
+		if destination.Host == "" || destination.AddressOnlyTunnel() {
 			continue
 		}
 		switch {

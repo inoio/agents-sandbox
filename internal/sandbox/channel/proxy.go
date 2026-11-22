@@ -180,11 +180,14 @@ func (s *proxyState) observeConnect(host string) {
 	hostname, port := splitHostPort(host)
 	ip := ""
 	if parsed := net.ParseIP(hostname); parsed != nil {
+		// The canonical form, so nameTunnel matches the same address however
+		// the client spelled it.
 		ip = parsed.String()
+		hostname = ip
 	}
 
 	s.mu.Lock()
-	destination := s.recorder.observe(hostname, ip, "", connectProtocol, port, nil)
+	destination := s.recorder.observe(hostname, ip, "", ConnectProtocol, port, nil)
 	destination.Success = true
 	s.mu.Unlock()
 }
@@ -194,9 +197,11 @@ func (s *proxyState) observeConnect(host string) {
 // tunnel opened by hostname, or a handshake without SNI, needs no naming.
 func (s *proxyState) nameTunnel(connectTarget, serverName string) {
 	hostname, port := splitHostPort(connectTarget)
-	if serverName == "" || serverName == hostname || net.ParseIP(hostname) == nil {
+	parsed := net.ParseIP(hostname)
+	if serverName == "" || parsed == nil || serverName == parsed.String() {
 		return
 	}
+	hostname = parsed.String()
 	s.mu.Lock()
 	s.recorder.nameTunnel(hostname, port, serverName)
 	s.mu.Unlock()

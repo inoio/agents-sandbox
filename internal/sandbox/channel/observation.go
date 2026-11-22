@@ -2,6 +2,7 @@ package channel
 
 import (
 	"cmp"
+	"net"
 	"slices"
 	"strings"
 	"time"
@@ -29,6 +30,19 @@ type Destination struct {
 	Channel   string    `json:"channel"`    // which observer saw it, e.g. "proxy-terminate"
 }
 
+// ConnectProtocol is the protocol of an accepted CONNECT tunnel's entry.
+const ConnectProtocol = "connect"
+
+// AddressOnlyTunnel reports whether d is a CONNECT tunnel still recorded under
+// its IP. The proxy names every tunnel that carried a TLS handshake with SNI by
+// that hostname, and the requests inside any tunnel are recorded on their own
+// entries, so an address-only tunnel is no evidence of use on its own: it is an
+// abandoned attempt (happy eyeballs, a pre-warmed connection) or non-HTTP
+// traffic the channel cannot attribute to a host.
+func (d Destination) AddressOnlyTunnel() bool {
+	return d.Protocol == ConnectProtocol && net.ParseIP(d.Host) != nil
+}
+
 // Attribution records that a credential was sent to a destination, as the
 // credential-bearing header NAMES and, when known, the configured secret's
 // env-var name. It never records a header value (hub invariant 3).
@@ -54,9 +68,6 @@ type Observation struct {
 // Destinations are held as stable pointers, so the entry observe returns stays
 // valid for the recorder's lifetime and a caller can keep it from the request
 // hook until the response hook.
-// connectProtocol is the protocol of an accepted CONNECT tunnel's entry.
-const connectProtocol = "connect"
-
 type recorder struct {
 	destinations []*Destination
 	attribution  []Attribution
@@ -93,10 +104,10 @@ func (r *recorder) observe(host, ip, path, protocol string, port uint16, headerN
 // never saw is ignored.
 func (r *recorder) nameTunnel(ip string, port uint16, hostname string) {
 	for index, tunnel := range r.destinations {
-		if tunnel.Host != ip || tunnel.IP != ip || tunnel.Protocol != connectProtocol || tunnel.Port != port {
+		if tunnel.Host != ip || tunnel.IP != ip || tunnel.Protocol != ConnectProtocol || tunnel.Port != port {
 			continue
 		}
-		named := r.observe(hostname, ip, "", connectProtocol, port, nil)
+		named := r.observe(hostname, ip, "", ConnectProtocol, port, nil)
 		named.Success = true
 		tunnel.Count--
 		if tunnel.Count <= 0 {

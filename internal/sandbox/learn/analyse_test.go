@@ -232,6 +232,22 @@ func TestAnalyseReadsBackAndApplies(t *testing.T) {
 	}
 }
 
+// TestSummarizeLeavesOutAddressOnlyTunnels: a tunnel still recorded under an IP
+// carried no attributable request, so it is not a service the session reached,
+// matching what the egress lock proposes.
+func TestSummarizeLeavesOutAddressOnlyTunnels(t *testing.T) {
+	analysis := Analysis{Observation: channel.Observation{Destinations: []channel.Destination{
+		{Host: "160.79.104.10", IP: "160.79.104.10", Protocol: channel.ConnectProtocol, Success: true, Count: 1},
+		{Host: "api.example", Protocol: "https", Success: true, Count: 1},
+	}}}
+
+	summary := summarize(analysis, nil)
+
+	if summary.ServicesReached != 1 {
+		t.Errorf("ServicesReached = %d, want 1 (the address-only tunnel is not a service)", summary.ServicesReached)
+	}
+}
+
 // TestSummarizeCountsServicesDeniedAndKeys pins summarize's counting: a blank
 // host is skipped even when denied (it must not reach the Denied note), a denied
 // destination lands in Denied (never ServicesReached), a successful one in

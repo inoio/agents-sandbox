@@ -302,8 +302,8 @@ func (f ConfigFacts) wildcardEgressFinding(policy network.Policy) (Finding, bool
 	}
 	//exhaustruct:ignore // a config write names no secret, mode, or removal
 	write := Write{
-		Scope:       f.ownerScope("network.egress-allow"),
-		ConfigKey:   "network.egress-allow",
+		Scope:       f.ownerScope(egressAllowKey),
+		ConfigKey:   egressAllowKey,
 		ConfigValue: remaining,
 		Text:        "This drops the wildcard entry and keeps the remaining allow entries.",
 	}

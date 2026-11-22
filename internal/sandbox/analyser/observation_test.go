@@ -138,10 +138,12 @@ func TestObservationNetworkLockKeepsInterceptionWhenItAlreadyWorks(t *testing.T)
 	}
 }
 
-// TestObservationNetworkLockOnANarrowPolicyStillFixesInterception: a policy
-// already narrowed to exactly the used destinations, but without interception,
-// blocks them, so the finding is not silent: it proposes interception on.
-func TestObservationNetworkLockOnANarrowPolicyStillFixesInterception(t *testing.T) {
+// TestObservationNetworkLockIsSilentOnANarrowPolicy: a policy already narrowed
+// to exactly the used destinations yields no finding even with interception at
+// auto. The finding would re-fire every session for a user whose configured
+// secret already turns interception on, and a lock this proposal wrote carries
+// interception itself.
+func TestObservationNetworkLockIsSilentOnANarrowPolicy(t *testing.T) {
 	s := SessionFacts{
 		Current: network.Policy{
 			Profiles:    []network.Profile{network.ProfileNone},
@@ -152,10 +154,43 @@ func TestObservationNetworkLockOnANarrowPolicyStillFixesInterception(t *testing.
 		}},
 	}
 
+	require.Empty(t, ObservationFindings(s))
+}
+
+// TestObservationNetworkLockNeedsAUsedDestination: a session that used nothing
+// (only denials, or only address-only tunnels) would lock egress to the current
+// allow set alone, possibly nothing at all, so it yields no lock. The denials
+// are reported by the after-run summary.
+func TestObservationNetworkLockNeedsAUsedDestination(t *testing.T) {
+	s := SessionFacts{
+		Observation: channel.Observation{Destinations: []channel.Destination{
+			{Host: "203.0.113.7", IP: "203.0.113.7", Protocol: channel.ConnectProtocol, Success: true, Count: 1},
+			{Host: "blocked.example", Denied: true},
+		}},
+	}
+
+	require.Empty(t, ObservationFindings(s))
+}
+
+// TestObservationNetworkLockNamesBypassedHosts: under the strict-hostname mode a
+// host that is both allowlisted and in tls-bypass stays denied, so the lock says
+// which used hosts that applies to instead of promising they work.
+func TestObservationNetworkLockNamesBypassedHosts(t *testing.T) {
+	s := SessionFacts{
+		Current: network.Policy{TLSBypass: []string{"*.pinned.example"}},
+		Observation: channel.Observation{Destinations: []channel.Destination{
+			{Host: "api.pinned.example", Success: true, Count: 1},
+			{Host: "api.example", Success: true, Count: 1},
+		}},
+	}
+
 	findings := ObservationFindings(s)
 
 	require.Len(t, findings, 1)
-	configWrite(t, findings[0], "network.intercept-tls")
+	text := egressAllowWrite(t, findings[0]).Text
+	require.Contains(t, text, "api.pinned.example")
+	require.NotContains(t, text, "api.example,")
+	require.Contains(t, text, "tls-bypass")
 }
 
 // TestObservationNetworkDiffIsSilentWhenAlreadyNarrow: a session whose used
@@ -202,6 +237,7 @@ func TestObservationNetworkFindingIsSilentWhenAlreadyNarrowEvenWithDenials(t *te
 func TestObservationDeniedIsReportedNotAllowed(t *testing.T) {
 	s := SessionFacts{
 		Observation: channel.Observation{Destinations: []channel.Destination{
+			{Host: "used.example", Success: true, Count: 1},
 			{Host: "blocked.example", Denied: true},
 		}},
 	}
@@ -232,8 +268,9 @@ func TestObservationDeniedHostConnectTunnelIsNotUse(t *testing.T) {
 	deniedHostConnect := SessionFacts{
 		Current: network.Policy{Profiles: []network.Profile{network.ProfilePublic}},
 		Observation: channel.Observation{Destinations: []channel.Destination{
-			{Host: "dead.example", Protocol: connectProtocol, Success: true},
+			{Host: "dead.example", Protocol: channel.ConnectProtocol, Success: true},
 			{Host: "dead.example", Protocol: "https", Path: "/", Success: false, Denied: true},
+			{Host: "used.example", Protocol: "https", Success: true, Count: 1},
 		}},
 	}
 
@@ -251,7 +288,7 @@ func TestObservationDeniedHostConnectTunnelIsNotUse(t *testing.T) {
 		connectOnly := SessionFacts{
 			Current: network.Policy{Profiles: []network.Profile{network.ProfilePublic}},
 			Observation: channel.Observation{Destinations: []channel.Destination{
-				{Host: "live.example", Protocol: connectProtocol, Success: true},
+				{Host: "live.example", Protocol: channel.ConnectProtocol, Success: true},
 			}},
 		}
 
@@ -607,8 +644,8 @@ func TestObservationEmptySessionYieldsNoFinding(t *testing.T) {
 }
 
 // TestObservationEvidenceSucceededReflectsUsedHosts pins that the evidence's
-// Succeeded is true exactly when the session used at least one host, so a
-// finding built only from a denial reports that it did not succeed.
+// Succeeded is true when the session used a host, and that a session built only
+// from a denial proposes no lock at all.
 func TestObservationEvidenceSucceededReflectsUsedHosts(t *testing.T) {
 	used := SessionFacts{
 		Current: network.Policy{Profiles: []network.Profile{network.ProfilePublic}},
@@ -626,9 +663,7 @@ func TestObservationEvidenceSucceededReflectsUsedHosts(t *testing.T) {
 			{Host: "blocked.example", Denied: true},
 		}},
 	}
-	findings = ObservationFindings(deniedOnly)
-	require.Len(t, findings, 1)
-	require.False(t, findings[0].Evidence.Succeeded, "no used host means it did not succeed")
+	require.Empty(t, ObservationFindings(deniedOnly), "no used host means no lock to propose")
 }
 
 // TestObservedUsedHostsFiltersNonUseAndKeepsLaterDestinations pins which
@@ -645,7 +680,7 @@ func TestObservedUsedHostsFiltersNonUseAndKeepsLaterDestinations(t *testing.T) {
 	require.Equal(t, []string{"used.example"}, hosts)
 
 	connectThenUse := observedUsedHosts([]channel.Destination{
-		{Host: "dead.example", Protocol: connectProtocol, Success: true},
+		{Host: "dead.example", Protocol: channel.ConnectProtocol, Success: true},
 		{Host: "dead.example", Protocol: "https", Success: false, Denied: true},
 		{Host: "live.example", Success: true},
 	})
