@@ -82,8 +82,8 @@ config key or the `AGENTS_SANDBOX_AGENT` environment variable. Twelve agents shi
   upgrades itself, and it uses the system trust store (`VIBE_ENABLE_SYSTEM_TRUST_STORE=true`), which carries the
   sandbox's TLS-interception CA, so secret substitution works. The install is about 585 MB.
 
-> **Experimental agents:** `opencode` and `opencode2` are the tested default agents. Every other built-in
-> profile (`pi`, `claude-code`, `codex`, `hermes`, `oh-my-pi`, `kimi-code`, `qwen-code`, `goose`, `grok-build`, `mistral-vibe`) is **experimental** — not well tested with agents-sandbox.
+> **Experimental agents:** `opencode`, `opencode2`, and `pi` are the tested agents. Every other built-in
+> profile (`claude-code`, `codex`, `hermes`, `oh-my-pi`, `kimi-code`, `qwen-code`, `goose`, `grok-build`, `mistral-vibe`) is **experimental** — not well tested with agents-sandbox.
 > The launcher prints a notice when an experimental agent is selected.
 
 `--worktree` and `--serve-only` are rejected for pi, claude-code, codex, hermes, oh-my-pi, kimi-code, qwen-code, goose, grok-build, and mistral-vibe (they have no daemon); they run through the

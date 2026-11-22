@@ -68,7 +68,6 @@ func TestOpencodeImplementsDaemon(t *testing.T) {
 
 func TestExperimentalAgentSet(t *testing.T) {
 	experimental := map[string]bool{
-		"pi":           true,
 		"claude-code":  true,
 		"codex":        true,
 		"hermes":       true,
@@ -82,6 +81,7 @@ func TestExperimentalAgentSet(t *testing.T) {
 	stable := map[string]bool{
 		"opencode":  true,
 		"opencode2": true,
+		"pi":        true,
 	}
 
 	names := agent.Names()

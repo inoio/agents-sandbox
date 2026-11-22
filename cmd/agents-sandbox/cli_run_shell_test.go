@@ -713,6 +713,38 @@ func TestRunDryRunServeOnlyIsPurePreview(t *testing.T) {
 	assertPreviewInfoLines(t, ui, false)
 }
 
+// TestRunDryRunAgentPi verifies `run --agent pi` resolves the pi profile,
+// prints no experimental notice (pi is a tested agent), and previews without
+// starting a VM.
+func TestRunDryRunAgentPi(t *testing.T) {
+	initTestProjectDir(t)
+
+	mock := &msbtest.MockMsbClient{}
+	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{},
+		"run", "--dry-run", "--agent", "pi", "--agent-version", "1.6.0")
+	setupAbsentImagePreviewMocks(t, mock)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var pinnedVersion bool
+	for _, line := range ui.InfoCalls {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "dry-run: agent version 1.6.0" {
+			pinnedVersion = true
+		}
+		if strings.Contains(trimmed, "experimental") {
+			t.Errorf("unexpected experimental notice for pi: %q", trimmed)
+		}
+	}
+	if !pinnedVersion {
+		t.Errorf("expected pinned pi version line; got: %v", ui.InfoCalls)
+	}
+	if len(mock.CreatedSandboxCalls) != 0 {
+		t.Errorf("--dry-run created %d sandbox(es), want 0", len(mock.CreatedSandboxCalls))
+	}
+}
+
 // TestRunDryRunAgentCodex verifies `run --agent codex` resolves the codex
 // profile and previews without starting a VM.
 func TestRunDryRunAgentCodex(t *testing.T) {

@@ -124,7 +124,7 @@ Twelve agents ship as built-in profiles:
 - **`mistral-vibe`** — Mistral's [Vibe](https://github.com/mistralai/mistral-vibe) (binary `vibe`), installed from PyPI with a
   checksum-verified uv into its own managed Python (about 585 MB), run interactively, with upgrade checks via PyPI.
 
-`opencode` and `opencode2` are the tested default agents; the other ten are experimental — not well tested with
+`opencode`, `opencode2`, and `pi` are the tested agents; the other nine are experimental — not well tested with
 agents-sandbox.
 
 ## Documentation
