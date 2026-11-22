@@ -167,6 +167,14 @@ func TestObservationNarrowPolicyWithoutInterceptionGetsAnInterceptionFinding(t *
 		"the interception finding's evidence must not change with the session's request count")
 }
 
+func TestInterceptionFindingNamesBypassedHosts(t *testing.T) {
+	finding := interceptionFinding(network.Policy{TLSBypass: []string{"*.pinned.example"}},
+		[]string{"api.pinned.example", "api.example"})
+
+	require.Contains(t, finding.Writes[0].Text, "api.pinned.example")
+	require.Contains(t, finding.Writes[0].Text, "tls-bypass")
+}
+
 // TestObservationNetworkLockIsSilentOnANarrowInterceptedPolicy: a policy
 // already narrowed to the used hosts with interception on needs nothing.
 func TestObservationNetworkLockIsSilentOnANarrowInterceptedPolicy(t *testing.T) {

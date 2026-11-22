@@ -509,9 +509,6 @@ func egressAllowValue(finding Finding) ([]string, bool) {
 // already allowed that the write keeps, and the denied destinations apart,
 // because they are never allowed.
 func destinationLines(evidence Evidence, allow []string) []string {
-	if len(evidence.Destinations) == 0 && len(evidence.Denied) == 0 {
-		return nil
-	}
 	var lines []string
 	if len(evidence.Destinations) > 0 {
 		observed := "observed by the " + evidence.Channel

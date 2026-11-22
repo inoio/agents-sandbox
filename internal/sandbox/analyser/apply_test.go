@@ -16,6 +16,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/projecttrust"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
+	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -961,6 +962,18 @@ func TestApplyPromptOmitsTheDestinationBlockForAConfigFinding(t *testing.T) {
 
 	if strings.Contains(prompt, "Allowed") || strings.Contains(prompt, "  + ") {
 		t.Errorf("prompt = %q; want no allow list for a config finding", prompt)
+	}
+}
+
+// TestApplyPromptOfTheInterceptionFindingHasNoAllowList: the interception-only
+// finding writes no allow list, so its prompt lists no destinations.
+func TestApplyPromptOfTheInterceptionFindingHasNoAllowList(t *testing.T) {
+	finding := interceptionFinding(network.Policy{}, []string{"api.example"})
+
+	prompt := applyPrompt(finding)
+
+	if strings.Contains(prompt, "Allowed") || strings.Contains(prompt, "  + ") {
+		t.Errorf("prompt = %q; want no allow list for the interception-only finding", prompt)
 	}
 }
 
