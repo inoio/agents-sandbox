@@ -339,15 +339,18 @@ func resolveSuiteRoot() (string, bool, func(), error) {
 
 // isolatedEnvKeep lists the inherited variables the child may keep: the
 // terminal and locale settings a TUI needs, the proxy settings any egress
-// uses, and the docker endpoint variables the runner-image build needs. The
-// docker endpoint variables carry a host endpoint, not agents-sandbox config or
-// state, so keeping them does not weaken the isolation; dropping HOME, XDG_*,
-// AGENTS_SANDBOX_*, OPENCODE_SANDBOX_*, and MSB_* is the point of it.
+// uses, the docker endpoint variables the runner-image build needs, and the two
+// launcher readiness-timeout overrides the in-guest run raises. The docker
+// endpoint variables carry a host endpoint, and the timeout overrides carry a
+// duration, not agents-sandbox config or state, so keeping them does not weaken
+// the isolation; dropping HOME, the other XDG_*, AGENTS_SANDBOX_*,
+// OPENCODE_SANDBOX_*, and MSB_* is the point of it.
 var isolatedEnvKeep = []string{
 	"PATH", "TERM", "LANG", "LC_ALL", "LC_CTYPE",
 	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
 	"http_proxy", "https_proxy", "no_proxy",
 	"DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG",
+	"AGENTS_SANDBOX_DOCKER_READY_TIMEOUT", "AGENTS_SANDBOX_DAEMON_READY_TIMEOUT",
 }
 
 // publicNetwork is the `--network` profile a harness that needs egress to

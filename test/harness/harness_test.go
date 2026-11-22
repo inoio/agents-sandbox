@@ -938,6 +938,29 @@ func envMap(env []string) map[string]string {
 	return got
 }
 
+// TestIsolatedEnvKeepsLauncherReadyTimeouts pins that the launcher readiness
+// timeouts survive the allowlist: the in-guest run raises them, the child
+// launcher must see them, and they carry no agents-sandbox config or state.
+func TestIsolatedEnvKeepsLauncherReadyTimeouts(t *testing.T) {
+	inherited := []string{
+		"AGENTS_SANDBOX_DOCKER_READY_TIMEOUT=90s",
+		"AGENTS_SANDBOX_DAEMON_READY_TIMEOUT=180s",
+		"HOME=/real",
+	}
+	got := envMap(isolatedEnv("/root", "/root", inherited))
+	for k, want := range map[string]string{
+		"AGENTS_SANDBOX_DOCKER_READY_TIMEOUT": "90s",
+		"AGENTS_SANDBOX_DAEMON_READY_TIMEOUT": "180s",
+	} {
+		if got[k] != want {
+			t.Errorf("%s = %q, want %q", k, got[k], want)
+		}
+	}
+	if got["HOME"] == "/real" {
+		t.Error("HOME = /real, want the isolated home (only the readiness timeouts are kept)")
+	}
+}
+
 // TestIsolatedEnvKeepsDockerEndpoint pins that the docker endpoint variables
 // survive: the child needs the same daemon the preflight reaches, and they
 // carry no agents-sandbox config or state.
