@@ -100,25 +100,38 @@ func holdsUndeclaredSecretValue(path, content string) bool {
 // yamlDocumentMarker matches a line that opens or closes a YAML document.
 var yamlDocumentMarker = regexp.MustCompile(`^(---|\.\.\.)(\s|$)`)
 
+// isYAMLLineBreak reports whether r terminates a line in a YAML stream. It is
+// the break set go-yaml honours — LF, CR, NEL, LS, PS — so a stream whose lines
+// end in a lone CR (or one of the others) is split the same way the decoder
+// splits it. Splitting on "\n" alone would leave such a stream as one line and
+// hide a later document's marker from the scan.
+func isYAMLLineBreak(r rune) bool {
+	switch r {
+	case '\n', '\r', '\u0085', '\u2028', '\u2029':
+		return true
+	}
+	return false
+}
+
 // holdsLaterYAMLDocument reports whether content holds a YAML document after its
 // first one. A '---' line on its own only opens the first document as long as
 // nothing precedes it but blank lines and comments, and the opening '---' is
 // consumed once: a second one is followed by a document the caller's
 // first-document decode cannot check, as is a '...' after any content. A '---'
 // inside a block scalar is indented or a plain scalar's continuation, so it
-// opens no line of its own.
+// opens no line of its own. Lines are split on every break the decoder honours
+// (see isYAMLLineBreak), so a CR-delimited stream's markers are seen.
 func holdsLaterYAMLDocument(content string) bool {
 	seenContent := false
 	seenMarker := false
-	for line := range strings.Lines(content) {
-		trimmed := strings.TrimRight(line, "\r\n")
+	for _, line := range strings.FieldsFunc(content, isYAMLLineBreak) {
 		switch {
 		case yamlDocumentMarker.MatchString(line):
-			if seenContent || seenMarker || strings.HasPrefix(trimmed, "...") {
+			if seenContent || seenMarker || strings.HasPrefix(line, "...") {
 				return true
 			}
 			seenMarker = true
-		case strings.TrimSpace(trimmed) == "" || strings.HasPrefix(strings.TrimSpace(trimmed), "#"):
+		case strings.TrimSpace(line) == "" || strings.HasPrefix(strings.TrimSpace(line), "#"):
 			// A blank line or a comment may precede the first document marker.
 		default:
 			seenContent = true

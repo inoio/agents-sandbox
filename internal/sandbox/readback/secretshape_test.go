@@ -153,6 +153,9 @@ func TestArgumentsLeakValue(t *testing.T) {
 		want      bool
 	}{
 		"flag then literal":          {[]any{"--access-token", "abcdef"}, true},
+		"flag then numeric token":    {[]any{"--access-token", 84736251}, true},
+		"flag then numeric password": {[]any{"--password", 1234}, true},
+		"flag then numeric float":    {[]any{"--client-secret", 84736251.0}, true},
 		"joined flag":                {[]any{"--client-secret=abcdef"}, true},
 		"auth flag (leaf marker)":    {[]any{"--auth", "abcdef"}, true},
 		"non-flag before the flag":   {[]any{"run", "--token", "abcdef"}, true},
@@ -161,6 +164,8 @@ func TestArgumentsLeakValue(t *testing.T) {
 		"location flag":              {[]any{"--token-file", "/run/secrets/t"}, false},
 		"flag then another flag":     {[]any{"--token", "--verbose"}, false},
 		"flag then placeholder":      {[]any{"--token", "${TOKEN}"}, false},
+		"flag then bool":             {[]any{"--token", true}, false},
+		"flag then nil":              {[]any{"--token", nil}, false},
 		"non-string before the flag": {[]any{1, "--token", "abcdef"}, true},
 	}
 	for name, tc := range cases {

@@ -413,7 +413,7 @@ func TestSanitizeConfigRefusesACredentialNotAllowed(t *testing.T) {
 
 // TestHoldsLaterYAMLDocument pins the multi-document decision directly: the
 // marker is a document start only when nothing but blank lines and comments
-// precedes it.
+// precedes it, and lines are split on every break go-yaml honours, not LF alone.
 func TestHoldsLaterYAMLDocument(t *testing.T) {
 	for name, tc := range map[string]struct {
 		content string
@@ -435,6 +435,15 @@ func TestHoldsLaterYAMLDocument(t *testing.T) {
 			"# header\n---\n---\nnote: y\n",
 			true,
 		},
+		// A stream whose lines end in a non-LF break is split the way go-yaml
+		// splits it, so its later document marker is seen.
+		"second document, CR-only breaks":     {"model: x\r---\rnote: y\r", true},
+		"second document, NEL breaks":         {"model: x\u0085---\u0085note: y\u0085", true},
+		"second document, LS breaks":          {"model: x\u2028---\u2028note: y\u2028", true},
+		"second document, PS breaks":          {"model: x\u2029---\u2029note: y\u2029", true},
+		"document end marker, CR-only":        {"model: x\r...\r", true},
+		"start then second document, CR-only": {"---\r---\rnote: y\r", true},
+		"single document, CR-only breaks":     {"model: x\rnote: y\r", false},
 	} {
 		if got := holdsLaterYAMLDocument(tc.content); got != tc.want {
 			t.Errorf("%s: holdsLaterYAMLDocument(%q) = %v, want %v", name, tc.content, got, tc.want)
@@ -877,7 +886,19 @@ func TestSanitizeConfigSecondReviewCases(t *testing.T) {
 		"access token flag":        {"config.toml", "args = [\"--access-token\", \"abcdef\"]\n"},
 		"access token flag joined": {"config.toml", "args = [\"--access-token=abcdef\"]\n"},
 		"client secret flag":       {"config.toml", "args = [\"--client-secret\", \"abcdef\"]\n"},
-		"path-shaped secret":       {"settings.json", `{"env":{"API_SECRET":"/x8Kd93jfLq0aB+zz=="}}`},
+		"numeric access token flag": {
+			"config.toml",
+			"[mcp_servers.x]\nargs = [\"--access-token\", 84736251]\n",
+		},
+		"numeric password flag": {
+			"config.toml",
+			"[mcp_servers.x]\nargs = [\"--password\", 1234]\n",
+		},
+		"numeric access token flag yaml": {
+			"config.yaml",
+			"args:\n  - --access-token\n  - 84736251\n",
+		},
+		"path-shaped secret": {"settings.json", `{"env":{"API_SECRET":"/x8Kd93jfLq0aB+zz=="}}`},
 		"literal beside placeholder": {
 			"settings.json",
 			`{"env":{"OTEL_EXPORTER_OTLP_HEADERS":"Authorization=Bearer ${X},X-Other=abcdefghijklmnopqrst"}}`,
@@ -938,8 +959,9 @@ var jsonEscapedDigits = string(rune(92)) + "u0031" + string(rune(92)) + "u0032" 
 
 func TestSanitizeConfigGuardRuleBoundaries(t *testing.T) {
 	refused := map[string]struct{ path, content string }{
-		"escaped token":   {"settings.json", `{"x":"Bearer abc` + jsonEscapedDigits + `def456"}`},
-		"second document": {"config.yaml", "model: x\n---\nnote: y\n"},
+		"escaped token":            {"settings.json", `{"x":"Bearer abc` + jsonEscapedDigits + `def456"}`},
+		"second document":          {"config.yaml", "model: x\n---\nnote: y\n"},
+		"second document, CR-only": {"config.yaml", "model: x\r---\rpassword: hunter2pass\n"},
 		"document after a comment": {
 			"config.yaml",
 			"model: x\n# a note\n---\nnote: y\n",
@@ -962,7 +984,8 @@ func TestSanitizeConfigGuardRuleBoundaries(t *testing.T) {
 		}
 	}
 	accepted := map[string]struct{ path, content string }{
-		"single yaml document": {"config.yaml", "model: x\nnote: y\n"},
+		"single yaml document":          {"config.yaml", "model: x\nnote: y\n"},
+		"single yaml document, CR-only": {"config.yaml", "model: x\rnote: y\r"},
 		"comment then document start": {
 			"config.yaml",
 			"# agent config\n---\nmodel: x\n",

@@ -83,7 +83,9 @@ func looksLikeSecretValue(value string) bool {
 // argumentsLeakValue reports whether a list of command arguments passes a
 // literal credential through a flag that names a secret: "--access-token abc"
 // as two elements, or "--client-secret=abc" as one. A flag naming where a
-// secret lives (--token-file, --password-stdin) passes none.
+// secret lives (--token-file, --password-stdin) passes none. A following
+// element that is not a string is judged on its raw form, so a native number
+// (a numeric token or password) is not cleared by the string rule.
 func argumentsLeakValue(arguments []any) bool {
 	for index, argument := range arguments {
 		flag, _ := argument.(string)
@@ -95,17 +97,31 @@ func argumentsLeakValue(arguments []any) bool {
 			continue
 		}
 		if !joined {
-			next, hasNext := "", index+1 < len(arguments)
-			if hasNext {
-				next, _ = arguments[index+1].(string)
+			if index+1 >= len(arguments) {
+				continue
 			}
-			value = next
+			if argumentLeaksValue(arguments[index+1]) {
+				return true
+			}
+			continue
 		}
 		if literalCredential(value) {
 			return true
 		}
 	}
 	return false
+}
+
+// argumentLeaksValue reports whether a separate list element following a
+// secret-named flag is a literal credential. A string is judged by the flag
+// rule; a non-string element (a native number: a numeric token or password) is
+// judged on its raw form, so it is not coerced to "" and cleared. A bare flag
+// value is always a literal, so a number under one has no token-count exemption.
+func argumentLeaksValue(argument any) bool {
+	if value, isString := argument.(string); isString {
+		return literalCredential(value)
+	}
+	return holdsRawSecretString(argument, false)
 }
 
 // flagNamesASecret reports whether a flag name names a secret itself, not a

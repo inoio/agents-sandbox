@@ -73,7 +73,9 @@ same check, so it never copies a host config file the merge would not read.
   verbatim): a credential header with a literal token (`authorization:`, `x-api-key:`, `x-auth-token:`, `Bearer …`,
   `Basic …` with a digit or padding), a URL with userinfo, a credential in a query string or a `password=` connection
   string, a credential command-line flag (any flag whose name names a secret, also as separate list elements
-  `["--access-token", "…"]`; a flag naming where a secret lives, `--token-file`/`--password-stdin`, is not one), a
+  `["--access-token", "…"]` or `["--access-token", 84736251]` — a bare flag value is a literal, so a native number is
+  one too, with no token-count exemption; a flag naming where a secret lives, `--token-file`/`--password-stdin`, is not
+  one), a
   `NAME=value` list entry (an env array, a docker `-e` argument) or a `{name, value}` entry the env rule does not
   clear, a JWT, a PEM private
   key, or a token with a well-known vendor prefix (`sk-`, `sk_live_`, `ghp_`, `github_pat_`, `xox?-`, `AKIA`/`ASIA`,
