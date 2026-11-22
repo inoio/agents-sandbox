@@ -108,7 +108,7 @@ func smokeVMCPUs() uint8 {
 //
 // The per-harness subtests run in parallel, bounded by a semaphore sized to the
 // host's free memory (harnessConcurrency); each gets its own prepared HOME tree
-// (harnessHomeBase) while sharing the root's microsandbox home, so the image
+// (driver.HomeBase) while sharing the root's microsandbox home, so the image
 // cache stays common.
 //
 //nolint:tparallel // top-level tests share the suite root and docker/VM state and must not overlap
@@ -141,23 +141,23 @@ func TestHarnessSmoke(t *testing.T) {
 			t.Parallel()
 			slots <- struct{}{}
 			defer func() { <-slots }()
-			homeBase := harnessHomeBase(root, name)
-			if err := prepareHome(homeBase); err != nil {
+			homeBase := driver.HomeBase(root, name)
+			if err := driver.PrepareHome(homeBase); err != nil {
 				t.Fatalf("prepare %s home: %v", name, err)
 			}
-			if err := seedHomeFiles(homeBase, spec.SeedHomeFiles); err != nil {
+			if err := driver.SeedHomeFiles(homeBase, spec.SeedHomeFiles); err != nil {
 				t.Fatalf("seed %s home files: %v", name, err)
 			}
-			if err := seedLauncherConfig(homeBase, spec.SeedHomeManifest); err != nil {
+			if err := driver.SeedLauncherConfig(homeBase, spec.SeedHomeManifest); err != nil {
 				t.Fatalf("seed %s launcher config: %v", name, err)
 			}
 			profile, _ := agent.Lookup(name)
-			if err := seedAgentSnippets(homeBase, profile.ConfigDirName(), spec.SeedAgentSnippets); err != nil {
+			if err := driver.SeedAgentSnippets(homeBase, profile.ConfigDirName(), spec.SeedAgentSnippets); err != nil {
 				t.Fatalf("seed %s agent snippets: %v", name, err)
 			}
 			ses := driver.MustStartUnderPTY(
 				t, projectDir(root, name),
-				isolatedEnv(root, homeBase, os.Environ()),
+				driver.IsolatedEnv(root, homeBase, os.Environ()),
 				append([]string{binary}, withVMCPUs(harnessRunArgs(name, network), smokeVMCPUs())...)...,
 			)
 			if err := waitReady(ses, spec); err != nil {
@@ -317,7 +317,7 @@ func preflightDocker(t *testing.T, root string) {
 	defer cancel()
 
 	info := exec.CommandContext(ctx, "docker", "info")
-	info.Env = isolatedEnv(root, root, os.Environ())
+	info.Env = driver.IsolatedEnv(root, root, os.Environ())
 	if out, err := info.CombinedOutput(); err != nil {
 		t.Skipf("harness smoke tests need a reachable docker daemon: %v\n%s", err, out)
 	}
@@ -412,7 +412,7 @@ func buildHarnessImages(t *testing.T, root string) error {
 	defer cancel()
 
 	inherited := os.Environ()
-	env := withGitHubToken(isolatedEnv(root, root, inherited), inherited)
+	env := driver.WithGitHubToken(driver.IsolatedEnv(root, root, inherited), inherited)
 	pairs := suiteProjectAgents()
 	for _, pair := range pairs {
 		if err := os.MkdirAll(projectDir(root, pair.Project), 0o755); err != nil {
@@ -497,6 +497,6 @@ func cleanupSandboxes(t *testing.T, root, binary string) {
 func boundedLauncher(root, binary string, args ...string) (*exec.Cmd, context.CancelFunc) {
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	cmd := exec.CommandContext(ctx, binary, args...)
-	cmd.Env = isolatedEnv(root, root, os.Environ())
+	cmd.Env = driver.IsolatedEnv(root, root, os.Environ())
 	return cmd, cancel
 }

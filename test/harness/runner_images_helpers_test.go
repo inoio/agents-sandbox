@@ -13,6 +13,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
+	"github.com/inoio/agents-sandbox/test/msb/driver"
 )
 
 // projectsDirName is the suite root's subdirectory holding one throwaway project
@@ -100,7 +101,7 @@ func cleanupRunnerImages(t testing.TB, root string) {
 		t.Logf("cleanup: some runner image tags could not be derived: %v", err)
 	}
 	//testenv:allow cleanup builds the isolated env from the suite's own
-	env := isolatedEnv(root, root, os.Environ())
+	env := driver.IsolatedEnv(root, root, os.Environ())
 	for _, tag := range tags {
 		if out, err := removeDockerImage(env, tag); err != nil {
 			t.Logf("cleanup: remove runner image %s: %v\n%s", tag, err, out)

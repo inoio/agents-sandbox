@@ -31,7 +31,7 @@ func runDockerStorageDriverSmoke(t *testing.T, root, binary string) {
 		t.Fatalf("create project dir: %v", err)
 	}
 
-	ses := driver.MustStartUnderPTY(t, dir, isolatedEnv(root, root, os.Environ()),
+	ses := driver.MustStartUnderPTY(t, dir, driver.IsolatedEnv(root, root, os.Environ()),
 		append([]string{binary}, withVMCPUs(dockerStorageShellArgs(networkNone), smokeVMCPUs())...)...)
 	defer ses.Close()
 
