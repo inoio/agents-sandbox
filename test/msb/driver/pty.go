@@ -363,7 +363,7 @@ func TapUntilMarker(ses *Session, key []byte, marker string, budget time.Duratio
 		if err := ses.Write(key); err != nil {
 			return fmt.Errorf("write %q: %w", key, err)
 		}
-		time.Sleep(QuitPressInterval)
+		time.Sleep(QuitPressInterval) //testenv:allow the tap cadence is the behavior under test
 	}
 }
 
