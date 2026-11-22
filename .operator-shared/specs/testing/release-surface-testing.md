@@ -223,7 +223,15 @@ Proves #604/#608/#229: a changed project config is shown, approved once, and enf
 - [ ] **Step 8: Per-slug user config.** Create `~/.config/agents-sandbox/<repo-slug>/config.yaml` (repo slug from
   `asb config paths`) with a distinguishing key; `asb config paths`. Expected: the per-slug layer merges between generic
   user and project config (#580).
-- [ ] **Step 9: Findings.**
+- [ ] **Step 9: First-run onboarding and host-config provisioning (#775).** In a fresh isolated home with no managed
+  config and no host agent config, a run offers the three-choice setup menu (Learn by using it / Learn from my host
+  setup / Configure it myself) and records the decision, so the next run stays quiet. With a host agent config
+  present, "Learn from my host setup" is offered and copies it as placeholders, never raw credentials.
+  `provision-host-config` now defaults to **false**: a run copies no host config unless it is set true (the opt-in
+  carries a warning), and a config an earlier version copied into an existing home is removed on the next run if
+  provisioning is left off. The learning-session choices are covered end to end by the `test/msb/journeys` learn-mode
+  journeys.
+- [ ] **Step 10: Findings.**
 
 ## Task 4 [I]: Secrets
 
@@ -245,30 +253,58 @@ Proves placeholder substitution, `hosts` scoping, `header_fields`, and `allow-pl
   recreation once (#484). Then confirm the block message when a placeholder reaches the model endpoint.
 - [ ] **Step 7: Findings.**
 
-## Task 5 [I]: Network profiles
+## Task 5 [I]: Network profiles, TLS interception, and the outbound proxy
 
-Proves profile composition and `profile: none` DNS. Shapes: `docs/configuration/networking.md`.
+Proves profile composition, `profile: none` DNS, the TLS-interception controls, and the outbound proxy. Shapes:
+`docs/configuration/networking.md`; semantics in
+[interception-and-proxy](../network-and-secrets/interception-and-proxy.md).
 
 - [ ] **Step 1: Default `public`.** `asb --dry-run` then `asb --network public`; in `asb shell`, `curl -sS
   https://example.com` succeeds. Expected: public egress.
-- [ ] **Step 2: `none` denies and NXDOMAINs.** `asb --network none`; in the shell, `curl -sS https://example.com` is
-  denied (the #310 `403`), and `getent hosts example.com` returns nothing (`NXDOMAIN`) (#480).
+- [ ] **Step 2: `none` denies and NXDOMAINs.** `asb --network none`; in the shell, `getent hosts example.com` returns
+  nothing (`NXDOMAIN`) and `curl -sS https://example.com` fails at resolution, while a literal-IP target
+  (`curl https://1.1.1.1`) is refused — deny-by-default both ways (#480).
 - [ ] **Step 3: `egress-allow` opens one host.** Set `network.profile: none` + `egress-allow: [example.com]`; run;
-  verify `example.com` resolves and connects while another name does not.
+  verify `example.com` resolves and connects while another name does not. Note the strict-hostname limit: under
+  `none` a hostname allow admits a TLS connection only when it is intercepted, so without a secret also set
+  `network.intercept-tls: on` (see Step 8) or the allowed host is denied.
 - [ ] **Step 4: profile change recreates once.** Change `--network`; run. Expected: one recreate, then stable.
 - [ ] **Step 5: `--dns`.** `asb --dns 1.1.1.1`; `asb config paths` unaffected; verify resolution still works. Invalid
   `--dns` is rejected at config-load.
-- [ ] **Step 6: Findings.**
+- [ ] **Step 6: `--network` keeps the config-file lists (#720).** Set `network.egress-allow`, `network.egress-deny`,
+  and `network.tls-bypass` in the project config, then run with `--network public`. Expected: the flag overrides only
+  `profile`; the three lists survive (check the recreate diff or observed behaviour). Before the fix they were
+  silently dropped.
+- [ ] **Step 7: Outbound proxy (#721).** Run a local proxy; configure `network.proxy: {protocol: http-connect, address:
+  <host>:<port>}` (or `--proxy http-connect://…`). Expected: the VM's egress arrives at the proxy (its CONNECT log)
+  and the proxy address needs **no** `egress-allow` entry. Switch to `socks5` with `username` + `password-env` and
+  confirm the credentials arrive (a SOCKS5 proxy that logs the RFC 1929 auth is enough). `socks4` with credentials is
+  rejected at config load, naming the protocol; an invalid `--proxy` is rejected. A `proxy.*` change recreates the VM
+  once, then stable.
+- [ ] **Step 8: TLS interception (#720).** With a secret configured, `network.intercept-tls: off` is rejected with an
+  error naming the limitation; `off` without a secret is accepted. With `intercept-tls: on`, an in-VM
+  `openssl s_client -connect example.com:443 -showcerts </dev/null` shows the microsandbox CA as issuer. Set a host
+  both `tls-bypass` and `egress-allow`: it is **denied** under the default strict mode and **reachable** with
+  `network.disable-strict: true`.
+- [ ] **Step 9: docker CA trust (optional).** An in-VM `docker build` that reaches HTTPS fails certificate verification
+  until the `docs/recipes/docker-ca-trust.md` steps add the CA to the container bundle; then it succeeds.
+- [ ] **Step 10: Findings.**
 
 ## Task 6 [I]: Agent matrix (changed bits)
 
-- [ ] **Step 1: Experimental notice.** `asb --agent pi --dry-run` and `asb --agent codex --dry-run`. Expected: a notice
-  that non-`opencode`/`opencode2` agents are experimental (#473).
-- [ ] **Step 2: `oh-my-pi`.** `asb --agent oh-my-pi`; reach the editor, with the first-run setup wizard skipped by a
-  seeded `~/.omp/agent/config.yml` (`startup.setupWizard: false`). Expected: editor up (#478). Evidence: pane text.
+- [ ] **Step 1: Experimental notice.** `asb --agent codex --dry-run` and the new profiles below print a notice that
+  non-`opencode`/`opencode2` agents are experimental (#473); `asb --agent pi --dry-run` does **not** (pi was promoted,
+  #806).
+- [ ] **Step 2: New profiles render.** For each of `kimi-code`, `qwen-code`, `goose`, `grok-build`, `mistral-vibe`,
+  and `oh-my-pi`: start the session and reach its TUI (the `test-msb` seeds skip each one's first-run/trust flow).
+  Expected: TUI up (#752, #758, #761, #763, #769, #478). Evidence: pane text.
 - [ ] **Step 3: Session wiring.** With a loopback/dummy provider (the `test-msb` hermes-style seed), start a session and
   submit a prompt. Expected: the session starts and accepts input; the send path does not hang (no real answer expected).
-- [ ] **Step 4: Findings.**
+- [ ] **Step 4: codex rework (#809).** `asb --agent codex`: no embedded-mode warning, no `/workspace` trust prompt, runs
+  `--no-daemon`. The launcher's `/etc/codex/config.toml` defaults (update check off, `sandbox_mode`, trusted
+  `/workspace`) are overridden by a user snippet / repo `.codex/config.toml`; a `--agent-version` below 0.156.0 is
+  rejected and a forwarded `--remote` is rejected.
+- [ ] **Step 5: Findings.**
 
 ## Task 7 [I]: Worktree / branch sessions
 

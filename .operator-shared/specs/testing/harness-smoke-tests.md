@@ -1,8 +1,9 @@
 ---
 description: Contract for the `msb`-tagged harness smoke tests that start every registered harness to its TUI in a real microsandbox VM (readiness by alternate-screen marker, a startup-line marker, or a settled wait; optional seeded home files, via the isolated home or the launcher config's `home:` manifest), the per-harness isolated home tree with a shared microsandbox image cache, the parallel subtests sized to the host's free memory and the bounded image prebuild, the smaller per-VM memory cap, the reusable-root escape hatch, and the isolation that keeps them off the developer's existing agents-sandbox state.
 read_if: Adding or changing the harness smoke tests, the `msb` build tag, `make test-msb`/`make test-msb-cold` or
-  `AGENTS_SANDBOX_SMOKE_ROOT`, the harness quit-press table, the readiness signals or seeded home files, the
-  per-harness home split or how the harnesses' concurrency is bounded, or when a harness's TUI startup or quit behavior changes.
+  `AGENTS_SANDBOX_SMOKE_ROOT`, the harness quit-press table, the readiness signals, ceilings or timeout factor, the
+  pty session (`Session.Write`/`TapUntilMarker`), the per-harness home split or how the harnesses' concurrency is
+  bounded, or when a harness's TUI startup or quit behavior changes.
 ---
 
 # Harness smoke tests
@@ -115,6 +116,18 @@ marker wait (180s) instead.
 `make test-msb-in-vm` can give a nested guest's slower start and teardown a proportionally larger budget. It does
 not scale the quit press/retry cadence: those are tuned to qwen-code's sub-1.2s "press again" chaining window and
 a longer interval would stop the exit chaining. At the default 1 a host run is byte-for-byte unchanged.
+
+The ceilings are the only margin against CPU starvation, and that can come from outside the guest: a nested KVM
+guest shares the host's cores, so a busy host — or any concurrent guest `run`/`shell` that is not vCPU-capped
+(`--cpus`) — can make a harness miss its ceiling even when the suite runs alone. The in-guest
+`MSB_GUEST_TIMEOUT_FACTOR` default is 3 for this reason; `MSB_GUEST_VM_CPUS` (2) stays the per-VM cap. kimi-code
+carries the tightest ceiling (no `ReadyTimeoutOverride`, so `settledReadyTimeout` × factor), so it is the first
+harness to miss when the box is loaded.
+
+**A stalled shell must fail, not hang.** `Session.Write` (`test/msb/driver/pty.go`) writes to the pty master with
+no write deadline, so a stalled pty slave blocks the write forever; `TapUntilMarker`'s budget and `HasExited`
+checks cannot run while a write is in flight, and `TestHarnessSmoke` hangs until `go test -timeout` instead of
+failing with the step named (observed at `MSB_GUEST_PARALLEL=4`; see #837).
 
 **Harness table completeness.** A single table maps harness name to the key the smoke test taps, an optional network
 override, a `KeepsNormalBuffer` flag, an optional readiness marker, an optional readiness-timeout ceiling, and optional
