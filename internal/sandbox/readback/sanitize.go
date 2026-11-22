@@ -28,9 +28,10 @@ type SanitizeParams struct {
 	// as its value; when empty, the value becomes its ${ENVVAR} placeholder.
 	IndirectionKey string
 	// RefuseUndeclaredSecretKeys additionally refuses content that still holds a
-	// non-reference string under a secret-shaped key — a secret the credential
-	// walk did not name. It is the host-seed guard; it is off for the write-back
-	// so the write-back's existing behaviour is unchanged.
+	// secret the credential walk did not name: a non-reference string under a
+	// secret-shaped key, a secret-shaped value under any key, or an env-table
+	// entry not known to be configuration. The host seed and the write-back both
+	// set it.
 	RefuseUndeclaredSecretKeys bool
 }
 
@@ -41,8 +42,7 @@ type SanitizeParams struct {
 // AllCredentials value survives the substitution, so the caller refuses the
 // file rather than copy a raw value or an orphan placeholder. With
 // RefuseUndeclaredSecretKeys set, it is also false when the decoded document
-// still holds a non-reference string — directly or inside a collection — under a
-// secret-shaped key the credential walk did not name.
+// still holds a secret the credential walk did not name (see the field).
 //
 // The substitution is longest-value-first, so a value that is a prefix of
 // another does not corrupt the longer one. The value-remains check is literal
@@ -332,6 +332,7 @@ func isKeyChar(b byte) bool {
 // a secret list is routinely spelled in the plural (tokens, apiKeys).
 var secretShapedKeyMarkers = []string{
 	"KEY", "TOKEN", "SECRET", "PASSWORD", "AUTHORIZATION", "CREDENTIAL",
+	"APIKEY", "ACCESSKEY", "PRIVATEKEY", "AUTHTOKEN", "PAT",
 }
 
 // looksLikeSecretShapedKey reports whether key names a secret, matching the
@@ -396,25 +397,31 @@ func decodedHoldsUndeclaredSecretValue(node any) bool {
 	switch typed := node.(type) {
 	case map[string]any:
 		for key, child := range typed {
-			if secretKeyLeaksValue(key, child) || decodedHoldsUndeclaredSecretValue(child) {
+			if entryLeaksValue(key, child) {
 				return true
 			}
 		}
 	case map[any]any:
 		for key, child := range typed {
-			if keyString, ok := key.(string); ok {
-				if secretKeyLeaksValue(keyString, child) {
-					return true
-				}
-			}
-			if decodedHoldsUndeclaredSecretValue(child) {
+			keyString, _ := key.(string)
+			if entryLeaksValue(keyString, child) {
 				return true
 			}
 		}
 	case []any:
 		return slices.ContainsFunc(typed, decodedHoldsUndeclaredSecretValue)
+	case string:
+		return looksLikeSecretValue(typed)
 	}
 	return false
+}
+
+// entryLeaksValue reports whether one mapping entry leaks a raw secret: a
+// secret-shaped key holding one, an env table holding an entry not known to be
+// configuration, or a secret-shaped value anywhere below it.
+func entryLeaksValue(key string, child any) bool {
+	return secretKeyLeaksValue(key, child) || envTableLeaksValue(key, child) ||
+		decodedHoldsUndeclaredSecretValue(child)
 }
 
 // secretKeyLeaksValue reports whether a secret-shaped key holds a raw secret
@@ -452,10 +459,11 @@ func holdsRawSecretString(node any) bool {
 }
 
 // isUndeclaredSecretValue reports whether node is a non-empty string that is not
-// a reference, so it would be a raw secret under a secret-shaped key.
+// a reference or a number/boolean (MAX_THINKING_TOKENS: "31999"), so it would be
+// a raw secret under a secret-shaped key.
 func isUndeclaredSecretValue(node any) bool {
 	value, _ := node.(string)
-	if strings.TrimSpace(value) == "" {
+	if strings.TrimSpace(value) == "" || isNonSecretScalar(value) {
 		return false
 	}
 	return !isReferenceValue(value)

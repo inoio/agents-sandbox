@@ -40,7 +40,8 @@ Before the menu, agents-sandbox shows one consent sentence:
 > offers to save what it needed.
 
 Either learning choice runs the session described on this page. "Learn from my host setup" copies your host config as
-placeholders, never raw credentials. "Configure it myself" is the only choice that turns on
+placeholders, never raw credentials. A file that still holds something that looks like a credential it cannot replace
+(a header value, a URL with a password, a token in a command, or an unknown entry in an `env` table) is left out whole. "Configure it myself" is the only choice that turns on
 [drop-in provisioning]({% link configuration/agent.md %}#drop-in-provisioning-opt-in), and it warns first.
 
 The choice is recorded, so later runs start the agent directly. It returns if you change your host agent config.
@@ -82,8 +83,8 @@ so every clone of it shares the same settings. It proposes:
 - a static secret for each credential it can attribute to a destination;
 - a managed copy of each agent config file the session created or changed that the launcher merges, written to the same
   per-slug user config with each static secret value replaced by a placeholder. The value itself goes to
-  `env.secret.yaml`; a file that holds only a sign-in, or a credential the launcher cannot attribute to a destination,
-  stays in the sandbox.
+  `env.secret.yaml`; a file that holds only a sign-in, a credential the launcher cannot attribute to a destination, or
+  a value that looks like a credential it cannot replace, stays in the sandbox.
 
 It never removes a setting you wrote and never widens your network policy: the proposed allow set is your current set
 plus only what the session reached, and a denied destination is reported but never allowed. The network policy applies

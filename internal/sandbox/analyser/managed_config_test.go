@@ -79,6 +79,26 @@ func TestManagedConfigReplacesStaticSecretValues(t *testing.T) {
 	require.NotContains(t, string(write.ManagedConfig.Content), secret)
 }
 
+// TestManagedConfigRefusesAnUnclassifiedSecret pins that the write-back applies
+// the same guard as the host seed: a credential the walk does not classify (a
+// header value in an env table) leaves the file uncopied instead of copying it
+// verbatim into managed config.
+func TestManagedConfigRefusesAnUnclassifiedSecret(t *testing.T) {
+	home := t.TempDir()
+	writeManagedConfig(
+		t,
+		home,
+		managedConfigTestPath,
+		`{"mcp": {"otel": {"environment": {"OTEL_EXPORTER_OTLP_HEADERS": "Authorization=Bearer abcdefgh12345678"}}}}`,
+	)
+
+	findings := ManagedConfigFindings(ManagedConfigFacts{
+		Home: home, Agent: "opencode2", ReadBack: changedConfigBack(managedConfigTestPath),
+	})
+
+	require.Empty(t, findings)
+}
+
 // TestManagedConfigSkipsLoginStores pins that a changed login store is never
 // copied back: the store is a credential the agent refreshes, not a config file
 // it authored, so no finding is emitted for it.

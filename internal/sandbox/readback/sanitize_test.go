@@ -662,3 +662,58 @@ func TestKeySegments(t *testing.T) {
 func TestDecodedHoldsUndeclaredSecretValueAnyMapIgnoresOrdinaryKeys(t *testing.T) {
 	require.False(t, decodedHoldsUndeclaredSecretValue(map[any]any{"model": "raw"}))
 }
+
+// TestSanitizeConfigRefusesUnmarkedSecretShapes pins the host-seed guard against
+// credentials whose key names no secret: header values, URL userinfo, token
+// prefixes in commands, compound key markers, and env-table entries, which are
+// secret unless their key or value is known to be harmless.
+func TestSanitizeConfigRefusesUnmarkedSecretShapes(t *testing.T) {
+	refused := map[string]struct{ path, content string }{
+		"custom headers":   {"settings.json", `{"env":{"ANTHROPIC_CUSTOM_HEADERS":"x-api-key: abc"}}`},
+		"otel headers":     {"settings.json", `{"env":{"OTEL_EXPORTER_OTLP_HEADERS":"Authorization=Bearer abc"}}`},
+		"opaque env value": {"settings.json", `{"env":{"SOME_SETTING":"opaque-value"}}`},
+		"proxy userinfo":   {"settings.json", `{"env":{"HTTPS_PROXY":"http://alice:pw@proxy:3128"}}`},
+		"hook bearer": {
+			"settings.json",
+			`{"hooks":{"PreToolUse":[{"command":"curl -H 'Authorization: Bearer abcdefgh12345678' x"}]}}`,
+		},
+		"helper command":      {"settings.json", `{"apiKeyHelper":"echo sk-proj-abcdefghijklmnop"}`},
+		"compound key marker": {"settings.json", `{"OPENAI_APIKEY":"abcdef"}`},
+		"nested mcp env (toml)": {
+			"config.toml",
+			"[mcp_servers.gh.env]\nGITHUB_PERSONAL_ACCESS_TOKEN = \"x\"\nGH_HOST_LABEL = \"opaque\"\n",
+		},
+		"url userinfo anywhere": {"config.toml", "[mcp_servers.git]\nurl = \"https://oauth2:abc@git.example/x\"\n"},
+	}
+	for name, tc := range refused {
+		t.Run("refuses "+name, func(t *testing.T) {
+			if _, ok := SanitizeConfig(
+				[]byte(tc.content),
+				SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+			); ok {
+				t.Errorf("SanitizeConfig accepted %s", tc.content)
+			}
+		})
+	}
+
+	accepted := map[string]struct{ path, content string }{
+		"harmless claude settings": {"settings.json", `{"model":"haiku","permissions":{"allow":["Bash(ls:*)"]},` +
+			`"env":{"MAX_THINKING_TOKENS":"31999","CLAUDE_CODE_MAX_OUTPUT_TOKENS":"8192","ANTHROPIC_BASE_URL":"https://gw.example",` +
+			`"DISABLE_TELEMETRY":"1"}}`},
+		"placeholder in env": {"settings.json", `{"env":{"ANTHROPIC_API_KEY":"${ANTHROPIC_API_KEY}"}}`},
+		"plain codex settings": {
+			"config.toml",
+			"model = \"gpt-5\"\nsandbox_mode = \"workspace-write\"\n[mcp_servers.fs]\ncommand = \"npx\"\nargs = [\"-y\", \"server-filesystem\"]\n",
+		},
+	}
+	for name, tc := range accepted {
+		t.Run("accepts "+name, func(t *testing.T) {
+			if _, ok := SanitizeConfig(
+				[]byte(tc.content),
+				SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+			); !ok {
+				t.Errorf("SanitizeConfig refused %s", tc.content)
+			}
+		})
+	}
+}

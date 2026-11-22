@@ -59,16 +59,27 @@ config-family name such as opencode's `config.json`, or any name outside the pat
 takes no effect. The shared predicate `agent.MergesSnippetName` carries the pattern match; the host seed applies the
 same check, so it never copies a host config file the merge would not read.
 
-**The no-raw-sibling rule is enforced only on the host-seed path so far.** The shared sanitizer
-(`readback.SanitizeConfig`) takes a `RefuseUndeclaredSecretKeys` flag: the UC4 host seed sets it, so any non-reference
-string left under a secret-shaped key the credential walk did not name — directly or inside a nested array or object —
-refuses the whole file. A key is secret-shaped when a camelCase/separator-aware key segment is one of the markers
-`KEY`/`TOKEN`/`SECRET`/`PASSWORD`/`AUTHORIZATION`/`CREDENTIAL`, **or its plural** (so a secret list spelled `tokens`,
-`secrets`, `keys`, `credentials`, or `passwords` is covered); a downstream non-string value (a numeric count) is not a
-raw value, so `maxTokens: 4096` stays allowed while `tokens: ["sk-…"]` refuses. The after-run write-back
-(`analyser.ManagedConfigFindings`) leaves it off — a pre-existing S10 gap — so a secret-shaped value the walk did not
-classify can still be copied verbatim into the managed config. Until that flag is turned on for the write-back, the
-shared sanitizer must not be read as enforcing this rule on both paths.
+**The no-raw-sibling rule holds on both paths.** The shared sanitizer (`readback.SanitizeConfig`) takes a
+`RefuseUndeclaredSecretKeys` flag, and both the UC4 host seed and the after-run write-back
+(`analyser.ManagedConfigFindings`) set it. With it, a file is refused whole when, after substitution, it still holds:
+
+- a non-reference string under a **secret-shaped key** the credential walk did not name, directly or inside a nested
+  array or object. A key is secret-shaped when a camelCase/separator-aware segment is one of `KEY`, `TOKEN`, `SECRET`,
+  `PASSWORD`, `AUTHORIZATION`, `CREDENTIAL`, `APIKEY`, `ACCESSKEY`, `PRIVATEKEY`, `AUTHTOKEN`, `PAT`, or a plural of
+  one;
+- a **secret-shaped value** under any key: a header credential (`authorization:`, `x-api-key:`, `Bearer …`,
+  `Basic …`), a URL with `user:password@`, or a token with a well-known vendor prefix (`sk-`, `ghp_`, `github_pat_`,
+  `xox?-`, `AKIA…`, `glpat-`, `AIza…`), also inside a command such as a hook or `apiKeyHelper`;
+- an entry of an **env table** (a key `env` or `environment`, at any depth, e.g. Claude Code's `settings.json` or an
+  MCP server's env) that is not known to be configuration. Env tables carry keys under names no rule can enumerate,
+  so their entries are secret by default; an entry is cleared only when its value is a reference, a number or boolean
+  word, or empty, or its key is a known configuration name (`*_URL`, `*_ENDPOINT`, `*_HOST`, `*_PORT`, `*_MODEL`,
+  `*_REGION`, `*_VERSION`, `*_TIMEOUT*`, `*_LEVEL`, `*_MODE`, `*_DIR`, `*_PATH`, `DISABLE_*`, `ENABLE_*`, `NO_*`,
+  `USE_*`, `SKIP_*`, the proxy variables, …), and its value is not secret-shaped.
+
+A number or boolean word is never a raw value, so `maxTokens: 4096` and `MAX_THINKING_TOKENS: "31999"` stay allowed
+while `tokens: ["sk-…"]` refuses. The rule is deliberately conservative: an unknown env entry refuses the file rather
+than risk a missed credential, so a refused file stays in the sandbox and is not seeded or written back.
 
 A candidate whose path matches a **declared credential-store pattern** is excluded by the pattern alone, independently
 of whether that store is a login for the current agent: `readback.IsCredentialStorePath` tests the pattern

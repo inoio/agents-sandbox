@@ -138,7 +138,7 @@ func (f ManagedConfigFacts) sanitize(
 		AllCredentials:             allStatic,
 		AllowedEnvVars:             secretEnvVars,
 		IndirectionKey:             indirectionKey,
-		RefuseUndeclaredSecretKeys: false,
+		RefuseUndeclaredSecretKeys: true,
 	})
 	if !ok {
 		f.warnf(
