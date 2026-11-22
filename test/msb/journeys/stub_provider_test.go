@@ -8,9 +8,12 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/inoio/agents-sandbox/internal/sandbox/readback"
 )
 
 // TestStubOriginFromValue pins the advertised-route override: a valid
@@ -40,6 +43,75 @@ func TestStubOriginFromValue(t *testing.T) {
 				t.Errorf("stubOriginFromValue(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestStubProviderDocumentCarriesAnInlineCredential pins the credential a
+// learn-mode journey observes: the provider document's options carry a literal
+// apiKey, which the read-back classifies as a static credential scoped by the
+// derived env-var name <PROVIDERID>_API_KEY (stubCredentialEnvVar) and the
+// entry's baseURL host. Without it the UC1 secret assertion has nothing to find.
+func TestStubProviderDocumentCarriesAnInlineCredential(t *testing.T) {
+	provider, err := StartStubProvider(t)
+	if err != nil {
+		t.Fatalf("StartStubProvider: %v", err)
+	}
+	t.Cleanup(provider.Stop)
+
+	content := provider.ProviderConfig()[stubAgentConfigTarget]
+	var document struct {
+		Provider map[string]struct {
+			Options struct {
+				APIKey string `json:"apiKey"`
+			} `json:"options"`
+		} `json:"provider"`
+	}
+	if err := json.Unmarshal([]byte(content), &document); err != nil {
+		t.Fatalf("decode provider config %q: %v", content, err)
+	}
+	if document.Provider[stubProviderID].Options.APIKey == "" {
+		t.Fatalf("provider %q carries no inline apiKey: %q", stubProviderID, content)
+	}
+}
+
+// TestStubProviderDocumentClassifiesAsTheAssertedCredential pins the journey's
+// premise without a VM: the read-back classifies the stub provider document's
+// inline apiKey as a static credential named exactly what UC1 asserts
+// (uc1Scope), scoped to the advertised host. It ties the stub's document to the
+// assertion, so a change to the provider id or the options shape fails here
+// rather than only on a host accept.
+func TestStubProviderDocumentClassifiesAsTheAssertedCredential(t *testing.T) {
+	provider, err := StartStubProvider(t)
+	if err != nil {
+		t.Fatalf("StartStubProvider: %v", err)
+	}
+	t.Cleanup(provider.Stop)
+
+	content := provider.ProviderConfig()[stubAgentConfigTarget]
+	credentials := readback.InlineCredentialsIn(stubAgentConfigTarget, []byte(content))
+	var found bool
+	for _, credential := range credentials {
+		if credential.Kind != readback.CredentialStatic || credential.EnvVar != uc1Scope.EnvVar {
+			continue
+		}
+		found = true
+		if !slices.Equal(credential.Hosts, uc1Scope.Hosts) {
+			t.Errorf("credential hosts = %v, want %v", credential.Hosts, uc1Scope.Hosts)
+		}
+	}
+	if !found {
+		t.Fatalf("InlineCredentialsIn found no static credential %q in %q", uc1Scope.EnvVar, content)
+	}
+}
+
+// TestStubAdvertisedHostTracksTheOrigin pins that the host a journey scopes its
+// credential assertion to is the advertised origin's host (the default, or a
+// host accept's override), so the asserted host and env.secret.yaml's scoping
+// host cannot disagree.
+func TestStubAdvertisedHostTracksTheOrigin(t *testing.T) {
+	t.Setenv(stubOriginEnv, "https://stub.example:8443/path")
+	if got, want := stubAdvertisedHost(), "stub.example"; got != want {
+		t.Errorf("stubAdvertisedHost() = %q, want %q", got, want)
 	}
 }
 

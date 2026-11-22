@@ -66,6 +66,17 @@ const (
 	// OpenAI-compatible provider, so the provider is real enough for the agent
 	// to issue a request at the baseURL.
 	stubProviderNPM = "@ai-sdk/openai-compatible"
+	// stubProviderAPIKey is the provider's inline credential. The read-back
+	// classifies a literal options.apiKey as a static secret and derives its
+	// env-var name as derivedEnvVarName(stubProviderID); a journey asserts the
+	// saved env.secret.yaml scopes that name to the provider's baseURL host. It
+	// is a dummy value: the stub never checks it.
+	stubProviderAPIKey = "sk-stub-not-a-real-key" //nolint:gosec // a dummy stub credential, never a real secret
+	// stubCredentialEnvVar is the env-var name the read-back derives for
+	// stubProviderAPIKey: <PROVIDERID>_API_KEY, i.e. derivedEnvVarName("stub").
+	// Kept here beside the provider so a lifecycle change to the id cannot leave
+	// a journey asserting a name the read-back no longer derives.
+	stubCredentialEnvVar = "STUB_API_KEY" //nolint:gosec // an env-var name, not a secret value
 )
 
 // stubReadHeaderTimeout is a defensive ceiling on reading a request's headers;
@@ -132,13 +143,14 @@ func (p *stubProvider) ProviderConfig() map[string]string {
 
 // providerDocument renders the opencode provider config that points the agent at
 // the stub: an OpenAI-compatible provider whose options.baseURL is the stub's
-// /v1, and the top-level model that selects it.
+// /v1, an inline API key for the read-back to classify, and the top-level model
+// that selects it.
 func (p *stubProvider) providerDocument() string {
 	document := map[string]any{
 		"provider": map[string]any{
 			stubProviderID: map[string]any{
 				"npm":     stubProviderNPM,
-				"options": map[string]any{"baseURL": p.addr + "/v1"},
+				"options": map[string]any{"baseURL": p.addr + "/v1", "apiKey": stubProviderAPIKey},
 				"models":  map[string]any{stubProviderModel: map[string]any{}},
 			},
 		},
@@ -163,6 +175,18 @@ func (p *stubProvider) Stop() {
 func stubOrigin() string {
 	//testenv:allow the stub provider reads its own advertised-route override
 	return stubOriginFromValue(os.Getenv(stubOriginEnv))
+}
+
+// stubAdvertisedHost is the host part of the advertised origin the stub points
+// agents at, so a journey scopes its credential assertion to the route the run
+// actually used (the default, or a host accept's override). It reads the same
+// override stubOrigin does, and an origin with no host yields "".
+func stubAdvertisedHost() string {
+	parsed, err := url.Parse(stubOrigin())
+	if err != nil || parsed.Hostname() == "" {
+		return ""
+	}
+	return parsed.Hostname()
 }
 
 // stubOriginFromValue parses an advertised-origin override: an http(s) URL with

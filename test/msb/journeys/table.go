@@ -1,11 +1,13 @@
 package journeys
 
 // Journeys is the journey table: one entry per scenario the suite drives. v1
-// covers opencode2 only, and the learn-mode journeys (UC1, UC4, `config learn`,
-// attribution) land in a later step, so the table is empty at this scaffolding
-// point and every registered agent carries a recorded exemption below. A journey
-// is added here as a literal once its steps exist (see the plan, Phase 2).
-var Journeys []Journey
+// covers opencode2 only, with the learn-mode journeys (UC1, UC4, `config learn`,
+// attribution) landing across Phase 2; a journey is added here as a literal once
+// its steps exist, and every registered agent it does not yet drive carries a
+// recorded exemption below.
+var Journeys = []Journey{
+	uc1Journey,
+}
 
 // notCoveredInV1 is the recorded reason for every registered agent the journeys
 // suite does not yet drive. The journey spec is a table field, so covering one
@@ -21,10 +23,6 @@ const notCoveredInV1 = "Not covered in v1: the journeys suite drives learn mode 
 // registered harness fails the default suite until it is covered or exempted
 // (mirroring the startup-smoke completeness contract).
 var Exemptions = map[string]string{
-	// opencode2 is the v1 scope; its exemption is removed when the first journey
-	// (uc1Journey) lands in Phase 2.
-	"opencode2": "Covered by the learn-mode journeys once uc1Journey lands (Task 14); " +
-		"this exemption is removed then.",
 	"claude-code":  notCoveredInV1,
 	"codex":        notCoveredInV1,
 	"goose":        notCoveredInV1,

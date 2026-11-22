@@ -195,6 +195,13 @@ config file contains the `${ENVVAR}` placeholder, and the expected config keys a
 keeps the "adapt the test when the harness's layout changes" triage cheap; a full-file golden would
 recouple the test to every incidental byte of a harness's authored config.
 
+Two of those three hold only as far as the product produces them. The managed-config write-back
+(`analyser.ManagedConfigFindings`) covers only a config file the session *changed* since the baseline
+manifest, and the launcher provisions the seeded provider config (through the `home:` manifest) during
+`prepareSandbox`, **before** `CaptureBaseline` — so a provisioned provider file is never "changed" and
+UC1 gets no `${ENVVAR}` placeholder or config-key assertion. UC1 asserts the static-secret write only;
+a journey whose session edits an agent config is the one that asserts the placeholder and keys.
+
 This also absorbs **#252**'s "the first turn round-trips and no first-run scaffolding appeared": that
 assertion belongs to a journey, not to the minimal startup gate.
 
