@@ -113,7 +113,8 @@ finding.
   diff's *current* allow set is the user's policy **before** the channel overlay is applied: the overlay injects the
   observation proxy's address and its upstream CA only so the session can be observed, so neither is ever fed back as
   a proposed egress entry nor written to the user's config.
-- **Entries are hostnames.** The channel names each tunnel by its TLS SNI (the runtime opens tunnels by IP). A tunnel
+- **Entries are hostnames where the channel saw one.** The channel names each tunnel by its TLS SNI (the runtime
+  opens tunnels by IP); a request from a client that sends no SNI to an IP literal is still proposed under that IP. A tunnel
   still recorded under an IP is not use: the requests inside any tunnel are recorded on their own entries, so an
   address-only tunnel is an abandoned attempt (happy eyeballs, a pre-warmed connection) or non-HTTP traffic the channel
   cannot attribute to a host. It never becomes an allow entry (an address would also break when it rotates), and the
@@ -123,12 +124,15 @@ finding.
   intercepted connection, and `intercept-tls: auto` is off without a secret, so a `none` lock with hostname entries and
   no interception would block every destination it allows. The finding therefore also writes `network.intercept-tls: on`
   unless the current policy already has it on or sets `disable-strict`; with a secret configured, `auto` already
-  intercepts and the write only makes that explicit (one VM recreate). A policy already narrowed to the used set stays
-  silent. A used host that `tls-bypass` covers stays denied under the strict mode, so the write names those hosts instead
+  intercepts and the write only makes that explicit (one VM recreate). A policy already narrowed to the used set with
+  interception on stays silent; one without interception gets an interception-only finding, because the learning
+  session's overlay forced interception on and hid that the policy blocks its own hosts outside learn mode. That
+  finding's evidence carries no per-session count, so a decline (a user whose secret already intercepts) sticks. A used host that `tls-bypass` covers stays denied under the strict mode, so the write names those hosts instead
   of promising they work; the lock never proposes `disable-strict`.
 - **The review shows the entries.** The apply prompt lists every proposed destination with the request count and the
   channel, the entries already allowed that the write keeps, and the denied destinations apart, before the user accepts
-  the lock. Only the lock renders this list: a secret's or a config finding's destinations are not allowed egress.
+  the lock. Only the observed lock renders this list: a secret's or a config finding's destinations (config harden's wildcard
+  drop) are not observed egress.
 - The applied network policy is creation-only, so it takes effect at the next VM creation through the existing
   recreate path; the proposal states that.
 

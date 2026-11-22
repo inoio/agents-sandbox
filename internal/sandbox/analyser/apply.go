@@ -487,9 +487,13 @@ func applyPrompt(finding Finding) string {
 }
 
 // egressAllowValue returns the allow list a finding writes, and whether it
-// writes one at all: only the egress lock renders its destinations, because a
-// secret's or a config finding's destinations are not allowed egress.
+// writes one at all: only the observed egress lock renders its destinations,
+// because a secret's or a config finding's (config harden's wildcard drop)
+// destinations are not observed egress.
 func egressAllowValue(finding Finding) ([]string, bool) {
+	if finding.Kind != KindObservation {
+		return nil, false
+	}
 	for _, write := range finding.Writes {
 		if write.ConfigKey == egressAllowKey && !write.Remove {
 			allow, _ := write.ConfigValue.([]string)

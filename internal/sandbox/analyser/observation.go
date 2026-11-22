@@ -68,7 +68,10 @@ func (s SessionFacts) networkFinding() (Finding, bool) {
 	current := s.Current.Effective()
 	allow := sortedUnique(append(slices.Clone(current.EgressAllow), used...))
 	if policyIsNarrowNone(current, allow) {
-		return Finding{}, false
+		if !hostnameRulesNeedInterception(current) {
+			return Finding{}, false
+		}
+		return interceptionFinding(current, used), true
 	}
 
 	//exhaustruct:ignore // a network finding carries no credential header names
@@ -97,17 +100,43 @@ func (s SessionFacts) networkFinding() (Finding, bool) {
 		},
 	}
 	if hostnameRulesNeedInterception(current) {
-		//exhaustruct:ignore // a config write names no secret and never removes
-		writes = append(writes, Write{
-			Scope:       ScopePerSlugUser,
-			ConfigKey:   "network.intercept-tls",
-			ConfigValue: string(network.InterceptOn),
-			Text: "Under the strict-hostname mode a hostname rule admits only an intercepted connection, " +
-				"so this turns TLS interception on.",
-		})
+		writes = append(writes, interceptionWrite())
 	}
 	//exhaustruct:ignore // EvidenceHash is stamped by ObservationFindings
 	return Finding{Evidence: evidence, Writes: writes, Kind: KindObservation}, true
+}
+
+// interceptionWrite turns TLS interception on in the per-slug scope.
+func interceptionWrite() Write {
+	//exhaustruct:ignore // a config write names no secret and never removes
+	return Write{
+		Scope:       ScopePerSlugUser,
+		ConfigKey:   "network.intercept-tls",
+		ConfigValue: string(network.InterceptOn),
+		Text: "Under the strict-hostname mode a hostname rule admits only an intercepted connection, " +
+			"so this turns TLS interception on.",
+	}
+}
+
+// interceptionFinding is the finding for a none policy already narrowed to the
+// used hosts but without interception: outside learn mode, where the overlay
+// no longer forces interception, it blocks every host it allows. Its evidence
+// names the hosts but no per-session count, so a decline sticks (a user whose
+// secret already turns interception on declines it once).
+func interceptionFinding(current network.Policy, used []string) Finding {
+	write := interceptionWrite()
+	if bypassed := bypassedHosts(used, current.TLSBypass); len(bypassed) > 0 {
+		write.Text += " These hosts are in tls-bypass, so the strict-hostname mode keeps them denied: " +
+			strings.Join(bypassed, ", ") + "."
+	}
+	//exhaustruct:ignore // an interception finding carries no count, denials, or header names
+	evidence := Evidence{
+		Summary:      "turn on TLS interception so the none profile's hostname rules admit connections",
+		Destinations: used,
+		Channel:      evidenceChannelProxy,
+	}
+	//exhaustruct:ignore // EvidenceHash is stamped by ObservationFindings
+	return Finding{Evidence: evidence, Writes: []Write{write}, Kind: KindObservation}
 }
 
 // egressAllowText states when the lock takes effect and names the used hosts it
@@ -126,20 +155,29 @@ func egressAllowText(current network.Policy, used []string) string {
 		strings.Join(bypassed, ", ") + "."
 }
 
-// bypassedHosts returns the hosts a tls-bypass entry covers: an exact host, or a
-// "*.suffix" entry covering its subdomains.
+// bypassedHosts returns the hosts a tls-bypass entry covers, compared without
+// regard to case.
 func bypassedHosts(hosts, bypass []string) []string {
 	var covered []string
 	for _, host := range hosts {
 		for _, entry := range bypass {
-			suffix, wildcard := strings.CutPrefix(entry, "*")
-			if host == entry || (wildcard && strings.HasSuffix(host, suffix)) {
+			if bypassCovers(strings.ToLower(entry), strings.ToLower(host)) {
 				covered = append(covered, host)
 				break
 			}
 		}
 	}
 	return covered
+}
+
+// bypassCovers reports whether a tls-bypass entry covers host: an exact host,
+// or a "*.suffix" entry covering the suffix's subdomains (not the suffix
+// itself, and not a host that merely ends in the same letters).
+func bypassCovers(entry, host string) bool {
+	if suffix, wildcard := strings.CutPrefix(entry, "*."); wildcard {
+		return strings.HasSuffix(host, "."+suffix)
+	}
+	return host == entry
 }
 
 // hostnameRulesNeedInterception reports whether the lock must turn TLS

@@ -232,6 +232,23 @@ func TestAnalyseReadsBackAndApplies(t *testing.T) {
 	}
 }
 
+// TestSummarizeDoesNotCountADeniedHostsTunnel: a host whose request was denied
+// still has an accepted CONNECT tunnel; like the egress lock, the summary does
+// not count it as reached.
+func TestSummarizeDoesNotCountADeniedHostsTunnel(t *testing.T) {
+	analysis := Analysis{Observation: channel.Observation{Destinations: []channel.Destination{
+		{Host: "dead.example", Protocol: channel.ConnectProtocol, Success: true, Count: 1},
+		{Host: "dead.example", Protocol: "https", Denied: true, Count: 1},
+		{Host: "api.example", Protocol: "https", Success: true, Count: 1},
+	}}}
+
+	summary := summarize(analysis, nil)
+
+	if summary.ServicesReached != 1 || len(summary.Denied) != 1 {
+		t.Errorf("summary = %+v, want api.example reached and dead.example only denied", summary)
+	}
+}
+
 // TestSummarizeLeavesOutAddressOnlyTunnels: a tunnel still recorded under an IP
 // carried no attributable request, so it is not a service the session reached,
 // matching what the egress lock proposes.

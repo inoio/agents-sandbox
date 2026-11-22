@@ -155,6 +155,10 @@ func summarize(a Analysis, results []analyser.ApplyResult) Summary {
 			services[destination.Host] = true
 		}
 	}
+	// A denied host's accepted tunnel is not use, matching the egress lock.
+	for host := range denied {
+		delete(services, host)
+	}
 	return Summary{
 		ServicesReached: len(services),
 		KeysUsed:        appliedSecretCount(results),

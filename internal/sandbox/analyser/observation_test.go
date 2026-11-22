@@ -138,16 +138,43 @@ func TestObservationNetworkLockKeepsInterceptionWhenItAlreadyWorks(t *testing.T)
 	}
 }
 
-// TestObservationNetworkLockIsSilentOnANarrowPolicy: a policy already narrowed
-// to exactly the used destinations yields no finding even with interception at
-// auto. The finding would re-fire every session for a user whose configured
-// secret already turns interception on, and a lock this proposal wrote carries
-// interception itself.
-func TestObservationNetworkLockIsSilentOnANarrowPolicy(t *testing.T) {
+// TestObservationNarrowPolicyWithoutInterceptionGetsAnInterceptionFinding: a
+// hand-written none policy with hostname entries and interception at auto (off
+// without a secret) blocks every host it allows outside learn mode, where the
+// overlay no longer forces interception. The session used exactly the allowed
+// hosts, so no lock is proposed, but an interception-only finding is. Its
+// evidence carries no per-session count, so a decline (a user whose secret
+// already turns interception on) sticks.
+func TestObservationNarrowPolicyWithoutInterceptionGetsAnInterceptionFinding(t *testing.T) {
+	facts := func(count int) SessionFacts {
+		return SessionFacts{
+			Current: network.Policy{
+				Profiles:    []network.Profile{network.ProfileNone},
+				EgressAllow: []string{"api.example"},
+			},
+			Observation: channel.Observation{Destinations: []channel.Destination{
+				{Host: "api.example", Success: true, Count: count},
+			}},
+		}
+	}
+
+	findings := ObservationFindings(facts(3))
+
+	require.Len(t, findings, 1)
+	require.Len(t, findings[0].Writes, 1)
+	require.Equal(t, "network.intercept-tls", findings[0].Writes[0].ConfigKey)
+	require.Equal(t, findings[0].EvidenceHash, ObservationFindings(facts(7))[0].EvidenceHash,
+		"the interception finding's evidence must not change with the session's request count")
+}
+
+// TestObservationNetworkLockIsSilentOnANarrowInterceptedPolicy: a policy
+// already narrowed to the used hosts with interception on needs nothing.
+func TestObservationNetworkLockIsSilentOnANarrowInterceptedPolicy(t *testing.T) {
 	s := SessionFacts{
 		Current: network.Policy{
-			Profiles:    []network.Profile{network.ProfileNone},
-			EgressAllow: []string{"api.example"},
+			Profiles:     []network.Profile{network.ProfileNone},
+			EgressAllow:  []string{"api.example"},
+			InterceptTLS: network.InterceptOn,
 		},
 		Observation: channel.Observation{Destinations: []channel.Destination{
 			{Host: "api.example", Success: true, Count: 3},
@@ -170,6 +197,14 @@ func TestObservationNetworkLockNeedsAUsedDestination(t *testing.T) {
 	}
 
 	require.Empty(t, ObservationFindings(s))
+}
+
+func TestBypassedHostsRequiresAWildcardLabelAndIgnoresCase(t *testing.T) {
+	got := bypassedHosts(
+		[]string{"example.com", "badexample.com", "a.example.com", "API.Pinned.Example", "exact.example"},
+		[]string{"*.example.com", "*example.com", "*.pinned.example", "EXACT.example"},
+	)
+	require.Equal(t, []string{"a.example.com", "API.Pinned.Example", "exact.example"}, got)
 }
 
 // TestObservationNetworkLockNamesBypassedHosts: under the strict-hostname mode a

@@ -877,6 +877,7 @@ func TestApplyPromptSurfacesWriteText(t *testing.T) {
 // apart, because they are never allowed.
 func TestApplyPromptListsTheProposedDestinations(t *testing.T) {
 	finding := Finding{
+		Kind: KindObservation,
 		Writes: []Write{{
 			Scope:       ScopePerSlugUser,
 			ConfigKey:   "network.egress-allow",
@@ -912,6 +913,7 @@ func TestApplyPromptListsTheProposedDestinations(t *testing.T) {
 
 func TestApplyPromptOmitsAZeroRequestCount(t *testing.T) {
 	finding := Finding{
+		Kind: KindObservation,
 		Writes: []Write{
 			{Scope: ScopePerSlugUser, ConfigKey: "network.egress-allow", ConfigValue: []string{"tunnel-only.example"}},
 		},
@@ -938,6 +940,27 @@ func TestApplyPromptListsDestinationsOnlyForTheEgressLock(t *testing.T) {
 
 	if strings.Contains(prompt, "Allowed") || strings.Contains(prompt, "  + ") {
 		t.Errorf("prompt = %q; want no allow list for a finding that writes no egress-allow", prompt)
+	}
+}
+
+// TestApplyPromptOmitsTheDestinationBlockForAConfigFinding: config harden's
+// wildcard drop also writes network.egress-allow and carries the remaining
+// entries as destinations, but nothing was observed, so no allow list renders.
+func TestApplyPromptOmitsTheDestinationBlockForAConfigFinding(t *testing.T) {
+	finding := Finding{
+		Kind: KindConfig,
+		Evidence: Evidence{
+			Summary:      "the egress-allow list contains a wildcard entry: *",
+			Destinations: []string{"api.example"},
+			Channel:      "config",
+		},
+		Writes: []Write{{Scope: ScopePerSlugUser, ConfigKey: egressAllowKey, ConfigValue: []string{"api.example"}}},
+	}
+
+	prompt := applyPrompt(finding)
+
+	if strings.Contains(prompt, "Allowed") || strings.Contains(prompt, "  + ") {
+		t.Errorf("prompt = %q; want no allow list for a config finding", prompt)
 	}
 }
 
