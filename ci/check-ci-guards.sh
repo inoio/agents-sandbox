@@ -559,7 +559,7 @@ release_needs="$(printf '%s\n' "$(job_block release)" | grep -E '^    needs:' ||
 if [[ -z "$release_needs" ]]; then
   report "ci.yml: 'release' has no needs: list (the release must wait on the tag guard and the check set)"
 else
-  for required in tag-guard lint test integration integration-podman; do
+  for required in tag-guard lint test integration integration-podman hermetic; do
     # Match the token as a whole list element, so `integration` cannot be
     # satisfied by the `integration-podman` substring.
     if ! block_matches "$release_needs" "(^|[^A-Za-z0-9_-])${required}([^A-Za-z0-9_-]|\$)"; then
