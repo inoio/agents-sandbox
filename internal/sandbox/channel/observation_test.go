@@ -152,10 +152,13 @@ func TestDestinationAddressOnlyTunnel(t *testing.T) {
 // healthy host and, on the after-run path, name it in the summary.
 func TestRecorderFailTunnelChargesTheTunnelUnderTheTarget(t *testing.T) {
 	r := new(recorder)
+	// A second client that sent no SNI, so its tunnel stayed under the address.
+	// It is seeded first on purpose: the healthy named tunnel is seen later, so
+	// a "most recent matching entry wins" rule would charge the named host and
+	// only the under-the-target preference keeps the failure on the address.
+	r.observe("203.0.113.7", "203.0.113.7", "", ConnectProtocol, 443, nil).Success = true
 	// The healthy host's tunnel, which merely shares the IP:port.
 	r.observe("api.example", "203.0.113.7", "", ConnectProtocol, 443, nil).Success = true
-	// A second client that sent no SNI, so its tunnel stayed under the address.
-	r.observe("203.0.113.7", "203.0.113.7", "", ConnectProtocol, 443, nil).Success = true
 
 	r.failTunnel("203.0.113.7:443")
 

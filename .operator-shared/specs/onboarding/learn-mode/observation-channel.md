@@ -139,10 +139,17 @@ request succeeded or was denied, the request path, and the credential-bearing he
 request bodies or header **values**. A raw flow capture is scrubbed of values before it is kept. `IP` is empty for a
 hostname target (the analyser treats it as unknown, not as a resolved address).
 
-**Failed handshakes are reported, not dropped.** The proxy records each terminating handshake that fails on its
-tunnel's entry (`Failed`). A client that pins its certificates and one missing the session CA trust (#812) look the
-same to the proxy, and a pinned client works outside learn mode, so such a tunnel stays a used destination (the egress
-lock keeps it) and the after-run names its host instead.
+**Failed handshakes are reported, not dropped.** The proxy records each terminating handshake that fails as a count on
+the entry it charges the failure to (`Failed`). A client that pins its certificates and one missing the session CA
+trust (#812) look the same to the proxy, and a pinned client works outside learn mode, so such a tunnel stays a used
+destination (the egress lock keeps it) and the after-run names its host instead.
+
+**The failed-handshake attribution is a conservative heuristic.** goproxy names a failed handshake only by its CONNECT
+target — under T2 an IP, so the proxy cannot tell which tunnel's handshake failed. The failure is charged to the entry
+recorded under the target itself (an address-only tunnel), and only when no such entry exists to a named entry that
+shares the target's IP. A named host is therefore never blamed for a failure that a no-SNI client may have caused, at
+the cost that when an address-only tunnel shares the target's IP:port the named tunnel's real failure is charged to the
+address-only entry instead — and because `summarize` skips `AddressOnlyTunnel` entries, that failure goes unreported.
 
 **The proxy log is a separate diagnostic file.** The proxy's own warnings go to
 `<UserStateDir>/learn/proxy-logs/<session start>.log` (0600), opened on the first warning only, so a clean session

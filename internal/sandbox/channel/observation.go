@@ -133,13 +133,15 @@ func (r *recorder) nameTunnel(ip string, port uint16, hostname string) {
 
 // failTunnel records a failed terminating handshake (the client aborted, sent
 // EOF, or offered no acceptable version) of a tunnel it opened to
-// connectTarget. goproxy names only the target, so this is a heuristic, used
-// for reporting only: the failure is charged to the tunnel's own entry, the
-// entry recorded under the target itself (an unnamed, address-only tunnel, or a
-// tunnel opened by hostname). A named entry that merely shares the target's IP
-// is charged only when no entry under the target exists — otherwise a failure
-// from a client that sent no SNI would mark a healthy host that shares the same
-// IP:port.
+// connectTarget. goproxy names only the target, so this is a conservative
+// heuristic, used for reporting only: the failure is charged to the entry
+// recorded under the target itself (an unnamed, address-only tunnel, or a tunnel
+// opened by hostname). A named entry that merely shares the target's IP is
+// charged only when no entry under the target exists — otherwise a failure from
+// a client that sent no SNI would mark a healthy host that shares the same
+// IP:port. The cost is the reverse case: when an address-only tunnel shares the
+// target, a named tunnel's real failure is charged to the address-only entry,
+// which summarize skips, so it goes unreported.
 func (r *recorder) failTunnel(connectTarget string) {
 	host, port := splitHostPort(connectTarget)
 	if parsed := net.ParseIP(host); parsed != nil {
