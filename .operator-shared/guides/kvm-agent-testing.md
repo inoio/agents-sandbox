@@ -54,6 +54,7 @@ msb doctor               # microsandbox runtime works
 go version               # /usr/local/go/bin on PATH
 opencode2 --version      # the agent (also reachable as `opencode`)
 tmux -V
+gh --version             # the GitHub CLI, signed in by `kvm-agent-up` from GITHUB_PAT
 shellcheck --version
 golangci-lint version    # matches the Makefile pin (2.15.0)
 exit
@@ -100,9 +101,9 @@ Two behaviors that are correct, not bugs:
 - **Credentials are not written.** opencode2 keeps them in its own store and the guest has no launcher secret proxy, so
   T3 supplies them by environment.
 
-Provisioning also copies the host's `~/.gitconfig` into the guest and turns commit/tag signing off there (the host's
-signing key is not in the guest), so the agent can commit as the host user. A host with no `~/.gitconfig` skips both and
-the guest keeps its own identity.
+Provisioning also gives the guest the host's git identity — only `user.name` and `user.email`, not the rest of the
+host's `~/.gitconfig` (credential helpers, aliases, signing config) — so the agent can commit as the host user. A host
+with neither key keeps the guest's own identity.
 
 Negative: with no `~/.config/agents-sandbox/` on the host, expect the informative log line, no rsync, and the
 materialization still running against the guest's project scope.
@@ -123,6 +124,8 @@ confirm it answers — that proves the credentials reached the process.
   A value with spaces is fine (`KVM_AGENT='A=1 B=2 opencode'`). The auth value is visible in the host's process list
   and shell history — expected for this channel, not a leak to fix here.
 - `make kvm-agent KVM_AGENT=definitely-not-a-command` should fail loudly in the session, not silently.
+- `GITHUB_PAT` in the host environment makes `kvm-agent-up` sign `gh` in the guest; verify in the session with
+  `gh auth status` and `gh issue list`. A guest built before `gh` was installed fails the sign-in loudly (rebuild it).
 
 ## T4 — the agent does the work the development VM cannot
 
@@ -150,8 +153,9 @@ git log --oneline kvm-guest/<branch> -1   # the guest's commit
 Expect each guest branch under `kvm-guest/<name>` after the default run, and the local `<branch>` created or
 fast-forwarded by the `BRANCH=` form.
 
-There is no push and no GitHub credential (undecided scope). Confirm the hazard is real: `make kvm-sync` is one-way and
-`--delete`s, so never run it over a live agent session.
+There is no push unless `make kvm-agent-up` signed `gh` in with a `GITHUB_PAT` (then a push over the HTTPS remote and
+`gh pr create` work); without a PAT the guest does not push, and `kvm-sync-back` is the return path either way. Confirm
+the hazard is real: `make kvm-sync` is one-way and `--delete`s, so never run it over a live agent session.
 
 ## T6 — re-provision after a rebuild
 
@@ -178,4 +182,3 @@ The guest is disposable, so `agent-provision` must be re-runnable and the agent 
   into the guest.
 - The guest-specific instruction overlay is not built yet: the agent reads the repository's `AGENTS.md`, which describes
   a sandbox that is not there — prompt it accordingly, or track that as follow-up.
-- `gh` is not installed on the guest (GitHub work undecided).
