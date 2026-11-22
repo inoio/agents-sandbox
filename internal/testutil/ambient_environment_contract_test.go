@@ -337,13 +337,30 @@ func (m testEnvMarkers) standaloneAboveHasTestEnvAllow(start int) bool {
 	return strings.TrimSpace(m.lines[line-1][:prefixEnd]) == ""
 }
 
-// defaultBuildTestSources returns the source of every *_test.go file the default
-// build compiles, so a scanner can read both the AST and the raw lines.
+// testSourcePrefix names the module subtree whose non-test .go files are test
+// code. The shared untagged driver package lives under test/, so its non-test
+// files carry the same ambient escapes a *_test.go file would and must be
+// scanned. A non-test file elsewhere is production code these gates do not own.
+const testSourcePrefix = "test/"
+
+// scansNonTestSources reports whether a package's non-test .go files are test
+// sources the ambient gates own. Only the test/ subtree qualifies; a package
+// elsewhere contributes its *_test.go files alone.
+func scansNonTestSources(pkgDir string) bool {
+	return strings.HasPrefix(pkgDir, testSourcePrefix)
+}
+
+// scanDefaultBuildTestSources returns the source of every default-build file a
+// scanner reads: each *_test.go file, plus every non-test .go file under test/,
+// where the shared untagged driver package keeps test code in non-test files.
+// The default-build guard keeps an integration- or msb-tagged file out of the
+// scan, so a scanner can read both the AST and the raw lines.
 func scanDefaultBuildTestSources(t *testing.T, root string, packages []modulePackage) []testSource {
 	t.Helper()
 	var sources []testSource
 	for _, pkg := range packages {
-		if !pkg.hasTests {
+		scansNonTest := scansNonTestSources(pkg.dir)
+		if !pkg.hasTests && !scansNonTest {
 			continue
 		}
 		dir := filepath.Join(root, pkg.dir)
@@ -353,7 +370,10 @@ func scanDefaultBuildTestSources(t *testing.T, root string, packages []modulePac
 		}
 		for _, entry := range entries {
 			name := entry.Name()
-			if entry.IsDir() || !strings.HasSuffix(name, "_test.go") {
+			if entry.IsDir() || !strings.HasSuffix(name, ".go") {
+				continue
+			}
+			if !strings.HasSuffix(name, "_test.go") && !scansNonTest {
 				continue
 			}
 			inDefaultBuild, err := build.Default.MatchFile(dir, name)
@@ -726,6 +746,74 @@ func TestX(t *testing.T) {
 			}
 			if !slices.Equal(got, tt.want) {
 				t.Errorf("ambientEnvironmentUsesIn() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestAmbientScanCoversNonTestSourcesUnderTest pins the scan scope: a non-test
+// .go file under test/ is scanned like a *_test.go file, so the shared untagged
+// driver package cannot hide an ambient read behind a non-test file name. A
+// file outside test/ is still scanned only when it is a *_test.go file, and the
+// default-build guard keeps an msb-tagged file under test/ out of the scan.
+func TestAmbientScanCoversNonTestSourcesUnderTest(t *testing.T) {
+	tests := []struct {
+		name string
+		rel  string
+		file string
+		want []string
+	}{
+		{
+			name: "a non-test file under test/ is scanned",
+			rel:  "test/foo/helper.go",
+			file: `package foo
+import "os"
+func Helper() string { return os.Getenv("HOME") }
+`,
+			want: []string{"os.Getenv"},
+		},
+		{
+			name: "a marker sanctions a non-test file under test/",
+			rel:  "test/foo/helper.go",
+			file: `package foo
+import "os"
+func Helper() string { return os.Getenv("HOME") } //testenv:allow the caller pins the home it reads
+`,
+			want: nil,
+		},
+		{
+			name: "an msb-tagged file under test/ is not scanned",
+			rel:  "test/foo/helper.go",
+			file: `//go:build msb
+
+package foo
+import "os"
+func Helper() string { return os.Getenv("HOME") }
+`,
+			want: nil,
+		},
+		{
+			name: "a non-test file outside test/ is not scanned",
+			rel:  "internal/foo/helper.go",
+			file: `package foo
+import "os"
+func Helper() string { return os.Getenv("HOME") }
+`,
+			want: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeFixtureFile(t, root, tt.rel, tt.file)
+
+			var got []string
+			for _, use := range ambientUses(t, root, modulePackages(t, root)) {
+				got = append(got, use.what)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("ambientUses() = %v, want %v", got, tt.want)
 			}
 		})
 	}
