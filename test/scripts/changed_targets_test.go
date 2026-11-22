@@ -80,12 +80,17 @@ func TestChangedTargets(t *testing.T) {
 			"# x",
 			[]string{"deadcode-test", "compile-all", "lint", "test", "validate-fmt"},
 		},
-		{"modified brain checker", "scripts/brain-check.sh", "# x", []string{"brain-check-test", "shellcheck"}},
+		{
+			"modified brain checker",
+			"scripts/brain-check.sh",
+			"# x",
+			[]string{"brain-check", "brain-check-test", "shellcheck"},
+		},
 		{
 			"modified brain-check Go harness",
 			"test/scripts/brain_check_test.go",
 			"# x",
-			[]string{"brain-check-test", "compile-all", "lint", "test", "validate-fmt"},
+			[]string{"brain-check", "brain-check-test", "compile-all", "lint", "test", "validate-fmt"},
 		},
 		{
 			"modified changed-files script",
@@ -251,7 +256,7 @@ func TestChangedTargets(t *testing.T) {
 		{"nested markdown selects nothing", ".github/PULL_REQUEST_TEMPLATE.md", "# x", nil},
 		{"dev-VM dockerfile selects nothing", ".agents-sandbox/Dockerfile", "FROM x", nil},
 		{"opencode config selects nothing", "opencode.jsonc", "{}", nil},
-		{"operator brain selects nothing", ".operator-shared/specs/x.md", "# b2", nil},
+		{"operator brain selects the brain check", ".operator-shared/specs/x.md", "# b2", []string{"brain-check"}},
 	}
 	for _, tt := range localCases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -295,14 +300,15 @@ func TestChangedTargets(t *testing.T) {
 		}
 	})
 
-	t.Run("rename selects the source class", func(t *testing.T) {
+	t.Run("rename selects both classes", func(t *testing.T) {
 		t.Parallel()
 		repo := newMapRepo(t)
 		repo.Rename("docs/guide.md", ".operator-shared/guide.md")
 		assertSorted(
 			t,
-			"rename selects the source class",
+			"rename selects both classes",
 			runMap(t, repo.Dir(), "local", "", nil).Stdout,
+			"brain-check",
 			"docs-linkcheck",
 		)
 	})

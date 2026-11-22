@@ -67,5 +67,6 @@ The catalog is a map, not a second copy of the docs.
 `make brain-check` (`scripts/brain-check.sh`) enforces the structural rules above: a non-empty `description`/`read_if`
 on every index and spec, resolving relative links, catalog coverage of spec subsystems/guides/plans and existence of
 every catalogued path, no plan citation from a spec, no "Implementing…" Read If prefix, and no shared reference into
-the private partition. It proves structural consistency, not accuracy: a stale-but-consistent document still passes,
-so the content rules stay a reading task.
+the private partition. It runs in `make check`/`make verify` (and the fast loop selects it for a `.operator-shared/`
+change), so a dangling catalog entry fails the gate. It proves structural consistency, not accuracy: a stale-but-consistent
+document still passes, so the content rules stay a reading task.

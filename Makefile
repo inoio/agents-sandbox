@@ -509,7 +509,7 @@ check-test:
 JOBS ?= $(shell n=$$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2); q=$$((n / 4)); [ "$$q" -lt 2 ] && q=2; echo "$$q")
 
 CHECK_HEAVY_TARGETS = lint test compile-all
-CHECK_LIGHT_TARGETS = validate-fmt actionlint shellcheck docs-linkcheck ci-guards-check changelog-check
+CHECK_LIGHT_TARGETS = validate-fmt actionlint shellcheck docs-linkcheck ci-guards-check changelog-check brain-check
 CHECK_TARGETS = $(CHECK_HEAVY_TARGETS) $(CHECK_LIGHT_TARGETS)
 VERIFY_HEAVY_TARGETS = $(CHECK_HEAVY_TARGETS) test-race vulncheck deadcode
 VERIFY_TARGETS = $(CHECK_TARGETS) test-race vulncheck deadcode
