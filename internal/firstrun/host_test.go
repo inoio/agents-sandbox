@@ -120,6 +120,25 @@ func TestHostFilesFindsProvisionedConfig(t *testing.T) {
 	}
 }
 
+// TestHostFilesWithholdsClaudeCodeSettings pins that a host
+// ~/.claude/settings.json is not seedable: it can hold credentials in shapes
+// the seed cannot classify (custom auth headers, a proxy URL with userinfo,
+// hook commands), so it is withheld until that classification exists.
+func TestHostFilesWithholdsClaudeCodeSettings(t *testing.T) {
+	hostHome := t.TempDir()
+	writeHostFile(t, hostHome, ".claude/settings.json", `{"env":{"ANTHROPIC_CUSTOM_HEADERS":"x-api-key: sk-x"}}`)
+	claude, ok := agent.Lookup("claude-code")
+	if !ok {
+		t.Fatal("claude-code is not registered")
+	}
+
+	files, sourceHash := HostFiles(claude, hostHome)
+
+	if len(files) != 0 || sourceHash != "" {
+		t.Errorf("HostFiles = %v (%q), want the host settings.json withheld", files, sourceHash)
+	}
+}
+
 // TestHostFilesEmptyForAnAgentWithoutHostSetup pins that an agent declaring no
 // provision rules (or none at all) yields no files and no hash, so the caller
 // omits "learn from my host setup".

@@ -37,13 +37,16 @@ only channel that works when the launcher-owned proxy
    (invariant 5). A credential the read-back cannot name is not scoped and is not proposed.
 3. Which **login** credentials exist in the sandbox home (recorded, never copied). A login store is declared by an
    exact path or by a glob, so a store that is a **directory of files** — kimi's `~/.kimi-code/credentials/*.json` —
-   is recorded as one login per matched file rather than missed.
+   is recorded as one login per matched file rather than missed. Claude Code's login is `~/.claude/.credentials.json`.
 
 A profile declares a config file as a read-back path only when the reader classifies every credential shape that file
 can hold. An inline key the walk does not recognise would otherwise reach the managed-config write-back verbatim
 (its content is sanitized only against the *classified* static set), so an as-yet-unclassified file is withheld until
 its shape is covered: `grok-build` declares `~/.grok/auth.json` only, withholding `~/.grok/config.toml` because its
-`[model.<id>] api_key` is not classified yet (the `codex` precedent, which omits its own `config.toml`).
+`[model.<id>] api_key` is not classified yet (the `codex` precedent, which omits its own `config.toml`). `claude-code`
+withholds `~/.claude/settings.json` for the same reason, and more strictly: it is also excluded from the inline walk
+and the first-run host seed (`readback.SkipsInlineCredentials`), because it carries credentials in values whose key
+names no secret (custom auth headers, a proxy URL with userinfo, hook commands, `apiKeyHelper`).
 
 An agent whose profile declares no read-back — unknown, or a harness whose layout is not yet verified — yields an empty
 manifest and an empty read-back, never an error and never a false "no credentials" result.

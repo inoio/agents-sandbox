@@ -110,12 +110,12 @@ func TestTakeManifestLeavesUndeclaredFilesOut(t *testing.T) {
 
 func TestTakeManifestExactFileSelectsNoSibling(t *testing.T) {
 	home := t.TempDir()
-	writeFile(t, home, ".claude/settings.json", "a")
-	writeFile(t, home, ".claude/settings.local.json", "b")
+	writeFile(t, home, ".claude/.credentials.json", "a")
+	writeFile(t, home, ".claude/.credentials.json.bak", "b")
 
 	m := mustManifest(t, home, "claude-code")
 
-	require.Equal(t, []string{".claude/settings.json"}, manifestKeys(m),
+	require.Equal(t, []string{".claude/.credentials.json"}, manifestKeys(m),
 		"an exact declared file selects itself, not a similarly named sibling")
 }
 
