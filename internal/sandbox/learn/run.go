@@ -48,12 +48,13 @@ type Run struct {
 // it. On failure it returns a nil Run and the error; the caller warns and uses
 // Passive.
 func Begin(base network.Policy) (*Run, error) {
-	observer, err := startObservation("", base)
+	startedAt := time.Now().UTC()
+	observer, err := startObservation("", base, startedAt)
 	if err != nil {
 		return nil, err
 	}
 	//exhaustruct:ignore // home is filled by CaptureBaseline, after the VM is prepared
-	return &Run{observer: observer, base: base, startedAt: time.Now().UTC()}, nil
+	return &Run{observer: observer, base: base, startedAt: startedAt}, nil
 }
 
 // Passive returns a Run with no channel: read-back-only analysis.

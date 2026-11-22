@@ -144,6 +144,64 @@ func TestDestinationAddressOnlyTunnel(t *testing.T) {
 	}
 }
 
+// TestRecorderFailTunnelMarksTheLatestMatchingTunnel: goproxy reports a failed
+// handshake by its CONNECT target. The failure belongs to the tunnel that most
+// recently started a handshake to that target, which is the named entry when
+// the client sent SNI.
+func TestRecorderFailTunnelMarksTheLatestMatchingTunnel(t *testing.T) {
+	r := new(recorder)
+	r.observe("203.0.113.7", "203.0.113.7", "", ConnectProtocol, 443, nil).Success = true
+	r.observe("203.0.113.7", "203.0.113.7", "", ConnectProtocol, 443, nil).Success = true
+	r.nameTunnel("203.0.113.7", 443, "api.example")
+
+	r.failTunnel("203.0.113.7:443")
+
+	destinations := r.result(Observation{}).Destinations
+	named := destinationByHost(t, destinations, "api.example")
+	if named.Failed != 1 || !named.HandshakeFailed() {
+		t.Errorf("named tunnel = %+v, want its one handshake failed", named)
+	}
+	unnamed := destinationByHost(t, destinations, "203.0.113.7")
+	if unnamed.Failed != 0 {
+		t.Errorf("unnamed tunnel = %+v, want no failure", unnamed)
+	}
+}
+
+func TestRecorderFailTunnelMatchesAHostnameTarget(t *testing.T) {
+	r := new(recorder)
+	r.observe("api.example", "", "", ConnectProtocol, 443, nil).Success = true
+
+	r.failTunnel("api.example:443")
+	r.failTunnel("other.example:443")
+
+	destinations := r.result(Observation{}).Destinations
+	if len(destinations) != 1 || destinations[0].Failed != 1 {
+		t.Fatalf("destinations = %+v, want the one tunnel failed once and nothing invented", destinations)
+	}
+}
+
+func TestDestinationHandshakeFailed(t *testing.T) {
+	cases := map[string]struct {
+		destination Destination
+		want        bool
+	}{
+		"request": {Destination{Protocol: "https", Success: true, Count: 1, Failed: 1}, false},
+		"tunnel":  {Destination{Protocol: ConnectProtocol, Success: true, Count: 2}, false},
+		"tunnel, one of two failed": {
+			Destination{Protocol: ConnectProtocol, Success: true, Count: 2, Failed: 1},
+			false,
+		},
+		"tunnel, every one failed": {Destination{Protocol: ConnectProtocol, Success: true, Count: 2, Failed: 2}, true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := tc.destination.HandshakeFailed(); got != tc.want {
+				t.Errorf("HandshakeFailed(%+v) = %v, want %v", tc.destination, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestRecorderKeepsDestinationsDistinct(t *testing.T) {
 	var r recorder
 	r.observe("api.example", "203.0.113.7", "/v1/chat", "https", 443, nil)

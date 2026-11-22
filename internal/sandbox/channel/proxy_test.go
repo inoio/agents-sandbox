@@ -60,7 +60,7 @@ func proxyClient(t *testing.T, handle Handle) *http.Client {
 func TestProxyRecordsDestinationAndCredentialHeaderName(t *testing.T) {
 	// The upstream is httptest's self-signed TLS server; skip upstream
 	// verification so the test exercises observation, not certificate trust.
-	handle, err := Start("127.0.0.1", true)
+	handle, err := Start("127.0.0.1", true, nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestProxyStreamsSSEResponseIncrementally(t *testing.T) {
 	// A plain-HTTP upstream keeps the test on the default (verifying) origin
 	// transport: streaming is transport-agnostic, and httptest's TLS server is
 	// self-signed, which the default transport now rejects.
-	handle, err := Start("127.0.0.1", false)
+	handle, err := Start("127.0.0.1", false, nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -223,7 +223,7 @@ func TestProxyStreamsSSEResponseIncrementally(t *testing.T) {
 // issued for that hostname, or the runtime rejects the handshake and the
 // agent's request never leaves the VM.
 func TestProxyTerminatesForTheSNIHostnameOfAnIPConnect(t *testing.T) {
-	handle, err := Start("127.0.0.1", true)
+	handle, err := Start("127.0.0.1", true, nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -295,7 +295,7 @@ func TestProxyTerminatesForTheSNIHostnameOfAnIPConnect(t *testing.T) {
 }
 
 func TestProxyRecordsDeniedDestination(t *testing.T) {
-	handle, err := Start("127.0.0.1", false)
+	handle, err := Start("127.0.0.1", false, nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -339,7 +339,7 @@ func TestProxyRecordsDeniedDestination(t *testing.T) {
 // self-signed one) is rejected and the request is recorded as a denial — a
 // forwarded credential can never reach an impostor.
 func TestProxyVerifiesUpstreamCertificateByDefault(t *testing.T) {
-	handle, err := Start("127.0.0.1", false)
+	handle, err := Start("127.0.0.1", false, nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -371,7 +371,7 @@ func TestProxyVerifiesUpstreamCertificateByDefault(t *testing.T) {
 // skip-upstream-verify lets the same self-signed upstream round-trip, proving
 // the opt-out reaches the origin dial rather than only the constructor.
 func TestProxySkipsUpstreamVerificationWhenConfigured(t *testing.T) {
-	handle, err := Start("127.0.0.1", true)
+	handle, err := Start("127.0.0.1", true, nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -393,7 +393,10 @@ func TestProxySkipsUpstreamVerificationWhenConfigured(t *testing.T) {
 }
 
 func TestProxyRecordsConnectTunnelWhenMitmHandshakeFails(t *testing.T) {
-	handle, err := Start("127.0.0.1", false)
+	logPath := filepath.Join(t.TempDir(), "proxy.log")
+	handle, err := Start("127.0.0.1", false, func() (*os.File, error) {
+		return os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY, 0o600)
+	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -413,9 +416,18 @@ func TestProxyRecordsConnectTunnelWhenMitmHandshakeFails(t *testing.T) {
 			Proxy: http.ProxyURL(&url.URL{Scheme: "http", Host: handle.Addr}),
 		},
 	}
+	handshakeFailed := make(chan struct{}, 1)
+	recordFailure := handle.state.logger().onHandshakeFailure
+	handle.state.logger().onHandshakeFailure = func(target string) {
+		recordFailure(target)
+		handshakeFailed <- struct{}{}
+	}
 	if _, err := client.Get(upstream.URL); err == nil {
 		t.Fatal("the untrusted proxy CA should have failed the handshake")
 	}
+	// goproxy logs the failure on its own goroutine once the client's alert
+	// arrives; wait for it, as the after-run does by running long after.
+	<-handshakeFailed
 
 	observation := handle.Stop()
 	if len(observation.Destinations) != 1 {
@@ -439,6 +451,26 @@ func TestProxyRecordsConnectTunnelWhenMitmHandshakeFails(t *testing.T) {
 	}
 	if len(observation.Attribution) != 0 {
 		t.Errorf("attribution = %+v, want none for an un-terminated tunnel", observation.Attribution)
+	}
+	if destination.Failed != 1 || !destination.HandshakeFailed() {
+		t.Errorf("destination = %+v, want its one handshake failed", destination)
+	}
+	if observation.ProxyWarnings == 0 || observation.ProxyLog == "" {
+		t.Fatalf("observation = %+v, want the handshake failure logged", observation)
+	}
+	logged, err := os.ReadFile(observation.ProxyLog)
+	if err != nil {
+		t.Fatalf("read the proxy log: %v", err)
+	}
+	if !strings.Contains(string(logged), "Cannot handshake client") {
+		t.Errorf("proxy log = %q, want the handshake failure", logged)
+	}
+	info, err := os.Stat(observation.ProxyLog)
+	if err == nil && info.Mode().Perm() != 0o600 {
+		t.Errorf("proxy log mode = %o, want 0600", info.Mode().Perm())
+	}
+	if observation.ProxyLog != logPath {
+		t.Errorf("ProxyLog = %q, want %q", observation.ProxyLog, logPath)
 	}
 }
 
@@ -470,7 +502,7 @@ func TestProxyConnectHostnameRecordsEmptyIP(t *testing.T) {
 }
 
 func TestProxyHandleExposesCAAndStopsIdempotently(t *testing.T) {
-	handle, err := Start("127.0.0.1", false)
+	handle, err := Start("127.0.0.1", false, nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -522,7 +554,7 @@ func TestProxyHandleExposesCAAndStopsIdempotently(t *testing.T) {
 // An empty bindHost must mean loopback: the proxy is never bound to every
 // interface, so a blank value cannot expose it on the network.
 func TestStartEmptyBindHostIsLoopback(t *testing.T) {
-	handle, err := Start("", false)
+	handle, err := Start("", false, nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -629,11 +661,6 @@ func TestHandleZeroValueStopIsEmpty(t *testing.T) {
 	}
 }
 
-// discardLogger swallows goproxy's output; calling it must not panic or write.
-func TestDiscardLoggerSwallowsOutput(t *testing.T) {
-	discardLogger{}.Printf("goproxy warning %d", 1)
-}
-
 // Start propagates a CA-generation failure (the key generator cannot produce a
 // key), so a broken entropy source surfaces to the caller rather than yielding a
 // proxy with no CA.
@@ -642,7 +669,7 @@ func TestStartFailsWhenCAKeyGenerationFails(t *testing.T) {
 		return nil, errChannelSeam
 	})
 
-	if _, err := Start("127.0.0.1", false); err == nil {
+	if _, err := Start("127.0.0.1", false, nil); err == nil {
 		t.Error("Start with a failing key generator returned no error")
 	}
 }
@@ -656,7 +683,7 @@ func TestStartFailsWhenCAFileCannotBeWritten(t *testing.T) {
 	}
 	t.Setenv("TMPDIR", notADirectory)
 
-	if _, err := Start("127.0.0.1", false); err == nil {
+	if _, err := Start("127.0.0.1", false, nil); err == nil {
 		t.Error("Start with an unwritable CA temp dir returned no error")
 	}
 }
@@ -667,7 +694,7 @@ func TestStartFailsWhenListenFails(t *testing.T) {
 	caDir := t.TempDir()
 	t.Setenv("TMPDIR", caDir)
 
-	if _, err := Start("[::1]", false); err == nil {
+	if _, err := Start("[::1]", false, nil); err == nil {
 		t.Error("Start with an unparseable bind host returned no error")
 	}
 	assertNoCAFiles(t, caDir)
@@ -777,8 +804,8 @@ func TestTerminateProxyIsQuietAndDialsDirectly(t *testing.T) {
 	state := &proxyState{recorder: new(recorder)}
 
 	proxy := terminateProxy(ca, state, false)
-	if _, ok := proxy.Logger.(discardLogger); !ok {
-		t.Errorf("proxy.Logger = %T, want the discard logger", proxy.Logger)
+	if _, ok := proxy.Logger.(*proxyLog); !ok {
+		t.Errorf("proxy.Logger = %T, want the session proxy log", proxy.Logger)
 	}
 	if proxy.Tr == nil || proxy.Tr.Proxy != nil {
 		t.Error("the observation proxy must dial upstream directly, not via a host proxy env var")
@@ -895,7 +922,7 @@ func TestOnResponseNilDoesNotMarkDestination(t *testing.T) {
 // registered when it observes the shutdown, so allow a brief window for that
 // goroutine to run before declaring the listener still open.
 func TestStopClosesProxyListener(t *testing.T) {
-	handle, err := Start("127.0.0.1", false)
+	handle, err := Start("127.0.0.1", false, nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}

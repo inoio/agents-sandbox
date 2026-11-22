@@ -63,6 +63,10 @@ type proxyState struct {
 	recorder *recorder
 	caFile   string
 
+	log      *proxyLog
+	logPath  string
+	logLines int
+
 	mu sync.Mutex
 }
 
@@ -80,7 +84,10 @@ type proxyState struct {
 // proxy forwards cannot reach an impostor; it is the
 // network.observe.skip-upstream-verify escape hatch for a host whose egress is
 // transparently intercepted with a private CA the system roots do not include.
-func Start(bindHost string, skipUpstreamVerify bool) (Handle, error) {
+//
+// openLog opens the session's proxy log; it is called on the first warning
+// only, so a clean session creates no file. A nil openLog only counts.
+func Start(bindHost string, skipUpstreamVerify bool, openLog func() (*os.File, error)) (Handle, error) {
 	if bindHost == "" {
 		bindHost = "127.0.0.1"
 	}
@@ -102,6 +109,10 @@ func Start(bindHost string, skipUpstreamVerify bool) (Handle, error) {
 	state := new(proxyState)
 	state.recorder = new(recorder)
 	state.caFile = caFile
+	state.log = &proxyLog{
+		mu: sync.Mutex{}, file: nil, openLog: openLog, lines: 0, closed: false,
+		onHandshakeFailure: state.failTunnel,
+	}
 	state.server = &http.Server{
 		Handler: terminateProxy(ca, state, skipUpstreamVerify),
 		// A defensive ceiling on reading a request's headers; the value is not
@@ -130,9 +141,9 @@ func Start(bindHost string, skipUpstreamVerify bool) (Handle, error) {
 // not a sandbox-policy denial.
 func terminateProxy(ca tls.Certificate, state *proxyState, skipUpstreamVerify bool) *goproxy.ProxyHttpServer {
 	proxy := goproxy.NewProxyHttpServer()
-	// goproxy's own logger warns unconditionally; route it to a discard so it
-	// cannot interleave with the agent's TUI during a learning session.
-	proxy.Logger = discardLogger{}
+	// goproxy's own logger warns unconditionally; route it to the session log
+	// so it cannot interleave with the agent's TUI during a learning session.
+	proxy.Logger = state.logger()
 	// The observation proxy is the sandbox's egress, so it dials upstream
 	// directly instead of honouring a host proxy environment variable.
 	proxy.Tr.Proxy = nil
@@ -161,13 +172,6 @@ func terminateProxy(ca tls.Certificate, state *proxyState, skipUpstreamVerify bo
 	proxy.OnResponse().DoFunc(state.onResponse)
 	return proxy
 }
-
-// discardLogger swallows goproxy's unconditional log output, so a warning from
-// the proxy library cannot interleave with the agent's TUI during a learning
-// session.
-type discardLogger struct{}
-
-func (discardLogger) Printf(string, ...any) {}
 
 // observeConnect records a CONNECT target as a value-free "connect" destination
 // and marks it successful, because the proxy accepts the tunnel. A client that
@@ -278,7 +282,7 @@ func (s *proxyState) onResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *htt
 func (h Handle) Stop() Observation {
 	if h.state == nil {
 		// gomutants:disable-next-line RETURN_ZERO reason="an empty Observation is the zero value, so zeroing the literal is the identical value"
-		return Observation{Destinations: nil, Attribution: nil}
+		return Observation{Destinations: nil, Attribution: nil, ProxyLog: "", ProxyWarnings: 0}
 	}
 	return h.state.stop()
 }
@@ -292,17 +296,43 @@ func (h Handle) CAPEM() string { return h.caPEM }
 // removes the file.
 func (h Handle) CAFile() string { return h.caFile }
 
-// stop closes the server, removes the CA file, and returns the artefact. It is
-// idempotent.
+// stop closes the server, removes the CA file, closes the session log, and
+// returns the artefact naming the log when it holds anything. It is idempotent.
 func (s *proxyState) stop() Observation {
-	s.mu.Lock()
 	// Close is idempotent, so a second Stop needs no flag to stay a no-op.
 	_ = s.server.Close()
-	observation := s.recorder.result(Observation{Destinations: nil, Attribution: nil})
+	// The log closes before the recorder is read, so a failure logged after
+	// Stop reaches neither; one logged just before can still miss the
+	// artefact, which is harmless once the session is over.
+	if s.log != nil {
+		s.logPath, s.logLines = s.log.close()
+	}
+	s.mu.Lock()
+	observation := s.recorder.result(Observation{Destinations: nil, Attribution: nil, ProxyLog: "", ProxyWarnings: 0})
 	s.mu.Unlock()
 
 	_ = os.Remove(s.caFile)
+	observation.ProxyLog, observation.ProxyWarnings = s.logPath, s.logLines
 	return observation
+}
+
+// logger returns the state's session log, or a counting-only one for a state
+// built without Start.
+func (s *proxyState) logger() *proxyLog {
+	if s.log == nil {
+		s.log = &proxyLog{
+			mu: sync.Mutex{}, file: nil, openLog: nil, lines: 0, closed: false,
+			onHandshakeFailure: s.failTunnel,
+		}
+	}
+	return s.log
+}
+
+// failTunnel records a handshake the client aborted on the tunnel it belongs to.
+func (s *proxyState) failTunnel(connectTarget string) {
+	s.mu.Lock()
+	s.recorder.failTunnel(connectTarget)
+	s.mu.Unlock()
 }
 
 // generateCA creates a fresh self-signed CA for one proxy, returned parsed (for

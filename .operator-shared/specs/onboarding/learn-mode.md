@@ -90,7 +90,9 @@ and denied, and **which credential was sent to which destination** — need an o
    necessarily, since attribution needs them — so the channel and any raw capture are secret material. The *recorded
    artefact* holds destinations, request paths, and credential-bearing header **names**, never request bodies and
    never header values; a raw flow capture is scrubbed of values before it is kept. Artefacts stay on the host, are
-   deleted after analysis by default, and are never uploaded.
+   deleted after analysis by default, and are never uploaded. The proxy's diagnostic log (written only when the proxy
+   warns, values and queries redacted) is the one file kept past the analysis, for 30 days, so a failed session can be
+   diagnosed ([observation channel](learn-mode/observation-channel.md)).
 4. **No widening.** Learn mode learns what was used; it never removes a user-set entry or broadens a policy.
 5. **No curated knowledge in the learned path.** A proposal derived from a table rather than from the session is a
    different feature and must not be mixed in.

@@ -112,6 +112,31 @@ func TestObservationNetworkLockLeavesOutAddressOnlyTunnels(t *testing.T) {
 	require.Equal(t, []string{"api.example"}, egressAllowWrite(t, findings[0]).ConfigValue)
 }
 
+// TestObservationNetworkLockKeepsFailedTunnels: a tunnel whose every
+// terminating handshake failed cannot be told apart from a pinned client's
+// (both abort on the session CA), and a pinned client works outside learn mode,
+// so its host stays in the lock; the after-run names it instead.
+func TestObservationNetworkLockKeepsFailedTunnels(t *testing.T) {
+	s := SessionFacts{
+		Observation: channel.Observation{Destinations: []channel.Destination{
+			{
+				Host:     "pinned.example",
+				IP:       "203.0.113.7",
+				Protocol: channel.ConnectProtocol,
+				Success:  true,
+				Count:    2,
+				Failed:   2,
+			},
+			{Host: "api.example", Protocol: "https", Success: true, Count: 1},
+		}},
+	}
+
+	findings := ObservationFindings(s)
+
+	require.Len(t, findings, 1)
+	require.Equal(t, []string{"api.example", "pinned.example"}, findings[0].Evidence.Destinations)
+}
+
 // TestObservationNetworkLockKeepsInterceptionWhenItAlreadyWorks: interception
 // already on, or strict mode off, lets hostname rules work, so the lock writes
 // no interception setting.

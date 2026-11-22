@@ -153,6 +153,18 @@ func printSummary(ui termio.UI, summary Summary) {
 	if len(summary.Denied) > 0 {
 		ui.Infof("Denied destinations (never auto-allowed): %s", strings.Join(summary.Denied, ", "))
 	}
+	if len(summary.HandshakeFailed) > 0 {
+		ui.Warnf(
+			"TLS handshake failed for %s: a client that pins its certificates, or one missing the sandbox CA trust.",
+			strings.Join(summary.HandshakeFailed, ", "),
+		)
+	}
+	switch {
+	case summary.ProxyLog != "":
+		ui.Warnf("The learn proxy logged %d problem(s): %s", summary.ProxyWarnings, summary.ProxyLog)
+	case summary.ProxyWarnings > 0:
+		ui.Warnf("The learn proxy reported %d problem(s); its log could not be written.", summary.ProxyWarnings)
+	}
 	PrintReported(ui, summary.Results)
 }
 

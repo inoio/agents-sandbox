@@ -17,17 +17,25 @@ const observedViaProxy = "proxy-terminate"
 // leak: no request body, no header value, no query. It is the frozen contract
 // the after-run analysis reads.
 type Destination struct {
-	Host      string    `json:"host"`       // Host header / SNI
-	IP        string    `json:"ip"`         // literal IP when the CONNECT target is an IP; empty for a hostname target (unknown to the analyser)
-	Port      uint16    `json:"port"`       // port the request used
-	Protocol  string    `json:"protocol"`   // "https" | "http" | "connect" | "socks5" | "tcp"; empty only when a recorded denial named none
-	Path      string    `json:"path"`       // request path, never a query
-	Success   bool      `json:"success"`    // a response arrived, or — for a "connect" entry — the tunnel was accepted
-	Denied    bool      `json:"denied"`     // our proxy's dial to it failed; not a sandbox-policy denial (the runtime enforces egress before our proxy under T2)
-	Count     int       `json:"count"`      // requests observed to this destination
-	FirstSeen time.Time `json:"first_seen"` // first request observed
-	LastSeen  time.Time `json:"last_seen"`  // most recent request observed
-	Channel   string    `json:"channel"`    // which observer saw it, e.g. "proxy-terminate"
+	Host      string    `json:"host"`             // Host header / SNI
+	IP        string    `json:"ip"`               // literal IP when the CONNECT target is an IP; empty for a hostname target (unknown to the analyser)
+	Port      uint16    `json:"port"`             // port the request used
+	Protocol  string    `json:"protocol"`         // "https" | "http" | "connect" | "socks5" | "tcp"; empty only when a recorded denial named none
+	Path      string    `json:"path"`             // request path, never a query
+	Success   bool      `json:"success"`          // a response arrived, or — for a "connect" entry — the tunnel was accepted
+	Denied    bool      `json:"denied"`           // our proxy's dial to it failed; not a sandbox-policy denial (the runtime enforces egress before our proxy under T2)
+	Count     int       `json:"count"`            // requests observed to this destination
+	FirstSeen time.Time `json:"first_seen"`       // first request observed
+	LastSeen  time.Time `json:"last_seen"`        // most recent request observed
+	Channel   string    `json:"channel"`          // which observer saw it, e.g. "proxy-terminate"
+	Failed    int       `json:"failed,omitempty"` // tunnels whose terminating TLS handshake the client aborted
+}
+
+// HandshakeFailed reports whether d is a tunnel whose every terminating TLS
+// handshake failed: a client that pins its certificates, or one missing the
+// session CA trust (#812). The two look the same to the proxy.
+func (d Destination) HandshakeFailed() bool {
+	return d.Protocol == ConnectProtocol && d.Failed > 0 && d.Failed >= d.Count
 }
 
 // ConnectProtocol is the protocol of an accepted CONNECT tunnel's entry.
@@ -61,6 +69,10 @@ type Attribution struct {
 type Observation struct {
 	Destinations []Destination `json:"destinations"`
 	Attribution  []Attribution `json:"attribution"`
+	// ProxyLog is the session's proxy log file, empty when the proxy logged
+	// nothing; ProxyWarnings is its line count.
+	ProxyLog      string `json:"proxy_log,omitempty"`
+	ProxyWarnings int    `json:"proxy_warnings,omitempty"`
 }
 
 // recorder accumulates the artefact as requests are observed. Its methods take
@@ -117,6 +129,31 @@ func (r *recorder) nameTunnel(ip string, port uint16, hostname string) {
 	}
 }
 
+// failTunnel records a failed terminating handshake (the client aborted, sent
+// EOF, or offered no acceptable version) of a tunnel it opened to
+// connectTarget. goproxy names only the target, so this is a heuristic, used
+// for reporting only: the failure is charged to the tunnel that most recently
+// started a handshake there, the SNI-named entry when the client sent a name,
+// else the entry under the target itself.
+func (r *recorder) failTunnel(connectTarget string) {
+	host, port := splitHostPort(connectTarget)
+	if parsed := net.ParseIP(host); parsed != nil {
+		host = parsed.String()
+	}
+	var latest *Destination
+	for _, tunnel := range r.destinations {
+		if tunnel.Protocol != ConnectProtocol || tunnel.Port != port || (tunnel.Host != host && tunnel.IP != host) {
+			continue
+		}
+		if latest == nil || !tunnel.LastSeen.Before(latest.LastSeen) {
+			latest = tunnel
+		}
+	}
+	if latest != nil {
+		latest.Failed++
+	}
+}
+
 // deny records that a request to a destination was refused by this proxy's own
 // dial. It marks every entry with that host, IP, port, path and protocol denied
 // and not successful, and records the destination when the denial arrived before
@@ -147,6 +184,7 @@ func (r *recorder) deny(host, ip, path, protocol string, port uint16) {
 			FirstSeen: time.Time{},
 			LastSeen:  time.Time{},
 			Channel:   observedViaProxy,
+			Failed:    0,
 		})
 	}
 }
@@ -156,6 +194,7 @@ func (r *recorder) deny(host, ip, path, protocol string, port uint16) {
 // recorder's own entries win for a destination or attribution both sides record,
 // which makes result(Observation{}) the recorder's own sorted artefact.
 func (r *recorder) result(obs Observation) Observation {
+	//exhaustruct:ignore // the proxy log is set by stop, not by the recorder
 	combined := Observation{
 		Destinations: append(make([]Destination, 0, len(obs.Destinations)+len(r.destinations)), obs.Destinations...),
 		Attribution: append(
@@ -194,6 +233,7 @@ func (r *recorder) destination(host, ip, path, protocol string, port uint16) *De
 		FirstSeen: time.Time{},
 		LastSeen:  time.Time{},
 		Channel:   observedViaProxy,
+		Failed:    0,
 	}
 	r.destinations = append(r.destinations, destination)
 	return destination

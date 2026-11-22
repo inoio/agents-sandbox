@@ -8,7 +8,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 )
 
@@ -17,10 +19,11 @@ import (
 // on, the sandbox pointed at our proxy, and the channel CA projected as a path
 // the runtime trusts upstream (R1: UpstreamCACerts takes paths, not PEM).
 func TestStartObservation(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
 	base := network.Policy{Profiles: []network.Profile{network.ProfileNone}}
 
 	const bindHost = "127.0.0.1"
-	observer, err := StartObservation(bindHost, base)
+	observer, err := StartObservation(bindHost, base, time.Unix(1, 0))
 	if err != nil {
 		t.Fatalf("StartObservation: %v", err)
 	}
@@ -55,6 +58,7 @@ func TestStartObservation(t *testing.T) {
 // origin transport: with it set, a self-signed upstream round-trips through the
 // channel; without it, the same upstream is rejected.
 func TestStartObservationForwardsSkipUpstreamVerify(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
 	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -73,7 +77,7 @@ func TestStartObservationForwardsSkipUpstreamVerify(t *testing.T) {
 			observer, err := StartObservation("127.0.0.1", network.Policy{
 				Profiles: []network.Profile{network.ProfileNone},
 				Observe:  network.ObserveConfig{SkipUpstreamVerify: tc.skipUpstreamVerify},
-			})
+			}, time.Unix(1, 0))
 			if err != nil {
 				t.Fatalf("StartObservation: %v", err)
 			}
@@ -109,7 +113,12 @@ func requestThroughObserver(t *testing.T, obs Observer, target string) bool {
 // no-op that returns the same artefact. A recorded request drives a non-empty
 // artefact, so the identical-return assertion is not vacuous.
 func TestObserverStopIsIdempotent(t *testing.T) {
-	observer, err := StartObservation("127.0.0.1", network.Policy{Profiles: []network.Profile{network.ProfileNone}})
+	configpathstest.WithMockConfigPaths(t)
+	observer, err := StartObservation(
+		"127.0.0.1",
+		network.Policy{Profiles: []network.Profile{network.ProfileNone}},
+		time.Unix(1, 0),
+	)
 	if err != nil {
 		t.Fatalf("StartObservation: %v", err)
 	}
@@ -143,7 +152,12 @@ func TestObserverStopIsIdempotent(t *testing.T) {
 // StartObservation propagates a Start failure to the caller instead of returning
 // an Observer around a proxy that never bound.
 func TestStartObservationPropagatesStartFailure(t *testing.T) {
-	observer, err := StartObservation("[::1]", network.Policy{Profiles: []network.Profile{network.ProfileNone}})
+	configpathstest.WithMockConfigPaths(t)
+	observer, err := StartObservation(
+		"[::1]",
+		network.Policy{Profiles: []network.Profile{network.ProfileNone}},
+		time.Unix(1, 0),
+	)
 	if err == nil {
 		observer.Stop()
 		t.Fatal("StartObservation with an unparseable bind host returned no error")

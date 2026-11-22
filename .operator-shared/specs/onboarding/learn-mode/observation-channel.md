@@ -139,6 +139,19 @@ request succeeded or was denied, the request path, and the credential-bearing he
 request bodies or header **values**. A raw flow capture is scrubbed of values before it is kept. `IP` is empty for a
 hostname target (the analyser treats it as unknown, not as a resolved address).
 
+**Failed handshakes are reported, not dropped.** The proxy records each terminating handshake that fails on its
+tunnel's entry (`Failed`). A client that pins its certificates and one missing the session CA trust (#812) look the
+same to the proxy, and a pinned client works outside learn mode, so such a tunnel stays a used destination (the egress
+lock keeps it) and the after-run names its host instead.
+
+**The proxy log is a separate diagnostic file.** The proxy's own warnings go to
+`<UserStateDir>/learn/proxy-logs/<session start>.log` (0600), opened on the first warning only, so a clean session
+writes nothing. Every quoted payload and every query string is redacted before a line is written: Go quotes a malformed
+header line and a request URL in its errors, and goproxy prints an unparsable URL unquoted. The log never goes to the
+terminal, where it would interleave with the agent's TUI. It is not deleted with the session's capture (the after-run
+deletes that), so the after-run can name it; `Prune` expires it after 30 days like an artefact, whether the session
+finished, was cancelled, or its after-run failed. It holds no header or query value, so it does not weaken invariant 3.
+
 A destination is identified by host, IP, port, path, and protocol, so the same host reached on two ports — two
 CONNECT tunnels, say — is two entries, each with its own port and count, rather than one entry whose port is
 whichever request arrived last.

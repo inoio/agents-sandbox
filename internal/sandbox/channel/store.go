@@ -76,6 +76,30 @@ func Delete(path string) error {
 	return nil
 }
 
+// proxyLogDirName is the directory under the learn state dir that holds the
+// sessions' proxy logs. Prune treats it like a checkout's directory, so a log
+// expires with the artefacts, however its session ended.
+const proxyLogDirName = "proxy-logs"
+
+// openSessionLog creates the proxy log of the session started at startedAt:
+// <UserStateDir>/learn/proxy-logs/<startUnix>.log, mode 0600.
+func openSessionLog(startedAt time.Time) (*os.File, error) {
+	stateDir := configpaths.Get().UserStateDir()
+	if !filepath.IsAbs(stateDir) {
+		return nil, fmt.Errorf("learn proxy log state dir %q is not absolute", stateDir)
+	}
+	dir := filepath.Join(stateDir, learnStateDirName, proxyLogDirName)
+	if err := os.MkdirAll(dir, artefactDirMode); err != nil {
+		return nil, fmt.Errorf("create the learn proxy log directory: %w", err)
+	}
+	name := filepath.Join(dir, strconv.FormatInt(startedAt.Unix(), 10)+".log")
+	file, err := os.OpenFile(name, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open the learn proxy log: %w", err)
+	}
+	return file, nil
+}
+
 // Prune removes every artefact under <UserStateDir>/learn/ whose modification
 // time is before cutoff, and the slug directory once its last artefact is gone,
 // returning the number of artefacts removed. A learn tree that does not exist

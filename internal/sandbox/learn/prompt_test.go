@@ -290,6 +290,32 @@ func TestPrintSummaryReportsDeniedDestinations(t *testing.T) {
 	}
 }
 
+// TestPrintSummaryNamesTheProxyLog pins that a session whose proxy logged
+// problems says so and names the file, and that a clean session prints nothing
+// about it.
+func TestPrintSummaryNamesTheProxyLog(t *testing.T) {
+	ui := &termiotest.Mock{}
+	printSummary(ui, Summary{ProxyLog: "/tmp/agents-sandbox-channel-1.log", ProxyWarnings: 3})
+
+	if len(ui.WarnCalls) != 1 || !strings.Contains(ui.WarnCalls[0], "3") ||
+		!strings.Contains(ui.WarnCalls[0], "/tmp/agents-sandbox-channel-1.log") {
+		t.Errorf("WarnCalls = %v, want one line naming the count and the log", ui.WarnCalls)
+	}
+
+	failed := &termiotest.Mock{}
+	printSummary(failed, Summary{HandshakeFailed: []string{"pinned.example"}, ProxyWarnings: 2})
+	if len(failed.WarnCalls) != 2 || !strings.Contains(failed.WarnCalls[0], "pinned.example") ||
+		!strings.Contains(failed.WarnCalls[1], "could not be written") {
+		t.Errorf("WarnCalls = %v, want the failed host and the unwritten log", failed.WarnCalls)
+	}
+
+	clean := &termiotest.Mock{}
+	printSummary(clean, Summary{})
+	if len(clean.WarnCalls) != 0 {
+		t.Errorf("WarnCalls = %v, want nothing for a clean session", clean.WarnCalls)
+	}
+}
+
 // TestFinishPropagatesSaveFailure pins that a failed capture save aborts the
 // after-run rather than analysing an unsaved session.
 func TestFinishPropagatesSaveFailure(t *testing.T) {

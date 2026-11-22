@@ -81,6 +81,11 @@ When you exit, agents-sandbox reports what it learned and offers three choices:
 | Save all | Write every proposed change without asking |
 | Not now | Write nothing |
 
+If a client in the sandbox rejected the proxy's certificate, the report names the hosts whose TLS handshake failed:
+either the client pins its certificates, or it does not trust the sandbox CA. Those hosts stay in the proposed allow
+list. When the proxy logged problems, the report names its log file under the launcher's state directory
+(`learn/proxy-logs/`). The log holds no header or query values and is removed after 30 days.
+
 ## What it proposes
 
 Learn mode writes to your **per-slug user config** (`~/.config/agents-sandbox/<repo-slug>/`), keyed by the repository
