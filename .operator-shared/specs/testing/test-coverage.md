@@ -45,6 +45,10 @@ tests never execute is the failure mode this catches.
   `testgit.go`'s pure `GitIsolationEnvironment` is unit-tested in `testgit_test.go`. The Go harness helpers
   (`RunScript`, the `gittest` builder, `fakecmd`) need no entry: they live in their only consumer as
   `test/scripts/*_helpers_test.go`, and a `_test.go` file is never counted.
+- **Everything under `test/` is test code and is excluded from the gate** (`.codecov.yml` `ignore`): the
+  shared `test/msb/driver` and `test/msb/journeys` packages are test infrastructure shared by suites
+  (`test-isolation.md`), so they cannot be re-homed into a consumer's `_test.go`; their VM-dependent paths
+  run only under the host-only `msb` build tag and never land in the default coverage profile.
 
 ## Where the bar lives (and why it surprises)
 

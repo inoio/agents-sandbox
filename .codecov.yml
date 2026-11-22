@@ -27,11 +27,17 @@ coverage:
 # support helper otherwise lives in its consumer's `*_helpers_test.go` — a
 # `_test.go` file is never counted — so a helper reached across packages is
 # re-homed into the consuming test package rather than ignored here.
+# Everything under `test/` is test code (the msb-journeys gate-scope decision):
+# the shared `test/msb/driver` package and the `test/msb/journeys` model cannot
+# be re-homed into a consumer's `*_helpers_test.go`, and their VM-dependent
+# paths only execute under the host-only `msb` build tag, so they never land in
+# the default coverage profile.
 ignore:
   - "**/testmock*.go"
   - "**/termiotest/mock.go"
   - "**/msbtest/runtime/*.go"
   - "**/testutil/testgit.go"
+  - "test/**"
 
 comment:
   layout: "condensed_header, diff, files"

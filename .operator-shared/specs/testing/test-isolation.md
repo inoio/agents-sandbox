@@ -365,12 +365,13 @@ seam family is reached without its injectable factory. The remaining ambient pat
   `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` triplet, which stay active even with the files disabled), so
   a fixture commit can never reach commit signing or pop an askpass GUI (ksshaskpass). `TestUntaggedTestsExecuteNoAmbientTool`
   (`real_command_contract_test.go`) enforces the split in the default suite: it walks every `_test.go` the default build
-  compiles and fails if one calls `testutil.RunGit`/`ConfigureRepo` — through a qualified or a same-package unqualified
+  compiles and every non-test `.go` file under `test/` (where the shared untagged driver keeps test code in non-test
+  files), and fails if one calls `testutil.RunGit`/`ConfigureRepo` — through a qualified or a same-package unqualified
   call — or execs an ambient tool (`git`, `ssh`, `gpg`, `gh`,
   `docker`, `msb`) named by an interpreted or raw string literal — a shell interpreter is allowed. A use the statement
   sanctions with, or has immediately above it, a reason-bearing `//testenv:allow <reason>` marker is not reported — the
-  same in-place escape the ambient gate reads, which the `test/harness` smoke suite's shared `_test.go` helpers use for
-  the real `docker` they drive by design. A test that asserts on a
+  same in-place escape the ambient gate reads, which the `test/msb/driver` helpers the smoke suite shares use for the real
+  `docker` they drive by design (the calls live in the non-test `launcher.go`/`images.go`). A test that asserts on a
   git-generated artifact still pins the setting it depends on in its own fixture — a linked worktree's recorded gitdir is
   absolute only while `worktree.useRelativePaths` is false, and CI on a plain clone never exercises a developer's global
   setting (`TestResolveIdentityOutsideWorktreeReportsSharedGitDir`). Because those tests are `integration`-tagged they are

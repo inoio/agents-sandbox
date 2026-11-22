@@ -1,4 +1,4 @@
-package harness
+package journeys
 
 import (
 	"testing"
@@ -7,7 +7,7 @@ import (
 )
 
 // TestMain installs the fail-fast seam mocks and nothing else: under
-// `compile-all`'s -run=^$, `m.Run()` returns immediately, so the package stays
+// `compile-all`'s -run=^$, m.Run() returns immediately, so the package stays
 // inert without a VM.
 func TestMain(m *testing.M) {
 	mocks.InitFailFastMocks(m)

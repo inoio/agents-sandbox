@@ -351,6 +351,8 @@ func (m testEnvMarkers) standaloneAboveHasTestEnvAllow(start int) bool {
 // code. The shared untagged driver package lives under test/, so its non-test
 // files carry the same ambient escapes a *_test.go file would and must be
 // scanned. A non-test file elsewhere is production code these gates do not own.
+// The dead-code gate defines the same rule in ci/deadcodecheck/main.go; keep the
+// two in sync.
 const testSourcePrefix = "test/"
 
 // scansNonTestSources reports whether a package's non-test .go files are test
