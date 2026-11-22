@@ -28,6 +28,7 @@ import (
 // tests substitute them to exercise the error handling.
 var (
 	generateECKey     = ecdsa.GenerateKey
+	randomSerial      = rand.Int
 	createCertificate = x509.CreateCertificate
 	parseCertificate  = x509.ParseCertificate
 	writeCATempFile   = (*os.File).WriteString
@@ -148,7 +149,7 @@ func terminateProxy(ca tls.Certificate, state *proxyState, skipUpstreamVerify bo
 	mitm := &goproxy.ConnectAction{
 		Action:    goproxy.ConnectMitm,
 		Hijack:    nil,
-		TLSConfig: goproxy.TLSConfigFromCA(&ca),
+		TLSConfig: mitmTLSConfig(ca, state.nameTunnel),
 	}
 	proxy.OnRequest().HandleConnect(goproxy.FuncHttpsHandler(
 		func(host string, _ *goproxy.ProxyCtx) (*goproxy.ConnectAction, string) {
@@ -179,12 +180,30 @@ func (s *proxyState) observeConnect(host string) {
 	hostname, port := splitHostPort(host)
 	ip := ""
 	if parsed := net.ParseIP(hostname); parsed != nil {
+		// The canonical form, so nameTunnel matches the same address however
+		// the client spelled it.
 		ip = parsed.String()
+		hostname = ip
 	}
 
 	s.mu.Lock()
-	destination := s.recorder.observe(hostname, ip, "", "connect", port, nil)
+	destination := s.recorder.observe(hostname, ip, "", ConnectProtocol, port, nil)
 	destination.Success = true
+	s.mu.Unlock()
+}
+
+// nameTunnel records the SNI hostname a client sent through a tunnel it opened
+// by IP, so the tunnel is attributed to the host rather than the address. A
+// tunnel opened by hostname, or a handshake without SNI, needs no naming.
+func (s *proxyState) nameTunnel(connectTarget, serverName string) {
+	hostname, port := splitHostPort(connectTarget)
+	parsed := net.ParseIP(hostname)
+	if serverName == "" || parsed == nil || serverName == parsed.String() {
+		return
+	}
+	hostname = parsed.String()
+	s.mu.Lock()
+	s.recorder.nameTunnel(hostname, port, serverName)
 	s.mu.Unlock()
 }
 

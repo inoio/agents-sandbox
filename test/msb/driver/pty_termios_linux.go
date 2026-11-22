@@ -1,6 +1,6 @@
 //go:build linux
 
-package harness
+package driver
 
 import "golang.org/x/sys/unix"
 

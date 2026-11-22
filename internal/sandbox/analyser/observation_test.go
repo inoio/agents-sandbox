@@ -69,14 +69,182 @@ func TestObservationNetworkDiffNeverWidens(t *testing.T) {
 		"the proposal states the per-slug scope is shared by every clone of the remote")
 }
 
+// TestObservationNetworkLockTurnsInterceptionOn: under the runtime's strict
+// hostname mode a hostname allow rule admits only an intercepted connection, so
+// a `none` lock with hostname entries and interception left at auto (off
+// without a secret) would block every destination it allows. The lock proposes
+// interception on with it.
+func TestObservationNetworkLockTurnsInterceptionOn(t *testing.T) {
+	s := SessionFacts{
+		Observation: channel.Observation{Destinations: []channel.Destination{
+			{Host: "api.example", Success: true, Count: 2},
+		}},
+	}
+
+	findings := ObservationFindings(s)
+
+	require.Len(t, findings, 1)
+	intercept := configWrite(t, findings[0], "network.intercept-tls")
+	require.Equal(t, ScopePerSlugUser, intercept.Scope)
+	require.Equal(t, string(network.InterceptOn), intercept.ConfigValue)
+	require.Contains(t, intercept.Text, "interception")
+}
+
+// TestObservationNetworkLockLeavesOutAddressOnlyTunnels: the channel names
+// every tunnel that carried a TLS handshake by its SNI hostname, so a tunnel
+// still recorded under an IP never carried a request (an abandoned
+// happy-eyeballs attempt, a pre-warmed connection). An address is no evidence of
+// use, and an allow entry for it would break when the address rotates.
+func TestObservationNetworkLockLeavesOutAddressOnlyTunnels(t *testing.T) {
+	s := SessionFacts{
+		Observation: channel.Observation{Destinations: []channel.Destination{
+			{Host: "160.79.104.10", IP: "160.79.104.10", Protocol: "connect", Success: true, Count: 1},
+			{Host: "2607:6bc0::10", IP: "2607:6bc0::10", Protocol: "connect", Success: true, Count: 1},
+			{Host: "api.example", IP: "160.79.104.10", Protocol: "connect", Success: true, Count: 2},
+			{Host: "api.example", Protocol: "https", Success: true, Count: 2},
+		}},
+	}
+
+	findings := ObservationFindings(s)
+
+	require.Len(t, findings, 1)
+	require.Equal(t, []string{"api.example"}, findings[0].Evidence.Destinations)
+	require.Equal(t, []string{"api.example"}, egressAllowWrite(t, findings[0]).ConfigValue)
+}
+
+// TestObservationNetworkLockKeepsInterceptionWhenItAlreadyWorks: interception
+// already on, or strict mode off, lets hostname rules work, so the lock writes
+// no interception setting.
+func TestObservationNetworkLockKeepsInterceptionWhenItAlreadyWorks(t *testing.T) {
+	for name, current := range map[string]network.Policy{
+		"interception on": {InterceptTLS: network.InterceptOn},
+		"strict mode off": {DisableStrict: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := SessionFacts{
+				Current: current,
+				Observation: channel.Observation{Destinations: []channel.Destination{
+					{Host: "api.example", Success: true, Count: 2},
+				}},
+			}
+
+			findings := ObservationFindings(s)
+
+			require.Len(t, findings, 1)
+			for _, write := range findings[0].Writes {
+				require.NotEqual(t, "network.intercept-tls", write.ConfigKey)
+			}
+		})
+	}
+}
+
+// TestObservationNarrowPolicyWithoutInterceptionGetsAnInterceptionFinding: a
+// hand-written none policy with hostname entries and interception at auto (off
+// without a secret) blocks every host it allows outside learn mode, where the
+// overlay no longer forces interception. The session used exactly the allowed
+// hosts, so no lock is proposed, but an interception-only finding is. Its
+// evidence carries no per-session count, so a decline (a user whose secret
+// already turns interception on) sticks.
+func TestObservationNarrowPolicyWithoutInterceptionGetsAnInterceptionFinding(t *testing.T) {
+	facts := func(count int) SessionFacts {
+		return SessionFacts{
+			Current: network.Policy{
+				Profiles:    []network.Profile{network.ProfileNone},
+				EgressAllow: []string{"api.example"},
+			},
+			Observation: channel.Observation{Destinations: []channel.Destination{
+				{Host: "api.example", Success: true, Count: count},
+			}},
+		}
+	}
+
+	findings := ObservationFindings(facts(3))
+
+	require.Len(t, findings, 1)
+	require.Len(t, findings[0].Writes, 1)
+	require.Equal(t, "network.intercept-tls", findings[0].Writes[0].ConfigKey)
+	require.Equal(t, findings[0].EvidenceHash, ObservationFindings(facts(7))[0].EvidenceHash,
+		"the interception finding's evidence must not change with the session's request count")
+}
+
+func TestInterceptionFindingNamesBypassedHosts(t *testing.T) {
+	finding := interceptionFinding(network.Policy{TLSBypass: []string{"*.pinned.example"}},
+		[]string{"api.pinned.example", "api.example"})
+
+	require.Contains(t, finding.Writes[0].Text, "api.pinned.example")
+	require.Contains(t, finding.Writes[0].Text, "tls-bypass")
+}
+
+// TestObservationNetworkLockIsSilentOnANarrowInterceptedPolicy: a policy
+// already narrowed to the used hosts with interception on needs nothing.
+func TestObservationNetworkLockIsSilentOnANarrowInterceptedPolicy(t *testing.T) {
+	s := SessionFacts{
+		Current: network.Policy{
+			Profiles:     []network.Profile{network.ProfileNone},
+			EgressAllow:  []string{"api.example"},
+			InterceptTLS: network.InterceptOn,
+		},
+		Observation: channel.Observation{Destinations: []channel.Destination{
+			{Host: "api.example", Success: true, Count: 3},
+		}},
+	}
+
+	require.Empty(t, ObservationFindings(s))
+}
+
+// TestObservationNetworkLockNeedsAUsedDestination: a session that used nothing
+// (only denials, or only address-only tunnels) would lock egress to the current
+// allow set alone, possibly nothing at all, so it yields no lock. The denials
+// are reported by the after-run summary.
+func TestObservationNetworkLockNeedsAUsedDestination(t *testing.T) {
+	s := SessionFacts{
+		Observation: channel.Observation{Destinations: []channel.Destination{
+			{Host: "203.0.113.7", IP: "203.0.113.7", Protocol: channel.ConnectProtocol, Success: true, Count: 1},
+			{Host: "blocked.example", Denied: true},
+		}},
+	}
+
+	require.Empty(t, ObservationFindings(s))
+}
+
+func TestBypassedHostsRequiresAWildcardLabelAndIgnoresCase(t *testing.T) {
+	got := bypassedHosts(
+		[]string{"example.com", "badexample.com", "a.example.com", "API.Pinned.Example", "exact.example"},
+		[]string{"*.example.com", "*example.com", "*.pinned.example", "EXACT.example"},
+	)
+	require.Equal(t, []string{"a.example.com", "API.Pinned.Example", "exact.example"}, got)
+}
+
+// TestObservationNetworkLockNamesBypassedHosts: under the strict-hostname mode a
+// host that is both allowlisted and in tls-bypass stays denied, so the lock says
+// which used hosts that applies to instead of promising they work.
+func TestObservationNetworkLockNamesBypassedHosts(t *testing.T) {
+	s := SessionFacts{
+		Current: network.Policy{TLSBypass: []string{"*.pinned.example"}},
+		Observation: channel.Observation{Destinations: []channel.Destination{
+			{Host: "api.pinned.example", Success: true, Count: 1},
+			{Host: "api.example", Success: true, Count: 1},
+		}},
+	}
+
+	findings := ObservationFindings(s)
+
+	require.Len(t, findings, 1)
+	text := egressAllowWrite(t, findings[0]).Text
+	require.Contains(t, text, "api.pinned.example")
+	require.NotContains(t, text, "api.example,")
+	require.Contains(t, text, "tls-bypass")
+}
+
 // TestObservationNetworkDiffIsSilentWhenAlreadyNarrow: a session whose used
 // destinations the current `none` policy already allows yields no finding —
 // there is nothing to change.
 func TestObservationNetworkDiffIsSilentWhenAlreadyNarrow(t *testing.T) {
 	s := SessionFacts{
 		Current: network.Policy{
-			Profiles:    []network.Profile{network.ProfileNone},
-			EgressAllow: []string{"api.example"},
+			Profiles:     []network.Profile{network.ProfileNone},
+			EgressAllow:  []string{"api.example"},
+			InterceptTLS: network.InterceptOn,
 		},
 		Observation: channel.Observation{Destinations: []channel.Destination{
 			{Host: "api.example", Success: true, Count: 3},
@@ -94,8 +262,9 @@ func TestObservationNetworkDiffIsSilentWhenAlreadyNarrow(t *testing.T) {
 func TestObservationNetworkFindingIsSilentWhenAlreadyNarrowEvenWithDenials(t *testing.T) {
 	s := SessionFacts{
 		Current: network.Policy{
-			Profiles:    []network.Profile{network.ProfileNone},
-			EgressAllow: []string{"api.example"},
+			Profiles:     []network.Profile{network.ProfileNone},
+			EgressAllow:  []string{"api.example"},
+			InterceptTLS: network.InterceptOn,
 		},
 		Observation: channel.Observation{Destinations: []channel.Destination{
 			{Host: "api.example", Success: true, Count: 3},
@@ -111,6 +280,7 @@ func TestObservationNetworkFindingIsSilentWhenAlreadyNarrowEvenWithDenials(t *te
 func TestObservationDeniedIsReportedNotAllowed(t *testing.T) {
 	s := SessionFacts{
 		Observation: channel.Observation{Destinations: []channel.Destination{
+			{Host: "used.example", Success: true, Count: 1},
 			{Host: "blocked.example", Denied: true},
 		}},
 	}
@@ -141,8 +311,9 @@ func TestObservationDeniedHostConnectTunnelIsNotUse(t *testing.T) {
 	deniedHostConnect := SessionFacts{
 		Current: network.Policy{Profiles: []network.Profile{network.ProfilePublic}},
 		Observation: channel.Observation{Destinations: []channel.Destination{
-			{Host: "dead.example", Protocol: connectProtocol, Success: true},
+			{Host: "dead.example", Protocol: channel.ConnectProtocol, Success: true},
 			{Host: "dead.example", Protocol: "https", Path: "/", Success: false, Denied: true},
+			{Host: "used.example", Protocol: "https", Success: true, Count: 1},
 		}},
 	}
 
@@ -160,7 +331,7 @@ func TestObservationDeniedHostConnectTunnelIsNotUse(t *testing.T) {
 		connectOnly := SessionFacts{
 			Current: network.Policy{Profiles: []network.Profile{network.ProfilePublic}},
 			Observation: channel.Observation{Destinations: []channel.Destination{
-				{Host: "live.example", Protocol: connectProtocol, Success: true},
+				{Host: "live.example", Protocol: channel.ConnectProtocol, Success: true},
 			}},
 		}
 
@@ -516,8 +687,8 @@ func TestObservationEmptySessionYieldsNoFinding(t *testing.T) {
 }
 
 // TestObservationEvidenceSucceededReflectsUsedHosts pins that the evidence's
-// Succeeded is true exactly when the session used at least one host, so a
-// finding built only from a denial reports that it did not succeed.
+// Succeeded is true when the session used a host, and that a session built only
+// from a denial proposes no lock at all.
 func TestObservationEvidenceSucceededReflectsUsedHosts(t *testing.T) {
 	used := SessionFacts{
 		Current: network.Policy{Profiles: []network.Profile{network.ProfilePublic}},
@@ -535,9 +706,7 @@ func TestObservationEvidenceSucceededReflectsUsedHosts(t *testing.T) {
 			{Host: "blocked.example", Denied: true},
 		}},
 	}
-	findings = ObservationFindings(deniedOnly)
-	require.Len(t, findings, 1)
-	require.False(t, findings[0].Evidence.Succeeded, "no used host means it did not succeed")
+	require.Empty(t, ObservationFindings(deniedOnly), "no used host means no lock to propose")
 }
 
 // TestObservedUsedHostsFiltersNonUseAndKeepsLaterDestinations pins which
@@ -554,7 +723,7 @@ func TestObservedUsedHostsFiltersNonUseAndKeepsLaterDestinations(t *testing.T) {
 	require.Equal(t, []string{"used.example"}, hosts)
 
 	connectThenUse := observedUsedHosts([]channel.Destination{
-		{Host: "dead.example", Protocol: connectProtocol, Success: true},
+		{Host: "dead.example", Protocol: channel.ConnectProtocol, Success: true},
 		{Host: "dead.example", Protocol: "https", Success: false, Denied: true},
 		{Host: "live.example", Success: true},
 	})
@@ -586,6 +755,17 @@ func TestUsedRequestCountSumsOnlyUsedDestinations(t *testing.T) {
 		{Host: "used2.example", Success: true, Count: 3},
 	})
 	require.Equal(t, 5, total)
+}
+
+// TestUsedRequestCountLeavesOutTunnels pins that an accepted CONNECT tunnel is
+// not a request: the requests inside it are counted on their own entries, so
+// counting the tunnel too would double the evidence.
+func TestUsedRequestCountLeavesOutTunnels(t *testing.T) {
+	total := usedRequestCount([]channel.Destination{
+		{Host: "api.example", Protocol: "connect", Success: true, Count: 4},
+		{Host: "api.example", Protocol: "https", Success: true, Count: 6},
+	})
+	require.Equal(t, 6, total)
 }
 
 // TestSecretFindingsSkipUnscopableCredentialsWithoutStopping pins that a

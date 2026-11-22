@@ -187,6 +187,9 @@
 - `plans/2026-11-15-learn-mode-spike.md`
   - Description: Validation spike for learn mode: the host-run experiments behind the observation channel, with S1's per-harness home read-back still open (opencode2 only). Harness: `spike/learn-mode/`.
   - Read If: Picking up the unrun per-harness read-back (S1), rerunning an experiment, or checking an unverified observation-channel assumption (proxy reachability under `none`, egress bypass, denial logging, DNS coverage, per-harness credential layout).
+- `plans/2026-11-20-harness-promotion-e2e.md`
+  - Description: Manual e2e runbook and promotion bar for dropping the experimental flag from claude-code, codex, and pi for 0.8 (#783): isolated journeys A–I, known blockers (#767, #768), and the results table.
+  - Read If: Running or resuming the 0.8 harness e2e pass, or deciding whether an agent profile may drop `Experimental()`.
 - `plans/2026-11-21-msb-journeys.md`
   - Description: Implementation plan for #793, the first slice of the harness-journeys acceptance harness: host-side libvirt KVM-guest tooling (`scripts/kvm-guest.sh` + `make kvm-*`), the `test/harness`→`test/msb/startup` rename with the shared untagged `test/msb/driver`, the gate-scope changes (dead-code `test/` filter, ambient scan over non-test `.go` under `test/`, the production-closure contract test), `make test-msb-journeys` with the named-step journey model, and the learn-mode journeys (UC1, UC4, `config learn`, attribution) plus the surface-sweep block.
   - Read If: Executing #793; working on `scripts/kvm-guest.sh` or the `make kvm-*` targets; the `test/msb/{driver,startup,journeys}` rename and layout; the journeys' `Journey`/`Step` model; or the dead-code/ambient `test/` gate scope.

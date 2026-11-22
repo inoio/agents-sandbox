@@ -145,7 +145,7 @@ func summarize(a Analysis, results []analyser.ApplyResult) Summary {
 	services := map[string]bool{}
 	denied := map[string]bool{}
 	for _, destination := range a.Observation.Destinations {
-		if destination.Host == "" {
+		if destination.Host == "" || destination.AddressOnlyTunnel() {
 			continue
 		}
 		switch {
@@ -154,6 +154,10 @@ func summarize(a Analysis, results []analyser.ApplyResult) Summary {
 		case destination.Success:
 			services[destination.Host] = true
 		}
+	}
+	// A denied host's accepted tunnel is not use, matching the egress lock.
+	for host := range denied {
+		delete(services, host)
 	}
 	return Summary{
 		ServicesReached: len(services),

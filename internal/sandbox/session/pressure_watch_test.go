@@ -177,7 +177,7 @@ func TestPressureWatcherStopIsPromptAndStopsSampling(t *testing.T) {
 	}
 
 	after := sb.callCount()
-	time.Sleep(20 * time.Millisecond)
+	time.Sleep(20 * time.Millisecond) //testenv:allow a negative assertion: sampling must stay stopped after stop()
 	if got := sb.callCount(); got != after {
 		t.Fatalf("sampling continued after stop: %d -> %d calls", after, got)
 	}

@@ -47,10 +47,12 @@ func (claudeCodeProfile) ProvisionRules() []ProvisionRule {
 	}
 }
 
-// ReadBackPaths declares claude-code's settings file, which holds its login
-// (recorded, never copied).
+// ReadBackPaths declares claude-code's OAuth login store, .credentials.json
+// (recorded, never copied). settings.json is withheld: it can hold credentials
+// in shapes the read-back does not classify, so it is neither read back nor
+// copied into managed config.
 func (claudeCodeProfile) ReadBackPaths() []string {
-	return []string{".claude/" + settingsFileName}
+	return []string{".claude/.credentials.json"}
 }
 
 func (claudeCodeProfile) CredentialProbes() []string { return nil }

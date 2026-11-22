@@ -68,7 +68,7 @@ into that consumer's `*_helpers_test.go` the same way, rather than kept importab
 The standalone tools (`scripts/*.sh`, `ci/*.sh`) stay bash: a Makefile target, a CI workflow, or a human runs one
 file from a checkout with no build step.
 
-A harness moves to Go — the test-only package `test/scripts`, beside `test/harness`, whose `TestMain` installs
+A harness moves to Go — the test-only package `test/scripts`, beside `test/msb/startup`, whose `TestMain` installs
 the fail-fast mocks — when it drives a script and can build its fixtures with go-git. A harness whose fixture
 needs real-git porcelain that go-git does not implement — an in-progress rebase, `git worktree`, `clone --bare`,
 `cherry-pick`/`merge`, `push --force-with-lease` — still moves to Go: it drives that git through the shared

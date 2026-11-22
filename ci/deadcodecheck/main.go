@@ -356,7 +356,9 @@ func Check(findings []Finding, markers []Marker, checkStale bool) Diagnosis {
 
 // testSourcePrefix names the module subtree whose non-test .go files are test
 // code: nothing in a main package is meant to reach them, so the gate neither
-// reports a finding there nor scans a marker there.
+// reports a finding there nor scans a marker there. The ambient and
+// real-command gates in internal/testutil define the same rule under the same
+// name; keep the two in sync.
 const testSourcePrefix = "test/"
 
 // isTestSource reports whether a module-relative source path (always

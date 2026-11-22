@@ -38,6 +38,13 @@ var ambientEnvCalls = map[string]bool{
 	"Getenv": true, "LookupEnv": true, "Setenv": true, "Unsetenv": true, "Environ": true,
 }
 
+// ambientTimeCalls are the time package's blocking waits. A test that waits on
+// the clock for an event is load-dependent; it should block on the seam's signal
+// instead. A genuine dwell (a poll cadence, a negative assertion that something
+// does not happen within a window) keeps the sleep under a reason-bearing
+// //testenv:allow marker.
+var ambientTimeCalls = map[string]bool{"Sleep": true}
+
 // ambientDeviceCalls are the os package's file functions, flagged only when the
 // path argument is a literal device path (under /dev), which is host state no
 // temp-dir fixture can imitate.
@@ -95,10 +102,11 @@ type ambientUse struct {
 // TestUntaggedTestsReachNoUnsanctionedEnvironment enforces the ambient half of
 // the test-isolation contract: a *_test.go the default build compiles must not
 // open a real socket, read or write the process environment, stat a device path,
-// send a signal, exec an absolute-path binary, or read a host figure through a
-// known host-probe function unless the line carries a reason-bearing
-// //testenv:allow marker. The check reads the source, so a site is sanctioned in
-// place rather than through a maintained allowlist; the fixture test below pins
+// send a signal, exec an absolute-path binary, read a host figure through a
+// known host-probe function, or wait on the clock (`time.Sleep`) unless the line
+// carries a reason-bearing //testenv:allow marker. The check reads the source, so
+// a site is sanctioned in place rather than through a maintained allowlist; the
+// fixture test below pins
 // the scanner.
 func TestUntaggedTestsReachNoUnsanctionedEnvironment(t *testing.T) {
 	root := moduleRoot(t)
@@ -251,6 +259,8 @@ func ambientCallKind(importPath, name string, call *ast.CallExpr) string {
 		return "os." + name + "(device path)"
 	case importPath == "syscall" && name == "Kill":
 		return "syscall.Kill"
+	case importPath == "time" && ambientTimeCalls[name]:
+		return "time." + name
 	case importPath == "os/exec" && (name == "Command" || name == "CommandContext"):
 		toolIndex := 0
 		if name == "CommandContext" {
@@ -341,6 +351,8 @@ func (m testEnvMarkers) standaloneAboveHasTestEnvAllow(start int) bool {
 // code. The shared untagged driver package lives under test/, so its non-test
 // files carry the same ambient escapes a *_test.go file would and must be
 // scanned. A non-test file elsewhere is production code these gates do not own.
+// The dead-code gate defines the same rule in ci/deadcodecheck/main.go; keep the
+// two in sync.
 const testSourcePrefix = "test/"
 
 // scansNonTestSources reports whether a package's non-test .go files are test
@@ -402,10 +414,11 @@ type testSource struct {
 
 // TestAmbientEnvironmentUses pins the scanner: each ambient surface is flagged
 // (a socket, the process environment, a device path, a signal, an absolute-path
-// exec, a host-figure probe), a //testenv:allow marker with a reason on the
-// statement sanctions it, a marker without a reason does not, a device-path
-// check is flagged while an ordinary temp path is not, and an absolute-path exec
-// is flagged while a bare non-ambient tool and os.Args[0] are not. The
+// exec, a host-figure probe, a clock wait), a //testenv:allow marker with a
+// reason on the statement sanctions it, a marker without a reason does not, a
+// device-path check is flagged while an ordinary temp path is not, and an
+// absolute-path exec is flagged while a bare non-ambient tool and os.Args[0]
+// are not. The
 // default-build file filter itself is exercised by TestRealCommandUses.
 func TestAmbientEnvironmentUses(t *testing.T) {
 	tests := []struct {
@@ -489,6 +502,28 @@ import (
 func TestX(t *testing.T) { _ = syscall.Kill(1, syscall.SIGINT) }
 `,
 			want: []string{"syscall.Kill"},
+		},
+		{
+			name: "a time.Sleep wait is flagged",
+			file: `package example
+import (
+	"testing"
+	"time"
+)
+func TestX(t *testing.T) { time.Sleep(time.Millisecond) }
+`,
+			want: []string{"time.Sleep"},
+		},
+		{
+			name: "a marker sanctions a genuine dwell",
+			file: `package example
+import (
+	"testing"
+	"time"
+)
+func TestX(t *testing.T) { time.Sleep(time.Millisecond) } //testenv:allow proves the proxy refuses after Stop
+`,
+			want: nil,
 		},
 		{
 			name: "an absolute-path exec is flagged",

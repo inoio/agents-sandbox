@@ -186,8 +186,10 @@ both.
 
 The cadence is the release gate as the floor: the `hermetic` CI job runs `make test-hermetic`, and on a release tag
 `release.needs` names it, so a red envelope refuses to publish. On a pull request the job is advisory — it exists but is
-not in the `protect main` ruleset — and promotion toward the default `make test` follows a measured runtime budget,
-never a date (see `guides/test-runtime-cost.md`). The hosted runner restricts unprivileged user namespaces
+not in the `protect main` ruleset. Promotion is a judgment on the measured cost, not a fixed threshold or a date (see
+`guides/test-runtime-cost.md`): the job becomes a required PR check on its clean advisory record, and the envelope
+becomes the default `make test` only once it stops being the local loop's bottleneck; until then the strict run stays
+the PR and release gate. The hosted runner restricts unprivileged user namespaces
 (`kernel.apparmor_restrict_unprivileged_userns`), so the job lifts the restriction and warms the module cache before the
 offline, namespaced run (`specs/ci/ci-pipeline.md`).
 
@@ -220,6 +222,9 @@ The gate covers these known direct forms:
   `t.Setenv`, so a direct call leaks across tests);
 - `os.Open`/`OpenFile`/`Stat`/`Lstat`/`ReadFile`/`ReadDir`/`Readlink` of a `/dev/...` literal;
 - `syscall.Kill`;
+- `time.Sleep` (a clock wait: a test that waits for an event blocks on the seam's signal instead, and only a
+  genuine dwell — a poll cadence, a negative assertion that something does not happen within a window, the spinner's
+  frame cadence — keeps the sleep under a reason-bearing `//testenv:allow` marker);
 - `exec.Command`/`CommandContext` of an absolute-path literal (the existing ambient-tool check in
   `real_command_contract_test.go` still covers `docker`/`gh`/`git`/`gpg`/`msb`/`ssh`, and a shell interpreter is
   allowed there);
@@ -360,12 +365,13 @@ seam family is reached without its injectable factory. The remaining ambient pat
   `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` triplet, which stay active even with the files disabled), so
   a fixture commit can never reach commit signing or pop an askpass GUI (ksshaskpass). `TestUntaggedTestsExecuteNoAmbientTool`
   (`real_command_contract_test.go`) enforces the split in the default suite: it walks every `_test.go` the default build
-  compiles and fails if one calls `testutil.RunGit`/`ConfigureRepo` — through a qualified or a same-package unqualified
+  compiles and every non-test `.go` file under `test/` (where the shared untagged driver keeps test code in non-test
+  files), and fails if one calls `testutil.RunGit`/`ConfigureRepo` — through a qualified or a same-package unqualified
   call — or execs an ambient tool (`git`, `ssh`, `gpg`, `gh`,
   `docker`, `msb`) named by an interpreted or raw string literal — a shell interpreter is allowed. A use the statement
   sanctions with, or has immediately above it, a reason-bearing `//testenv:allow <reason>` marker is not reported — the
-  same in-place escape the ambient gate reads, which the `test/harness` smoke suite's shared `_test.go` helpers use for
-  the real `docker` they drive by design. A test that asserts on a
+  same in-place escape the ambient gate reads, which the `test/msb/driver` helpers the smoke suite shares use for the real
+  `docker` they drive by design (the calls live in the non-test `launcher.go`/`images.go`). A test that asserts on a
   git-generated artifact still pins the setting it depends on in its own fixture — a linked worktree's recorded gitdir is
   absolute only while `worktree.useRelativePaths` is false, and CI on a plain clone never exercises a developer's global
   setting (`TestResolveIdentityOutsideWorktreeReportsSharedGitDir`). Because those tests are `integration`-tagged they are
@@ -390,10 +396,11 @@ gate above. Every sanctioned use now carries a `//testenv:allow <reason>` marker
   outside any git checkout, and `ResolveIdentity` falls back to a path-derived non-repo identity rather than erroring,
   so the suite stays green and no default-suite test depends on the module's real checkout. No seam and no gate: the
   read is total, and the sites that read a slug after `t.Chdir` into their own fixture repo are already deterministic.
-- **Wall-clock waits.** Several tests `time.Sleep` through interval seams (`spinnerInterval`,
-  `pressureWatchInterval`); under load they are slower but not host-dependent. Prefer channel synchronization where a
-  test does not need the interval dwell. `watchReconnectPolicy` moved behind the `watchClock` seam, so the notify
-  backoff no longer sleeps.
+- **Wall-clock waits.** Enforced by the ambient gate's `time.Sleep` category: an event-wait blocks on the seam's
+  signal, and only a genuine dwell (a poll cadence, a negative assertion, the spinner's frame cadence) keeps a sleep
+  under a reason-bearing `//testenv:allow` marker. The notify watch, opener late-request, and session reaper/attach
+  sleeps now synchronize on a signal; `watchReconnectPolicy` moved behind the `watchClock` seam, so the notify backoff
+  no longer sleeps.
 
 The gate also moved the `ports` exclusion tests off the hardcoded `5999` onto a bound-`:0` port, so they no longer
 collide with whatever the host already holds.

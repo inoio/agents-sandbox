@@ -8,9 +8,8 @@ read_if: Working on learn mode - the after-run analyser, a `run --learn` / `conf
 Status: designed. The observation approach is settled by a host-side spike (run 2026-11-15): passive read-back (A)
 always, plus a launcher-owned terminating proxy (C) for the destination and attribution facts. The spike confirmed
 that termination works, that the credential header name and destination are visible, and that proxying adds no
-measurable cost; two parts are still open — its per-harness read-back check (S1) ran only for opencode2, and the
-end-to-end agent turn through the proxy is unmeasured (the proxy surface `#149` has since landed, so it is now a
-host-accept step rather than a blocked one).
+measurable cost. The end-to-end agent turn through the proxy was verified on 2026-11-22 for claude-code, pi, and
+codex. One part is still open: the per-harness read-back check (S1) ran only for opencode2.
 
 This page is the hub. The contracts it points at:
 

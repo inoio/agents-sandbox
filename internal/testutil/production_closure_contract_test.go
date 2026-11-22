@@ -14,6 +14,12 @@ import (
 // prints one package path per line.
 const launcherPackage = "./cmd/agents-sandbox"
 
+// Driver closure of the shared untagged launch driver the msb suites import.
+// It is test-support code that lives in non-test .go files, so the same
+// "nothing test-only ships" rule must cover what it imports: a production
+// package that leaked into it would link testing into every suite binary.
+const driverPackage = "./test/msb/driver"
+
 // testOnlyDependencies are the packages the production closure must not link.
 // `testing` pulls in flag and os/exec's test plumbing; a test-support package
 // (internal/testutil and its subtree) exists only to be imported by _test.go
@@ -25,10 +31,10 @@ var testOnlyDependencies = []string{
 
 // TestProductionClosureLinksNoTesting enforces the "nothing test-only ships"
 // convention on the CLI's production closure: whatever a consumer builds from
-// ./cmd/agents-sandbox must not link testing or a test-support package. The
-// untagged test-support package under test/ (the shared launch driver) relies
-// on this gate: a production package that imported it would link testing into
-// every binary.
+// ./cmd/agents-sandbox must not link testing or a test-support package. A
+// production package that imported the untagged test-support package under
+// test/ (the shared launch driver) would link testing into every binary; the
+// driver's own closure is checked by TestDriverClosureLinksNoTesting.
 func TestProductionClosureLinksNoTesting(t *testing.T) {
 	root := moduleRoot(t)
 
@@ -40,13 +46,37 @@ func TestProductionClosureLinksNoTesting(t *testing.T) {
 	// production import of `testing` — invalidates the cached result.
 	readProductionSources(t, root)
 
-	dependencies := productionClosure(t, root)
+	dependencies := productionClosure(t, root, launcherPackage)
 
 	for _, dependency := range dependencies {
 		if isTestOnlyDependency(dependency) {
 			t.Errorf(
 				"%s: the production closure links %s; a test-only package must not reach production code",
 				launcherPackage,
+				dependency,
+			)
+		}
+	}
+}
+
+// TestDriverClosureLinksNoTesting is the sibling gate for the shared untagged
+// driver: the spec names the cmd-closure check as "what keeps the shared driver
+// honest", but a driver that imported a production package would not appear in
+// the cmd closure at all. It reads the same production-source cache input — so
+// editing a source invalidates the cached result the same way — and rejects
+// testing and any test-support package from the driver's closure.
+func TestDriverClosureLinksNoTesting(t *testing.T) {
+	root := moduleRoot(t)
+
+	readProductionSources(t, root)
+
+	dependencies := productionClosure(t, root, driverPackage)
+
+	for _, dependency := range dependencies {
+		if isTestOnlyDependency(dependency) {
+			t.Errorf(
+				"%s: the driver closure links %s; a test-only package must not reach the shared driver's tests",
+				driverPackage,
 				dependency,
 			)
 		}
@@ -89,19 +119,19 @@ func readProductionSources(t *testing.T, root string) {
 	}
 }
 
-// productionClosure returns the package paths `go build ./cmd/agents-sandbox`
-// links, without the -test variant.
-func productionClosure(t *testing.T, root string) []string {
+// productionClosure returns the package paths `go list -deps pkg` links,
+// without the -test variant.
+func productionClosure(t *testing.T, root, pkg string) []string {
 	t.Helper()
-	list := exec.Command("go", "list", "-deps", launcherPackage)
+	list := exec.Command("go", "list", "-deps", pkg)
 	list.Dir = root
 	out, err := list.CombinedOutput()
 	if err != nil {
-		t.Fatalf("go list -deps %s: %v\n%s", launcherPackage, err, out)
+		t.Fatalf("go list -deps %s: %v\n%s", pkg, err, out)
 	}
 	dependencies := strings.Fields(string(out))
 	if len(dependencies) == 0 {
-		t.Fatalf("go list -deps %s printed no dependencies", launcherPackage)
+		t.Fatalf("go list -deps %s printed no dependencies", pkg)
 	}
 	return dependencies
 }

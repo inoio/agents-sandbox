@@ -217,6 +217,83 @@ func TestProxyStreamsSSEResponseIncrementally(t *testing.T) {
 	}
 }
 
+// TestProxyTerminatesForTheSNIHostnameOfAnIPConnect mirrors the msb runtime
+// under T2: it opens the tunnel by IP (CONNECT 127.0.0.1:<port>) but verifies the
+// proxy's certificate against the hostname it sends as SNI. The leaf must be
+// issued for that hostname, or the runtime rejects the handshake and the
+// agent's request never leaves the VM.
+func TestProxyTerminatesForTheSNIHostnameOfAnIPConnect(t *testing.T) {
+	handle, err := Start("127.0.0.1", true)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer handle.Stop()
+
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+	upstreamURL, err := url.Parse(upstream.URL)
+	if err != nil {
+		t.Fatalf("parse upstream URL: %v", err)
+	}
+	const sniHostname = "localhost"
+
+	//testenv:allow dials the test's own loopback proxy, which Start bound a moment ago
+	conn, err := net.Dial("tcp", handle.Addr)
+	if err != nil {
+		t.Fatalf("dial proxy: %v", err)
+	}
+	defer conn.Close()
+	connectTarget := upstreamURL.Host // 127.0.0.1:<port>, an IP like the runtime sends
+	if _, err := io.WriteString(
+		conn,
+		"CONNECT "+connectTarget+" HTTP/1.1\r\nHost: "+connectTarget+"\r\n\r\n",
+	); err != nil {
+		t.Fatalf("write CONNECT: %v", err)
+	}
+	reader := bufio.NewReader(conn)
+	connectResponse, err := http.ReadResponse(reader, nil)
+	if err != nil {
+		t.Fatalf("read CONNECT response: %v", err)
+	}
+	if connectResponse.StatusCode != http.StatusOK {
+		t.Fatalf("CONNECT status = %d, want 200", connectResponse.StatusCode)
+	}
+
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM([]byte(handle.CAPEM())) {
+		t.Fatal("the proxy CA did not parse")
+	}
+	tlsConn := tls.Client(conn, &tls.Config{ServerName: sniHostname, RootCAs: pool, MinVersion: tls.VersionTLS12})
+	if err := tlsConn.Handshake(); err != nil {
+		t.Fatalf("handshake with SNI %q over an IP CONNECT: %v", sniHostname, err)
+	}
+
+	request := "GET /v1/messages HTTP/1.1\r\nHost: " + sniHostname + ":" + upstreamURL.Port() + "\r\nConnection: close\r\n\r\n"
+	if _, err := io.WriteString(tlsConn, request); err != nil {
+		t.Fatalf("write request: %v", err)
+	}
+	response, err := http.ReadResponse(bufio.NewReader(tlsConn), nil)
+	if err != nil {
+		t.Fatalf("read response: %v", err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", response.StatusCode, http.StatusOK)
+	}
+
+	observation := handle.Stop()
+	destination := destinationFor(t, observation.Destinations, "https")
+	if destination.Host != sniHostname {
+		t.Errorf("https destination host = %q, want the SNI hostname %q", destination.Host, sniHostname)
+	}
+	tunnel := destinationFor(t, observation.Destinations, "connect")
+	if tunnel.Host != sniHostname || tunnel.IP != upstreamURL.Hostname() {
+		t.Errorf("connect destination = %+v, want host %q with IP %q", tunnel, sniHostname, upstreamURL.Hostname())
+	}
+}
+
 func TestProxyRecordsDeniedDestination(t *testing.T) {
 	handle, err := Start("127.0.0.1", false)
 	if err != nil {
@@ -731,6 +808,33 @@ func TestTerminateProxyForwardsSkipUpstreamVerify(t *testing.T) {
 
 // A CONNECT target that is a literal IP records that IP, so an analyser can name
 // the destination a pinned or non-HTTP client reached.
+// TestProxyStateNamesOnlyIPTunnelsWithAnSNI: a tunnel opened by hostname is
+// already named, and a handshake without SNI (or naming its own IP) carries no
+// better name, so only an IP tunnel with a distinct SNI is renamed.
+func TestProxyStateNamesOnlyIPTunnelsWithAnSNI(t *testing.T) {
+	state := &proxyState{recorder: new(recorder)}
+	state.observeConnect("203.0.113.7:443")
+	state.observeConnect("api.example:443")
+
+	state.nameTunnel("api.example:443", "other.example")
+	state.nameTunnel("203.0.113.7:443", "")
+	state.nameTunnel("203.0.113.7:443", "203.0.113.7")
+
+	hosts := map[string]bool{}
+	for _, destination := range state.recorder.result(Observation{}).Destinations {
+		hosts[destination.Host] = true
+	}
+	if len(hosts) != 2 || !hosts["203.0.113.7"] || !hosts["api.example"] {
+		t.Fatalf("hosts = %v, want both tunnels unchanged", hosts)
+	}
+
+	state.nameTunnel("203.0.113.7:443", "named.example")
+	destinations := state.recorder.result(Observation{}).Destinations
+	if destinationByHost(t, destinations, "named.example").IP != "203.0.113.7" {
+		t.Errorf("destinations = %+v, want the IP tunnel named named.example", destinations)
+	}
+}
+
 func TestProxyConnectIPHostRecordsIP(t *testing.T) {
 	state := &proxyState{recorder: new(recorder)}
 
@@ -811,6 +915,6 @@ func TestStopClosesProxyListener(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatalf("the proxy still accepts connections at %s after Stop", handle.Addr)
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond) //testenv:allow a negative assertion: the proxy must accept nothing after Stop
 	}
 }
