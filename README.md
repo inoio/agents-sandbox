@@ -97,7 +97,7 @@ select the coding-agent to run, provision, or manage. This is also available as 
 provided by a custom base or project Dockerfile.
 
 Built-in profiles cover the most widely used agents — `opencode`, `opencode2` (default, opencode 2 beta), `claude-code`
-(Claude Code), `codex` (OpenAI Codex), and `pi` — plus further experimental agents. The
+(Claude Code), `codex` (OpenAI Codex), and `pi` — and further profiles; the
 [agent docs](https://inoio.github.io/agents-sandbox/configuration/agent.html#built-in-agents) list every profile with its install method and capabilities.
 `opencode`, `opencode2`, and `pi` are the tested agents; every other profile is experimental — not well tested with
 agents-sandbox.

@@ -1,6 +1,6 @@
 ---
 description: Checklist for adding a built-in agent profile in `internal/agent`, covering the pitfalls earlier profiles hit. A file written outside the tool tree never reaches the runner image. Update-check and TLS behaviour must be verified on the built binary. The drop-in copies only credential-free files, and the read-back declares only classifiable files. The guide also lists every place a profile touches.
-read_if: Adding or reviewing a new agent profile (`ImageSpec`, `ProvisionRules`, `ReadBackPaths`, `harnessSpecs`); writing an agent's install command, update switch, or credential docs; or diagnosing an agent setting that is missing from the shipped image, a secret placeholder sent upstream unsubstituted, or a claim about an agent that turned out wrong.
+read_if: Adding or reviewing a new agent profile (`ImageSpec`, `ProvisionRules`, `ReadBackPaths`, the `driver.Specs` entry); writing an agent's install command, update switch, or credential docs; or diagnosing an agent setting that is missing from the shipped image, a secret placeholder sent upstream unsubstituted, or a claim about an agent that turned out wrong.
 ---
 
 # Adding an agent profile
@@ -34,9 +34,10 @@ Probes that worked:
   writes elsewhere (`/etc`, `/root`, `/usr`) is lost. Either relocate it into the tool tree through an environment
   variable the agent honours (qwen's `QWEN_CODE_SYSTEM_SETTINGS_PATH`), or write it in the runner stage with
   `ImageSpec.RunnerCommand` (grok's `/etc/grok/requirements.toml`).
-- **The integration build does not prove the shipped content.** `TestRenderDockerfileBuildsEveryAgent` runs
-  `--version` in the agent stage. Pin the final-stage content with a render test instead (see the qwen and grok render
-  tests).
+- **The integration build does not prove the ancillary final-stage content.** `TestRenderDockerfileBuildsEveryAgent`
+  builds the full final Dockerfile and runs the agent's version probe in the built final image, so the agent binary is
+  proven. It does not assert ancillary final-stage content (`ImageSpec.RunnerCommand` artifacts such as grok's
+  `/etc/grok/requirements.toml`). Pin that content with a render test instead (see the qwen and grok render tests).
 - **Turn the update check off and prove it.** Use an environment variable or a pinned system setting, verified as
   above. The sandbox pins the baked version and offers upgrades itself.
 - Integration builds of heavy installs exceed `go test`'s default 10-minute timeout, so pass `-timeout 40m`.
@@ -74,7 +75,7 @@ that the provider key reaches only the hosts the docs name for its `env.secret`.
   - any login store in `readback.loginCredentialStores`.
 
   The CLI, runoptions, image, and readback contract tests derive their agent lists from the registry.
-- **Harness:** the `harnessSpecs` entry and the Ctrl-C/Ctrl-D comment; the quit-key table, the buffer split, the
+- **Harness:** the `driver.Specs` entry and the Ctrl-C/Ctrl-D comment; the quit-key table, the buffer split, the
   egress paragraph, and the cold-home build count in `specs/testing/harness-smoke-tests.md`.
 - **Docs:** `docs/configuration/agent.md` is the canonical list. It takes:
   - the profile bullet under *Built-in agents*;
