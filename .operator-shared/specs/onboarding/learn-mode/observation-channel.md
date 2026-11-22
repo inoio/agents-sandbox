@@ -147,9 +147,12 @@ destination (the egress lock keeps it) and the after-run names its host instead.
 **The failed-handshake attribution is a conservative heuristic.** goproxy names a failed handshake only by its CONNECT
 target — under T2 an IP, so the proxy cannot tell which tunnel's handshake failed. The failure is charged to the entry
 recorded under the target itself (an address-only tunnel), and only when no such entry exists to a named entry that
-shares the target's IP. A named host is therefore never blamed for a failure that a no-SNI client may have caused, at
-the cost that when an address-only tunnel shares the target's IP:port the named tunnel's real failure is charged to the
-address-only entry instead — and because `summarize` skips `AddressOnlyTunnel` entries, that failure goes unreported.
+shares the target's IP. A named host is never blamed for a failure a no-SNI client may have caused: the fallback fires
+only when **exactly one** entry shares the target's IP:port, since with two or more the failing tunnel is as likely to
+be any of them and charging the most recent would name a healthy host — the failure is then left to the proxy log
+instead of a host. The cost is the reverse case: when an address-only tunnel shares the target's IP:port the named
+tunnel's real failure is charged to the address-only entry instead — and because `summarize` skips `AddressOnlyTunnel`
+entries, that failure goes unreported.
 
 **The proxy log is a separate diagnostic file.** The proxy's own warnings go to
 `<UserStateDir>/learn/proxy-logs/<session start>.log` (0600), opened on the first warning only, so a clean session

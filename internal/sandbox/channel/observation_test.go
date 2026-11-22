@@ -210,6 +210,25 @@ func TestRecorderFailTunnelMatchesANamedTunnelByItsIP(t *testing.T) {
 	}
 }
 
+// TestRecorderFailTunnelChargesNeitherOfTwoNamedTunnelsSharingTheIP: two hosts
+// behind one IP:port are both plausible owners of a target-named failure, and
+// goproxy names only the target, so charging either would blame a host whose
+// handshake did not fail. The failure stays unattributed rather than being
+// charged to the most recent entry.
+func TestRecorderFailTunnelChargesNeitherOfTwoNamedTunnelsSharingTheIP(t *testing.T) {
+	r := new(recorder)
+	r.observe("api.example", "203.0.113.7", "", ConnectProtocol, 443, nil).Success = true
+	r.observe("www.example", "203.0.113.7", "", ConnectProtocol, 443, nil).Success = true
+
+	r.failTunnel("203.0.113.7:443")
+
+	for _, destination := range r.result(Observation{}).Destinations {
+		if destination.Failed != 0 {
+			t.Errorf("destination %+v Failed = %d, want neither named tunnel charged", destination, destination.Failed)
+		}
+	}
+}
+
 // TestRecorderFailTunnelLooksPastANonMatchingEntry: an earlier entry that does
 // not match does not end the search.
 func TestRecorderFailTunnelLooksPastANonMatchingEntry(t *testing.T) {

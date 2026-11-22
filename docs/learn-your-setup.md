@@ -84,8 +84,8 @@ When you exit, agents-sandbox reports what it learned and offers three choices:
 If a client in the sandbox rejected the proxy's certificate, the report names the hosts whose TLS handshake failed:
 either the client pins its certificates, or it does not trust the sandbox CA. The proxy sees only the connection
 target, not which tunnel failed, so it charges a failure to the entry under that target and falls back to a named host
-only when nothing else shares it — a host is never blamed for a failure another connection may have caused, and a rare
-failure may go unnamed when a hostless connection shares the target. Failed hosts stay in the proposed allow list. When
+only when exactly one entry shares that target — a host is never blamed for a failure another connection may have
+caused, and a rare failure may go unnamed when a hostless connection, or a second named host, shares the target. Failed hosts stay in the proposed allow list. When
 the proxy logged problems, the report names its log file under the launcher's state directory (`learn/proxy-logs/`).
 The log holds no header or query values and is removed after 30 days.
 

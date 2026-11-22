@@ -136,18 +136,23 @@ func (r *recorder) nameTunnel(ip string, port uint16, hostname string) {
 // connectTarget. goproxy names only the target, so this is a conservative
 // heuristic, used for reporting only: the failure is charged to the entry
 // recorded under the target itself (an unnamed, address-only tunnel, or a tunnel
-// opened by hostname). A named entry that merely shares the target's IP is
-// charged only when no entry under the target exists — otherwise a failure from
-// a client that sent no SNI would mark a healthy host that shares the same
-// IP:port. The cost is the reverse case: when an address-only tunnel shares the
-// target, a named tunnel's real failure is charged to the address-only entry,
-// which summarize skips, so it goes unreported.
+// opened by hostname). Failing that, a named entry that merely shares the
+// target's IP is charged only when exactly one entry shares it — one candidate
+// is the best available identification, while two or more would blame a healthy
+// host that shares the IP:port, since the failing tunnel is as likely to be the
+// other one, so the failure is left unattributed (still in the proxy log). The
+// cost is the reverse case: when an address-only tunnel shares the target, a
+// named tunnel's real failure is charged to the address-only entry, which
+// summarize skips, so it goes unreported.
 func (r *recorder) failTunnel(connectTarget string) {
 	host, port := splitHostPort(connectTarget)
 	if parsed := net.ParseIP(host); parsed != nil {
 		host = parsed.String()
 	}
-	var underTarget, sharingIP *Destination
+	var (
+		underTarget *Destination
+		sharingIP   []*Destination
+	)
 	for _, tunnel := range r.destinations {
 		if tunnel.Protocol != ConnectProtocol || tunnel.Port != port {
 			continue
@@ -158,14 +163,12 @@ func (r *recorder) failTunnel(connectTarget string) {
 				underTarget = tunnel
 			}
 		case tunnel.IP == host:
-			if sharingIP == nil || !tunnel.LastSeen.Before(sharingIP.LastSeen) {
-				sharingIP = tunnel
-			}
+			sharingIP = append(sharingIP, tunnel)
 		}
 	}
 	charged := underTarget
-	if charged == nil {
-		charged = sharingIP
+	if charged == nil && len(sharingIP) == 1 {
+		charged = sharingIP[0]
 	}
 	if charged != nil {
 		charged.Failed++
