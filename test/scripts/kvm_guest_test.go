@@ -262,6 +262,35 @@ func TestKvmGuestAgentUpFailsWhenCloudInitFails(t *testing.T) {
 	assertNotContains(t, "ssh argv", readText(t, filepath.Join(dir, "ssh-argv")), "tmux new")
 }
 
+// TestKvmGuestAgentUpRejectsASingleQuoteInTheCommand pins that a credential
+// carrying a single quote is rejected before any guest contact: it would end the
+// single-quoted remote string early and corrupt the command silently.
+func TestKvmGuestAgentUpRejectsASingleQuoteInTheCommand(t *testing.T) {
+	dir := t.TempDir()
+	env := agentUpEnv(t, dir)
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"),
+		"agent-up", "LITELLM_API_KEY=a'b opencode2")
+	assertStatus(t, result, 1)
+
+	assertContains(t, "stderr", result.Stderr, "single quote")
+	assertNotContains(t, "ssh argv", readText(t, filepath.Join(dir, "ssh-argv")), "cloud-init")
+}
+
+// TestKvmGuestAgentRejectsASingleQuoteInTheCommand pins the same guard on the
+// direct `agent` subcommand.
+func TestKvmGuestAgentRejectsASingleQuoteInTheCommand(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestEnv(dir)
+	env["SSH_ARGV"] = filepath.Join(dir, "ssh-argv")
+	env["PATH"] = kvmGuestPath(t, "virsh", "ssh")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "agent", "opencode2'")
+	assertStatus(t, result, 1)
+
+	assertContains(t, "stderr", result.Stderr, "single quote")
+}
+
 // TestKvmGuestAgentProvisionSyncsConfigAndMaterializes pins that
 // `agent-provision` ships the host's launcher config to the guest and runs the
 // launcher's own `config provision` there, targeting the guest home.

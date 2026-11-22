@@ -125,6 +125,15 @@ DOMAIN_XML_PATH="$ARTIFACT_DIR/$VM_NAME.xml"
 log() { printf '%s\n' "==> $*" >&2; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
+# require_no_single_quote rejects a command that cannot be embedded in the
+# single-quoted remote string `agent_in` builds. A quote would end the string
+# early and corrupt the remote command silently.
+require_no_single_quote() {
+  case "$1" in
+    *"'"*) die "the agent command must not contain a single quote (it is embedded in a single-quoted remote command)" ;;
+  esac
+}
+
 usage() {
   cat <<'EOF'
 usage: kvm-guest.sh {up|render|ssh|sync|prime|run <cmd...>|agent [cmd]|agent-up [cmd]|agent-provision [name]|sync-back [branch]|firewall|down}
@@ -505,6 +514,7 @@ agent_in() {
   local ip session command
   session="${KVM_AGENT_SESSION:-agents-sandbox}"
   command="${*:-opencode2}"
+  require_no_single_quote "$command"
   ip="$(require_guest_ip)"
   exec ssh -tt -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
     -- "bash -lc 'cd ~/agents-sandbox && exec tmux new -A -s $session bash -c \"$command\"'"
@@ -589,6 +599,7 @@ wait_for_cloud_init() {
 # remain available.
 agent_up() {
   local ip
+  require_no_single_quote "${*:-opencode2}"
   ensure_running
   ip="$(require_guest_ip)"
   wait_for_cloud_init "$ip"
