@@ -181,8 +181,8 @@ func TestKvmGuestAgentForwardsAnInlineCredentialCommand(t *testing.T) {
 }
 
 // agentUpEnv is the environment the agent-up cases share: fakes for the commands
-// the flow drives, a temp SOURCE_DIR so sync has something to send, and a temp
-// HOME with no launcher config so provisioning is a no-op.
+// the flow drives and a temp HOME with no launcher config so provisioning is a
+// no-op.
 func agentUpEnv(t *testing.T, dir string) map[string]string {
 	t.Helper()
 	home := filepath.Join(dir, "home")
@@ -198,9 +198,9 @@ func agentUpEnv(t *testing.T, dir string) map[string]string {
 	env["KVM_HOST_USER"] = "kvmhost"
 	env["KVM_GUEST_STATE"] = filepath.Join(dir, "guest-state")
 	env["GIT_COMMON_DIR"] = "/host/agents-sandbox/.git"
-	env["SOURCE_DIR"] = filepath.Join(dir, "checkout")
 	env["SSH_ARGV"] = filepath.Join(dir, "ssh-argv")
 	env["SSH_KEYGEN_ARGV"] = filepath.Join(dir, "ssh-keygen-argv")
+	env["RSYNC_ARGV"] = filepath.Join(dir, "rsync-argv")
 	env["VIRSH_ARGV"] = filepath.Join(dir, "virsh-argv")
 	env["PATH"] = kvmGuestPath(t, "virsh", "ssh", "rsync", "git", "ssh-keygen")
 	return env
@@ -247,7 +247,6 @@ func TestKvmGuestAgentUpGatesOnCloudInitBeforeSyncing(t *testing.T) {
 	env := agentUpEnv(t, dir)
 	env["VIRSH_DOMINFO_OK"] = "1"
 	env["VIRSH_DOMSTATE"] = "running"
-	env["RSYNC_ARGV"] = filepath.Join(dir, "rsync-argv")
 
 	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"),
 		"agent-up", "LITELLM_API_KEY=secret opencode2")
@@ -265,9 +264,8 @@ func TestKvmGuestAgentUpGatesOnCloudInitBeforeSyncing(t *testing.T) {
 			cloudInit, provision, attach, sshArgv)
 	}
 	assertContains(t, "ssh argv", sshArgv, "LITELLM_API_KEY=secret opencode2")
-	// The checkout must be synced, so the guest carries `config provision`.
-	assertContains(t, "rsync argv", readText(t, filepath.Join(dir, "rsync-argv")),
-		"dev@192.168.122.55:~/agents-sandbox/")
+	// The checkout must be pulled in the guest, so it carries `config provision`.
+	assertContains(t, "ssh argv", sshArgv, "git fetch origin --prune")
 }
 
 // TestKvmGuestAgentUpFailsWhenCloudInitFails pins that a failed cloud-init
@@ -278,7 +276,6 @@ func TestKvmGuestAgentUpFailsWhenCloudInitFails(t *testing.T) {
 	env["VIRSH_DOMINFO_OK"] = "1"
 	env["VIRSH_DOMSTATE"] = "running"
 	env["SSH_CLOUD_INIT_FAIL"] = "1"
-	env["RSYNC_ARGV"] = filepath.Join(dir, "rsync-argv")
 
 	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "agent-up", "opencode2")
 	assertStatus(t, result, 1)
@@ -286,20 +283,19 @@ func TestKvmGuestAgentUpFailsWhenCloudInitFails(t *testing.T) {
 	assertContains(t, "stderr", result.Stderr, "cloud-init failed")
 	assertNotContains(t, "ssh argv", readText(t, filepath.Join(dir, "ssh-argv")), "tmux new")
 	// The gate precedes sync: a regression that synced before the cloud-init
-	// wait would leave an rsync log here.
-	assertNotContains(t, "rsync argv", readText(t, filepath.Join(dir, "rsync-argv")), "agents-sandbox")
+	// wait would fetch here.
+	assertNotContains(t, "ssh argv", readText(t, filepath.Join(dir, "ssh-argv")), "git fetch origin")
 }
 
 // TestKvmGuestAgentUpReattachesWithoutSyncingOverALiveSession pins the recovery
 // path: re-running the command against a guest that already has the session must
-// reattach, not sync_in (one-way, --delete) over the live agent's work.
+// reattach, not sync_in over the live agent's work.
 func TestKvmGuestAgentUpReattachesWithoutSyncingOverALiveSession(t *testing.T) {
 	dir := t.TempDir()
 	env := agentUpEnv(t, dir)
 	env["VIRSH_DOMINFO_OK"] = "1"
 	env["VIRSH_DOMSTATE"] = "running"
 	env["SSH_AGENT_SESSION"] = "1"
-	env["RSYNC_ARGV"] = filepath.Join(dir, "rsync-argv")
 
 	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"),
 		"agent-up", "LITELLM_API_KEY=secret opencode2")
@@ -309,25 +305,24 @@ func TestKvmGuestAgentUpReattachesWithoutSyncingOverALiveSession(t *testing.T) {
 	assertContains(t, "ssh argv", sshArgv, "tmux has-session")
 	assertContains(t, "ssh argv", sshArgv, "tmux new -A -s agents-sandbox")
 	assertNotContains(t, "ssh argv", sshArgv, "config provision")
-	assertNotContains(t, "rsync argv", readText(t, filepath.Join(dir, "rsync-argv")), "agents-sandbox")
+	assertNotContains(t, "ssh argv", sshArgv, "git fetch origin")
 }
 
 // TestKvmGuestAgentUpRefusesToSyncWhenTheSessionProbeFails pins that a probe
-// that cannot reach the guest is not read as "no live session": the one-way,
-// --delete sync must not run on an unknown session state.
+// that cannot reach the guest is not read as "no live session": sync must not
+// run on an unknown session state.
 func TestKvmGuestAgentUpRefusesToSyncWhenTheSessionProbeFails(t *testing.T) {
 	dir := t.TempDir()
 	env := agentUpEnv(t, dir)
 	env["VIRSH_DOMINFO_OK"] = "1"
 	env["VIRSH_DOMSTATE"] = "running"
 	env["SSH_PROBE_FAIL"] = "1"
-	env["RSYNC_ARGV"] = filepath.Join(dir, "rsync-argv")
 
 	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "agent-up", "opencode2")
 	assertStatus(t, result, 1)
 
 	assertContains(t, "stderr", result.Stderr, "refusing to sync")
-	assertNotContains(t, "rsync argv", readText(t, filepath.Join(dir, "rsync-argv")), "agents-sandbox")
+	assertNotContains(t, "ssh argv", readText(t, filepath.Join(dir, "ssh-argv")), "git fetch origin")
 }
 
 // TestKvmGuestAgentUpRejectsUnsafeCommandCharacters pins the guard against every
@@ -687,28 +682,35 @@ func TestKvmGuestSyncRoutesOriginToTheHost(t *testing.T) {
 	assertNotContains(t, "ssh argv", argv, "git remote add")
 }
 
-func TestKvmGuestSyncForwardsTheCheckoutWithExcludes(t *testing.T) {
+// TestKvmGuestSyncPullsFromTheHostInsteadOfRsyncing pins that `sync` pulls the
+// host's branch in the guest, fast-forward only — not an rsync that would
+// clobber the agent's tree.
+func TestKvmGuestSyncPullsFromTheHostInsteadOfRsyncing(t *testing.T) {
 	dir := t.TempDir()
-	argvPath := filepath.Join(dir, "rsync-argv")
 	env := kvmGuestSyncEnv(t, dir)
-	env["ARTIFACT_DIR"] = filepath.Join(dir, ".kvm-guest")
-	env["SOURCE_DIR"] = "/host/checkout"
-	env["RSYNC_ARGV"] = argvPath
+	env["RSYNC_ARGV"] = filepath.Join(dir, "rsync-argv")
 
 	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync")
 	assertStatus(t, result, 0)
 
-	argv := readText(t, argvPath)
-	assertContains(t, "rsync argv", argv, "/host/checkout/")
-	assertContains(t, "rsync argv", argv, "dev@192.168.122.55:~/agents-sandbox/")
-	assertContains(t, "rsync argv", argv, "--exclude .kvm-guest/")
-	// The guest owns its own clone's .git. A directory-only `.git/` pattern does
-	// not match a linked worktree's `.git`, which is a *file*: rsync would then
-	// copy that dangling `gitdir: ../.git/...` pointer over the guest's real .git
-	// directory, and every launcher command in the guest would fail to resolve
-	// the project identity. Exclude the `.git` entry itself, file or directory.
-	assertContains(t, "rsync argv", argv, "--exclude .git ")
-	assertNotContains(t, "rsync argv", argv, "--exclude .git/")
+	argv := readText(t, filepath.Join(dir, "ssh-argv"))
+	assertContains(t, "ssh argv", argv, "git fetch origin --prune")
+	assertContains(t, "ssh argv", argv, "git checkout feat/793-msb-journeys")
+	assertContains(t, "ssh argv", argv, "git merge --ff-only origin/feat/793-msb-journeys")
+	assertNotContains(t, "rsync argv", readText(t, filepath.Join(dir, "rsync-argv")), "agents-sandbox")
+}
+
+// TestKvmGuestSyncRefusesWhenTheGuestCannotFastForward pins that a diverged guest
+// branch aborts sync — never a reset that would clobber the agent's work.
+func TestKvmGuestSyncRefusesWhenTheGuestCannotFastForward(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestSyncEnv(t, dir)
+	env["SSH_FAIL_CONTAINS"] = "git merge --ff-only"
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync")
+	if result.Status == 0 {
+		t.Fatalf("sync exited 0 despite a failing guest pull:\nstderr:\n%s", result.Stderr)
+	}
 }
 
 // TestKvmGuestSyncBackFetchesEveryGuestBranchIntoTheNamespace pins the default:
