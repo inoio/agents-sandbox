@@ -1893,16 +1893,14 @@ func TestPrepareSandboxStopsAtTheFailingStage(t *testing.T) {
 					},
 				})
 				// A recorded digest other than the built sha256:abc123 makes the run
-				// switch images and ask how to handle the home volume.
+				// switch images, and the configured answer migrates the home volume.
 				seedReusableHome(t, k, "sha256:old")
 				return arrangement{
-					opts: sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),
-					ui: interactiveUI(t, func(prompt string) (string, error) {
-						if strings.Contains(prompt, "Docker image changed") {
-							return "m", nil
-						}
-						return "", nil
-					}),
+					opts: sandboxRunOptions(
+						t,
+						options.RunOptions{Agent: "opencode", HomeVolumeOnImageChange: "migrate"},
+					),
+					ui: interactiveUI(t, func(string) (string, error) { return "", nil }),
 				}
 			},
 			wantLastStage: lifecycle.PlanReconfig,

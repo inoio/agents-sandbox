@@ -105,6 +105,10 @@ type RunOptions struct {
 	// copied into the VM (drop-in provisioning). A nil value enables it
 	// (default); cmd resolves the launcher config and sets it explicitly.
 	ProvisionHostConfig *bool
+	// HomeVolumeOnImageChange answers the home-volume question when the runner
+	// image changed (home-volume.on-image-change): keep, migrate, reset, or ask.
+	// Empty means keep.
+	HomeVolumeOnImageChange string
 	// OpenLinks starts the host side of the in-VM xdg-open shim for the
 	// session, so links opened in the VM open on the host (internal/opener).
 	OpenLinks bool

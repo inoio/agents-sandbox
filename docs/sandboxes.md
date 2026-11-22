@@ -241,11 +241,11 @@ It survives the sandbox being destroyed and the Dockerfile changing.
 Home volumes are named `<checkout-slug>-<agent>-<timestamp>`. Which home volume is current is stored in the
 project's state file (`~/.local/state/agents-sandbox/<checkout-slug>/<agent>/state.yaml`).
 
-When the Dockerfile changes (new image digest), most of the time the current home volume can continue to be used.
-Keeping it is only a problem when the Dockerfile change also changes the home directory. So when a
-Dockerfile change actually leads to a sandbox rebuild (and not just the sandbox continuing on the current image, for
-example when the rebuild is deferred to a later run), agents-sandbox prompts you to decide what to do with the home
-volume:
+When the runner image changes (a new image digest, for example after an agent upgrade or a Dockerfile change), the
+current home volume can almost always continue to be used. Keeping it is only a problem when the change also changes
+the image's home directory. When an image change actually leads to a sandbox rebuild (and not just the sandbox
+continuing on the current image, for example when the rebuild is deferred to a later run), agents-sandbox applies the
+answer configured in `home-volume.on-image-change` and names it in one line; the default is `keep`:
 
 | Choice | What happens |
 | --- | --- |
@@ -253,8 +253,11 @@ volume:
 | reset | Build a completely new home volume from the new sandbox's home directory, discarding the current home (for example, losing the agent's session history). |
 | migrate | Build a new home volume like reset, then copy all files from the current home on top. |
 
-A rebuild that is deferred — the VM keeps running on the current image — skips the prompt. In non-interactive mode the
-existing home volume is kept and you are told the image changed. The old volume is always kept, and the state file is
+Set `home-volume.on-image-change: ask` to be asked on every image change instead. The dialog also offers `quit`, and
+after your answer it offers to save it in the user config file that sets `ask`. A project config is never rewritten,
+because it is shared with your team: if `.agents-sandbox/config.yaml` sets `ask`, change it there. Under `ask`, a
+non-interactive run keeps the existing home volume and tells you the image changed, and `--dry-run-vm` saves nothing.
+A rebuild that is deferred — the VM keeps running on the current image — skips the question. The old volume is always kept, and the state file is
 only updated once the chosen action has actually executed.
 
 ### Managing volumes

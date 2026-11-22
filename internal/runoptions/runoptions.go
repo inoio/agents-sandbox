@@ -107,6 +107,7 @@ func Build(cfg *viperconfig.Config, cmd *cobra.Command, ui termio.Logger) (optio
 		provisionHostConfig := cfg.ProvisionHostConfig
 		opts.ProvisionHostConfig = &provisionHostConfig
 		opts.OpenLinks = cfg.OpenLinks
+		opts.HomeVolumeOnImageChange = cfg.HomeVolume.OnImageChange
 		opts.AllowPlaceholderFor = cfg.Secrets.Common.AllowPlaceholderFor
 		opts.CacheFrom = singleCacheEntry(cfg.ImageCacheFrom)
 		opts.CacheTo = singleCacheEntry(cfg.ImageCacheTo)

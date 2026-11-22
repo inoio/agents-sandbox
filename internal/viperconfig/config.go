@@ -86,6 +86,8 @@ type Config struct {
 	// Upgrade controls checking for and installing newer agents-sandbox
 	// releases. Only Mode, Interval and Channel are settable via env.
 	Upgrade UpgradeConfig `mapstructure:"upgrade"`
+	// HomeVolume holds the home-volume settings.
+	HomeVolume HomeVolumeConfig `mapstructure:"home-volume"`
 	// Notify holds the resolved notify config. It is decoded separately (not
 	// via viper.Unmarshal) from dotted keys so the AGENTS_SANDBOX_NOTIFY env
 	// override — the bare "notify" key — cannot collide with the nested
@@ -120,6 +122,13 @@ type UpgradeConfig struct {
 	Mode     string        `mapstructure:"mode"`
 	Interval time.Duration `mapstructure:"interval"`
 	Channel  string        `mapstructure:"channel"`
+}
+
+// HomeVolumeConfig holds the home-volume settings.
+type HomeVolumeConfig struct {
+	// OnImageChange answers the home-volume question when the runner image
+	// changed: keep, migrate, reset, or ask (show the dialog). Empty means keep.
+	OnImageChange string `mapstructure:"on-image-change"`
 }
 
 // Resolver resolves launcher config with precedence flag > env > config > default.
@@ -186,14 +195,17 @@ const (
 	// KeyDocker is the config key and CLI flag name for the docker capability.
 	KeyDocker = "docker"
 	// KeyDind is the deprecated alias for the docker capability.
-	KeyDind                = "dind"
-	keyCPUs                = "cpus"
-	keyQuiet               = "quiet"
-	keyYes                 = "yes"
-	keyUpgradeMode         = "upgrade.mode"
-	keyUpgradeInterval     = "upgrade.interval"
-	keyUpgradeChannel      = "upgrade.channel"
-	keyProvisionHostConfig = "provision-host-config"
+	KeyDind            = "dind"
+	keyCPUs            = "cpus"
+	keyQuiet           = "quiet"
+	keyYes             = "yes"
+	keyUpgradeMode     = "upgrade.mode"
+	keyUpgradeInterval = "upgrade.interval"
+	keyUpgradeChannel  = "upgrade.channel"
+	// KeyHomeVolumeOnImageChange answers the home-volume question on an image
+	// change.
+	KeyHomeVolumeOnImageChange = "home-volume.on-image-change"
+	keyProvisionHostConfig     = "provision-host-config"
 	// KeyOpenLinks is the config key and CLI flag name for the open-links setting.
 	KeyOpenLinks     = "open-links"
 	keyNotifyDesktop = "notify.desktop"

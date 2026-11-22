@@ -238,3 +238,17 @@ func TestValidateReadyTimeouts(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateHomeVolumeOnImageChange(t *testing.T) {
+	for value, wantErr := range map[string]bool{"keep": false, "migrate": false, "reset": false, "ask": false, "prompt": true, "": true} {
+		v := viper.New()
+		v.Set(KeyHomeVolumeOnImageChange, value)
+		err := validate(v)
+		if (err != nil) != wantErr {
+			t.Errorf("validate %s=%q err = %v, wantErr %v", KeyHomeVolumeOnImageChange, value, err, wantErr)
+		}
+		if err != nil && !strings.Contains(err.Error(), "keep, migrate, reset, ask") {
+			t.Errorf("validate error %v does not list the accepted answers", err)
+		}
+	}
+}

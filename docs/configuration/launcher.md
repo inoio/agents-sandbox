@@ -174,6 +174,7 @@ Configuration is resolved in this order (later entries override earlier ones):
 | `upgrade.mode`                   | —                        | `AGENTS_SANDBOX_UPGRADE_MODE`                                   | How to handle a newer release when one is found: `prompt`, `notify`, `auto`, or `auto-exit` (default `prompt`, see [Self-upgrade]({% link configuration/self-upgrade.md %}))                                                            |
 | `upgrade.interval`               | —                        | `AGENTS_SANDBOX_UPGRADE_INTERVAL`                               | How often to check for a newer release (default `1d`, minimum `1h`, see [Self-upgrade]({% link configuration/self-upgrade.md %}))                                                                                                                        |
 | `upgrade.channel`                | —                        | `AGENTS_SANDBOX_UPGRADE_CHANNEL`                                | Opt into a release channel: `stable` (default) or `canary` (see [Self-upgrade]({% link configuration/self-upgrade.md %}))                                                                                                                                |
+| `home-volume.on-image-change`    | —                        | `AGENTS_SANDBOX_HOME_VOLUME_ON_IMAGE_CHANGE`                    | What happens to the home volume when the runner image changed: `keep`, `migrate`, `reset`, or `ask` to show the dialog (default `keep`, see [Home volumes]({% link sandboxes.md %}#volume-lifecycle)) |
 | `notify.desktop`                 | —                        | `AGENTS_SANDBOX_NOTIFY_DESKTOP`                                 | Show desktop notifications via `notify-send` (Linux) / `osascript` (macOS) (default false, see [Notifications]({% link configuration/notifications.md %}))                                                                                                |
 | `notify.audio`                   | —                        | `AGENTS_SANDBOX_NOTIFY_AUDIO`                                   | Audio notification channel: `system`, `bell`, or `off` (default `off`, see [Notifications]({% link configuration/notifications.md %}))                                                                                                                  |
 | `notify.on-input`                | —                        | `AGENTS_SANDBOX_NOTIFY_ON_INPUT`                                | Notify when the agent is waiting on user input (default true; the whole block is inactive until any `notify:` key is set, see [Notifications]({% link configuration/notifications.md %}))                                                    |
@@ -244,6 +245,7 @@ field (for the self-upgrade check) accept:
 The launcher validates:
 
 - `cpus` must be between 0 and 255
+- `home-volume.on-image-change` must be one of `keep`, `migrate`, `reset`, `ask`
 - `upgrade.mode` must be one of `prompt`, `notify`, `auto`, `auto-exit`
 - `upgrade.interval` must be at least `1h` (a floor guarding against GitHub rate limits)
 - `upgrade.channel` must be `stable` or `canary` (an unknown value is rejected)

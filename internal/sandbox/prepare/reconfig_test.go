@@ -255,6 +255,7 @@ func TestResolveReconfigDecisionNeedsNoVMAccess(t *testing.T) {
 		cfs,
 		envsecret.EnvSecrets{},
 		live,
+		volume.ImageChangePolicy{Answer: "", Remember: nil},
 		&ui,
 	)
 	if err != nil {
@@ -695,6 +696,7 @@ func TestResolveReconfigDecisionRecreatesWhenARecordedFingerprintDiffers(t *test
 				configFiles,
 				tc.desired,
 				live,
+				volume.ImageChangePolicy{Answer: "", Remember: nil},
 				&ui,
 			)
 			if err != nil {
@@ -891,6 +893,7 @@ func TestResolveReconfigDecisionAgentConfigDrivesRestart(t *testing.T) {
 				configFiles,
 				envsecret.EnvSecrets{},
 				live,
+				volume.ImageChangePolicy{Answer: "", Remember: nil},
 				&ui,
 			)
 			if err != nil {
@@ -1029,7 +1032,7 @@ func TestResolveReconfigDecisionHomePromptDeferredWhenRebuildDeferred(t *testing
 			case strings.Contains(prompt, "Applying requires rebuilding"):
 				reconfigPrompted = true
 				return "k", nil
-			case strings.Contains(prompt, "Docker image changed"):
+			case strings.Contains(prompt, "runner image changed"):
 				homePrompted = true
 			}
 			return "", nil
@@ -1064,7 +1067,7 @@ func TestResolveReconfigDecisionHomePromptDeferredWhenRebuildDeferred(t *testing
 		mock,
 		volumes,
 		key,
-		options.RunOptions{Agent: "opencode"},
+		options.RunOptions{Agent: "opencode", HomeVolumeOnImageChange: volume.AnswerAsk},
 		imageInfo,
 		"vol",
 		persisted,
@@ -1112,7 +1115,7 @@ func TestResolveReconfigDecisionHomePromptAskedWhenRebuildConfirmed(t *testing.T
 	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(prompt string, _ []termio.Choice, _ string) (string, error) {
-			if strings.Contains(prompt, "Docker image changed") {
+			if strings.Contains(prompt, "runner image changed") {
 				prompted = true
 				return "k", nil // keep volume
 			}
@@ -1150,7 +1153,7 @@ func TestResolveReconfigDecisionHomePromptAskedWhenRebuildConfirmed(t *testing.T
 		mock,
 		volumes,
 		state.Key{Slug: slug, Agent: "opencode"},
-		options.RunOptions{Agent: "opencode"},
+		options.RunOptions{Agent: "opencode", HomeVolumeOnImageChange: volume.AnswerAsk},
 		imageInfo,
 		"vol",
 		persisted,
@@ -1204,7 +1207,7 @@ func TestApplyReconfigHomeActionError(t *testing.T) {
 	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(prompt string, _ []termio.Choice, _ string) (string, error) {
-			if contains(prompt, "Docker image changed") {
+			if contains(prompt, "runner image changed") {
 				return "m", nil // migrate -> triggers ApplyHomeAction -> CreateVolume
 			}
 			return "", nil
@@ -1230,7 +1233,7 @@ func TestApplyReconfigHomeActionError(t *testing.T) {
 		mock,
 		volumes,
 		state.Key{Slug: "testproj", Agent: "opencode"},
-		options.RunOptions{Agent: "opencode"},
+		options.RunOptions{Agent: "opencode", HomeVolumeOnImageChange: volume.AnswerAsk},
 		image.ImageInfo{DockerTag: "img:new", Ref: "img:new", Digest: "sha256:new"},
 		"vol",
 		persisted,
@@ -1317,7 +1320,7 @@ func TestApplyReconfigHomeActionQuit(t *testing.T) {
 	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(prompt string, _ []termio.Choice, _ string) (string, error) {
-			if contains(prompt, "Docker image changed") {
+			if contains(prompt, "runner image changed") {
 				return "q", nil
 			}
 			return "", nil
@@ -1346,7 +1349,7 @@ func TestApplyReconfigHomeActionQuit(t *testing.T) {
 		mock,
 		volumes,
 		state.Key{Slug: "testproj", Agent: "opencode"},
-		options.RunOptions{Agent: "opencode"},
+		options.RunOptions{Agent: "opencode", HomeVolumeOnImageChange: volume.AnswerAsk},
 		image.ImageInfo{DockerTag: "img:new", Ref: "img:new", Digest: "sha256:new"},
 		"vol",
 		persisted,
@@ -2001,6 +2004,7 @@ func TestResolveReconfigDecisionRecreateDoesNotDeferServePort(t *testing.T) {
 		loadOpencodeConfigFiles(t, &ui),
 		envsecret.EnvSecrets{},
 		live,
+		volume.ImageChangePolicy{Answer: "", Remember: nil},
 		&ui,
 	)
 	if err != nil {
