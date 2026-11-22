@@ -401,7 +401,13 @@ sync_in() {
   ip="$(require_guest_ip)"
   source="${SOURCE_DIR:-$(git -C "$repo_root" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$repo_root")}"
   log "syncing $source → $VM_USER@$ip:~/agents-sandbox"
-  rsync -az --delete --exclude '.git/' --exclude '.superpowers/' \
+  # Exclude the `.git` entry, not a `.git/` directory: the guest owns its own
+  # clone's .git, and the host checkout may be a linked worktree whose .git is a
+  # *file* recording a relative `gitdir: ../.git/worktrees/<name>`. A
+  # directory-only `.git/` pattern does not match that file, so rsync would copy
+  # the dangling pointer over the guest's real .git directory and every launcher
+  # command in the guest would then fail to resolve the project identity.
+  rsync -az --delete --exclude '.git' --exclude '.superpowers/' \
     --exclude "$(basename "$ARTIFACT_DIR")/" \
     "$source/" "$VM_USER@$ip:~/agents-sandbox/"
 }

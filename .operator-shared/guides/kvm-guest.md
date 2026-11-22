@@ -153,7 +153,10 @@ list and shell history. The command is embedded in a single-quoted remote comman
 quote.
 
 The guest checkout is the agent's own: it commits and creates worktrees there, and work returns to the host with
-`git fetch` over SSH. `make kvm-sync` is one-way and `--delete`s, so do not run it over a live agent session.
+`git fetch` over SSH. `make kvm-sync` is one-way and `--delete`s, so do not run it over a live agent session. It excludes
+the `.git` entry itself (not just a `.git/` directory): the host checkout may be a linked worktree whose `.git` is a file
+recording a relative `gitdir: ../.git/worktrees/<name>`, which a directory-only pattern would not match — copying it over
+the guest's real `.git` directory would leave every launcher command in the guest unable to resolve the project identity.
 
 `guides/kvm-agent-testing.md` is the manual host-accept procedure for this workflow (T1–T6), since it needs a real
 hypervisor and cannot run in the development VM.

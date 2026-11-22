@@ -216,6 +216,13 @@ func TestKvmGuestSyncForwardsTheCheckoutWithExcludes(t *testing.T) {
 	assertContains(t, "rsync argv", argv, "/host/checkout/")
 	assertContains(t, "rsync argv", argv, "dev@192.168.122.55:~/agents-sandbox/")
 	assertContains(t, "rsync argv", argv, "--exclude .kvm-guest/")
+	// The guest owns its own clone's .git. A directory-only `.git/` pattern does
+	// not match a linked worktree's `.git`, which is a *file*: rsync would then
+	// copy that dangling `gitdir: ../.git/...` pointer over the guest's real .git
+	// directory, and every launcher command in the guest would fail to resolve
+	// the project identity. Exclude the `.git` entry itself, file or directory.
+	assertContains(t, "rsync argv", argv, "--exclude .git ")
+	assertNotContains(t, "rsync argv", argv, "--exclude .git/")
 }
 
 // TestKvmGuestPrimeCopiesImagesAndHome pins that `prime` copies both halves of
