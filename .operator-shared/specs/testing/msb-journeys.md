@@ -48,11 +48,16 @@ triages and adapts the test rather than treating the failure as a product regres
 ## Constraints (repo)
 
 - Go 1.27; TDD; `make fmt`, `make lint`, `make check`. A behavior change updates docs and adds a
-  `changelog.d/<PR>.<type>.md` fragment.
-- `test-isolation.md`: every test package's `TestMain` installs its acyclic fail-fast mocks; a
-  non-test test-support file carries a file-scope `//deadcode:ignore`; a **tagged-only** package is
-  silently dropped by `go test ./...` (verified), so a package that must run in the default suite
+  `changelog.d/<PR>.<type>.md` fragment. A tracked `scripts/*.sh` and a non-test `.go` file under `test/`
+  count as production code for the fragment; docs-only and `_test.go`-only changes need none.
+- `test-isolation.md`: every test package's `TestMain` installs its acyclic fail-fast mocks. The
+  dead-code gate ignores findings under `test/`, so the untagged `driver` needs no
+  `//deadcode:ignore` (its host calls keep their `//testenv:allow` markers); a **tagged-only** package
+  is silently dropped by `go test ./...` (verified), so a package that must run in the default suite
   needs an untagged file.
+- A host that cannot run the suite — no `/dev/kvm`, an unreachable docker daemon, or a platform other
+  than Linux/darwin — skips, never fails; `driver.Preflight` owns the check and runs before anything
+  is built.
 - The build tag names the **runtime** (`msb` = KVM + docker + network), not the scope.
 - `harness-smoke-tests.md`: the harness-table completeness test must run in the default suite, so a
   newly registered harness fails `make test` until covered.
