@@ -303,6 +303,7 @@ func detectAndOfferMemoryRaise(
 		ctx, k, live.handle, hs.ResourcePressure,
 		resourceproposal.MemoryLimits{
 			CurrentMiB:         currentMiB,
+			FallbackCurrentMiB: currentMiB,
 			BootMaxMiB:         bootMaxMemoryMiB(live),
 			HostAvailableMiB:   hostAvailableMiB,
 			HostAvailableKnown: hostAvailableKnown,

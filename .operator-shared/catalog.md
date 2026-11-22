@@ -75,8 +75,8 @@
   - Description: Where `go test ./...` wall time goes and the seams that set failure latency.
   - Read If: Speeding up `make test`, diagnosing a slow or hanging test run, adding a polling/wait seam or a `TestMain`, adding a real-SDK test, or deciding whether a test may consume a production timeout budget.
 - `guides/vm-oom-crash-resilience.md`
-  - Description: How the microVM enforces memory/disk/CPU limits, why an OOM kill is invisible from the launcher, and the detect-and-propose mitigation path.
-  - Read If: Working on VM OOM/crash handling, a memory/disk/CPU limit-hit detector or "raise the limit" proposal, terminal corruption after an in-VM kill, or the daemon/dockerd re-ensure and supervision behaviour.
+  - Description: How the microVM enforces memory/disk/CPU limits, why an OOM kill is invisible from the launcher, how a sandbox can report no live metrics slot, the detect-and-propose mitigation path, and the host procedure for diagnosing a missing metrics slot.
+  - Read If: Working on VM OOM/crash handling, a memory/disk/CPU limit-hit detector or "raise the limit" proposal, terminal corruption after an in-VM kill, a `Metrics` read that never succeeds (`no verified live metrics slot`), or the daemon/dockerd re-ensure and supervision behaviour.
 
 ### `specs/` - System contracts for this partition
 

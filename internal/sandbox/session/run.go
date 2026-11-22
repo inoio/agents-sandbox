@@ -38,11 +38,26 @@ type preparedSandbox interface {
 	GuestCWD() string
 	Key() state.Key
 	HomeVolume() string
+	AppliedLimits() prepare.AppliedLimits
 }
 
 // prepareSandbox is a test seam swapped in tests to avoid real VM setup.
 var prepareSandbox = func(ctx context.Context, opts options.RunOptions, skipVM bool, ui termio.UI) (preparedSandbox, error) {
 	return prepare.PrepareSandbox(ctx, opts, skipVM, ui)
+}
+
+// applyAppliedLimits replaces the run's configured resource limits with the ones
+// prepare applied, including raises accepted while planning. The post-attach
+// offers must build on the applied values: the CLI-resolved ones a same-run raise
+// superseded would let an offer persist a value below the live limit
+// (specs/resources/resource-limit-proposal.md).
+func applyAppliedLimits(ses preparedSandbox, opts options.RunOptions) options.RunOptions {
+	applied := ses.AppliedLimits()
+	opts.Memory = applied.Memory
+	opts.DiskSize = applied.DiskSize
+	opts.WorkspaceQuota = applied.WorkspaceQuota
+	opts.TmpSize = applied.TmpSize
+	return opts
 }
 
 // learnSession is the subset of *learn.Run the session drives. It is an
@@ -266,6 +281,7 @@ func Run(ctx context.Context, opts options.RunOptions, mode options.Mode, ui ter
 
 	opts.Trace.Record(lifecycle.Attach)
 	k := ses.Key()
+	opts = applyAppliedLimits(ses, opts)
 
 	learnHome := ""
 	if learnRun != nil {
@@ -456,6 +472,7 @@ func Shell(ctx context.Context, opts options.RunOptions, mode options.Mode, ui t
 	}
 
 	opts.Trace.Record(lifecycle.Attach)
+	opts = applyAppliedLimits(ses, opts)
 	stopHostOpener := startHostOpener(ctx, ses, opts.OpenLinks, ui)
 	defer stopHostOpener()
 
@@ -528,6 +545,11 @@ func runAttach(
 			)
 			if endedAbnormally && !interrupted {
 				offerMemoryRaiseAfterAttach(ctx, k, sb, summary, opts, ui)
+			} else {
+				ui.Verbosef(
+					"no in-session memory-raise offer: abnormal end %v, interrupted %v, exit code %d",
+					endedAbnormally, interrupted, exitCode,
+				)
 			}
 			if !interrupted {
 				offerDiskRaiseAfterAttach(ctx, k, sb, opts, ui)

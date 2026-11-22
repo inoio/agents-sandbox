@@ -143,11 +143,11 @@ fails with `ENOSPC`/`EDQUOT` and the agent keeps running — so disk is probed a
 end, clean or abnormal (skipped when a signal ended it), and recorded in a per-kind marker
 (`HomeState.DiskPressure`) together with the measured size and free space. The next launch offers
 only a recorded, unanswered disk hit, built from those recorded values; it does not probe, because
-the VM may be stopped. A raise of the root disk or `/tmp` starts from the larger of the configured and
+the VM may be stopped. A raise of the root disk or `/tmp` starts from the larger of the applied and
 the measured size, so a VM larger than its config (created with a flag, run without it) is never
 offered a shrink that the next launch would rebuild to. `/workspace`'s mount size is the host
 repository's content plus the quota (confirmed on a KVM host), so it is judged and raised against the
-configured quota instead: its free space is what is left of the quota. The probe runs under its own
+applied quota instead: its free space is what is left of the quota. The probe runs under its own
 timeout so a wedged guest cannot hang the end of a session. The marker writers are guarded under the state lock: recording keeps a
 hit another session stored first (answered or not), and clearing drops only the hit that recovered.
 `--serve-only` (no attach) is not covered.
@@ -195,6 +195,15 @@ pressure, and re-arming on the ratio alone would re-offer every launch.)
 - Built on `termio.Prompter` (`IsInteractive`, `Select`, `Input`, `Confirm`). Non-interactive
   invocations (`--yes`, piped input, no TTY) never block: they log what was detected and defer
   to the next launch or leave the marker.
+- The suggestion's basis is the live metrics limit when the read yields one, else the memory the run
+  applied (`prepare.Session.AppliedLimits()`, parsed, passed as `MemoryLimits.FallbackCurrentMiB`).
+  The post-attach path has no `live.config`, so it cannot take the value from the VM record the way
+  the next-launch path does; prepare hands the applied limits, which already include a raise accepted
+  while planning, so a same-run raise is not superseded by the stale configured value. The post-attach
+  disk offer builds on the same applied limits through the run's options. The fallback keeps an
+  in-session OOM offer working on a runtime that reports no live metrics
+  (`guides/vm-oom-crash-resilience.md`). The live limit is still preferred when present, because the
+  saved config can diverge from the guest (§5).
 - Flow (in-session, after terminal reset): explain what happened ("the VM ran out of memory and
   the harness was killed"), then offer to raise `--memory`. `Select` for the decision, `Input`
   for the value, pre-filled with a suggested increment (e.g. current + 25%, rounded to GiB) and
@@ -399,3 +408,12 @@ Resolved on a KVM host (msb 0.7.13):
   and after a live grow (`Modify{RootDiskSizeMiB}`, `disposition: live`) a fresh handle reports the
   new size, also after stop and restart, so drift detection can rely on it.
 - `/workspace` quota and `/tmp` pressure are measurable with an in-guest `df` (§1e).
+
+Observed on a KVM host (msb 0.7.16):
+- `Metrics` can be unavailable for a sandbox's whole life (`no verified live metrics slot`), which
+  disables the headroom detector and leaves a live memory resize unconfirmed. The memory offer no
+  longer depends on it (§3); the diagnosis procedure is in `guides/vm-oom-crash-resilience.md`.
+  Cause confirmed: versions match and a *fresh* sandbox's metrics work, so it is sandbox-specific —
+  the slot is established at sandbox creation, and a sandbox created before the runtime gained it never
+  gets one (a stop/start does not help; recreating the sandbox does). Whether the runtime should
+  establish the slot for an older sandbox instead is a microsandbox-side question.
