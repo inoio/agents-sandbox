@@ -85,7 +85,7 @@ as relative.
 | `cmd/agents-sandbox` | ~0.8 s | 300+ small tests; per-`Execute()` preflight, now dominated by `viperconfig.NewResolver` and `t.TempDir` cleanup |
 | `internal/testutil` | ~0.9 s | four module-wide contract scans (below) |
 | `internal/opener` | ~0.5 s | `TestForwarderKeepsReusedListenerWhenEarlierCallbackReturns` waits 150 ms for a wrong close to manifest |
-| `test/msb/driver` | ~0.5 s | deliberate pty timeout waits (`waitForTUI`/`waitForMarker`/`waitSettled`) |
+| `test/msb/driver` | ~0.5 s | deliberate pty timeout waits (`driver.WaitForTUI`/`driver.WaitForMarker`/`driver.WaitSettled`) |
 | `internal/sandbox/prepare` | ~0.4 s | many small tests, none over 0.1 s |
 | `internal/sandbox/image` | ~0.4 s | `TestHostOpenerShimTimesOutWithoutLauncher` (real shim subprocess, 0.1 s timeout) |
 | `internal/sandbox/state` | ~0.2 s | `TestCountActiveClients_AcquireVsCountRace` filesystem loop |
@@ -214,10 +214,10 @@ Two structural costs dominate, neither visible from the call sites:
 Both tiers run their independent stages with small bounded concurrency: `t.Parallel` on the
 integration build subtests (the `INTEGRATION_PARALLEL` knob), and in `test-msb` a small internal
 image-prebuild pool plus a number of parallel harness subtests sized to the host's **free memory**
-(`harnessConcurrencyFor`: 1.5 GiB working-set VMs after a 2 GiB host reserve; `AGENTS_SANDBOX_MSB_PARALLEL`/`MSB_PARALLEL`
+(`driver.HarnessConcurrencyFor`: 1.5 GiB working-set VMs after a 2 GiB host reserve; `AGENTS_SANDBOX_MSB_PARALLEL`/`MSB_PARALLEL`
 overrides it). Each smoke run boots its VM at `--memory 2G` rather than the launcher's 4 GiB default; the count uses
 a working-set estimate, not that ceiling, because a guest allocates only the pages it touches.
-Each harness gets its own prepared HOME tree (`prepareHome`), so overlapping harnesses never share a
+Each harness gets its own prepared HOME tree (`driver.PrepareHome`), so overlapping harnesses never share a
 home. Both tiers stay serial across their top-level tests — a top-level case mutates the process-global
 `docker.Get` seam at setup and restores it in cleanup, so two must not overlap — but their subtests run in
 parallel and therefore share the docker daemon's layer cache and the microsandbox image home. The integration
