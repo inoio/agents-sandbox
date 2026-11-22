@@ -81,11 +81,11 @@ Findings so far:
 - claude-code A ✅, B (OAuth) ✅ — the host opener opened the login tab; D (login survives a restart) ✅.
 - #781 — the trust warning lists `.agents-sandbox/config.yaml` twice (one input per kind).
 - #782 — shorten the "No launcher config dir" notice and show it only on a new project VM.
-- The VM clock runs in UTC while the host is in local time, so agents report times an hour off (no issue yet).
+- The VM clock runs in UTC while the host is in local time, so agents report times an hour off (#808).
 - #786 — every image-digest change (an agent upgrade too) asks keep/migrate/reset for the home volume; proposal: never ask, merge the image home per file.
 - #787 — a VM kill during attach is reported as `agent connection closed during terminal attach` (low prio).
 - codex asks folder trust on every run and every attach: it saves `trust_level` in `~/.codex/config.toml`, which reprovision removes each run (#768); a `[projects."/workspace"]` snippet avoids it.
-- codex warns on every start that the launcher's `-c` overrides force embedded mode ("Running without the shared background server") (no issue yet).
+- codex warns on every start that the launcher's `-c` overrides force embedded mode ("Running without the shared background server") (#807).
 - pi saves its default model (`/model`, Ctrl+S) in `~/.pi/agent/settings.json`, removed every run (#768): it falls back to Opus, which subscription auth bills as extra usage.
 - #780 — claude-code asks the folder-trust question for `/workspace` with "No, exit" as default; pre-accept it.
 
