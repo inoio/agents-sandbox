@@ -303,7 +303,7 @@ func TestPrintSummaryNamesTheProxyLog(t *testing.T) {
 	}
 
 	failed := &termiotest.Mock{}
-	printSummary(failed, Summary{HandshakeFailed: []string{"pinned.example"}, ProxyWarnings: 2})
+	printSummary(failed, Summary{HandshakeFailed: []string{"pinned.example"}, ProxyWarnings: 1})
 	if len(failed.WarnCalls) != 2 || !strings.Contains(failed.WarnCalls[0], "pinned.example") ||
 		!strings.Contains(failed.WarnCalls[1], "could not be written") {
 		t.Errorf("WarnCalls = %v, want the failed host and the unwritten log", failed.WarnCalls)

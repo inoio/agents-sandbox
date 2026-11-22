@@ -656,7 +656,8 @@ func TestOnResponsePassesNilThrough(t *testing.T) {
 // dereferencing nil.
 func TestHandleZeroValueStopIsEmpty(t *testing.T) {
 	observation := Handle{}.Stop()
-	if len(observation.Destinations) != 0 || len(observation.Attribution) != 0 {
+	if len(observation.Destinations) != 0 || len(observation.Attribution) != 0 ||
+		observation.ProxyLog != "" || observation.ProxyWarnings != 0 {
 		t.Errorf("zero Handle Stop = %+v, want an empty artefact", observation)
 	}
 }
@@ -804,8 +805,8 @@ func TestTerminateProxyIsQuietAndDialsDirectly(t *testing.T) {
 	state := &proxyState{recorder: new(recorder)}
 
 	proxy := terminateProxy(ca, state, false)
-	if _, ok := proxy.Logger.(*proxyLog); !ok {
-		t.Errorf("proxy.Logger = %T, want the session proxy log", proxy.Logger)
+	if log, ok := proxy.Logger.(*proxyLog); !ok || log == nil {
+		t.Errorf("proxy.Logger = %#v, want the session proxy log", proxy.Logger)
 	}
 	if proxy.Tr == nil || proxy.Tr.Proxy != nil {
 		t.Error("the observation proxy must dial upstream directly, not via a host proxy env var")

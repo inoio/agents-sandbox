@@ -119,10 +119,30 @@ func TestProxyLogDropsLinesAfterClose(t *testing.T) {
 	log.close()
 
 	log.Printf("[%03d] WARN: after\n", 2)
+	log.Printf("[%03d] WARN: after again\n", 3)
 
-	if log.lines != 1 {
-		t.Errorf("lines = %d, want only the line before close", log.lines)
+	if _, lines := log.close(); lines != 1 {
+		t.Errorf("lines = %d, want only the line before close", lines)
 	}
+}
+
+func TestProxyLogReportsAHandshakeWarningWithItsTargetOnly(t *testing.T) {
+	var targets []string
+	log := &proxyLog{onHandshakeFailure: func(target string) { targets = append(targets, target) }}
+
+	log.Printf("[%03d] WARN: Cannot handshake client %v\n", 1, "203.0.113.7:443")
+
+	if len(targets) != 1 || targets[0] != "203.0.113.7:443" {
+		t.Errorf("targets = %v, want the target of a two-argument warning", targets)
+	}
+	if path, lines := log.close(); path != "" || lines != 1 {
+		t.Errorf("close = (%q, %d), want no file and one line", path, lines)
+	}
+}
+
+func TestProxyLogWithoutACallbackIgnoresHandshakeWarnings(t *testing.T) {
+	log := &proxyLog{}
+	log.Printf("[%03d] WARN: Cannot handshake client %v %v\n", 1, "203.0.113.7:443", "EOF")
 }
 
 func TestProxyLogIgnoresAShortHandshakeWarning(t *testing.T) {

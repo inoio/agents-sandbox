@@ -167,6 +167,63 @@ func TestRecorderFailTunnelMarksTheLatestMatchingTunnel(t *testing.T) {
 	}
 }
 
+// TestRecorderFailTunnelChargesOnlyTheMatchingTunnel: a request entry for the
+// same host and a tunnel on another port, both seen after the match, are not
+// charged, and a non-canonical IPv6 target matches its canonical entry.
+func TestRecorderFailTunnelChargesOnlyTheMatchingTunnel(t *testing.T) {
+	r := new(recorder)
+	// The matching tunnel comes first, so the most-recent rule would pick a
+	// later non-matching entry if the filter let it through.
+	r.observe("2607:6bc0::10", "2607:6bc0::10", "", ConnectProtocol, 443, nil).Success = true
+	r.observe("2607:6bc0::10", "2607:6bc0::10", "", ConnectProtocol, 8443, nil).Success = true
+	r.observe("2607:6bc0::10", "2607:6bc0::10", "", "https", 443, nil).Success = true
+
+	r.failTunnel("[2607:6BC0:0::10]:443")
+
+	for _, destination := range r.result(Observation{}).Destinations {
+		want := 0
+		if destination.Protocol == ConnectProtocol && destination.Port == 443 {
+			want = 1
+		}
+		if destination.Failed != want {
+			t.Errorf("destination %+v Failed = %d, want %d", destination, destination.Failed, want)
+		}
+	}
+}
+
+// TestRecorderFailTunnelMatchesANamedTunnelByItsIP: the runtime's failure names
+// the IP it opened, while the tunnel is already recorded under its SNI name.
+func TestRecorderFailTunnelMatchesANamedTunnelByItsIP(t *testing.T) {
+	r := new(recorder)
+	r.observe("api.example", "203.0.113.7", "", ConnectProtocol, 443, nil).Success = true
+
+	r.failTunnel("203.0.113.7:443")
+
+	if failed := r.result(Observation{}).Destinations[0].Failed; failed != 1 {
+		t.Errorf("Failed = %d, want the named tunnel charged by its IP", failed)
+	}
+}
+
+// TestRecorderFailTunnelLooksPastANonMatchingEntry: an earlier entry that does
+// not match does not end the search.
+func TestRecorderFailTunnelLooksPastANonMatchingEntry(t *testing.T) {
+	r := new(recorder)
+	r.observe("other.example", "", "", ConnectProtocol, 443, nil).Success = true
+	r.observe("api.example", "", "", ConnectProtocol, 443, nil).Success = true
+
+	r.failTunnel("api.example:443")
+
+	for _, destination := range r.result(Observation{}).Destinations {
+		want := 0
+		if destination.Host == "api.example" {
+			want = 1
+		}
+		if destination.Failed != want {
+			t.Errorf("destination %+v Failed = %d, want %d", destination, destination.Failed, want)
+		}
+	}
+}
+
 func TestRecorderFailTunnelMatchesAHostnameTarget(t *testing.T) {
 	r := new(recorder)
 	r.observe("api.example", "", "", ConnectProtocol, 443, nil).Success = true

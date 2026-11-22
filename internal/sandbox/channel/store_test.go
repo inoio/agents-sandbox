@@ -221,6 +221,9 @@ func TestOpenSessionLogLivesUnderTheLearnStateDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("openSessionLog: %v", err)
 	}
+	if _, err := file.WriteString("warning\n"); err != nil {
+		t.Fatalf("the proxy log is not writable: %v", err)
+	}
 	_ = file.Close()
 
 	want := filepath.Join(configpaths.Get().UserStateDir(), "learn", "proxy-logs", "1763458200.log")
@@ -245,6 +248,9 @@ func TestOpenSessionLogLivesUnderTheLearnStateDir(t *testing.T) {
 }
 
 func TestOpenSessionLogRefusesARelativeStateDir(t *testing.T) {
+	// A mutant that drops the absolute-path check must not write into the
+	// package directory.
+	t.Chdir(t.TempDir())
 	orig := configpaths.Get
 	configpaths.Get = func() configpaths.ConfigPaths { return relativeStateConfigPaths{} }
 	t.Cleanup(func() { configpaths.Get = orig })
@@ -443,6 +449,9 @@ func (relativeStateConfigPaths) UserStateDir() string { return "relative-user-st
 // A relative user state dir is refused rather than silently writing the capture
 // into the process's working directory.
 func TestArtefactStoreRefusesRelativeStateDir(t *testing.T) {
+	// A mutant that drops the absolute-path check must not write into the
+	// package directory.
+	t.Chdir(t.TempDir())
 	orig := configpaths.Get
 	configpaths.Get = func() configpaths.ConfigPaths { return relativeStateConfigPaths{} }
 	t.Cleanup(func() { configpaths.Get = orig })
@@ -497,9 +506,11 @@ func TestOpenSessionLogMkdirFailure(t *testing.T) {
 	}
 	withStateDir(t, stateFile)
 
-	if _, err := openSessionLog(time.Unix(1, 0)); err == nil || !strings.Contains(err.Error(), "proxy log directory") {
-		t.Errorf("openSessionLog under a regular file = %v, want the directory error", err)
+	_, err := openSessionLog(time.Unix(1, 0))
+	if err == nil || !strings.Contains(err.Error(), "proxy log directory") {
+		t.Fatalf("openSessionLog under a regular file = %v, want the directory error", err)
 	}
+	assertWrapsCause(t, err)
 }
 
 func TestOpenSessionLogOpenFailure(t *testing.T) {
@@ -510,12 +521,11 @@ func TestOpenSessionLogOpenFailure(t *testing.T) {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 
-	if _, err := openSessionLog(
-		time.Unix(1, 0),
-	); err == nil ||
-		!strings.Contains(err.Error(), "open the learn proxy log") {
-		t.Errorf("openSessionLog onto a directory = %v, want the open error", err)
+	_, err := openSessionLog(time.Unix(1, 0))
+	if err == nil || !strings.Contains(err.Error(), "open the learn proxy log") {
+		t.Fatalf("openSessionLog onto a directory = %v, want the open error", err)
 	}
+	assertWrapsCause(t, err)
 }
 
 func TestArtefactStoreSaveMkdirFailure(t *testing.T) {

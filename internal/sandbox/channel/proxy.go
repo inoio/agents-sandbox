@@ -110,6 +110,7 @@ func Start(bindHost string, skipUpstreamVerify bool, openLog func() (*os.File, e
 	state.recorder = new(recorder)
 	state.caFile = caFile
 	state.log = &proxyLog{
+		// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT reason="the line count starts at zero; a nonzero start only shifts a count no test of a real session can observe before a warning"
 		mu: sync.Mutex{}, file: nil, openLog: openLog, lines: 0, closed: false,
 		onHandshakeFailure: state.failTunnel,
 	}
@@ -308,6 +309,7 @@ func (s *proxyState) stop() Observation {
 		s.logPath, s.logLines = s.log.close()
 	}
 	s.mu.Lock()
+	// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT reason="ProxyWarnings is overwritten from the log below; the zero literal is exhaustruct's"
 	observation := s.recorder.result(Observation{Destinations: nil, Attribution: nil, ProxyLog: "", ProxyWarnings: 0})
 	s.mu.Unlock()
 
@@ -321,6 +323,7 @@ func (s *proxyState) stop() Observation {
 func (s *proxyState) logger() *proxyLog {
 	if s.log == nil {
 		s.log = &proxyLog{
+			// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT reason="a counting-only log built for a state without Start; its start count is read by no caller"
 			mu: sync.Mutex{}, file: nil, openLog: nil, lines: 0, closed: false,
 			onHandshakeFailure: s.failTunnel,
 		}

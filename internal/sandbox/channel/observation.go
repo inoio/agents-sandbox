@@ -35,7 +35,9 @@ type Destination struct {
 // handshake failed: a client that pins its certificates, or one missing the
 // session CA trust (#812). The two look the same to the proxy.
 func (d Destination) HandshakeFailed() bool {
-	return d.Protocol == ConnectProtocol && d.Failed > 0 && d.Failed >= d.Count
+	// A tunnel entry has a count of at least one, so Failed >= Count implies a
+	// failure.
+	return d.Protocol == ConnectProtocol && d.Failed >= d.Count
 }
 
 // ConnectProtocol is the protocol of an accepted CONNECT tunnel's entry.
@@ -184,7 +186,8 @@ func (r *recorder) deny(host, ip, path, protocol string, port uint16) {
 			FirstSeen: time.Time{},
 			LastSeen:  time.Time{},
 			Channel:   observedViaProxy,
-			Failed:    0,
+			// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT reason="a denial is never a tunnel, so its Failed count is read nowhere; the zero literal is exhaustruct's"
+			Failed: 0,
 		})
 	}
 }

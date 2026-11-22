@@ -47,9 +47,10 @@ func (l *proxyLog) Printf(format string, args ...any) {
 		return
 	}
 	l.lines++
-	if l.file == nil && l.openLog != nil {
-		// Open on the first warning only, so a clean session leaves no file;
-		// a failed open is not retried, and the lines are still counted.
+	if l.openLog != nil {
+		// Open on the first warning only (openLog is cleared afterwards), so a
+		// clean session leaves no file; a failed open is not retried, and the
+		// lines are still counted.
 		l.file, _ = l.openLog()
 		l.openLog = nil
 	}
