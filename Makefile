@@ -30,7 +30,7 @@ TEST_TIMEOUT ?= 5m
 # Bounded concurrency for the host-only tiers' parallel stages; both suites are
 # otherwise serial across their top-level tests. test-integration uses
 # INTEGRATION_PARALLEL. test-msb sizes its parallel harnesses from the host's
-# free memory (test/harness) and is additionally capped by an internal
+# free memory (test/msb/startup) and is additionally capped by an internal
 # semaphore, so a bare `go test -tags msb` cannot start a VM per harness; set
 # MSB_PARALLEL to a count to force it instead of the memory-derived default.
 INTEGRATION_PARALLEL ?= 4
@@ -59,7 +59,7 @@ MSB_GUEST_DOCKER_READY_TIMEOUT ?= 90s
 MSB_GUEST_DAEMON_READY_TIMEOUT ?= 180s
 # Standing root for the caching `test-msb`. Two constraints: it must stay short
 # enough for microsandbox's derived sandbox control socket (see
-# test/harness/harness_helpers_test.go — the smoke root must be under 30 bytes),
+# test/msb/driver/root_test.go — the smoke root must be under 30 bytes),
 # and it must live on a real disk, because the suite caches 10+ GiB of runner
 # images here. /tmp is a RAM-backed tmpfs where systemd mounts it as one, and
 # /var/tmp often is too; a tmpfs root either exhausts at the largest runner
@@ -257,7 +257,7 @@ test-msb: msb-reuse-root
 	AGENTS_SANDBOX_SMOKE_ROOT=$(MSB_REUSE_ROOT)/smoke \
 	AGENTS_SANDBOX_MSB_TEST_HOME=$(MSB_REUSE_ROOT)/msb \
 	AGENTS_SANDBOX_MSB_PARALLEL=$(MSB_PARALLEL) \
-	CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/harness/... ./internal/sandbox/msb/...
+	CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/msb/startup/... ./internal/sandbox/msb/...
 
 # Like test-msb, but on a fresh, isolated microsandbox home that caches nothing
 # between runs. It forces the reuse variables unset, so an exported
@@ -269,7 +269,7 @@ test-msb: msb-reuse-root
 # untagging only the leaf so the classic builder's layer cache survives, so a
 # cold run leaves no tagged runner image.
 test-msb-cold: msb-reuse-root
-	AGENTS_SANDBOX_SMOKE_ROOT= AGENTS_SANDBOX_MSB_TEST_HOME= AGENTS_SANDBOX_MSB_ROOT_BASE=$(MSB_REUSE_ROOT) AGENTS_SANDBOX_MSB_PARALLEL=$(MSB_PARALLEL) CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/harness/... ./internal/sandbox/msb/...
+	AGENTS_SANDBOX_SMOKE_ROOT= AGENTS_SANDBOX_MSB_TEST_HOME= AGENTS_SANDBOX_MSB_ROOT_BASE=$(MSB_REUSE_ROOT) AGENTS_SANDBOX_MSB_PARALLEL=$(MSB_PARALLEL) CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/msb/startup/... ./internal/sandbox/msb/...
 
 # The in-guest variant `kvm-run` drives by default: the same caching suite as
 # test-msb, with changes that only matter on a nested guest. The two msb-tagged
@@ -288,7 +288,7 @@ test-msb-in-vm: msb-reuse-root
 	AGENTS_SANDBOX_SMOKE_ROOT=$(MSB_REUSE_ROOT)/smoke \
 	AGENTS_SANDBOX_MSB_TEST_HOME=$(MSB_REUSE_ROOT)/msb \
 	AGENTS_SANDBOX_MSB_PARALLEL=$(or $(MSB_PARALLEL),$(MSB_GUEST_PARALLEL)) \
-	CGO_ENABLED=1 go test -tags msb -p 1 -timeout 60m -count=1 ./test/harness/... ./internal/sandbox/msb/...
+	CGO_ENABLED=1 go test -tags msb -p 1 -timeout 60m -count=1 ./test/msb/startup/... ./internal/sandbox/msb/...
 
 # Host-only KVM-guest workflow. These build a libvirt guest (cloud-init seeds
 # docker, Go, msb, and the repo), sync a checkout into it, and run a command

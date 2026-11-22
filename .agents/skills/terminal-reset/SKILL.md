@@ -11,7 +11,7 @@ what residue a kill leaves in a real terminal emulator, which a pty-based test c
 
 ## Modes the harnesses enable
 
-Measured on a KVM host. The harness smoke suite (`test/harness`) was run with a temporary dump of
+Measured on a KVM host. The harness smoke suite (`test/msb/startup`) was run with a temporary dump of
 `ses.output()` after readiness, and the raw bytes were scanned for `CSI ? Pm h|l`, `CSI > Ps u` (kitty keyboard
 push), `CSI ? u` (kitty query) and `CSI > 4 ; Ps m` (xterm modifyOtherKeys).
 

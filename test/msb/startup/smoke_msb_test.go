@@ -1,6 +1,6 @@
 //go:build msb
 
-package harness
+package startup
 
 import (
 	"os"

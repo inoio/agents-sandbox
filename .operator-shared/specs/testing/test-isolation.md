@@ -364,8 +364,8 @@ seam family is reached without its injectable factory. The remaining ambient pat
   call — or execs an ambient tool (`git`, `ssh`, `gpg`, `gh`,
   `docker`, `msb`) named by an interpreted or raw string literal — a shell interpreter is allowed. A use the statement
   sanctions with, or has immediately above it, a reason-bearing `//testenv:allow <reason>` marker is not reported — the
-  same in-place escape the ambient gate reads, which the `test/harness` smoke suite's shared `_test.go` helpers use for
-  the real `docker` they drive by design. A test that asserts on a
+  same in-place escape the ambient gate reads, which the `test/msb/driver` `_test.go` helpers the smoke suite shares
+  use for the real `docker` they drive by design. A test that asserts on a
   git-generated artifact still pins the setting it depends on in its own fixture — a linked worktree's recorded gitdir is
   absolute only while `worktree.useRelativePaths` is false, and CI on a plain clone never exercises a developer's global
   setting (`TestResolveIdentityOutsideWorktreeReportsSharedGitDir`). Because those tests are `integration`-tagged they are

@@ -110,7 +110,7 @@ Hermes's config home is **not** XDG: it is `HERMES_HOME` (default `/home/dev/.he
 
 ## Harness smoke entry
 
-`test/harness` carries a `hermes` entry (the suite asserts its key set equals `agent.Names()`):
+`test/msb/startup` carries a `hermes` entry (the suite asserts its key set equals `agent.Names()`):
 
 - `KeepsNormalBuffer: true` — hermes' classic CLI renders into the terminal's normal buffer, so the smoke test watches
   for an output marker rather than the alternate-screen sequence.

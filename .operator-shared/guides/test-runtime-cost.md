@@ -85,7 +85,7 @@ as relative.
 | `cmd/agents-sandbox` | ~0.8 s | 300+ small tests; per-`Execute()` preflight, now dominated by `viperconfig.NewResolver` and `t.TempDir` cleanup |
 | `internal/testutil` | ~0.9 s | four module-wide contract scans (below) |
 | `internal/opener` | ~0.5 s | `TestForwarderKeepsReusedListenerWhenEarlierCallbackReturns` waits 150 ms for a wrong close to manifest |
-| `test/harness` | ~0.5 s | deliberate pty timeout waits (`waitForTUI`/`waitForMarker`/`waitSettled`) |
+| `test/msb/driver` | ~0.5 s | deliberate pty timeout waits (`waitForTUI`/`waitForMarker`/`waitSettled`) |
 | `internal/sandbox/prepare` | ~0.4 s | many small tests, none over 0.1 s |
 | `internal/sandbox/image` | ~0.4 s | `TestHostOpenerShimTimesOutWithoutLauncher` (real shim subprocess, 0.1 s timeout) |
 | `internal/sandbox/state` | ~0.2 s | `TestCountActiveClients_AcquireVsCountRace` filesystem loop |
@@ -180,14 +180,14 @@ host-tier changes below):
 - `make test-integration` ~3m56s warm / ~4m45s cold. `internal/sandbox/image` is ~221s of it;
   every other package is ≤17s. The cost is real docker builds, largest single test
   `TestRenderDockerfileAgentVersionRebuildsInstall`.
-- `make test-msb-cold` ~13m37s warm / ~14m38s cold. `test/harness` is ~813s (`TestHarnessSmoke`
+- `make test-msb-cold` ~13m37s warm / ~14m38s cold. `test/msb/startup` is ~813s (`TestHarnessSmoke`
   one-off setup ~471s + 7 subtests ~228s; the docker-storage smoke ~106s, then a top-level
   `TestDockerStorageDriverIsFuseOverlayfs`, now `runDockerStorageDriverSmoke` inside `TestHarnessSmoke`), and
   `internal/sandbox/msb` ~45s runs concurrently.
 
 After the 2026-11-07 host-tier changes (same host, warm caches, the caching `make test-msb`):
 
-- `make test-msb` ~20s (from ~13m37s): `internal/sandbox/msb` ~10s runs concurrently, so `test/harness` is
+- `make test-msb` ~20s (from ~13m37s): `internal/sandbox/msb` ~10s runs concurrently, so `test/msb/startup` is
   ~20s. That package is now one top-level test, `TestHarnessSmoke`, whose parallel subtests are the seven harnesses
   plus the docker-storage smoke as a sibling — so it is bounded by its slowest subtest (hermes ~15s) rather than a
   sum. Both oh-my-pi and the docker-storage shell ready on a real signal (a startup marker; the shell's first echoed
@@ -199,7 +199,7 @@ Two structural costs dominate, neither visible from the call sites:
 - A harness image prebuild runs `agents-sandbox build`, which ends in `EnsureLoaded` — a
   `docker save | msb ImageLoad` of the multi-GB runner image
   (`internal/sandbox/image/load.go`). The suite's microsandbox home is a fresh `os.MkdirTemp`
-  per run (`test/harness/harness_helpers_test.go`'s `resolveSuiteRoot`, and `msbtest/runtime`'s
+  per run (`test/msb/driver/root.go`'s `ResolveSuiteRoot`, and `msbtest/runtime`'s
   `InstallIsolatedRuntimeHome` for the msb package), so the microsandbox image
   cache never survives between runs and the transfer is repaid in full each time (hermes alone
   ~190s of the ~420s prebuild; its docker build is ~7s). The `AGENTS_SANDBOX_SMOKE_ROOT` /
