@@ -21,6 +21,9 @@ type Context struct {
 	Home   string      // this journey's isolated HOME base (HOME and the XDG dirs)
 	// Session is set by StepLaunch and driven by the later steps.
 	Session *driver.Session
+	// Stub is set by StepSeedStub: the host-side destination the journey's
+	// agent sends to, kept so a later step or a host accept can inspect it.
+	Stub StubProvider
 }
 
 // Step is one named action in a journey. A step's Run returns an error; the

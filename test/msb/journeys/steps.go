@@ -37,6 +37,11 @@ type ScopeWant struct {
 // waits for this line rather than for the process to exit.
 const learnExitPromptMarker = "Save what agents-sandbox learned from this session?"
 
+// exitSaveAllKey answers the learn exit prompt with "s" (Save all): the exit
+// step takes a plain string, so the key is named here rather than imported from
+// learn, whose exit keys are unexported.
+const exitSaveAllKey = "s"
+
 // The isolated XDG tree driver.IsolatedEnv roots under a journey's home base:
 // the launcher's config lives under config/agents-sandbox and its project state
 // under state/agents-sandbox. The names mirror driver.env.go's private
@@ -62,6 +67,34 @@ func StepFreshHome() Step {
 func StepSeedHostConfig(files map[string]string) Step {
 	return Step{Name: "seed host agent config", Run: func(c *Context) error {
 		return driver.SeedHomeFiles(c.Home, files)
+	}}
+}
+
+// StepSeedStub starts the journey's host-side stub provider and seeds the
+// agent's launcher config so its provider points at the stub, storing the
+// provider on the context. It seeds the *launcher* config (a managed snippet),
+// never the agent's host config, so a fresh-home journey still gets the
+// first-run menu rather than a host-setup seed. The listener is closed by
+// StartStubProvider's tb.Cleanup.
+func StepSeedStub() Step {
+	return Step{Name: "seed the stub provider", Run: func(c *Context) error {
+		provider, err := StartStubProvider(c.TB)
+		if err != nil {
+			return err
+		}
+		c.Stub = provider
+		profile, ok := agent.Lookup(c.Agent)
+		if !ok {
+			return fmt.Errorf("unknown agent %q", c.Agent)
+		}
+		names, err := agent.ConfigDirNames(profile)
+		if err != nil {
+			return fmt.Errorf("agent %s config-dir names: %w", c.Agent, err)
+		}
+		if err := driver.SeedAgentSnippets(c.Home, names[0], provider.ProviderConfig()); err != nil {
+			return fmt.Errorf("seed stub provider config: %w", err)
+		}
+		return nil
 	}}
 }
 

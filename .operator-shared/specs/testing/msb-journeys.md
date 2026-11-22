@@ -130,6 +130,32 @@ proxy carries, before the attribution journeys are written. The read-back journe
 static secrets, managed-config write-back) are independent and can land in parallel; the attribution
 journeys depend on the spike.
 
+#### Stub provider (Task 13; provisional pending the host accept)
+
+The stub is a host-side loopback HTTP listener (`test/msb/journeys/stub_provider.go`), started per journey and
+closed by `tb.Cleanup`.
+
+- **Protocol: plain HTTP.** The agent's request traverses the terminating proxy as an absolute-URI HTTP
+  request, which the proxy records (`protocol: "http"`), so the stub needs no CA and the run needs no
+  `network.observe.skip-upstream-verify`. An `https` advertised route would need `skip-upstream-verify`,
+  because the stub's certificate is not trusted.
+- **Provider config.** `StubProvider.ProviderConfig()` returns one launcher snippet, `opencode-stub.json`
+  (opencode2's merge pattern is `opencode*.json*`), declaring an OpenAI-compatible provider `stub` whose
+  `options.baseURL` is `<advertised>/v1`, plus the top-level `model: stub/stub`. `StepSeedStub` writes it
+  through `driver.SeedAgentSnippets` (the launcher config dir), never the agent's host config, so the
+  first-run host-setup detection is not triggered.
+- **Advertised route.** The listener always binds `127.0.0.1:0`; the *advertised* origin (scheme + host) is
+  `AGENTS_SANDBOX_JOURNEYS_STUB_ORIGIN`, default `http://agents-sandbox-stub.invalid`. A host accept pins a
+  route that both the runtime interception and the proxy's upstream dial reach, without a code change; the
+  port is always the listener's own ephemeral one.
+- **Assertion.** The spike asserts the saved observation names the advertised stub host. A denied proxy dial
+  is still recorded, so the assertion passes whenever the turn reaches the proxy at all.
+
+**Provisional.** Two things the host accept settles: whether the default route reaches the proxy, and whether
+seeding the snippet through the launcher config dir suppresses the first-run menu — `firstrun.managedConfigPresent`
+counts that directory as a managed layer, and the UC1 journey exercises the menu by launching plain `run`
+(no `--learn`) rather than skipping it.
+
 ### Harness scope for v1
 
 **Decision:** v1 covers **opencode2 only** (the S1-verified profile, with its SQLite credential
@@ -202,7 +228,7 @@ spine's invocation against any other carry-over run.
 
 ## Left to the builder
 
-Exact driver API and file split; the stub provider's shape and per-harness wiring; the precise
+Exact driver API and file split; the precise
 ambient-scan generalization (which non-test files under `test/` to parse, and its fixtures); the
 deadcode `test/` filter in `ci/deadcodecheck`; the surface-sweep journey task text; the doc/brain/
 changelog edits; and whether any journey runs under the `startup` suite's image prebuild or its own.
