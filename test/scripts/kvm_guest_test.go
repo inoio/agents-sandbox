@@ -197,8 +197,10 @@ func agentUpEnv(t *testing.T, dir string) map[string]string {
 	env["GITHUB_PAT"] = ""
 	env["KVM_HOST_USER"] = "kvmhost"
 	env["KVM_GUEST_STATE"] = filepath.Join(dir, "guest-state")
+	env["GIT_COMMON_DIR"] = "/host/agents-sandbox/.git"
 	env["SOURCE_DIR"] = filepath.Join(dir, "checkout")
 	env["SSH_ARGV"] = filepath.Join(dir, "ssh-argv")
+	env["SSH_KEYGEN_ARGV"] = filepath.Join(dir, "ssh-keygen-argv")
 	env["VIRSH_ARGV"] = filepath.Join(dir, "virsh-argv")
 	env["PATH"] = kvmGuestPath(t, "virsh", "ssh", "rsync", "git", "ssh-keygen")
 	return env
@@ -363,8 +365,9 @@ func TestKvmGuestAgentUpRejectsASingleQuoteInTheCommand(t *testing.T) {
 }
 
 // TestKvmGuestAgentUpSignsGhInFromTheHostPat pins that a host-environment
-// GITHUB_PAT signs gh in inside the guest and enables push, and that the token
-// rides ssh stdin, never the command line.
+// GITHUB_PAT signs gh in inside the guest, and that the token rides ssh stdin,
+// never the command line. The guest's git targets the host (ensure_guest_git_remote),
+// not GitHub, so no GitHub insteadOf rewrite is set up here.
 func TestKvmGuestAgentUpSignsGhInFromTheHostPat(t *testing.T) {
 	dir := t.TempDir()
 	env := agentUpEnv(t, dir)
@@ -380,10 +383,7 @@ func TestKvmGuestAgentUpSignsGhInFromTheHostPat(t *testing.T) {
 	sshArgv := readText(t, filepath.Join(dir, "ssh-argv"))
 	assertContains(t, "ssh argv", sshArgv, "gh auth login --with-token")
 	assertContains(t, "ssh argv", sshArgv, "gh auth setup-git")
-	// Idempotent on reattach: --replace-all collapses any prior values before
-	// the second is added, so repeated runs do not accumulate insteadOf lines.
-	assertContains(t, "ssh argv", sshArgv, "--replace-all url.https://github.com/.insteadOf git@github.com:")
-	assertContains(t, "ssh argv", sshArgv, "--add url.https://github.com/.insteadOf ssh://git@github.com/")
+	assertNotContains(t, "ssh argv", sshArgv, "url.https://github.com/.insteadOf")
 	assertContains(t, "gh stdin", readText(t, filepath.Join(dir, "ssh-stdin")), "ghp_secret")
 	assertNotContains(t, "ssh argv", sshArgv, "ghp_secret")
 }
@@ -584,6 +584,7 @@ func kvmGuestSyncEnv(t *testing.T, dir string) map[string]string {
 	env["HOME"] = home
 	env["KVM_HOST_USER"] = "kvmhost"
 	env["KVM_GUEST_STATE"] = filepath.Join(dir, "guest-state")
+	env["GIT_COMMON_DIR"] = "/host/agents-sandbox/.git"
 	env["SSH_ARGV"] = filepath.Join(dir, "ssh-argv")
 	env["SSH_KEYGEN_ARGV"] = filepath.Join(dir, "ssh-keygen-argv")
 	env["PATH"] = kvmGuestPath(t, "virsh", "ssh", "git", "ssh-keygen", "rsync")
@@ -662,6 +663,28 @@ func TestKvmGuestSyncFailsWhenTheGuestCannotReachTheHost(t *testing.T) {
 	assertStatus(t, result, 1)
 
 	assertContains(t, "stderr", result.Stderr, "cannot reach the host over SSH")
+}
+
+// TestKvmGuestSyncRoutesOriginToTheHost pins that the guest's single remote is
+// routed to the host by a URL rewrite — the recorded origin URL is kept, and git
+// operations go to the host repository.
+func TestKvmGuestSyncRoutesOriginToTheHost(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestSyncEnv(t, dir)
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync")
+	assertStatus(t, result, 0)
+
+	argv := readText(t, filepath.Join(dir, "ssh-argv"))
+	assertContains(
+		t,
+		"ssh argv",
+		argv,
+		`git config --global url."ssh://kvmhost@192.168.122.1/host/agents-sandbox/.git".insteadOf https://example.test/agents-sandbox.git`,
+	)
+	assertContains(t, "ssh argv", argv, "git config branch.feat/793-msb-journeys.remote origin")
+	assertContains(t, "ssh argv", argv, "core.sshCommand")
+	assertNotContains(t, "ssh argv", argv, "git remote add")
 }
 
 func TestKvmGuestSyncForwardsTheCheckoutWithExcludes(t *testing.T) {
@@ -991,6 +1014,8 @@ func kvmGuestGitHandler(args []string) (string, string, int) {
 	}
 	joined := strings.Join(args, " ")
 	switch {
+	case strings.Contains(joined, "--git-common-dir"):
+		return envOption("GIT_COMMON_DIR") + "\n", "", 0
 	case strings.Contains(joined, "user.name"):
 		if value := envOption("GIT_USER_NAME"); value != "" {
 			return value + "\n", "", 0

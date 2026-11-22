@@ -401,6 +401,16 @@ require_gateway() {
   printf '%s\n' "$gateway"
 }
 
+# host_repo_path prints the host repository the guest's origin is routed to.
+# --git-common-dir is the bare repository in the bare-worktree layout and the
+# .git gitdir in a plain clone; git serves both as a remote path.
+host_repo_path() {
+  local path
+  path="$(git -C "$repo_root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+  [ -n "$path" ] || die "cannot resolve the host repository path from $repo_root"
+  printf '%s\n' "$path"
+}
+
 print_firewall_hint() {
   local bridge
   bridge="$(default_bridge)"
@@ -460,6 +470,19 @@ ssh_in() {
   exec ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$(require_guest_ip)"
 }
 
+# configure_guest_remote routes the guest checkout's single origin remote to the
+# host: a url.<host>.insteadOf rewrite sends every git operation on origin to the
+# host repository, while origin keeps the URL the boot clone recorded. The branch
+# upstream is pinned to origin and the guest's git uses the dedicated key.
+configure_guest_remote() {
+  local ip="$1" gateway="$2" repo_path="$3" host_url branch
+  branch="${REPO_BRANCH:-main}"
+  host_url="ssh://$KVM_HOST_USER@$gateway$repo_path"
+  log "routing the guest origin to $host_url"
+  ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
+    -- "bash -lc 'set -e && cd ~/agents-sandbox && git config --global url.\"$host_url\".insteadOf $REPO_URL && git config branch.$branch.remote origin && git config branch.$branch.merge refs/heads/$branch && git config core.sshCommand \"ssh -i \$HOME/.ssh/id_kvm_guest -o StrictHostKeyChecking=accept-new\"'"
+}
+
 # ensure_guest_git_key gives the guest a key that authenticates it to the host for
 # git: the key is generated once under the host-global state dir (so a guest
 # rebuild reuses it and authorized_keys does not accumulate lines), authorized on
@@ -517,9 +540,11 @@ probe_guest_to_host_ssh() {
 
 # ensure_guest_git_remote makes the host the guest's git remote. Idempotent.
 ensure_guest_git_remote() {
-  local ip="$1" gateway
+  local ip="$1" gateway repo_path
   gateway="$(require_gateway)"
+  repo_path="$(host_repo_path)"
   ensure_guest_git_key "$ip"
+  configure_guest_remote "$ip" "$gateway" "$repo_path"
   probe_guest_to_host_ssh "$ip" "$gateway"
 }
 
@@ -668,13 +693,11 @@ agent_provision() {
 }
 
 # gh_auth signs the guest's `gh` in to GitHub from the host environment's
-# GITHUB_PAT, so the in-guest agent can read and comment on issues and PRs and
-# push. It also points git at gh's credential helper and rewrites SSH GitHub
-# remotes to HTTPS, so a push from the guest's HTTPS clone authenticates. The
-# rewrites use `--replace-all` before the second `--add`, so re-running on a
-# reattach stays at two values instead of accumulating. It is a no-op when
-# GITHUB_PAT is unset, and the token rides stdin, never argv. It must run after
-# `agent_provision`, which rewrites the guest ~/.gitconfig.
+# GITHUB_PAT, so the in-guest agent can read and comment on issues and PRs. The
+# guest's git targets the host (see ensure_guest_git_remote), not GitHub, so no
+# GitHub remote rewrite is set up here. It is a no-op when GITHUB_PAT is unset,
+# and the token rides stdin, never argv. It must run after `agent_provision`,
+# which rewrites the guest ~/.gitconfig.
 gh_auth() {
   local ip="$1"
   if [ -z "${GITHUB_PAT:-}" ]; then
@@ -682,7 +705,7 @@ gh_auth() {
   fi
   log "signing gh in to GitHub in '$VM_NAME'"
   if ! printf '%s\n' "$GITHUB_PAT" | ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
-      -- "bash -lc 'gh auth login --with-token && gh auth setup-git && git config --global --replace-all url.https://github.com/.insteadOf git@github.com: && git config --global --add url.https://github.com/.insteadOf ssh://git@github.com/'"; then
+      -- "bash -lc 'gh auth login --with-token && gh auth setup-git'"; then
     die "gh sign-in failed in '$VM_NAME'; check the token (GITHUB_PAT), or rebuild a guest that predates gh: make kvm-down && make kvm-up"
   fi
 }
