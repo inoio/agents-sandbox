@@ -50,6 +50,7 @@ var uc1Journey = Journey{
 		StepFreshHome(),
 		StepSeedStub(),
 		StepLaunch("run"),
+		StepAssertFirstRunOffered(firstrun.ChoiceLearnByUsing),
 		StepChooseFirstRun(firstrun.ChoiceLearnByUsing),
 		StepWaitReady(),
 		StepSendPrompt(uc1Prompt),
@@ -57,5 +58,6 @@ var uc1Journey = Journey{
 		StepChooseExit(exitSaveAllKey),
 		StepAssertScopeWritten(uc1Scope),
 		StepAssertNoProjectScaffolding(),
+		StepAssertFirstRunRecorded(firstrun.ChoiceLearnByUsing),
 	},
 }
