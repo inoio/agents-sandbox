@@ -195,10 +195,12 @@ func agentUpEnv(t *testing.T, dir string) map[string]string {
 	// literal secret placeholder "$MSB_GITHUB_PAT"); clear it so a case starts
 	// from "no token" and opts in explicitly.
 	env["GITHUB_PAT"] = ""
+	env["KVM_HOST_USER"] = "kvmhost"
+	env["KVM_GUEST_STATE"] = filepath.Join(dir, "guest-state")
 	env["SOURCE_DIR"] = filepath.Join(dir, "checkout")
 	env["SSH_ARGV"] = filepath.Join(dir, "ssh-argv")
 	env["VIRSH_ARGV"] = filepath.Join(dir, "virsh-argv")
-	env["PATH"] = kvmGuestPath(t, "virsh", "ssh", "rsync", "git")
+	env["PATH"] = kvmGuestPath(t, "virsh", "ssh", "rsync", "git", "ssh-keygen")
 	return env
 }
 
@@ -570,14 +572,105 @@ func TestKvmGuestAgentProvisionKeepsTheGuestIdentityWithoutAHostIdentity(t *test
 	assertContains(t, "provision stderr", result.Stderr, "keeps its own git identity")
 }
 
+// kvmGuestSyncEnv is the environment the sync cases share: a temp HOME (sync
+// writes authorized_keys), a deterministic host-global key dir, and the fakes.
+func kvmGuestSyncEnv(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	home := filepath.Join(dir, "home")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatalf("create home: %v", err)
+	}
+	env := kvmGuestEnv(dir)
+	env["HOME"] = home
+	env["KVM_HOST_USER"] = "kvmhost"
+	env["KVM_GUEST_STATE"] = filepath.Join(dir, "guest-state")
+	env["SSH_ARGV"] = filepath.Join(dir, "ssh-argv")
+	env["SSH_KEYGEN_ARGV"] = filepath.Join(dir, "ssh-keygen-argv")
+	env["PATH"] = kvmGuestPath(t, "virsh", "ssh", "git", "ssh-keygen", "rsync")
+	return env
+}
+
+// TestKvmGuestSyncGeneratesAndAuthorizesTheHostKey pins the auth chain: a key is
+// generated once under the host-global state dir, its public half is authorized
+// for git-shell on the host, and its private half is installed in the guest.
+func TestKvmGuestSyncGeneratesAndAuthorizesTheHostKey(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestSyncEnv(t, dir)
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync")
+	assertStatus(t, result, 0)
+
+	keygen := readText(t, filepath.Join(dir, "ssh-keygen-argv"))
+	assertContains(t, "ssh-keygen argv", keygen, "-f "+filepath.Join(dir, "guest-state", "id_kvm_guest"))
+
+	authorized := readText(t, filepath.Join(dir, "home", ".ssh", "authorized_keys"))
+	assertContains(t, "authorized_keys", authorized, `command="git-shell -c \"$SSH_ORIGINAL_COMMAND\"",restrict`)
+	assertContains(t, "authorized_keys", authorized, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGUEST")
+
+	assertContains(t, "ssh argv", readText(t, filepath.Join(dir, "ssh-argv")), "cat > ~/.ssh/id_kvm_guest")
+}
+
+// TestKvmGuestSyncReplacesARotatedAuthorizedKey pins the guard against a key
+// rotation (state dir wiped, or a moved key): a stale marker line is replaced,
+// not left to make the guest's new key fail auth, and not duplicated.
+func TestKvmGuestSyncReplacesARotatedAuthorizedKey(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestSyncEnv(t, dir)
+	authorizedPath := filepath.Join(dir, "home", ".ssh", "authorized_keys")
+	if err := os.MkdirAll(filepath.Dir(authorizedPath), 0o755); err != nil {
+		t.Fatalf("create .ssh: %v", err)
+	}
+	if err := os.WriteFile(authorizedPath, []byte(
+		`command="git-shell -c \"$SSH_ORIGINAL_COMMAND\"",restrict ssh-ed25519 AAAASTALE agents-sandbox-kvm-guest`+"\n",
+	), 0o600); err != nil {
+		t.Fatalf("seed authorized_keys: %v", err)
+	}
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync")
+	assertStatus(t, result, 0)
+
+	authorized := readText(t, authorizedPath)
+	assertNotContains(t, "authorized_keys", authorized, "AAAASTALE")
+	assertContains(t, "authorized_keys", authorized, "AAAAC3NzaC1lZDI1NTE5AAAAIGUEST")
+	if n := strings.Count(authorized, "agents-sandbox-kvm-guest"); n != 1 {
+		t.Fatalf("expected exactly one authorized key line, got %d:\n%s", n, authorized)
+	}
+}
+
+// TestKvmGuestSyncKeepsOneAuthorizedKeyLineOnRerun pins idempotency.
+func TestKvmGuestSyncKeepsOneAuthorizedKeyLineOnRerun(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestSyncEnv(t, dir)
+
+	assertStatus(t, RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync"), 0)
+	assertStatus(t, RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync"), 0)
+
+	authorized := readText(t, filepath.Join(dir, "home", ".ssh", "authorized_keys"))
+	if n := strings.Count(authorized, "agents-sandbox-kvm-guest"); n != 1 {
+		t.Fatalf("re-running sync duplicated the authorized key line (%d):\n%s", n, authorized)
+	}
+}
+
+// TestKvmGuestSyncFailsWhenTheGuestCannotReachTheHost pins the preflight: a guest
+// that cannot ssh to the host fails with the diagnostic.
+func TestKvmGuestSyncFailsWhenTheGuestCannotReachTheHost(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestSyncEnv(t, dir)
+	env["SSH_FAIL_CONTAINS"] = "@192.168.122.1 true"
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync")
+	assertStatus(t, result, 1)
+
+	assertContains(t, "stderr", result.Stderr, "cannot reach the host over SSH")
+}
+
 func TestKvmGuestSyncForwardsTheCheckoutWithExcludes(t *testing.T) {
 	dir := t.TempDir()
 	argvPath := filepath.Join(dir, "rsync-argv")
-	env := kvmGuestEnv(dir)
+	env := kvmGuestSyncEnv(t, dir)
 	env["ARTIFACT_DIR"] = filepath.Join(dir, ".kvm-guest")
 	env["SOURCE_DIR"] = "/host/checkout"
 	env["RSYNC_ARGV"] = argvPath
-	env["PATH"] = kvmGuestPath(t, "virsh", "rsync")
 
 	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync")
 	assertStatus(t, result, 0)
@@ -812,7 +905,8 @@ func kvmGuestVirshHandler(args []string) (string, string, int) {
 	case strings.Contains(joined, "net-info"):
 		return "Name:           default\nActive:         yes\n", "", 0
 	case strings.Contains(joined, "net-dumpxml"):
-		return "<network><bridge name='virbr0'/></network>\n", "", 0
+		return "<network><name>default</name><bridge name='virbr0'/>" +
+			"<ip address='192.168.122.1' netmask='255.255.255.0'><dhcp/></ip></network>\n", "", 0
 	default:
 		return "", "", 0
 	}
@@ -831,6 +925,9 @@ func kvmGuestSSHHandler(args []string) (string, string, int) {
 	}
 	if envOption("SSH_GH_AUTH_FAIL") != "" && strings.Contains(joined, "gh auth login") {
 		return "", "error: authentication failed\n", 1
+	}
+	if fail := envOption("SSH_FAIL_CONTAINS"); fail != "" && strings.Contains(joined, fail) {
+		return "", "ssh: simulated failure\n", 255
 	}
 	if envOption("SSH_CLOUD_INIT_FAIL") != "" && strings.Contains(joined, "cloud-init status") {
 		return "", "Cloud-init failed: see status --long\n", 1
@@ -867,6 +964,20 @@ func kvmGuestSSHSessionResponse(joined string) (string, string, int) {
 // the invocation and succeeds.
 func kvmGuestRsyncHandler(args []string) (string, string, int) {
 	recordArgv("RSYNC_ARGV", args)
+	return "", "", 0
+}
+
+// kvmGuestSSHKeygenHandler serves `ssh-keygen`: it writes the private and public
+// key at the -f path so the script can read the public half, and logs argv.
+func kvmGuestSSHKeygenHandler(args []string) (string, string, int) {
+	recordArgv("SSH_KEYGEN_ARGV", args)
+	for i, arg := range args {
+		if arg == "-f" && i+1 < len(args) {
+			_ = os.WriteFile(args[i+1], []byte("FAKE-PRIVATE-KEY\n"), 0o600)
+			_ = os.WriteFile(args[i+1]+".pub",
+				[]byte("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGUEST agents-sandbox-kvm-guest\n"), 0o644)
+		}
+	}
 	return "", "", 0
 }
 

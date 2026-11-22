@@ -49,6 +49,7 @@
 # Env overrides:
 #   VM_NAME=asb-kvm  VM_VCPUS=12  VM_MEMORY_MIB=16384  VM_DISK_GIB=80
 #   VM_USER=dev  SSH_PUBKEY=<path-or-key>  ARTIFACT_DIR=$PWD/.kvm-guest
+#   KVM_HOST_USER=<host user>  KVM_GUEST_STATE=<guest git key/state dir>
 #   SOURCE_DIR=<checkout to sync>  LIBVIRT_URI=qemu:///system
 #   UBUNTU_CODENAME=resolute  IMAGE_URL=<full cloud-image URL>
 #   KVM_IMAGE_CACHE=/var/lib/libvirt/images/agents-sandbox  KVM_REFRESH_IMAGE=1  KVM_BOOT_TIMEOUT=300
@@ -90,6 +91,11 @@ LIBVIRT_URI="${LIBVIRT_URI:-qemu:///system}"
 REPO_URL="${REPO_URL:-https://github.com/inoio/agents-sandbox.git}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-$PWD/.kvm-guest}"
 KVM_IMAGE_CACHE="${KVM_IMAGE_CACHE:-/var/lib/libvirt/images/agents-sandbox}"
+# The guest authenticates to the host for git with a key kept in a host-global
+# state dir (not ARTIFACT_DIR, which is per-worktree while the domain is shared).
+KVM_HOST_USER="${KVM_HOST_USER:-${USER:-$(id -un)}}"
+KVM_GUEST_STATE="${KVM_GUEST_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/agents-sandbox/kvm-guest}"
+KVM_GUEST_KEY="$KVM_GUEST_STATE/id_kvm_guest"
 # The cloud-init gate waits for sshd, then for cloud-init itself. The attempts ×
 # interval bound only how long the guest may take to accept SSH; the
 # `cloud-init status --wait` that follows blocks until cloud-init reports.
@@ -379,6 +385,22 @@ default_bridge() {
   printf '%s\n' "${bridge:-virbr0}"
 }
 
+# default_gateway prints the host's address on the guest's bridge: the guest
+# reaches the host there, and the guest's git remote points at it.
+default_gateway() {
+  local gateway
+  gateway="$(virsh_cmd net-dumpxml default 2>/dev/null |
+    sed -n "s/.*<ip address='\([^']*\)'.*/\1/p" | head -1)"
+  printf '%s\n' "$gateway"
+}
+
+require_gateway() {
+  local gateway
+  gateway="$(default_gateway)"
+  [ -n "$gateway" ] || die "could not determine the '$VM_NAME' bridge gateway; is the libvirt 'default' network active?"
+  printf '%s\n' "$gateway"
+}
+
 print_firewall_hint() {
   local bridge
   bridge="$(default_bridge)"
@@ -438,9 +460,73 @@ ssh_in() {
   exec ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$(require_guest_ip)"
 }
 
+# ensure_guest_git_key gives the guest a key that authenticates it to the host for
+# git: the key is generated once under the host-global state dir (so a guest
+# rebuild reuses it and authorized_keys does not accumulate lines), authorized on
+# the host, and installed in the guest.
+ensure_guest_git_key() {
+  local ip="$1"
+  if [ ! -f "$KVM_GUEST_KEY" ]; then
+    log "generating the guest git key at $KVM_GUEST_KEY"
+    mkdir -p "$KVM_GUEST_STATE"
+    chmod 700 "$KVM_GUEST_STATE"
+    ssh-keygen -t ed25519 -N '' -C agents-sandbox-kvm-guest -f "$KVM_GUEST_KEY" >/dev/null
+  fi
+  ensure_host_authorized_key
+  log "installing the guest git key in $VM_USER@$ip"
+  ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
+    -- "bash -lc 'install -d -m 700 ~/.ssh && cat > ~/.ssh/id_kvm_guest && chmod 600 ~/.ssh/id_kvm_guest'" \
+    < "$KVM_GUEST_KEY"
+}
+
+# ensure_host_authorized_key authorizes the guest key for git on this host,
+# confined to git-shell (it can run git-upload-pack/receive-pack, not a shell).
+# Idempotent by the whole key: a rotated key replaces the marker-tagged line.
+ensure_host_authorized_key() {
+  local pubkey line auth="$HOME/.ssh/authorized_keys"
+  command -v git-shell >/dev/null 2>&1 || die "git-shell not found on the host; install git"
+  pubkey="$(cat "$KVM_GUEST_KEY.pub")"
+  line="command=\"git-shell -c \\\"\$SSH_ORIGINAL_COMMAND\\\"\",restrict $pubkey"
+  mkdir -p "$HOME/.ssh"
+  touch "$auth"
+  chmod 600 "$auth"
+  if grep -qF "$pubkey" "$auth"; then
+    return 0
+  fi
+  if grep -qF 'agents-sandbox-kvm-guest' "$auth"; then
+    grep -vF 'agents-sandbox-kvm-guest' "$auth" > "$auth.tmp" || true
+    mv "$auth.tmp" "$auth"
+  fi
+  printf '%s\n' "$line" >> "$auth"
+}
+
+# probe_guest_to_host_ssh checks that the guest can reach the host for git, so a
+# host without sshd (or one refusing the key) fails with a diagnostic instead of
+# an opaque git error. There is no fallback transport.
+probe_guest_to_host_ssh() {
+  local ip="$1" gateway="$2"
+  if ! ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=8 -o LogLevel=ERROR \
+      "$VM_USER@$ip" \
+      "ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i ~/.ssh/id_kvm_guest $KVM_HOST_USER@$gateway true" \
+      >/dev/null 2>&1; then
+    die "the guest cannot reach the host over SSH at $gateway for git.
+    On the host: run sshd and accept the guest's key (authorized in $HOME/.ssh/authorized_keys),
+    and install git-shell. Retry: $0 sync"
+  fi
+}
+
+# ensure_guest_git_remote makes the host the guest's git remote. Idempotent.
+ensure_guest_git_remote() {
+  local ip="$1" gateway
+  gateway="$(require_gateway)"
+  ensure_guest_git_key "$ip"
+  probe_guest_to_host_ssh "$ip" "$gateway"
+}
+
 sync_in() {
   local ip source
   ip="$(require_guest_ip)"
+  ensure_guest_git_remote "$ip"
   source="${SOURCE_DIR:-$(git -C "$repo_root" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$repo_root")}"
   log "syncing $source → $VM_USER@$ip:~/agents-sandbox"
   # Exclude the `.git` entry, not a `.git/` directory: the guest owns its own
