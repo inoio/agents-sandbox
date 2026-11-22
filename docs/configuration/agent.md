@@ -21,11 +21,18 @@ config key or the `AGENTS_SANDBOX_AGENT` environment variable. Twelve agents shi
   config path and host drop-in stay `~/.config/opencode/` (v2 reads the same files as v1).
 - **`pi`** — the pi coding agent, run interactively; upgrade checks via `pi.dev`.
 - **`claude-code`** — Anthropic's Claude Code, run interactively; upgrade checks via the npm registry.
-- **`codex`** — OpenAI's Codex CLI, run interactively; upgrade checks via GitHub releases. Its startup update check is
-  turned off because agents-sandbox offers upgrades itself. Codex's own command sandbox is turned off too
-  (`sandbox_mode = "danger-full-access"`), because the VM already isolates it. This overrides `sandbox_mode` in `config.toml`; to choose another mode, pass it as an agent
-  argument, e.g. `agents-sandbox --agent codex -- --sandbox workspace-write`. Codex still asks for approval according
-  to its `approval_policy`.
+- **`codex`** — OpenAI's Codex CLI, run interactively; upgrade checks via GitHub releases. The image sets three
+  defaults in Codex's system config, `/etc/codex/config.toml`:
+  - The startup update check is off (`check_for_update_on_startup = false`), because agents-sandbox offers upgrades
+    itself.
+  - Codex's own command sandbox is off (`sandbox_mode = "danger-full-access"`), because the VM already isolates it.
+    Codex still asks for approval according to its `approval_policy`.
+  - `/workspace` is a trusted folder, so Codex does not ask whether to trust it.
+
+  These are defaults: a [config snippet](#config-snippet-merge) or an agent argument overrides them, e.g.
+  `agents-sandbox --agent codex -- --sandbox workspace-write`. Codex runs without its shared background server
+  (`--no-daemon`), which would otherwise install its own copy of Codex next to the pinned one. That flag exists since
+  Codex 0.156.0, so `--agent-version` must name 0.156.0 or later.
 - **`hermes`** — Hermes Agent, installed from its official installer at a pinned release tag and run interactively;
   upgrade checks via its GitHub releases.
 - **`oh-my-pi`** — [Oh My Pi](https://github.com/can1357/oh-my-pi) (binary `omp`), installed from its standalone GitHub
