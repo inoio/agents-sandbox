@@ -7,8 +7,8 @@ read_if: Verifying a release before tagging; running the surface sweep; adding o
 
 > **For agentic workers:** This is an executable runbook, not code. Tasks are journeys. Each step has a command (or a
 > `tmux` interaction), an expected outcome, and an evidence command. Track progress with `- [ ]`. Execution method is
-> **H**: a serial spine (Task 0 + Task 2) warms a shared image cache, then Tasks 3–14 are dispatched to parallel journey
-> agents under one coordinator; Task 18 is the coordinator's consolidation; Tasks 1 and 15–17 are maintainer-run. Steps
+> **H**: a serial spine (Task 0 + Task 2) warms a shared image cache, then Tasks 3–15 are dispatched to parallel journey
+> agents under one coordinator; Task 19 is the coordinator's consolidation; Tasks 1 and 16–18 are maintainer-run. Steps
 > the coordinator and subagents run are labelled **[I]**; maintainer-run steps are **[M]**.
 >
 > **Execution notes (learned the hard way):**
@@ -53,11 +53,11 @@ Failure modes the surface implies; each is pinned by a check in the task named.
 
 1. **Non-TTY behaviour** — every interactive prompt (project-config trust, home-volume choice, reconfig keep/quit,
    `prune` confirm, upgrade offer) must fail fast or warn with a clear exit, never hang, when stdin is not a terminal.
-   → Tasks 2, 3, 12, 13, 15.
+   → Tasks 2, 3, 12, 13, 15, 16.
 2. **Idempotence** — a second run must reuse the image, the home volume, and the VM, and must not re-ask an already
    approved project config or re-trigger a fingerprint recreate. → Tasks 3, 4, 5, 11.
 3. **`--dry-run` contract** — no image build, volume, VM, state/config write, or network request; the report is the plan.
-   → Tasks 2, 3.
+   → Tasks 2, 3, 15.
 4. **Error surfacing** — a failure names the fix (doctor remedy + `Docs:` line, build-error troubleshooting hint,
    registry `unauthorized` pointer) instead of a bare error. → Tasks 2, 10.
 5. **Terminal hygiene** — after any abnormal attach end no alternate screen or mouse mode is left on; piped `list`
@@ -126,11 +126,27 @@ Failure modes the surface implies; each is pinned by a check in the task named.
   is the throwaway project. The spine runs this once before Task 2; **every** parallel journey agent re-runs it in its
   own fresh shell (a new agent shell starts un-isolated) before its first `asb` call.
 - [ ] **Step 3 [I]: Warm the cache (spine).** Run Task 2 (core first run) first, serially, so the BuildKit build and the
-  multi-GB image transfer are paid once in the shared `data/` home before Tasks 3–14 fan out.
+  multi-GB image transfer are paid once in the shared `data/` home before Tasks 3–15 fan out.
+- [ ] **Step 4 [I]: Run the journeys suite (spine).** Run the automated learn-mode journeys (Task 15's flow) once,
+  serially: this is the spine's automated-tier pass, and it warms the BuildKit layer cache the manual run reuses. The
+  `test-msb-journeys` target derives the suite's root from its `MSB_REUSE_ROOT` make variable, so point that at the
+  sweep root — the target then sets `AGENTS_SANDBOX_SMOKE_ROOT=<root>/smoke` and
+  `AGENTS_SANDBOX_MSB_TEST_HOME=<root>/msb`, the shared-root interface the journeys design names, so the suite's data
+  home and reuse lock stay inside the sweep root:
+
+  ```bash
+  MSB_REUSE_ROOT=<root> make test-msb-journeys
+  ```
+
+  Expected: the suite's preflight passes on this KVM host, the launcher builds, the runner images prebuild into
+  `<root>/smoke/data`, and every journey in the table passes (v1: UC1, UC4, `config learn`, attribution on opencode2).
+  A host without `/dev/kvm` or a reachable docker daemon skips, never fails. Evidence: the `go test` output. The suite
+  reuses and keeps `<root>/smoke` and sweeps its own sandboxes at teardown; the manual Task 15 run drives `asb-dev`
+  under the sweep's separate `<root>/data` home, so the warmed BuildKit layer cache is what the two share.
 
 ## Task 1 [M]: Real-state section — safety net
 
-- [ ] Back up the state path set before any Task 16/17 step, so the section is reversible:
+- [ ] Back up the state path set before any Task 17/18 step, so the section is reversible:
   `tar -C ~ -czf /tmp/asb-realstate-backup.tgz .config/agents-sandbox .local/share/agents-sandbox
   .local/state/agents-sandbox .microsandbox`. Restore with `tar -C ~ -xzf …` after. (`~/.microsandbox` is only read by
   the migration journey, but include it: it is inside the no-mutation anti-goal.)
@@ -373,7 +389,45 @@ Shapes: `docs/configuration/opening-links.md`, `docs/configuration/notifications
   Expected: HTTPS works; an SSH remote is only reachable per `docs/recipes/git-access.md`.
 - [ ] **Step 6: Findings.**
 
-## Task 15 [M]: Upgrade and self-update
+## Task 15 [I]: Learn mode end to end (opencode2)
+
+The exploratory twin of the spine's `make test-msb-journeys` run (Task 0 Step 4): hand-drive the first-run menu and the
+learn exit prompt, where wording and legibility carry signal the automated tier cannot assert, and confirm the learned
+scope by hand. v1 covers opencode2. Shapes: `docs/get-started.md`, `docs/configuration/agent.md`,
+`docs/configuration/secrets.md`.
+
+Enter this journey's environment (`eval "$(bash scripts/surface-sweep.sh env learnmode)"`, then
+`cd "$(dirname "$HOME")/project"`) and drive it on its own private socket (`tmux -L learnmode`), so it never disturbs a
+sibling journey's server.
+
+- [ ] **Step 1 [I]: Seed a stub provider, as the spine's suite does.** Using `test/msb/journeys/stub_provider.go` as the
+  reference, provision a `home:` manifest entry (or the host config Step 5 reuses) writing
+  `.config/opencode/opencode.json` — an OpenAI-compatible `stub` provider with an inline `apiKey`, `options.baseURL` at
+  a loopback listener, and top-level `model: stub/stub` — and start a dummy listener at that baseURL (a completed turn
+  is not needed). Expected: `asb-dev config home` lists the entry; the listener answers.
+- [ ] **Step 2 [I]: UC1 — a fresh install is offered the menu.** `tmux -L learnmode new-session -d -s run 'asb-dev run'`,
+  then `tmux -L learnmode capture-pane -p -t run`. Expected: "How would you like to set up this checkout?" with "Learn
+  by using it" preselected (no host config). Evidence: pane text.
+- [ ] **Step 3 [I]: Learn by using it, one turn, then leave.** Answer the menu; confirm the TUI is up; send one message;
+  then `send-keys -t run C-d`. Expected: the exit prompt "Save what agents-sandbox learned from this session?" with
+  `r`eview / `s`ave all / `n`ot now; answer `s`. Evidence: pane text of the menu, the TUI, and the prompt.
+- [ ] **Step 4 [I]: Assert the learned scope by hand.** `asb-dev config paths`; read the per-slug `env.secret.yaml`.
+  Expected: the provider's env-var name present and scoped to the stub host; **no** `.agents-sandbox/` created in the
+  project (#252). UC1 asserts only the static-secret write: the launcher provisions the stub provider through the
+  `home:` manifest before the baseline, so the read-back never sees that file as changed and produces no `${ENVVAR}`
+  placeholder — that is UC4's host-seed effect (Step 5). Evidence: file contents.
+- [ ] **Step 5 [I]: UC4 — the host seed is offered and preselected.** Seed the agent's host config
+  (`~/.config/opencode/opencode.jsonc` under the isolated `HOME`) pointing at the stub, re-run `asb-dev run`, capture.
+  Expected: the menu offers "Learn from my host setup" and preselects it (host config present). Choose it. Expected:
+  the per-slug scope is seeded before the session (placeholdered managed config + scoped `env.secret.yaml`), and a
+  login store (`auth.json`) is **not** copied. Evidence: pane + file contents.
+- [ ] **Step 6 [I]: Non-interactive and `--dry-run`.** `printf '' | asb-dev run 2>&1; echo "exit=$?"` and
+  `asb-dev --dry-run run`. Expected: refuse/warn fast with a clear exit, no hang; the dry-run report names the plan and
+  writes nothing (Review focus 1, 3). Evidence: output.
+- [ ] **Step 7: Findings** → `<run>/findings.md`. A finding worth keeping graduates into `test/msb/journeys/` as a new
+  `Step` (from the shared vocabulary) and a `Journey`, never an inline step.
+
+## Task 16 [M]: Upgrade and self-update
 
 Real state only. Run after Task 1's backup.
 
@@ -386,7 +440,7 @@ Real state only. Run after Task 1's backup.
 - [ ] **Step 4: `--dry-run`? / state.** Confirm `state.yaml` records the check and the `agent-version` provenance label.
 - [ ] **Step 5: Findings.**
 
-## Task 16 [M]: Runtime-home migration
+## Task 17 [M]: Runtime-home migration
 
 Real state only; `~/.microsandbox` is read, never written.
 
@@ -399,7 +453,7 @@ Real state only; `~/.microsandbox` is read, never written.
 - [ ] **Step 4: Restore.** `tar -C ~ -xzf /tmp/asb-realstate-backup.tgz`.
 - [ ] **Step 5: Findings.**
 
-## Task 17 [M]: Bare worktrees
+## Task 18 [M]: Bare worktrees
 
 - [ ] **Step 1: Config root.** In a bare checkout (`core.bare` in `config.worktree`), project config is read from the
   bare root next to `.git`, not the launched worktree (#469).
@@ -407,7 +461,7 @@ Real state only; `~/.microsandbox` is read, never written.
   its own root and mounts its shared git dir. `git status` resolves inside the VM.
 - [ ] **Step 3: Findings.**
 
-## Task 18 [I]: Consolidated report
+## Task 19 [I]: Consolidated report
 
 - [ ] **Step 1: Merge.** Collect every `<run>/findings.md`; de-dupe; rank by severity (Blocker = stops the
   release; Major = a documented feature is wrong; Minor = cosmetic, docs/wording, or low-confidence). Write
@@ -417,6 +471,8 @@ Real state only; `~/.microsandbox` is read, never written.
 - [ ] **Step 3: Sweep the shared home.** `surface-sweep.sh sweep` (coordinator only, once, at the very end; it removes
   every sandbox and home volume in the shared data home, plus the runner images that appeared since `init`), then
   release the lock (`surface-sweep.sh unlock`). Confirm `list`/`volume list` are empty and no real sandbox or volume
-  was touched. The runner-image removal diffs against the `init` snapshot, so it also removes a runner image built
+  was touched. The journeys suite's root (`<root>/smoke`, Task 0 Step 4) sits outside this shared data home: the suite
+  sweeps its own sandboxes at teardown, but its image cache stays, and the whole root goes when the throwaway sweep
+  root is removed. The runner-image removal diffs against the `init` snapshot, so it also removes a runner image built
   after `init` — including one an `[M]` task built — which is rebuilt on the next real run; keep the `[M]` build steps
   after the sweep, or accept that rebuild.

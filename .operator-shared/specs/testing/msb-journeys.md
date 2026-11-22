@@ -48,11 +48,16 @@ triages and adapts the test rather than treating the failure as a product regres
 ## Constraints (repo)
 
 - Go 1.27; TDD; `make fmt`, `make lint`, `make check`. A behavior change updates docs and adds a
-  `changelog.d/<PR>.<type>.md` fragment.
-- `test-isolation.md`: every test package's `TestMain` installs its acyclic fail-fast mocks; a
-  non-test test-support file carries a file-scope `//deadcode:ignore`; a **tagged-only** package is
-  silently dropped by `go test ./...` (verified), so a package that must run in the default suite
+  `changelog.d/<PR>.<type>.md` fragment. A tracked `scripts/*.sh` and a non-test `.go` file under `test/`
+  count as production code for the fragment; docs-only and `_test.go`-only changes need none.
+- `test-isolation.md`: every test package's `TestMain` installs its acyclic fail-fast mocks. The
+  dead-code gate ignores findings under `test/`, so the untagged `driver` needs no
+  `//deadcode:ignore` (its host calls keep their `//testenv:allow` markers); a **tagged-only** package
+  is silently dropped by `go test ./...` (verified), so a package that must run in the default suite
   needs an untagged file.
+- A host that cannot run the suite — no `/dev/kvm`, an unreachable docker daemon, or a platform other
+  than Linux/darwin — skips, never fails; `driver.Preflight` owns the check and runs before anything
+  is built.
 - The build tag names the **runtime** (`msb` = KVM + docker + network), not the scope.
 - `harness-smoke-tests.md`: the harness-table completeness test must run in the default suite, so a
   newly registered harness fails `make test` until covered.
@@ -130,7 +135,7 @@ proxy carries, before the attribution journeys are written. The read-back journe
 static secrets, managed-config write-back) are independent and can land in parallel; the attribution
 journeys depend on the spike.
 
-#### Stub provider (Task 13; provisional pending the host accept)
+#### Stub provider (implemented; the advertised route is provisional pending the host accept)
 
 The stub is a host-side loopback HTTP listener (`test/msb/journeys/stub_provider.go`), started per journey and
 closed by `tb.Cleanup`.
@@ -250,15 +255,16 @@ Non-interactive and dry-run behaviour are asserted per the repo's invariants (wa
 
 ## Exploratory tier and the promotion flow
 
-The surface sweep (`specs/testing/release-surface-testing.md`) gains a learn-mode journey block and a
-spine step that runs `make test-msb-journeys` (warm the shared root once). Journey agents then
+The surface sweep (`specs/testing/release-surface-testing.md`) carries a learn-mode journey block and a
+spine step that runs `make test-msb-journeys` once to warm the shared root. Journey agents then
 hand-drive the same flows under the sweep's isolation.
 
 **Shared-root interface (call).** The spine passes the sweep's root to the suite through the env vars
 the driver already resolves — `AGENTS_SANDBOX_SMOKE_ROOT=<sweep>/smoke` and
 `AGENTS_SANDBOX_MSB_TEST_HOME=<sweep>/msb` — so the suite's image/data home and reuse lock live inside
 the sweep root. No new interface and no second lock; the Go suite's existing reuse lock serializes the
-spine's invocation against any other carry-over run.
+spine's invocation against any other carry-over run. The `test-msb-journeys` target derives both vars from its
+`MSB_REUSE_ROOT` make variable, so the spine sets `MSB_REUSE_ROOT=<sweep>` when it invokes the target.
 
 - Exploratory finding → new/extended automated journey test (recorded as an issue, then implemented).
 - Automated failure → agent triages against the harness's current layout; if the harness changed, the
@@ -275,13 +281,6 @@ spine's invocation against any other carry-over run.
 - The driver's own `TestMain` must install its acyclic fail-fast mocks, like every test package.
 - A journey under load must not become a host-dependent flake (no fixed wall-clock against a real
   VM; reuse the readiness/quit-tap pattern).
-
-## Left to the builder
-
-Exact driver API and file split; the precise
-ambient-scan generalization (which non-test files under `test/` to parse, and its fixtures); the
-deadcode `test/` filter in `ci/deadcodecheck`; the surface-sweep journey task text; the doc/brain/
-changelog edits; and whether any journey runs under the `startup` suite's image prebuild or its own.
 
 ## Resolved in review
 
