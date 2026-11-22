@@ -613,7 +613,14 @@ func TestWatchKeepsPollingAfterATick(t *testing.T) {
 		_, _ = watcher.Watch(ctx)
 	}()
 
-	time.Sleep(40 * time.Millisecond)
+	// Serving the first request is the signal that a tick happened; the second
+	// request proves Watch kept polling rather than stopping at that tick.
+	writeRequest(t, spoolDirectory, "first", "https://first.example")
+	select {
+	case <-opened:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the first request was not served")
+	}
 	writeRequest(t, spoolDirectory, "late", "https://example.com")
 
 	select {
