@@ -607,7 +607,6 @@ create() {
   else
     log "using cached base image $IMAGE_PATH"
   fi
-  chmod 0644 "$IMAGE_PATH"
   if [ ! -f "$DISK_PATH" ]; then
     log "creating ${VM_DISK_GIB}G overlay on $(basename "$IMAGE_PATH")"
     qemu-img create -f qcow2 -F qcow2 -b "$IMAGE_PATH" "$DISK_PATH" "${VM_DISK_GIB}G" >/dev/null
