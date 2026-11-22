@@ -130,7 +130,7 @@ proxy carries, before the attribution journeys are written. The read-back journe
 static secrets, managed-config write-back) are independent and can land in parallel; the attribution
 journeys depend on the spike.
 
-#### Stub provider (Task 13; provisional pending the host accept)
+#### Stub provider (implemented; the advertised route is provisional pending the host accept)
 
 The stub is a host-side loopback HTTP listener (`test/msb/journeys/stub_provider.go`), started per journey and
 closed by `tb.Cleanup`.
@@ -250,8 +250,8 @@ Non-interactive and dry-run behaviour are asserted per the repo's invariants (wa
 
 ## Exploratory tier and the promotion flow
 
-The surface sweep (`specs/testing/release-surface-testing.md`) gains a learn-mode journey block and a
-spine step that runs `make test-msb-journeys` (warm the shared root once). Journey agents then
+The surface sweep (`specs/testing/release-surface-testing.md`) carries a learn-mode journey block and a
+spine step that runs `make test-msb-journeys` once to warm the shared root. Journey agents then
 hand-drive the same flows under the sweep's isolation.
 
 **Shared-root interface (call).** The spine passes the sweep's root to the suite through the env vars
@@ -276,13 +276,6 @@ spine's invocation against any other carry-over run. The `test-msb-journeys` tar
 - The driver's own `TestMain` must install its acyclic fail-fast mocks, like every test package.
 - A journey under load must not become a host-dependent flake (no fixed wall-clock against a real
   VM; reuse the readiness/quit-tap pattern).
-
-## Left to the builder
-
-Exact driver API and file split; the precise
-ambient-scan generalization (which non-test files under `test/` to parse, and its fixtures); the
-deadcode `test/` filter in `ci/deadcodecheck`; the surface-sweep journey task text; the doc/brain/
-changelog edits; and whether any journey runs under the `startup` suite's image prebuild or its own.
 
 ## Resolved in review
 
