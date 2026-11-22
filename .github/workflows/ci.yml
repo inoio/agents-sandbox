@@ -299,7 +299,10 @@ jobs:
           cache: true
       - name: Enable rootless user namespaces for the envelope's network namespace
         if: ${{ startsWith(github.ref, 'refs/tags/') || needs.changes.outputs.exec != 'false' }}
-        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+        # Tolerate a runner whose kernel lacks the restriction (key absent, so
+        # unprivileged userns already works): sysctl exits non-zero on a missing
+        # key, and failing here would block a release on a benign image change.
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || echo "no unprivileged-userns restriction on this runner"
       - name: Warm the module cache for the offline envelope
         if: ${{ startsWith(github.ref, 'refs/tags/') || needs.changes.outputs.exec != 'false' }}
         run: go mod download

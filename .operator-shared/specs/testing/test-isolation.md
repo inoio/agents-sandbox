@@ -184,8 +184,8 @@ and a pre-warmed module cache, with `-count=1` so Go's test cache is not consult
 loopback-only network namespace via `--netns`, isolating name resolution and sockets). The suite must stay green under
 both.
 
-The cadence is the release gate as the floor: the `hermetic` CI job runs `make test-hermetic` on every release tag and
-`release.needs` names it, so a red envelope refuses to publish. It is advisory on a pull request — the job exists but is
+The cadence is the release gate as the floor: the `hermetic` CI job runs `make test-hermetic`, and on a release tag
+`release.needs` names it, so a red envelope refuses to publish. On a pull request the job is advisory — it exists but is
 not in the `protect main` ruleset — and promotion toward the default `make test` follows a measured runtime budget,
 never a date (see `guides/test-runtime-cost.md`). The hosted runner restricts unprivileged user namespaces
 (`kernel.apparmor_restrict_unprivileged_userns`), so the job lifts the restriction and warms the module cache before the
