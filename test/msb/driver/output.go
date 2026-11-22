@@ -9,12 +9,12 @@ import (
 // never succeeds. A harness whose output contains it never reached the TUI.
 const daemonTimeoutMarker = "did not become healthy"
 
-// altScreenEnter is the terminal control sequence a harness emits as its
+// AltScreenEnter is the terminal control sequence a harness emits as its
 // full-screen TUI takes over the alternate screen buffer.
-const altScreenEnter = "\x1b[?1049h"
+const AltScreenEnter = "\x1b[?1049h"
 
-// escapeByte starts an ANSI escape sequence.
-const escapeByte = 0x1b
+// EscapeByte starts an ANSI escape sequence.
+const EscapeByte = 0x1b
 
 const (
 	// EnvTerm is the terminal type variable a full-screen TUI reads.
@@ -42,7 +42,7 @@ func UsableTerm(value string) string {
 func StripANSI(b []byte) string {
 	stripped := make([]byte, 0, len(b))
 	for i := 0; i < len(b); i++ {
-		if b[i] == escapeByte && i+1 < len(b) && b[i+1] == '[' {
+		if b[i] == EscapeByte && i+1 < len(b) && b[i+1] == '[' {
 			i = ansiSequenceEnd(b, i)
 			continue
 		}
@@ -71,7 +71,7 @@ func isANSIFinalByte(c byte) bool {
 // TUIStarted reports whether the accumulated output shows a harness taking
 // over the alternate screen, the signal that its full-screen TUI came up.
 func TUIStarted(output []byte) bool {
-	return bytes.Contains(output, []byte(altScreenEnter))
+	return bytes.Contains(output, []byte(AltScreenEnter))
 }
 
 // SawDaemonTimeout reports whether the captured output contains the launcher's

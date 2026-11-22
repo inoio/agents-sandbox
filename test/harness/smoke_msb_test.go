@@ -155,7 +155,7 @@ func TestHarnessSmoke(t *testing.T) {
 			if err := seedAgentSnippets(homeBase, profile.ConfigDirName(), spec.SeedAgentSnippets); err != nil {
 				t.Fatalf("seed %s agent snippets: %v", name, err)
 			}
-			ses := mustStartUnderPTY(
+			ses := driver.MustStartUnderPTY(
 				t, projectDir(root, name),
 				isolatedEnv(root, homeBase, os.Environ()),
 				append([]string{binary}, withVMCPUs(harnessRunArgs(name, network), smokeVMCPUs())...)...,
@@ -165,19 +165,19 @@ func TestHarnessSmoke(t *testing.T) {
 					"harness %s did not reach its TUI: %v\n--- output ---\n%s",
 					name,
 					err,
-					driver.StripANSI(ses.output()),
+					driver.StripANSI(ses.Output()),
 				)
 			}
 			code, err := quit(ses, spec)
 			if err != nil {
 				t.Fatalf("harness %s did not exit: %v\n--- output ---\n%s",
-					name, err, driver.StripANSI(ses.output()))
+					name, err, driver.StripANSI(ses.Output()))
 			}
 			if code != 0 {
-				t.Fatalf("harness %s exited %d, want 0\n--- output ---\n%s", name, code, driver.StripANSI(ses.output()))
+				t.Fatalf("harness %s exited %d, want 0\n--- output ---\n%s", name, code, driver.StripANSI(ses.Output()))
 			}
-			if driver.SawDaemonTimeout(ses.output()) {
-				t.Fatalf("harness %s reported a daemon timeout:\n%s", name, driver.StripANSI(ses.output()))
+			if driver.SawDaemonTimeout(ses.Output()) {
+				t.Fatalf("harness %s reported a daemon timeout:\n%s", name, driver.StripANSI(ses.Output()))
 			}
 		})
 	}
@@ -217,33 +217,33 @@ func TestHarnessSmoke(t *testing.T) {
 // pair is followed by quitRetryInterval (2s) before the next pair. The pair
 // itself delivers an arm and a fire when the harness needs two presses; a slow
 // teardown gets the 2s to finish, and its alternate-screen leave to appear, so
-// the loop stops — see teardownStarted — before it writes another press.
+// the loop stops — see driver.TeardownStarted — before it writes another press.
 //
 // The loop stops tapping once either teardown signal appears and only waits for
 // the exit:
 //
-//   - the alternate screen came back (tuiLeft): the harness's own, guest-side
+//   - the alternate screen came back (driver.TuiLeft): the harness's own, guest-side
 //     teardown signal, emitted while it restores its terminal. It is the only
 //     signal visible before the guest exits, which is when qwen-code's slow
 //     teardown gets tapped past.
-//   - the test pty is back in cooked mode (ptySession.inRawMode): the launcher's
+//   - the test pty is back in cooked mode (driver.Session's inRawMode): the launcher's
 //     msb attach holds the pty raw for the session and restores it on the way
 //     out, which covers a normal-buffer harness (claude-code) that emits no
 //     alternate-screen sequence. It cannot stand in for the guest's restore,
 //     though: the attach owns the host pty and only restores it after the guest
 //     process has already exited, so it never observes the guest's earlier
 //     restore.
-func quit(ses *ptySession, spec driver.Spec) (int, error) {
+func quit(ses *driver.Session, spec driver.Spec) (int, error) {
 	deadline := time.Now().Add(quitTimeout)
 	interval := quitPressInterval
 	for presses := 1; ; presses++ {
-		if teardownStarted(ses, presses) {
+		if driver.TeardownStarted(ses, presses) {
 			return waitExitWithin(ses, deadline, presses, spec)
 		}
-		if err := ses.write(spec.QuitKey); err != nil {
+		if err := ses.Write(spec.QuitKey); err != nil {
 			return 0, err
 		}
-		code, err := ses.waitExit(interval)
+		code, err := ses.WaitExit(interval)
 		if err == nil {
 			return code, nil
 		}
@@ -257,8 +257,8 @@ func quit(ses *ptySession, spec driver.Spec) (int, error) {
 // waitExitWithin waits out the remaining quit budget for a process that has
 // begun tearing down, returning its exit code or the same timeout error the
 // tapping loop reports.
-func waitExitWithin(ses *ptySession, deadline time.Time, presses int, spec driver.Spec) (int, error) {
-	code, err := ses.waitExit(time.Until(deadline))
+func waitExitWithin(ses *driver.Session, deadline time.Time, presses int, spec driver.Spec) (int, error) {
+	code, err := ses.WaitExit(time.Until(deadline))
 	if err == nil {
 		return code, nil
 	}
@@ -277,14 +277,14 @@ func quitTimeoutError(presses int, spec driver.Spec, err error) error {
 // that takes over the alternate screen announces it with the screen; one that
 // keeps the terminal's normal buffer and has neither marker is given the
 // launcher's start-up time instead.
-func waitReady(ses *ptySession, spec driver.Spec) error {
+func waitReady(ses *driver.Session, spec driver.Spec) error {
 	if spec.ReadyMarker != "" {
-		return ses.waitForMarker(spec.ReadyMarker, spec.ReadyTimeout())
+		return ses.WaitForMarker(spec.ReadyMarker, spec.ReadyTimeout())
 	}
 	if spec.KeepsNormalBuffer {
-		return ses.waitSettled(spec.ReadyTimeout())
+		return ses.WaitSettled(spec.ReadyTimeout())
 	}
-	return ses.waitForTUI(tuiReadyTimeout)
+	return ses.WaitForTUI(tuiReadyTimeout)
 }
 
 // preflight skips the suite when the host cannot run it at all: an unsupported

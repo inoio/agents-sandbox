@@ -31,9 +31,9 @@ func runDockerStorageDriverSmoke(t *testing.T, root, binary string) {
 		t.Fatalf("create project dir: %v", err)
 	}
 
-	ses := mustStartUnderPTY(t, dir, isolatedEnv(root, root, os.Environ()),
+	ses := driver.MustStartUnderPTY(t, dir, isolatedEnv(root, root, os.Environ()),
 		append([]string{binary}, withVMCPUs(dockerStorageShellArgs(networkNone), smokeVMCPUs())...)...)
-	defer ses.close()
+	defer ses.Close()
 
 	// The shell prints no startup marker, and its attach takes the terminal only
 	// after the VM and its daemon are up. A single write can land before the
@@ -47,8 +47,8 @@ func runDockerStorageDriverSmoke(t *testing.T, root, binary string) {
 	writeAndAwaitMarker(t, ses,
 		"echo \"__DRIVER=__$(docker info --format '{{.Driver}}')__END__\"; printf '__DRIVER%s__\\n' _DONE\n",
 		"__DRIVER_DONE__")
-	if !strings.Contains(markerText(string(ses.output())), "__DRIVER=__"+fuseDriverMarker+"__END__") {
-		t.Fatalf("in-VM dockerd did not use %s; output:\n%s", fuseDriverMarker, driver.StripANSI(ses.output()))
+	if !strings.Contains(driver.MarkerText(string(ses.Output())), "__DRIVER=__"+fuseDriverMarker+"__END__") {
+		t.Fatalf("in-VM dockerd did not use %s; output:\n%s", fuseDriverMarker, driver.StripANSI(ses.Output()))
 	}
 
 	// A layered build and run that need no registry: scratch plus two COPY
@@ -63,7 +63,7 @@ func runDockerStorageDriverSmoke(t *testing.T, root, binary string) {
 		"printf '__BUILD%s__\\n' _DONE",
 	}, "; ")
 	writeAndAwaitMarker(t, ses, script+"\n", "__BUILD_DONE__")
-	output := driver.StripANSI(ses.output())
+	output := driver.StripANSI(ses.Output())
 	if !strings.Contains(output, "Docker version") {
 		t.Fatalf("layered docker build/run did not report a version; output:\n%s", output)
 	}
@@ -73,10 +73,10 @@ func runDockerStorageDriverSmoke(t *testing.T, root, binary string) {
 
 	assertRootlessEngine(t, ses)
 
-	if err := ses.write([]byte("exit\n")); err != nil {
+	if err := ses.Write([]byte("exit\n")); err != nil {
 		t.Fatalf("write exit: %v", err)
 	}
-	if code, err := ses.waitExit(quitTimeout); err != nil {
+	if code, err := ses.WaitExit(quitTimeout); err != nil {
 		t.Fatalf("shell did not exit: %v\n%s", err, output)
 	} else if code != 0 {
 		t.Fatalf("shell exited %d, want 0\n%s", code, output)
@@ -92,7 +92,7 @@ func runDockerStorageDriverSmoke(t *testing.T, root, binary string) {
 // and nsenter plus their libraries, because the smoke VM has no registry
 // access; a positive control proves the image runs, so a broken probe cannot
 // pass as a blocked escape.
-func assertRootlessEngine(t *testing.T, ses *ptySession) {
+func assertRootlessEngine(t *testing.T, ses *driver.Session) {
 	t.Helper()
 
 	writeAndAwaitMarker(
@@ -101,8 +101,8 @@ func assertRootlessEngine(t *testing.T, ses *ptySession) {
 		"echo \"__SECURITY=__$(docker info --format '{{.SecurityOptions}}')__END__\"; printf '__SECURITY%s__\\n' _DONE\n",
 		"__SECURITY_DONE__",
 	)
-	if !strings.Contains(markerText(string(ses.output())), "name=rootless") {
-		t.Fatalf("in-VM dockerd is not rootless; output:\n%s", driver.StripANSI(ses.output()))
+	if !strings.Contains(driver.MarkerText(string(ses.Output())), "name=rootless") {
+		t.Fatalf("in-VM dockerd is not rootless; output:\n%s", driver.StripANSI(ses.Output()))
 	}
 
 	script := strings.Join([]string{
@@ -118,23 +118,23 @@ func assertRootlessEngine(t *testing.T, ses *ptySession) {
 		"printf '__ESCAPE%s__\\n' _DONE",
 	}, "; ")
 	writeAndAwaitMarker(t, ses, script+"\n", "__ESCAPE_DONE__")
-	output := markerText(string(ses.output()))
+	output := driver.MarkerText(string(ses.Output()))
 	if !strings.Contains(output, "__CONTROL_RC=__0__") {
-		t.Fatalf("the escape probe image does not run; output:\n%s", driver.StripANSI(ses.output()))
+		t.Fatalf("the escape probe image does not run; output:\n%s", driver.StripANSI(ses.Output()))
 	}
 	// dev's uid is the host user's (the USER_UID build arg), so the expected
 	// mapping is read from the VM rather than assumed.
 	devUID := devUIDPattern.FindStringSubmatch(output)
 	if devUID == nil {
-		t.Fatalf("the shell did not report dev's uid; output:\n%s", driver.StripANSI(ses.output()))
+		t.Fatalf("the shell did not report dev's uid; output:\n%s", driver.StripANSI(ses.Output()))
 	}
 	if !strings.Contains(output, "__UIDMAP=__0:"+devUID[1]+":1;") {
 		t.Errorf("a privileged container must map its root to dev in a non-initial user namespace; output:\n%s",
-			driver.StripANSI(ses.output()))
+			driver.StripANSI(ses.Output()))
 	}
 	for _, escape := range []string{"__BIND_RC=__", "__NSENTER_RC=__"} {
 		if strings.Contains(output, escape+"0__") || !strings.Contains(output, escape) {
-			t.Errorf("a container reached VM root (%s); output:\n%s", escape, driver.StripANSI(ses.output()))
+			t.Errorf("a container reached VM root (%s); output:\n%s", escape, driver.StripANSI(ses.Output()))
 		}
 	}
 }
@@ -152,22 +152,22 @@ const fuseDriverMarker = "fuse-overlayfs"
 // write can be lost to the attach's terminal-mode switch, so it is retried the
 // way the quit key is. command is assembled at runtime so its echo never
 // contains marker.
-func writeUntilMarker(t *testing.T, ses *ptySession, command, marker string) {
+func writeUntilMarker(t *testing.T, ses *driver.Session, command, marker string) {
 	t.Helper()
 
 	deadline := time.Now().Add(tuiReadyTimeout)
-	needle := markerText(marker)
+	needle := driver.MarkerText(marker)
 	for {
-		if strings.Contains(markerText(string(ses.output())), needle) {
+		if strings.Contains(driver.MarkerText(string(ses.Output())), needle) {
 			return
 		}
-		if ses.hasExited() {
-			t.Fatalf("session exited before %q appeared:\n%s", marker, driver.StripANSI(ses.output()))
+		if ses.HasExited() {
+			t.Fatalf("session exited before %q appeared:\n%s", marker, driver.StripANSI(ses.Output()))
 		}
 		if !time.Now().Before(deadline) {
-			t.Fatalf("%q never appeared within %s:\n%s", marker, tuiReadyTimeout, driver.StripANSI(ses.output()))
+			t.Fatalf("%q never appeared within %s:\n%s", marker, tuiReadyTimeout, driver.StripANSI(ses.Output()))
 		}
-		if err := ses.write([]byte(command)); err != nil {
+		if err := ses.Write([]byte(command)); err != nil {
 			t.Fatalf("write %q: %v", command, err)
 		}
 		time.Sleep(quitPressInterval)
@@ -177,13 +177,13 @@ func writeUntilMarker(t *testing.T, ses *ptySession, command, marker string) {
 // writeAndAwaitMarker writes command to the session once and blocks until marker
 // appears in its output, failing the test if the shell exits first or the marker
 // never arrives.
-func writeAndAwaitMarker(t *testing.T, ses *ptySession, command, marker string) {
+func writeAndAwaitMarker(t *testing.T, ses *driver.Session, command, marker string) {
 	t.Helper()
 
-	if err := ses.write([]byte(command)); err != nil {
+	if err := ses.Write([]byte(command)); err != nil {
 		t.Fatalf("write %q: %v", command, err)
 	}
-	if err := ses.waitForMarker(marker, tuiReadyTimeout); err != nil {
-		t.Fatalf("await %q: %v\n%s", marker, err, driver.StripANSI(ses.output()))
+	if err := ses.WaitForMarker(marker, tuiReadyTimeout); err != nil {
+		t.Fatalf("await %q: %v\n%s", marker, err, driver.StripANSI(ses.Output()))
 	}
 }

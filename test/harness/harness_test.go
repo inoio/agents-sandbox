@@ -747,14 +747,14 @@ func envValue(env []string, name string) string {
 // reprocessed as SIGINT and kill it mid-teardown. It must not fire on the enter
 // sequence the readiness wait watches for.
 func TestTuiLeft(t *testing.T) {
-	if !tuiLeft([]byte("tui output\n\x1b[?1049lbye")) {
-		t.Error("tuiLeft = false, want true for the alternate-screen leave sequence")
+	if !driver.TuiLeft([]byte("tui output\n\x1b[?1049lbye")) {
+		t.Error("TuiLeft = false, want true for the alternate-screen leave sequence")
 	}
-	if tuiLeft([]byte("tui output\nstill up")) {
-		t.Error("tuiLeft = true, want false without the leave sequence")
+	if driver.TuiLeft([]byte("tui output\nstill up")) {
+		t.Error("TuiLeft = true, want false without the leave sequence")
 	}
-	if tuiLeft([]byte("launcher output\n\x1b[?1049htui")) {
-		t.Error("tuiLeft = true for the enter sequence, want false")
+	if driver.TuiLeft([]byte("launcher output\n\x1b[?1049htui")) {
+		t.Error("TuiLeft = true for the enter sequence, want false")
 	}
 }
 
