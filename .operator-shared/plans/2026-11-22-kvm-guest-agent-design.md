@@ -136,9 +136,28 @@ channel rather than a general mechanism.
 ### Git transport
 
 - The guest checkout is a **real git checkout the agent owns**: it commits and creates worktrees there.
-- `make kvm-sync` (one-way, `--delete`, excludes `.git/`) must **refuse to run over a live agent session**; `kvm-agent`
+- `make kvm-sync` (one-way, `--delete`, excludes `.git`) must **refuse to run over a live agent session**; `kvm-agent`
   warns when the guest tree has diverged from the host's synced state.
-- Work returns to the host with `git fetch` over SSH (documented in the guide). No automatic sync-back, no push.
+- Work returns to the host with `git fetch` over SSH. No push, no GitHub credential.
+
+### Git identity (added)
+
+- `kvm-agent-provision` copies the host's `~/.gitconfig` into the guest home, then turns commit and tag signing off
+  in the guest (`git config --global commit.gpgsign false`, `tag.gpgsign false`). The host's signing key is not in the
+  guest, so a copied `commit.gpgsign = true` would make every guest commit fail; signing is the one setting
+  overridden. Whole-file copy, matching the launcher's `home:` semantics (credential helpers, aliases, and
+  `includeIf` ride along); when the launcher config already maps `.gitconfig`, the copy is redundant but idempotent.
+  A host with no `~/.gitconfig` skips the copy and the override (signing is already off).
+
+### Sync-back (added)
+
+- `make kvm-sync-back` (`scripts/kvm-guest.sh sync-back`) runs on the host and fetches the guest's git back:
+  `git -C <checkout> fetch <VM_USER>@<ip>:~/agents-sandbox '+refs/heads/*:refs/remotes/kvm-guest/*' --prune`, so
+  every guest branch is reachable as `kvm-guest/<name>` without touching a local branch.
+- `BRANCH=<name>` fetches just that branch into the **local** branch `<name>` (fast-forward only; `FORCE=1` adds
+  `--update-head-ok`), and reports instead of writing when `<name>` is checked out — in this checkout or a sibling
+  worktree — where git refuses.
+- The guest keeps its own `.git` (`kvm-sync` excludes it), so this fetch is the return path; the guest never pushes.
 
 ### Guest instructions (settled after review)
 
