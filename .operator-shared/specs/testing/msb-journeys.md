@@ -250,9 +250,11 @@ baseURL host is exactly the fallback host the assertion checks. The journey ther
 only that a `run --learn` session writes a stub-host-scoped credential and keeps the network posture;
 proving attribution over the fallback needs the product gap closed first (a follow-up, not #793).
 
-This also absorbs the "no first-run scaffolding appeared" half of **#252** (`StepAssertNoProjectScaffolding`):
-that assertion belongs to a journey, not to the minimal startup gate. The first-turn round-trip half is
-**not** covered by the automated tier: a journey's scope assertion is read-back-driven
+This also absorbs #252's project-scaffolding check: `StepAssertNoProjectScaffolding` asserts the run
+creates no `.agents-sandbox` directory in the project, which belongs to a journey, not to the minimal
+startup gate. It does **not** assert #252's other first-run prompts (upgrade, migration offer,
+config-fork warning). The first-turn round-trip half is likewise **not** covered by the automated tier:
+a journey's scope assertion is read-back-driven
 (`analyser.SessionFacts.secretFindings` iterates the read-back's static credentials and `credentialHosts`
 falls back to the config entry's hosts, since `channel.Attribution.Credential` is always empty), so
 UC1/UC4/attribution pass even if no request leaves the VM. Only the host-gated

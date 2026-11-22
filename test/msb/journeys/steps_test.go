@@ -1,6 +1,7 @@
 package journeys
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -403,8 +404,12 @@ func TestStepSeedLearnSessionRequiresThePreRunVolume(t *testing.T) {
 	})
 
 	t.Run("a missing state file fails at the read", func(t *testing.T) {
-		if err := StepSeedLearnSession().Run(newContext(t)); err == nil {
-			t.Error("no state file: got nil error, want a read failure")
+		err := StepSeedLearnSession().Run(newContext(t))
+		if err == nil {
+			t.Fatal("no state file: got nil error, want a read failure")
+		}
+		if !errors.Is(err, state.ErrStateNotFound) {
+			t.Errorf("error = %v, want a state.ReadState ErrStateNotFound failure", err)
 		}
 	})
 }
