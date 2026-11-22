@@ -211,3 +211,9 @@
 - `plans/2026-11-22-kvm-guest-dedicated-cpu.md`
   - Description: Contingency plan for making the in-guest `msb` suites reliable on a CPU-shared host: measure `steal`, then pin the guest's vCPUs (libvirt `cputune`) or dedicate host cores, versus keeping the timing/factor approach. Triggered only if the factor-3 sweep is not stable.
   - Read If: The in-guest `make test-msb-in-vm` runs are still unstable after `MSB_GUEST_TIMEOUT_FACTOR=3`, or you are evaluating CPU pinning/dedication for the KVM guest.
+- `plans/2026-11-22-kvm-guest-host-git-remote-design.md`
+  - Description: Design for making the host the guest's git remote: host-generated `git-shell`-restricted key, the guest's single `origin` routed to the host by a `url.<host>.insteadOf` rewrite, `kvm-sync` as a guest-side git pull, guest push; keeps `gh` and its sign-in, drops its GitHub `insteadOf` rewrites.
+  - Read If: Reworking `scripts/kvm-guest.sh`'s `sync_in`/`sync_back`/`gh_auth` or the guest git remote, or reconciling the kvm-guest sync/return path.
+- `plans/2026-11-22-kvm-guest-host-remote.md`
+  - Description: Implementation plan for the host git remote: gateway/repo-path resolution, the guest key and `git-shell` authorization, the `origin` routing rewrite, `kvm-sync` as a guest-side git pull, and the test/guide/changelog changes.
+  - Read If: Executing or reviewing the kvm-guest host-git-remote work.
