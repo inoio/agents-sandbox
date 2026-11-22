@@ -69,7 +69,7 @@ func looksLikeSecretValue(value string) bool {
 		}
 	}
 	for _, pattern := range digitTokenPatterns {
-		// gomutants:disable-next-line INTEGER_INCREMENT reason="any limit above 0 still reports a matching value, so only the shape tests' -1 limit can tell 1 from 2"
+		// gomutants:disable-next-line INTEGER_INCREMENT reason="FindAll* treats any negative limit as all matches, and the increment turns the literal 1 into 2, so -1 becomes -2"
 		for _, match := range pattern.FindAllStringSubmatch(value, -1) {
 			// gomutants:disable-next-line INTEGER_DECREMENT reason="the whole match adds only the scheme word or sk- prefix, which holds no digit or '='"
 			if strings.ContainsAny(match[1], "0123456789=") {
@@ -146,11 +146,18 @@ func assignmentLeaksValue(node any) bool {
 
 // nameValuePairLeaksValue reports whether a mapping is a {name, value} env
 // entry (the Kubernetes-style list form) whose value the env-table rule does
-// not clear.
+// not clear. The value is judged on its raw form: a number decoded as a
+// float64 is a stored secret under a secret-named key, so the string rule alone
+// would clear it.
 func nameValuePairLeaksValue(entry map[string]any) bool {
 	name, hasName := entry["name"].(string)
-	value, _ := entry["value"].(string)
-	return hasName && !envEntryIsSafe(name, value)
+	if !hasName {
+		return false
+	}
+	if value, isString := entry["value"].(string); isString {
+		return !envEntryIsSafe(name, value)
+	}
+	return holdsRawSecretString(entry["value"], !namesAStoredSecret(name))
 }
 
 // isPlaceholderReference reports whether value is an explicit reference to a
@@ -267,7 +274,7 @@ func onlyPlaceholdersCarrySecrets(value string) bool {
 	if !placeholder.MatchString(value) {
 		return false
 	}
-	// gomutants:disable-next-line INTEGER_INCREMENT reason="any limit above 0 still reports a matching run, so only the shape tests' -1 limit can tell 1 from 2"
+	// gomutants:disable-next-line INTEGER_INCREMENT reason="FindAll* treats any negative limit as all matches, and the increment turns the literal 1 into 2, so -1 becomes -2"
 	for _, run := range tokenRun.FindAllString(placeholder.ReplaceAllString(value, ""), -1) {
 		if strings.ContainsAny(run, "0123456789") || len(run) >= literalSecretLength {
 			return false

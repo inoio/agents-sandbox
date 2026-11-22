@@ -102,20 +102,22 @@ var yamlDocumentMarker = regexp.MustCompile(`^(---|\.\.\.)(\s|$)`)
 
 // holdsLaterYAMLDocument reports whether content holds a YAML document after its
 // first one. A '---' line on its own only opens the first document as long as
-// nothing precedes it but blank lines and comments; every other marker — a
-// '---', whenever it appears, and a '...' after any content — is followed by a
-// document the caller's first-document decode cannot check. A '---' inside a
-// block scalar is indented or a plain scalar's continuation, so it opens no
-// line of its own.
+// nothing precedes it but blank lines and comments, and the opening '---' is
+// consumed once: a second one is followed by a document the caller's
+// first-document decode cannot check, as is a '...' after any content. A '---'
+// inside a block scalar is indented or a plain scalar's continuation, so it
+// opens no line of its own.
 func holdsLaterYAMLDocument(content string) bool {
 	seenContent := false
+	seenMarker := false
 	for line := range strings.Lines(content) {
 		trimmed := strings.TrimRight(line, "\r\n")
 		switch {
 		case yamlDocumentMarker.MatchString(line):
-			if seenContent || strings.HasPrefix(trimmed, "...") {
+			if seenContent || seenMarker || strings.HasPrefix(trimmed, "...") {
 				return true
 			}
+			seenMarker = true
 		case strings.TrimSpace(trimmed) == "" || strings.HasPrefix(strings.TrimSpace(trimmed), "#"):
 			// A blank line or a comment may precede the first document marker.
 		default:

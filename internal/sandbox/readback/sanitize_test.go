@@ -430,6 +430,11 @@ func TestHoldsLaterYAMLDocument(t *testing.T) {
 		"second start only":                {"model: x\n---\n", true},
 		"document after a comment":         {"model: x\n# note\n---\nnote: y\n", true},
 		"document end marker":              {"model: x\n...\n", true},
+		"second document start":            {"---\n---\nnote: y\n", true},
+		"second document start after header": {
+			"# header\n---\n---\nnote: y\n",
+			true,
+		},
 	} {
 		if got := holdsLaterYAMLDocument(tc.content); got != tc.want {
 			t.Errorf("%s: holdsLaterYAMLDocument(%q) = %v, want %v", name, tc.content, got, tc.want)
@@ -849,17 +854,22 @@ func TestSanitizeConfigReviewCases(t *testing.T) {
 // and false positives.
 func TestSanitizeConfigSecondReviewCases(t *testing.T) {
 	refused := map[string]struct{ path, content string }{
-		"numeric password json": {"opencode.json", `{"mcp":{"x":{"password":84736251}}}`},
-		"numeric password yaml": {"config.yaml", "db:\n  password: 84736251\n"},
-		"numeric api key":       {"opencode.json", `{"x":{"apiKey":12345678901234}}`},
-		"pass key":              {"opencode.json", `{"x":{"pass":"hunter2pass"}}`},
-		"db_pass key":           {"opencode.json", `{"x":{"db_pass":"hunter2pass"}}`},
-		"pin key":               {"opencode.json", `{"x":{"pin":"1234"}}`},
-		"nested table in env":   {"opencode.json", `{"env":{"cfg":{"password":"hunter2pass"}}}`},
-		"nested table in env 2": {"opencode.json", `{"environment":{"prod":{"apiKey":"abc123def456"}}}`},
-		"header list value":     {"opencode.json", `{"headers":{"X-Auth":["abc123def456"]}}`},
-		"env array":             {"opencode.json", `{"x":{"env":["DB_PASSWORD=hunter2pass"]}}`},
-		"env array yaml":        {"config.yaml", "env:\n  - GITHUB_PAT=abc123def456\n"},
+		"numeric password json":   {"opencode.json", `{"mcp":{"x":{"password":84736251}}}`},
+		"numeric password yaml":   {"config.yaml", "db:\n  password: 84736251\n"},
+		"numeric api key":         {"opencode.json", `{"x":{"apiKey":12345678901234}}`},
+		"pass key":                {"opencode.json", `{"x":{"pass":"hunter2pass"}}`},
+		"db_pass key":             {"opencode.json", `{"x":{"db_pass":"hunter2pass"}}`},
+		"pin key":                 {"opencode.json", `{"x":{"pin":"1234"}}`},
+		"nested table in env":     {"opencode.json", `{"env":{"cfg":{"password":"hunter2pass"}}}`},
+		"nested table in env 2":   {"opencode.json", `{"environment":{"prod":{"apiKey":"abc123def456"}}}`},
+		"header list value":       {"opencode.json", `{"headers":{"X-Auth":["abc123def456"]}}`},
+		"env array":               {"opencode.json", `{"x":{"env":["DB_PASSWORD=hunter2pass"]}}`},
+		"env array yaml":          {"config.yaml", "env:\n  - GITHUB_PAT=abc123def456\n"},
+		"numeric name-value pair": {"opencode.json", `{"env":[{"name":"DB_PASSWORD","value":84736251}]}`},
+		"numeric name-value pair yaml": {
+			"config.yaml",
+			"env:\n  - name: DB_PASSWORD\n    value: 84736251\n",
+		},
 		"docker -e arg": {
 			"config.toml",
 			"[mcp_servers.x]\nargs = [\"run\", \"-e\", \"API_KEY=abc123def456\"]\n",
@@ -936,7 +946,12 @@ func TestSanitizeConfigGuardRuleBoundaries(t *testing.T) {
 		},
 		"second document without content": {"config.yaml", "model: x\n---\n"},
 		"document end marker":             {"config.yaml", "model: x\n...\n"},
-		"auth literal":                    {"settings.json", `{"auth":"opaque"}`},
+		"empty first document":            {"config.yaml", "---\n---\nnote: y\n"},
+		"empty first document after a comment": {
+			"config.yaml",
+			"# header\n---\n---\nnote: y\n",
+		},
+		"auth literal": {"settings.json", `{"auth":"opaque"}`},
 	}
 	for name, tc := range refused {
 		if _, ok := SanitizeConfig(
