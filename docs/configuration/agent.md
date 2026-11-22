@@ -30,7 +30,13 @@ config key or the `AGENTS_SANDBOX_AGENT` environment variable. Twelve agents shi
   - `/workspace` is a trusted folder, so Codex does not ask whether to trust it. This covers `/workspace` and the
     repository rooted there (also from a subdirectory or a worktree inside it). Because the folder is trusted, the
     repository's own `.codex/` config, hooks, and MCP servers load without asking, as they would after answering
-    Codex's trust question.
+    Codex's trust question. To keep them off, mark the folder untrusted in a `codex/config.toml` snippet; Codex then
+    opens it restricted:
+
+    ```toml
+    [projects."/workspace"]
+    trust_level = "untrusted"
+    ```
 
   These are defaults, Codex's lowest config layer, so every other layer overrides them: a
   [config snippet](#config-snippet-merge) or the opt-in host drop-in of `config.toml`, the repository's
