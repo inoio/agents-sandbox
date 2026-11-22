@@ -142,3 +142,73 @@ func TestStepAssertFirstRunRecorded(t *testing.T) {
 		}
 	})
 }
+
+// TestStepSeedHostConfigDerivesFilesFromContext pins the changed step contract:
+// the host files are built from the journey context at run time, so a host config
+// can point at a facility an earlier step provisioned (UC4's provider baseURL is
+// the stub's runtime address). It also pins where the files land: under the
+// isolated HOME the first-run host probe reads.
+func TestStepSeedHostConfigDerivesFilesFromContext(t *testing.T) {
+	home := t.TempDir()
+	ctx := &Context{TB: t, Agent: "opencode2", Home: home}
+	const rel = ".config/opencode/opencode.jsonc"
+	const content = `{"provider":{"stub":{}}}`
+
+	built := false
+	step := StepSeedHostConfig(func(c *Context) map[string]string {
+		built = true
+		if c != ctx {
+			t.Errorf("the builder got context %p, want %p", c, ctx)
+		}
+		return map[string]string{rel: content}
+	})
+	if err := step.Run(ctx); err != nil {
+		t.Fatalf("StepSeedHostConfig: %v", err)
+	}
+	if !built {
+		t.Fatal("the builder was not called")
+	}
+	// The isolated HOME is <homeBase>/home (driver.homeDirName, unexported).
+	written, err := os.ReadFile(filepath.Join(home, "home", rel))
+	if err != nil {
+		t.Fatalf("read the seeded host config: %v", err)
+	}
+	if string(written) != content {
+		t.Errorf("seeded content = %q, want %q", written, content)
+	}
+}
+
+// TestStepAssertScopeExcludes pins the host-seed login-store guard: a file the
+// seed must drop must not appear in the scope's managed agent config dir, so a
+// copied login store fails the step rather than passing the key/placeholder
+// checks.
+func TestStepAssertScopeExcludes(t *testing.T) {
+	const agentName = "opencode2"
+	root := t.TempDir()
+	if err := os.MkdirAll(driver.ProjectDir(root, agentName), 0o750); err != nil {
+		t.Fatalf("create project dir: %v", err)
+	}
+	ctx := &Context{TB: t, Root: root, Agent: agentName, Home: t.TempDir()}
+
+	scopeDir, err := journeyScopeDir(ctx)
+	if err != nil {
+		t.Fatalf("journeyScopeDir: %v", err)
+	}
+	configDir := filepath.Join(scopeDir, agentName)
+	if err := os.MkdirAll(configDir, 0o750); err != nil {
+		t.Fatalf("create scope config dir: %v", err)
+	}
+	loginStore := filepath.Join(configDir, "auth.json")
+	if err := os.WriteFile(loginStore, []byte("{}"), 0o600); err != nil {
+		t.Fatalf("write %s: %v", loginStore, err)
+	}
+	if err := StepAssertScopeExcludes("auth.json").Run(ctx); err == nil {
+		t.Error("a copied login store: got nil error, want failure")
+	}
+	if err := os.Remove(loginStore); err != nil {
+		t.Fatalf("remove %s: %v", loginStore, err)
+	}
+	if err := StepAssertScopeExcludes("auth.json").Run(ctx); err != nil {
+		t.Errorf("an absent login store: %v", err)
+	}
+}

@@ -62,12 +62,17 @@ func StepFreshHome() Step {
 	}}
 }
 
-// StepSeedHostConfig writes the given home-relative files under the journey's
+// StepSeedHostConfig writes home-relative agent config under the journey's
 // isolated HOME, the way an agent's own host config would be present: the
 // first-run decision sees host setup and offers "Learn from my host setup".
-func StepSeedHostConfig(files map[string]string) Step {
+//
+// build derives the files from the journey context at run time, so a host config
+// that depends on an earlier step can be rendered then: UC4's provider baseURL
+// points at the stub's runtime address, which only StepSeedStub knows. A later
+// journey needing the same shape (Task 17's attribution journey) reuses it.
+func StepSeedHostConfig(build func(*Context) map[string]string) Step {
 	return Step{Name: "seed host agent config", Run: func(c *Context) error {
-		return driver.SeedHomeFiles(c.Home, files)
+		return driver.SeedHomeFiles(c.Home, build(c))
 	}}
 }
 
@@ -225,6 +230,40 @@ func StepAssertScopeWritten(want ScopeWant) Step {
 			return err
 		}
 		return assertManagedConfig(dir, c.Agent, want)
+	}}
+}
+
+// StepAssertScopeExcludes asserts none of names is present in the per-slug
+// scope's managed agent config dir. A host value store — a login credential
+// store such as opencode's auth.json — must never be copied into the scope by
+// the host seed, and its absence is not covered by the key/placeholder checks.
+func StepAssertScopeExcludes(names ...string) Step {
+	return Step{Name: "assert the scope excludes " + strings.Join(names, ", "), Run: func(c *Context) error {
+		dir, err := journeyScopeDir(c)
+		if err != nil {
+			return err
+		}
+		profile, ok := agent.Lookup(c.Agent)
+		if !ok {
+			return fmt.Errorf("unknown agent %q", c.Agent)
+		}
+		configDirNames, err := agent.ConfigDirNames(profile)
+		if err != nil {
+			return fmt.Errorf("agent %s config-dir names: %w", c.Agent, err)
+		}
+		scope := configpaths.ConfigScope{Kind: configpaths.ScopePerSlugUser, Dir: dir}
+		configDir := scope.AgentConfigDir(configDirNames[0])
+		for _, name := range names {
+			path := filepath.Join(configDir, name)
+			_, err := os.Stat(path)
+			if err == nil {
+				return fmt.Errorf("the per-slug scope copied %s, which the host seed must drop", path)
+			}
+			if !errors.Is(err, fs.ErrNotExist) {
+				return fmt.Errorf("stat %s: %w", path, err)
+			}
+		}
+		return nil
 	}}
 }
 

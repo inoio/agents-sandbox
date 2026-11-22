@@ -164,7 +164,9 @@ proxy; the managed-layer suppression is resolved by provisioning through the `ho
 probe). The journey spec is a **table field**, so adding a harness is one entry, and the remaining
 harnesses are recorded as explicit exemptions — the #252 acceptance shape ("covered, or exempted with
 the reason recorded") — so S1's partial state is visible rather than silently so. Coverage of the
-other harnesses is tracked separately (the "extend to all agents" issue).
+other harnesses is tracked separately (the "extend to all agents" issue). One agent may be driven by
+**several journeys** (v1 drives opencode2 with UC1 and UC4); the completeness contract reports an agent
+only when it is neither covered nor exempted, never because it has more than one entry.
 
 ### Production-closure gate
 
@@ -195,12 +197,17 @@ config file contains the `${ENVVAR}` placeholder, and the expected config keys a
 keeps the "adapt the test when the harness's layout changes" triage cheap; a full-file golden would
 recouple the test to every incidental byte of a harness's authored config.
 
-Two of those three hold only as far as the product produces them. The managed-config write-back
-(`analyser.ManagedConfigFindings`) covers only a config file the session *changed* since the baseline
-manifest, and the launcher provisions the seeded provider config (through the `home:` manifest) during
-`prepareSandbox`, **before** `CaptureBaseline` — so a provisioned provider file is never "changed" and
-UC1 gets no `${ENVVAR}` placeholder or config-key assertion. UC1 asserts the static-secret write only;
-a journey whose session edits an agent config is the one that asserts the placeholder and keys.
+Two of those three hold only as far as the product produces them. For a session that learns purely by
+writing back, the managed-config assertion is bounded: `analyser.ManagedConfigFindings` covers only a
+config file the session *changed* since the baseline manifest, and the launcher provisions the seeded
+provider config (through the `home:` manifest) during `prepareSandbox`, **before** `CaptureBaseline` —
+so a provisioned provider file is never "changed" and UC1 gets no `${ENVVAR}` placeholder or config-key
+assertion. UC1 therefore asserts the static-secret write only.
+
+UC4 is the journey that asserts the placeholder and keys, and it does so without the changed-config
+write-back: the host-seed choice runs `firstrun.SeedFromHost` before the session, which writes the
+placeholdered managed config (and the login store it drops) ahead of the baseline, so the assertion does
+not depend on the session editing anything.
 
 This also absorbs **#252**'s "the first turn round-trips and no first-run scaffolding appeared": that
 assertion belongs to a journey, not to the minimal startup gate.

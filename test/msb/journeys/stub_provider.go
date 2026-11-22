@@ -142,15 +142,23 @@ func (p *stubProvider) ProviderConfig() map[string]string {
 }
 
 // providerDocument renders the opencode provider config that points the agent at
-// the stub: an OpenAI-compatible provider whose options.baseURL is the stub's
-// /v1, an inline API key for the read-back to classify, and the top-level model
-// that selects it.
+// the stub.
 func (p *stubProvider) providerDocument() string {
+	return stubProviderDocument(p.addr)
+}
+
+// stubProviderDocument renders the opencode provider config that points an agent
+// at addr: an OpenAI-compatible provider whose options.baseURL is addr+"/v1", an
+// inline API key for the read-back to classify, and the top-level model that
+// selects it. It is pure so a journey can render the same document from the
+// context at run time — UC4 seeds it as the agent's own host config, whose
+// filename differs from the stub's provisioned target.
+func stubProviderDocument(addr string) string {
 	document := map[string]any{
 		"provider": map[string]any{
 			stubProviderID: map[string]any{
 				"npm":     stubProviderNPM,
-				"options": map[string]any{"baseURL": p.addr + "/v1", "apiKey": stubProviderAPIKey},
+				"options": map[string]any{"baseURL": addr + "/v1", "apiKey": stubProviderAPIKey},
 				"models":  map[string]any{stubProviderModel: map[string]any{}},
 			},
 		},

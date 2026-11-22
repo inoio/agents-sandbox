@@ -4,9 +4,12 @@ package journeys
 // covers opencode2 only, with the learn-mode journeys (UC1, UC4, `config learn`,
 // attribution) landing across Phase 2; a journey is added here as a literal once
 // its steps exist, and every registered agent it does not yet drive carries a
-// recorded exemption below.
+// recorded exemption below. An agent may be driven by more than one journey (UC1
+// and UC4 both drive opencode2); the completeness contract only rejects an agent
+// that is neither covered nor exempted.
 var Journeys = []Journey{
 	uc1Journey,
+	uc4Journey,
 }
 
 // notCoveredInV1 is the recorded reason for every registered agent the journeys
