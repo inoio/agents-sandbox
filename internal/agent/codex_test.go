@@ -64,9 +64,6 @@ func TestCodexAttachCommandRunsWithoutTheBackgroundServer(t *testing.T) {
 	if got != want {
 		t.Errorf("AttachCommand = %q, want %q", got, want)
 	}
-	if strings.Contains(got, " -c ") {
-		t.Errorf("AttachCommand = %q carries a -c override, which forces codex into embedded mode", got)
-	}
 }
 
 // TestCodexRunnerCommandBakesTheSystemConfig runs the runner-stage command with

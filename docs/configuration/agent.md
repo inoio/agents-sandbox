@@ -27,12 +27,22 @@ config key or the `AGENTS_SANDBOX_AGENT` environment variable. Twelve agents shi
     itself.
   - Codex's own command sandbox is off (`sandbox_mode = "danger-full-access"`), because the VM already isolates it.
     Codex still asks for approval according to its `approval_policy`.
-  - `/workspace` is a trusted folder, so Codex does not ask whether to trust it.
+  - `/workspace` is a trusted folder, so Codex does not ask whether to trust it. This covers `/workspace` and the
+    repository rooted there (also from a subdirectory or a worktree inside it). Because the folder is trusted, the
+    repository's own `.codex/` config, hooks, and MCP servers load without asking, as they would after answering
+    Codex's trust question.
 
-  These are defaults: a [config snippet](#config-snippet-merge) or an agent argument overrides them, e.g.
-  `agents-sandbox --agent codex -- --sandbox workspace-write`. Codex runs without its shared background server
-  (`--no-daemon`), which would otherwise install its own copy of Codex next to the pinned one. That flag exists since
-  Codex 0.156.0, so `--agent-version` must name 0.156.0 or later.
+  These are defaults, Codex's lowest config layer, so every other layer overrides them: a
+  [config snippet](#config-snippet-merge) or the opt-in host drop-in of `config.toml`, the repository's
+  `.codex/config.toml`, a `default_permissions` permission profile, and an agent argument such as
+  `agents-sandbox --agent codex -- --sandbox workspace-write`. The image writes `/etc/codex/config.toml` last, so a
+  custom base image's own copy of that file is replaced.
+
+  Codex runs without its shared background server (`--no-daemon`), which would otherwise install its own copy of
+  Codex next to the pinned one. Two consequences follow:
+  - Forwarding `--remote` is rejected (`--no-daemon cannot be used with --remote`).
+  - The flag exists since Codex 0.156.0, so a codex older than that fails to start. This applies to an
+    `--agent-version` pin, which persists across runs, and to a codex a custom base image provides.
 - **`hermes`** — Hermes Agent, installed from its official installer at a pinned release tag and run interactively;
   upgrade checks via its GitHub releases.
 - **`oh-my-pi`** — [Oh My Pi](https://github.com/can1357/oh-my-pi) (binary `omp`), installed from its standalone GitHub

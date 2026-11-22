@@ -255,7 +255,8 @@ part of the runner's lineage: the agent stage is not in the final image's `FROM`
 tool tree out of it, so a file the install writes outside that tree is discarded. `grok-build` pins its auto-updater off
 in `/etc/grok/requirements.toml` this way — the highest-priority config layer, so no user or project setting re-enables
 it. `codex` bakes its launcher defaults (update check off, `danger-full-access`, `/workspace` trusted) into
-`/etc/codex/config.toml`, its **lowest** layer, so a snippet or a forwarded `--sandbox` still overrides them; passing
+`/etc/codex/config.toml`, its **lowest** layer, so a snippet, the repository's `.codex/config.toml` (loaded because
+`/workspace` is trusted), or a forwarded `--sandbox` still overrides them; passing
 them as `-c` instead would force codex into embedded mode, and `managed_config.toml` would outrank `--sandbox`. An agent
 that needs none leaves it empty.
 
