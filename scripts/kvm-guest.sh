@@ -37,6 +37,10 @@
 # the agent command, e.g.
 #   make kvm-agent KVM_AGENT='LITELLM_API_KEY=… opencode'
 #
+# `agent-up` additionally signs the guest's `gh` in from a host-environment
+# `GITHUB_PAT` when set (see `gh_auth`), so the in-guest agent can work with
+# GitHub issues and PRs and push. Unset it to skip the sign-in.
+#
 # Host prerequisites:
 #   qemu-kvm libvirt-daemon-system cloud-image-utils genisoimage
 #   your user in the `libvirt` and `kvm` groups
@@ -576,6 +580,24 @@ agent_provision() {
   fi
 }
 
+# gh_auth signs the guest's `gh` in to GitHub from the host environment's
+# GITHUB_PAT, so the in-guest agent can read and comment on issues and PRs and
+# push. It also points git at gh's credential helper and rewrites SSH GitHub
+# remotes to HTTPS, so a push from the guest's HTTPS clone authenticates. It is a
+# no-op when GITHUB_PAT is unset, and the token rides stdin, never argv. It must
+# run after `agent_provision`, which rewrites the guest ~/.gitconfig.
+gh_auth() {
+  local ip="$1"
+  if [ -z "${GITHUB_PAT:-}" ]; then
+    return 0
+  fi
+  log "signing gh in to GitHub in '$VM_NAME'"
+  if ! printf '%s\n' "$GITHUB_PAT" | ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
+      -- "bash -lc 'gh auth login --with-token && gh auth setup-git && git config --global url.https://github.com/.insteadOf git@github.com: && git config --global --add url.https://github.com/.insteadOf ssh://git@github.com/'"; then
+    die "gh sign-in failed in '$VM_NAME'; a guest booted before gh was installed has none — rebuild with: make kvm-down && make kvm-up"
+  fi
+}
+
 # ensure_running brings the guest to a running state without recreating an
 # existing domain: undefined is created, a stopped domain is started (sharing
 # the boot path's lease wait), a running one is left alone. `create`'s
@@ -636,9 +658,9 @@ guest_agent_session_state() {
 
 # agent_up is the one-command bring-up: ensure the guest is running, gate on
 # cloud-init, then — checking for a live session only now that the guest is
-# reachable — sync this checkout, materialize the agent config, and attach. A
-# live session is reattached without syncing. It composes the subcommands so the
-# step-by-step targets remain available.
+# reachable — sync this checkout and materialize the agent config (or, for a live
+# session, reattach without syncing), sign gh in from GITHUB_PAT, and attach. It
+# composes the subcommands so the step-by-step targets remain available.
 agent_up() {
   local ip session_state
   require_safe_agent_command "${*:-opencode2}"
@@ -649,15 +671,16 @@ agent_up() {
   case "$session_state" in
     present)
       log "agent session '${KVM_AGENT_SESSION:-agents-sandbox}' is already running; reattaching without syncing"
-      agent_in "$@"
       ;;
-    absent) : ;;
+    absent)
+      sync_in
+      agent_provision "${KVM_AGENT_NAME:-opencode2}"
+      ;;
     *)
       die "could not determine whether an agent session is running in '$VM_NAME' (probe returned '$session_state'); refusing to sync over it"
       ;;
   esac
-  sync_in
-  agent_provision "${KVM_AGENT_NAME:-opencode2}"
+  gh_auth "$ip"
   agent_in "$@"
 }
 

@@ -191,6 +191,10 @@ func agentUpEnv(t *testing.T, dir string) map[string]string {
 	}
 	env := kvmGuestEnv(dir)
 	env["HOME"] = home
+	// The ambient environment may carry GITHUB_PAT (the dev VM sets it to the
+	// literal secret placeholder "$MSB_GITHUB_PAT"); clear it so a case starts
+	// from "no token" and opts in explicitly.
+	env["GITHUB_PAT"] = ""
 	env["SOURCE_DIR"] = filepath.Join(dir, "checkout")
 	env["SSH_ARGV"] = filepath.Join(dir, "ssh-argv")
 	env["VIRSH_ARGV"] = filepath.Join(dir, "virsh-argv")
@@ -354,6 +358,86 @@ func TestKvmGuestAgentUpRejectsASingleQuoteInTheCommand(t *testing.T) {
 
 	assertContains(t, "stderr", result.Stderr, "single quote")
 	assertNotContains(t, "ssh argv", readText(t, filepath.Join(dir, "ssh-argv")), "cloud-init")
+}
+
+// TestKvmGuestAgentUpSignsGhInFromTheHostPat pins that a host-environment
+// GITHUB_PAT signs gh in inside the guest and enables push, and that the token
+// rides ssh stdin, never the command line.
+func TestKvmGuestAgentUpSignsGhInFromTheHostPat(t *testing.T) {
+	dir := t.TempDir()
+	env := agentUpEnv(t, dir)
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "running"
+	env["GITHUB_PAT"] = "ghp_secret"
+	env["SSH_STDIN"] = filepath.Join(dir, "ssh-stdin")
+	env["SSH_STDIN_MATCH"] = "gh auth login"
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "agent-up", "opencode2")
+	assertStatus(t, result, 0)
+
+	sshArgv := readText(t, filepath.Join(dir, "ssh-argv"))
+	assertContains(t, "ssh argv", sshArgv, "gh auth login --with-token")
+	assertContains(t, "ssh argv", sshArgv, "gh auth setup-git")
+	assertContains(t, "ssh argv", sshArgv, "url.https://github.com/.insteadOf git@github.com:")
+	assertContains(t, "gh stdin", readText(t, filepath.Join(dir, "ssh-stdin")), "ghp_secret")
+	assertNotContains(t, "ssh argv", sshArgv, "ghp_secret")
+}
+
+// TestKvmGuestAgentUpSkipsGhSignInWithoutAPat pins the no-op: an unset token
+// means the flow behaves exactly as before.
+func TestKvmGuestAgentUpSkipsGhSignInWithoutAPat(t *testing.T) {
+	dir := t.TempDir()
+	env := agentUpEnv(t, dir)
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "running"
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "agent-up", "opencode2")
+	assertStatus(t, result, 0)
+
+	assertNotContains(t, "ssh argv", readText(t, filepath.Join(dir, "ssh-argv")), "gh auth")
+}
+
+// TestKvmGuestAgentUpWritesTheIdentityBeforeGhSignIn pins the order: the
+// identity step rewrites the guest ~/.gitconfig, so it must run before gh
+// configures its credential helper there.
+func TestKvmGuestAgentUpWritesTheIdentityBeforeGhSignIn(t *testing.T) {
+	dir := t.TempDir()
+	env := agentUpEnv(t, dir)
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "running"
+	env["GITHUB_PAT"] = "ghp_secret"
+	env["GIT_USER_NAME"] = "Host User"
+	env["GIT_USER_EMAIL"] = "host@example.test"
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "agent-up", "opencode2")
+	assertStatus(t, result, 0)
+
+	sshArgv := readText(t, filepath.Join(dir, "ssh-argv"))
+	identity := strings.Index(sshArgv, "cat > ~/.gitconfig")
+	signIn := strings.Index(sshArgv, "gh auth login")
+	if identity < 0 || signIn < 0 {
+		t.Fatalf("agent-up skipped a step (identity=%d sign-in=%d):\n%s", identity, signIn, sshArgv)
+	}
+	if identity >= signIn {
+		t.Fatalf("identity written after gh sign-in (identity=%d sign-in=%d):\n%s", identity, signIn, sshArgv)
+	}
+}
+
+// TestKvmGuestAgentUpFailsWhenGhSignInFails pins that a missing or rejected gh
+// is fatal, naming the rebuild.
+func TestKvmGuestAgentUpFailsWhenGhSignInFails(t *testing.T) {
+	dir := t.TempDir()
+	env := agentUpEnv(t, dir)
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "running"
+	env["GITHUB_PAT"] = "ghp_secret"
+	env["SSH_GH_AUTH_FAIL"] = "1"
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "agent-up", "opencode2")
+	assertStatus(t, result, 1)
+
+	assertContains(t, "stderr", result.Stderr, "gh sign-in failed")
+	assertNotContains(t, "ssh argv", readText(t, filepath.Join(dir, "ssh-argv")), "tmux new")
 }
 
 // TestKvmGuestAgentRejectsASingleQuoteInTheCommand pins the same guard on the
@@ -739,6 +823,9 @@ func kvmGuestSSHHandler(args []string) (string, string, int) {
 		strings.Contains(joined, envOption("SSH_STDIN_MATCH")) {
 		data, _ := io.ReadAll(os.Stdin)
 		_ = os.WriteFile(path, data, 0o644)
+	}
+	if envOption("SSH_GH_AUTH_FAIL") != "" && strings.Contains(joined, "gh auth login") {
+		return "", "error: authentication failed\n", 1
 	}
 	if envOption("SSH_CLOUD_INIT_FAIL") != "" && strings.Contains(joined, "cloud-init status") {
 		return "", "Cloud-init failed: see status --long\n", 1
