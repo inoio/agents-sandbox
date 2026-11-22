@@ -62,8 +62,8 @@ Don't install additional tools yourself without permission.
 
 Common development commands (run from the Go module root):
 
-- `make check` — run `validate-fmt`, lint, and test targets, read-only (the same formatting gate CI
-  runs). It delegates to `scripts/check.sh`, which captures each target and prints a one-line
+- `make check` — run `validate-fmt`, lint, test, the doc/script gates, and the brain check, read-only
+  (the same formatting gate CI runs). It delegates to `scripts/check.sh`, which captures each target and prints a one-line
   `PASS`/`FAIL` summary — the target's runtime, the CPU seconds its process tree consumed, and its
   `[heavy]`/`[light]` lane — plus a `check: <n> targets in <t>s` total, dumping every failing target's log
   last; the CPU-heavy targets run one at a time and the rest in a `JOBS=<n>` pool, and on a terminal a
