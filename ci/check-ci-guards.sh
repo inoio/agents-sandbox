@@ -516,7 +516,7 @@ done <<<"$(job_names)"
 # push to a release branch triggers CI (so a patch reaches a tag only through a
 # checked ref), a `tag-guard` job gates a release tag on main or a release branch,
 # the release waits on the guard *and* the full check set (`tag-guard`, `lint`,
-# `test`, `integration`, `integration-podman`) before publishing, and the GHCR
+# `test`, `integration`, `integration-podman`, `hermetic`) before publishing, and the GHCR
 # build cache keeps exactly one writer (a main push). A silent edit — dropping the
 # branch trigger, deleting the guard, unbundling the guard or a check from
 # `release.needs`, or widening the writer's ref — reopens the hole the design

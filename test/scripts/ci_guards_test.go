@@ -830,7 +830,12 @@ jobs:
           cache: true
       - name: Enable rootless user namespaces for the envelope's network namespace
         if: ${{ startsWith(github.ref, 'refs/tags/') || needs.changes.outputs.exec != 'false' }}
-        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || echo "no unprivileged-userns restriction on this runner"
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          else
+            echo "no unprivileged-userns restriction on this runner"
+          fi
       - name: Warm the module cache for the offline envelope
         if: ${{ startsWith(github.ref, 'refs/tags/') || needs.changes.outputs.exec != 'false' }}
         run: go mod download

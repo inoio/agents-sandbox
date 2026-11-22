@@ -126,8 +126,8 @@ the mutant with `// gomutants:disable <TYPE> reason="..."` — and leave one you
 debt, not a release blocker. If you do strengthen tests, that is the one write in steps 1-4: nothing
 reaches a remote until step 5.
 
-Completion: `make check` green, the last `main` fuzz run green, and the host-only integration and
-harness-smoke steps run or noted for the maintainer.
+Completion: `make check` green, `make test-hermetic` green, the last `main` fuzz run green, and the
+host-only integration and harness-smoke steps run or noted for the maintainer.
 
 ### 3. Choose a version
 
