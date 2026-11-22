@@ -7,6 +7,11 @@ import (
 	"strings"
 )
 
+// chmodPath is the file-permission seam. A real filesystem makes Chmod's failure
+// branch impractical to trigger, and it cannot fail as root in the hermetic
+// envelope, so tests substitute it to exercise the error handling.
+var chmodPath = os.Chmod
+
 // Materialize writes cf's desired config into a host directory, the host-target
 // counterpart of Provision. Provision writes the same ConfigFiles into a VM via
 // the sandbox SDK; Materialize writes them under targetDir instead, mapping each
@@ -72,7 +77,7 @@ func writeMaterializedFile(
 	}
 	// os.WriteFile applies the mode only when it creates the file and lets the
 	// umask trim it, so chmod afterwards to honour the mapped mode exactly.
-	if err := os.Chmod(dest, mode); err != nil {
+	if err := chmodPath(dest, mode); err != nil {
 		return fmt.Errorf("chmod %s: %w", dest, err)
 	}
 	return nil
