@@ -136,7 +136,9 @@ make kvm-agent             # attach the agent session
 The one-command path is `make kvm-agent-up`: it ensures the guest is running (idempotent — a created, stopped, or
 running guest all work), waits for cloud-init, syncs the checkout, materializes the config, and attaches, reading
 `LITELLM_API_KEY` from the host environment (extend the credential set with `KVM_AGENT`). It fails fast when the key
-is unset. The three commands above stay for manual control.
+is unset. When the agent's tmux session is already running, it **reattaches without syncing** — `kvm-sync` is one-way
+and `--delete`s — so re-running it to recover a dropped connection cannot overwrite the live agent's work. The three
+commands above stay for manual control.
 
 `make kvm-agent-provision` runs the launcher's own `config provision` **in the guest** — so it writes exactly the
 config a sandbox would receive (merged snippets, verbatim mirror, host drop-in, home files), reusing the launcher's

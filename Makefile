@@ -346,11 +346,13 @@ kvm-agent-provision:
 # guest is running (idempotent — a created, stopped, or running guest all work),
 # wait for cloud-init, sync this checkout, materialize the agent config, and
 # attach. LITELLM_API_KEY is read from the host environment and handed to the
-# agent; extend the credential set with KVM_AGENT='GITHUB_PAT=… opencode2'. The
+# agent; extend the credential set with KVM_AGENT='GITHUB_PAT=… opencode2'. If
+# KVM_AGENT runs a different binary, set KVM_AGENT_NAME to the profile to
+# materialize (default opencode2), so the config matches the agent attached. The
 # step-by-step targets above stay for manual control.
 kvm-agent-up:
 	@test -n "$$LITELLM_API_KEY" || { printf 'error: set LITELLM_API_KEY\n' >&2; exit 1; }
-	scripts/kvm-guest.sh agent-up "LITELLM_API_KEY=$$LITELLM_API_KEY $(KVM_AGENT)"
+	KVM_AGENT_NAME="$(KVM_AGENT_NAME)" scripts/kvm-guest.sh agent-up "LITELLM_API_KEY=$$LITELLM_API_KEY $(KVM_AGENT)"
 
 # Fetch the guest agent's branches back to the host. Default: every branch into
 # refs/remotes/kvm-guest/*. BRANCH=<name> fetches just that branch into the local

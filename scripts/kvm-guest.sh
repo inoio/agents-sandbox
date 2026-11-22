@@ -23,6 +23,7 @@
 #   ./scripts/kvm-guest.sh prime     # copy the host's runner images + msb home into the guest
 #   ./scripts/kvm-guest.sh run make test-msb-journeys   # run a command in the guest
 #   ./scripts/kvm-guest.sh agent            # interactive agent session in the guest
+#   ./scripts/kvm-guest.sh agent-up         # ensure up + cloud-init + sync + provision + attach
 #   ./scripts/kvm-guest.sh agent-provision  # materialize the agent config into the guest
 #   ./scripts/kvm-guest.sh sync-back [branch]  # fetch the guest's branches back to the host
 #   ./scripts/kvm-guest.sh firewall  # re-apply the host nft rules guest egress needs
@@ -51,6 +52,8 @@
 #   GO_VERSION=<from .go-version>  GOLANGCI_LINT_VERSION=<from the Makefile>
 #   OPENCODE2_VERSION=<the opencode2 installer's --version; unset installs latest>
 #   KVM_AGENT_SESSION=agents-sandbox  # the guest tmux session the agent runs in
+#   KVM_AGENT_NAME=opencode2  # the profile `agent-up`/`agent-provision` materializes
+#   KVM_CLOUD_INIT_ATTEMPTS=120  KVM_CLOUD_INIT_INTERVAL=5  # the agent-up SSH/cloud-init gate
 #   KVM_PRIME_ROOT=/opt/asb-reuse  # the root `prime` copies from and to
 #
 # The base image is cached in KVM_IMAGE_CACHE (shared across worktrees and
@@ -564,9 +567,14 @@ ensure_running() {
     log "guest '$VM_NAME' is running"
     return
   fi
+  local ip
   log "starting the stopped guest '$VM_NAME'"
+  # A host reboot drops the default network and the firewall accepts the guest
+  # egress needs, so the start path re-ensures both, matching `create`.
+  ensure_default_network
   virsh_cmd start "$VM_NAME" >/dev/null
-  wait_for_lease >/dev/null
+  ip="$(wait_for_lease)"
+  probe_guest_egress "$ip"
 }
 
 # wait_for_cloud_init gates on the guest being provisioned: it retries the SSH
@@ -588,20 +596,34 @@ wait_for_cloud_init() {
   if ! status="$(ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=8 \
         "$VM_USER@$ip" 'cloud-init status --wait' 2>&1)"; then
     printf '%s\n' "$status" >&2
-    die "cloud-init failed in '$VM_NAME'; inspect: $0 ssh -- cloud-init status --long"
+    die "cloud-init failed in '$VM_NAME'; inspect: $0 run 'cloud-init status --long'"
   fi
   log "cloud-init: done"
 }
 
+# guest_has_agent_session reports whether the agent's tmux session already runs
+# in the guest. agent_up reattaches to it instead of syncing: sync_in is one-way
+# and `--delete`, so re-running the command to recover a dropped connection must
+# not overwrite a live session's work.
+guest_has_agent_session() {
+  local ip="$1" session="${KVM_AGENT_SESSION:-agents-sandbox}"
+  ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=8 \
+    -o LogLevel=ERROR "$VM_USER@$ip" "tmux has-session -t $session" >/dev/null 2>&1
+}
+
 # agent_up is the one-command bring-up: ensure the guest is running, gate on
 # cloud-init, sync this checkout, materialize the agent config, and attach an
-# interactive session. It composes the subcommands so the step-by-step targets
-# remain available.
+# interactive session. A live session is reattached without syncing. It composes
+# the subcommands so the step-by-step targets remain available.
 agent_up() {
   local ip
   require_no_single_quote "${*:-opencode2}"
   ensure_running
   ip="$(require_guest_ip)"
+  if guest_has_agent_session "$ip"; then
+    log "agent session '${KVM_AGENT_SESSION:-agents-sandbox}' is already running; reattaching without syncing"
+    agent_in "$@"
+  fi
   wait_for_cloud_init "$ip"
   sync_in
   agent_provision "${KVM_AGENT_NAME:-opencode2}"

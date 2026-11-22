@@ -217,6 +217,7 @@ func TestKvmGuestAgentUpStartsAStoppedGuest(t *testing.T) {
 
 	virshArgv := readText(t, filepath.Join(dir, "virsh-argv"))
 	assertContains(t, "virsh argv", virshArgv, "start asb-kvm-test")
+	assertContains(t, "virsh argv", virshArgv, "net-info default")
 	assertNotContains(t, "virsh argv", virshArgv, "define")
 }
 
@@ -227,6 +228,7 @@ func TestKvmGuestAgentUpGatesOnCloudInitBeforeSyncing(t *testing.T) {
 	env := agentUpEnv(t, dir)
 	env["VIRSH_DOMINFO_OK"] = "1"
 	env["VIRSH_DOMSTATE"] = "running"
+	env["RSYNC_ARGV"] = filepath.Join(dir, "rsync-argv")
 
 	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"),
 		"agent-up", "LITELLM_API_KEY=secret opencode2")
@@ -244,6 +246,9 @@ func TestKvmGuestAgentUpGatesOnCloudInitBeforeSyncing(t *testing.T) {
 			cloudInit, provision, attach, sshArgv)
 	}
 	assertContains(t, "ssh argv", sshArgv, "LITELLM_API_KEY=secret opencode2")
+	// The checkout must be synced, so the guest carries `config provision`.
+	assertContains(t, "rsync argv", readText(t, filepath.Join(dir, "rsync-argv")),
+		"dev@192.168.122.55:~/agents-sandbox/")
 }
 
 // TestKvmGuestAgentUpFailsWhenCloudInitFails pins that a failed cloud-init
@@ -254,12 +259,39 @@ func TestKvmGuestAgentUpFailsWhenCloudInitFails(t *testing.T) {
 	env["VIRSH_DOMINFO_OK"] = "1"
 	env["VIRSH_DOMSTATE"] = "running"
 	env["SSH_CLOUD_INIT_FAIL"] = "1"
+	env["RSYNC_ARGV"] = filepath.Join(dir, "rsync-argv")
 
 	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "agent-up", "opencode2")
 	assertStatus(t, result, 1)
 
 	assertContains(t, "stderr", result.Stderr, "cloud-init failed")
 	assertNotContains(t, "ssh argv", readText(t, filepath.Join(dir, "ssh-argv")), "tmux new")
+	// The gate precedes sync: a regression that synced before the cloud-init
+	// wait would leave an rsync log here.
+	assertNotContains(t, "rsync argv", readText(t, filepath.Join(dir, "rsync-argv")), "agents-sandbox")
+}
+
+// TestKvmGuestAgentUpReattachesWithoutSyncingOverALiveSession pins the recovery
+// path: re-running the command against a guest that already has the session must
+// reattach, not sync_in (one-way, --delete) over the live agent's work.
+func TestKvmGuestAgentUpReattachesWithoutSyncingOverALiveSession(t *testing.T) {
+	dir := t.TempDir()
+	env := agentUpEnv(t, dir)
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "running"
+	env["SSH_AGENT_SESSION"] = "1"
+	env["RSYNC_ARGV"] = filepath.Join(dir, "rsync-argv")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"),
+		"agent-up", "LITELLM_API_KEY=secret opencode2")
+	assertStatus(t, result, 0)
+
+	sshArgv := readText(t, filepath.Join(dir, "ssh-argv"))
+	assertContains(t, "ssh argv", sshArgv, "tmux has-session")
+	assertContains(t, "ssh argv", sshArgv, "tmux new -A -s agents-sandbox")
+	assertNotContains(t, "ssh argv", sshArgv, "cloud-init status")
+	assertNotContains(t, "ssh argv", sshArgv, "config provision")
+	assertNotContains(t, "rsync argv", readText(t, filepath.Join(dir, "rsync-argv")), "agents-sandbox")
 }
 
 // TestKvmGuestAgentUpRejectsASingleQuoteInTheCommand pins that a credential
@@ -613,8 +645,13 @@ func kvmGuestVirshHandler(args []string) (string, string, int) {
 // command the script forwarded.
 func kvmGuestSSHHandler(args []string) (string, string, int) {
 	recordArgv("SSH_ARGV", args)
-	if envOption("SSH_CLOUD_INIT_FAIL") != "" && strings.Contains(strings.Join(args, " "), "cloud-init status") {
+	joined := strings.Join(args, " ")
+	if envOption("SSH_CLOUD_INIT_FAIL") != "" && strings.Contains(joined, "cloud-init status") {
 		return "", "Cloud-init failed: see status --long\n", 1
+	}
+	// No agent session unless a case asks for one, so the full bring-up runs.
+	if strings.Contains(joined, "tmux has-session") && envOption("SSH_AGENT_SESSION") == "" {
+		return "", "", 1
 	}
 	return "", "", 0
 }
