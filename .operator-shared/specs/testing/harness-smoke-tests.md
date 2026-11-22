@@ -249,7 +249,7 @@ configuration or state. Each run creates one temp root, shared by all subtests, 
 - the child gets a sized terminal — the parent's window when the test process has a tty, else 40×120 — so a
   full-screen TUI does not render into a zero-column terminal;
 - the working directory is a temp project dir, so project config and the derived slug are throwaway;
-- the suite **sweeps the root's sandboxes at start and at teardown** (`sweepSandboxes`: `sandbox list -q`,
+- the suite **sweeps the root's sandboxes at start and at teardown** (`driver.SweepSandboxes`: `sandbox list -q`,
   then `sandbox remove --force --yes` per name). The start sweep runs before the prebuild and the parallel
   subtests, so a reused root never carries a previous run's stopped-but-persisted VM into this run, where
   `EnsureProjectVM` would restart it (`started existing project VM`) and repay the whole start cost; the

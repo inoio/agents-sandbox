@@ -51,12 +51,37 @@ var isolatedEnvKeep = []string{
 	"DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG",
 }
 
+// smokeLauncherReadyTimeouts forwards a smoke-suite-namespaced override into
+// the launcher's own config variable name for the child. The suite reads the
+// harness var (set by the in-guest `make test-msb-in-vm` target) and writes the
+// launcher var into the child, so a host run that happens to export the
+// launcher's variable keeps the isolation the allowlist provides: only the
+// suite's own namespace crosses into the child.
+var smokeLauncherReadyTimeouts = []struct{ harness, launcher string }{
+	{"AGENTS_SANDBOX_MSB_DOCKER_READY_TIMEOUT", "AGENTS_SANDBOX_DOCKER_READY_TIMEOUT"},
+	{"AGENTS_SANDBOX_MSB_DAEMON_READY_TIMEOUT", "AGENTS_SANDBOX_DAEMON_READY_TIMEOUT"},
+}
+
+// launcherReadyTimeouts returns the launcher config variables to append to a
+// child environment: for each pair whose smoke-suite variable is set in
+// inheritedByName, the launcher variable with that value.
+func launcherReadyTimeouts(inheritedByName map[string]string) []string {
+	var overrides []string
+	for _, pair := range smokeLauncherReadyTimeouts {
+		if value, ok := inheritedByName[pair.harness]; ok && value != "" {
+			overrides = append(overrides, pair.launcher+"="+value)
+		}
+	}
+	return overrides
+}
+
 // IsolatedEnv builds the child environment from inherited: it keeps only the
 // allowlisted variables (defaulting TERM when it is absent, empty, or "dumb"),
-// then appends a private HOME/XDG_*/TMPDIR tree rooted at homeBase, so the child
-// reads and writes no real agents-sandbox config or state. XDG_DATA_HOME stays
-// rooted at root so every harness shares one microsandbox home (the image cache)
-// while keeping its own HOME and config/state/cache dirs.
+// appends the launcher readiness-timeout overrides the suite was given, then a
+// private HOME/XDG_*/TMPDIR tree rooted at homeBase, so the child reads and
+// writes no real agents-sandbox config or state. XDG_DATA_HOME stays rooted at
+// root so every harness shares one microsandbox home (the image cache) while
+// keeping its own HOME and config/state/cache dirs.
 func IsolatedEnv(root, homeBase string, inherited []string) []string {
 	inheritedByName := make(map[string]string, len(inherited))
 	for _, entry := range inherited {
@@ -76,6 +101,7 @@ func IsolatedEnv(root, homeBase string, inherited []string) []string {
 		}
 	}
 	env = append(env, EnvTerm+"="+UsableTerm(inheritedByName[EnvTerm]))
+	env = append(env, launcherReadyTimeouts(inheritedByName)...)
 	return append(env,
 		"HOME="+filepath.Join(homeBase, homeDirName),
 		"XDG_CONFIG_HOME="+filepath.Join(homeBase, configDirName),

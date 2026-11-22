@@ -2,10 +2,12 @@ package driver
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/inoio/agents-sandbox/internal/hostlock"
 	"github.com/inoio/agents-sandbox/internal/sysinfo"
@@ -195,6 +197,55 @@ func WithVMCPUs(args []string, cpus uint8) []string {
 		return args
 	}
 	return append(args, "--"+cpusFlag, strconv.Itoa(int(cpus)))
+}
+
+// smokeTimeoutFactorEnv scales the smoke suite's readiness and quit ceilings.
+// Unset (the default) leaves them at 1, every host value. The KVM guest sets
+// it: a nested guest starts a VM and its services far slower, so the fixed
+// ceilings that fit a host time out there.
+const smokeTimeoutFactorEnv = "AGENTS_SANDBOX_MSB_TIMEOUT_FACTOR"
+
+// SmokeTimeoutFactor is the multiplier every smoke readiness and quit ceiling
+// carries, read from the environment: the KVM guest sets smokeTimeoutFactorEnv,
+// so a nested guest's slower VM start does not blow a budget sized for a host.
+// One (unset or invalid) leaves every ceiling unchanged.
+func SmokeTimeoutFactor() float64 {
+	//testenv:allow the smoke suite reads its own timeout factor
+	return timeoutFactorFromValue(os.Getenv(smokeTimeoutFactorEnv))
+}
+
+// timeoutFactorFromValue parses the timeout factor: a positive, finite float
+// scales the ceilings; anything else (unset, zero, negative, NaN, infinite,
+// non-numeric) leaves them at 1, so a host run is unchanged. Kept pure so it is
+// testable without the host, like smokeVMCPUsFromValue.
+func timeoutFactorFromValue(value string) float64 {
+	factor, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil || math.IsNaN(factor) || math.IsInf(factor, 0) || factor <= 0 {
+		return 1
+	}
+	return factor
+}
+
+// ScaleTimeout returns d multiplied by factor to the nearest nanosecond. A
+// factor of 1 is the identity, so an unset factor leaves every ceiling exactly
+// what the suite has always used.
+func ScaleTimeout(d time.Duration, factor float64) time.Duration {
+	if factor == 1 {
+		return d
+	}
+	return time.Duration(float64(d) * factor)
+}
+
+// sandboxNames parses `sandbox list -q` output into one trimmed name per
+// non-blank line. A name is a whole line, so it is trimmed, not split.
+func sandboxNames(output string) []string {
+	var names []string
+	for line := range strings.SplitSeq(output, "\n") {
+		if name := strings.TrimSpace(line); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 // MsbHomeUnderRoot is the private microsandbox home a suite root derives.

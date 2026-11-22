@@ -32,11 +32,16 @@ func TestHarnessSmoke(t *testing.T) {
 	driver.Preflight(t)
 	root, binary := driver.Prepare(t)
 	driver.PreflightDocker(t, root)
+	// Clear a reused root's leftovers before anything starts: a previous run
+	// that was killed, or whose teardown could not list, leaves a
+	// stopped-but-persisted sandbox that the next run's EnsureProjectVM would
+	// restart, paying the whole start cost again and skewing the timing.
+	driver.SweepSandboxes(t, root, binary, "startup")
 	// Register cleanup after the docker preflight so a skip touches nothing, but
 	// before the prebuild so a prebuild failure cannot leak the root. t.Cleanup,
 	// not defer: it must run after the parallel subtests, which resume only once
 	// this function returns.
-	t.Cleanup(func() { driver.CleanupSandboxes(t, root, binary) })
+	t.Cleanup(func() { driver.SweepSandboxes(t, root, binary, "cleanup") })
 	if !driver.SmokeRootReused() {
 		t.Cleanup(func() { driver.CleanupRunnerImages(t, root) })
 	}

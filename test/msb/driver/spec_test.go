@@ -216,9 +216,9 @@ func TestClaudeCodeSeedsItsFirstRunState(t *testing.T) {
 // TestSawDaemonTimeout pins that the shared marker helper fires on the
 // launcher's real daemon-timeout phrase and stays quiet on unrelated output.
 func TestSawDaemonTimeout(t *testing.T) {
-	launcherPhrase := "opencode2 daemon did not become healthy within 1m0s: 401 unauthorized"
-	if !strings.Contains(launcherPhrase, "daemon did not become healthy") {
-		t.Fatalf("test phrase %q does not carry the launcher's daemon-timeout wording", launcherPhrase)
+	launcherPhrase := "opencode2 daemon did not become ready within 1m0s: 401 unauthorized"
+	if !strings.Contains(launcherPhrase, daemonTimeoutMarker) {
+		t.Fatalf("test phrase %q does not carry the launcher's marker %q", launcherPhrase, daemonTimeoutMarker)
 	}
 	if !SawDaemonTimeout([]byte("launcher output\n" + launcherPhrase)) {
 		t.Error("SawDaemonTimeout = false, want true for the launcher's daemon-timeout phrase")

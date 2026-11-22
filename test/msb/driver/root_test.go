@@ -8,6 +8,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/inoio/agents-sandbox/internal/hostlock"
 )
@@ -441,5 +442,64 @@ func TestWithVMCPUsAppendsOnlyWhenCapped(t *testing.T) {
 	want := []string{"run", "--agent", "opencode", "--cpus", "2"}
 	if !slices.Equal(got, want) {
 		t.Errorf("WithVMCPUs(cpus 2) = %v, want %v", got, want)
+	}
+}
+
+// TestTimeoutFactorFromValue pins the smoke timeout-factor parsing: a positive,
+// finite float scales the ceilings, and every other value (unset, zero,
+// negative, NaN, infinite, non-numeric) leaves them at 1, so a host run is
+// unchanged.
+func TestTimeoutFactorFromValue(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value string
+		want  float64
+	}{
+		{"unset", "", 1},
+		{"zero", "0", 1},
+		{"negative", "-2", 1},
+		{"non-numeric", "fast", 1},
+		{"nan", "NaN", 1},
+		{"positive-inf", "+Inf", 1},
+		{"negative-inf", "-Inf", 1},
+		{"whole", "2", 2},
+		{"fractional", "1.5", 1.5},
+		{"padded", "  3  ", 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := timeoutFactorFromValue(tc.value); got != tc.want {
+				t.Errorf("timeoutFactorFromValue(%q) = %v, want %v", tc.value, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestScaleTimeout pins the ceiling scaler: a factor of 1 is the identity (so a
+// host run's ceilings are byte-for-byte unchanged — pinned on a duration beyond
+// float64's exact-integer range, where a multiply/round trip would drift) and
+// other factors multiply.
+func TestScaleTimeout(t *testing.T) {
+	const long = 3000 * time.Hour
+	if got := ScaleTimeout(long, 1); got != long {
+		t.Errorf("ScaleTimeout(f=1) = %s, want the exact %s", got, long)
+	}
+	if got := ScaleTimeout(15*time.Second, 2); got != 30*time.Second {
+		t.Errorf("ScaleTimeout(f=2) = %s, want 30s", got)
+	}
+	if got := ScaleTimeout(15*time.Second, 0.5); got != 7500*time.Millisecond {
+		t.Errorf("ScaleTimeout(f=0.5) = %s, want 7.5s", got)
+	}
+}
+
+// TestSandboxNames pins the `sandbox list -q` parser the start/teardown sweep
+// uses: one trimmed name per non-blank line, and empty output yields no names.
+func TestSandboxNames(t *testing.T) {
+	if got := sandboxNames(""); got != nil {
+		t.Errorf("sandboxNames(\"\") = %v, want nil", got)
+	}
+	got := sandboxNames("a\n\n  b  \n")
+	want := []string{"a", "b"}
+	if !slices.Equal(got, want) {
+		t.Errorf("sandboxNames = %v, want %v", got, want)
 	}
 }

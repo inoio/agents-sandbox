@@ -81,7 +81,7 @@ func runDockerStorageDriverSmoke(t *testing.T, root, binary string) {
 	if err := ses.Write([]byte("exit\n")); err != nil {
 		t.Fatalf("write exit: %v", err)
 	}
-	if code, err := ses.WaitExit(driver.QuitTimeout); err != nil {
+	if code, err := ses.WaitExit(driver.ScaleTimeout(driver.QuitTimeout, driver.SmokeTimeoutFactor())); err != nil {
 		t.Fatalf("shell did not exit: %v\n%s", err, output)
 	} else if code != 0 {
 		t.Fatalf("shell exited %d, want 0\n%s", code, output)
@@ -160,7 +160,8 @@ const fuseDriverMarker = "fuse-overlayfs"
 func writeUntilMarker(t *testing.T, ses *driver.Session, command, marker string) {
 	t.Helper()
 
-	deadline := time.Now().Add(driver.TuiReadyTimeout)
+	budget := driver.ScaleTimeout(driver.TuiReadyTimeout, driver.SmokeTimeoutFactor())
+	deadline := time.Now().Add(budget)
 	needle := driver.MarkerText(marker)
 	for {
 		if strings.Contains(driver.MarkerText(string(ses.Output())), needle) {
@@ -170,7 +171,7 @@ func writeUntilMarker(t *testing.T, ses *driver.Session, command, marker string)
 			t.Fatalf("session exited before %q appeared:\n%s", marker, driver.StripANSI(ses.Output()))
 		}
 		if !time.Now().Before(deadline) {
-			t.Fatalf("%q never appeared within %s:\n%s", marker, driver.TuiReadyTimeout, driver.StripANSI(ses.Output()))
+			t.Fatalf("%q never appeared within %s:\n%s", marker, budget, driver.StripANSI(ses.Output()))
 		}
 		if err := ses.Write([]byte(command)); err != nil {
 			t.Fatalf("write %q: %v", command, err)
@@ -188,7 +189,10 @@ func writeAndAwaitMarker(t *testing.T, ses *driver.Session, command, marker stri
 	if err := ses.Write([]byte(command)); err != nil {
 		t.Fatalf("write %q: %v", command, err)
 	}
-	if err := ses.WaitForMarker(marker, driver.TuiReadyTimeout); err != nil {
+	if err := ses.WaitForMarker(
+		marker,
+		driver.ScaleTimeout(driver.TuiReadyTimeout, driver.SmokeTimeoutFactor()),
+	); err != nil {
 		t.Fatalf("await %q: %v\n%s", marker, err, driver.StripANSI(ses.Output()))
 	}
 }

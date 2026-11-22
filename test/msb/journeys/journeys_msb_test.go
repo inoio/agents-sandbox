@@ -26,9 +26,12 @@ func TestHarnessJourneys(t *testing.T) {
 	}
 	root, binary := driver.Prepare(t)
 	driver.PreflightDocker(t, root)
+	// Clear a reused root's leftovers before anything starts, and sweep again at
+	// teardown so a failed journey cannot leak a VM (see the startup suite).
+	driver.SweepSandboxes(t, root, binary, "startup")
 	// Register cleanup after the docker preflight so a skip touches nothing, but
 	// before the prebuild so a prebuild failure cannot leak the root.
-	t.Cleanup(func() { driver.CleanupSandboxes(t, root, binary) })
+	t.Cleanup(func() { driver.SweepSandboxes(t, root, binary, "cleanup") })
 	if !driver.SmokeRootReused() {
 		t.Cleanup(func() { driver.CleanupRunnerImages(t, root) })
 	}

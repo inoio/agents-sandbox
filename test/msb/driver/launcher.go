@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"sync"
 	"time"
 )
@@ -242,31 +241,30 @@ func BuildHarnessImages(tb TB, root string) error {
 	return errors.Join(buildErrors...)
 }
 
-// CleanupSandboxes best-effort destroys any sandbox left in the isolated home,
-// so a failed harness cannot leak a VM pointing at a home the suite is about to
-// delete. The root's own removal is registered by Prepare and runs after this.
-// It logs failures and never fails the test.
-func CleanupSandboxes(tb TB, root, binary string) {
+// SweepSandboxes best-effort destroys any sandbox left in the isolated home. It
+// runs at suite start — so a reused root never carries a previous run's
+// stopped-but-persisted VM into this run's subtests — and again at teardown, so
+// a failed harness cannot leak a VM pointing at a home the suite is about to
+// delete. when names the phase in its log lines. The root's own removal is
+// registered by Prepare and runs after this. It logs failures and never fails
+// the test.
+func SweepSandboxes(tb TB, root, binary, when string) {
 	tb.Helper()
 
 	list, cancelList := BoundedLauncher(root, binary, "sandbox", "list", "-q")
 	out, err := list.Output()
 	cancelList()
 	if err != nil {
-		tb.Logf("cleanup: list sandboxes: %v", err)
+		tb.Logf("%s: list sandboxes: %v", when, err)
 	}
-	for line := range strings.SplitSeq(string(out), "\n") {
-		name := strings.TrimSpace(line)
-		if name == "" {
-			continue
-		}
+	for _, name := range sandboxNames(string(out)) {
 		// --yes is required: without it the non-interactive remove blocks on
 		// its confirmation prompt and fails.
 		remove, cancelRemove := BoundedLauncher(root, binary, "sandbox", "remove", "--force", "--yes", name)
 		removeOut, removeErr := remove.CombinedOutput()
 		cancelRemove()
 		if removeErr != nil {
-			tb.Logf("cleanup: remove sandbox %s: %v\n%s", name, removeErr, removeOut)
+			tb.Logf("%s: remove sandbox %s: %v\n%s", when, name, removeErr, removeOut)
 		}
 	}
 }
@@ -353,11 +351,12 @@ func quitIntervalAfterPress(presses int) time.Duration {
 //     process has already exited, so it never observes the guest's earlier
 //     restore.
 func Quit(ses *Session, spec Spec) (int, error) {
-	deadline := time.Now().Add(QuitTimeout)
+	budget := ScaleTimeout(QuitTimeout, SmokeTimeoutFactor())
+	deadline := time.Now().Add(budget)
 	interval := QuitPressInterval
 	for presses := 1; ; presses++ {
 		if TeardownStarted(ses, presses) {
-			return waitExitWithin(ses, deadline, presses, spec)
+			return waitExitWithin(ses, deadline, budget, presses, spec)
 		}
 		if err := ses.Write(spec.QuitKey); err != nil {
 			return 0, err
@@ -367,7 +366,7 @@ func Quit(ses *Session, spec Spec) (int, error) {
 			return code, nil
 		}
 		if !time.Now().Before(deadline) {
-			return 0, quitTimeoutError(presses, spec, err)
+			return 0, quitTimeoutError(presses, spec, budget, err)
 		}
 		interval = quitIntervalAfterPress(presses)
 	}
@@ -376,19 +375,25 @@ func Quit(ses *Session, spec Spec) (int, error) {
 // waitExitWithin waits out the remaining quit budget for a process that has
 // begun tearing down, returning its exit code or the same timeout error the
 // tapping loop reports.
-func waitExitWithin(ses *Session, deadline time.Time, presses int, spec Spec) (int, error) {
+func waitExitWithin(
+	ses *Session,
+	deadline time.Time,
+	budget time.Duration,
+	presses int,
+	spec Spec,
+) (int, error) {
 	code, err := ses.WaitExit(time.Until(deadline))
 	if err == nil {
 		return code, nil
 	}
-	return 0, quitTimeoutError(presses, spec, err)
+	return 0, quitTimeoutError(presses, spec, budget, err)
 }
 
-// quitTimeoutError reports that a harness did not exit within QuitTimeout after
+// quitTimeoutError reports that a harness did not exit within budget after
 // presses taps of its key.
-func quitTimeoutError(presses int, spec Spec, err error) error {
+func quitTimeoutError(presses int, spec Spec, budget time.Duration, err error) error {
 	return fmt.Errorf("%d presses of %#x within %s did not exit it: %w",
-		presses, spec.QuitKey, QuitTimeout, err)
+		presses, spec.QuitKey, budget, err)
 }
 
 // WaitReady blocks until the harness can be driven with its quit key. A harness
@@ -397,11 +402,12 @@ func quitTimeoutError(presses int, spec Spec, err error) error {
 // keeps the terminal's normal buffer and has neither marker is given the
 // launcher's start-up time instead.
 func WaitReady(ses *Session, spec Spec) error {
+	factor := SmokeTimeoutFactor()
 	if spec.ReadyMarker != "" {
-		return ses.WaitForMarker(spec.ReadyMarker, spec.ReadyTimeout())
+		return ses.WaitForMarker(spec.ReadyMarker, ScaleTimeout(spec.ReadyTimeout(), factor))
 	}
 	if spec.KeepsNormalBuffer {
-		return ses.WaitSettled(spec.ReadyTimeout())
+		return ses.WaitSettled(ScaleTimeout(spec.ReadyTimeout(), factor))
 	}
-	return ses.WaitForTUI(TuiReadyTimeout)
+	return ses.WaitForTUI(ScaleTimeout(TuiReadyTimeout, factor))
 }

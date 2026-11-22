@@ -345,6 +345,34 @@ func envMap(env []string) map[string]string {
 	return got
 }
 
+// TestIsolatedEnvForwardsLauncherReadyTimeouts pins the guest-only forwarding:
+// the suite's own AGENTS_SANDBOX_MSB_* variable is rewritten into the launcher's
+// config variable for the child, while a launcher variable exported on the host
+// is still dropped by the allowlist, so the isolation holds.
+func TestIsolatedEnvForwardsLauncherReadyTimeouts(t *testing.T) {
+	inherited := []string{
+		"AGENTS_SANDBOX_MSB_DOCKER_READY_TIMEOUT=90s",
+		"AGENTS_SANDBOX_MSB_DAEMON_READY_TIMEOUT=180s",
+		"AGENTS_SANDBOX_DOCKER_READY_TIMEOUT=1ns",
+		"HOME=/real",
+	}
+	got := envMap(IsolatedEnv("/root", "/root", inherited))
+	for k, want := range map[string]string{
+		"AGENTS_SANDBOX_DOCKER_READY_TIMEOUT": "90s",
+		"AGENTS_SANDBOX_DAEMON_READY_TIMEOUT": "180s",
+	} {
+		if got[k] != want {
+			t.Errorf("%s = %q, want the forwarded %q", k, got[k], want)
+		}
+	}
+	if leaked := got["AGENTS_SANDBOX_MSB_DOCKER_READY_TIMEOUT"]; leaked != "" {
+		t.Errorf("AGENTS_SANDBOX_MSB_DOCKER_READY_TIMEOUT leaked into the child: %q", leaked)
+	}
+	if got["HOME"] != filepath.Join("/root", "home") {
+		t.Errorf("HOME = %q, want the isolated home", got["HOME"])
+	}
+}
+
 // TestIsolatedEnvKeepsDockerEndpoint pins that the docker endpoint variables
 // survive: the child needs the same daemon the preflight reaches, and they
 // carry no agents-sandbox config or state.
