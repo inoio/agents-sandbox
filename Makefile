@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-cold test-msb-in-vm test-msb-reuse msb-reuse-root compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic test-hermetic-sentinel envelope-test check check-test verify print-check-targets check-local-changes check-branch-changes check-selected changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test backport-audit-test open-backport-pr-test kvm-guest-test kvm-up kvm-sync kvm-prime kvm-ssh kvm-run kvm-down event-base-test classify-changes-test brain-check brain-check-test shellcheck docs-serve
+.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-cold test-msb-journeys test-msb-in-vm test-msb-reuse msb-reuse-root compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic test-hermetic-sentinel envelope-test check check-test verify print-check-targets check-local-changes check-branch-changes check-selected changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test backport-audit-test open-backport-pr-test kvm-guest-test kvm-up kvm-sync kvm-prime kvm-ssh kvm-run kvm-down event-base-test classify-changes-test brain-check brain-check-test shellcheck docs-serve
 
 VERSION ?= dev
 
@@ -270,6 +270,18 @@ test-msb: msb-reuse-root
 # cold run leaves no tagged runner image.
 test-msb-cold: msb-reuse-root
 	AGENTS_SANDBOX_SMOKE_ROOT= AGENTS_SANDBOX_MSB_TEST_HOME= AGENTS_SANDBOX_MSB_ROOT_BASE=$(MSB_REUSE_ROOT) AGENTS_SANDBOX_MSB_PARALLEL=$(MSB_PARALLEL) CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/msb/startup/... ./internal/sandbox/msb/...
+
+# The harness-journey acceptance suite: drives full user journeys (v1: learn
+# mode on opencode2) through real harnesses in real VMs, beyond the startup
+# smoke's "the TUI came up" gate. It shares test-msb's standing reuse root and
+# image cache (so a journey's budget only absorbs its VM start), and the shared
+# reuse lock serializes the two targets. Host-only; excluded from test/check via
+# the `msb` build tag. See .operator-shared/specs/testing/msb-journeys.md.
+test-msb-journeys: msb-reuse-root
+	AGENTS_SANDBOX_SMOKE_ROOT=$(MSB_REUSE_ROOT)/smoke \
+	AGENTS_SANDBOX_MSB_TEST_HOME=$(MSB_REUSE_ROOT)/msb \
+	AGENTS_SANDBOX_MSB_PARALLEL=$(MSB_PARALLEL) \
+	CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/msb/journeys/...
 
 # The in-guest variant `kvm-run` drives by default: the same caching suite as
 # test-msb, with changes that only matter on a nested guest. The two msb-tagged

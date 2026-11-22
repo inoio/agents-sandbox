@@ -23,6 +23,7 @@ read_if: Working on scripts/, ci/, test/, docs/, Formula/, .github/, .agents-san
 
 - `test/msb/driver/` — the shared, untagged driving support for the `msb`-tagged suites: harness table, output helpers, pty session, child-environment and home-seeding helpers, and the launcher build/prebuild/cleanup steps; its unit tests run in the default `make test`.
 - `test/msb/startup/` — the `msb`-tagged startup smoke: starts every registered harness in a real microsandbox VM under a sized pty and asserts it reaches its TUI and exits (`smoke_msb_test.go`, `docker_storage_msb_test.go`, `main_test.go`). See `specs/testing/harness-smoke-tests.md`.
+- `test/msb/journeys/` — the `msb`-tagged harness-journey acceptance suite (`make test-msb-journeys`): a table of named `Journey`s composed from the shared `steps.go` vocabulary, driving the built launcher through full user journeys (v1: learn mode on opencode2). The model/table/vocabulary (`model.go`, `steps.go`, `table.go`) are untagged so the coverage/exemption completeness test runs in the default `make test`; `journeys_msb_test.go` is the host runner. See `specs/testing/msb-journeys.md`.
 - `test/scripts/` — Go harnesses for the standalone `scripts/` and `ci/` tools: drives the shell tools through `RunScript` with `gittest` fixtures and re-exec fakes, all `*_helpers_test.go`/`*_test.go` in the package; `main_test.go` installs the fail-fast mocks and dispatches the fakes, one `<tool>_test.go` per migrated harness. See `specs/testing/shell-script-harnesses.md`.
 
 ## `ci/` Index
