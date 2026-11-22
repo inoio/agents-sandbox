@@ -33,9 +33,13 @@
 # /dev/kvm, docker and msb work, so it can build the launcher and run the msb
 # suites. `agent` attaches an interactive tmux session; `agent-provision` syncs
 # the host's launcher config and materializes the agent's provisioned config into
-# the guest home. Credentials are not provisioned: pass them as env assignments on
+# the guest home. Model credentials are not provisioned: pass them as env assignments on
 # the agent command, e.g.
 #   make kvm-agent KVM_AGENT='LITELLM_API_KEY=… opencode'
+#
+# `agent-up` additionally signs the guest's `gh` in from a host-environment
+# `GITHUB_PAT` when set (see `gh_auth`), so the in-guest agent can work with
+# GitHub issues and PRs and push. Unset it to skip the sign-in.
 #
 # Host prerequisites:
 #   qemu-kvm libvirt-daemon-system cloud-image-utils genisoimage
@@ -50,6 +54,7 @@
 #   KVM_IMAGE_CACHE=/var/lib/libvirt/images/agents-sandbox  KVM_REFRESH_IMAGE=1  KVM_BOOT_TIMEOUT=300
 #   REPO_URL=https://github.com/inoio/agents-sandbox.git  REPO_BRANCH=<current branch>
 #   GO_VERSION=<from .go-version>  GOLANGCI_LINT_VERSION=<from the Makefile>
+#   GH_VERSION=<from .agents-sandbox/Dockerfile>  # the gh CLI installed in the guest
 #   OPENCODE2_VERSION=<the opencode2 installer's --version; unset installs latest>
 #   KVM_AGENT_SESSION=agents-sandbox  # the guest tmux session the agent runs in
 #   KVM_AGENT_NAME=opencode2  # the profile `agent-up`/`agent-provision` materializes
@@ -107,6 +112,11 @@ fi
 
 if [ -z "${GOLANGCI_LINT_VERSION:-}" ]; then
   GOLANGCI_LINT_VERSION="$(sed -n 's/^GOLANGCI_LINT_VERSION[[:space:]]*=[[:space:]]*//p' "$repo_root/Makefile" 2>/dev/null | head -1 || true)"
+fi
+
+if [ -z "${GH_VERSION:-}" ]; then
+  GH_VERSION="$(sed -n 's/^ARG GH_VERSION=//p' "$repo_root/.agents-sandbox/Dockerfile" 2>/dev/null | head -1 | tr -d '[:space:]' || true)"
+  [ -n "$GH_VERSION" ] || GH_VERSION="2.104.0"
 fi
 
 case "$(uname -m)" in
@@ -187,7 +197,7 @@ resolve_ssh_key() {
 # write_seed_files writes the cloud-init user-data and metadata. It touches
 # nothing outside ARTIFACT_DIR, so `render` can use it without a host.
 write_seed_files() {
-  local pubkey opencode2_install golangci_install golangci_line
+  local pubkey opencode2_install golangci_install golangci_line gh_install
   pubkey="$(resolve_ssh_key)"
 
   # opencode2 is installed for the guest user (a root install would not be on the
@@ -205,6 +215,10 @@ write_seed_files() {
     golangci_install="curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b /usr/local/bin v$GOLANGCI_LINT_VERSION"
     golangci_line="  - $golangci_install"
   fi
+
+  # gh: the GitHub CLI, installed from the pinned release .deb the same way the
+  # dev image does, so the in-guest agent can work with issues, PRs, and pushes.
+  gh_install="curl -fsSL https://github.com/cli/cli/releases/download/v$GH_VERSION/gh_${GH_VERSION}_linux_$GO_ARCH.deb -o /tmp/gh.deb && dpkg -i /tmp/gh.deb && rm -f /tmp/gh.deb"
 
   cat > "$USERDATA_PATH" <<EOF
 #cloud-config
@@ -257,6 +271,7 @@ runcmd:
   # the checkout; cloud-init is one-shot, so a failed boot is rebuilt, not retried.
   - sudo -u $VM_USER -H bash -lc '$opencode2_install'
 $golangci_line
+  - $gh_install
 EOF
 
   cat > "$METADATA_PATH" <<EOF
@@ -447,7 +462,8 @@ sync_in() {
 # working tree would make the next commit silently revert the fetch — so update
 # it by merging the namespace ref instead (`git merge kvm-guest/<name>`). The
 # guest keeps its own .git (sync excludes it), so this fetch is the return path;
-# the guest never pushes.
+# a guest signed in via `gh_auth` can also push directly, but sync-back needs no
+# credential and is the path for a guest without one.
 sync_back() {
   local ip branch
   branch="${1:-}"
@@ -533,7 +549,9 @@ agent_in() {
 # sandbox would receive — merged snippets, verbatim mirror, host drop-in, home
 # files — by reusing the launcher's own pipeline. It runs in the guest because the
 # Go toolchain lives there, not on the KVM host. Run it after `sync`, so the
-# checkout carries the command.
+# checkout carries the command. It also gives the guest the host's git identity:
+# only `user.name`/`user.email`, streamed over ssh stdin, never the rest of the
+# host's ~/.gitconfig (credential helpers, aliases, signing config).
 agent_provision() {
   local ip agent
   agent="${1:-opencode2}"
@@ -548,13 +566,38 @@ agent_provision() {
   log "materializing the $agent config into the guest home"
   ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
     -- "bash -lc 'cd ~/agents-sandbox && go run -tags microsandbox_ffi_path ./cmd/agents-sandbox config provision --agent $agent --target \"\$HOME\"'"
-  if [ -f "$HOME/.gitconfig" ]; then
-    log "syncing $HOME/.gitconfig → $VM_USER@$ip (signing disabled in the guest)"
-    rsync -az "$HOME/.gitconfig" "$VM_USER@$ip:.gitconfig"
-    ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
-      -- "bash -lc 'git config --global commit.gpgsign false && git config --global tag.gpgsign false'"
+  local name email
+  name="$(git config --global --get user.name 2>/dev/null || true)"
+  email="$(git config --global --get user.email 2>/dev/null || true)"
+  if [ -n "$name" ] || [ -n "$email" ]; then
+    log "writing the host git identity into $VM_USER@$ip (name and email only)"
+    {
+      printf '[user]\n'
+      if [ -n "$name" ]; then printf '\tname = %s\n' "$name"; fi
+      if [ -n "$email" ]; then printf '\temail = %s\n' "$email"; fi
+    } | ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" -- "bash -lc 'cat > ~/.gitconfig'"
   else
-    log "no $HOME/.gitconfig on this host; the guest keeps its own git identity"
+    log "no host git user.name/user.email; the guest keeps its own git identity"
+  fi
+}
+
+# gh_auth signs the guest's `gh` in to GitHub from the host environment's
+# GITHUB_PAT, so the in-guest agent can read and comment on issues and PRs and
+# push. It also points git at gh's credential helper and rewrites SSH GitHub
+# remotes to HTTPS, so a push from the guest's HTTPS clone authenticates. The
+# rewrites use `--replace-all` before the second `--add`, so re-running on a
+# reattach stays at two values instead of accumulating. It is a no-op when
+# GITHUB_PAT is unset, and the token rides stdin, never argv. It must run after
+# `agent_provision`, which rewrites the guest ~/.gitconfig.
+gh_auth() {
+  local ip="$1"
+  if [ -z "${GITHUB_PAT:-}" ]; then
+    return 0
+  fi
+  log "signing gh in to GitHub in '$VM_NAME'"
+  if ! printf '%s\n' "$GITHUB_PAT" | ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
+      -- "bash -lc 'gh auth login --with-token && gh auth setup-git && git config --global --replace-all url.https://github.com/.insteadOf git@github.com: && git config --global --add url.https://github.com/.insteadOf ssh://git@github.com/'"; then
+    die "gh sign-in failed in '$VM_NAME'; check the token (GITHUB_PAT), or rebuild a guest that predates gh: make kvm-down && make kvm-up"
   fi
 }
 
@@ -618,9 +661,9 @@ guest_agent_session_state() {
 
 # agent_up is the one-command bring-up: ensure the guest is running, gate on
 # cloud-init, then — checking for a live session only now that the guest is
-# reachable — sync this checkout, materialize the agent config, and attach. A
-# live session is reattached without syncing. It composes the subcommands so the
-# step-by-step targets remain available.
+# reachable — sync this checkout and materialize the agent config (or, for a live
+# session, reattach without syncing), sign gh in from GITHUB_PAT, and attach. It
+# composes the subcommands so the step-by-step targets remain available.
 agent_up() {
   local ip session_state
   require_safe_agent_command "${*:-opencode2}"
@@ -631,15 +674,16 @@ agent_up() {
   case "$session_state" in
     present)
       log "agent session '${KVM_AGENT_SESSION:-agents-sandbox}' is already running; reattaching without syncing"
-      agent_in "$@"
       ;;
-    absent) : ;;
+    absent)
+      sync_in
+      agent_provision "${KVM_AGENT_NAME:-opencode2}"
+      ;;
     *)
       die "could not determine whether an agent session is running in '$VM_NAME' (probe returned '$session_state'); refusing to sync over it"
       ;;
   esac
-  sync_in
-  agent_provision "${KVM_AGENT_NAME:-opencode2}"
+  gh_auth "$ip"
   agent_in "$@"
 }
 

@@ -32,7 +32,7 @@ make kvm-run                # run KVM_RUN (default: make test-msb-in-vm) in the 
 make kvm-run KVM_RUN='make test-msb'          # the host variant, unchanged
 make kvm-run KVM_RUN='make test-msb-journeys'
 make kvm-down               # destroy the guest and its disk (the base image stays cached)
-make kvm-agent-up           # one command: ensure up + cloud-init + sync + provision + attach
+make kvm-agent-up           # one command: ensure up + cloud-init + sync + provision + attach (gh sign-in from GITHUB_PAT)
 ```
 
 `make kvm-run` defaults to `make test-msb-in-vm`, the in-guest variant of `make test-msb`: the same caching
@@ -124,8 +124,9 @@ libvirt's tables, so a live apply needs `systemctl restart docker` then `systemc
 The guest can do work the development VM structurally cannot: its `/dev/kvm` is real, so it can build the launcher and
 run the `msb` suites and drive real microsandbox VMs. To let an **agent** do that work (rather than a person typing
 commands over `make kvm-ssh`), the guest is provisioned with an agent to run: opencode2 (linked into `~/.local/bin`,
-which the profile already puts on `PATH`), plus `tmux` for a durable session and the repo's `shellcheck` /
-`Makefile`-pinned `golangci-lint` so the agent can run `make check`.
+which the profile already puts on `PATH`), plus `tmux` for a durable session, the GitHub CLI `gh` (pinned to the same
+version as the dev image), and the repo's `shellcheck` / `Makefile`-pinned `golangci-lint` so the agent can run
+`make check`.
 
 ```console
 make kvm-sync              # the checkout, so the guest has the `config provision` command
@@ -140,27 +141,36 @@ is unset. When the agent's tmux session is already running, it **reattaches with
 and `--delete`s — so re-running it to recover a dropped connection cannot overwrite the live agent's work. The three
 commands above stay for manual control.
 
+`make kvm-agent-up` also signs the guest's `gh` in to GitHub when `GITHUB_PAT` is set in the host environment: it runs
+`gh auth login --with-token` over ssh **stdin** (the token never reaches a command line), then `gh auth setup-git` and
+the SSH→HTTPS `url.*.insteadOf` rewrites. The agent can then read and comment on issues and PRs and push branches or
+open PRs; unset `GITHUB_PAT` to skip it. A guest booted before `gh` was installed fails the sign-in loudly — rebuild it
+with `make kvm-down && make kvm-up`.
+
 `make kvm-agent-provision` runs the launcher's own `config provision` **in the guest** — so it writes exactly the
 config a sandbox would receive (merged snippets, verbatim mirror, host drop-in, home files), reusing the launcher's
 pipeline rather than re-implementing it — and first rsyncs the host's `~/.config/agents-sandbox/` so the guest resolves
 the same config scopes. It runs in the guest because the Go toolchain lives there, not on the KVM host. The repository's
 own agent config (`opencode.jsonc` → `AGENTS.md`, `.agents/skills/`, `.operator-shared/`) is picked up from the working
-directory, not provisioned. It also copies the host's `~/.gitconfig` into the guest and turns commit/tag signing off
-there (the host's signing key is not in the guest), so the agent commits as the host user; a host without `~/.gitconfig`
-keeps the guest's own identity.
+directory, not provisioned. It also gives the guest the host's git identity — only `user.name` and `user.email`, not the
+rest of the host's `~/.gitconfig` (credential helpers, aliases, signing config) — so the agent commits as the host user;
+a host with neither key keeps the guest's own identity. Because this rewrites the guest's identity file, running
+`make kvm-agent-provision` **after** a `kvm-agent-up` sign-in drops gh's git configuration (credential helper, rewrites);
+re-run `make kvm-agent-up` to restore it.
 
 `make kvm-agent` allocates a TTY and runs the agent inside a named `tmux` session (`KVM_AGENT_SESSION`, default
 `agents-sandbox`), so a dropped SSH connection leaves the agent running and re-running the command reattaches. The
 default command is `opencode2`; pass another, and credentials as an inline assignment, with `KVM_AGENT`:
 
 ```console
-make kvm-agent KVM_AGENT='LITELLM_API_KEY=… GITHUB_PAT=… opencode'
+make kvm-agent KVM_AGENT='LITELLM_API_KEY=… opencode'
 ```
 
-**Credentials are not provisioned** — the guest's opencode2 is not behind the launcher's secret proxy, so an inline
-`VAR=value` (or an interactive login in the guest) is the channel; treat the value as visible in the host's process
-list and shell history. The command is embedded in a nested shell string, so it must not contain a single quote,
-double quote, backslash, dollar sign, or backtick.
+**Model credentials are not provisioned** — the guest's opencode2 is not behind the launcher's secret proxy, so an
+inline `VAR=value` (or an interactive login in the guest) is the channel; treat the value as visible in the host's
+process list and shell history. The GitHub token is the exception: `make kvm-agent-up` signs `gh` in from the host's
+`GITHUB_PAT` over ssh stdin, so it never reaches a command line. The `KVM_AGENT` command is embedded in a nested shell
+string, so it must not contain a single quote, double quote, backslash, dollar sign, or backtick.
 
 The guest checkout is the agent's own: it commits and creates worktrees there. `make kvm-sync` is one-way and `--delete`s,
 so do not run it over a live agent session. It excludes the `.git` entry itself (not just a `.git/` directory): the host
@@ -172,7 +182,9 @@ Work returns to the host with `make kvm-sync-back`. By default it fetches every 
 `refs/remotes/kvm-guest/*` namespace, so each is reachable as `kvm-guest/<name>` without touching a local branch; `BRANCH=<name>`
 instead fetches one branch into the local branch of the same name (fast-forward only). A branch checked out here refuses
 the fetch — updating the ref without the working tree would make the next commit silently revert it — so update such a
-branch by merging the namespace ref (`git merge kvm-guest/<name>`). The guest never pushes.
+branch by merging the namespace ref (`git merge kvm-guest/<name>`). The guest pushes only when `make kvm-agent-up`
+signed `gh` in with a `GITHUB_PAT` (then `gh` and a push over the HTTPS remote authenticate); without a PAT it does not,
+and `kvm-sync-back` stays the return path either way.
 
 `guides/kvm-agent-testing.md` is the manual host-accept procedure for this workflow (T1–T6), since it needs a real
 hypervisor and cannot run in the development VM.

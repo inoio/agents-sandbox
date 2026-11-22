@@ -36,7 +36,9 @@ This design closes that gap: a guest that is ready for agent work, and one comma
 ## Non-goals
 
 - **No GitHub/PR delivery in v1.** Whether the guest agent pushes branches or opens PRs is undecided; v1 does not wire
-  a git or GitHub credential. Work leaves the guest by `git fetch` over SSH (G4/`Decisions`).
+  a git or GitHub credential. Work leaves the guest by `git fetch` over SSH (G4/`Decisions`). *Superseded: the guest
+  installs `gh` and `make kvm-agent-up` signs it in from `GITHUB_PAT` (see `guides/kvm-guest.md`), so the agent can
+  push and open PRs.*
 - **No general secret-delivery mechanism.** Model credentials are passed as environment variables by the user on the
   make command line (see `Model credentials`); the launcher's proxy-based secret substitution is not reproduced on the
   guest.
