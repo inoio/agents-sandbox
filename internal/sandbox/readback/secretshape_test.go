@@ -94,3 +94,45 @@ func TestIsNonSecretScalar(t *testing.T) {
 		}
 	}
 }
+
+func TestEnvEntryIsSafeByPrefix(t *testing.T) {
+	if !envEntryIsSafe("DISABLE_FEATURES", "telemetry,autoupdate") {
+		t.Error("a DISABLE_ switch with a word list was refused")
+	}
+}
+
+func TestHeaderEntryIsSafe(t *testing.T) {
+	cases := map[string]struct {
+		name, value string
+		want        bool
+	}{
+		"content type":         {"Content-Type", "application/json", true},
+		"placeholder":          {"X-Custom-Auth", "${CUSTOM_AUTH}", true},
+		"placeholdered bearer": {"Authorization", "Bearer ${TOKEN}", true},
+		"number":               {"X-Retry", "3", true},
+		"unknown header":       {"X-Custom-Auth", "abcdef", false},
+		"shaped value":         {"Accept", "Bearer abcdefgh12345678", false},
+		"literal with a digit": {"X-Custom", "id ${X} abc123def456", false},
+	}
+	for label, tc := range cases {
+		if got := headerEntryIsSafe(tc.name, tc.value); got != tc.want {
+			t.Errorf("%s: headerEntryIsSafe(%q, %q) = %v, want %v", label, tc.name, tc.value, got, tc.want)
+		}
+	}
+}
+
+func TestTableLeaksValueIgnoresOtherKeys(t *testing.T) {
+	if tableLeaksValue("options", map[string]any{"X": "abcdef"}) {
+		t.Error("a table that is neither env nor headers was judged by a table rule")
+	}
+}
+
+func TestStringKeyedEntriesReadsAnyKeyedMaps(t *testing.T) {
+	entries := stringKeyedEntries(map[any]any{"TOKEN": "abc", 1: "skipped"})
+	if len(entries) != 1 || entries["TOKEN"] != "abc" {
+		t.Errorf("entries = %v, want only the string key", entries)
+	}
+	if stringKeyedEntries("not a table") != nil {
+		t.Error("a scalar yielded entries")
+	}
+}
