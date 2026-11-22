@@ -276,6 +276,52 @@ func TestEvalProvisionRulesUnreadableDir(t *testing.T) {
 	}
 }
 
+// TestIsContentTreePattern pins the classification the stale-removal scope and
+// the first-run host probe share: a nested content tree is a non-negated
+// directory pattern (a trailing slash), while a single file, a broad glob, and a
+// negation are not trees.
+func TestIsContentTreePattern(t *testing.T) {
+	cases := map[string]bool{
+		"/skills/":       true,
+		"/commands/":     true,
+		"/agents/":       true,
+		"/prompts/":      true,
+		"/extensions/":   true,
+		"/themes/":       true,
+		"/workflows/":    true,
+		"/recipes/":      true,
+		"!node_modules/": false,
+		"/CLAUDE.md":     false,
+		"/AGENTS.md":     false,
+		"settings.json":  false,
+		"**":             false,
+	}
+	for pattern, want := range cases {
+		if got := agent.IsContentTreePattern(pattern); got != want {
+			t.Errorf("IsContentTreePattern(%q) = %v, want %v", pattern, got, want)
+		}
+	}
+}
+
+// TestProvisionRulesWithoutContentTrees pins the shared filter: content-tree
+// patterns are removed, single-file patterns and negations are kept, and a rule
+// left with no patterns is dropped. It backs both the disabled drop-in's
+// stale-removal scope and the first-run host probe.
+func TestProvisionRulesWithoutContentTrees(t *testing.T) {
+	rules := []agent.ProvisionRule{
+		{Dir: ".claude", Patterns: []string{"settings.json", "/CLAUDE.md", "/commands/", "/agents/", "/skills/"}},
+		{Dir: ".pi/agent", Patterns: []string{"/extensions/", "/themes/"}},
+		{Dir: ".config/opencode", Patterns: []string{"**", "!node_modules/"}},
+	}
+	want := []agent.ProvisionRule{
+		{Dir: ".claude", Patterns: []string{"settings.json", "/CLAUDE.md"}},
+		{Dir: ".config/opencode", Patterns: []string{"**", "!node_modules/"}},
+	}
+	if got := agent.ProvisionRulesWithoutContentTrees(rules); !reflect.DeepEqual(got, want) {
+		t.Errorf("ProvisionRulesWithoutContentTrees() = %v, want %v", got, want)
+	}
+}
+
 func TestValidateProvisionRules(t *testing.T) {
 	// Only the empty pattern and the bare "!" warn. Each is scoped to its own
 	// rule, and "!node_modules" (a legitimate negation) to a third, so a warning

@@ -87,7 +87,7 @@ func TestProvisionAppliesStateDefaultsOnlyWhenTheyChangeSomething(t *testing.T) 
 	var shell, exec []string
 	sb := &msbtest.MockSandbox{FSValue_: fs, ShellCalls: &shell, ExecCalls: &exec}
 
-	if err := Provision(context.Background(), sb, cf); err != nil {
+	if err := Provision(context.Background(), sb, cf, testLogger(t)); err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
 	temporary := claudeState + stateTempSuffix
@@ -105,7 +105,7 @@ func TestProvisionAppliesStateDefaultsOnlyWhenTheyChangeSomething(t *testing.T) 
 
 	settled := msbtest.NewTestFS(map[string][]byte{claudeState: fs.Writes[temporary]})
 	sb = &msbtest.MockSandbox{FSValue_: settled, ShellCalls: &[]string{}}
-	if err := Provision(context.Background(), sb, cf); err != nil {
+	if err := Provision(context.Background(), sb, cf, testLogger(t)); err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
 	if _, written := settled.Writes[claudeState]; written {
@@ -120,6 +120,7 @@ func TestProvisionLeavesAnUndecodableStateFile(t *testing.T) {
 		context.Background(),
 		&msbtest.MockSandbox{FSValue_: fs, ShellCalls: &[]string{}},
 		cf,
+		testLogger(t),
 	); err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
@@ -172,7 +173,12 @@ func TestProvisionAppliesEveryStateDefault(t *testing.T) {
 		map[string][]byte{claudeState: []byte(`{"projects":{"/workspace":{"hasTrustDialogAccepted":true}}}`)},
 	)
 	var shell []string
-	if err := Provision(context.Background(), &msbtest.MockSandbox{FSValue_: fs, ShellCalls: &shell}, cf); err != nil {
+	if err := Provision(
+		context.Background(),
+		&msbtest.MockSandbox{FSValue_: fs, ShellCalls: &shell},
+		cf,
+		testLogger(t),
+	); err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
 	if fs.Writes[other+stateTempSuffix] == nil {
@@ -206,7 +212,7 @@ func TestProvisionReportsStateDefaultFailures(t *testing.T) {
 	for name, tc := range cases {
 		var shell []string
 		sb := &msbtest.MockSandbox{FSValue_: tc.fs, ShellCalls: &shell, ExecErr: tc.execErr}
-		err := Provision(context.Background(), sb, cf)
+		err := Provision(context.Background(), sb, cf, testLogger(t))
 		if err == nil || (tc.wantErr != nil && !errors.Is(err, tc.wantErr)) {
 			t.Errorf("%s: Provision = %v, want the wrapped failure", name, err)
 		}
@@ -305,6 +311,7 @@ func TestProvisionNeverReplacesAStateFileItCannotRead(t *testing.T) {
 			context.Background(),
 			&msbtest.MockSandbox{FSValue_: fs, ShellCalls: &[]string{}},
 			cf,
+			testLogger(t),
 		); err != nil {
 			t.Fatalf("%s: Provision: %v", name, err)
 		}
@@ -329,7 +336,7 @@ func TestProvisionRemovesTheTemporaryStateFileOnAFailedRename(t *testing.T) {
 			nil,
 		),
 	}}
-	err := Provision(context.Background(), sb, cf)
+	err := Provision(context.Background(), sb, cf, testLogger(t))
 	if err == nil || !strings.Contains(err.Error(), "mv failed") {
 		t.Errorf("Provision = %v, want the rename failure", err)
 	}
@@ -385,7 +392,7 @@ func TestProvisionReportsRenameFailures(t *testing.T) {
 	}
 	execFailing := renameFailingSandbox{&msbtest.MockSandbox{FSValue_: msbtest.NewTestFS(nil), ShellCalls: &[]string{}}}
 	for name, sb := range map[string]msb.SandboxExecutor{"chmod": chmodFailing, "mv exec": execFailing} {
-		if err := Provision(context.Background(), sb, cf); err == nil {
+		if err := Provision(context.Background(), sb, cf, testLogger(t)); err == nil {
 			t.Errorf("%s: a failed rename was not reported", name)
 		}
 	}

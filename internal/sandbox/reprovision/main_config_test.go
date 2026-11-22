@@ -36,7 +36,7 @@ func provisionInto(t *testing.T, fs *msbtest.TestFS, cf *ConfigFiles) []string {
 	t.Helper()
 	var execCalls []string
 	sb := &msbtest.MockSandbox{FSValue_: fs, ShellCalls: &[]string{}, ExecCalls: &execCalls}
-	if err := Provision(context.Background(), sb, cf); err != nil {
+	if err := Provision(context.Background(), sb, cf, testLogger(t)); err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
 	return execCalls
@@ -159,7 +159,7 @@ func TestProvisionLeavesAMainConfigWhoseExistenceCannotBeChecked(t *testing.T) {
 	fs := existsFailingFS{msbtest.NewTestFS(nil)}
 
 	sb := &msbtest.MockSandbox{FSValue_: fs, ShellCalls: &[]string{}}
-	if err := Provision(context.Background(), sb, codexConfigFiles("model = \"gpt-5\"\n")); err != nil {
+	if err := Provision(context.Background(), sb, codexConfigFiles("model = \"gpt-5\"\n"), testLogger(t)); err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
 	if len(fs.Writes) != 0 {
@@ -194,7 +194,7 @@ func TestProvisionReportsABaseWriteFailure(t *testing.T) {
 		ShellCalls: &[]string{},
 	}
 
-	if err := Provision(context.Background(), sb, cf); err == nil {
+	if err := Provision(context.Background(), sb, cf, testLogger(t)); err == nil {
 		t.Error("a failed base write was not reported")
 	}
 }
@@ -208,6 +208,7 @@ func TestProvisionWrapsAMainConfigWriteFailure(t *testing.T) {
 		context.Background(),
 		sb,
 		codexConfigFiles("model = \"gpt-5\"\n"),
+		testLogger(t),
 	); !errors.Is(
 		err,
 		fs.WriteErr,
@@ -302,7 +303,15 @@ func TestProvisionReportsABaseChmodFailure(t *testing.T) {
 	chmodErr := errors.New("chmod boom")
 	sb := &msbtest.MockSandbox{FSValue_: msbtest.NewTestFS(nil), ShellCalls: &[]string{}, ExecErr: chmodErr}
 
-	if err := Provision(context.Background(), sb, codexConfigFiles("model = \"gpt-5\"\n")); !errors.Is(err, chmodErr) {
+	if err := Provision(
+		context.Background(),
+		sb,
+		codexConfigFiles("model = \"gpt-5\"\n"),
+		testLogger(t),
+	); !errors.Is(
+		err,
+		chmodErr,
+	) {
 		t.Errorf("Provision = %v, want the wrapped chmod failure of the base", err)
 	}
 }

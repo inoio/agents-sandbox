@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 // defaultSandboxUser is the runtime user inside the project VM that the agent and
@@ -31,8 +32,9 @@ const rootUser = "root"
 // needed, removes the marked stale paths, then chowns every written path and
 // created directory to the runtime user so the files are readable by the agent
 // and startup hooks. The SDK's file writes create root-owned files and
-// directories.
-func Provision(ctx context.Context, sb msb.SandboxExecutor, cf *ConfigFiles) (retErr error) {
+// directories. ui reports each stale path as it is removed, so a deletion is
+// never silent.
+func Provision(ctx context.Context, sb msb.SandboxExecutor, cf *ConfigFiles, ui termio.Logger) (retErr error) {
 	fs := sb.FS()
 	paths := make([]string, 0)
 	// Chown runs as a finalizer (try/finally): it executes whether the writes
@@ -50,7 +52,7 @@ func Provision(ctx context.Context, sb msb.SandboxExecutor, cf *ConfigFiles) (re
 	// Remove stale config first so it cannot shadow the files written below.
 	// Best-effort: a stale sibling of the main config only shadows it, so a
 	// failed removal is non-fatal.
-	removeStalePaths(ctx, fs, cf.Remove)
+	removeStalePaths(ctx, fs, cf.Remove, ui)
 	store := &sandboxConfigStore{ctx: ctx, sb: sb, fs: fs, written: &paths}
 	if err := reconcileMainConfig(store, cf); err != nil {
 		return fmt.Errorf("write the agent's main config: %w", err)
@@ -126,12 +128,17 @@ func chmodFile(ctx context.Context, sb msb.SandboxExecutor, path string, mode os
 }
 
 // removeStalePaths deletes the marked stale paths so a previous provisioning
-// run's host config cannot shadow the files written by Provision. Failures are
-// ignored: the merged config is written to the last-loaded filename
-// (e.g., opencode.jsonc), so a failed removal is non-fatal.
-func removeStalePaths(ctx context.Context, fs msb.SandboxFS, remove []string) {
+// run's host config cannot shadow the files written by Provision. Each removal
+// is reported, so a path that disappears has a visible cause. Failures are
+// non-fatal and also reported: the merged config is written to the last-loaded
+// filename (e.g., opencode.jsonc), so a failed removal does not break the write.
+func removeStalePaths(ctx context.Context, fs msb.SandboxFS, remove []string, ui termio.Logger) {
 	for _, p := range remove {
-		_ = fs.Remove(ctx, p)
+		if err := fs.Remove(ctx, p); err != nil {
+			ui.Verbosef("remove stale config %s failed: %v", p, err)
+			continue
+		}
+		ui.Verbosef("removed stale config %s", p)
 	}
 }
 

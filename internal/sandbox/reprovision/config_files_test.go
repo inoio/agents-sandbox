@@ -403,6 +403,99 @@ func TestLoadConfigFilesProvisioningDisabled(t *testing.T) {
 	}
 }
 
+// TestLoadConfigFilesProvisioningDisabledKeepsInVMInstructionAndContentPaths
+// pins the stale-removal scope when host provisioning is off: only the
+// launcher-managed config and credential files are removed. The instruction
+// files and content trees the widened drop-in now names — claude-code's
+// CLAUDE.md and its commands/agents/skills trees, codex's AGENTS.md,
+// AGENTS.override.md, and skills tree — are not removed, because the agent may
+// have written them inside the sandbox (/memory, an in-sandbox skill); deleting
+// them would discard in-VM content the launcher never wrote. The config files
+// (settings.json, config.toml) are still removed.
+func TestLoadConfigFilesProvisioningDisabledKeepsInVMInstructionAndContentPaths(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	hostHome := t.TempDir()
+	vmHome := t.TempDir()
+
+	writeProvisionHostFile := func(rel string) {
+		t.Helper()
+		path := filepath.Join(hostHome, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, rel := range []string{
+		".claude/settings.json",
+		".claude/CLAUDE.md",
+		".claude/skills/foo/SKILL.md",
+		".claude/commands/bar.md",
+		".claude/agents/baz.md",
+		".codex/config.toml",
+		".codex/AGENTS.md",
+		".codex/AGENTS.override.md",
+		".codex/skills/foo/config.toml",
+	} {
+		writeProvisionHostFile(rel)
+	}
+
+	ui := termiotest.NewTestMock(t)
+	cases := []struct {
+		agentName string
+		removed   []string
+		kept      []string
+	}{
+		{
+			agentName: "claude-code",
+			removed:   nil,
+			kept: []string{
+				// The main config is reconciled, never removed (see
+				// main-config-ownership.md); its drop-in copy leaves by the
+				// reconciliation dropping the launcher's keys.
+				filepath.Join(vmHome, ".claude", "settings.json"),
+				filepath.Join(vmHome, ".claude", "CLAUDE.md"),
+				filepath.Join(vmHome, ".claude", "skills", "foo", "SKILL.md"),
+				filepath.Join(vmHome, ".claude", "commands", "bar.md"),
+				filepath.Join(vmHome, ".claude", "agents", "baz.md"),
+			},
+		},
+		{
+			agentName: "codex",
+			removed:   nil,
+			kept: []string{
+				filepath.Join(vmHome, ".codex", "config.toml"),
+				filepath.Join(vmHome, ".codex", "AGENTS.md"),
+				filepath.Join(vmHome, ".codex", "AGENTS.override.md"),
+				filepath.Join(vmHome, ".codex", "skills", "foo", "config.toml"),
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.agentName, func(t *testing.T) {
+			a, ok := agent.Lookup(tc.agentName)
+			if !ok {
+				t.Fatalf("%s is not registered", tc.agentName)
+			}
+			cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", hostHome, vmHome, &ui, false)
+			if err != nil {
+				t.Fatalf("LoadConfigFilesForHost: %v", err)
+			}
+			for _, path := range tc.removed {
+				if !slices.Contains(cf.Remove, path) {
+					t.Errorf("Remove = %v, want to include config file %s", cf.Remove, path)
+				}
+			}
+			for _, path := range tc.kept {
+				if slices.Contains(cf.Remove, path) {
+					t.Errorf("Remove = %v, must not include in-VM instruction/content path %s", cf.Remove, path)
+				}
+			}
+		})
+	}
+}
+
 // TestResolveConfigSubjectMaterializesMergerFacts verifies the subject derives
 // the merger's VM config path, snippet pattern and config-file family, and the
 // provisioner's rules, once from the agent, so the builders consume them

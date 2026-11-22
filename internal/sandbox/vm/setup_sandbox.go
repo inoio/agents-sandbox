@@ -287,7 +287,7 @@ func SetUpSandbox(
 	// restart flag): on a "keep" decision the files are still updated on disk so
 	// the next daemon start sees them, without disturbing the running instance.
 	provisioned := true
-	if provErr := reprovision.Provision(ctx, sb, cfs); provErr != nil {
+	if provErr := reprovision.Provision(ctx, sb, cfs, ui); provErr != nil {
 		ui.Warnf("provision failed: %v (continuing)", provErr)
 		provisioned = false
 	}

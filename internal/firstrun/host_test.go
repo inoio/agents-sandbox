@@ -94,6 +94,51 @@ func TestHostFilesPrunesUnselectedDirectoriesAndFiles(t *testing.T) {
 	}
 }
 
+// TestHostFilesExcludesConfigNamedFilesInsideContentTrees pins that the probe no
+// longer walks the provisioned content trees: a config-shaped file inside one (a
+// codex skill bundling config.toml, a qwen skill or command shipping
+// settings.json) is not reported as seedable setup, so the seed, which writes
+// under the config dir by base name, cannot overwrite the agent's real config
+// with it. The top-level config file is still reported.
+func TestHostFilesExcludesConfigNamedFilesInsideContentTrees(t *testing.T) {
+	cases := []struct {
+		agentName string
+		topLevel  string
+		nested    []string
+	}{
+		{
+			agentName: "codex",
+			topLevel:  ".codex/config.toml",
+			nested:    []string{".codex/skills/foo/config.toml"},
+		},
+		{
+			agentName: "pi",
+			topLevel:  ".pi/agent/settings.json",
+			nested:    []string{".pi/agent/skills/foo/settings.json", ".pi/agent/extensions/foo/settings.json"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.agentName, func(t *testing.T) {
+			hostHome := t.TempDir()
+			writeHostFile(t, hostHome, tc.topLevel, "top")
+			for _, rel := range tc.nested {
+				writeHostFile(t, hostHome, rel, "nested")
+			}
+			a, ok := agent.Lookup(tc.agentName)
+			if !ok {
+				t.Fatalf("%s is not registered", tc.agentName)
+			}
+
+			files, _ := HostFiles(a, hostHome)
+
+			want := []string{filepath.Join(hostHome, filepath.FromSlash(tc.topLevel))}
+			if !slices.Equal(files, want) {
+				t.Errorf("HostFiles = %v, want only the top-level config %v", files, want)
+			}
+		})
+	}
+}
+
 // TestHostFilesFindsProvisionedConfig pins that the probe returns the host-side
 // paths of every file the agent's provision rule selects, sorted, with a
 // non-empty source hash.

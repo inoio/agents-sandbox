@@ -29,6 +29,13 @@ import (
 // merge never reads are all left out. Each included file is read through
 // readback.ReadCappedFile, so an over-cap file is skipped rather than loaded.
 //
+// The nested content trees (skills, commands, agents, prompts, extensions,
+// themes, workflows) are not walked: a config-shaped file inside one (a codex
+// skill bundling config.toml, a claude-code skill shipping settings.json) is not
+// the agent's own config, and the seed, which writes under the config dir by
+// base name, would let it overwrite the real one. Selecting only the single
+// launcher-managed files keeps that collision out of the seed.
+//
 // The hash covers the home-relative path, not the absolute host path, so it is
 // stable across a moved home and is what a recorded decision compares against. A
 // walk error yields no files and an empty hash: a host config the probe cannot
@@ -46,7 +53,7 @@ func HostFiles(a agent.Agent, hostHome string) ([]string, string) {
 		data []byte
 	}
 	var selected []hostFile
-	for _, rule := range provisioner.ProvisionRules() {
+	for _, rule := range agent.ProvisionRulesWithoutContentTrees(provisioner.ProvisionRules()) {
 		if rule.Dir == "" {
 			continue
 		}

@@ -35,6 +35,39 @@ func SelectProvisionRule(rule ProvisionRule, rel string, isDir bool) bool {
 	return rule.matcher().Match(segments, isDir)
 }
 
+// IsContentTreePattern reports whether pattern selects a nested content tree
+// rather than a single file: a non-negated gitignore directory pattern (a
+// trailing slash), such as an agent's skills/, commands/, agents/, prompts/,
+// extensions/, themes/, workflows/ or recipes/ tree. A content tree holds
+// user-authored files that the agent may also write inside the sandbox, so the
+// launcher must not treat its files as launcher-managed config. A negation
+// (a leading '!') is never a content tree: it only narrows a broader selection.
+func IsContentTreePattern(pattern string) bool {
+	return strings.HasSuffix(pattern, "/") && !strings.HasPrefix(pattern, "!")
+}
+
+// ProvisionRulesWithoutContentTrees returns rules with every content-tree
+// pattern removed, dropping a rule left with no patterns. It is for callers
+// that must consider only the single files the launcher manages (config and
+// credential files) and never the user-authored trees beneath them: the
+// disabled drop-in's stale-removal set and the first-run host probe.
+func ProvisionRulesWithoutContentTrees(rules []ProvisionRule) []ProvisionRule {
+	filtered := make([]ProvisionRule, 0, len(rules))
+	for _, rule := range rules {
+		patterns := make([]string, 0, len(rule.Patterns))
+		for _, pattern := range rule.Patterns {
+			if !IsContentTreePattern(pattern) {
+				patterns = append(patterns, pattern)
+			}
+		}
+		if len(patterns) == 0 {
+			continue
+		}
+		filtered = append(filtered, ProvisionRule{Dir: rule.Dir, Patterns: patterns})
+	}
+	return filtered
+}
+
 func splitSegments(rel string) []string {
 	rel = strings.Trim(rel, "/")
 	if rel == "" {
