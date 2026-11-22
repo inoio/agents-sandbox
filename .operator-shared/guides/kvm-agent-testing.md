@@ -138,10 +138,13 @@ The first run builds runner images; `make kvm-prime` from the host can pre-seed 
 Commit on a branch in the guest (the agent's worktree flow per `AGENTS.md`), then from the host:
 
 ```console
-ip=$(virsh -c qemu:///system domifaddr asb-kvm --source lease | awk '$3=="ipv4"{sub(/\/.*/,"",$4);print $4;exit}')
-git fetch "dev@$ip:/home/dev/agents-sandbox" <branch>
-git log --oneline FETCH_HEAD -1     # the guest's commit
+make kvm-sync-back                 # every guest branch -> kvm-guest/<name>
+make kvm-sync-back BRANCH=<branch> # one branch -> local <branch>
+git log --oneline kvm-guest/<branch> -1   # the guest's commit
 ```
+
+Expect each guest branch under `kvm-guest/<name>` after the default run, and the local `<branch>` created or
+fast-forwarded by the `BRANCH=` form.
 
 There is no push and no GitHub credential (undecided scope). Confirm the hazard is real: `make kvm-sync` is one-way and
 `--delete`s, so never run it over a live agent session.

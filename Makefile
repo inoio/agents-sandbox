@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-cold test-msb-in-vm test-msb-reuse msb-reuse-root compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic test-hermetic-sentinel envelope-test check check-test verify print-check-targets check-local-changes check-branch-changes check-selected changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test backport-audit-test open-backport-pr-test kvm-guest-test kvm-up kvm-sync kvm-prime kvm-ssh kvm-run kvm-agent kvm-agent-provision kvm-down event-base-test classify-changes-test brain-check brain-check-test shellcheck docs-serve
+.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-cold test-msb-in-vm test-msb-reuse msb-reuse-root compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic test-hermetic-sentinel envelope-test check check-test verify print-check-targets check-local-changes check-branch-changes check-selected changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test backport-audit-test open-backport-pr-test kvm-guest-test kvm-up kvm-sync kvm-prime kvm-ssh kvm-run kvm-agent kvm-agent-provision kvm-sync-back kvm-down event-base-test classify-changes-test brain-check brain-check-test shellcheck docs-serve
 
 VERSION ?= dev
 
@@ -329,6 +329,12 @@ kvm-agent:
 # so the checkout carries the command.
 kvm-agent-provision:
 	scripts/kvm-guest.sh agent-provision $(KVM_AGENT_NAME)
+
+# Fetch the guest agent's branches back to the host. Default: every branch into
+# refs/remotes/kvm-guest/*. BRANCH=<name> fetches just that branch into the
+# local branch of the same name (FORCE=1 for a branch checked out here).
+kvm-sync-back:
+	KVM_SYNC_BACK_FORCE='$(FORCE)' scripts/kvm-guest.sh sync-back $(BRANCH)
 
 kvm-down:
 	scripts/kvm-guest.sh down

@@ -137,7 +137,9 @@ config a sandbox would receive (merged snippets, verbatim mirror, host drop-in, 
 pipeline rather than re-implementing it — and first rsyncs the host's `~/.config/agents-sandbox/` so the guest resolves
 the same config scopes. It runs in the guest because the Go toolchain lives there, not on the KVM host. The repository's
 own agent config (`opencode.jsonc` → `AGENTS.md`, `.agents/skills/`, `.operator-shared/`) is picked up from the working
-directory, not provisioned.
+directory, not provisioned. It also copies the host's `~/.gitconfig` into the guest and turns commit/tag signing off
+there (the host's signing key is not in the guest), so the agent commits as the host user; a host without `~/.gitconfig`
+keeps the guest's own identity.
 
 `make kvm-agent` allocates a TTY and runs the agent inside a named `tmux` session (`KVM_AGENT_SESSION`, default
 `agents-sandbox`), so a dropped SSH connection leaves the agent running and re-running the command reattaches. The
@@ -152,11 +154,16 @@ make kvm-agent KVM_AGENT='LITELLM_API_KEY=… GITHUB_PAT=… opencode'
 list and shell history. The command is embedded in a single-quoted remote command, so it must not contain a single
 quote.
 
-The guest checkout is the agent's own: it commits and creates worktrees there, and work returns to the host with
-`git fetch` over SSH. `make kvm-sync` is one-way and `--delete`s, so do not run it over a live agent session. It excludes
-the `.git` entry itself (not just a `.git/` directory): the host checkout may be a linked worktree whose `.git` is a file
-recording a relative `gitdir: ../.git/worktrees/<name>`, which a directory-only pattern would not match — copying it over
-the guest's real `.git` directory would leave every launcher command in the guest unable to resolve the project identity.
+The guest checkout is the agent's own: it commits and creates worktrees there. `make kvm-sync` is one-way and `--delete`s,
+so do not run it over a live agent session. It excludes the `.git` entry itself (not just a `.git/` directory): the host
+checkout may be a linked worktree whose `.git` is a file recording a relative `gitdir: ../.git/worktrees/<name>`, which a
+directory-only pattern would not match — copying it over the guest's real `.git` directory would leave every launcher
+command in the guest unable to resolve the project identity.
+
+Work returns to the host with `make kvm-sync-back`. By default it fetches every guest branch into the
+`refs/remotes/kvm-guest/*` namespace, so each is reachable as `kvm-guest/<name>` without touching a local branch; `BRANCH=<name>`
+instead fetches one branch into the local branch of the same name (fast-forward only — add `FORCE=1` for a branch checked
+out here). The guest never pushes.
 
 `guides/kvm-agent-testing.md` is the manual host-accept procedure for this workflow (T1–T6), since it needs a real
 hypervisor and cannot run in the development VM.

@@ -260,6 +260,83 @@ func TestKvmGuestSyncForwardsTheCheckoutWithExcludes(t *testing.T) {
 	assertNotContains(t, "rsync argv", argv, "--exclude .git/")
 }
 
+// TestKvmGuestSyncBackFetchesEveryGuestBranchIntoTheNamespace pins the default:
+// every guest branch lands under refs/remotes/kvm-guest/*, leaving local
+// branches untouched.
+func TestKvmGuestSyncBackFetchesEveryGuestBranchIntoTheNamespace(t *testing.T) {
+	dir := t.TempDir()
+	gitLog := filepath.Join(dir, "git-argv")
+	env := kvmGuestEnv(dir)
+	env["GIT_ARGV"] = gitLog
+	env["PATH"] = kvmGuestPath(t, "virsh", "git")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync-back")
+	assertStatus(t, result, 0)
+
+	argv := readText(t, gitLog)
+	assertContains(t, "git argv", argv, "fetch")
+	assertContains(t, "git argv", argv, "--prune")
+	assertContains(t, "git argv", argv, "dev@192.168.122.55:~/agents-sandbox")
+	assertContains(t, "git argv", argv, "+refs/heads/*:refs/remotes/kvm-guest/*")
+	assertNotContains(t, "git argv", argv, ":refs/heads/")
+}
+
+// TestKvmGuestSyncBackFetchesOneBranchIntoALocalBranch pins BRANCH=<name>:
+// only that branch is fetched, into the local branch of the same name, without
+// force or --update-head-ok.
+func TestKvmGuestSyncBackFetchesOneBranchIntoALocalBranch(t *testing.T) {
+	dir := t.TempDir()
+	gitLog := filepath.Join(dir, "git-argv")
+	env := kvmGuestEnv(dir)
+	env["GIT_ARGV"] = gitLog
+	env["PATH"] = kvmGuestPath(t, "virsh", "git")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync-back", "feature")
+	assertStatus(t, result, 0)
+
+	argv := readText(t, gitLog)
+	assertContains(t, "git argv", argv, "dev@192.168.122.55:~/agents-sandbox")
+	assertContains(t, "git argv", argv, "refs/heads/feature:refs/heads/feature")
+	assertNotContains(t, "git argv", argv, "+refs/heads/feature")
+	assertNotContains(t, "git argv", argv, "--prune")
+	assertNotContains(t, "git argv", argv, "--update-head-ok")
+}
+
+// TestKvmGuestSyncBackForceAllowsUpdatingTheCheckedOutBranch pins FORCE=1:
+// --update-head-ok lets the fetch update a branch checked out here.
+func TestKvmGuestSyncBackForceAllowsUpdatingTheCheckedOutBranch(t *testing.T) {
+	dir := t.TempDir()
+	gitLog := filepath.Join(dir, "git-argv")
+	env := kvmGuestEnv(dir)
+	env["GIT_ARGV"] = gitLog
+	env["KVM_SYNC_BACK_FORCE"] = "1"
+	env["PATH"] = kvmGuestPath(t, "virsh", "git")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync-back", "feature")
+	assertStatus(t, result, 0)
+
+	argv := readText(t, gitLog)
+	assertContains(t, "git argv", argv, "--update-head-ok")
+	assertContains(t, "git argv", argv, "refs/heads/feature:refs/heads/feature")
+}
+
+// TestKvmGuestSyncBackPropagatesAFetchFailure pins that a failing fetch is not
+// swallowed: set -e must surface git's non-zero status.
+func TestKvmGuestSyncBackPropagatesAFetchFailure(t *testing.T) {
+	dir := t.TempDir()
+	gitLog := filepath.Join(dir, "git-argv")
+	env := kvmGuestEnv(dir)
+	env["GIT_ARGV"] = gitLog
+	env["GIT_EXIT"] = "1"
+	env["PATH"] = kvmGuestPath(t, "virsh", "git")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync-back")
+	assertContains(t, "git argv", readText(t, gitLog), "fetch")
+	if result.Status == 0 {
+		t.Fatalf("sync-back exited 0 despite a failing fetch:\nstderr:\n%s", result.Stderr)
+	}
+}
+
 // TestKvmGuestPrimeCopiesImagesAndHome pins that `prime` copies both halves of
 // the guest's cached state from the host: its runner images over docker
 // save|ssh docker load, and its microsandbox home over rsync.
@@ -413,6 +490,17 @@ func kvmGuestSSHHandler(args []string) (string, string, int) {
 func kvmGuestRsyncHandler(args []string) (string, string, int) {
 	recordArgv("RSYNC_ARGV", args)
 	return "", "", 0
+}
+
+// kvmGuestGitHandler serves the `git` a script under test calls: it logs the
+// invocation and succeeds, or exits non-zero when GIT_EXIT is set, so a case can
+// pin that a fetch failure propagates. It never touches a repository.
+func kvmGuestGitHandler(args []string) (string, string, int) {
+	recordArgv("GIT_ARGV", args)
+	if envOption("GIT_EXIT") == "" {
+		return "", "", 0
+	}
+	return "", "", 1
 }
 
 // kvmGuestNftHandler serves the `nft` a script under test calls: it logs the

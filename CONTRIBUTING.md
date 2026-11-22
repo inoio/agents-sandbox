@@ -158,8 +158,8 @@ This project defaults to **test-driven development**:
   has no working `/dev/kvm`, so build a libvirt guest with `make kvm-up`, sync a checkout with `make kvm-sync`, and run
   the suite inside it with `make kvm-run` (`KVM_RUN` selects the command, default `make test-msb`). The same guest is
   provisioned to run an **agent** on the repo — so it can build the launcher and drive real VMs — via
-  `make kvm-agent-provision` (materialize the agent config) and `make kvm-agent` (attach a durable session). See
-  `.operator-shared/guides/kvm-guest.md`.
+  `make kvm-agent-provision` (materialize the agent config) and `make kvm-agent` (attach a durable session), and fetch
+  its branches back with `make kvm-sync-back`. See `.operator-shared/guides/kvm-guest.md`.
 
 ## Documentation
 

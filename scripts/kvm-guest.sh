@@ -24,6 +24,7 @@
 #   ./scripts/kvm-guest.sh run make test-msb-journeys   # run a command in the guest
 #   ./scripts/kvm-guest.sh agent            # interactive agent session in the guest
 #   ./scripts/kvm-guest.sh agent-provision  # materialize the agent config into the guest
+#   ./scripts/kvm-guest.sh sync-back [branch]  # fetch the guest's branches back to the host
 #   ./scripts/kvm-guest.sh firewall  # re-apply the host nft rules guest egress needs
 #   ./scripts/kvm-guest.sh down      # destroy the guest and its disk
 #
@@ -51,6 +52,7 @@
 #   OPENCODE2_VERSION=<the opencode2 installer's --version; unset installs latest>
 #   KVM_AGENT_SESSION=agents-sandbox  # the guest tmux session the agent runs in
 #   KVM_PRIME_ROOT=/opt/asb-reuse  # the root `prime` copies from and to
+#   KVM_SYNC_BACK_FORCE=1  # let `sync-back` update a branch checked out here
 #
 # The base image is cached in KVM_IMAGE_CACHE (shared across worktrees and
 # untouched by `down`), so only the first `up` fetches it. Set
@@ -121,7 +123,7 @@ die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 usage() {
   cat <<'EOF'
-usage: kvm-guest.sh {up|render|ssh|sync|prime|run <cmd...>|agent [cmd]|agent-provision [name]|firewall|down}
+usage: kvm-guest.sh {up|render|ssh|sync|prime|run <cmd...>|agent [cmd]|agent-provision [name]|sync-back [branch]|firewall|down}
 
   up                create and boot the KVM guest (cloud-init provisions it)
   render            write the cloud-init seed and domain XML to ARTIFACT_DIR, no boot
@@ -132,6 +134,9 @@ usage: kvm-guest.sh {up|render|ssh|sync|prime|run <cmd...>|agent [cmd]|agent-pro
   agent [cmd]       open an interactive agent session in a guest tmux session (default: opencode2)
   agent-provision [name]
                     materialize the agent's provisioned config into the guest home
+  sync-back [branch]
+                    fetch the guest's branches back (all into
+                    refs/remotes/kvm-guest/*, or one into a local branch)
   firewall          re-apply the host nft rules the guest's egress needs
   down              destroy the guest and its disk
 
@@ -412,6 +417,30 @@ sync_in() {
     "$source/" "$VM_USER@$ip:~/agents-sandbox/"
 }
 
+# sync_back fetches the guest checkout's branches back to the host: by default
+# every branch into the refs/remotes/kvm-guest/* namespace (reachable locally
+# without touching any local branch), or one branch named by the argument into
+# the local branch of the same name (fast-forward only; KVM_SYNC_BACK_FORCE=1
+# adds --update-head-ok for a branch checked out here, where git otherwise
+# refuses). The guest keeps its own .git (sync excludes it), so this fetch is
+# the return path; the guest never pushes.
+sync_back() {
+  local ip branch
+  local -a force=()
+  branch="${1:-}"
+  ip="$(require_guest_ip)"
+  [ -z "${KVM_SYNC_BACK_FORCE:-}" ] || force=(--update-head-ok)
+  if [ -z "$branch" ]; then
+    log "fetching every guest branch into refs/remotes/kvm-guest/*"
+    git -C "$repo_root" fetch --prune "${force[@]}" \
+      "$VM_USER@$ip:~/agents-sandbox" '+refs/heads/*:refs/remotes/kvm-guest/*'
+    return
+  fi
+  log "fetching guest branch '$branch' into local '$branch'"
+  git -C "$repo_root" fetch "${force[@]}" \
+    "$VM_USER@$ip:~/agents-sandbox" "refs/heads/$branch:refs/heads/$branch"
+}
+
 # prime copies the host's runner images (docker save | ssh docker load) and
 # microsandbox home into the guest, so the suite's image prebuild finds both and
 # skips it. Both sides must use the same MSB_REUSE_ROOT (KVM_PRIME_ROOT, default
@@ -637,6 +666,7 @@ case "${1:-}" in
   run)             shift; run_in "$@" ;;
   agent)           shift; agent_in "$@" ;;
   agent-provision) shift; agent_provision "$@" ;;
+  sync-back)       shift; sync_back "$@" ;;
   firewall|fix-net) fix_firewall ;;
   down|destroy)    destroy ;;
   *) usage >&2; exit 2 ;;
