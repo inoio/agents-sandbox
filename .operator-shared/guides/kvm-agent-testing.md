@@ -127,7 +127,9 @@ confirm it answers — that proves the credentials reached the process.
   and shell history — expected for this channel, not a leak to fix here.
 - `make kvm-agent KVM_AGENT=definitely-not-a-command` should fail loudly in the session, not silently.
 - `GITHUB_PAT` in the host environment makes `kvm-agent-up` sign `gh` in the guest; verify in the session with
-  `gh auth status` and `gh issue list`. A guest built before `gh` was installed fails the sign-in loudly (rebuild it).
+  `gh auth status` and `gh issue list --repo inoio/agents-sandbox`. A guest built before `gh` was installed
+  fails the sign-in loudly (rebuild it). The `--repo` is needed because the guest's `origin` resolves to the
+  host, so `gh` cannot infer the GitHub repository from the remote.
 
 ## T4 — the agent does the work the development VM cannot
 

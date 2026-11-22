@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -687,8 +688,56 @@ func TestKvmGuestSyncRoutesOriginToTheHost(t *testing.T) {
 	)
 	assertContains(t, "ssh argv", argv, "git config branch.feat/793-msb-journeys.remote origin")
 	assertContains(t, "ssh argv", argv, "core.sshCommand")
+	assertContains(t, "ssh argv", argv, "git config push.autoSetupRemote true")
 	assertNotContains(t, "ssh argv", argv, "git config --global")
 	assertNotContains(t, "ssh argv", argv, "git remote add")
+}
+
+// TestKvmGuestSyncReplacesAStaleRewriteOnAChangedHost pins that re-pointing the
+// guest at a different host URL removes the previous url.<host> rewrite first:
+// two insteadOf rules for the same origin URL would let the stale one shadow the
+// new one, so a moved host would stick.
+func TestKvmGuestSyncReplacesAStaleRewriteOnAChangedHost(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestSyncEnv(t, dir)
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync")
+	assertStatus(t, result, 0)
+
+	argv := readText(t, filepath.Join(dir, "ssh-argv"))
+	assertContains(t, "ssh argv", argv, "git config kvmguest.hostUrl")
+	assertContains(t, "ssh argv", argv, "git config --remove-section")
+}
+
+// TestKvmGuestSyncPreservesAuthorizedKeysWhenTheRewriteFails pins the guard in
+// ensure_host_authorized_key: when the grep that filters the old marker line fails
+// with a read error (not the no-match exit 1), the partial temp file must not be
+// moved over the host's authorized_keys — that would drop the user's other keys
+// and can lock them out of the host.
+func TestKvmGuestSyncPreservesAuthorizedKeysWhenTheRewriteFails(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestSyncEnv(t, dir)
+	env["GREP_READ_ERROR"] = "1"
+	env["PATH"] = kvmGuestPath(t, "virsh", "ssh", "git", "ssh-keygen", "rsync", "grep")
+
+	home := filepath.Join(dir, "home")
+	authorizedPath := filepath.Join(home, ".ssh", "authorized_keys")
+	if err := os.MkdirAll(filepath.Dir(authorizedPath), 0o755); err != nil {
+		t.Fatalf("create .ssh: %v", err)
+	}
+	seed := `command="git-shell -c \"$SSH_ORIGINAL_COMMAND\"",restrict ssh-ed25519 AAAASTALE agents-sandbox-kvm-guest` + "\n"
+	if err := os.WriteFile(authorizedPath, []byte(seed), 0o600); err != nil {
+		t.Fatalf("seed authorized_keys: %v", err)
+	}
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync")
+	if result.Status == 0 {
+		t.Fatalf("sync exited 0 despite a failing authorized_keys rewrite:\nstderr:\n%s", result.Stderr)
+	}
+	assertContains(t, "stderr", result.Stderr, "could not rewrite")
+	if got := readText(t, authorizedPath); got != seed {
+		t.Fatalf("authorized_keys was modified after a failed rewrite:\n%s", got)
+	}
 }
 
 // TestKvmGuestSyncPullsFromTheHostInsteadOfRsyncing pins that `sync` pulls the
@@ -1013,6 +1062,51 @@ func kvmGuestSSHKeygenHandler(args []string) (string, string, int) {
 		}
 	}
 	return "", "", 0
+}
+
+// kvmGuestGrepHandler serves the `grep` calls ensure_host_authorized_key makes,
+// implementing the two forms it uses: `-qF <pattern> <file>` (does a line contain
+// the pattern?) and `-vF <pattern> <file>` (print the non-matching lines).
+// GREP_READ_ERROR makes the -vF rewrite fail with grep's read-error status (2), so
+// a case can pin that a failed rewrite does not clobber the host's authorized_keys.
+func kvmGuestGrepHandler(args []string) (string, string, int) {
+	recordArgv("GREP_ARGV", args)
+	if len(args) != 3 {
+		return "", "grep fake: unexpected arguments\n", 2
+	}
+	flag, pattern, path := args[0], args[1], args[2]
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", "grep: " + err.Error() + "\n", 2
+	}
+	var lines []string
+	if len(data) > 0 {
+		lines = strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+	}
+	matches := func(line string) bool { return strings.Contains(line, pattern) }
+	switch flag {
+	case "-qF":
+		if slices.ContainsFunc(lines, matches) {
+			return "", "", 0
+		}
+		return "", "", 1
+	case "-vF":
+		if envOption("GREP_READ_ERROR") != "" {
+			return "", "grep: simulated read error\n", 2
+		}
+		var out []string
+		for _, line := range lines {
+			if !matches(line) {
+				out = append(out, line)
+			}
+		}
+		if len(out) == 0 {
+			return "", "", 1
+		}
+		return strings.Join(out, "\n") + "\n", "", 0
+	default:
+		return "", "grep fake: unexpected flag " + flag + "\n", 2
+	}
 }
 
 // kvmGuestGitHandler serves the `git` a script under test calls: it logs the

@@ -477,14 +477,18 @@ ssh_in() {
 # upstream is pinned to origin and the guest's git uses the dedicated key. Each
 # setting is repository-local (in ~/agents-sandbox/.git/config), not --global:
 # `agent-provision` truncates the guest's ~/.gitconfig, which would wipe a global
-# rewrite and send the agent's pushes back to GitHub.
+# rewrite and send the agent's pushes back to GitHub. The host URL is recorded in
+# kvmguest.hostUrl so a re-run against a different host first removes the previous
+# url.<host> section — two insteadOf rules for the same URL would let the stale
+# one shadow the new one. push.autoSetupRemote makes the agent's plain `git push`
+# of a new branch work.
 configure_guest_remote() {
   local ip="$1" gateway="$2" repo_path="$3" host_url branch
   branch="${REPO_BRANCH:-main}"
   host_url="ssh://$KVM_HOST_USER@$gateway$repo_path"
   log "routing the guest origin to $host_url"
   ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
-    -- "bash -lc 'set -e && cd ~/agents-sandbox && git config url.\"$host_url\".insteadOf $REPO_URL && git config branch.$branch.remote origin && git config branch.$branch.merge refs/heads/$branch && git config core.sshCommand \"ssh -i \$HOME/.ssh/id_kvm_guest -o StrictHostKeyChecking=accept-new\"'"
+    -- "bash -lc 'set -e && cd ~/agents-sandbox && prev=\$(git config kvmguest.hostUrl 2>/dev/null || true); if [ -n \"\$prev\" ]; then git config --remove-section \"url.\$prev\" || true; fi; git config url.\"$host_url\".insteadOf $REPO_URL && git config kvmguest.hostUrl \"$host_url\" && git config push.autoSetupRemote true && git config branch.$branch.remote origin && git config branch.$branch.merge refs/heads/$branch && git config core.sshCommand \"ssh -i \$HOME/.ssh/id_kvm_guest -o StrictHostKeyChecking=accept-new\"'"
 }
 
 # ensure_guest_git_key gives the guest a key that authenticates it to the host for
@@ -521,7 +525,15 @@ ensure_host_authorized_key() {
     return 0
   fi
   if grep -qF 'agents-sandbox-kvm-guest' "$auth"; then
-    grep -vF 'agents-sandbox-kvm-guest' "$auth" > "$auth.tmp" || true
+    # grep exits 1 when it selects no lines (the only marker line was removed),
+    # which is success here; any higher status is a read error and the rewrite
+    # must abort rather than move a partial temp file over authorized_keys.
+    local rewrite_status=0
+    grep -vF 'agents-sandbox-kvm-guest' "$auth" > "$auth.tmp" || rewrite_status=$?
+    if [ "$rewrite_status" -gt 1 ]; then
+      rm -f "$auth.tmp"
+      die "could not rewrite $auth (grep exited $rewrite_status); it is unchanged"
+    fi
     mv "$auth.tmp" "$auth"
   fi
   printf '%s\n' "$line" >> "$auth"

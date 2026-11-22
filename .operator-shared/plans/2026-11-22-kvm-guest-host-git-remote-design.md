@@ -131,7 +131,10 @@ talks to GitHub, and the host rewrite replaces them.
 3. Generate/authorize the host key and install the private half in the guest.
 4. In the guest: `git config url."ssh://<host-user>@<gateway><repo-path>".insteadOf "$REPO_URL"`
    (repository-local in `~/agents-sandbox/.git/config`, so `agent-provision`'s `~/.gitconfig` write does
-   not wipe it), pin `branch.<REPO_BRANCH>.remote`/`merge` to `origin`, and set `core.sshCommand` to use
+   not wipe it), record the host URL in `kvmguest.hostUrl` and remove the previous `url.<host>` section
+   first (two `insteadOf` rules for the same URL would let a stale one shadow the new one after a moved
+   gateway/repo, verified), pin `branch.<REPO_BRANCH>.remote`/`merge` to `origin`, set
+   `push.autoSetupRemote` (so a new branch's plain `git push` works), and set `core.sshCommand` to use
    the guest key. `<host-user>` is the account running the script, not `VM_USER`.
 5. **Preflight guest→host git** (mirroring the existing egress probe): from the guest,
    `cd ~/agents-sandbox && git ls-remote origin`. A bare `ssh … true` cannot be the probe: the key is
@@ -150,10 +153,11 @@ branch fails loudly rather than being clobbered. Uncommitted host work is no lon
 
 ### Push
 
-The agent pushes with plain `git push origin <branch>`. It lands in the host's repository; a branch
-checked out in a host worktree is refused (`! [remote rejected] … (branch is currently checked out)` —
-verified), so the host's current branches stay protected and integration is a host-side merge/checkout,
-as today.
+The agent pushes with plain `git push` (the guest sets `push.autoSetupRemote`, so a new branch's first
+push creates it on the host and sets its upstream). It lands in the host's repository; a branch checked
+out in a host worktree — or the bare repository's own `HEAD` — is refused
+(`! [remote rejected] … (branch is currently checked out)` — verified), so the host's current branches
+stay protected and integration is a host-side merge/checkout, as today.
 
 ### `kvm-sync-back`
 

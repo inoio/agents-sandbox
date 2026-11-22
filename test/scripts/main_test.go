@@ -20,6 +20,7 @@ func TestMain(m *testing.M) {
 	Register("ssh", kvmGuestSSHHandler)
 	Register("rsync", kvmGuestRsyncHandler)
 	Register("ssh-keygen", kvmGuestSSHKeygenHandler)
+	Register("grep", kvmGuestGrepHandler)
 	Register("git", kvmGuestGitHandler)
 	Register("nft", kvmGuestNftHandler)
 	Register("id", kvmGuestIDHandler)

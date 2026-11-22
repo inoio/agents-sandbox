@@ -193,7 +193,8 @@ in the guest **repository** config (`~/agents-sandbox/.git/config`), not `~/.git
 `git fetch origin --prune`, switch to the host branch, `git merge --ff-only`. Uncommitted host work is not copied; a
 diverged guest branch refuses rather than being reset.
 
-The agent pushes its branches straight to the host with plain `git push`, so the host's worktrees see them without a
+The agent pushes its branches straight to the host with plain `git push` (the guest sets `push.autoSetupRemote`, so a
+new branch's first push creates it on the host and sets its upstream), and the host's worktrees see them without a
 fetch. A branch checked out in a host worktree is refused (`branch is currently checked out`), so the host's current
 branches stay protected and integration stays a host-side merge. `make kvm-sync-back` remains the host-initiated
 fallback: by default it fetches every guest branch into the `refs/remotes/kvm-guest/*` namespace, so each is reachable
