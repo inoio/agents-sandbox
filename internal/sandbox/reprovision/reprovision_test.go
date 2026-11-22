@@ -327,7 +327,7 @@ func TestProvisionPropagatesMkdirError(t *testing.T) {
 // opencode config surfaces an error.
 func TestProvisionWriteOpenCodeError(t *testing.T) {
 	writeErr := errors.New("write boom")
-	cf := &ConfigFiles{HasSnippets: true, Merged: []byte(`{"model":"x"}`)}
+	cf := &ConfigFiles{HasSnippets: true, Merged: []byte(`{"model":"x"}`), MergedPath: opencodeMergedPath}
 	fs := msbtest.NewTestFS(nil)
 	fs.WriteErr = writeErr
 	sb := &msbtest.MockSandbox{FSValue_: fs, ShellErr: nil}
@@ -467,7 +467,7 @@ func TestProvisionChownsWhatItCreatedBeforeAFailure(t *testing.T) {
 		},
 		{
 			name:      "merged config directory creation fails",
-			cf:        &ConfigFiles{Merged: []byte("{}"), MergedPath: opencodeMergedPath},
+			cf:        &ConfigFiles{HasSnippets: true, Merged: []byte("{}"), MergedPath: opencodeMergedPath},
 			failPath:  "/home/dev/.config/opencode",
 			wantChown: "chown -R dev:dev /home /home/dev /home/dev/.config",
 		},

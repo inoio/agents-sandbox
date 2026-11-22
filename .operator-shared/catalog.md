@@ -101,8 +101,8 @@
 #### `specs/configuration/` - Config scopes, keys, decoding, validation, project-config root and trust
 
 - `specs/configuration/`
-  - Description: Config contracts: `config-file-decoding.md`, `config-keys.md`, `config-scopes.md`, `config-value-validation.md`, `project-config-root.md`, `project-config-trust.md`.
-  - Read If: Config-file reading/classification/JSON5, a config key's env var or CLI flag, config-scope order or `configpaths.ConfigPaths`/`ConfigScopes`, VM size/duration validation, the bare-layout project-config root/`core.bare`, or the project-config trust gate (`config harden`, provenance); or diagnosing a file one loader accepts and another rejects, a silently ignored env var, a rejected size, or a run that refuses to start because `.agents-sandbox` changed.
+  - Description: Config contracts: `config-file-decoding.md`, `config-keys.md`, `config-scopes.md`, `config-value-validation.md`, `main-config-ownership.md`, `project-config-root.md`, `project-config-trust.md`.
+  - Read If: Config-file reading/classification/JSON5, a config key's env var or CLI flag, config-scope order or `configpaths.ConfigPaths`/`ConfigScopes`, VM size/duration validation, the bare-layout project-config root/`core.bare`, or the project-config trust gate (`config harden`, provenance); the agent's main config in the VM (`reconcileMainConfig`, `configmerge.Reconcile`); or diagnosing a file one loader accepts and another rejects, an in-VM agent setting lost between runs, a silently ignored env var, a rejected size, or a run that refuses to start because `.agents-sandbox` changed.
 
 #### `specs/conventions/` - Repo-wide conventions
 

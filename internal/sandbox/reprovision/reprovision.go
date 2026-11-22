@@ -24,8 +24,9 @@ const defaultSandboxUser = "dev"
 // root-owned writes.
 const rootUser = "root"
 
-// Provision writes the merged agent config (when snippets exist), each home
-// file, and the drop-in copy into the sandbox. For that it creates parent directories as
+// Provision reconciles the agent's main config with the launcher's content
+// (reconcileMainConfig), and writes each home file, the drop-in copy, and the
+// mirror into the sandbox. For that it creates parent directories as
 // needed, removes the marked stale paths, then chowns every written path and
 // created directory to the runtime user so the files are readable by the agent
 // and startup hooks. The SDK's file writes create root-owned files and
@@ -46,28 +47,19 @@ func Provision(ctx context.Context, sb msb.SandboxExecutor, cf *ConfigFiles) (re
 		}
 	}()
 	// Remove stale config first so it cannot shadow the files written below.
-	// Best-effort: the merged config is written to the last-loaded filename
-	// (e.g., opencode.jsonc), so a failed removal is non-fatal.
+	// Best-effort: a stale sibling of the main config only shadows it, so a
+	// failed removal is non-fatal.
 	removeStalePaths(ctx, fs, cf.Remove)
-	// gomutants:disable-next-line INTEGER_INCREMENT reason="every config format marshals a document to an empty or multi-byte result, so > 0 and > 1 agree"
-	if len(cf.Merged) > 0 {
-		mergedPath := cf.MergedPath
-		made, err := mkdirAllFS(ctx, fs, filepath.Dir(mergedPath))
-		paths = append(paths, made...)
-		if err != nil {
-			return err
-		}
-		if err := fs.Write(ctx, mergedPath, cf.Merged); err != nil {
-			return fmt.Errorf("write merged agent config: %w", err)
-		}
-		paths = append(paths, mergedPath)
+	store := &sandboxConfigStore{ctx: ctx, sb: sb, fs: fs, written: &paths}
+	if err := reconcileMainConfig(store, cf); err != nil {
+		return fmt.Errorf("write the agent's main config: %w", err)
 	}
 	groups := []struct {
 		files map[string][]byte
 		kind  string
 	}{
 		{cf.HomeFiles, "home file"},
-		{cf.Provisioned, "provisioned file"},
+		{cf.filesBesideMainConfig(cf.Provisioned), "provisioned file"},
 		{cf.Mirror, "mirror file"},
 	}
 	for _, group := range groups {
@@ -185,3 +177,37 @@ func mkdirAllFS(ctx context.Context, fs msb.SandboxFS, path string) ([]string, e
 	made = append(made, path)
 	return made, nil
 }
+
+// sandboxConfigStore is the mainConfigStore over the sandbox SDK. Every
+// directory it creates and file it writes is recorded for Provision's chown.
+type sandboxConfigStore struct {
+	ctx     context.Context //nolint:containedctx // scoped to one Provision call
+	sb      msb.SandboxExecutor
+	fs      msb.SandboxFS
+	written *[]string
+}
+
+func (s *sandboxConfigStore) read(path string) []byte {
+	content, _ := s.fs.Read(s.ctx, path)
+	return content
+}
+
+func (s *sandboxConfigStore) write(path string, data []byte, mode os.FileMode) error {
+	made, err := mkdirAllFS(s.ctx, s.fs, filepath.Dir(path))
+	*s.written = append(*s.written, made...)
+	if err != nil {
+		return err
+	}
+	if err := s.fs.Write(s.ctx, path, data); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	*s.written = append(*s.written, path)
+	if mode != 0 {
+		if err := chmodFile(s.ctx, s.sb, path, mode); err != nil {
+			return fmt.Errorf("chmod %s: %w", path, err)
+		}
+	}
+	return nil
+}
+
+func (s *sandboxConfigStore) remove(path string) { _ = s.fs.Remove(s.ctx, path) }

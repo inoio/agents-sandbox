@@ -213,18 +213,21 @@ func IsDir(path string) bool {
 // provision into the VM, the default drop-in copy from the host, and the VM
 // paths to remove so stale host config cannot shadow the merged config.
 type ConfigFiles struct {
-	HasSnippets bool                    // whether any agent snippet existed
-	Merged      []byte                  // merged agent config content
-	MergedPath  string                  // VM path of the merged config ("" when no snippets)
-	Sources     []string                // host snippet paths merged into Merged
-	Skipped     []config.SkippedSnippet // matching snippets skipped on read or parse
-	Source      ConfigSource            // resolved launcher config-dir pair (with legacy fallback marker)
-	HomeFiles   map[string][]byte       // VM absolute path -> content (from the home: key)
-	Provisioned map[string][]byte       // VM absolute path -> content (drop-in copy)
-	Mirror      map[string][]byte       // VM absolute path -> content (verbatim <agent> mirror)
-	Modes       map[string]os.FileMode  // VM absolute path -> ordinary file permission bits
-	Remove      []string                // VM absolute paths to delete before writing
-	Hooks       []homeconfig.HookSpec   // startup hooks to run at vm.SetUpSandbox
+	HasSnippets bool   // whether any agent snippet existed
+	Merged      []byte // merged agent config content
+	MergedPath  string // VM path of the agent's main config ("" without a config merger)
+	// MergedBasePath records the launcher's content last written to MergedPath,
+	// the base of the next reconciliation ("" without a config merger).
+	MergedBasePath string
+	Sources        []string                // host snippet paths merged into Merged
+	Skipped        []config.SkippedSnippet // matching snippets skipped on read or parse
+	Source         ConfigSource            // resolved launcher config-dir pair (with legacy fallback marker)
+	HomeFiles      map[string][]byte       // VM absolute path -> content (from the home: key)
+	Provisioned    map[string][]byte       // VM absolute path -> content (drop-in copy)
+	Mirror         map[string][]byte       // VM absolute path -> content (verbatim <agent> mirror)
+	Modes          map[string]os.FileMode  // VM absolute path -> ordinary file permission bits
+	Remove         []string                // VM absolute paths to delete before writing
+	Hooks          []homeconfig.HookSpec   // startup hooks to run at vm.SetUpSandbox
 	// StateDefaults are keys merged into the agent's own state files.
 	StateDefaults []StateDefault
 	Keys          []string // merged config path first (when snippets exist), then the remaining VM paths sorted
@@ -335,13 +338,15 @@ func LoadConfigFilesForHost(
 	mirror, mirrorModes := mirrorMaps(subject.buildMirror(src))
 	subject.applyPrecedence(provisioned, homeFiles, mirror, modes, mirrorModes, homeModes, merged.hasSnippets)
 	ensureHookExecutable(modes, hooks)
-	// Remove stale host config so it cannot shadow the merged config: when
-	// snippets exist the merged config must be the only config, and when host
-	// config provisioning is disabled no host file may remain.
+	// Remove the main config's siblings so a stale one cannot shadow it. The
+	// main config itself is reconciled, not removed: the launcher owns only the
+	// keys it writes, so the agent's own settings survive. When host config
+	// provisioning is disabled no copied host file may remain.
 	remove := configFileFamilyPaths(merged.path, subject.familyNames)
 	if !provisionHostConfig {
 		remove = append(remove, subject.provisionDestinations(hostHome)...)
 	}
+	remove = withoutPath(remove, merged.path)
 	keys := configKeys(merged.path, merged.hasSnippets, homeFiles, mirror, provisioned)
 	if src.Fallback != "" {
 		legacyUserDirs, legacyProject := SourceDirs(src)
@@ -365,20 +370,21 @@ func LoadConfigFilesForHost(
 		)
 	}
 	return &ConfigFiles{
-		HasSnippets:   merged.hasSnippets,
-		Merged:        merged.content,
-		MergedPath:    merged.path,
-		Sources:       merged.sources,
-		Skipped:       merged.skipped,
-		Source:        src,
-		HomeFiles:     homeFiles,
-		Provisioned:   provisioned,
-		Mirror:        mirror,
-		Modes:         modes,
-		Remove:        remove,
-		Hooks:         hooks,
-		Keys:          keys,
-		StateDefaults: stateDefaultsFor(a.Profile, vmHome),
+		HasSnippets:    merged.hasSnippets,
+		Merged:         merged.content,
+		MergedPath:     merged.path,
+		MergedBasePath: mainConfigBasePath(vmHome, merged.path),
+		Sources:        merged.sources,
+		Skipped:        merged.skipped,
+		Source:         src,
+		HomeFiles:      homeFiles,
+		Provisioned:    provisioned,
+		Mirror:         mirror,
+		Modes:          modes,
+		Remove:         remove,
+		Hooks:          hooks,
+		Keys:           keys,
+		StateDefaults:  stateDefaultsFor(a.Profile, vmHome),
 	}, nil
 }
 
@@ -755,16 +761,31 @@ func ReadVMConfig(ctx context.Context, sb msb.SandboxExecutor, paths []string, u
 	return result
 }
 
+// ComparedPaths returns the VM paths ChangedAgentConfigPaths reads: Keys, and
+// the main config's recorded base when there is one.
+func (cf *ConfigFiles) ComparedPaths() []string {
+	if cf.MergedBasePath == "" {
+		return cf.Keys
+	}
+	return append(slices.Clone(cf.Keys), cf.MergedBasePath)
+}
+
 // ChangedAgentConfigPaths returns the guest paths whose agent config differs
 // from the VM state: the merged config first (compared semantically), then the
 // verbatim mirror files that differ or are missing (byte-for-byte), sorted. Any
 // returned path triggers a daemon restart. Home and drop-in files are
 // intentionally ignored: they are provisioned on every startup and do not
-// require a daemon restart.
+// require a daemon restart. The merged config is compared with the launcher's
+// recorded base (vmData[cf.MergedBasePath]), so the agent's own writes to its
+// main config are not a change; a VM with no recorded base compares the file
+// itself.
 func ChangedAgentConfigPaths(cf *ConfigFiles, vmData map[string][]byte) []string {
 	var changed []string
 	if cf.HasSnippets {
-		vm, ok := vmData[cf.MergedPath]
+		vm, ok := vmData[cf.MergedBasePath]
+		if !ok {
+			vm, ok = vmData[cf.MergedPath]
+		}
 		// gomutants:disable-next-line BRANCH_IF,EXPRESSION_REMOVE reason="DocumentsEqual fails to parse a missing (nil) VM document against any non-empty merged one, so it already reports the difference"
 		if !ok || !config.DocumentsEqual(cf.MergedPath, cf.Merged, vm) {
 			changed = append(changed, cf.MergedPath)
@@ -779,4 +800,9 @@ func ChangedAgentConfigPaths(cf *ConfigFiles, vmData map[string][]byte) []string
 	}
 	sort.Strings(mirrorChanged)
 	return append(changed, mirrorChanged...)
+}
+
+// withoutPath returns paths without path.
+func withoutPath(paths []string, path string) []string {
+	return slices.DeleteFunc(paths, func(candidate string) bool { return candidate == path })
 }

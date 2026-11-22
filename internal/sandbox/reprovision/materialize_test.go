@@ -12,8 +12,9 @@ import (
 func TestMaterializeWritesEveryFileGroup(t *testing.T) {
 	target := t.TempDir()
 	cf := &ConfigFiles{
-		Merged:     []byte("{\n  \"model\": \"x\"\n}\n"),
-		MergedPath: opencodeMergedPath,
+		HasSnippets: true,
+		Merged:      []byte("{\n  \"model\": \"x\"\n}\n"),
+		MergedPath:  opencodeMergedPath,
 		HomeFiles: map[string][]byte{
 			"/home/dev/.gitconfig": []byte("user.name=X\n"),
 		},
@@ -97,8 +98,9 @@ func TestMaterializeCreatesParentDirectories(t *testing.T) {
 func TestMaterializeWritesSingleByteMergedConfig(t *testing.T) {
 	target := t.TempDir()
 	cf := &ConfigFiles{
-		Merged:     []byte("x"),
-		MergedPath: opencodeMergedPath,
+		HasSnippets: true,
+		Merged:      []byte("x"),
+		MergedPath:  opencodeMergedPath,
 	}
 
 	if err := Materialize(cf, VMHomeDir, target); err != nil {
@@ -165,15 +167,16 @@ func TestMaterializeReportsMergedWriteFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	cf := &ConfigFiles{
-		Merged:     []byte("{}\n"),
-		MergedPath: opencodeMergedPath,
+		HasSnippets: true,
+		Merged:      []byte("{}\n"),
+		MergedPath:  opencodeMergedPath,
 	}
 
 	err := Materialize(cf, VMHomeDir, target)
 	if err == nil {
 		t.Fatal("Materialize over a blocked parent = nil error, want the mkdir failure")
 	}
-	if !strings.Contains(err.Error(), "materialize merged agent config") {
+	if !strings.Contains(err.Error(), "materialize the agent's main config") {
 		t.Errorf("Materialize error = %v, want it to name the merged step", err)
 	}
 	if !strings.Contains(err.Error(), "create parent directory") {
@@ -276,9 +279,10 @@ func TestMaterializeRemovesStaleTargetsBeforeWriting(t *testing.T) {
 		t.Fatal(err)
 	}
 	cf := &ConfigFiles{
-		Merged:     []byte("{}\n"),
-		MergedPath: opencodeMergedPath,
-		Remove:     []string{"/home/dev/.config/opencode/opencode.json"},
+		HasSnippets: true,
+		Merged:      []byte("{}\n"),
+		MergedPath:  opencodeMergedPath,
+		Remove:      []string{"/home/dev/.config/opencode/opencode.json"},
 	}
 
 	if err := Materialize(cf, VMHomeDir, target); err != nil {
