@@ -196,3 +196,33 @@ func TestValidateAutoStopTimeout(t *testing.T) {
 		t.Error("validateAutoStopTimeout() with zero should fail")
 	}
 }
+
+// TestValidateReadyTimeouts pins the VM readiness-timeout validation: zero is
+// the sentinel for the built-in default and passes, a positive duration passes,
+// and a negative value — which would make the readiness deadline expire at once
+// — is rejected.
+func TestValidateReadyTimeouts(t *testing.T) {
+	for _, key := range []string{keyDockerReadyTimeout, keyDaemonReadyTimeout} {
+		t.Run(key, func(t *testing.T) {
+			v := viper.New()
+			if err := validateReadyTimeouts(v); err != nil {
+				t.Fatalf("validateReadyTimeouts() with unset key should pass, got %v", err)
+			}
+
+			v.Set(key, 0)
+			if err := validateReadyTimeouts(v); err != nil {
+				t.Fatalf("validateReadyTimeouts() with zero (built-in default) should pass, got %v", err)
+			}
+
+			v.Set(key, 90*time.Second)
+			if err := validateReadyTimeouts(v); err != nil {
+				t.Fatalf("validateReadyTimeouts() with a positive duration should pass, got %v", err)
+			}
+
+			v.Set(key, -1*time.Second)
+			if err := validateReadyTimeouts(v); err == nil {
+				t.Error("validateReadyTimeouts() with a negative duration should fail")
+			}
+		})
+	}
+}

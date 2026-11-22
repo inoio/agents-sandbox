@@ -71,7 +71,7 @@ func TestEnsureDaemonContextCancelled(t *testing.T) {
 	t.Cleanup(func() { daemonPollInterval = origPoll })
 	daemonPollInterval = time.Millisecond
 
-	err := ensureDaemon(ctx, opencodeResolved(t), false, false, &msbtest.MockSandbox{}, &termiotest.Mock{}, seams)
+	err := ensureDaemon(ctx, opencodeResolved(t), false, false, &msbtest.MockSandbox{}, &termiotest.Mock{}, seams, 0)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}
@@ -82,7 +82,7 @@ func TestEnsureDaemonNoDaemonProvider(t *testing.T) {
 	calls := &[]msbtest.MockDetachedCall{}
 	sb := &msbtest.MockSandbox{ExecDetachedCalls: calls}
 	if err := ensureDaemon(
-		context.Background(), agent.Resolve(&fakeAgent{}), false, false, sb, ui, options.Seams{},
+		context.Background(), agent.Resolve(&fakeAgent{}), false, false, sb, ui, options.Seams{}, 0,
 	); err != nil {
 		t.Fatalf("expected nil for an agent without a DaemonProvider, got %v", err)
 	}
@@ -99,7 +99,7 @@ func TestEnsureDaemonStartsWhenUnhealthy(t *testing.T) {
 	calls := &[]msbtest.MockDetachedCall{}
 	sb := &msbtest.MockSandbox{ExecDetachedCalls: calls}
 
-	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams); err != nil {
+	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams, 0); err != nil {
 		t.Fatalf("EnsureDaemon failed: %v", err)
 	}
 	assertDetachedHelperLaunch(t, *calls, "agent-daemon", "opencode")
@@ -129,7 +129,7 @@ func TestEnsureDaemonStartsServeOnlyOnExternalInterface(t *testing.T) {
 	calls := &[]msbtest.MockDetachedCall{}
 	sb := &msbtest.MockSandbox{ExecDetachedCalls: calls}
 
-	if err := ensureDaemon(context.Background(), opencodeResolved(t), true, false, sb, &testUI, seams); err != nil {
+	if err := ensureDaemon(context.Background(), opencodeResolved(t), true, false, sb, &testUI, seams, 0); err != nil {
 		t.Fatalf("EnsureDaemon failed: %v", err)
 	}
 	if len(*calls) != 1 {
@@ -161,7 +161,7 @@ func TestEnsureDaemonProbesBeforeWaiting(t *testing.T) {
 
 	sb := &msbtest.MockSandbox{}
 	start := time.Now()
-	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams); err != nil {
+	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams, 0); err != nil {
 		t.Fatalf("ensureDaemon: %v", err)
 	}
 	if elapsed := time.Since(start); elapsed >= 500*time.Millisecond {
@@ -180,7 +180,7 @@ func TestEnsureDaemonSkipsHealthyDaemon(t *testing.T) {
 	calls := &[]msbtest.MockDetachedCall{}
 	sb := &msbtest.MockSandbox{ExecDetachedCalls: calls}
 
-	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams); err != nil {
+	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams, 0); err != nil {
 		t.Fatalf("ensureDaemon: %v", err)
 	}
 	if len(*calls) != 0 {
@@ -201,7 +201,7 @@ func TestEnsureDaemonLogsUnhealthyProbeDetail(t *testing.T) {
 	calls := &[]msbtest.MockDetachedCall{}
 	sb := &msbtest.MockSandbox{ExecDetachedCalls: calls}
 
-	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams); err != nil {
+	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams, 0); err != nil {
 		t.Fatalf("ensureDaemon: %v", err)
 	}
 	want := "opencode daemon not healthy: health probe exit 1: (no output)"
@@ -219,7 +219,7 @@ func TestEnsureDaemonForceRestartsHealthy(t *testing.T) {
 	calls := &[]msbtest.MockDetachedCall{}
 	sb := &msbtest.MockSandbox{ExecDetachedCalls: calls}
 
-	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, true, sb, &testUI, seams); err != nil {
+	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, true, sb, &testUI, seams, 0); err != nil {
 		t.Fatalf("EnsureDaemon failed: %v", err)
 	}
 	if len(*calls) != 1 {
@@ -242,7 +242,7 @@ func TestEnsureDaemonKillsStaleJobByChangedArgs(t *testing.T) {
 		GetJobFn: func(context.Context, string) (msb.Job, error) { return stale, nil },
 	}
 
-	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams); err != nil {
+	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams, 0); err != nil {
 		t.Fatalf("EnsureDaemon failed: %v", err)
 	}
 	if !stale.DidKill {
@@ -256,7 +256,7 @@ func TestEnsureDaemonReportsCloseFailure(t *testing.T) {
 	seams := healthQueue(unhealthy(), healthy())
 
 	sb := &msbtest.MockSandbox{Job_: &msbtest.MockJob{CloseErr: errors.New("close boom")}}
-	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams); err != nil {
+	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams, 0); err != nil {
 		t.Fatalf("ensureDaemon failed: %v", err)
 	}
 	if !strings.Contains(strings.Join(testUI.VerboseCalls, "\n"), "closing opencode job handle") {
@@ -277,7 +277,7 @@ func TestEnsureDaemonCrashSurfacesExitAndLogs(t *testing.T) {
 		},
 	}
 
-	err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams)
+	err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams, 0)
 	if err == nil || !strings.Contains(err.Error(), "exit 2") || !strings.Contains(err.Error(), "serve exploded") {
 		t.Fatalf("ensureDaemon() = %v, want exit-code and log tail", err)
 	}
@@ -297,7 +297,7 @@ func TestEnsureDaemonExecError(t *testing.T) {
 		},
 	}
 
-	err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams)
+	err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams, 0)
 	if err == nil || !strings.Contains(err.Error(), "start opencode serve") {
 		t.Fatalf("ensureDaemon() = %v, want start failure", err)
 	}
@@ -322,7 +322,16 @@ func TestEnsureDaemonFailsAfterTimeout(t *testing.T) {
 		return "", 1, nil
 	}}
 
-	err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, &msbtest.MockSandbox{}, &testUI, seams)
+	err := ensureDaemon(
+		context.Background(),
+		opencodeResolved(t),
+		false,
+		false,
+		&msbtest.MockSandbox{},
+		&testUI,
+		seams,
+		0,
+	)
 	if err == nil {
 		t.Fatal("expected error after timeout")
 	}
@@ -349,7 +358,16 @@ func TestEnsureDaemonPollingReportsProbeDetail(t *testing.T) {
 	daemonReadyTimeout = 5 * time.Millisecond
 	daemonPollInterval = time.Millisecond
 
-	err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, &msbtest.MockSandbox{}, &testUI, seams)
+	err := ensureDaemon(
+		context.Background(),
+		opencodeResolved(t),
+		false,
+		false,
+		&msbtest.MockSandbox{},
+		&testUI,
+		seams,
+		0,
+	)
 	if err == nil {
 		t.Fatal("expected timeout error")
 	}
@@ -391,7 +409,7 @@ func TestEnsureDaemonTimeoutIncludesJobLogs(t *testing.T) {
 		},
 	}
 
-	err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams)
+	err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams, 0)
 	if err == nil {
 		t.Fatal("expected timeout error")
 	}

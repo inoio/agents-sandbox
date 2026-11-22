@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"golang.org/x/term"
 
@@ -298,7 +299,7 @@ func SetUpSandbox(
 
 	if restart {
 		if provisioned {
-			restartDaemons(ctx, a, sb, opts.ServeOnly, ui, seams)
+			restartDaemons(ctx, a, sb, opts.ServeOnly, ui, seams, opts.DaemonReadyTimeout)
 		}
 		return ResolveTarget(ctx, a, sb, opts.Worktree, guestCWD, ui)
 	}
@@ -313,11 +314,20 @@ func SetUpSandbox(
 		}
 	}
 
-	if dockerErr := startDockerdIfPresent(ctx, sb, ui); dockerErr != nil {
+	if dockerErr := startDockerdIfPresent(ctx, sb, ui, opts.DockerReadyTimeout); dockerErr != nil {
 		return "", fmt.Errorf("docker startup: %w", dockerErr)
 	}
 
-	if daemonErr := ensureDaemon(ctx, a, opts.ServeOnly, false, sb, ui, seams); daemonErr != nil {
+	if daemonErr := ensureDaemon(
+		ctx,
+		a,
+		opts.ServeOnly,
+		false,
+		sb,
+		ui,
+		seams,
+		opts.DaemonReadyTimeout,
+	); daemonErr != nil {
 		return "", daemonErr
 	}
 
@@ -329,10 +339,11 @@ func SetUpSandbox(
 // here: they require a VM rebuild and are handled by the recreate path instead.
 func restartDaemons(
 	ctx context.Context, a agent.Resolved, sb msb.Sandbox, serveOnly bool, ui termio.Logger, seams options.Seams,
+	readyTimeout time.Duration,
 ) {
 	ui.Infof("%s serve restarting…", a.Profile.Name())
 	// ensureDaemon no-ops for an agent without a DaemonProvider.
-	if err := ensureDaemon(ctx, a, serveOnly, true, sb, ui, seams); err != nil {
+	if err := ensureDaemon(ctx, a, serveOnly, true, sb, ui, seams, readyTimeout); err != nil {
 		ui.Warnf("daemon restart failed: %v (using existing)", err)
 	}
 }

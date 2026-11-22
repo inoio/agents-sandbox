@@ -220,7 +220,7 @@ func TestStartDockerdTreatsAMissingProbeResultAsNotReady(t *testing.T) {
 	ui := termiotest.NewTestMock(t)
 	sb := &nilResultDockerd{Sandbox: msbtest.NewMockSandbox(msbtest.SandboxOpts{})}
 
-	err := startDockerdIfPresent(context.Background(), sb, &ui)
+	err := startDockerdIfPresent(context.Background(), sb, &ui, 0)
 	if err == nil || !strings.Contains(err.Error(), "did not become ready") {
 		t.Fatalf("error = %v, want dockerd reported as not ready", err)
 	}
@@ -230,7 +230,7 @@ func TestStartDockerdUsesConfigDrivenArgsWhenDaemonJSONSetsVFS(t *testing.T) {
 	ui := termiotest.NewTestMock(t)
 	sb, detached := newDockerdStartSandbox(`{"storage-driver":"vfs"}`)
 
-	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
+	if err := startDockerdIfPresent(context.Background(), sb, &ui, 0); err != nil {
 		t.Fatalf("startDockerdIfPresent: %v", err)
 	}
 	if len(*detached) != 1 {
@@ -247,7 +247,7 @@ func TestStartDockerdFailsOnOtherStorageDriver(t *testing.T) {
 	ui := termiotest.NewTestMock(t)
 	sb, detached := newDockerdStartSandbox(`{"storage-driver":"overlay2"}`)
 
-	err := startDockerdIfPresent(context.Background(), sb, &ui)
+	err := startDockerdIfPresent(context.Background(), sb, &ui, 0)
 	if err == nil {
 		t.Fatal("expected startDockerdIfPresent to fail for a non-vfs driver")
 	}
@@ -273,7 +273,7 @@ func TestStartDockerdStopsWhenCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if err := startDockerdIfPresent(ctx, sb, &ui); !errors.Is(err, context.Canceled) {
+	if err := startDockerdIfPresent(ctx, sb, &ui, 0); !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want the cancellation", err)
 	}
 }
@@ -286,7 +286,7 @@ func TestStartDockerdIfPresentBinaryCheckErrorWrapsCause(t *testing.T) {
 	sentinel := errors.New("shell boom")
 	sb := msbtest.NewMockSandbox(msbtest.SandboxOpts{ShellErr: sentinel})
 
-	err := startDockerdIfPresent(context.Background(), sb, &ui)
+	err := startDockerdIfPresent(context.Background(), sb, &ui, 0)
 	if err == nil {
 		t.Fatal("expected a binary-check Shell failure to abort")
 	}
@@ -303,7 +303,7 @@ func TestStartDockerdIfPresentNoDockerdBinary(t *testing.T) {
 		},
 	})
 
-	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
+	if err := startDockerdIfPresent(context.Background(), sb, &ui, 0); err != nil {
 		t.Fatalf("expected no-op when dockerd absent, got: %v", err)
 	}
 	if !slices.Contains(ui.VerboseCalls, "/usr/bin/dockerd not present, skipping Docker startup") {
@@ -315,7 +315,7 @@ func TestStartDockerdIfPresentAlreadyRunning(t *testing.T) {
 	ui := termiotest.NewTestMock(t)
 	sb := newCountingSandbox(0)
 
-	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
+	if err := startDockerdIfPresent(context.Background(), sb, &ui, 0); err != nil {
 		t.Fatalf("startDockerdIfPresent (already running): %v", err)
 	}
 	if sb.execCalls != 0 {
@@ -330,7 +330,7 @@ func TestStartDockerdIfPresentStartsAndBecomesReady(t *testing.T) {
 	ui := termiotest.NewTestMock(t)
 	sb := newCountingSandbox(1)
 
-	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
+	if err := startDockerdIfPresent(context.Background(), sb, &ui, 0); err != nil {
 		t.Fatalf("startDockerdIfPresent should detach and become ready, got: %v", err)
 	}
 	if sb.execCalls != 1 {
@@ -354,7 +354,7 @@ func TestStartDockerdIfPresentExecError(t *testing.T) {
 	wantErr := errors.New("connection lost")
 	sb.execErr = wantErr
 
-	err := startDockerdIfPresent(context.Background(), sb, &ui)
+	err := startDockerdIfPresent(context.Background(), sb, &ui, 0)
 	if err == nil {
 		t.Fatal("expected error when ExecDetached fails")
 	}
@@ -380,7 +380,7 @@ func TestStartDockerdIfPresentNeverReady(t *testing.T) {
 	dockerdReadyTimeout = 100 * time.Millisecond
 	dockerdPollInterval = time.Millisecond
 
-	err := startDockerdIfPresent(context.Background(), sb, &ui)
+	err := startDockerdIfPresent(context.Background(), sb, &ui, 0)
 	if err == nil || !strings.Contains(err.Error(), "did not become ready") {
 		t.Fatalf("error = %v, want dockerd reported as not ready", err)
 	}
@@ -405,7 +405,7 @@ func TestStartDockerdIfPresentProbesBeforeWaiting(t *testing.T) {
 	dockerdPollInterval = time.Second
 
 	start := time.Now()
-	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
+	if err := startDockerdIfPresent(context.Background(), sb, &ui, 0); err != nil {
 		t.Fatalf("startDockerdIfPresent: %v", err)
 	}
 	if elapsed := time.Since(start); elapsed >= 500*time.Millisecond {
@@ -428,7 +428,7 @@ func TestStartDockerdIfPresentKillsStaleJobWithChangedArgs(t *testing.T) {
 	sb.GetJobFn = func(context.Context, string) (msb.Job, error) { return stale, nil }
 	sb.Job_ = running
 
-	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
+	if err := startDockerdIfPresent(context.Background(), sb, &ui, 0); err != nil {
 		t.Fatalf("startDockerdIfPresent: %v", err)
 	}
 	if !stale.DidKill {
@@ -445,7 +445,7 @@ func TestStartDockerdIfPresentLaunchesMarkedJob(t *testing.T) {
 	calls := &[]msbtest.MockDetachedCall{}
 	sb.ExecDetachedCalls = calls
 
-	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
+	if err := startDockerdIfPresent(context.Background(), sb, &ui, 0); err != nil {
 		t.Fatalf("startDockerdIfPresent: %v", err)
 	}
 	assertDetachedHelperLaunch(t, *calls, "dockerd", "dockerd-rootless.sh")
@@ -474,7 +474,7 @@ func TestStartDockerdPreparesTheRootlessRuntimeAsRoot(t *testing.T) {
 	t.Cleanup(func() { dockerdReadyTimeout, dockerdPollInterval = origTimeout, origInterval })
 	dockerdReadyTimeout, dockerdPollInterval = time.Millisecond, time.Millisecond
 
-	_ = startDockerdIfPresent(context.Background(), sb, &ui)
+	_ = startDockerdIfPresent(context.Background(), sb, &ui, 0)
 
 	prepareAt := slices.Index(sb.commands, dockerdRootlessPrepareCmd)
 	probeAt := slices.Index(sb.commands, fuseOverlayfsProbeCmd)
@@ -523,7 +523,7 @@ func TestStartDockerdFailsWhenThePrepareStepFails(t *testing.T) {
 		},
 	}
 
-	err := startDockerdIfPresent(context.Background(), sb, &ui)
+	err := startDockerdIfPresent(context.Background(), sb, &ui, 0)
 	if err == nil || !strings.Contains(err.Error(), "/dev/net/tun") {
 		t.Fatalf("error = %v, want the prepare failure with its output", err)
 	}
@@ -553,7 +553,7 @@ func TestStartDockerdWrapsARootlessSetupTransportError(t *testing.T) {
 				err:     sentinel,
 			}
 
-			err := startDockerdIfPresent(context.Background(), sb, &ui)
+			err := startDockerdIfPresent(context.Background(), sb, &ui, 0)
 			if !errors.Is(err, sentinel) {
 				t.Fatalf("error = %v, want it to wrap the transport cause", err)
 			}
@@ -578,7 +578,7 @@ func TestStartDockerdRequiresTheRootlessEntrypoint(t *testing.T) {
 		},
 	}
 
-	err := startDockerdIfPresent(context.Background(), sb, &ui)
+	err := startDockerdIfPresent(context.Background(), sb, &ui, 0)
 	if err == nil || !strings.Contains(err.Error(), "dockerd-rootless.sh") ||
 		!strings.Contains(err.Error(), "--rebuild") {
 		t.Fatalf("error = %v, want the missing entrypoint named with a --rebuild hint", err)
@@ -593,7 +593,7 @@ func TestStartDockerdIfPresentContinuesAfterCleanupError(t *testing.T) {
 	sb := newCountingSandbox(1)
 	sb.cleanupErr = errors.New("residue boom")
 
-	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
+	if err := startDockerdIfPresent(context.Background(), sb, &ui, 0); err != nil {
 		t.Fatalf("residue cleanup failure must be non-fatal, got: %v", err)
 	}
 	if !strings.Contains(strings.Join(ui.VerboseCalls, "\n"), "residue cleanup failed") {
@@ -606,7 +606,7 @@ func TestStartDockerdIfPresentReportsCloseFailure(t *testing.T) {
 	sb := newCountingSandbox(1)
 	sb.Job_ = &msbtest.MockJob{CloseErr: errors.New("close boom")}
 
-	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
+	if err := startDockerdIfPresent(context.Background(), sb, &ui, 0); err != nil {
 		t.Fatalf("startDockerdIfPresent: %v", err)
 	}
 	if !strings.Contains(strings.Join(ui.VerboseCalls, "\n"), "closing dockerd job handle") {
@@ -630,7 +630,7 @@ func TestTimeoutErrorIncludesJobLog(t *testing.T) {
 	}
 	ui := termiotest.NewTestMock(t)
 
-	err := startDockerdIfPresent(context.Background(), sb, &ui)
+	err := startDockerdIfPresent(context.Background(), sb, &ui, 0)
 	if err == nil {
 		t.Fatal("expected error when dockerd never becomes ready")
 	}

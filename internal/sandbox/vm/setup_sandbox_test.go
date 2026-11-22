@@ -447,7 +447,7 @@ func TestRestartDaemonsRestartsPastAFailedKill(t *testing.T) {
 		ExecDetachedCalls: &[]msbtest.MockDetachedCall{},
 	}
 
-	restartDaemons(context.Background(), opencodeResolved(t), sb, false, &ui, seams)
+	restartDaemons(context.Background(), opencodeResolved(t), sb, false, &ui, seams, 0)
 
 	if !strings.Contains(strings.Join(ui.VerboseCalls, "\n"), "killing job") {
 		t.Errorf("expected a kill-failure verbose message, got %v", ui.VerboseCalls)
@@ -461,7 +461,7 @@ func TestRestartDaemonsWithoutADaemonDoesNothing(t *testing.T) {
 	ui := termiotest.NewTestMock(t)
 	sb := &msbtest.MockSandbox{Name_: "vm", ShellCalls: &[]string{}, ExecDetachedCalls: &[]msbtest.MockDetachedCall{}}
 
-	restartDaemons(context.Background(), agent.Resolve(&fakeAgent{}), sb, false, &ui, options.Seams{})
+	restartDaemons(context.Background(), agent.Resolve(&fakeAgent{}), sb, false, &ui, options.Seams{}, 0)
 
 	if len(*sb.ShellCalls) != 0 || len(*sb.ExecDetachedCalls) != 0 {
 		t.Errorf("shell calls %v, launches %+v; want none without a daemon", *sb.ShellCalls, *sb.ExecDetachedCalls)
@@ -486,7 +486,7 @@ func TestRestartDaemonsWarnsWhenTheDaemonCannotStart(t *testing.T) {
 		},
 	}
 
-	restartDaemons(context.Background(), opencodeResolved(t), sb, false, &ui, seams)
+	restartDaemons(context.Background(), opencodeResolved(t), sb, false, &ui, seams, 0)
 
 	if !strings.Contains(strings.Join(ui.WarnCalls, "\n"), "daemon restart failed: ") {
 		t.Errorf("expected a daemon-restart-failure warning, got %v", ui.WarnCalls)
@@ -510,6 +510,7 @@ func TestRestartDaemonsRestartsServe(t *testing.T) {
 		false,
 		&ui,
 		seams,
+		0,
 	)
 
 	if len(*calls) != 1 {
