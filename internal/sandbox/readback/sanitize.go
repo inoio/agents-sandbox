@@ -364,7 +364,7 @@ var leafSecretKeyMarkers = []string{"AUTH", "COOKIE", "SESSION"}
 func namesAStoredSecret(key string) bool {
 	return slices.ContainsFunc(keySegments(key), func(segment string) bool {
 		singular := strings.TrimSuffix(segment, "S")
-		return segment != tokenCountMarker && singular != tokenCountMarker &&
+		return singular != tokenCountMarker &&
 			(slices.Contains(secretShapedKeyMarkers, segment) || slices.Contains(secretShapedKeyMarkers, singular))
 	})
 }
@@ -372,8 +372,8 @@ func namesAStoredSecret(key string) bool {
 // leafSecretKeyLeaksValue reports whether a key with a leaf-only marker holds a
 // raw string directly.
 func leafSecretKeyLeaksValue(key string, value any) bool {
-	text, isString := value.(string)
-	if !isString || !slices.ContainsFunc(keySegments(key), func(segment string) bool {
+	text, _ := value.(string)
+	if !slices.ContainsFunc(keySegments(key), func(segment string) bool {
 		return slices.Contains(leafSecretKeyMarkers, segment)
 	}) {
 		return false
@@ -509,9 +509,7 @@ func holdsRawSecretString(node any, allowNumbers bool) bool {
 		}
 	case string:
 		return isUndeclaredSecretValue(typed, allowNumbers)
-	case bool, nil:
-		return false
-	default:
+	case int, int64, uint64, float64:
 		// A number decoded as a number: a token count under TOKEN, otherwise a
 		// stored secret such as a numeric password or PIN.
 		return !allowNumbers

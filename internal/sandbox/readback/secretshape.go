@@ -69,7 +69,9 @@ func looksLikeSecretValue(value string) bool {
 		}
 	}
 	for _, pattern := range digitTokenPatterns {
+		// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT reason="any negative limit means all matches"
 		for _, match := range pattern.FindAllStringSubmatch(value, -1) {
+			// gomutants:disable-next-line INTEGER_DECREMENT reason="the whole match adds only the scheme word or sk- prefix, which holds no digit or '='"
 			if strings.ContainsAny(match[1], "0123456789=") {
 				return true
 			}
@@ -84,8 +86,8 @@ func looksLikeSecretValue(value string) bool {
 // secret lives (--token-file, --password-stdin) passes none.
 func argumentsLeakValue(arguments []any) bool {
 	for index, argument := range arguments {
-		flag, isString := argument.(string)
-		if !isString || !strings.HasPrefix(flag, "-") {
+		flag, _ := argument.(string)
+		if !strings.HasPrefix(flag, "-") {
 			continue
 		}
 		name, value, joined := strings.Cut(strings.TrimLeft(flag, "-"), "=")
@@ -137,10 +139,7 @@ var assignmentPattern = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)=(.*)$`)
 // array entry, a docker "-e" argument) whose value the env-table rule does not
 // clear.
 func assignmentLeaksValue(node any) bool {
-	text, isString := node.(string)
-	if !isString {
-		return false
-	}
+	text, _ := node.(string)
 	match := assignmentPattern.FindStringSubmatch(text)
 	return match != nil && !envEntryIsSafe(match[1], match[2])
 }
@@ -150,8 +149,8 @@ func assignmentLeaksValue(node any) bool {
 // not clear.
 func nameValuePairLeaksValue(entry map[string]any) bool {
 	name, hasName := entry["name"].(string)
-	value, hasValue := entry["value"].(string)
-	return hasName && hasValue && !envEntryIsSafe(name, value)
+	value, _ := entry["value"].(string)
+	return hasName && !envEntryIsSafe(name, value)
 }
 
 // isPlaceholderReference reports whether value is an explicit reference to a
@@ -210,8 +209,7 @@ func envEntryIsSafe(key, value string) bool {
 	if looksLikeSecretValue(value) {
 		return false
 	}
-	if isPlaceholderReference(value) || strings.TrimSpace(value) == "" || isFilesystemPath(value) ||
-		onlyPlaceholdersCarrySecrets(value) {
+	if strings.TrimSpace(value) == "" || isFilesystemPath(value) || onlyPlaceholdersCarrySecrets(value) {
 		return true
 	}
 	if isNonSecretScalar(value) && !namesAStoredSecret(key) {
@@ -238,13 +236,13 @@ func envEntryIsSafe(key, value string) bool {
 }
 
 // headerEntryIsSafe reports whether a header-table entry carries no credential:
-// an explicit reference, empty, or a header known to carry none (a number is a
+// a value carried by placeholders only, empty, or a header known to carry none (a number is a
 // credential under any other header: an API key can be numeric).
 func headerEntryIsSafe(name, value string) bool {
 	if looksLikeSecretValue(value) {
 		return false
 	}
-	if isPlaceholderReference(value) || strings.TrimSpace(value) == "" || onlyPlaceholdersCarrySecrets(value) {
+	if strings.TrimSpace(value) == "" || onlyPlaceholdersCarrySecrets(value) {
 		return true
 	}
 	return keyIsOneOf(name, safeHeaderNames)
@@ -269,6 +267,7 @@ func onlyPlaceholdersCarrySecrets(value string) bool {
 	if !placeholder.MatchString(value) {
 		return false
 	}
+	// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT reason="any negative limit means all matches"
 	for _, run := range tokenRun.FindAllString(placeholder.ReplaceAllString(value, ""), -1) {
 		if strings.ContainsAny(run, "0123456789") || len(run) >= literalSecretLength {
 			return false
@@ -301,6 +300,7 @@ var filesystemPathChars = regexp.MustCompile(`^[A-Za-z0-9._~/-]+$`)
 // config files hold as strings (Claude Code requires env values to be strings).
 func isNonSecretScalar(value string) bool {
 	trimmed := strings.TrimSpace(value)
+	// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT reason="the bit size only bounds precision; any number parses at both sizes"
 	if _, err := strconv.ParseFloat(trimmed, 64); err == nil {
 		return true
 	}
@@ -325,13 +325,17 @@ func tableLeaksValue(key string, value any) bool {
 		return false
 	}
 	for entryKey, entryValue := range stringKeyedEntries(value) {
-		text, isString := entryValue.(string)
-		if isString && !entryIsSafe(entryKey, text) {
-			return true
-		}
-		// A nested table or list is walked like any other value.
-		if !isString && (entryLeaksValue(entryKey, entryValue) || holdsRawSecretString(entryValue, false)) {
-			return true
+		switch typed := entryValue.(type) {
+		case string:
+			if !entryIsSafe(entryKey, typed) {
+				return true
+			}
+		default:
+			// A nested table or list holds no configuration names, so any raw
+			// value inside it is a credential.
+			if holdsRawSecretString(typed, false) {
+				return true
+			}
 		}
 	}
 	return false

@@ -146,3 +146,102 @@ func TestNameValuePairIsJudgedByTheEnvRule(t *testing.T) {
 		t.Error("a {name, value} env entry holding configuration was refused")
 	}
 }
+
+func TestArgumentsLeakValue(t *testing.T) {
+	cases := map[string]struct {
+		arguments []any
+		want      bool
+	}{
+		"flag then literal":          {[]any{"--access-token", "abcdef"}, true},
+		"joined flag":                {[]any{"--client-secret=abcdef"}, true},
+		"auth flag (leaf marker)":    {[]any{"--auth", "abcdef"}, true},
+		"non-flag before the flag":   {[]any{"run", "--token", "abcdef"}, true},
+		"other flag before the flag": {[]any{"--verbose", "--token", "abcdef"}, true},
+		"secret flag last":           {[]any{"run", "--token"}, false},
+		"location flag":              {[]any{"--token-file", "/run/secrets/t"}, false},
+		"flag then another flag":     {[]any{"--token", "--verbose"}, false},
+		"flag then placeholder":      {[]any{"--token", "${TOKEN}"}, false},
+		"non-string before the flag": {[]any{1, "--token", "abcdef"}, true},
+	}
+	for name, tc := range cases {
+		if got := argumentsLeakValue(tc.arguments); got != tc.want {
+			t.Errorf("%s: argumentsLeakValue(%v) = %v, want %v", name, tc.arguments, got, tc.want)
+		}
+	}
+}
+
+func TestLiteralCredential(t *testing.T) {
+	for value, want := range map[string]bool{"": false, "  ": false, "-x": false, "${X}": false, "{env:X}": false, "{file:/x}": false, "abc": true} {
+		if got := literalCredential(value); got != want {
+			t.Errorf("literalCredential(%q) = %v, want %v", value, got, want)
+		}
+	}
+}
+
+func TestIsPlaceholderReference(t *testing.T) {
+	for value, want := range map[string]bool{"${X}": true, "{env:X}": true, "\t${X}": true, "{file:/x}": true, "X": false, "$X": false, "{other:X}": false} {
+		if got := isPlaceholderReference(value); got != want {
+			t.Errorf("isPlaceholderReference(%q) = %v, want %v", value, got, want)
+		}
+	}
+}
+
+func TestAssignmentAndNameValueLeaks(t *testing.T) {
+	if !assignmentLeaksValue("API_KEY=abcdef") || assignmentLeaksValue("AWS_REGION=eu-central-1") ||
+		!assignmentLeaksValue("LOG_LEVEL=sk-ant-api03-abc123def456") || assignmentLeaksValue(3) ||
+		assignmentLeaksValue("not an assignment") {
+		t.Error("assignmentLeaksValue misjudged an assignment")
+	}
+	if !nameValuePairLeaksValue(map[string]any{"name": "API_KEY", "value": "abcdef"}) ||
+		nameValuePairLeaksValue(map[string]any{"value": "abcdef"}) ||
+		nameValuePairLeaksValue(map[string]any{"name": "API_KEY"}) {
+		t.Error("nameValuePairLeaksValue misjudged a pair")
+	}
+}
+
+func TestEnvEntryIsSafeEdgeCases(t *testing.T) {
+	cases := map[string]struct {
+		key, value string
+		want       bool
+	}{
+		"empty under a secret key":        {"API_KEY", "", true},
+		"secret key with a safe suffix":   {"AUTH_TOKEN_MODE", "strict", false},
+		"placeholder under a secret key":  {"API_KEY", "${API_KEY}", true},
+		"16-character literal beside one": {"X_HEADERS", "a=${X},b=abcdefghijklmnop", false},
+		"15-character literal beside one": {"X_HEADERS", "a=${X},b=abcdefghijklmno", true},
+	}
+	for name, tc := range cases {
+		if got := envEntryIsSafe(tc.key, tc.value); got != tc.want {
+			t.Errorf("%s: envEntryIsSafe(%q, %q) = %v, want %v", name, tc.key, tc.value, got, tc.want)
+		}
+	}
+	if !headerEntryIsSafe("X-Auth", "") {
+		t.Error("an empty header value was refused")
+	}
+}
+
+func TestIsFilesystemPath(t *testing.T) {
+	for value, want := range map[string]bool{
+		"/home/dev/x": true, "~/a/b": true, "~/a": false, "/a": false, "./a/b": false, "a/b/c": false,
+		"/x8Kd/93jf+zz==": false, "/home/dev/my file": false,
+	} {
+		if got := isFilesystemPath(value); got != want {
+			t.Errorf("isFilesystemPath(%q) = %v, want %v", value, got, want)
+		}
+	}
+}
+
+func TestLooksLikeSecretValueChecksEveryMatch(t *testing.T) {
+	if !looksLikeSecretValue("bearer authentication, then Bearer abc123def456") {
+		t.Error("a digit-bearing token after a prose match was missed")
+	}
+}
+
+func TestTableLeaksValueWalksNestedEntries(t *testing.T) {
+	if !tableLeaksValue("env", map[string]any{"cfg": map[string]any{"note": "opaque"}}) {
+		t.Error("a raw value in a table nested under env was accepted")
+	}
+	if tableLeaksValue("env", map[string]any{"cfg": map[string]any{"note": "${X}"}}) {
+		t.Error("a reference in a table nested under env was refused")
+	}
+}

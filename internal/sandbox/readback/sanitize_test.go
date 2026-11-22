@@ -880,3 +880,53 @@ func TestSanitizeConfigSecondReviewCases(t *testing.T) {
 		})
 	}
 }
+
+func TestNamesAStoredSecret(t *testing.T) {
+	for key, want := range map[string]bool{
+		"tokens": false, "MAX_TOKENS": false, "token": false, "pass": true, "passwords": true, "dbPass": true,
+		"pin": true, "apiKey": true, "model": false,
+	} {
+		if got := namesAStoredSecret(key); got != want {
+			t.Errorf("namesAStoredSecret(%q) = %v, want %v", key, got, want)
+		}
+	}
+}
+
+// TestSanitizeConfigGuardRuleBoundaries pins rules the raw-text scan cannot
+// decide: a JSON-escaped token only the decoded walk sees, YAML documents, a
+// boolean under a password flag, a quoted number under a token count, and
+// references under leaf markers.
+// jsonEscapedDigits is "123" written as JSON \u escapes, built from the
+// backslash byte so no editor or formatter can unescape it.
+var jsonEscapedDigits = string(rune(92)) + "u0031" + string(rune(92)) + "u0032" + string(rune(92)) + "u0033"
+
+func TestSanitizeConfigGuardRuleBoundaries(t *testing.T) {
+	refused := map[string]struct{ path, content string }{
+		"escaped token":   {"settings.json", `{"x":"Bearer abc` + jsonEscapedDigits + `def456"}`},
+		"second document": {"config.yaml", "model: x\n---\nnote: y\n"},
+		"auth literal":    {"settings.json", `{"auth":"opaque"}`},
+	}
+	for name, tc := range refused {
+		if _, ok := SanitizeConfig(
+			[]byte(tc.content),
+			SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+		); ok {
+			t.Errorf("%s: SanitizeConfig accepted %s", name, tc.content)
+		}
+	}
+	accepted := map[string]struct{ path, content string }{
+		"single yaml document":   {"config.yaml", "model: x\nnote: y\n"},
+		"toml string with ---":   {"config.toml", "prompt = \"\"\"\nintro\n---\nmore\n\"\"\"\n"},
+		"boolean under password": {"settings.json", `{"passwordRequired":true,"pin":null}`},
+		"quoted token count":     {"settings.json", `{"MAX_TOKENS":"8192"}`},
+		"auth reference":         {"settings.json", `{"auth":"${AUTH}","session":""}`},
+	}
+	for name, tc := range accepted {
+		if _, ok := SanitizeConfig(
+			[]byte(tc.content),
+			SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+		); !ok {
+			t.Errorf("%s: SanitizeConfig refused %s", name, tc.content)
+		}
+	}
+}
