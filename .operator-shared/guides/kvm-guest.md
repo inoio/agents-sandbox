@@ -162,8 +162,9 @@ command in the guest unable to resolve the project identity.
 
 Work returns to the host with `make kvm-sync-back`. By default it fetches every guest branch into the
 `refs/remotes/kvm-guest/*` namespace, so each is reachable as `kvm-guest/<name>` without touching a local branch; `BRANCH=<name>`
-instead fetches one branch into the local branch of the same name (fast-forward only — add `FORCE=1` for a branch checked
-out here). The guest never pushes.
+instead fetches one branch into the local branch of the same name (fast-forward only). A branch checked out here refuses
+the fetch — updating the ref without the working tree would make the next commit silently revert it — so update such a
+branch by merging the namespace ref (`git merge kvm-guest/<name>`). The guest never pushes.
 
 `guides/kvm-agent-testing.md` is the manual host-accept procedure for this workflow (T1–T6), since it needs a real
 hypervisor and cannot run in the development VM.

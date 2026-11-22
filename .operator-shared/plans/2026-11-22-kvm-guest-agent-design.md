@@ -154,9 +154,10 @@ channel rather than a general mechanism.
 - `make kvm-sync-back` (`scripts/kvm-guest.sh sync-back`) runs on the host and fetches the guest's git back:
   `git -C <checkout> fetch <VM_USER>@<ip>:~/agents-sandbox '+refs/heads/*:refs/remotes/kvm-guest/*' --prune`, so
   every guest branch is reachable as `kvm-guest/<name>` without touching a local branch.
-- `BRANCH=<name>` fetches just that branch into the **local** branch `<name>` (fast-forward only; `FORCE=1` adds
-  `--update-head-ok`), and reports instead of writing when `<name>` is checked out — in this checkout or a sibling
-  worktree — where git refuses.
+- `BRANCH=<name>` fetches just that branch into the **local** branch `<name>` (fast-forward only); a branch checked out
+  here — or in a sibling worktree — refuses the fetch, so it is updated by merging `kvm-guest/<name>` instead. There is
+  deliberately no force surface: fetching into a checked-out branch advances the ref without the working tree, so the
+  next commit would silently revert the fetch.
 - The guest keeps its own `.git` (`kvm-sync` excludes it), so this fetch is the return path; the guest never pushes.
 
 ### Guest instructions (settled after review)

@@ -331,10 +331,11 @@ kvm-agent-provision:
 	scripts/kvm-guest.sh agent-provision $(KVM_AGENT_NAME)
 
 # Fetch the guest agent's branches back to the host. Default: every branch into
-# refs/remotes/kvm-guest/*. BRANCH=<name> fetches just that branch into the
-# local branch of the same name (FORCE=1 for a branch checked out here).
+# refs/remotes/kvm-guest/*. BRANCH=<name> fetches just that branch into the local
+# branch of the same name (fast-forward only). A branch checked out here refuses
+# the fetch — merge kvm-guest/<name> instead.
 kvm-sync-back:
-	KVM_SYNC_BACK_FORCE='$(FORCE)' scripts/kvm-guest.sh sync-back $(BRANCH)
+	scripts/kvm-guest.sh sync-back $(BRANCH)
 
 kvm-down:
 	scripts/kvm-guest.sh down

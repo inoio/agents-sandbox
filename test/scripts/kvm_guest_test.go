@@ -302,21 +302,25 @@ func TestKvmGuestSyncBackFetchesOneBranchIntoALocalBranch(t *testing.T) {
 	assertNotContains(t, "git argv", argv, "--update-head-ok")
 }
 
-// TestKvmGuestSyncBackForceAllowsUpdatingTheCheckedOutBranch pins FORCE=1:
-// --update-head-ok lets the fetch update a branch checked out here.
-func TestKvmGuestSyncBackForceAllowsUpdatingTheCheckedOutBranch(t *testing.T) {
+// TestKvmGuestSyncBackNeverUpdatesACheckedOutBranchInPlace pins that sync-back
+// has no force surface: a fetch must never update a checked-out branch in place,
+// which would advance the ref while leaving the working tree at the old commit,
+// so a later commit silently reverts the fetch. The checked-out branch is
+// reached through the kvm-guest/<name> namespace and merged instead.
+func TestKvmGuestSyncBackNeverUpdatesACheckedOutBranchInPlace(t *testing.T) {
 	dir := t.TempDir()
 	gitLog := filepath.Join(dir, "git-argv")
 	env := kvmGuestEnv(dir)
 	env["GIT_ARGV"] = gitLog
-	env["KVM_SYNC_BACK_FORCE"] = "1"
+	env["KVM_SYNC_BACK_FORCE"] = "1" // ignored: the surface is gone
 	env["PATH"] = kvmGuestPath(t, "virsh", "git")
 
 	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync-back", "feature")
 	assertStatus(t, result, 0)
 
 	argv := readText(t, gitLog)
-	assertContains(t, "git argv", argv, "--update-head-ok")
+	assertNotContains(t, "git argv", argv, "--update-head-ok")
+	assertNotContains(t, "git argv", argv, "+refs/heads/feature")
 	assertContains(t, "git argv", argv, "refs/heads/feature:refs/heads/feature")
 }
 
