@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"io"
 	"net"
+	"strconv"
 	"testing"
 
 	"github.com/elazarl/goproxy"
@@ -100,6 +101,40 @@ func TestLeafIssuerReusesTheLeafPerName(t *testing.T) {
 	}
 	if other == first {
 		t.Error("a different name reused another name's leaf")
+	}
+}
+
+func TestLeafIssuerStopsCachingPastTheBound(t *testing.T) {
+	issuer := newLeafIssuer(testCA(t))
+	for index := range maxCachedLeaves {
+		issuer.leaves["cached-"+strconv.Itoa(index)+".example"] = &tls.Certificate{}
+	}
+	leaf, err := issuer.leafFor("one-more.example")
+	if err != nil {
+		t.Fatalf("leafFor: %v", err)
+	}
+	if leaf == nil {
+		t.Fatal("leafFor returned no leaf past the cache bound, want a freshly signed one")
+	}
+	if len(issuer.leaves) != maxCachedLeaves {
+		t.Errorf("cached leaves = %d, want the bound %d", len(issuer.leaves), maxCachedLeaves)
+	}
+}
+
+func TestLeafSerialsAreDistinct(t *testing.T) {
+	ca := testCA(t)
+	first, err := signLeaf(ca, "a.example")
+	if err != nil {
+		t.Fatalf("signLeaf: %v", err)
+	}
+	second, err := signLeaf(ca, "b.example")
+	if err != nil {
+		t.Fatalf("signLeaf: %v", err)
+	}
+	firstParsed, _ := x509.ParseCertificate(first.Certificate[0])
+	secondParsed, _ := x509.ParseCertificate(second.Certificate[0])
+	if firstParsed.SerialNumber.Cmp(secondParsed.SerialNumber) == 0 {
+		t.Error("two leaves share a serial number")
 	}
 }
 

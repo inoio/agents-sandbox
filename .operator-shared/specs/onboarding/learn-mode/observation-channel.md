@@ -120,8 +120,8 @@ Once our CA is trusted upstream, the spike confirmed `curl`, `git` over HTTPS, a
 to our proxy by the destination's IP (`CONNECT 160.79.104.10:443`) but verifies our certificate against the hostname it
 sends as SNI (`api.anthropic.com`). A certificate for the CONNECT target fails that handshake (`tls: bad certificate`),
 and every request through the channel dies before it is seen. The leaf is therefore signed per ClientHello name, with
-the CONNECT target as the fallback for a client that sends no SNI. Because the CONNECT target is an IP, the hostname
-of a destination is known only from the terminated request, never from the tunnel.
+the CONNECT target as the fallback for a client that sends no SNI. Under T2 the CONNECT target is an IP, so the
+hostname of a destination is known only from the TLS handshake and the terminated request, never from the tunnel.
 
 The trust is VM-creation state and does not survive a recreate on its own; a learning session that recreates the VM
 re-establishes it with that session's fresh CA.
@@ -201,7 +201,6 @@ what the proposal may claim until it is closed:
 - **Certificate pinning** — no pinning client was available to test, so the fallback to config-derived attribution
   is used with a warning, unverified.
 - **`msb-trust java` / `chrome`** — the base image has neither, so the Java/Chrome trust imports are unverified.
-
 
 The end-to-end agent turn through the proxy was verified on 2026-11-22: a model turn completes in a learning session for
 claude-code, pi, and codex (it had failed on the CONNECT-target certificate above, #812).

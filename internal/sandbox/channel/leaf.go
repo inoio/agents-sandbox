@@ -1,7 +1,6 @@
 package channel
 
 import (
-	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/tls"
@@ -38,6 +37,14 @@ func mitmTLSConfig(ca tls.Certificate) func(host string, _ *goproxy.ProxyCtx) (*
 	}
 }
 
+// maxCachedLeaves bounds the leaf cache: the names come from the guest's SNI,
+// so a session cannot grow host memory without limit. A name past the bound is
+// signed per handshake instead.
+const maxCachedLeaves = 1024
+
+// maxLeafSerial bounds a leaf's random serial number to 64 bits.
+var maxLeafSerial = new(big.Int).Lsh(big.NewInt(1), 64)
+
 // leafIssuer signs one terminating certificate per name with the session CA
 // and reuses it for every later connection to that name.
 type leafIssuer struct {
@@ -61,7 +68,9 @@ func (i *leafIssuer) leafFor(name string) (*tls.Certificate, error) {
 	if err != nil {
 		return nil, err
 	}
-	i.leaves[name] = leaf
+	if len(i.leaves) < maxCachedLeaves {
+		i.leaves[name] = leaf
+	}
 	return leaf, nil
 }
 
@@ -72,10 +81,14 @@ func signLeaf(ca tls.Certificate, name string) (*tls.Certificate, error) {
 	if err != nil {
 		return nil, err
 	}
+	serial, err := rand.Int(rand.Reader, maxLeafSerial)
+	if err != nil {
+		return nil, err
+	}
 	now := time.Now()
 	//nolint:exhaustruct_v5 // a session leaf sets only the fields it needs; the rest stay zero
 	template := &x509.Certificate{
-		SerialNumber: big.NewInt(now.UnixNano()),
+		SerialNumber: serial,
 		Subject:      pkix.Name{CommonName: name},
 		NotBefore:    now.Add(-time.Hour),
 		NotAfter:     ca.Leaf.NotAfter,
@@ -87,8 +100,7 @@ func signLeaf(ca tls.Certificate, name string) (*tls.Certificate, error) {
 	} else {
 		template.DNSNames = []string{name}
 	}
-	caKey, _ := ca.PrivateKey.(*ecdsa.PrivateKey)
-	der, err := createCertificate(rand.Reader, template, ca.Leaf, &key.PublicKey, caKey)
+	der, err := createCertificate(rand.Reader, template, ca.Leaf, &key.PublicKey, ca.PrivateKey)
 	if err != nil {
 		return nil, err
 	}
