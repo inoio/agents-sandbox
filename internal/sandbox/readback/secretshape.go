@@ -32,8 +32,10 @@ var secretValuePatterns = []*regexp.Regexp{
 			`password|passwd|pwd|auth|sig|signature)=[^&\s'"$\{]`,
 	),
 	regexp.MustCompile(`(?i)(^|[\s;])(password|passwd|pwd)=[^\s;'"$\{]`),
-	// A credential passed as a command-line flag value in the same string.
-	regexp.MustCompile(`(?i)(^|\s)--?[a-z-]*(token|password|passwd|api-?key|secret|auth)(=|\s+)[^\s'"$\{-]`),
+	// A credential passed as a command-line flag value in the same string. The
+	// flag name may spell a separator as '-' or '_' (--api_key), so the prefix
+	// and the api-key alternative both span underscores and digits.
+	regexp.MustCompile(`(?i)(^|\s)--?[a-z0-9_-]*(token|password|passwd|api[-_]?key|secret|auth)(=|\s+)[^\s'"$\{-]`),
 	// Well-known vendor token prefixes, also inside a command ("echo sk-...").
 	regexp.MustCompile(`\b(sk|rk)_(live|test)_[A-Za-z0-9]{10,}`),
 	regexp.MustCompile(`\b(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}`),
@@ -67,6 +69,9 @@ func looksLikeSecretValue(value string) bool {
 		if pattern.MatchString(value) {
 			return true
 		}
+	}
+	if commandStringLeaksValue(value) {
+		return true
 	}
 	for _, pattern := range digitTokenPatterns {
 		// gomutants:disable-next-line INTEGER_INCREMENT reason="FindAll* treats any negative limit as all matches, and the increment turns the literal 1 into 2, so -1 becomes -2"
@@ -158,6 +163,44 @@ func assignmentLeaksValue(node any) bool {
 	text, _ := node.(string)
 	match := assignmentPattern.FindStringSubmatch(text)
 	return match != nil && !envEntryIsSafe(match[1], match[2])
+}
+
+// environmentFlags are the command flags that introduce an environment
+// assignment NAME=value as their own argument.
+var environmentFlags = []string{"-e", "--env"}
+
+// commandStringLeaksValue reports whether a single command string passes a
+// literal credential, so the string form agrees with the args list form: a flag
+// that names a secret with a separate following token ("--api_key hunter2pass"),
+// and an environment assignment after "-e"/"--env" ("-e API_KEY=hunter2pass").
+// The flag and assignment names are judged by the same predicates as the list
+// rule, so a name spelled with an underscore is not missed.
+func commandStringLeaksValue(value string) bool {
+	tokens := strings.Fields(value)
+	for index, token := range tokens {
+		if flagTokenLeaksValue(token, tokens[index+1:]) {
+			return true
+		}
+	}
+	return false
+}
+
+// flagTokenLeaksValue reports whether one whitespace-separated command token
+// leaks a credential, given the tokens that follow it: a flag that names a
+// secret, or an environment flag introducing an assignment.
+func flagTokenLeaksValue(token string, following []string) bool {
+	if !strings.HasPrefix(token, "-") {
+		return false
+	}
+	name, assigned, joined := strings.Cut(strings.TrimLeft(token, "-"), "=")
+	if flagNamesASecret(name) {
+		if joined {
+			return literalCredential(assigned)
+		}
+		return len(following) > 0 && literalCredential(following[0])
+	}
+	return slices.Contains(environmentFlags, token) && len(following) > 0 &&
+		assignmentLeaksValue(following[0])
 }
 
 // nameValuePairLeaksValue reports whether a mapping is a {name, value} env
@@ -355,8 +398,9 @@ func tableLeaksValue(key string, value any) bool {
 			}
 		default:
 			// A nested table or list holds no configuration names, so any raw
-			// value inside it is a credential.
-			if holdsRawSecretString(typed, false) {
+			// value inside it is a credential — a bare upper-case word included,
+			// which a reference-shaped key would otherwise clear.
+			if holdsBareLiteralSecret(typed) {
 				return true
 			}
 		}

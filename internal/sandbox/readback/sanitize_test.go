@@ -1007,3 +1007,141 @@ func TestSanitizeConfigGuardRuleBoundaries(t *testing.T) {
 		}
 	}
 }
+
+// TestSanitizeConfigRefusesANativeScalarCredential pins that a credential the
+// parser resolved to a non-string scalar is a raw value like any other: an
+// unquoted date under a password, PIN, or key decodes to a timestamp (time.Time
+// for YAML and a toml.LocalDate and its siblings for TOML), and the quoted
+// spelling of the same value is refused, so the native spelling must be too.
+func TestSanitizeConfigRefusesANativeScalarCredential(t *testing.T) {
+	refused := map[string]struct{ path, content string }{
+		"yaml top-level password": {"config.yaml", "password: 2021-01-01\n"},
+		"yaml nested password":    {"config.yaml", "db:\n  password: 2021-01-01\n"},
+		"yaml client secret":      {"config.yaml", "client_secret: 2021-01-01\n"},
+		"yaml pin":                {"config.yaml", "pin: 2021-01-01\n"},
+		"yaml datetime":           {"config.yaml", "pin: 2021-01-01T12:30:00Z\n"},
+		"toml password":           {"config.toml", "password = 2021-01-01\n"},
+		"toml time":               {"config.toml", "pin = 12:30:00\n"},
+		"toml datetime":           {"config.toml", "pin = 2021-01-01T12:30:00Z\n"},
+		"name-value pair date":    {"opencode.json", `{"env":[{"name":"DB_PASSWORD","value":20210101}]}`},
+		"name-value pair yaml":    {"config.yaml", "env:\n  - name: DB_PASSWORD\n    value: 20210101.0\n"},
+		"args list date":          {"config.toml", "[mcp_servers.x]\nargs = [\"--access-token\", 2021-01-01]\n"},
+		"args list date joined":   {"config.toml", "args = [\"--access-token=20210101\"]\n"},
+	}
+	for name, tc := range refused {
+		if _, ok := SanitizeConfig(
+			[]byte(tc.content),
+			SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+		); ok {
+			t.Errorf("%s: SanitizeConfig accepted %s", name, tc.content)
+		}
+	}
+
+	accepted := map[string]struct{ path, content string }{
+		"date under a token count":   {"config.yaml", "maxTokens: 2021-01-01\n"},
+		"date under an ordinary key": {"config.yaml", "model: 2021-01-01\n"},
+	}
+	for name, tc := range accepted {
+		if _, ok := SanitizeConfig(
+			[]byte(tc.content),
+			SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+		); !ok {
+			t.Errorf("%s: SanitizeConfig refused %s", name, tc.content)
+		}
+	}
+}
+
+// TestSanitizeConfigRefusesAnUnderscoreFlagInACommandString pins that a
+// credential flag written with an underscore inside a single command string is
+// refused like its hyphenated spelling: the flag and assignment names are
+// judged by the same predicate as the args list form, so the two paths agree.
+func TestSanitizeConfigRefusesAnUnderscoreFlagInACommandString(t *testing.T) {
+	refused := map[string]struct{ path, content string }{
+		"api_key flag": {
+			"opencode.json",
+			`{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"mytool --api_key hunter2pass"}]}]}}`,
+		},
+		"access_token flag": {
+			"opencode.json",
+			`{"hooks":{"type":"command","command":"mytool --access_token abcdef"}}`,
+		},
+		"client_secret flag": {
+			"settings.json",
+			`{"hooks":{"PreToolUse":[{"command":"mytool --client_secret abcdef"}]}}`,
+		},
+		"api_key joined": {"opencode.json", `{"permissions":{"allow":["Bash(mytool --api_key=hunter2pass:*)"]}}`},
+		"env assignment": {
+			"opencode.json",
+			`{"hooks":{"type":"command","command":"docker run -e API_KEY=hunter2pass x"}}`,
+		},
+		"env long flag": {
+			"opencode.json",
+			`{"hooks":{"type":"command","command":"docker run --env DB_PASSWORD=hunter2pass x"}}`,
+		},
+	}
+	for name, tc := range refused {
+		if _, ok := SanitizeConfig(
+			[]byte(tc.content),
+			SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+		); ok {
+			t.Errorf("%s: SanitizeConfig accepted %s", name, tc.content)
+		}
+	}
+
+	accepted := map[string]struct{ path, content string }{
+		"placeholdered flag": {
+			"opencode.json",
+			`{"hooks":{"type":"command","command":"mytool --api_key ${X_API_KEY}"}}`,
+		},
+		"harmless environment": {
+			"opencode.json",
+			`{"hooks":{"type":"command","command":"docker run -e LOG_LEVEL=debug x"}}`,
+		},
+		"plain command": {
+			"opencode.json",
+			`{"hooks":{"type":"command","command":"npx -y @modelcontextprotocol/server-filesystem /workspace"}}`,
+		},
+	}
+	for name, tc := range accepted {
+		if _, ok := SanitizeConfig(
+			[]byte(tc.content),
+			SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+		); !ok {
+			t.Errorf("%s: SanitizeConfig refused %s", name, tc.content)
+		}
+	}
+}
+
+// TestSanitizeConfigRefusesABareWordInANestedEnvTable pins that a nested table
+// or list under an env or header table holds no configuration names, so a bare
+// upper-case word inside it is a literal, not a variable name: the same value
+// directly in the table is refused, so the nested spelling must be too.
+func TestSanitizeConfigRefusesABareWordInANestedEnvTable(t *testing.T) {
+	refused := map[string]struct{ path, content string }{
+		"nested table bare word":  {"opencode.json", `{"env":{"cfg":{"note":"JBSWY3DPEHPK3PXP"}}}`},
+		"nested header list":      {"opencode.json", `{"headers":{"cfg":["ABCDEFGH"]}}`},
+		"nested environment word": {"opencode.json", `{"environment":{"prod":{"HOME_LABEL":"PRODUCTION"}}}`},
+	}
+	for name, tc := range refused {
+		if _, ok := SanitizeConfig(
+			[]byte(tc.content),
+			SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+		); ok {
+			t.Errorf("%s: SanitizeConfig accepted %s", name, tc.content)
+		}
+	}
+
+	accepted := map[string]struct{ path, content string }{
+		"nested placeholder":  {"opencode.json", `{"env":{"cfg":{"note":"${X}"}}}`},
+		"nested env ref":      {"opencode.json", `{"env":{"cfg":{"note":"{env:X}"}}}`},
+		"nested empty string": {"opencode.json", `{"headers":{"cfg":[""]}}`},
+	}
+	for name, tc := range accepted {
+		if _, ok := SanitizeConfig(
+			[]byte(tc.content),
+			SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+		); !ok {
+			t.Errorf("%s: SanitizeConfig refused %s", name, tc.content)
+		}
+	}
+}

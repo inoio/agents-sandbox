@@ -527,34 +527,67 @@ func secretKeyLeaksValue(key string, value any) bool {
 	return looksLikeSecretShapedKey(key) && holdsRawSecretString(value, !namesAStoredSecret(key))
 }
 
-// holdsRawSecretString reports whether node is, or contains at any depth, a
-// non-empty string that is not a reference. It threads the secret-shaped key's
-// context through its descendants so a collection under the key is inspected,
-// not only a direct string value.
+// holdsRawSecretString reports whether node is, or contains at any depth, a raw
+// secret rather than a reference: a non-empty string, or any other decoded
+// scalar (a number, or a timestamp the parser resolved from an unquoted date).
+// It threads the secret-shaped key's context through its descendants so a
+// collection under the key is inspected, not only a direct string value. A
+// boolean or a null is never a secret.
 func holdsRawSecretString(node any, allowNumbers bool) bool {
+	return holdsRawSecret(
+		node,
+		allowNumbers,
+		func(value string) bool { return isUndeclaredSecretValue(value, allowNumbers) },
+	)
+}
+
+// holdsBareLiteralSecret reports whether node is, or contains at any depth, a
+// raw secret, judging every string as a bare literal: only an explicit
+// placeholder or reference (`${…}`, `{env:…}`, `{file:…}`, a leading `!`) is
+// cleared, never a bare upper-case word. A nested table or list under an env or
+// header table holds no configuration names, so a bare word there is a value,
+// not a variable name.
+func holdsBareLiteralSecret(node any) bool {
+	return holdsRawSecret(node, false, isBareLiteralSecretValue)
+}
+
+// holdsRawSecret reports whether node is, or contains at any depth, a leaf the
+// predicate judges a raw secret. It recurses through every decoded collection
+// shape; a non-string scalar (a number, or a timestamp the parser resolved from
+// an unquoted date) is a raw value unless allowNumbers, and a boolean or a null
+// never is.
+func holdsRawSecret(node any, allowNumbers bool, leafIsRawSecret func(value string) bool) bool {
 	switch typed := node.(type) {
 	case []any:
-		return slices.ContainsFunc(typed, func(child any) bool { return holdsRawSecretString(child, allowNumbers) })
+		return slices.ContainsFunc(
+			typed,
+			func(child any) bool { return holdsRawSecret(child, allowNumbers, leafIsRawSecret) },
+		)
 	case map[string]any:
 		for _, child := range typed {
-			if holdsRawSecretString(child, allowNumbers) {
+			if holdsRawSecret(child, allowNumbers, leafIsRawSecret) {
 				return true
 			}
 		}
+		return false
 	case map[any]any:
 		for _, child := range typed {
-			if holdsRawSecretString(child, allowNumbers) {
+			if holdsRawSecret(child, allowNumbers, leafIsRawSecret) {
 				return true
 			}
 		}
+		return false
 	case string:
-		return isUndeclaredSecretValue(typed, allowNumbers)
-	case int, int64, uint64, float64:
-		// A number decoded as a number: a token count under TOKEN, otherwise a
-		// stored secret such as a numeric password or PIN.
-		return !allowNumbers
+		return leafIsRawSecret(typed)
+	case bool, nil:
+		// A switch or a bare key is never a secret.
+		return false
 	}
-	return false
+	// Every other decoded scalar — a number, or a timestamp the parser resolved
+	// from an unquoted date (time.Time, toml.LocalDate and its siblings) — is a
+	// raw value. Every container shape is handled above, so this recurses into
+	// nothing.
+	return !allowNumbers
 }
 
 // isUndeclaredSecretValue reports whether value is a non-empty string that is
@@ -566,4 +599,14 @@ func isUndeclaredSecretValue(value string, allowNumbers bool) bool {
 		return false
 	}
 	return !isReferenceValue(value)
+}
+
+// isBareLiteralSecretValue reports whether value is a non-empty string that is
+// not an explicit placeholder or reference: a bare upper-case word counts,
+// because a table that sets variables holds literals, not variable names.
+func isBareLiteralSecretValue(value string) bool {
+	if strings.TrimSpace(value) == "" {
+		return false
+	}
+	return !isExplicitReference(value)
 }

@@ -67,15 +67,20 @@ same check, so it never copies a host config file the merge would not read.
   array or object. A key is secret-shaped when a camelCase/separator-aware segment is one of `KEY`, `TOKEN`, `SECRET`,
   `PASSWORD`, `PASS`, `PASSWD`, `PWD`, `PIN`, `AUTHORIZATION`, `CREDENTIAL`, `APIKEY`, `ACCESSKEY`, `PRIVATEKEY`,
   `AUTHTOKEN`, or a plural of one; `AUTH`, `COOKIE` and `SESSION` count only for a key holding a string directly,
-  since they also name tables of settings. A number (quoted or native) or a boolean word is no raw value only under a
-  token count (`MAX_THINKING_TOKENS: "31999"`, `maxTokens: 4096`), never under a password, PIN, or key;
+  since they also name tables of settings. A non-reference string or any native non-string scalar is a raw value under
+  a password, PIN, or key; a number or boolean word is exempt only under a token count
+  (`MAX_THINKING_TOKENS: "31999"`, `maxTokens: 4096`). A native timestamp the parser resolved from an unquoted
+  spelling (YAML's `time.Time`, TOML's `toml.LocalDate` and its siblings) is never exempted, so a date-shaped password
+  is refused like its quoted form;
 - a **secret-shaped value** under any key, in the decoded document or anywhere in the raw text (a comment is copied
   verbatim): a credential header with a literal token (`authorization:`, `x-api-key:`, `x-auth-token:`, `Bearer …`,
   `Basic …` with a digit or padding), a URL with userinfo, a credential in a query string or a `password=` connection
   string, a credential command-line flag (any flag whose name names a secret, also as separate list elements
   `["--access-token", "…"]` or `["--access-token", 84736251]` — a bare flag value is a literal, so a native number is
   one too, with no token-count exemption; a flag naming where a secret lives, `--token-file`/`--password-stdin`, is not
-  one), a
+  one; the string and the list form are judged by the same flag-name predicate, so a name spelled with an underscore
+  (`--api_key`) is caught in a single command string, and an assignment after `-e`/`--env` in that string is judged by
+  the `NAME=value` rule), a
   `NAME=value` list entry (an env array, a docker `-e` argument) or a `{name, value}` entry the env rule does not
   clear, a JWT, a PEM private
   key, or a token with a well-known vendor prefix (`sk-`, `sk_live_`, `ghp_`, `github_pat_`, `xox?-`, `AKIA`/`ASIA`,

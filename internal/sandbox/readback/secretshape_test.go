@@ -249,4 +249,41 @@ func TestTableLeaksValueWalksNestedEntries(t *testing.T) {
 	if tableLeaksValue("env", map[string]any{"cfg": map[string]any{"note": "${X}"}}) {
 		t.Error("a reference in a table nested under env was refused")
 	}
+	if !tableLeaksValue("headers", map[string]any{"cfg": []any{"ABCDEFGH"}}) {
+		t.Error("a bare upper-case word in a list nested under headers was accepted")
+	}
+}
+
+func TestBareLiteralSecretValueTreatsABareWordAsALiteral(t *testing.T) {
+	for value, want := range map[string]bool{
+		"JBSWY3DPEHPK3PXP": true, "PRODUCTION": true, "abc": true,
+		"": false, "  ": false, "${X}": false, "{env:X}": false, "{file:/x}": false, "!op read x": false,
+	} {
+		if got := isBareLiteralSecretValue(value); got != want {
+			t.Errorf("isBareLiteralSecretValue(%q) = %v, want %v", value, got, want)
+		}
+	}
+}
+
+func TestCommandStringLeaksValue(t *testing.T) {
+	cases := map[string]struct {
+		command string
+		want    bool
+	}{
+		"underscore api key":       {"mytool --api_key hunter2pass", true},
+		"hyphen api key":           {"mytool --api-key hunter2pass", true},
+		"underscore access token":  {"mytool --access_token abcdef", true},
+		"underscore client secret": {"mytool --client_secret=abcdef", true},
+		"env assignment":           {"docker run -e API_KEY=hunter2pass x", true},
+		"env long flag":            {"docker run --env DB_PASSWORD=hunter2pass x", true},
+		"placeholdered flag":       {"mytool --api_key ${X_API_KEY}", false},
+		"harmless environment":     {"docker run -e LOG_LEVEL=debug x", false},
+		"plain command":            {"npx -y @modelcontextprotocol/server-filesystem /workspace", false},
+		"header line":              {"Authorization=Bearer ${OTEL_TOKEN}", false},
+	}
+	for name, tc := range cases {
+		if got := commandStringLeaksValue(tc.command); got != tc.want {
+			t.Errorf("%s: commandStringLeaksValue(%q) = %v, want %v", name, tc.command, got, tc.want)
+		}
+	}
 }
