@@ -254,7 +254,11 @@ in the final stage after the agent tool-tree COPY, before the ENV/LABEL config b
 part of the runner's lineage: the agent stage is not in the final image's `FROM` lineage and the runner copies only the
 tool tree out of it, so a file the install writes outside that tree is discarded. `grok-build` pins its auto-updater off
 in `/etc/grok/requirements.toml` this way — the highest-priority config layer, so no user or project setting re-enables
-it. An agent that needs none leaves it empty.
+it. `codex` bakes its launcher defaults (update check off, `danger-full-access`, `/workspace` trusted) into
+`/etc/codex/config.toml`, its **lowest** layer, so a snippet, the repository's `.codex/config.toml` (loaded because
+`/workspace` is trusted), or a forwarded `--sandbox` still overrides them; passing
+them as `-c` instead would force codex into embedded mode, and `managed_config.toml` would outrank `--sandbox`. An agent
+that needs none leaves it empty.
 
 ## Naming: `docker` (renamed from `dind`)
 
