@@ -193,11 +193,46 @@ func TestKvmGuestAgentProvisionSyncsConfigAndMaterializes(t *testing.T) {
 	assertContains(t, "rsync argv", rsyncArgv,
 		filepath.Join(home, ".config", "agents-sandbox")+"/")
 	assertContains(t, "rsync argv", rsyncArgv, "dev@192.168.122.55:.config/agents-sandbox/")
+	// No host ~/.gitconfig here, so the git identity is not copied.
+	assertNotContains(t, "rsync argv", rsyncArgv, ".gitconfig")
 
 	sshArgv := readText(t, sshLog)
 	assertContains(t, "ssh argv", sshArgv, "config provision")
 	assertContains(t, "ssh argv", sshArgv, "--agent opencode2")
 	assertContains(t, "ssh argv", sshArgv, `--target "$HOME"`)
+}
+
+// TestKvmGuestAgentProvisionCopiesGitIdentityAndDisablesSigning pins that
+// provisioning gives the guest a committable identity: the host's ~/.gitconfig,
+// with commit and tag signing turned off (the host's key is not in the guest).
+func TestKvmGuestAgentProvisionCopiesGitIdentityAndDisablesSigning(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	if err := os.MkdirAll(filepath.Join(home, ".config", "agents-sandbox"), 0o755); err != nil {
+		t.Fatalf("create home config dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".gitconfig"),
+		[]byte("[user]\n\tname = Host User\n\temail = host@example.test\n"), 0o644); err != nil {
+		t.Fatalf("write host gitconfig: %v", err)
+	}
+	sshLog := filepath.Join(dir, "ssh-argv")
+	rsyncLog := filepath.Join(dir, "rsync-argv")
+	env := kvmGuestEnv(dir)
+	env["HOME"] = home
+	env["SSH_ARGV"] = sshLog
+	env["RSYNC_ARGV"] = rsyncLog
+	env["PATH"] = kvmGuestPath(t, "virsh", "ssh", "rsync")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "agent-provision")
+	assertStatus(t, result, 0)
+
+	rsyncArgv := readText(t, rsyncLog)
+	assertContains(t, "rsync argv", rsyncArgv, filepath.Join(home, ".gitconfig"))
+	assertContains(t, "rsync argv", rsyncArgv, "dev@192.168.122.55:.gitconfig")
+
+	sshArgv := readText(t, sshLog)
+	assertContains(t, "ssh argv", sshArgv, "commit.gpgsign false")
+	assertContains(t, "ssh argv", sshArgv, "tag.gpgsign false")
 }
 
 func TestKvmGuestSyncForwardsTheCheckoutWithExcludes(t *testing.T) {

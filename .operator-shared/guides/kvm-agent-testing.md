@@ -96,6 +96,10 @@ Two behaviors that are correct, not bugs:
 - **Credentials are not written.** opencode2 keeps them in its own store and the guest has no launcher secret proxy, so
   T3 supplies them by environment.
 
+Provisioning also copies the host's `~/.gitconfig` into the guest and turns commit/tag signing off there (the host's
+signing key is not in the guest), so the agent can commit as the host user. A host with no `~/.gitconfig` skips both and
+the guest keeps its own identity.
+
 Negative: with no `~/.config/agents-sandbox/` on the host, expect the informative log line, no rsync, and the
 materialization still running against the guest's project scope.
 

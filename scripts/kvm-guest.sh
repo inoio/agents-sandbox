@@ -495,6 +495,14 @@ agent_provision() {
   log "materializing the $agent config into the guest home"
   ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
     -- "bash -lc 'cd ~/agents-sandbox && go run -tags microsandbox_ffi_path ./cmd/agents-sandbox config provision --agent $agent --target \"\$HOME\"'"
+  if [ -f "$HOME/.gitconfig" ]; then
+    log "syncing $HOME/.gitconfig → $VM_USER@$ip (signing disabled in the guest)"
+    rsync -az "$HOME/.gitconfig" "$VM_USER@$ip:.gitconfig"
+    ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
+      -- "bash -lc 'git config --global commit.gpgsign false && git config --global tag.gpgsign false'"
+  else
+    log "no $HOME/.gitconfig on this host; the guest keeps its own git identity"
+  fi
 }
 
 probe_guest_egress() {
