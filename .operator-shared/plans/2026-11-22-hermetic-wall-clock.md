@@ -4,20 +4,20 @@
 
 **Goal:** Remove wall-clock dependence from the default suite — replace each sleep that merely waits for an event with channel synchronization, keep only the genuine dwells under a reason-bearing marker — and enforce it with a `time.Sleep` category in the ambient-environment gate.
 
-**Architecture:** The design's surface 5. A test that polls `time.Sleep` until an event is load-dependent; a test where the wait *is* the behavior (a poll cadence, a negative assertion that something does not happen) keeps a marked sleep. Enforcement is a new category in the existing ambient gate (`internal/testutil/ambient_environment_contract_test.go`), the same AST scanner that already flags sockets, env reads and host-probe calls, so a new unmarked sleep fails `make test`.
+**Architecture:** The wall-clock surface of the hermetic envelope. A test that polls `time.Sleep` until an event is load-dependent; a test where the wait *is* the behavior (a poll cadence, a negative assertion that something does not happen) keeps a marked sleep. Enforcement is a new category in the existing ambient gate (`internal/testutil/ambient_environment_contract_test.go`), the same AST scanner that already flags sockets, env reads and host-probe calls, so a new unmarked sleep fails `make test`.
 
 **Tech Stack:** Go 1.27, the repo's package-level test seams, `testutil`'s AST ambient gate.
 
-**Spec:** `.operator-shared/plans/2026-11-07-hermetic-test-suite-design.md` (surface 5 and the Decisions entry "The static gate grows a wall-clock category"). Follows `specs/testing/test-isolation.md` (seams restored; tests off host state). This is the wall-clock half of the design's remaining work; the cadence-wiring half is `.operator-shared/plans/2026-11-22-hermetic-cadence.md`.
+**Spec:** `specs/testing/test-isolation.md` — the ambient-environment gate's covered forms now include `time.Sleep` (a clock wait is flagged; a genuine dwell keeps a reason-bearing marker), and the wall-clock residual states the event-wait/dwell rule. This is the wall-clock half of the hermetic-envelope work; the cadence half — the `hermetic` CI job and the `release.needs` gate — landed on `main`.
 
 ## Global Constraints
 
-- Only default-build test files are in scope. The `time.Sleep` sites in `msb`-tagged files (`internal/sandbox/msb/*_msb_test.go`, `internal/sandbox/readback/readback_msb_test.go`, `test/harness/*_msb_test.go`) are out of scope: the design's non-goals exclude the `msb` suite from hermeticity, and the gate skips non-default-build files. Default-build files under `test/harness/` (e.g. `test/harness/pty_test.go`, which carries no build constraint) *are* in scope, so their dwells are marked like any other.
+- Only default-build test files are in scope. The `time.Sleep` sites in `msb`-tagged files (`internal/sandbox/msb/*_msb_test.go`, `internal/sandbox/readback/readback_msb_test.go`, `test/harness/*_msb_test.go`) are out of scope: the envelope's non-goals exclude the `msb` suite from hermeticity, and the gate skips non-default-build files. Default-build files under `test/harness/` (e.g. `test/harness/pty_test.go`, which carries no build constraint) *are* in scope, so their dwells are marked like any other.
 - A seam override is restored in `t.Cleanup` (`specs/testing/test-isolation.md`); the suite must stay idempotent under `-count>1`.
 - The gate category is added **last**, after every site is converted or marked, so each conversion task leaves `make test` green on its own.
 - Format/lint with `make fmt`/`make lint` (golangci-lint), never `gofmt`/`go vet`.
 - Every code change adds a `changelog.d/<PR-number>.changed.md` fragment (test-only changes are exempt per `ci/check-changelog.sh`, so no fragment is required; add one only if a production file changes).
-- The acceptance is `make test-hermetic` and `make test-scrubbed` green (see the cadence plan's task 6 for the run), plus a normal in-tree `make check`.
+- The acceptance is `make test-hermetic` and `make test-scrubbed` green, plus a normal in-tree `make check`.
 
 ## Review Focus
 
@@ -274,8 +274,8 @@ git commit -m "docs(operator): the wall-clock rule is enforced by the ambient ga
 
 ## Self-Review
 
-- **Spec coverage:** the design's surface 5 has two clauses — replace event-waits with channel sync (Tasks 1-3), keep and mark genuine dwells (Task 4) — and one enforcement clause (Task 5). Task 6 is the acceptance and the contract fold.
+- **Spec coverage:** the wall-clock surface has two clauses — replace event-waits with channel sync (Tasks 1-3), keep and mark genuine dwells (Task 4) — and one enforcement clause (Task 5). Task 6 is the acceptance and the contract fold.
 - **Step scan:** each step names one action and a checkable result; the conversions name the file and the mechanism (the mock hook or existing channel), leaving the body to the implementer.
 - **Type consistency:** `ambientTimeCalls`, the `time.Sleep` category, and the `//testenv:allow` marker are used with the same names throughout.
-- **Proportion:** five test-file conversions/marks plus one scanner category — the code the design describes, not a transcript.
+- **Proportion:** five test-file conversions/marks plus one scanner category — the change, not a transcript.
 - **Ordering:** the gate category lands last (Task 5), so Tasks 1-4 each leave `make test` green.
