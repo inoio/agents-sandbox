@@ -178,15 +178,6 @@
 
 ### `plans/` - TDD implementation plans
 
-- `plans/2026-11-07-hermetic-test-suite-design.md`
-  - Description: `worktree-layout.md` — the `/workspace` bind rule and guest-CWD derivation.
-  - Read If: Changing the `/workspace` bind-source resolution, guest-CWD derivation, the worktree mount rule, or the outside-worktree shared-git-dir mount; or diagnosing a session that hides the worktree it was launched from, a `git` command that cannot resolve inside the VM, or the `--worktree` host git-dir side effect.
-- `plans/2026-11-07-hermetic-inventory.md`
-  - Description: `worktree-layout.md` — the `/workspace` bind rule and guest-CWD derivation.
-  - Read If: Changing the `/workspace` bind-source resolution, guest-CWD derivation, the worktree mount rule, or the outside-worktree shared-git-dir mount; or diagnosing a session that hides the worktree it was launched from, a `git` command that cannot resolve inside the VM, or the `--worktree` host git-dir side effect.
-- `plans/2026-11-07-hermetic-uid-permission-surface.md`
-  - Description: `worktree-layout.md` — the `/workspace` bind rule and guest-CWD derivation.
-  - Read If: Changing the `/workspace` bind-source resolution, guest-CWD derivation, the worktree mount rule, or the outside-worktree shared-git-dir mount; or diagnosing a session that hides the worktree it was launched from, a `git` command that cannot resolve inside the VM, or the `--worktree` host git-dir side effect.
 - `plans/2026-11-15-learn-mode-spike.md`
   - Description: `worktree-layout.md` — the `/workspace` bind rule and guest-CWD derivation.
   - Read If: Changing the `/workspace` bind-source resolution, guest-CWD derivation, the worktree mount rule, or the outside-worktree shared-git-dir mount; or diagnosing a session that hides the worktree it was launched from, a `git` command that cannot resolve inside the VM, or the `--worktree` host git-dir side effect.

@@ -275,6 +275,48 @@ jobs:
       - run: make deadcode
         if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
 
+  # The hermetic envelope (specs/testing/test-isolation.md): the default suite in
+  # a module copy with a scrubbed environment and the host-figure sentinel pass,
+  # run inside a loopback-only network namespace. Advisory on a PR at
+  # introduction (not yet in the `protect main` ruleset); required on a release
+  # tag via `release.needs`, so a red envelope refuses to publish.
+  #
+  # The hosted runner restricts unprivileged user namespaces (Ubuntu's
+  # kernel.apparmor_restrict_unprivileged_userns=1), which the envelope's
+  # `unshare --net --map-root-user` needs, so a step lifts the restriction; and
+  # because the envelope runs offline, a step warms the module cache first.
+  hermetic:
+    name: hermetic
+    needs: [changes]
+    if: ${{ !cancelled() && github.event_name != 'merge_group' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: .go-version
+          cache: true
+      - name: Enable rootless user namespaces for the envelope's network namespace
+        if: ${{ startsWith(github.ref, 'refs/tags/') || needs.changes.outputs.exec != 'false' }}
+        # A runner whose kernel lacks the key already allows unprivileged user
+        # namespaces, so echo a no-op rather than failing the lift. A runner
+        # that has the key but refuses the write (read-only /proc/sys, a
+        # hardened image) is not masked as "no restriction": the envelope's
+        # unshare then fails loudly with the real cause.
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          else
+            echo "no unprivileged-userns restriction on this runner"
+          fi
+      - name: Warm the module cache for the offline envelope
+        if: ${{ startsWith(github.ref, 'refs/tags/') || needs.changes.outputs.exec != 'false' }}
+        run: go mod download
+      - name: Run the hermetic envelope
+        if: ${{ startsWith(github.ref, 'refs/tags/') || needs.changes.outputs.exec != 'false' }}
+        run: make test-hermetic
+
   integration:
     name: integration (docker build)
     # A required check (see the `protect main` ruleset). Runs on a code-affecting
@@ -507,7 +549,7 @@ jobs:
   release:
     name: release (${{ matrix.target }})
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [tag-guard, lint, test, integration, integration-podman]
+    needs: [tag-guard, lint, test, integration, integration-podman, hermetic]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
