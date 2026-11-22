@@ -505,8 +505,8 @@ func TestDecodedHoldsUndeclaredSecretValueWalksAnyMap(t *testing.T) {
 // TestHoldsRawSecretStringWalksAnyMap pins the map[any]any branch of the raw
 // secret walk: a non-string key's descendant string is still inspected.
 func TestHoldsRawSecretStringWalksAnyMap(t *testing.T) {
-	require.True(t, holdsRawSecretString(map[any]any{1: "sk-raw"}))
-	require.False(t, holdsRawSecretString(map[any]any{1: map[string]any{"a": "${REF}"}}))
+	require.True(t, holdsRawSecretString(map[any]any{1: "sk-raw"}, false))
+	require.False(t, holdsRawSecretString(map[any]any{1: map[string]any{"a": "${REF}"}}, false))
 }
 
 // TestHoldsUndeclaredSecretValueUnknownFormatIgnoresSecretShapedContent pins
@@ -677,7 +677,7 @@ func TestSanitizeConfigRefusesUnmarkedSecretShapes(t *testing.T) {
 			"settings.json",
 			`{"hooks":{"PreToolUse":[{"command":"curl -H 'Authorization: Bearer abcdefgh12345678' x"}]}}`,
 		},
-		"helper command":      {"settings.json", `{"apiKeyHelper":"echo sk-proj-abcdefghijklmnop"}`},
+		"helper command":      {"settings.json", `{"apiKeyHelper":"echo sk-proj-abc123def456ghij"}`},
 		"compound key marker": {"settings.json", `{"OPENAI_APIKEY":"abcdef"}`},
 		"nested mcp env (toml)": {
 			"config.toml",
@@ -705,6 +705,108 @@ func TestSanitizeConfigRefusesUnmarkedSecretShapes(t *testing.T) {
 			"config.toml",
 			"model = \"gpt-5\"\nsandbox_mode = \"workspace-write\"\n[mcp_servers.fs]\ncommand = \"npx\"\nargs = [\"-y\", \"server-filesystem\"]\n",
 		},
+	}
+	for name, tc := range accepted {
+		t.Run("accepts "+name, func(t *testing.T) {
+			if _, ok := SanitizeConfig(
+				[]byte(tc.content),
+				SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+			); !ok {
+				t.Errorf("SanitizeConfig refused %s", tc.content)
+			}
+		})
+	}
+}
+
+// TestSanitizeConfigReviewCases pins the guard's adversarial-review cases: the
+// bypasses it must refuse and the legitimate configs it must still accept.
+func TestSanitizeConfigReviewCases(t *testing.T) {
+	refused := map[string]struct{ path, content string }{
+		"query api key": {
+			"opencode.json",
+			`{"mcp":{"s":{"type":"remote","url":"https://server.example/mcp?api_key=0123abcd-4567&profile=p"}}}`,
+		},
+		"query token in env url": {"settings.json", `{"env":{"MCP_URL":"https://m.example/sse?token=abc123def456"}}`},
+		"jsonc comment": {
+			"opencode.jsonc",
+			"{\n // \"apiKey\": \"sk-ant-api03-abcdefghijkl\",\n \"model\":\"x\"}",
+		},
+		"toml comment":         {"config.toml", "# OPENAI_API_KEY = \"sk-proj-abc123def456ghij\"\nmodel = \"x\"\n"},
+		"second yaml document": {"config.yaml", "model: x\n---\napi_key: plainvalue\n"},
+		"custom header":        {"opencode.json", `{"mcp":{"x":{"headers":{"X-Custom-Auth":"abc123def456"}}}}`},
+		"toml http header": {
+			"config.toml",
+			"[mcp_servers.x]\nhttp_headers = { \"X-Auth\" = \"abc123def456\" }\n",
+		},
+		"cookie header":         {"opencode.json", `{"headers":{"Cookie":"session=abcdef123456"}}`},
+		"auth key":              {"settings.json", `{"auth":"opaque-token-value"}`},
+		"numeric password":      {"opencode.json", `{"mcp":{"x":{"password":"84736251"}}}`},
+		"numeric env password":  {"opencode.json", `{"mcp":{"x":{"environment":{"DB_PASSWORD":"84736251"}}}}`},
+		"upper-case env secret": {"settings.json", `{"env":{"TOTP_SECRET":"JBSWY3DPEHPK3PXP"}}`},
+		"bang env value":        {"settings.json", `{"env":{"password":"!Sup3rS3cret"}}`},
+		"redis empty user":      {"config.toml", "url = \"redis://:hunter2pass@redis:6379\"\n"},
+		"password with slash":   {"settings.json", `{"env":{"DATABASE_URL":"postgres://app:ab/cd@db/x"}}`},
+		"token as username":     {"config.toml", "url = \"https://abc123def456ghi@git.example/x\"\n"},
+		"token flag":            {"config.toml", "[mcp_servers.x]\nargs = [\"--token\", \"abc123def456\"]\n"},
+		"password flag":         {"config.toml", "[mcp_servers.x]\nargs = [\"--password=hunter2pass\"]\n"},
+		"dsn password":          {"config.toml", "dsn = \"host=db user=app password=hunter2pass\"\n"},
+		"passwd key":            {"config.toml", "passwd = \"hunter2pass\"\n"},
+		"xai key":               {"config.toml", "note = \"xai-abcdefghijklmnopqrstuvwxyz\"\n"},
+		"stripe key":            {"config.toml", "note = \"sk_live_abcdefghijklmnop\"\n"},
+		"jwt":                   {"config.toml", "note = \"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcdefghij\"\n"},
+		"pem key": {
+			"config.toml",
+			"pem = \"-----BEGIN PRIVATE KEY-----\\nMIIEv\\n-----END PRIVATE KEY-----\"\n",
+		},
+	}
+	for name, tc := range refused {
+		t.Run("refuses "+name, func(t *testing.T) {
+			if _, ok := SanitizeConfig(
+				[]byte(tc.content),
+				SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+			); ok {
+				t.Errorf("SanitizeConfig accepted %s", tc.content)
+			}
+		})
+	}
+
+	accepted := map[string]struct{ path, content string }{
+		"placeholdered header": {
+			"settings.json",
+			`{"env":{"OTEL_EXPORTER_OTLP_HEADERS":"Authorization=Bearer ${OTEL_TOKEN}"}}`,
+		},
+		"placeholdered api key": {"settings.json", `{"env":{"ANTHROPIC_CUSTOM_HEADERS":"x-api-key: ${X_API_KEY}"}}`},
+		"prose basic":           {"opencode.json", `{"agent":{"x":{"prompt":"Only implement basic functionality"}}}`},
+		"prose bearer": {
+			"opencode.json",
+			`{"agent":{"x":{"prompt":"The API uses bearer authentication and an api-key: header"}}}`,
+		},
+		"permission with $TOKEN": {
+			"settings.json",
+			`{"permissions":{"allow":["Bash(curl -H 'Authorization: Bearer $TOKEN':*)"]}}`,
+		},
+		"ordinary env entries": {
+			"opencode.json",
+			`{"mcp":{"py":{"environment":{"PYTHONPATH":"/opt/lib","PATH":"/usr/bin",` +
+				`"HOME":"/home/dev","NODE_OPTIONS":"--max-old-space-size=4096","AWS_PROFILE":"dev","ANTHROPIC_VERTEX_PROJECT_ID":"proj-1",` +
+				`"OTEL_EXPORTER_OTLP_PROTOCOL":"http/protobuf","OTEL_METRICS_EXPORTER":"otlp","GITHUB_TOOLSETS":"repos,issues",` +
+				`"GIT_AUTHOR_NAME":"Dev","SSH_KEY_PATH":"/home/dev/.ssh/id","GOOGLE_APPLICATION_CREDENTIALS":"/home/dev/gcp.json"}}}}`,
+		},
+		"opencode env reference": {
+			"opencode.json",
+			`{"provider":{"anthropic":{"options":{"apiKey":"{env:ANTHROPIC_API_KEY}"}}}}`,
+		},
+		"opencode file ref": {
+			"opencode.json",
+			`{"provider":{"x":{"options":{"apiKey":"{file:~/.secrets/key}"}}}}`,
+		},
+		"max tokens":        {"settings.json", `{"env":{"MAX_THINKING_TOKENS":"31999"},"maxTokens":4096}`},
+		"url without query": {"opencode.json", `{"mcp":{"s":{"url":"https://server.example/mcp"}}}`},
+		"content type header": {
+			"opencode.json",
+			`{"mcp":{"x":{"headers":{"Content-Type":"application/json","anthropic-beta":"x-2025"}}}}`,
+		},
+		"risk word": {"opencode.json", `{"agent":{"x":{"prompt":"run the risk-assessment-tool"}}}`},
 	}
 	for name, tc := range accepted {
 		t.Run("accepts "+name, func(t *testing.T) {

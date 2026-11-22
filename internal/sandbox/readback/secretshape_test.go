@@ -11,7 +11,7 @@ func TestLooksLikeSecretValue(t *testing.T) {
 		"proxy userinfo":         "http://alice:s3cret@proxy.corp:3128",
 		"git url userinfo":       "https://oauth2:glpat-abcdefghij@gitlab.example/x.git",
 		"anthropic key":          "sk-ant-api03-abcdefghijkl",
-		"openai key in command":  "echo sk-proj-abcdefghijklmnop",
+		"openai key in command":  "echo sk-proj-abc123def456ghij",
 		"github pat":             "ghp_abcdefghijklmnopqrstuvwxyz0123",
 		"github fine-grained":    "github_pat_11ABCDEFG0123456789_abcdef",
 		"slack token":            "xoxb-123456789012-abcdefghijkl",

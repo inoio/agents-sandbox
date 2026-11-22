@@ -65,21 +65,30 @@ same check, so it never copies a host config file the merge would not read.
 
 - a non-reference string under a **secret-shaped key** the credential walk did not name, directly or inside a nested
   array or object. A key is secret-shaped when a camelCase/separator-aware segment is one of `KEY`, `TOKEN`, `SECRET`,
-  `PASSWORD`, `AUTHORIZATION`, `CREDENTIAL`, `APIKEY`, `ACCESSKEY`, `PRIVATEKEY`, `AUTHTOKEN`, `PAT`, or a plural of
-  one;
-- a **secret-shaped value** under any key: a header credential (`authorization:`, `x-api-key:`, `Bearer …`,
-  `Basic …`), a URL with `user:password@`, or a token with a well-known vendor prefix (`sk-`, `ghp_`, `github_pat_`,
-  `xox?-`, `AKIA…`, `glpat-`, `AIza…`), also inside a command such as a hook or `apiKeyHelper`;
-- an entry of an **env table** (a key `env` or `environment`, at any depth, e.g. Claude Code's `settings.json` or an
-  MCP server's env) that is not known to be configuration. Env tables carry keys under names no rule can enumerate,
-  so their entries are secret by default; an entry is cleared only when its value is a reference, a number or boolean
-  word, or empty, or its key is a known configuration name (`*_URL`, `*_ENDPOINT`, `*_HOST`, `*_PORT`, `*_MODEL`,
-  `*_REGION`, `*_VERSION`, `*_TIMEOUT*`, `*_LEVEL`, `*_MODE`, `*_DIR`, `*_PATH`, `DISABLE_*`, `ENABLE_*`, `NO_*`,
-  `USE_*`, `SKIP_*`, the proxy variables, …), and its value is not secret-shaped.
+  `PASSWORD`, `PASS`, `PASSWD`, `PWD`, `AUTHORIZATION`, `CREDENTIAL`, `APIKEY`, `ACCESSKEY`, `PRIVATEKEY`,
+  `AUTHTOKEN`, or a plural of one; `AUTH`, `COOKIE` and `SESSION` count only for a key holding a string directly,
+  since they also name tables of settings. A number or boolean word is no raw value only under a token count
+  (`MAX_THINKING_TOKENS: "31999"`), never under a password, PIN, or key;
+- a **secret-shaped value** under any key, in the decoded document or anywhere in the raw text (a comment is copied
+  verbatim): a credential header with a literal token (`authorization:`, `x-api-key:`, `x-auth-token:`, `Bearer …`,
+  `Basic …` with a digit or padding), a URL with userinfo, a credential in a query string or a `password=` connection
+  string, a credential command-line flag (also as separate list elements, `["--token", "…"]`), a JWT, a PEM private
+  key, or a token with a well-known vendor prefix (`sk-`, `sk_live_`, `ghp_`, `github_pat_`, `xox?-`, `AKIA`/`ASIA`,
+  `glpat-`, `AIza`, `xai-`, `hf_`, `gsk_`, `npm_`, `pypi-`);
+- an entry of an **env table** (`env`, `environment`) or a **header table** (`headers`, `http_headers`), at any depth,
+  that is not known to be harmless. Such tables carry credentials under names no rule can enumerate, so their entries
+  are secret by default and are judged by the table's rule alone. An entry is cleared when its value is an explicit
+  reference (`${…}`, `{env:…}`, `{file:…}` — a bare word is a literal here), empty, a filesystem path, a value whose
+  only credential parts are placeholders, a number or boolean under a key that names no stored secret, or its name is
+  known configuration (env: `*_URL`, `*_ENDPOINT`, `*_HOST`, `*_PORT`, `*_MODEL`, `*_REGION`, `*_VERSION`,
+  `*_TIMEOUT*`, `*_LEVEL`, `*_MODE`, `*_DIR`, `*PATH`, `*_OPTIONS`, `*_PROFILE`, `*_PROJECT*`, `*_NAME`, `*_PROTOCOL`,
+  `*_EXPORTER`, `DISABLE_*`, `ENABLE_*`, `NO_*`, `USE_*`, `SKIP_*`, the proxy variables; headers: `Content-Type`,
+  `Accept*`, `User-Agent`, `anthropic-beta`, …), and its value is not secret-shaped.
 
-A number or boolean word is never a raw value, so `maxTokens: 4096` and `MAX_THINKING_TOKENS: "31999"` stay allowed
-while `tokens: ["sk-…"]` refuses. The rule is deliberately conservative: an unknown env entry refuses the file rather
-than risk a missed credential, so a refused file stays in the sandbox and is not seeded or written back.
+A YAML file with more than one document is refused, because the decoder reads only the first. The rule is
+deliberately conservative: an unknown entry refuses the file rather than risk a missed credential, so a refused file
+stays in the sandbox. It remains a heuristic: a raw value under an unmarked key outside these tables, or a duplicated
+JSON key whose first occurrence holds the raw value, is not caught. The refusal does not yet name the key (#790).
 
 A candidate whose path matches a **declared credential-store pattern** is excluded by the pattern alone, independently
 of whether that store is a login for the current agent: `readback.IsCredentialStorePath` tests the pattern

@@ -40,8 +40,9 @@ Before the menu, agents-sandbox shows one consent sentence:
 > offers to save what it needed.
 
 Either learning choice runs the session described on this page. "Learn from my host setup" copies your host config as
-placeholders, never raw credentials. A file that still holds something that looks like a credential it cannot replace
-(a header value, a URL with a password, a token in a command, or an unknown entry in an `env` table) is left out whole. "Configure it myself" is the only choice that turns on
+placeholders, never credentials it recognises. A file that still holds something that looks like a credential it
+cannot replace (a header value, a URL with a password, a token in a command or a comment, or an unknown entry in an
+`env` or `headers` table) is left out whole. "Configure it myself" is the only choice that turns on
 [drop-in provisioning]({% link configuration/agent.md %}#drop-in-provisioning-opt-in), and it warns first.
 
 The choice is recorded, so later runs start the agent directly. It returns if you change your host agent config.

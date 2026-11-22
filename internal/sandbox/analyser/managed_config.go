@@ -142,7 +142,7 @@ func (f ManagedConfigFacts) sanitize(
 	})
 	if !ok {
 		f.warnf(
-			"skipping managed agent config %s: a credential cannot be replaced by a placeholder",
+			"skipping managed agent config %s: it holds a credential that cannot be replaced by a placeholder",
 			configPath,
 		)
 		return "", false

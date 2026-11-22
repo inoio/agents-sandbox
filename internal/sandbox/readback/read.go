@@ -729,6 +729,8 @@ func derivedEnvVarName(provider string) string {
 func isReferenceValue(value string) bool {
 	trimmed := strings.TrimSpace(value)
 	return strings.HasPrefix(trimmed, "${") ||
+		strings.HasPrefix(trimmed, "{env:") ||
+		strings.HasPrefix(trimmed, "{file:") ||
 		strings.HasPrefix(trimmed, "!") ||
 		isEnvVarIdentifier(trimmed)
 }

@@ -1,6 +1,7 @@
 package readback
 
 import (
+	"regexp"
 	"slices"
 	"strings"
 	"unicode"
@@ -75,9 +76,19 @@ func SanitizeConfig(content []byte, params SanitizeParams) (string, bool) {
 // true, so a secret cannot hide behind an undecodable document; an unknown
 // format reports false.
 func holdsUndeclaredSecretValue(path, content string) bool {
+	// The raw text is scanned for secret-shaped values too: a comment never
+	// reaches the decoded walk but is copied verbatim.
+	if looksLikeSecretValue(content) {
+		return true
+	}
 	format, ok := configdecode.FormatFor(path)
 	if !ok {
 		return false
+	}
+	// The decoder reads only a YAML stream's first document, so a later one
+	// cannot be checked and the file is refused.
+	if format == configdecode.FormatYAML && yamlDocumentSeparator.MatchString(content) {
+		return true
 	}
 	decoded, err := configdecode.Decode(format, []byte(content))
 	if err != nil {
@@ -85,6 +96,9 @@ func holdsUndeclaredSecretValue(path, content string) bool {
 	}
 	return decodedHoldsUndeclaredSecretValue(decoded)
 }
+
+// yamlDocumentSeparator matches a YAML document separator after the first line.
+var yamlDocumentSeparator = regexp.MustCompile(`\n---(\s|$)`)
 
 // substituteCredentialValues replaces each credential's value in content. The
 // default form replaces every occurrence of the value with its ${ENVVAR}
@@ -331,8 +345,39 @@ func isKeyChar(b byte) bool {
 // secret. Each marker matches both the singular and the plural segment, because
 // a secret list is routinely spelled in the plural (tokens, apiKeys).
 var secretShapedKeyMarkers = []string{
-	"KEY", "TOKEN", "SECRET", "PASSWORD", "AUTHORIZATION", "CREDENTIAL",
-	"APIKEY", "ACCESSKEY", "PRIVATEKEY", "AUTHTOKEN", "PAT",
+	"KEY", tokenCountMarker, "SECRET", "PASSWORD", "PASS", "PASSWD", "PWD", "AUTHORIZATION", "CREDENTIAL",
+	"APIKEY", "ACCESSKEY", "PRIVATEKEY", "AUTHTOKEN",
+}
+
+// tokenCountMarker is the one marker that also names a count (max tokens), so a
+// number under it is not a secret.
+const tokenCountMarker = "TOKEN"
+
+// leafSecretKeyMarkers mark a key as secret only when it holds a string
+// directly: "auth", "cookie" or "session" also name tables of settings (Qwen
+// Code's security.auth.selectedType), whose values are not credentials.
+var leafSecretKeyMarkers = []string{"AUTH", "COOKIE", "SESSION"}
+
+// namesAStoredSecret reports whether key names a secret that can be a number
+// (a password, a PIN, a key) rather than only a token count: every secret
+// marker except TOKEN.
+func namesAStoredSecret(key string) bool {
+	return slices.ContainsFunc(keySegments(key), func(segment string) bool {
+		marker := strings.TrimSuffix(segment, "S")
+		return marker != tokenCountMarker && (slices.Contains(secretShapedKeyMarkers, marker) || marker == "PIN")
+	})
+}
+
+// leafSecretKeyLeaksValue reports whether a key with a leaf-only marker holds a
+// raw string directly.
+func leafSecretKeyLeaksValue(key string, value any) bool {
+	text, isString := value.(string)
+	if !isString || !slices.ContainsFunc(keySegments(key), func(segment string) bool {
+		return slices.Contains(leafSecretKeyMarkers, segment)
+	}) {
+		return false
+	}
+	return isUndeclaredSecretValue(text, false)
 }
 
 // looksLikeSecretShapedKey reports whether key names a secret, matching the
@@ -409,7 +454,7 @@ func decodedHoldsUndeclaredSecretValue(node any) bool {
 			}
 		}
 	case []any:
-		return slices.ContainsFunc(typed, decodedHoldsUndeclaredSecretValue)
+		return argumentsLeakValue(typed) || slices.ContainsFunc(typed, decodedHoldsUndeclaredSecretValue)
 	case string:
 		return looksLikeSecretValue(typed)
 	}
@@ -420,7 +465,11 @@ func decodedHoldsUndeclaredSecretValue(node any) bool {
 // secret-shaped key holding one, an env table holding an entry not known to be
 // configuration, or a secret-shaped value anywhere below it.
 func entryLeaksValue(key string, child any) bool {
-	return secretKeyLeaksValue(key, child) || envTableLeaksValue(key, child) ||
+	if isSecretTable(key, child) {
+		// An env or header table's entries are judged by its own rule alone.
+		return tableLeaksValue(key, child)
+	}
+	return secretKeyLeaksValue(key, child) || leafSecretKeyLeaksValue(key, child) ||
 		decodedHoldsUndeclaredSecretValue(child)
 }
 
@@ -429,41 +478,42 @@ func entryLeaksValue(key string, child any) bool {
 // scalar. An array or object under the key leaks when any descendant string is a
 // raw secret, so a list such as {"apiKeys":["sk-raw"]} is refused.
 func secretKeyLeaksValue(key string, value any) bool {
-	return looksLikeSecretShapedKey(key) && holdsRawSecretString(value)
+	return looksLikeSecretShapedKey(key) && holdsRawSecretString(value, !namesAStoredSecret(key))
 }
 
 // holdsRawSecretString reports whether node is, or contains at any depth, a
 // non-empty string that is not a reference. It threads the secret-shaped key's
 // context through its descendants so a collection under the key is inspected,
 // not only a direct string value.
-func holdsRawSecretString(node any) bool {
+func holdsRawSecretString(node any, allowNumbers bool) bool {
 	switch typed := node.(type) {
 	case []any:
-		return slices.ContainsFunc(typed, holdsRawSecretString)
+		return slices.ContainsFunc(typed, func(child any) bool { return holdsRawSecretString(child, allowNumbers) })
 	case map[string]any:
 		for _, child := range typed {
-			if holdsRawSecretString(child) {
+			if holdsRawSecretString(child, allowNumbers) {
 				return true
 			}
 		}
 	case map[any]any:
 		for _, child := range typed {
-			if holdsRawSecretString(child) {
+			if holdsRawSecretString(child, allowNumbers) {
 				return true
 			}
 		}
 	default:
-		return isUndeclaredSecretValue(typed)
+		text, _ := typed.(string)
+		return isUndeclaredSecretValue(text, allowNumbers)
 	}
 	return false
 }
 
-// isUndeclaredSecretValue reports whether node is a non-empty string that is not
-// a reference or a number/boolean (MAX_THINKING_TOKENS: "31999"), so it would be
-// a raw secret under a secret-shaped key.
-func isUndeclaredSecretValue(node any) bool {
-	value, _ := node.(string)
-	if strings.TrimSpace(value) == "" || isNonSecretScalar(value) {
+// isUndeclaredSecretValue reports whether value is a non-empty string that is
+// not a reference, so it would be a raw secret under a secret-shaped key. With
+// allowNumbers, a number or boolean word is not one either: under a token count
+// (MAX_THINKING_TOKENS: "31999"), never under a password, PIN, or key.
+func isUndeclaredSecretValue(value string, allowNumbers bool) bool {
+	if strings.TrimSpace(value) == "" || (allowNumbers && isNonSecretScalar(value)) {
 		return false
 	}
 	return !isReferenceValue(value)
