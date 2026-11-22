@@ -225,7 +225,9 @@ type ConfigFiles struct {
 	Modes       map[string]os.FileMode  // VM absolute path -> ordinary file permission bits
 	Remove      []string                // VM absolute paths to delete before writing
 	Hooks       []homeconfig.HookSpec   // startup hooks to run at vm.SetUpSandbox
-	Keys        []string                // merged config path first (when snippets exist), then the remaining VM paths sorted
+	// StateDefaults are keys merged into the agent's own state files.
+	StateDefaults []StateDefault
+	Keys          []string // merged config path first (when snippets exist), then the remaining VM paths sorted
 }
 
 // configSubject materializes the agent facts the config pipeline needs, derived
@@ -363,19 +365,20 @@ func LoadConfigFilesForHost(
 		)
 	}
 	return &ConfigFiles{
-		HasSnippets: merged.hasSnippets,
-		Merged:      merged.content,
-		MergedPath:  merged.path,
-		Sources:     merged.sources,
-		Skipped:     merged.skipped,
-		Source:      src,
-		HomeFiles:   homeFiles,
-		Provisioned: provisioned,
-		Mirror:      mirror,
-		Modes:       modes,
-		Remove:      remove,
-		Hooks:       hooks,
-		Keys:        keys,
+		HasSnippets:   merged.hasSnippets,
+		Merged:        merged.content,
+		MergedPath:    merged.path,
+		Sources:       merged.sources,
+		Skipped:       merged.skipped,
+		Source:        src,
+		HomeFiles:     homeFiles,
+		Provisioned:   provisioned,
+		Mirror:        mirror,
+		Modes:         modes,
+		Remove:        remove,
+		Hooks:         hooks,
+		Keys:          keys,
+		StateDefaults: stateDefaultsFor(a.Profile, vmHome),
 	}, nil
 }
 

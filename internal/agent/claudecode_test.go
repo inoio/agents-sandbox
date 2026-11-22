@@ -137,3 +137,27 @@ func TestClaudeCodeHasUpgradeCheckerNoDaemonNoWorktree(t *testing.T) {
 		t.Error("claude-code must not implement WorktreeProvider")
 	}
 }
+
+func TestClaudeCodePreAcceptsTheWorkspaceTrust(t *testing.T) {
+	a, _ := agent.Lookup("claude-code")
+	defaulter, ok := agent.AsStateDefaulter(a)
+	if !ok {
+		t.Fatal("claude-code should implement StateDefaulter")
+	}
+	defaults := defaulter.StateDefaults()
+	if len(defaults) != 1 || defaults[0].Path != ".claude.json" {
+		t.Fatalf("StateDefaults = %+v, want one default for .claude.json", defaults)
+	}
+	projects, _ := defaults[0].Keys["projects"].(map[string]any)
+	workspace, _ := projects["/workspace"].(map[string]any)
+	if workspace["hasTrustDialogAccepted"] != true {
+		t.Errorf("Keys = %v, want projects./workspace.hasTrustDialogAccepted true", defaults[0].Keys)
+	}
+}
+
+func TestOnlyAgentsWithStateDefaultsImplementStateDefaulter(t *testing.T) {
+	codex, _ := agent.Lookup("codex")
+	if _, ok := agent.AsStateDefaulter(codex); ok {
+		t.Error("codex declares no state defaults")
+	}
+}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"path/filepath"
 	"strings"
+
+	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 )
 
 // claudeCodeName is the canonical registry name of the claude-code agent.
@@ -56,6 +58,18 @@ func (claudeCodeProfile) ReadBackPaths() []string {
 }
 
 func (claudeCodeProfile) CredentialProbes() []string { return nil }
+
+// StateDefaults pre-accepts Claude Code's folder-trust question for the
+// workspace in ~/.claude.json, its state file: the user chose the directory on
+// the host, and the VM is the isolation boundary.
+func (claudeCodeProfile) StateDefaults() []StateDefault {
+	return []StateDefault{{
+		Path: ".claude.json",
+		Keys: map[string]any{"projects": map[string]any{
+			mounts.WorkspaceMountPath: map[string]any{"hasTrustDialogAccepted": true},
+		}},
+	}}
+}
 
 func (claudeCodeProfile) AttachCommand(_ string, args []string) string {
 	parts := []string{"claude"}

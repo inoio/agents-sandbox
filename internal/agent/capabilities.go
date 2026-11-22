@@ -144,6 +144,24 @@ type Provisioner interface {
 	ProvisionRules() []ProvisionRule
 }
 
+// StateDefault names keys the launcher sets in one of the agent's own state
+// files when they are missing, merged into whatever the agent keeps there.
+type StateDefault struct {
+	// Path is the state file's path relative to the home.
+	Path string
+	// Keys are set at their nested position; tables merge key by key.
+	Keys map[string]any
+}
+
+// StateDefaulter is implemented by an agent whose own state file needs
+// launcher-set keys, such as a pre-accepted trust decision for the workspace.
+type StateDefaulter interface {
+	StateDefaults() []StateDefault
+}
+
+// AsStateDefaulter returns the agent's StateDefaulter, if it implements one.
+func AsStateDefaulter(a Agent) (StateDefaulter, bool) { p, ok := a.(StateDefaulter); return p, ok }
+
 // AsDaemonProvider returns the agent's DaemonProvider, if it implements one.
 func AsDaemonProvider(a Agent) (DaemonProvider, bool) {
 	p, ok := a.(DaemonProvider)
