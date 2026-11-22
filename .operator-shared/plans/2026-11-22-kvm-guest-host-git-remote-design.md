@@ -1,8 +1,8 @@
 # KVM-guest git against the host — design
 
 > Status: design, approved 2026-11-22; revised the same day after PR #831 (`feat/kvm-guest-gh`) merged
-> into `main`. Not yet implemented. When built, the durable how-to folds into
-> `.operator-shared/guides/kvm-guest.md` and this design is retired.
+> into `main`. Implemented in PR #843; the durable how-to is folded into
+> `.operator-shared/guides/kvm-guest.md` ("Git transport"), so this design is retired.
 
 ## Intent and why
 
