@@ -95,7 +95,7 @@ func TestSpinnerColorDrawsAnimationFrameUntilFinished(t *testing.T) {
 
 	var stderr bytes.Buffer
 	s := newSpinner(&stderr, true, LevelInfo, "step")
-	time.Sleep(5 * spinnerInterval)
+	time.Sleep(5 * spinnerInterval) //testenv:allow the animation-frame cadence is the behavior under test
 	s.finish("done")
 	if want := "\r\033[Kstep " + spinnerChars[0] + "(0s)"; !strings.Contains(stderr.String(), want) {
 		t.Errorf("expected first frame %q in output, got %q", want, stderr.String())
