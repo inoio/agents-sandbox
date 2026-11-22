@@ -106,6 +106,27 @@ func TestFirstRunMenuLogsSeededSecrets(t *testing.T) {
 	)
 }
 
+// TestFirstRunMenuLogsCopiedInstructionFiles pins that an instruction-only seed
+// (a claude-code host with a CLAUDE.md and a skill) says how many instruction
+// files it copied and where, though it migrates no secret.
+func TestFirstRunMenuLogsCopiedInstructionFiles(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	writeFirstRunHostConfig(t, "claude", "CLAUDE.md", "# rules\n")
+	writeFirstRunHostConfig(t, "claude/skills/deploy", "SKILL.md", "# deploy\n")
+
+	ui := &termiotest.Mock{IsInteractiveResult: true}
+	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		return "learn-from-host", nil
+	}
+
+	err := firstRunMenu(ui, &options.RunOptions{}, "widget-abc", "claude-code")
+
+	require.NoError(t, err)
+	managedDir := filepath.Join(configpaths.Get().UserSlugConfigDir("widget-abc"), "claude")
+	require.Contains(t, ui.InfoCalls, "first-run setup: copied 2 instruction file(s) into "+managedDir)
+	require.False(t, containsSubstring(ui.InfoCalls, "secret"), "info messages = %v, want no secret note", ui.InfoCalls)
+}
+
 // TestFirstRunMenuDoesNotRecordWhenNotOffered pins that a menu the user was not
 // shown leaves no decision behind: a non-interactive run that skips the prompt
 // must not record a first-run choice (which would suppress a future prompt).

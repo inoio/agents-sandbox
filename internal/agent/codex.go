@@ -106,3 +106,10 @@ func (codexProfile) VersionCmd() string { return "codex --version" }
 func (codexProfile) ParseVersion(stdout string) (string, error) {
 	return extractSemverFromOutput(stdout)
 }
+
+// InstructionPaths declares the credential-free files the host seed copies: the
+// global AGENTS.md (and its override) and the skill tree, the instruction files
+// codex reads from CODEX_HOME.
+func (codexProfile) InstructionPaths() []string {
+	return []string{agentsRulesFileName, "AGENTS.override.md", skillsDirName}
+}

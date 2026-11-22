@@ -44,15 +44,20 @@ the seed would read, and their source hash. `Facts` holds no credential value �
 The menu is offered only on a full `run` attach: `shell` starts no learning session and `run --serve-only` returns before
 the after-run, so neither offers it. `HostFiles` and the offer are computed from exactly the files the seed would read, so
 a host file the seed skips (a login store, a non-config format, a name the agent's merge never reads) neither offers the
-host-seed choice nor re-arms the decision. A managed config layer in any scope the merge reads (generic user, per-slug
-user, project) counts, not just the per-slug scope.
+host-seed choice nor re-arms the decision. The agent's instruction files (`InstructionFiles`) also count as a host
+setup for the offer, so a claude-code host whose `settings.json` is withheld but which has a `CLAUDE.md` or `skills/` is
+offered the seed; they are kept out of `HostSourceHash`, so editing one never re-arms the decision. A managed config layer
+in any scope the merge reads (generic user, per-slug user, project) counts, not just the per-slug scope. A managed config
+dir holding only the agent's top-level instruction files (and instruction trees, which were never counted) is **not** a
+managed config layer: a seeded `CLAUDE.md` configures nothing, so the recorded decision, not those files, keeps later runs
+quiet.
 
 **The menu (`Prompt`, on `termio.Prompter.Select`).** One consent sentence, then the choices:
 
 - **Learn by using it** — the recommended choice when the host has no agent config; starts a learning session with no
   host seed (UC1).
-- **Learn from my host setup** — offered only when the host has agent config, and recommended in that case; seeds the
-  per-slug scope from the host config, then starts the same learning session (UC4).
+- **Learn from my host setup** — offered only when the host has agent config or instruction files, and recommended in
+  that case; seeds the per-slug scope from the host config, then starts the same learning session (UC4).
 - **Configure it myself** — configures by hand. It is the only choice that turns on host-config provisioning
   (`provision-host-config: true`), and only after an explicit confirmation warning that provisioning copies host
   credentials into the sandbox.
@@ -84,6 +89,24 @@ the agent's existing provision rules, classifies each credential, writes a place
 agent's snippet pattern merges to the per-slug managed config and each static value to the per-slug `env.secret.yaml`,
 skips (and reports) a config file the merge would never read, and never copies a login store (and
 refuses a file that still holds an unclassified secret value).
+
+The seed also copies the agent's instruction files verbatim into the per-slug managed agent config dir, at the same path
+relative to the directory of the agent's VM config file, so the config-dir mirror carries them into the VM. The set is an
+explicit per-agent allowlist (`agent.InstructionSeeder`), independent of the provision rules, so it never snapshots a
+whole config tree. Within it only Markdown files are copied (no scripts, no lockfiles), and `.git/` and `node_modules/`
+are never descended into. Every copied path must resolve inside the host home (not to the home itself): a symlink into
+a dotfiles checkout in the home is followed, one leaving it or dangling is skipped and reported, and a file keeps its
+path under the allowlist entry while it is read from its resolved path.
+Each top-level directory of a skills tree is one unit, copied whole or not at all: a skill holding a non-Markdown file
+is skipped and reported (the drop-in is the path for it). The copy admits whole units in sorted order up to 200 files
+and 2 MiB. Free text is outside the structured credential walk, so a file is refused, never copied, when any line looks
+like a literal credential: a secret-shaped value or a literal assigned to a secret-named variable
+(`readback.TextLeaksSecret`). Refused, unreadable, and over-cap files are reported in the seed's error like any other
+skipped file, which names at most 10 paths per reason.
+
+The seed is a one-time copy: later host edits do not follow. The managed copy is mirrored and so takes precedence over a
+drop-in copy of the same path (kimi-code and mistral-vibe provision the same files); the user edits it in the managed
+dir, or deletes it to fall back to the drop-in.
 
 ## `config harden`
 

@@ -150,3 +150,9 @@ func (mistralVibeProfile) VersionCmd() string { return "vibe --version" }
 func (mistralVibeProfile) ParseVersion(stdout string) (string, error) {
 	return extractSemverFromOutput(stdout)
 }
+
+// InstructionPaths declares the credential-free files the host seed copies:
+// the user instructions and the agent, prompt, and skill trees.
+func (mistralVibeProfile) InstructionPaths() []string {
+	return []string{agentsRulesFileName, agentsDirName, promptsDirName, skillsDirName}
+}
