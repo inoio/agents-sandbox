@@ -387,7 +387,7 @@ func (s loginCredentialStore) appliesTo(agentName string) bool {
 // fresh database never imports the file, so reporting it as an opencode2 login
 // would be a false positive.
 var loginCredentialStores = []loginCredentialStore{
-	{pattern: ".claude/settings.json", provider: "claude-code"},
+	{pattern: ".claude/.credentials.json", provider: "claude-code"},
 	{pattern: ".codex/auth.json", provider: "codex"},
 	{pattern: ".local/share/opencode/auth.json", provider: "opencode", agents: []string{"opencode"}},
 	{pattern: ".pi/agent/auth.json", provider: "pi"},
@@ -412,7 +412,8 @@ func loginStoreFor(key string) (loginCredentialStore, bool) {
 
 // SkipsInlineCredentials reports whether the declared config file at path is
 // excluded from the inline-credential walk: it is the dotenv (a value store,
-// not a provider config), or it is a declared login credential store, whose
+// not a provider config), an unclassified config file, or a declared login
+// credential store, whose
 // value is never read even when the store is shaped like a provider entry and
 // would otherwise be classified. path is matched as either a
 // sandbox-home-relative key (the read-back's spelling) or a host path under a
@@ -422,11 +423,31 @@ func loginStoreFor(key string) (loginCredentialStore, bool) {
 // both match. It is the one exclusion both the read-back and the config finder
 // consult.
 func SkipsInlineCredentials(path string) bool {
-	if filepath.Base(path) == dotenvFileName {
+	if filepath.Base(path) == dotenvFileName || isUnclassifiedConfigFile(path) {
 		return true
 	}
 	_, isStore := credentialStoreForPath(path)
 	return isStore
+}
+
+// unclassifiedConfigFiles are agent config files that can hold credentials in
+// shapes the inline walk does not classify, so they are never seeded from the
+// host and never walked: claude-code's settings.json carries API keys in its
+// env table and in values with no secret-looking key (custom auth headers, a
+// proxy URL with userinfo, hook commands, apiKeyHelper). It is configuration,
+// not a login store, but a missed shape would reach managed config verbatim.
+var unclassifiedConfigFiles = []string{".claude/settings.json"}
+
+// isUnclassifiedConfigFile reports whether path is an unclassified config file,
+// matched by its trailing elements like a login store.
+func isUnclassifiedConfigFile(path string) bool {
+	segments := strings.Split(filepath.ToSlash(path), "/")
+	for _, file := range unclassifiedConfigFiles {
+		if matchesStoreTail(strings.Split(strings.TrimPrefix(file, "."), "/"), segments) {
+			return true
+		}
+	}
+	return false
 }
 
 // credentialStoreForPath returns the login store whose pattern matches path,

@@ -84,8 +84,8 @@ func TestManagedConfigReplacesStaticSecretValues(t *testing.T) {
 // it authored, so no finding is emitted for it.
 func TestManagedConfigSkipsLoginStores(t *testing.T) {
 	home := t.TempDir()
-	const loginPath = ".claude/settings.json"
-	writeManagedConfig(t, home, loginPath, `{"oauthAccount": {"accessToken": "sk-login"}}`)
+	const loginPath = ".claude/.credentials.json"
+	writeManagedConfig(t, home, loginPath, `{"claudeAiOauth": {"accessToken": "sk-login"}}`)
 
 	readBack := readback.ReadBack{
 		ConfigPaths: []string{loginPath},

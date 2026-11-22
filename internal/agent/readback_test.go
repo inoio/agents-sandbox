@@ -15,7 +15,7 @@ func TestReadBackPaths(t *testing.T) {
 		"opencode":     {".config/opencode/*", ".local/share/opencode/auth.json"},
 		"opencode2":    {".config/opencode/*", ".local/share/opencode/auth.json"},
 		"codex":        {".codex/auth.json"},
-		"claude-code":  {".claude/settings.json"},
+		"claude-code":  {".claude/.credentials.json"},
 		"hermes":       {".hermes/config.yaml", ".hermes/.env"},
 		"kimi-code":    {".kimi-code/config.toml", ".kimi-code/mcp.json", ".kimi-code/credentials/*.json"},
 		"qwen-code":    {".qwen/oauth_creds.json", ".qwen/mcp-oauth-tokens.json"},

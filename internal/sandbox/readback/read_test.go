@@ -17,14 +17,16 @@ import (
 
 func TestReadClassifiesStaticAndLogin(t *testing.T) {
 	home := t.TempDir()
-	// claude-code: a settings.json login entry → Login, value never read
-	writeFile(t, home, ".claude/settings.json", `{"oauthAccount":{"email":"x"}}`)
+	// claude-code: its OAuth login lives in .credentials.json → Login, value
+	// never read; settings.json is withheld, so its env key is not read either.
+	writeFile(t, home, ".claude/.credentials.json", `{"claudeAiOauth":{"accessToken":"never-read"}}`)
+	writeFile(t, home, ".claude/settings.json", `{"env":{"ANTHROPIC_API_KEY":"sk-not-read"}}`)
 	rb, err := Read(home, "claude-code", Manifest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rb.Static) != 0 || len(rb.Login) == 0 {
-		t.Fatalf("want login only, got %+v", rb)
+	if len(rb.Static) != 0 || len(rb.Login) != 1 || rb.Login[0].Source != ".claude/.credentials.json" {
+		t.Fatalf("want only the .credentials.json login, got %+v", rb)
 	}
 }
 
@@ -1096,8 +1098,10 @@ func TestSkipsInlineCredentialsMatchesLoginStoresByPathTail(t *testing.T) {
 	skipped := []string{
 		".codex/auth.json",
 		"/scope/projectconfig/codex/auth.json",
+		".claude/.credentials.json",
+		"/x/.claude/.credentials.json",
 		".claude/settings.json",
-		"/x/.claude/settings.json",
+		"/x/claude/settings.json",
 		".pi/agent/auth.json",
 		"/x/kimi-code/credentials/foo.json",
 		"/x/opencode/.env",
