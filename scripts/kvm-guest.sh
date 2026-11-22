@@ -516,6 +516,7 @@ agent_provision() {
   ip="$(require_guest_ip)"
   if [ -d "$HOME/.config/agents-sandbox" ]; then
     log "syncing $HOME/.config/agents-sandbox → $VM_USER@$ip"
+    ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" -- "bash -lc 'mkdir -p ~/.config/agents-sandbox'"
     rsync -az --delete "$HOME/.config/agents-sandbox/" "$VM_USER@$ip:.config/agents-sandbox/"
   else
     log "no $HOME/.config/agents-sandbox on this host; the guest will use its project config only"

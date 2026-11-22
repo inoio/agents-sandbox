@@ -197,6 +197,9 @@ func TestKvmGuestAgentProvisionSyncsConfigAndMaterializes(t *testing.T) {
 	assertNotContains(t, "rsync argv", rsyncArgv, ".gitconfig")
 
 	sshArgv := readText(t, sshLog)
+	// The guest config dir must exist before rsync targets it: on a fresh guest
+	// ~/.config does not, and the rsync into it then fails under set -e.
+	assertContains(t, "ssh argv", sshArgv, "mkdir -p ~/.config/agents-sandbox")
 	assertContains(t, "ssh argv", sshArgv, "config provision")
 	assertContains(t, "ssh argv", sshArgv, "--agent opencode2")
 	assertContains(t, "ssh argv", sshArgv, `--target "$HOME"`)
