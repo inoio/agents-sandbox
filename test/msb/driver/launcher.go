@@ -359,7 +359,7 @@ func Quit(ses *Session, spec Spec) (int, error) {
 			return waitExitWithin(ses, deadline, budget, presses, spec)
 		}
 		if err := ses.Write(spec.QuitKey); err != nil {
-			return 0, err
+			return 0, fmt.Errorf("press %#x: %w", spec.QuitKey, err)
 		}
 		code, err := ses.WaitExit(interval)
 		if err == nil {
