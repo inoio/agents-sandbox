@@ -455,12 +455,22 @@ func profilesFromSetting(value any) ([]network.Profile, error) {
 
 // widenedBeyond reports whether profiles names a profile after does not already
 // allow, so a learned scope that kept or narrowed the posture passes.
+//
+// The terminal none profile is a narrowing whatever the baseline: network.
+// checkProfileCombination makes it exclusive, so replacing any profile with none
+// can only shrink egress. That is exactly what the analyser writes when it
+// narrows a broad profile (analyser.ConfigFacts.broadProfileFinding), so the
+// attribution journey's narrowing must pass here even when the run started on
+// public/private.
 func widenedBeyond(profiles []network.Profile, after network.Policy) bool {
 	allowed := make(map[network.Profile]bool, len(after.Profiles))
 	for _, profile := range after.Profiles {
 		allowed[profile] = true
 	}
 	for _, profile := range profiles {
+		if profile == network.ProfileNone {
+			continue
+		}
 		if !allowed[profile] {
 			return true
 		}
