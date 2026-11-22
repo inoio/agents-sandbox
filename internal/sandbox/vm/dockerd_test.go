@@ -389,6 +389,24 @@ func TestStartDockerdIfPresentNeverReady(t *testing.T) {
 	}
 }
 
+// TestStartDockerdIfPresentUsesReadyTimeoutOverride pins that a positive
+// override reaches the readiness wait: with dockerdReadyTimeout left at its
+// test default (200ms), a 50ms override must be the budget the failure names,
+// so a swapped resolvedReadyTimeout argument cannot pass this test.
+func TestStartDockerdIfPresentUsesReadyTimeoutOverride(t *testing.T) {
+	ui := termiotest.NewTestMock(t)
+	sb := newCountingSandbox(1 << 30)
+
+	origInterval := dockerdPollInterval
+	t.Cleanup(func() { dockerdPollInterval = origInterval })
+	dockerdPollInterval = time.Millisecond
+
+	err := startDockerdIfPresent(context.Background(), sb, &ui, 50*time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), "50ms") {
+		t.Fatalf("error = %v, want it to name the 50ms override", err)
+	}
+}
+
 func TestStartDockerdIfPresentProbesBeforeWaiting(t *testing.T) {
 	ui := termiotest.NewTestMock(t)
 	// The pre-detach check fails once; the first post-detach probe is healthy.

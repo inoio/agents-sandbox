@@ -340,6 +340,26 @@ func TestEnsureDaemonFailsAfterTimeout(t *testing.T) {
 	}
 }
 
+// TestEnsureDaemonUsesReadyTimeoutOverride pins that a positive override
+// reaches the readiness wait: with the package default left at fastDaemonPoll's
+// 200ms, a 20ms override must be the budget the failure names, so a swapped
+// resolvedReadyTimeout argument cannot pass this test.
+func TestEnsureDaemonUsesReadyTimeoutOverride(t *testing.T) {
+	testUI := termiotest.NewTestMock(t)
+	fastDaemonPoll(t)
+	seams := options.Seams{DaemonHealth: func(context.Context, msb.Sandbox, string) (string, int, error) {
+		return "", 1, nil
+	}}
+
+	err := ensureDaemon(
+		context.Background(), opencodeResolved(t), false, false, &msbtest.MockSandbox{}, &testUI, seams,
+		20*time.Millisecond,
+	)
+	if err == nil || !strings.Contains(err.Error(), "20ms") {
+		t.Fatalf("error = %v, want it to name the 20ms override", err)
+	}
+}
+
 // TestEnsureDaemonPollingReportsProbeDetail verifies the verbose poll line
 // carries the health probe's outcome (exit code / body), so a daemon that never
 // becomes healthy is diagnosable without guessing.

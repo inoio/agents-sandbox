@@ -42,8 +42,9 @@ project VM otherwise claims every guest vCPU. The parallel-harness count default
 `MSB_GUEST_PARALLEL` (2) when `MSB_PARALLEL` is unset, instead of the host-sized memory heuristic. And the
 readiness/quit ceilings scale (`MSB_GUEST_TIMEOUT_FACTOR`, default 2, passed as
 `AGENTS_SANDBOX_MSB_TIMEOUT_FACTOR`), while the launcher's own VM-setup readiness ceilings are raised
-(`MSB_GUEST_DOCKER_READY_TIMEOUT`/`MSB_GUEST_DAEMON_READY_TIMEOUT`, passed as the `AGENTS_SANDBOX_*` vars),
-because a nested guest starts a VM and its services slower than the fixed host budgets allow.
+(`MSB_GUEST_DOCKER_READY_TIMEOUT`/`MSB_GUEST_DAEMON_READY_TIMEOUT`, default 90s / 180s, forwarded to the
+launcher's `AGENTS_SANDBOX_DOCKER_READY_TIMEOUT`/`AGENTS_SANDBOX_DAEMON_READY_TIMEOUT`), because a nested
+guest starts a VM and its services slower than the fixed host budgets allow.
 `make test-msb` and `make test-msb-cold` are unchanged.
 
 `up` prints the guest's SSH address and a next-steps checklist; cloud-init takes a few minutes on first boot. Once it

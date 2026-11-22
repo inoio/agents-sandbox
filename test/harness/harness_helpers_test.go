@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -228,13 +229,13 @@ func withVMCPUs(args []string, cpus uint8) []string {
 // ceilings that fit a host time out there.
 const smokeTimeoutFactorEnv = "AGENTS_SANDBOX_MSB_TIMEOUT_FACTOR"
 
-// timeoutFactorFromValue parses the timeout factor: a positive float scales the
-// ceilings; anything else (unset, zero, negative, non-numeric) leaves them at
-// 1, so a host run is unchanged. Kept pure so it is testable without the host,
-// like smokeVMCPUsFromValue.
+// timeoutFactorFromValue parses the timeout factor: a positive, finite float
+// scales the ceilings; anything else (unset, zero, negative, NaN, infinite,
+// non-numeric) leaves them at 1, so a host run is unchanged. Kept pure so it is
+// testable without the host, like smokeVMCPUsFromValue.
 func timeoutFactorFromValue(value string) float64 {
 	factor, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
-	if err != nil || factor <= 0 {
+	if err != nil || math.IsNaN(factor) || math.IsInf(factor, 0) || factor <= 0 {
 		return 1
 	}
 	return factor
@@ -351,18 +352,15 @@ func resolveSuiteRoot() (string, bool, func(), error) {
 
 // isolatedEnvKeep lists the inherited variables the child may keep: the
 // terminal and locale settings a TUI needs, the proxy settings any egress
-// uses, the docker endpoint variables the runner-image build needs, and the two
-// launcher readiness-timeout overrides the in-guest run raises. The docker
-// endpoint variables carry a host endpoint, and the timeout overrides carry a
-// duration, not agents-sandbox config or state, so keeping them does not weaken
-// the isolation; dropping HOME, the other XDG_*, AGENTS_SANDBOX_*,
-// OPENCODE_SANDBOX_*, and MSB_* is the point of it.
+// uses, and the docker endpoint variables the runner-image build needs. The
+// docker endpoint variables carry a host endpoint, not agents-sandbox config or
+// state, so keeping them does not weaken the isolation; dropping HOME, XDG_*,
+// AGENTS_SANDBOX_*, OPENCODE_SANDBOX_*, and MSB_* is the point of it.
 var isolatedEnvKeep = []string{
 	"PATH", "TERM", "LANG", "LC_ALL", "LC_CTYPE",
 	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
 	"http_proxy", "https_proxy", "no_proxy",
 	"DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG",
-	"AGENTS_SANDBOX_DOCKER_READY_TIMEOUT", "AGENTS_SANDBOX_DAEMON_READY_TIMEOUT",
 }
 
 // publicNetwork is the `--network` profile a harness that needs egress to
@@ -663,12 +661,37 @@ func (s harnessSpec) readyTimeout() time.Duration {
 	return settledReadyTimeout
 }
 
+// smokeLauncherReadyTimeouts forwards a smoke-suite-namespaced override into
+// the launcher's own config variable name for the child. The suite reads the
+// harness var (set by the in-guest `make test-msb-in-vm` target) and writes the
+// launcher var into the child, so a host run that happens to export the
+// launcher's variable keeps the isolation the allowlist provides: only the
+// suite's own namespace crosses into the child.
+var smokeLauncherReadyTimeouts = []struct{ harness, launcher string }{
+	{"AGENTS_SANDBOX_MSB_DOCKER_READY_TIMEOUT", "AGENTS_SANDBOX_DOCKER_READY_TIMEOUT"},
+	{"AGENTS_SANDBOX_MSB_DAEMON_READY_TIMEOUT", "AGENTS_SANDBOX_DAEMON_READY_TIMEOUT"},
+}
+
+// launcherReadyTimeouts returns the launcher config variables to append to a
+// child environment: for each pair whose smoke-suite variable is set in
+// inheritedByName, the launcher variable with that value.
+func launcherReadyTimeouts(inheritedByName map[string]string) []string {
+	var overrides []string
+	for _, pair := range smokeLauncherReadyTimeouts {
+		if value, ok := inheritedByName[pair.harness]; ok && value != "" {
+			overrides = append(overrides, pair.launcher+"="+value)
+		}
+	}
+	return overrides
+}
+
 // isolatedEnv builds the child environment from inherited: it keeps only the
 // allowlisted variables (defaulting TERM when it is absent, empty, or "dumb"),
-// then appends a private HOME/XDG_*/TMPDIR tree rooted at homeBase, so the child
-// reads and writes no real agents-sandbox config or state. XDG_DATA_HOME stays
-// rooted at root so every harness shares one microsandbox home (the image cache)
-// while keeping its own HOME and config/state/cache dirs.
+// appends the launcher readiness-timeout overrides the suite was given, then a
+// private HOME/XDG_*/TMPDIR tree rooted at homeBase, so the child reads and
+// writes no real agents-sandbox config or state. XDG_DATA_HOME stays rooted at
+// root so every harness shares one microsandbox home (the image cache) while
+// keeping its own HOME and config/state/cache dirs.
 func isolatedEnv(root, homeBase string, inherited []string) []string {
 	inheritedByName := make(map[string]string, len(inherited))
 	for _, entry := range inherited {
@@ -688,6 +711,7 @@ func isolatedEnv(root, homeBase string, inherited []string) []string {
 		}
 	}
 	env = append(env, envTerm+"="+usableTerm(inheritedByName[envTerm]))
+	env = append(env, launcherReadyTimeouts(inheritedByName)...)
 	return append(env,
 		"HOME="+filepath.Join(homeBase, homeDirName),
 		"XDG_CONFIG_HOME="+filepath.Join(homeBase, configDirName),

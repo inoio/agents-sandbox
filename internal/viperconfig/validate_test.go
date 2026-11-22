@@ -28,6 +28,18 @@ func TestValidateCPUsRange(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsNegativeReadyTimeout(t *testing.T) {
+	v := viper.New()
+	v.Set(keyDockerReadyTimeout, -1*time.Second)
+	err := validate(v)
+	if err == nil {
+		t.Fatal("validate() with a negative docker-ready-timeout should fail")
+	}
+	if !strings.Contains(err.Error(), keyDockerReadyTimeout) {
+		t.Errorf("validate() error = %v, want it to name %q", err, keyDockerReadyTimeout)
+	}
+}
+
 func TestValidateDNSServersWrapsCause(t *testing.T) {
 	entryType := viper.New()
 	entryType.Set(keyNetworkDNSServers, 42)

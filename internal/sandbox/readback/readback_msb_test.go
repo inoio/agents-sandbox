@@ -272,7 +272,7 @@ func awaitDaemonHealthy(
 			}
 		}
 		if !time.Now().Before(deadline) {
-			t.Fatalf("%s daemon did not become healthy within %s", readbackAgentName, daemonReadyTimeout)
+			t.Fatalf("%s daemon did not become ready within %s", readbackAgentName, daemonReadyTimeout)
 		}
 		time.Sleep(2 * time.Second)
 	}

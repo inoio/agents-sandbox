@@ -224,10 +224,9 @@ configuration or state. Each run creates one temp root, shared by all subtests, 
   needs (a missing `TMPDIR` fails sandbox creation with `io error: no such file or directory`) — so overlapping runs
   never share a `HOME` or a seeded config, while `XDG_DATA_HOME` stays `<root>/data` so every harness shares one
   microsandbox home (the image cache);
-- the child environment is built from an **allowlist**, dropping inherited `HOME`, `XDG_*`, the other
+- the child environment is built from an **allowlist**, dropping inherited `HOME`, `XDG_*`,
   `AGENTS_SANDBOX_*`, `OPENCODE_SANDBOX_*`, and `MSB_*`; the inherited variables kept include `PATH`, `TERM`, `LANG`,
-  `LC_ALL`, `LC_CTYPE`, the `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` family, and the two launcher readiness-timeout
-  overrides (`AGENTS_SANDBOX_DOCKER_READY_TIMEOUT`, `AGENTS_SANDBOX_DAEMON_READY_TIMEOUT`) the in-guest run raises. It sets
+  `LC_ALL`, `LC_CTYPE`, and the `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` family. It sets
   `HOME=<root>/runs/<name>/home`, `XDG_CONFIG_HOME=<root>/runs/<name>/config`, `XDG_DATA_HOME=<root>/data`,
   `XDG_STATE_HOME=<root>/runs/<name>/state`, `XDG_CACHE_HOME=<root>/runs/<name>/cache`, and
   `TMPDIR=<root>/runs/<name>/tmp`; `TERM` defaults to `xterm-256color` when the
@@ -236,6 +235,11 @@ configuration or state. Each run creates one temp root, shared by all subtests, 
   docker endpoint the runner-image build needs and hold no agents-sandbox config or state, so keeping them
   does not weaken the isolation — and the docker preflight runs under the same isolated environment, before
   any image build, so it can never certify a daemon the child cannot reach;
+- the launcher readiness-timeout overrides reach the child through the suite's **own namespace**, not the
+  launcher's: `AGENTS_SANDBOX_MSB_DOCKER_READY_TIMEOUT` / `AGENTS_SANDBOX_MSB_DAEMON_READY_TIMEOUT` (set by the
+  in-guest `make test-msb-in-vm`) are rewritten to `AGENTS_SANDBOX_DOCKER_READY_TIMEOUT` /
+  `AGENTS_SANDBOX_DAEMON_READY_TIMEOUT` in the child env. A host that happens to export the launcher's variable
+  still has it dropped by the allowlist, so only the suite's opt-in crosses;
 - the **prebuild** env additionally carries the environment's GitHub API token when one is set (`withGitHubToken`,
   `GH_TOKEN` then `GITHUB_TOKEN`, matching the launcher's precedence). The prebuild's `build` resolves each unpinned
   agent's latest release, and the GitHub-backed agents' requests would otherwise share the anonymous

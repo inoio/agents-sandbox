@@ -1960,3 +1960,27 @@ func TestResolveModeFromFlags(t *testing.T) {
 		})
 	}
 }
+
+// TestBuildReadyTimeouts pins that the two readiness-timeout config values
+// reach RunOptions unchanged, so the vm package's resolvedReadyTimeout can act
+// on them. Distinct values catch a swapped assignment.
+func TestBuildReadyTimeouts(t *testing.T) {
+	ui := &termiotest.Mock{}
+	r := viperconfig.NewResolverWithConfig(viperconfig.Config{
+		DockerReadyTimeout: 90 * time.Second,
+		DaemonReadyTimeout: 180 * time.Second,
+	})
+	cmd := newRunCommand()
+
+	opts, err := Build(r.Config(), cmd, ui)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	if opts.DockerReadyTimeout != 90*time.Second {
+		t.Errorf("DockerReadyTimeout = %v; want 90s", opts.DockerReadyTimeout)
+	}
+	if opts.DaemonReadyTimeout != 180*time.Second {
+		t.Errorf("DaemonReadyTimeout = %v; want 180s", opts.DaemonReadyTimeout)
+	}
+}

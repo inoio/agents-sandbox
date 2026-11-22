@@ -161,6 +161,9 @@ func TestTimeoutFactorFromValue(t *testing.T) {
 		{"zero", "0", 1},
 		{"negative", "-2", 1},
 		{"non-numeric", "fast", 1},
+		{"nan", "NaN", 1},
+		{"positive-inf", "+Inf", 1},
+		{"negative-inf", "-Inf", 1},
 		{"whole", "2", 2},
 		{"fractional", "1.5", 1.5},
 		{"padded", "  3  ", 3},
@@ -174,10 +177,13 @@ func TestTimeoutFactorFromValue(t *testing.T) {
 }
 
 // TestScaleTimeout pins the ceiling scaler: a factor of 1 is the identity (so a
-// host run's ceilings are byte-for-byte unchanged) and other factors multiply.
+// host run's ceilings are byte-for-byte unchanged — pinned on a duration beyond
+// float64's exact-integer range, where a multiply/round trip would drift) and
+// other factors multiply.
 func TestScaleTimeout(t *testing.T) {
-	if got := scaleTimeout(15*time.Second, 1); got != 15*time.Second {
-		t.Errorf("scaleTimeout(f=1) = %s, want 15s", got)
+	const long = 3000 * time.Hour
+	if got := scaleTimeout(long, 1); got != long {
+		t.Errorf("scaleTimeout(f=1) = %s, want the exact %s", got, long)
 	}
 	if got := scaleTimeout(15*time.Second, 2); got != 30*time.Second {
 		t.Errorf("scaleTimeout(f=2) = %s, want 30s", got)
@@ -938,13 +944,15 @@ func envMap(env []string) map[string]string {
 	return got
 }
 
-// TestIsolatedEnvKeepsLauncherReadyTimeouts pins that the launcher readiness
-// timeouts survive the allowlist: the in-guest run raises them, the child
-// launcher must see them, and they carry no agents-sandbox config or state.
-func TestIsolatedEnvKeepsLauncherReadyTimeouts(t *testing.T) {
+// TestIsolatedEnvForwardsLauncherReadyTimeouts pins the guest-only forwarding:
+// the suite's own AGENTS_SANDBOX_MSB_* variable is rewritten into the launcher's
+// config variable for the child, while a launcher variable exported on the host
+// is still dropped by the allowlist, so the isolation holds.
+func TestIsolatedEnvForwardsLauncherReadyTimeouts(t *testing.T) {
 	inherited := []string{
-		"AGENTS_SANDBOX_DOCKER_READY_TIMEOUT=90s",
-		"AGENTS_SANDBOX_DAEMON_READY_TIMEOUT=180s",
+		"AGENTS_SANDBOX_MSB_DOCKER_READY_TIMEOUT=90s",
+		"AGENTS_SANDBOX_MSB_DAEMON_READY_TIMEOUT=180s",
+		"AGENTS_SANDBOX_DOCKER_READY_TIMEOUT=1ns",
 		"HOME=/real",
 	}
 	got := envMap(isolatedEnv("/root", "/root", inherited))
@@ -953,11 +961,14 @@ func TestIsolatedEnvKeepsLauncherReadyTimeouts(t *testing.T) {
 		"AGENTS_SANDBOX_DAEMON_READY_TIMEOUT": "180s",
 	} {
 		if got[k] != want {
-			t.Errorf("%s = %q, want %q", k, got[k], want)
+			t.Errorf("%s = %q, want the forwarded %q", k, got[k], want)
 		}
 	}
-	if got["HOME"] == "/real" {
-		t.Error("HOME = /real, want the isolated home (only the readiness timeouts are kept)")
+	if leaked := got["AGENTS_SANDBOX_MSB_DOCKER_READY_TIMEOUT"]; leaked != "" {
+		t.Errorf("AGENTS_SANDBOX_MSB_DOCKER_READY_TIMEOUT leaked into the child: %q", leaked)
+	}
+	if got["HOME"] != filepath.Join("/root", "home") {
+		t.Errorf("HOME = %q, want the isolated home", got["HOME"])
 	}
 }
 
