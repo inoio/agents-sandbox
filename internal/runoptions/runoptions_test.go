@@ -1320,7 +1320,6 @@ func TestBuildNoticesExperimentalAgents(t *testing.T) {
 		agent string
 		want  bool
 	}{
-		{"pi", true},
 		{"claude-code", true},
 		{"codex", true},
 		{"hermes", true},
@@ -1332,6 +1331,7 @@ func TestBuildNoticesExperimentalAgents(t *testing.T) {
 		{"mistral-vibe", true},
 		{"opencode", false},
 		{"opencode2", false},
+		{"pi", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.agent, func(t *testing.T) {
