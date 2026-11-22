@@ -84,8 +84,10 @@ Findings so far:
 - The VM clock runs in UTC while the host is in local time, so agents report times an hour off (#808).
 - #786 — every image-digest change (an agent upgrade too) asks keep/migrate/reset for the home volume; proposal: never ask, merge the image home per file.
 - #787 — a VM kill during attach is reported as `agent connection closed during terminal attach` (low prio).
-- codex asks folder trust on every run and every attach: it saves `trust_level` in `~/.codex/config.toml`, which reprovision removes each run (#768); a `[projects."/workspace"]` snippet avoids it.
-- codex warns on every start that the launcher's `-c` overrides force embedded mode ("Running without the shared background server") (#807).
+- codex asks folder trust on every run and every attach: it saves `trust_level` in `~/.codex/config.toml`, which reprovision removes each run (#768); fixed by PR #809 (trust baked into `/etc/codex/config.toml`).
+- codex warns on every start that the launcher's `-c` overrides force embedded mode ("Running without the shared background server") (#807, PR #809: `--no-daemon` plus the baked system config).
+- #810 — a second attach shows the daemon-restart reconfig prompt for codex's own config writes.
+- #811 — follow-up: launcher-managed `codex app-server` with `--remote` attach.
 - pi saves its default model (`/model`, Ctrl+S) in `~/.pi/agent/settings.json`, removed every run (#768): it falls back to Opus, which subscription auth bills as extra usage.
 - #780 — claude-code asks the folder-trust question for `/workspace` with "No, exit" as default; pre-accept it.
 
