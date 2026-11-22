@@ -79,6 +79,10 @@ Common development commands (run from the Go module root):
 - `make test`/`go test ./...` — run all tests. `make test` passes `-tags microsandbox_ffi_path`, which keeps the
   SDK's ~36 MB native library out of every test binary; a bare `go test ./...` links it and is slower. See
   `.operator-shared/guides/test-runtime-cost.md`.
+- `make test-scrubbed`/`make test-hermetic` — run the default suite in the hermetic envelope (a temp copy outside any
+  git checkout, a scrubbed environment, and the host-figure sentinel pass); `test-hermetic` (Linux) adds a
+  loopback-only network namespace and runs as uid 0. Advisory on PRs, required on a release tag. See
+  `.operator-shared/specs/testing/test-isolation.md`.
 - `make compile-all` — compile every test binary including `integration`-tagged files without a docker daemon (catches
   tagged-only compile regressions; run by CI on every PR). Its `-run='^$'` output reads `[no tests to run]` for every
   package — that is compile-only, not skipped tests.
