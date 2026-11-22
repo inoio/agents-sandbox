@@ -82,6 +82,11 @@ LIBVIRT_URI="${LIBVIRT_URI:-qemu:///system}"
 REPO_URL="${REPO_URL:-https://github.com/inoio/agents-sandbox.git}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-$PWD/.kvm-guest}"
 KVM_IMAGE_CACHE="${KVM_IMAGE_CACHE:-/var/lib/libvirt/images/agents-sandbox}"
+# The cloud-init gate waits for sshd, then for cloud-init itself. The attempts ×
+# interval bound only how long the guest may take to accept SSH; the
+# `cloud-init status --wait` that follows blocks until cloud-init reports.
+KVM_CLOUD_INIT_ATTEMPTS="${KVM_CLOUD_INIT_ATTEMPTS:-120}"
+KVM_CLOUD_INIT_INTERVAL="${KVM_CLOUD_INIT_INTERVAL:-5}"
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
@@ -122,7 +127,7 @@ die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 usage() {
   cat <<'EOF'
-usage: kvm-guest.sh {up|render|ssh|sync|prime|run <cmd...>|agent [cmd]|agent-provision [name]|sync-back [branch]|firewall|down}
+usage: kvm-guest.sh {up|render|ssh|sync|prime|run <cmd...>|agent [cmd]|agent-up [cmd]|agent-provision [name]|sync-back [branch]|firewall|down}
 
   up                create and boot the KVM guest (cloud-init provisions it)
   render            write the cloud-init seed and domain XML to ARTIFACT_DIR, no boot
@@ -131,6 +136,8 @@ usage: kvm-guest.sh {up|render|ssh|sync|prime|run <cmd...>|agent [cmd]|agent-pro
   prime             copy the host's runner images and microsandbox home into the guest
   run <..>          run a command in ~/agents-sandbox in the guest
   agent [cmd]       open an interactive agent session in a guest tmux session (default: opencode2)
+  agent-up [cmd]    ensure the guest is up, wait for cloud-init, sync, provision,
+                    and attach an agent session (one-command bring-up)
   agent-provision [name]
                     materialize the agent's provisioned config into the guest home
   sync-back [branch]
@@ -534,6 +541,62 @@ agent_provision() {
   fi
 }
 
+# ensure_running brings the guest to a running state without recreating an
+# existing domain: undefined is created, a stopped domain is started (sharing
+# the boot path's lease wait), a running one is left alone. `create`'s
+# check_host refuses an existing domain, so it is never called over one.
+ensure_running() {
+  if ! virsh_cmd dominfo "$VM_NAME" >/dev/null 2>&1; then
+    create
+    return
+  fi
+  if [ "$(virsh_cmd domstate "$VM_NAME" 2>/dev/null | tr -d '[:space:]')" = "running" ]; then
+    log "guest '$VM_NAME' is running"
+    return
+  fi
+  log "starting the stopped guest '$VM_NAME'"
+  virsh_cmd start "$VM_NAME" >/dev/null
+  wait_for_lease >/dev/null
+}
+
+# wait_for_cloud_init gates on the guest being provisioned: it retries the SSH
+# connect (sshd accepts well after the DHCP lease appears), then runs
+# `cloud-init status --wait`, failing when cloud-init reports an error.
+wait_for_cloud_init() {
+  local ip="$1" attempt=0 status
+  while [ "$attempt" -lt "$KVM_CLOUD_INIT_ATTEMPTS" ]; do
+    if ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=8 \
+        -o LogLevel=ERROR "$VM_USER@$ip" true >/dev/null 2>&1; then
+      break
+    fi
+    attempt=$((attempt + 1))
+    sleep "$KVM_CLOUD_INIT_INTERVAL"
+  done
+  [ "$attempt" -lt "$KVM_CLOUD_INIT_ATTEMPTS" ] \
+    || die "guest ssh did not come up; check the console: virsh -c $LIBVIRT_URI console $VM_NAME"
+  log "waiting for cloud-init to finish in '$VM_NAME'"
+  if ! status="$(ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=8 \
+        "$VM_USER@$ip" 'cloud-init status --wait' 2>&1)"; then
+    printf '%s\n' "$status" >&2
+    die "cloud-init failed in '$VM_NAME'; inspect: $0 ssh -- cloud-init status --long"
+  fi
+  log "cloud-init: done"
+}
+
+# agent_up is the one-command bring-up: ensure the guest is running, gate on
+# cloud-init, sync this checkout, materialize the agent config, and attach an
+# interactive session. It composes the subcommands so the step-by-step targets
+# remain available.
+agent_up() {
+  local ip
+  ensure_running
+  ip="$(require_guest_ip)"
+  wait_for_cloud_init "$ip"
+  sync_in
+  agent_provision "${KVM_AGENT_NAME:-opencode2}"
+  agent_in "$@"
+}
+
 probe_guest_egress() {
   local ip="${1:-}" result=""
   if [ -z "$ip" ]; then
@@ -624,6 +687,16 @@ create() {
   virsh_cmd define "$DOMAIN_XML_PATH" >/dev/null
   virsh_cmd start "$VM_NAME"
 
+  local ip=""
+  ip="$(wait_for_lease)"
+  print_next_steps "$ip"
+  probe_guest_egress "$ip"
+}
+
+# wait_for_lease blocks until the guest has a DHCP lease, printing progress, and
+# warns (printing nothing) on timeout. It is the boot gate `create` and the
+# ensure-running path share.
+wait_for_lease() {
   local timeout="${KVM_BOOT_TIMEOUT:-300}" waited=0 ip=""
   log "waiting up to ${timeout}s for a DHCP lease (cloud-init first boot takes a few minutes)"
   while [ "$waited" -lt "$timeout" ]; do
@@ -639,9 +712,7 @@ create() {
     log "  console:   virsh -c $LIBVIRT_URI console $VM_NAME   (leave with Ctrl-])"
     log "  retry ssh: $0 ssh"
   fi
-
-  print_next_steps "$ip"
-  probe_guest_egress "$ip"
+  printf '%s\n' "$ip"
 }
 
 destroy() {
@@ -664,6 +735,7 @@ case "${1:-}" in
   prime)           prime ;;
   run)             shift; run_in "$@" ;;
   agent)           shift; agent_in "$@" ;;
+  agent-up)        shift; agent_up "$@" ;;
   agent-provision) shift; agent_provision "$@" ;;
   sync-back)       shift; sync_back "$@" ;;
   firewall|fix-net) fix_firewall ;;

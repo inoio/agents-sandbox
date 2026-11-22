@@ -169,6 +169,99 @@ func TestKvmGuestAgentForwardsAnInlineCredentialCommand(t *testing.T) {
 	assertContains(t, "ssh argv", argv, "tmux new -A -s agents-sandbox")
 }
 
+// agentUpEnv is the environment the agent-up cases share: fakes for the commands
+// the flow drives, a temp SOURCE_DIR so sync has something to send, and a temp
+// HOME with no launcher config so provisioning is a no-op.
+func agentUpEnv(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	home := filepath.Join(dir, "home")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatalf("create home: %v", err)
+	}
+	env := kvmGuestEnv(dir)
+	env["HOME"] = home
+	env["SOURCE_DIR"] = filepath.Join(dir, "checkout")
+	env["SSH_ARGV"] = filepath.Join(dir, "ssh-argv")
+	env["VIRSH_ARGV"] = filepath.Join(dir, "virsh-argv")
+	env["PATH"] = kvmGuestPath(t, "virsh", "ssh", "rsync", "git")
+	return env
+}
+
+// TestKvmGuestAgentUpLeavesARunningGuestAlone pins that the ensure step must not
+// recreate an existing domain: `virsh start` on a running domain fails, and
+// create's check_host refuses an existing domain outright.
+func TestKvmGuestAgentUpLeavesARunningGuestAlone(t *testing.T) {
+	dir := t.TempDir()
+	env := agentUpEnv(t, dir)
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "running"
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "agent-up", "opencode2")
+	assertStatus(t, result, 0)
+
+	virshArgv := readText(t, filepath.Join(dir, "virsh-argv"))
+	assertNotContains(t, "virsh argv", virshArgv, "define")
+	assertNotContains(t, "virsh argv", virshArgv, "start")
+}
+
+// TestKvmGuestAgentUpStartsAStoppedGuest pins that a defined-but-stopped guest
+// (after a host reboot) is started, not rebuilt.
+func TestKvmGuestAgentUpStartsAStoppedGuest(t *testing.T) {
+	dir := t.TempDir()
+	env := agentUpEnv(t, dir)
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "shut off"
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "agent-up", "opencode2")
+	assertStatus(t, result, 0)
+
+	virshArgv := readText(t, filepath.Join(dir, "virsh-argv"))
+	assertContains(t, "virsh argv", virshArgv, "start asb-kvm-test")
+	assertNotContains(t, "virsh argv", virshArgv, "define")
+}
+
+// TestKvmGuestAgentUpGatesOnCloudInitBeforeSyncing pins the order: the cloud-init
+// gate precedes syncing, provisioning, and attaching.
+func TestKvmGuestAgentUpGatesOnCloudInitBeforeSyncing(t *testing.T) {
+	dir := t.TempDir()
+	env := agentUpEnv(t, dir)
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "running"
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"),
+		"agent-up", "LITELLM_API_KEY=secret opencode2")
+	assertStatus(t, result, 0)
+
+	sshArgv := readText(t, filepath.Join(dir, "ssh-argv"))
+	cloudInit := strings.Index(sshArgv, "cloud-init status --wait")
+	provision := strings.Index(sshArgv, "config provision")
+	attach := strings.Index(sshArgv, "tmux new")
+	if cloudInit < 0 || provision < 0 || attach < 0 {
+		t.Fatalf("agent-up skipped a step:\n%s", sshArgv)
+	}
+	if !(cloudInit < provision && provision < attach) {
+		t.Fatalf("steps out of order (cloud-init=%d provision=%d attach=%d):\n%s",
+			cloudInit, provision, attach, sshArgv)
+	}
+	assertContains(t, "ssh argv", sshArgv, "LITELLM_API_KEY=secret opencode2")
+}
+
+// TestKvmGuestAgentUpFailsWhenCloudInitFails pins that a failed cloud-init
+// aborts before syncing into a half-provisioned guest.
+func TestKvmGuestAgentUpFailsWhenCloudInitFails(t *testing.T) {
+	dir := t.TempDir()
+	env := agentUpEnv(t, dir)
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "running"
+	env["SSH_CLOUD_INIT_FAIL"] = "1"
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "agent-up", "opencode2")
+	assertStatus(t, result, 1)
+
+	assertContains(t, "stderr", result.Stderr, "cloud-init failed")
+	assertNotContains(t, "ssh argv", readText(t, filepath.Join(dir, "ssh-argv")), "tmux new")
+}
+
 // TestKvmGuestAgentProvisionSyncsConfigAndMaterializes pins that
 // `agent-provision` ships the host's launcher config to the guest and runs the
 // launcher's own `config provision` there, targeting the guest home.
@@ -475,6 +568,8 @@ func kvmGuestVirshHandler(args []string) (string, string, int) {
 			return "Name:           asb-kvm-test\n", "", 0
 		}
 		return "", "error: failed to get domain 'asb-kvm-test'\n", 1
+	case strings.Contains(joined, "domstate"):
+		return envOption("VIRSH_DOMSTATE") + "\n", "", 0
 	case strings.Contains(joined, "net-info"):
 		return "Name:           default\nActive:         yes\n", "", 0
 	case strings.Contains(joined, "net-dumpxml"):
@@ -489,6 +584,9 @@ func kvmGuestVirshHandler(args []string) (string, string, int) {
 // command the script forwarded.
 func kvmGuestSSHHandler(args []string) (string, string, int) {
 	recordArgv("SSH_ARGV", args)
+	if envOption("SSH_CLOUD_INIT_FAIL") != "" && strings.Contains(strings.Join(args, " "), "cloud-init status") {
+		return "", "Cloud-init failed: see status --long\n", 1
+	}
 	return "", "", 0
 }
 
