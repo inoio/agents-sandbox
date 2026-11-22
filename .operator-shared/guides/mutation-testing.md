@@ -417,6 +417,17 @@ would re-derive is not redundant code either: dropping it would ignore an error,
   `OpenFile(…, 0o600)` mutate to `0o701`/`0o601`, which the process umask may or may not preserve (`0o701 &^ 0o022`
   is `0o701`, but `&^ 0o077` is `0o700`). Replacing the `mkdir`/`open` seams with a recorder makes the argument
   assertion deterministic and umask-free.
+- **When there is no seam for the mode, assert "no wider than" instead of equality.** A `MkdirAll(dir, 0o750)` on a
+  real filesystem is umask-masked, so `stat`-ing for exactly `0o750` is fragile; `got&^0o750 != 0 || got&0o007 != 0`
+  still kills `0o750`→`0o749`/`0o751` under any umask (the `configpathstest` pattern), while a bare `IsDir()` check
+  leaves both integer mutants LIVED.
+- **A truthiness guard on a slice whose fixture payload is always multi-byte needs a boundary input.** `if
+  len(cf.Merged) > 0` mutated to `> 1` still writes every fixture whose merged config is a JSON document (length ≫ 1),
+  so the `INTEGER_INCREMENT` LIVEs; add a case with a **one-byte** payload and assert it is still written.
+- **When the wrapped cause is a plain stdlib `errors.New` with no sentinel and a `%v` would embed the same message,
+  assert the wrap by unwrap depth on the wrapping function directly.** `filepath.Rel` returns a fresh
+  `*errors.errorString`, so no `errors.Is`/`errors.As` distinguishes `%w` from `%v`; test the wrapper
+  (`targetPath`) in-package and assert `errors.Unwrap(err) != nil`.
 - **A `blocking bool` flock seam's blocking branch is observable in-process.** Mutating `if blocking { return
   hostlock.Exclusive(f) }` to fall through to the non-blocking call is invisible while the lock is free (both succeed)
   and unreachable through the same-process registry (it fails before the flock), but a test that holds a raw flock on a

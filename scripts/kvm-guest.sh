@@ -22,8 +22,19 @@
 #   ./scripts/kvm-guest.sh sync      # rsync the current checkout into the guest
 #   ./scripts/kvm-guest.sh prime     # copy the host's runner images + msb home into the guest
 #   ./scripts/kvm-guest.sh run make test-msb-journeys   # run a command in the guest
+#   ./scripts/kvm-guest.sh agent            # interactive agent session in the guest
+#   ./scripts/kvm-guest.sh agent-provision  # materialize the agent config into the guest
+#   ./scripts/kvm-guest.sh sync-back [branch]  # fetch the guest's branches back to the host
 #   ./scripts/kvm-guest.sh firewall  # re-apply the host nft rules guest egress needs
 #   ./scripts/kvm-guest.sh down      # destroy the guest and its disk
+#
+# The agent subcommands run a coding agent (opencode2) *in the guest*, where
+# /dev/kvm, docker and msb work, so it can build the launcher and run the msb
+# suites. `agent` attaches an interactive tmux session; `agent-provision` syncs
+# the host's launcher config and materializes the agent's provisioned config into
+# the guest home. Credentials are not provisioned: pass them as env assignments on
+# the agent command, e.g.
+#   make kvm-agent KVM_AGENT='LITELLM_API_KEY=… opencode'
 #
 # Host prerequisites:
 #   qemu-kvm libvirt-daemon-system cloud-image-utils genisoimage
@@ -31,13 +42,15 @@
 #   nested virtualization enabled (e.g. options kvm-amd nested=1 + reboot)
 #
 # Env overrides:
-#   VM_NAME=asb-kvm  VM_VCPUS=8  VM_MEMORY_MIB=16384  VM_DISK_GIB=80
+#   VM_NAME=asb-kvm  VM_VCPUS=12  VM_MEMORY_MIB=16384  VM_DISK_GIB=80
 #   VM_USER=dev  SSH_PUBKEY=<path-or-key>  ARTIFACT_DIR=$PWD/.kvm-guest
 #   SOURCE_DIR=<checkout to sync>  LIBVIRT_URI=qemu:///system
 #   UBUNTU_CODENAME=resolute  IMAGE_URL=<full cloud-image URL>
 #   KVM_IMAGE_CACHE=/var/lib/libvirt/images/agents-sandbox  KVM_REFRESH_IMAGE=1  KVM_BOOT_TIMEOUT=300
 #   REPO_URL=https://github.com/inoio/agents-sandbox.git  REPO_BRANCH=<current branch>
-#   GO_VERSION=<from .go-version>
+#   GO_VERSION=<from .go-version>  GOLANGCI_LINT_VERSION=<from the Makefile>
+#   OPENCODE2_VERSION=<the opencode2 installer's --version; unset installs latest>
+#   KVM_AGENT_SESSION=agents-sandbox  # the guest tmux session the agent runs in
 #   KVM_PRIME_ROOT=/opt/asb-reuse  # the root `prime` copies from and to
 #
 # The base image is cached in KVM_IMAGE_CACHE (shared across worktrees and
@@ -61,7 +74,7 @@
 set -euo pipefail
 
 VM_NAME="${VM_NAME:-asb-kvm}"
-VM_VCPUS="${VM_VCPUS:-8}"
+VM_VCPUS="${VM_VCPUS:-12}"
 VM_MEMORY_MIB="${VM_MEMORY_MIB:-16384}"
 VM_DISK_GIB="${VM_DISK_GIB:-80}"
 VM_USER="${VM_USER:-dev}"
@@ -82,6 +95,10 @@ if [ -z "${GO_VERSION:-}" ]; then
   GO_VERSION="$(tr -d '[:space:]' < "$repo_root/.go-version" 2>/dev/null || true)"
   [ -n "$GO_VERSION" ] || GO_VERSION="$(sed -n 's/^go \([0-9][0-9.]*\).*/\1/p' "$repo_root/go.mod" 2>/dev/null | head -1 || true)"
   [ -n "$GO_VERSION" ] || GO_VERSION="1.27.4"
+fi
+
+if [ -z "${GOLANGCI_LINT_VERSION:-}" ]; then
+  GOLANGCI_LINT_VERSION="$(sed -n 's/^GOLANGCI_LINT_VERSION[[:space:]]*=[[:space:]]*//p' "$repo_root/Makefile" 2>/dev/null | head -1 || true)"
 fi
 
 case "$(uname -m)" in
@@ -105,16 +122,22 @@ die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 usage() {
   cat <<'EOF'
-usage: kvm-guest.sh {up|render|ssh|sync|prime|run <cmd...>|firewall|down}
+usage: kvm-guest.sh {up|render|ssh|sync|prime|run <cmd...>|agent [cmd]|agent-provision [name]|sync-back [branch]|firewall|down}
 
-  up        create and boot the KVM guest (cloud-init provisions it)
-  render    write the cloud-init seed and domain XML to ARTIFACT_DIR, no boot
-  ssh       open a shell in the guest
-  sync      rsync SOURCE_DIR (default: this checkout) into the guest
-  prime     copy the host's runner images and microsandbox home into the guest
-  run <..>  run a command in ~/agents-sandbox in the guest
-  firewall  re-apply the host nft rules the guest's egress needs
-  down      destroy the guest and its disk
+  up                create and boot the KVM guest (cloud-init provisions it)
+  render            write the cloud-init seed and domain XML to ARTIFACT_DIR, no boot
+  ssh               open a shell in the guest
+  sync              rsync SOURCE_DIR (default: this checkout) into the guest
+  prime             copy the host's runner images and microsandbox home into the guest
+  run <..>          run a command in ~/agents-sandbox in the guest
+  agent [cmd]       open an interactive agent session in a guest tmux session (default: opencode2)
+  agent-provision [name]
+                    materialize the agent's provisioned config into the guest home
+  sync-back [branch]
+                    fetch the guest's branches back (all into
+                    refs/remotes/kvm-guest/*, or one into a local branch)
+  firewall          re-apply the host nft rules the guest's egress needs
+  down              destroy the guest and its disk
 
 See the header of this script for host prerequisites and env overrides.
 EOF
@@ -141,8 +164,24 @@ resolve_ssh_key() {
 # write_seed_files writes the cloud-init user-data and metadata. It touches
 # nothing outside ARTIFACT_DIR, so `render` can use it without a host.
 write_seed_files() {
-  local pubkey
+  local pubkey opencode2_install golangci_install golangci_line
   pubkey="$(resolve_ssh_key)"
+
+  # opencode2 is installed for the guest user (a root install would not be on the
+  # user's PATH). Its binary lands in ~/.opencode/bin; ~/.local/bin is already on
+  # PATH via the profile drop-in below, so link it there under both names.
+  opencode2_install='mkdir -p ~/.local/bin && curl -fsSL https://opencode.ai/v2/install | bash -s --'
+  [ -n "${OPENCODE2_VERSION:-}" ] && opencode2_install="$opencode2_install --version $OPENCODE2_VERSION"
+  opencode2_install="$opencode2_install && ln -sfn ~/.opencode/bin/opencode ~/.local/bin/opencode && ln -sfn ~/.opencode/bin/opencode ~/.local/bin/opencode2"
+
+  # golangci-lint at the Makefile-pinned version, the same installer the dev image
+  # uses, so the guest's `make check` matches the host's gate.
+  golangci_install=""
+  golangci_line=""
+  if [ -n "${GOLANGCI_LINT_VERSION:-}" ]; then
+    golangci_install="curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b /usr/local/bin v$GOLANGCI_LINT_VERSION"
+    golangci_line="  - $golangci_install"
+  fi
 
   cat > "$USERDATA_PATH" <<EOF
 #cloud-config
@@ -165,6 +204,10 @@ packages:
   - ca-certificates
   - curl
   - jq
+  - unzip
+  - xz-utils
+  - tmux
+  - shellcheck
 write_files:
   - path: /etc/profile.d/zz-asb-kvm.sh
     content: |
@@ -187,6 +230,10 @@ runcmd:
   - sudo -u $VM_USER -H bash -lc 'curl -fsSL https://install.microsandbox.dev | sh'
   - sudo -u $VM_USER -H bash -lc 'git clone "$REPO_URL" ~/agents-sandbox'
   - sudo -u $VM_USER -H bash -lc 'cd ~/agents-sandbox && git checkout "$REPO_BRANCH"'
+  # The agent toolchain is installed last so a failure here cannot sit ahead of
+  # the checkout; cloud-init is one-shot, so a failed boot is rebuilt, not retried.
+  - sudo -u $VM_USER -H bash -lc '$opencode2_install'
+$golangci_line
 EOF
 
   cat > "$METADATA_PATH" <<EOF
@@ -358,9 +405,39 @@ sync_in() {
   ip="$(require_guest_ip)"
   source="${SOURCE_DIR:-$(git -C "$repo_root" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$repo_root")}"
   log "syncing $source → $VM_USER@$ip:~/agents-sandbox"
-  rsync -az --delete --exclude '.git/' --exclude '.superpowers/' \
+  # Exclude the `.git` entry, not a `.git/` directory: the guest owns its own
+  # clone's .git, and the host checkout may be a linked worktree whose .git is a
+  # *file* recording a relative `gitdir: ../.git/worktrees/<name>`. A
+  # directory-only `.git/` pattern does not match that file, so rsync would copy
+  # the dangling pointer over the guest's real .git directory and every launcher
+  # command in the guest would then fail to resolve the project identity.
+  rsync -az --delete --exclude '.git' --exclude '.superpowers/' \
     --exclude "$(basename "$ARTIFACT_DIR")/" \
     "$source/" "$VM_USER@$ip:~/agents-sandbox/"
+}
+
+# sync_back fetches the guest checkout's branches back to the host: by default
+# every branch into the refs/remotes/kvm-guest/* namespace (reachable locally
+# without touching any local branch), or one branch named by the argument into
+# the local branch of the same name (fast-forward only). A branch checked out
+# here refuses the fetch — git protects it, because updating the ref without the
+# working tree would make the next commit silently revert the fetch — so update
+# it by merging the namespace ref instead (`git merge kvm-guest/<name>`). The
+# guest keeps its own .git (sync excludes it), so this fetch is the return path;
+# the guest never pushes.
+sync_back() {
+  local ip branch
+  branch="${1:-}"
+  ip="$(require_guest_ip)"
+  if [ -z "$branch" ]; then
+    log "fetching every guest branch into refs/remotes/kvm-guest/*"
+    git -C "$repo_root" fetch --prune \
+      "$VM_USER@$ip:~/agents-sandbox" '+refs/heads/*:refs/remotes/kvm-guest/*'
+    return
+  fi
+  log "fetching guest branch '$branch' into local '$branch'"
+  git -C "$repo_root" fetch \
+    "$VM_USER@$ip:~/agents-sandbox" "refs/heads/$branch:refs/heads/$branch"
 }
 
 # prime copies the host's runner images (docker save | ssh docker load) and
@@ -408,6 +485,53 @@ run_in() {
   # the suite the command runs.
   exec ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$(require_guest_ip)" \
     -- "bash -lc 'cd ~/agents-sandbox && $*'"
+}
+
+# agent_in opens an interactive agent session in the guest: it allocates a TTY
+# (the TUI needs one) and runs the command inside a named tmux session, so a
+# dropped SSH connection leaves the agent running and re-running the command
+# reattaches to it. The default command is the opencode2 binary; pass another
+# command — including an inline `VAR=value` assignment for credentials, which the
+# guest shell interprets — as arguments. The command must not contain a single
+# quote, because it is embedded in a single-quoted remote command.
+agent_in() {
+  local ip session command
+  session="${KVM_AGENT_SESSION:-agents-sandbox}"
+  command="${*:-opencode2}"
+  ip="$(require_guest_ip)"
+  exec ssh -tt -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
+    -- "bash -lc 'cd ~/agents-sandbox && exec tmux new -A -s $session bash -c \"$command\"'"
+}
+
+# agent_provision materializes the agent config into the guest home. It syncs the
+# host's launcher config (so the guest resolves the same scopes) and runs the
+# launcher's `config provision` in the guest, which writes exactly the config a
+# sandbox would receive — merged snippets, verbatim mirror, host drop-in, home
+# files — by reusing the launcher's own pipeline. It runs in the guest because the
+# Go toolchain lives there, not on the KVM host. Run it after `sync`, so the
+# checkout carries the command.
+agent_provision() {
+  local ip agent
+  agent="${1:-opencode2}"
+  ip="$(require_guest_ip)"
+  if [ -d "$HOME/.config/agents-sandbox" ]; then
+    log "syncing $HOME/.config/agents-sandbox → $VM_USER@$ip"
+    ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" -- "bash -lc 'mkdir -p ~/.config/agents-sandbox'"
+    rsync -az --delete "$HOME/.config/agents-sandbox/" "$VM_USER@$ip:.config/agents-sandbox/"
+  else
+    log "no $HOME/.config/agents-sandbox on this host; the guest will use its project config only"
+  fi
+  log "materializing the $agent config into the guest home"
+  ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
+    -- "bash -lc 'cd ~/agents-sandbox && go run -tags microsandbox_ffi_path ./cmd/agents-sandbox config provision --agent $agent --target \"\$HOME\"'"
+  if [ -f "$HOME/.gitconfig" ]; then
+    log "syncing $HOME/.gitconfig → $VM_USER@$ip (signing disabled in the guest)"
+    rsync -az "$HOME/.gitconfig" "$VM_USER@$ip:.gitconfig"
+    ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
+      -- "bash -lc 'git config --global commit.gpgsign false && git config --global tag.gpgsign false'"
+  else
+    log "no $HOME/.gitconfig on this host; the guest keeps its own git identity"
+  fi
 }
 
 probe_guest_egress() {
@@ -483,7 +607,6 @@ create() {
   else
     log "using cached base image $IMAGE_PATH"
   fi
-  chmod 0644 "$IMAGE_PATH"
   if [ ! -f "$DISK_PATH" ]; then
     log "creating ${VM_DISK_GIB}G overlay on $(basename "$IMAGE_PATH")"
     qemu-img create -f qcow2 -F qcow2 -b "$IMAGE_PATH" "$DISK_PATH" "${VM_DISK_GIB}G" >/dev/null
@@ -540,6 +663,9 @@ case "${1:-}" in
   sync)            sync_in ;;
   prime)           prime ;;
   run)             shift; run_in "$@" ;;
+  agent)           shift; agent_in "$@" ;;
+  agent-provision) shift; agent_provision "$@" ;;
+  sync-back)       shift; sync_back "$@" ;;
   firewall|fix-net) fix_firewall ;;
   down|destroy)    destroy ;;
   *) usage >&2; exit 2 ;;

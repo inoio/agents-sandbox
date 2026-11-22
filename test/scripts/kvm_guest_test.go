@@ -67,6 +67,15 @@ func TestKvmGuestRenderWritesCloudInitAndDomain(t *testing.T) {
 	assertContains(t, "user-data", userData, "docker.io")
 	assertContains(t, "user-data", userData, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI test@host")
 
+	// The guest is provisioned to run an agent, not only the suites: opencode2
+	// (linked onto PATH), tmux (the session `agent` attaches to), shellcheck, and
+	// the Makefile-pinned golangci-lint.
+	assertContains(t, "user-data", userData, "opencode.ai/v2/install")
+	assertContains(t, "user-data", userData, "~/.local/bin/opencode")
+	assertContains(t, "user-data", userData, "- tmux")
+	assertContains(t, "user-data", userData, "- shellcheck")
+	assertContains(t, "user-data", userData, "golangci-lint.run/install.sh")
+
 	domainXML := readText(t, filepath.Join(dir, "asb-kvm-test.xml"))
 	assertContains(t, "domain xml", domainXML, "<name>asb-kvm-test</name>")
 	assertContains(t, "domain xml", domainXML, "<memory unit='MiB'>8192</memory>")
@@ -121,6 +130,114 @@ func TestKvmGuestRunForwardsTheCommandOverSSH(t *testing.T) {
 	assertContains(t, "ssh argv", argv, "make test-msb-journeys")
 }
 
+// TestKvmGuestAgentAllocatesATTYAndRunsInAGuestTmux pins that `agent` opens an
+// interactive session: an SSH TTY (the TUI needs one) running the command inside
+// a named tmux session, so a dropped connection leaves the agent running.
+func TestKvmGuestAgentAllocatesATTYAndRunsInAGuestTmux(t *testing.T) {
+	dir := t.TempDir()
+	argvPath := filepath.Join(dir, "ssh-argv")
+	env := kvmGuestEnv(dir)
+	env["SSH_ARGV"] = argvPath
+	env["PATH"] = kvmGuestPath(t, "virsh", "ssh")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "agent")
+	assertStatus(t, result, 0)
+
+	argv := readText(t, argvPath)
+	assertContains(t, "ssh argv", argv, "-tt")
+	assertContains(t, "ssh argv", argv, "dev@192.168.122.55")
+	assertContains(t, "ssh argv", argv, "tmux new -A -s agents-sandbox")
+	assertContains(t, "ssh argv", argv, "opencode2")
+}
+
+// TestKvmGuestAgentForwardsAnInlineCredentialCommand pins that `agent` passes a
+// caller-supplied command through unchanged, so credentials ride in as an inline
+// `VAR=value` assignment the guest shell interprets.
+func TestKvmGuestAgentForwardsAnInlineCredentialCommand(t *testing.T) {
+	dir := t.TempDir()
+	argvPath := filepath.Join(dir, "ssh-argv")
+	env := kvmGuestEnv(dir)
+	env["SSH_ARGV"] = argvPath
+	env["PATH"] = kvmGuestPath(t, "virsh", "ssh")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"),
+		"agent", "LITELLM_API_KEY=secret", "opencode")
+	assertStatus(t, result, 0)
+
+	argv := readText(t, argvPath)
+	assertContains(t, "ssh argv", argv, "LITELLM_API_KEY=secret opencode")
+	assertContains(t, "ssh argv", argv, "tmux new -A -s agents-sandbox")
+}
+
+// TestKvmGuestAgentProvisionSyncsConfigAndMaterializes pins that
+// `agent-provision` ships the host's launcher config to the guest and runs the
+// launcher's own `config provision` there, targeting the guest home.
+func TestKvmGuestAgentProvisionSyncsConfigAndMaterializes(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	if err := os.MkdirAll(filepath.Join(home, ".config", "agents-sandbox"), 0o755); err != nil {
+		t.Fatalf("create home config dir: %v", err)
+	}
+	sshLog := filepath.Join(dir, "ssh-argv")
+	rsyncLog := filepath.Join(dir, "rsync-argv")
+	env := kvmGuestEnv(dir)
+	env["HOME"] = home
+	env["SSH_ARGV"] = sshLog
+	env["RSYNC_ARGV"] = rsyncLog
+	env["PATH"] = kvmGuestPath(t, "virsh", "ssh", "rsync")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "agent-provision")
+	assertStatus(t, result, 0)
+
+	rsyncArgv := readText(t, rsyncLog)
+	assertContains(t, "rsync argv", rsyncArgv,
+		filepath.Join(home, ".config", "agents-sandbox")+"/")
+	assertContains(t, "rsync argv", rsyncArgv, "dev@192.168.122.55:.config/agents-sandbox/")
+	// No host ~/.gitconfig here, so the git identity is not copied.
+	assertNotContains(t, "rsync argv", rsyncArgv, ".gitconfig")
+
+	sshArgv := readText(t, sshLog)
+	// The guest config dir must exist before rsync targets it: on a fresh guest
+	// ~/.config does not, and the rsync into it then fails under set -e.
+	assertContains(t, "ssh argv", sshArgv, "mkdir -p ~/.config/agents-sandbox")
+	assertContains(t, "ssh argv", sshArgv, "config provision")
+	assertContains(t, "ssh argv", sshArgv, "--agent opencode2")
+	assertContains(t, "ssh argv", sshArgv, `--target "$HOME"`)
+}
+
+// TestKvmGuestAgentProvisionCopiesGitIdentityAndDisablesSigning pins that
+// provisioning gives the guest a committable identity: the host's ~/.gitconfig,
+// with commit and tag signing turned off (the host's key is not in the guest).
+func TestKvmGuestAgentProvisionCopiesGitIdentityAndDisablesSigning(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	if err := os.MkdirAll(filepath.Join(home, ".config", "agents-sandbox"), 0o755); err != nil {
+		t.Fatalf("create home config dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".gitconfig"),
+		[]byte("[user]\n\tname = Host User\n\temail = host@example.test\n"), 0o644); err != nil {
+		t.Fatalf("write host gitconfig: %v", err)
+	}
+	sshLog := filepath.Join(dir, "ssh-argv")
+	rsyncLog := filepath.Join(dir, "rsync-argv")
+	env := kvmGuestEnv(dir)
+	env["HOME"] = home
+	env["SSH_ARGV"] = sshLog
+	env["RSYNC_ARGV"] = rsyncLog
+	env["PATH"] = kvmGuestPath(t, "virsh", "ssh", "rsync")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "agent-provision")
+	assertStatus(t, result, 0)
+
+	rsyncArgv := readText(t, rsyncLog)
+	assertContains(t, "rsync argv", rsyncArgv, filepath.Join(home, ".gitconfig"))
+	assertContains(t, "rsync argv", rsyncArgv, "dev@192.168.122.55:.gitconfig")
+
+	sshArgv := readText(t, sshLog)
+	assertContains(t, "ssh argv", sshArgv, "commit.gpgsign false")
+	assertContains(t, "ssh argv", sshArgv, "tag.gpgsign false")
+}
+
 func TestKvmGuestSyncForwardsTheCheckoutWithExcludes(t *testing.T) {
 	dir := t.TempDir()
 	argvPath := filepath.Join(dir, "rsync-argv")
@@ -137,6 +254,94 @@ func TestKvmGuestSyncForwardsTheCheckoutWithExcludes(t *testing.T) {
 	assertContains(t, "rsync argv", argv, "/host/checkout/")
 	assertContains(t, "rsync argv", argv, "dev@192.168.122.55:~/agents-sandbox/")
 	assertContains(t, "rsync argv", argv, "--exclude .kvm-guest/")
+	// The guest owns its own clone's .git. A directory-only `.git/` pattern does
+	// not match a linked worktree's `.git`, which is a *file*: rsync would then
+	// copy that dangling `gitdir: ../.git/...` pointer over the guest's real .git
+	// directory, and every launcher command in the guest would fail to resolve
+	// the project identity. Exclude the `.git` entry itself, file or directory.
+	assertContains(t, "rsync argv", argv, "--exclude .git ")
+	assertNotContains(t, "rsync argv", argv, "--exclude .git/")
+}
+
+// TestKvmGuestSyncBackFetchesEveryGuestBranchIntoTheNamespace pins the default:
+// every guest branch lands under refs/remotes/kvm-guest/*, leaving local
+// branches untouched.
+func TestKvmGuestSyncBackFetchesEveryGuestBranchIntoTheNamespace(t *testing.T) {
+	dir := t.TempDir()
+	gitLog := filepath.Join(dir, "git-argv")
+	env := kvmGuestEnv(dir)
+	env["GIT_ARGV"] = gitLog
+	env["PATH"] = kvmGuestPath(t, "virsh", "git")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync-back")
+	assertStatus(t, result, 0)
+
+	argv := readText(t, gitLog)
+	assertContains(t, "git argv", argv, "fetch")
+	assertContains(t, "git argv", argv, "--prune")
+	assertContains(t, "git argv", argv, "dev@192.168.122.55:~/agents-sandbox")
+	assertContains(t, "git argv", argv, "+refs/heads/*:refs/remotes/kvm-guest/*")
+	assertNotContains(t, "git argv", argv, ":refs/heads/")
+}
+
+// TestKvmGuestSyncBackFetchesOneBranchIntoALocalBranch pins BRANCH=<name>:
+// only that branch is fetched, into the local branch of the same name, without
+// force or --update-head-ok.
+func TestKvmGuestSyncBackFetchesOneBranchIntoALocalBranch(t *testing.T) {
+	dir := t.TempDir()
+	gitLog := filepath.Join(dir, "git-argv")
+	env := kvmGuestEnv(dir)
+	env["GIT_ARGV"] = gitLog
+	env["PATH"] = kvmGuestPath(t, "virsh", "git")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync-back", "feature")
+	assertStatus(t, result, 0)
+
+	argv := readText(t, gitLog)
+	assertContains(t, "git argv", argv, "dev@192.168.122.55:~/agents-sandbox")
+	assertContains(t, "git argv", argv, "refs/heads/feature:refs/heads/feature")
+	assertNotContains(t, "git argv", argv, "+refs/heads/feature")
+	assertNotContains(t, "git argv", argv, "--prune")
+	assertNotContains(t, "git argv", argv, "--update-head-ok")
+}
+
+// TestKvmGuestSyncBackNeverUpdatesACheckedOutBranchInPlace pins that sync-back
+// has no force surface: a fetch must never update a checked-out branch in place,
+// which would advance the ref while leaving the working tree at the old commit,
+// so a later commit silently reverts the fetch. The checked-out branch is
+// reached through the kvm-guest/<name> namespace and merged instead.
+func TestKvmGuestSyncBackNeverUpdatesACheckedOutBranchInPlace(t *testing.T) {
+	dir := t.TempDir()
+	gitLog := filepath.Join(dir, "git-argv")
+	env := kvmGuestEnv(dir)
+	env["GIT_ARGV"] = gitLog
+	env["KVM_SYNC_BACK_FORCE"] = "1" // ignored: the surface is gone
+	env["PATH"] = kvmGuestPath(t, "virsh", "git")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync-back", "feature")
+	assertStatus(t, result, 0)
+
+	argv := readText(t, gitLog)
+	assertNotContains(t, "git argv", argv, "--update-head-ok")
+	assertNotContains(t, "git argv", argv, "+refs/heads/feature")
+	assertContains(t, "git argv", argv, "refs/heads/feature:refs/heads/feature")
+}
+
+// TestKvmGuestSyncBackPropagatesAFetchFailure pins that a failing fetch is not
+// swallowed: set -e must surface git's non-zero status.
+func TestKvmGuestSyncBackPropagatesAFetchFailure(t *testing.T) {
+	dir := t.TempDir()
+	gitLog := filepath.Join(dir, "git-argv")
+	env := kvmGuestEnv(dir)
+	env["GIT_ARGV"] = gitLog
+	env["GIT_EXIT"] = "1"
+	env["PATH"] = kvmGuestPath(t, "virsh", "git")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync-back")
+	assertContains(t, "git argv", readText(t, gitLog), "fetch")
+	if result.Status == 0 {
+		t.Fatalf("sync-back exited 0 despite a failing fetch:\nstderr:\n%s", result.Stderr)
+	}
 }
 
 // TestKvmGuestPrimeCopiesImagesAndHome pins that `prime` copies both halves of
@@ -292,6 +497,17 @@ func kvmGuestSSHHandler(args []string) (string, string, int) {
 func kvmGuestRsyncHandler(args []string) (string, string, int) {
 	recordArgv("RSYNC_ARGV", args)
 	return "", "", 0
+}
+
+// kvmGuestGitHandler serves the `git` a script under test calls: it logs the
+// invocation and succeeds, or exits non-zero when GIT_EXIT is set, so a case can
+// pin that a fetch failure propagates. It never touches a repository.
+func kvmGuestGitHandler(args []string) (string, string, int) {
+	recordArgv("GIT_ARGV", args)
+	if envOption("GIT_EXIT") == "" {
+		return "", "", 0
+	}
+	return "", "", 1
 }
 
 // kvmGuestNftHandler serves the `nft` a script under test calls: it logs the

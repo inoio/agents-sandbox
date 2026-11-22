@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-cold test-msb-journeys test-msb-in-vm test-msb-reuse msb-reuse-root compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic test-hermetic-sentinel envelope-test check check-test verify print-check-targets check-local-changes check-branch-changes check-selected changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test backport-audit-test open-backport-pr-test kvm-guest-test kvm-up kvm-sync kvm-prime kvm-ssh kvm-run kvm-down event-base-test classify-changes-test brain-check brain-check-test shellcheck docs-serve
+.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-cold test-msb-journeys test-msb-in-vm test-msb-reuse msb-reuse-root compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic test-hermetic-sentinel envelope-test check check-test verify print-check-targets check-local-changes check-branch-changes check-selected changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test backport-audit-test open-backport-pr-test kvm-guest-test kvm-up kvm-sync kvm-prime kvm-ssh kvm-run kvm-agent kvm-agent-provision kvm-sync-back kvm-down event-base-test classify-changes-test brain-check brain-check-test shellcheck docs-serve
 
 VERSION ?= dev
 
@@ -74,6 +74,11 @@ MSB_REUSE_ROOT ?= /opt/asb-reuse
 # /dev/kvm. `make kvm-up` builds a libvirt guest and these run the suite inside
 # it. See .operator-shared/guides/kvm-guest.md. Never run by CI.
 KVM_RUN ?= make test-msb-in-vm
+# The agent command `make kvm-agent` runs in the guest, and the agent profile
+# `make kvm-agent-provision` materializes. Override KVM_AGENT to pass a command
+# and credentials, e.g. KVM_AGENT='LITELLM_API_KEY=… opencode'.
+KVM_AGENT ?= opencode2
+KVM_AGENT_NAME ?= opencode2
 # The SDK's microsandbox_ffi_path tag swaps its //go:embed for reading the FFI
 # library from $MICROSANDBOX_FFI_PATH at runtime. The unit and integration
 # suites reach the SDK only through seams, so they never read that path and need
@@ -324,6 +329,25 @@ kvm-ssh:
 
 kvm-run:
 	scripts/kvm-guest.sh run '$(KVM_RUN)'
+
+# Open an interactive agent session in the guest, in a tmux session so a dropped
+# SSH connection leaves it running. Pass credentials as an inline assignment:
+#   make kvm-agent KVM_AGENT='LITELLM_API_KEY=… opencode'
+kvm-agent:
+	scripts/kvm-guest.sh agent $(KVM_AGENT)
+
+# Materialize the agent's provisioned config into the guest home, reusing the
+# launcher's own config pipeline (`config provision`). Run `make kvm-sync` first
+# so the checkout carries the command.
+kvm-agent-provision:
+	scripts/kvm-guest.sh agent-provision $(KVM_AGENT_NAME)
+
+# Fetch the guest agent's branches back to the host. Default: every branch into
+# refs/remotes/kvm-guest/*. BRANCH=<name> fetches just that branch into the local
+# branch of the same name (fast-forward only). A branch checked out here refuses
+# the fetch — merge kvm-guest/<name> instead.
+kvm-sync-back:
+	scripts/kvm-guest.sh sync-back $(BRANCH)
 
 kvm-down:
 	scripts/kvm-guest.sh down
