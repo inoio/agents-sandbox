@@ -74,6 +74,8 @@ filed issue and a documented workaround may be accepted by the maintainer.
 | H | ✅ | ✅ | ✅ |
 | I | ✅ | ✅ | ✅ |
 
+Decision: pi meets the bar and drops the flag; claude-code and codex wait for #767 (landed with or after the #768 stopgap).
+
 Findings so far:
 
 - claude-code A ✅, B (OAuth) ✅ — the host opener opened the login tab; D (login survives a restart) ✅.
