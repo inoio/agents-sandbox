@@ -53,9 +53,12 @@
 - `guides/go-version-support.md`
   - Description: The module's minimum Go version and why it cannot be lower, with the evidence and primary sources.
   - Read If: Changing the `go` directive, `.go-version`, or a Go pin; asking whether a lower Go version can be advertised; or diagnosing a dependency/promoted-field/GOTOOLCHAIN "requires a newer Go" error.
+- `guides/kvm-agent-testing.md`
+  - Description: Manual host-accept procedure for the KVM-guest agent environment - the ordered checks that `make kvm-agent`, `make kvm-agent-provision`, and `agents-sandbox config provision` behave on a real KVM host.
+  - Read If: Accepting the KVM-guest agent work on a host; verifying an agent runs on the guest, gets the launcher's provisioned config, and can build the launcher and run the `msb` suites; or debugging a guest missing opencode2, tmux, or the toolchain.
 - `guides/kvm-guest.md`
-  - Description: The host-only libvirt KVM guest for running the msb test suites - why the development VM cannot run them, the `scripts/kvm-guest.sh` provisioner and its `make kvm-up`/`kvm-sync`/`kvm-prime`/`kvm-run`/`kvm-down` targets, the disk-backed reuse root the guest pre-creates, the nested-KVM prerequisites, and the volatile host-firewall fix guest egress needs.
-  - Read If: Running the msb suites (`make test-msb`, `make test-msb-journeys`) and needing a KVM host; provisioning or destroying the libvirt guest; priming the guest's runner-image/msb cache from the host (`make kvm-prime`) or diagnosing a `prime` that copies nothing; diagnosing a guest with no DNS/egress behind Docker's `ip filter` table; or changing `scripts/kvm-guest.sh`.
+  - Description: The host-only libvirt KVM guest for running the msb test suites and an agent that works on this repo - why the development VM cannot run them, the `scripts/kvm-guest.sh` provisioner and its `make kvm-up`/`kvm-sync`/`kvm-prime`/`kvm-run`/`kvm-agent`/`kvm-agent-provision`/`kvm-down` targets, the disk-backed reuse root the guest pre-creates, the nested-KVM prerequisites, and the volatile host-firewall fix guest egress needs.
+  - Read If: Running the msb suites (`make test-msb`, `make test-msb-journeys`) and needing a KVM host; running an agent (opencode2) on the guest so it can build the launcher and drive real VMs (`make kvm-agent`, `make kvm-agent-provision`); provisioning or destroying the libvirt guest; priming the guest's runner-image/msb cache from the host (`make kvm-prime`) or diagnosing a `prime` that copies nothing; diagnosing a guest with no DNS/egress behind Docker's `ip filter` table; or changing `scripts/kvm-guest.sh`.
 - `guides/mutation-testing.md`
   - Description: Mutation testing for Go in this repo: the gomutants choice, how to close survivors, and the multi-turn sweep runbook.
   - Read If: Evaluating or changing a Go mutation-testing tool or the `make mutation` target; triaging LIVED mutants from a sweep; picking a `SINCE` scope for a branch/PR sweep; coordinating a #268 survivor-reduction pass; or deciding whether a sweep may run in the VM (it may not - it OOMs).
@@ -190,3 +193,6 @@
 - `plans/2026-11-22-msb-smoke-remedies.md`
   - Description: Implementation plan for the in-guest smoke-suite reliability remedies: the start-of-run sandbox sweep, the `docker-ready-timeout`/`daemon-ready-timeout` config keys threaded into `internal/sandbox/vm`, the `AGENTS_SANDBOX_MSB_TIMEOUT_FACTOR` ceiling scaler, and the stale daemon-timeout marker.
   - Read If: Working on the `test-msb-in-vm` guest target, the smoke suite's readiness/quit ceilings or start sweep, the VM readiness-timeout config keys, or the `MSB_GUEST_*` make variables.
+- `plans/2026-11-22-kvm-guest-agent-design.md`
+  - Description: Design for running an agent (opencode2) directly on the KVM guest so it can build the launcher and drive real VMs: provisioning the guest toolchain, materializing the launcher's provisioned agent config into the guest (`config provision`), attaching a durable session, credential handling, and the git return path.
+  - Read If: Working on `make kvm-agent`/`kvm-agent-provision`, the `agents-sandbox config provision` command, or how an agent works on this repo from the guest.

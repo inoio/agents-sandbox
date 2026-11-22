@@ -1,6 +1,6 @@
 ---
-description: The host-only libvirt KVM guest for running the msb test suites - why the development VM cannot run them, the `scripts/kvm-guest.sh` provisioner and its `make kvm-up`/`kvm-sync`/`kvm-prime`/`kvm-run`/`kvm-down` targets, the disk-backed reuse root the guest pre-creates, the nested-KVM prerequisites, and the volatile host-firewall fix guest egress needs.
-read_if: Running the msb suites (`make test-msb`, `make test-msb-journeys`) and needing a KVM host; provisioning or destroying the libvirt guest; priming the guest's runner-image/msb cache from the host (`make kvm-prime`) or diagnosing a `prime` that copies nothing; diagnosing a guest that never gets a DHCP lease, a `virsh start` `Permission denied` on the cache (AppArmor), or no DNS/egress behind Docker's `ip filter` table; or changing `scripts/kvm-guest.sh`.
+description: The host-only libvirt KVM guest for running the msb test suites and an agent that works on this repo - why the development VM cannot run them, the `scripts/kvm-guest.sh` provisioner and its `make kvm-up`/`kvm-sync`/`kvm-prime`/`kvm-run`/`kvm-agent`/`kvm-agent-provision`/`kvm-down` targets, the disk-backed reuse root the guest pre-creates, the nested-KVM prerequisites, and the volatile host-firewall fix guest egress needs.
+read_if: Running the msb suites (`make test-msb`, `make test-msb-journeys`) and needing a KVM host; running an agent (opencode2) on the guest so it can build the launcher and drive real VMs (`make kvm-agent`, `make kvm-agent-provision`); provisioning or destroying the libvirt guest; priming the guest's runner-image/msb cache from the host (`make kvm-prime`) or diagnosing a `prime` that copies nothing; diagnosing a guest that never gets a DHCP lease, a `virsh start` `Permission denied` on the cache (AppArmor), or no DNS/egress behind Docker's `ip filter` table; or changing `scripts/kvm-guest.sh`.
 ---
 
 # The KVM guest for the msb suites
@@ -117,6 +117,46 @@ traffic) and in **DOCKER-USER** (forwarded traffic) — Docker rebuilds `FORWARD
 ruleset re-applies them. Do not reload a `flush ruleset` base config on a running host: it also wipes Docker's and
 libvirt's tables, so a live apply needs `systemctl restart docker` then `systemctl restart libvirtd` then
 `virsh net-start default`.
+
+## Running an agent in the guest
+
+The guest can do work the development VM structurally cannot: its `/dev/kvm` is real, so it can build the launcher and
+run the `msb` suites and drive real microsandbox VMs. To let an **agent** do that work (rather than a person typing
+commands over `make kvm-ssh`), the guest is provisioned with an agent to run: opencode2 (linked into `~/.local/bin`,
+which the profile already puts on `PATH`), plus `tmux` for a durable session and the repo's `shellcheck` /
+`Makefile`-pinned `golangci-lint` so the agent can run `make check`.
+
+```console
+make kvm-sync              # the checkout, so the guest has the `config provision` command
+make kvm-agent-provision   # materialize the agent config into the guest home
+make kvm-agent             # attach the agent session
+```
+
+`make kvm-agent-provision` runs the launcher's own `config provision` **in the guest** — so it writes exactly the
+config a sandbox would receive (merged snippets, verbatim mirror, host drop-in, home files), reusing the launcher's
+pipeline rather than re-implementing it — and first rsyncs the host's `~/.config/agents-sandbox/` so the guest resolves
+the same config scopes. It runs in the guest because the Go toolchain lives there, not on the KVM host. The repository's
+own agent config (`opencode.jsonc` → `AGENTS.md`, `.agents/skills/`, `.operator-shared/`) is picked up from the working
+directory, not provisioned.
+
+`make kvm-agent` allocates a TTY and runs the agent inside a named `tmux` session (`KVM_AGENT_SESSION`, default
+`agents-sandbox`), so a dropped SSH connection leaves the agent running and re-running the command reattaches. The
+default command is `opencode2`; pass another, and credentials as an inline assignment, with `KVM_AGENT`:
+
+```console
+make kvm-agent KVM_AGENT='LITELLM_API_KEY=… GITHUB_PAT=… opencode'
+```
+
+**Credentials are not provisioned** — the guest's opencode2 is not behind the launcher's secret proxy, so an inline
+`VAR=value` (or an interactive login in the guest) is the channel; treat the value as visible in the host's process
+list and shell history. The command is embedded in a single-quoted remote command, so it must not contain a single
+quote.
+
+The guest checkout is the agent's own: it commits and creates worktrees there, and work returns to the host with
+`git fetch` over SSH. `make kvm-sync` is one-way and `--delete`s, so do not run it over a live agent session.
+
+`guides/kvm-agent-testing.md` is the manual host-accept procedure for this workflow (T1–T6), since it needs a real
+hypervisor and cannot run in the development VM.
 
 ## Host accept
 

@@ -67,6 +67,15 @@ func TestKvmGuestRenderWritesCloudInitAndDomain(t *testing.T) {
 	assertContains(t, "user-data", userData, "docker.io")
 	assertContains(t, "user-data", userData, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI test@host")
 
+	// The guest is provisioned to run an agent, not only the suites: opencode2
+	// (linked onto PATH), tmux (the session `agent` attaches to), shellcheck, and
+	// the Makefile-pinned golangci-lint.
+	assertContains(t, "user-data", userData, "opencode.ai/v2/install")
+	assertContains(t, "user-data", userData, "~/.local/bin/opencode")
+	assertContains(t, "user-data", userData, "- tmux")
+	assertContains(t, "user-data", userData, "- shellcheck")
+	assertContains(t, "user-data", userData, "golangci-lint.run/install.sh")
+
 	domainXML := readText(t, filepath.Join(dir, "asb-kvm-test.xml"))
 	assertContains(t, "domain xml", domainXML, "<name>asb-kvm-test</name>")
 	assertContains(t, "domain xml", domainXML, "<memory unit='MiB'>8192</memory>")
@@ -119,6 +128,76 @@ func TestKvmGuestRunForwardsTheCommandOverSSH(t *testing.T) {
 	assertContains(t, "ssh argv", argv, "dev@192.168.122.55")
 	assertContains(t, "ssh argv", argv, "bash -lc")
 	assertContains(t, "ssh argv", argv, "make test-msb-journeys")
+}
+
+// TestKvmGuestAgentAllocatesATTYAndRunsInAGuestTmux pins that `agent` opens an
+// interactive session: an SSH TTY (the TUI needs one) running the command inside
+// a named tmux session, so a dropped connection leaves the agent running.
+func TestKvmGuestAgentAllocatesATTYAndRunsInAGuestTmux(t *testing.T) {
+	dir := t.TempDir()
+	argvPath := filepath.Join(dir, "ssh-argv")
+	env := kvmGuestEnv(dir)
+	env["SSH_ARGV"] = argvPath
+	env["PATH"] = kvmGuestPath(t, "virsh", "ssh")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "agent")
+	assertStatus(t, result, 0)
+
+	argv := readText(t, argvPath)
+	assertContains(t, "ssh argv", argv, "-tt")
+	assertContains(t, "ssh argv", argv, "dev@192.168.122.55")
+	assertContains(t, "ssh argv", argv, "tmux new -A -s agents-sandbox")
+	assertContains(t, "ssh argv", argv, "opencode2")
+}
+
+// TestKvmGuestAgentForwardsAnInlineCredentialCommand pins that `agent` passes a
+// caller-supplied command through unchanged, so credentials ride in as an inline
+// `VAR=value` assignment the guest shell interprets.
+func TestKvmGuestAgentForwardsAnInlineCredentialCommand(t *testing.T) {
+	dir := t.TempDir()
+	argvPath := filepath.Join(dir, "ssh-argv")
+	env := kvmGuestEnv(dir)
+	env["SSH_ARGV"] = argvPath
+	env["PATH"] = kvmGuestPath(t, "virsh", "ssh")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"),
+		"agent", "LITELLM_API_KEY=secret", "opencode")
+	assertStatus(t, result, 0)
+
+	argv := readText(t, argvPath)
+	assertContains(t, "ssh argv", argv, "LITELLM_API_KEY=secret opencode")
+	assertContains(t, "ssh argv", argv, "tmux new -A -s agents-sandbox")
+}
+
+// TestKvmGuestAgentProvisionSyncsConfigAndMaterializes pins that
+// `agent-provision` ships the host's launcher config to the guest and runs the
+// launcher's own `config provision` there, targeting the guest home.
+func TestKvmGuestAgentProvisionSyncsConfigAndMaterializes(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	if err := os.MkdirAll(filepath.Join(home, ".config", "agents-sandbox"), 0o755); err != nil {
+		t.Fatalf("create home config dir: %v", err)
+	}
+	sshLog := filepath.Join(dir, "ssh-argv")
+	rsyncLog := filepath.Join(dir, "rsync-argv")
+	env := kvmGuestEnv(dir)
+	env["HOME"] = home
+	env["SSH_ARGV"] = sshLog
+	env["RSYNC_ARGV"] = rsyncLog
+	env["PATH"] = kvmGuestPath(t, "virsh", "ssh", "rsync")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "agent-provision")
+	assertStatus(t, result, 0)
+
+	rsyncArgv := readText(t, rsyncLog)
+	assertContains(t, "rsync argv", rsyncArgv,
+		filepath.Join(home, ".config", "agents-sandbox")+"/")
+	assertContains(t, "rsync argv", rsyncArgv, "dev@192.168.122.55:.config/agents-sandbox/")
+
+	sshArgv := readText(t, sshLog)
+	assertContains(t, "ssh argv", sshArgv, "config provision")
+	assertContains(t, "ssh argv", sshArgv, "--agent opencode2")
+	assertContains(t, "ssh argv", sshArgv, `--target "$HOME"`)
 }
 
 func TestKvmGuestSyncForwardsTheCheckoutWithExcludes(t *testing.T) {
