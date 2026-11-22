@@ -1,6 +1,7 @@
 package scripts
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -405,17 +406,63 @@ func TestKvmGuestAgentProvisionSyncsConfigAndMaterializes(t *testing.T) {
 	assertContains(t, "ssh argv", sshArgv, `--target "$HOME"`)
 }
 
-// TestKvmGuestAgentProvisionCopiesGitIdentityAndDisablesSigning pins that
-// provisioning gives the guest a committable identity: the host's ~/.gitconfig,
-// with commit and tag signing turned off (the host's key is not in the guest).
-func TestKvmGuestAgentProvisionCopiesGitIdentityAndDisablesSigning(t *testing.T) {
+// TestKvmGuestAgentProvisionCopiesOnlyTheUserIdentity pins that provisioning
+// gives the guest a committable identity without shipping the rest of the host's
+// ~/.gitconfig (credential helpers, aliases, signing config).
+func TestKvmGuestAgentProvisionCopiesOnlyTheUserIdentity(t *testing.T) {
 	dir := t.TempDir()
 	home := filepath.Join(dir, "home")
-	if err := os.MkdirAll(filepath.Join(home, ".config", "agents-sandbox"), 0o755); err != nil {
-		t.Fatalf("create home config dir: %v", err)
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatalf("create home: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(home, ".gitconfig"),
+		[]byte(
+			"[user]\n\tname = Host User\n\temail = host@example.test\n[credential]\n\thelper = store\n",
+		),
+		0o644,
+	); err != nil {
+		t.Fatalf("write host gitconfig: %v", err)
+	}
+	sshLog := filepath.Join(dir, "ssh-argv")
+	stdinLog := filepath.Join(dir, "ssh-stdin")
+	rsyncLog := filepath.Join(dir, "rsync-argv")
+	env := kvmGuestEnv(dir)
+	env["HOME"] = home
+	env["GIT_USER_NAME"] = "Host User"
+	env["GIT_USER_EMAIL"] = "host@example.test"
+	env["SSH_ARGV"] = sshLog
+	env["SSH_STDIN"] = stdinLog
+	env["SSH_STDIN_MATCH"] = "cat > ~/.gitconfig"
+	env["RSYNC_ARGV"] = rsyncLog
+	env["PATH"] = kvmGuestPath(t, "virsh", "ssh", "rsync", "git")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "agent-provision")
+	assertStatus(t, result, 0)
+
+	// The whole file is not shipped.
+	assertNotContains(t, "rsync argv", readText(t, rsyncLog), ".gitconfig")
+	// Only the identity is written, and via stdin (so a spaced name needs no quoting).
+	identity := readText(t, stdinLog)
+	assertContains(t, "git identity", identity, "name = Host User")
+	assertContains(t, "git identity", identity, "email = host@example.test")
+	assertNotContains(t, "git identity", identity, "credential")
+	assertNotContains(t, "git identity", identity, "gpgsign")
+	// The signing overrides are gone (signing is off by default now).
+	assertNotContains(t, "ssh argv", readText(t, sshLog), "gpgsign")
+}
+
+// TestKvmGuestAgentProvisionKeepsTheGuestIdentityWithoutAHostIdentity pins that
+// a host whose gitconfig carries no user.name/user.email writes nothing, rather
+// than shipping the rest of the file over the guest's own identity.
+func TestKvmGuestAgentProvisionKeepsTheGuestIdentityWithoutAHostIdentity(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatalf("create home: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(home, ".gitconfig"),
-		[]byte("[user]\n\tname = Host User\n\temail = host@example.test\n"), 0o644); err != nil {
+		[]byte("[credential]\n\thelper = store\n"), 0o644); err != nil {
 		t.Fatalf("write host gitconfig: %v", err)
 	}
 	sshLog := filepath.Join(dir, "ssh-argv")
@@ -424,18 +471,14 @@ func TestKvmGuestAgentProvisionCopiesGitIdentityAndDisablesSigning(t *testing.T)
 	env["HOME"] = home
 	env["SSH_ARGV"] = sshLog
 	env["RSYNC_ARGV"] = rsyncLog
-	env["PATH"] = kvmGuestPath(t, "virsh", "ssh", "rsync")
+	env["PATH"] = kvmGuestPath(t, "virsh", "ssh", "rsync", "git")
 
 	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "agent-provision")
 	assertStatus(t, result, 0)
 
-	rsyncArgv := readText(t, rsyncLog)
-	assertContains(t, "rsync argv", rsyncArgv, filepath.Join(home, ".gitconfig"))
-	assertContains(t, "rsync argv", rsyncArgv, "dev@192.168.122.55:.gitconfig")
-
-	sshArgv := readText(t, sshLog)
-	assertContains(t, "ssh argv", sshArgv, "commit.gpgsign false")
-	assertContains(t, "ssh argv", sshArgv, "tag.gpgsign false")
+	assertNotContains(t, "ssh argv", readText(t, sshLog), "cat > ~/.gitconfig")
+	assertNotContains(t, "rsync argv", readText(t, rsyncLog), ".gitconfig")
+	assertContains(t, "provision stderr", result.Stderr, "keeps its own git identity")
 }
 
 func TestKvmGuestSyncForwardsTheCheckoutWithExcludes(t *testing.T) {
@@ -692,6 +735,11 @@ func kvmGuestVirshHandler(args []string) (string, string, int) {
 func kvmGuestSSHHandler(args []string) (string, string, int) {
 	recordArgv("SSH_ARGV", args)
 	joined := strings.Join(args, " ")
+	if path := envOption("SSH_STDIN"); path != "" && envOption("SSH_STDIN_MATCH") != "" &&
+		strings.Contains(joined, envOption("SSH_STDIN_MATCH")) {
+		data, _ := io.ReadAll(os.Stdin)
+		_ = os.WriteFile(path, data, 0o644)
+	}
 	if envOption("SSH_CLOUD_INIT_FAIL") != "" && strings.Contains(joined, "cloud-init status") {
 		return "", "Cloud-init failed: see status --long\n", 1
 	}
@@ -735,10 +783,23 @@ func kvmGuestRsyncHandler(args []string) (string, string, int) {
 // pin that a fetch failure propagates. It never touches a repository.
 func kvmGuestGitHandler(args []string) (string, string, int) {
 	recordArgv("GIT_ARGV", args)
-	if envOption("GIT_EXIT") == "" {
-		return "", "", 0
+	if envOption("GIT_EXIT") != "" {
+		return "", "", 1
 	}
-	return "", "", 1
+	joined := strings.Join(args, " ")
+	switch {
+	case strings.Contains(joined, "user.name"):
+		if value := envOption("GIT_USER_NAME"); value != "" {
+			return value + "\n", "", 0
+		}
+		return "", "", 1
+	case strings.Contains(joined, "user.email"):
+		if value := envOption("GIT_USER_EMAIL"); value != "" {
+			return value + "\n", "", 0
+		}
+		return "", "", 1
+	}
+	return "", "", 0
 }
 
 // kvmGuestNftHandler serves the `nft` a script under test calls: it logs the

@@ -544,7 +544,9 @@ agent_in() {
 # sandbox would receive — merged snippets, verbatim mirror, host drop-in, home
 # files — by reusing the launcher's own pipeline. It runs in the guest because the
 # Go toolchain lives there, not on the KVM host. Run it after `sync`, so the
-# checkout carries the command.
+# checkout carries the command. It also gives the guest the host's git identity:
+# only `user.name`/`user.email`, streamed over ssh stdin, never the rest of the
+# host's ~/.gitconfig (credential helpers, aliases, signing config).
 agent_provision() {
   local ip agent
   agent="${1:-opencode2}"
@@ -559,13 +561,18 @@ agent_provision() {
   log "materializing the $agent config into the guest home"
   ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
     -- "bash -lc 'cd ~/agents-sandbox && go run -tags microsandbox_ffi_path ./cmd/agents-sandbox config provision --agent $agent --target \"\$HOME\"'"
-  if [ -f "$HOME/.gitconfig" ]; then
-    log "syncing $HOME/.gitconfig → $VM_USER@$ip (signing disabled in the guest)"
-    rsync -az "$HOME/.gitconfig" "$VM_USER@$ip:.gitconfig"
-    ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
-      -- "bash -lc 'git config --global commit.gpgsign false && git config --global tag.gpgsign false'"
+  local name email
+  name="$(git config --global --get user.name 2>/dev/null || true)"
+  email="$(git config --global --get user.email 2>/dev/null || true)"
+  if [ -n "$name" ] || [ -n "$email" ]; then
+    log "writing the host git identity into $VM_USER@$ip (name and email only)"
+    {
+      printf '[user]\n'
+      if [ -n "$name" ]; then printf '\tname = %s\n' "$name"; fi
+      if [ -n "$email" ]; then printf '\temail = %s\n' "$email"; fi
+    } | ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" -- "bash -lc 'cat > ~/.gitconfig'"
   else
-    log "no $HOME/.gitconfig on this host; the guest keeps its own git identity"
+    log "no host git user.name/user.email; the guest keeps its own git identity"
   fi
 }
 
