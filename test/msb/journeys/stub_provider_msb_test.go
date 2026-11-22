@@ -69,7 +69,7 @@ func TestStubProviderTurnReachesTheProxy(t *testing.T) {
 	// Read the artefact while the exit prompt holds the launcher open: the save
 	// happens before the prompt, and the after-run deletes the artefact once it
 	// is answered.
-	assertStubDestinationObserved(t, ctx, ctx.Stub)
+	assertStubDestinationObserved(t, ctx)
 	if err := StepChooseExit(exitSaveAllKey).Run(ctx); err != nil {
 		t.Fatalf("step %q: %v\n%s", "choose exit", err, spikeOutput(ctx))
 	}
@@ -79,9 +79,10 @@ func TestStubProviderTurnReachesTheProxy(t *testing.T) {
 // journey's isolated state dir names the stub provider's advertised host. It
 // reports every host it did see, so a route that reaches the proxy under a
 // different name is diagnosable from the failure.
-func assertStubDestinationObserved(t *testing.T, c *Context, provider StubProvider) {
+func assertStubDestinationObserved(t *testing.T, c *Context) {
 	t.Helper()
 
+	provider := c.Stub
 	if provider == nil {
 		t.Fatal("no stub provider on the context")
 	}

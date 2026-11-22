@@ -70,12 +70,13 @@ func StepSeedHostConfig(files map[string]string) Step {
 	}}
 }
 
-// StepSeedStub starts the journey's host-side stub provider and seeds the
-// agent's launcher config so its provider points at the stub, storing the
-// provider on the context. It seeds the *launcher* config (a managed snippet),
-// never the agent's host config, so a fresh-home journey still gets the
-// first-run menu rather than a host-setup seed. The listener is closed by
-// StartStubProvider's tb.Cleanup.
+// StepSeedStub starts the journey's host-side stub provider and provisions the
+// agent's VM config so its provider points at the stub, storing the provider on
+// the context. It writes the file through the launcher's `home:` manifest
+// (driver.SeedLauncherConfig), not the agent's launcher config dir and not the
+// home the first-run host seed reads, so a fresh-home journey still gets the
+// first-run menu rather than a managed layer or a host-setup seed. The listener
+// is closed by StartStubProvider's tb.Cleanup.
 func StepSeedStub() Step {
 	return Step{Name: "seed the stub provider", Run: func(c *Context) error {
 		provider, err := StartStubProvider(c.TB)
@@ -83,16 +84,8 @@ func StepSeedStub() Step {
 			return err
 		}
 		c.Stub = provider
-		profile, ok := agent.Lookup(c.Agent)
-		if !ok {
-			return fmt.Errorf("unknown agent %q", c.Agent)
-		}
-		names, err := agent.ConfigDirNames(profile)
-		if err != nil {
-			return fmt.Errorf("agent %s config-dir names: %w", c.Agent, err)
-		}
-		if err := driver.SeedAgentSnippets(c.Home, names[0], provider.ProviderConfig()); err != nil {
-			return fmt.Errorf("seed stub provider config: %w", err)
+		if err := driver.SeedLauncherConfig(c.Home, provider.ProviderConfig()); err != nil {
+			return fmt.Errorf("provision stub provider config: %w", err)
 		}
 		return nil
 	}}

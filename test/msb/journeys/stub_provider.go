@@ -24,9 +24,12 @@ type StubProvider interface {
 	// carrying the listener's own ephemeral port. The agent's provider baseURL
 	// is Addr()+"/v1".
 	Addr() string
-	// ProviderConfig is the snippet files to seed into the agent's launcher
-	// config dir (driver.SeedAgentSnippets' name->content map) so the agent's
-	// merged config points at the stub.
+	// ProviderConfig is the VM-home-relative config manifest the launcher
+	// provisions into the VM (driver.SeedLauncherConfig's target->content map).
+	// Its one target is a config file opencode reads, so the file is written
+	// through the launcher's `home:` manifest rather than the agent's launcher
+	// config dir (which firstrun counts as a managed layer) or the host config
+	// (which the first-run host seed reads).
 	ProviderConfig() map[string]string
 	// Stop closes the listener. It is idempotent.
 	Stop()
@@ -47,9 +50,12 @@ const stubOriginEnv = "AGENTS_SANDBOX_JOURNEYS_STUB_ORIGIN"
 // working route through stubOriginEnv.
 const stubOriginDefault = "http://agents-sandbox-stub.invalid"
 
-// stubSnippetName is the seeded config file name; opencode2's merge reads it
-// (its snippet pattern is opencode*.json*).
-const stubSnippetName = "opencode-stub.json"
+// stubAgentConfigTarget is the VM-home-relative config file the provider
+// document is provisioned to. It is opencode's middle-precedence config file
+// (config.json < opencode.json < opencode.jsonc), so the agent reads it. It is
+// deliberately not a launcher snippet name: a file under the launcher's agent
+// config dir would make firstrun count a managed layer and suppress the menu.
+const stubAgentConfigTarget = ".config/opencode/opencode.json"
 
 // The synthetic provider the seeded config declares: an OpenAI-compatible
 // provider whose baseURL is the stub, plus the model selection that uses it.
@@ -118,9 +124,10 @@ type stubProvider struct {
 // Addr returns the advertised origin, scheme://host:port.
 func (p *stubProvider) Addr() string { return p.addr }
 
-// ProviderConfig returns the one opencode snippet pointing at the stub.
+// ProviderConfig returns the one VM-home-relative config file pointing at the
+// stub, for the launcher's `home:` manifest.
 func (p *stubProvider) ProviderConfig() map[string]string {
-	return map[string]string{stubSnippetName: p.providerDocument()}
+	return map[string]string{stubAgentConfigTarget: p.providerDocument()}
 }
 
 // providerDocument renders the opencode provider config that points the agent at

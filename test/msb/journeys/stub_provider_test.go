@@ -2,12 +2,15 @@ package journeys
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/inoio/agents-sandbox/internal/agent"
+	"time"
 )
 
 // TestStubOriginFromValue pins the advertised-route override: a valid
@@ -40,13 +43,12 @@ func TestStubOriginFromValue(t *testing.T) {
 	}
 }
 
-// TestStartStubProviderSeedsAProviderConfig pins the stub's contract: it binds a
-// real host-side listener, advertises the (overridden) origin on the listener's
-// ephemeral port, and hands back an opencode snippet whose
-// provider.<id>.options.baseURL points at that address and whose file name the
-// opencode2 merge reads. The assertion is semantic (host, scheme, baseURL), not
-// a golden of the document.
-func TestStartStubProviderSeedsAProviderConfig(t *testing.T) {
+// TestStartStubProviderBindsAndAdvertises pins the stub's own contract: it binds
+// a real host-side listener, advertises the (overridden) origin on the
+// listener's ephemeral port, and hands back the VM-home-relative config file
+// whose provider.<id>.options.baseURL points at that address. The assertion is
+// semantic (host, scheme, baseURL), not a golden of the document.
+func TestStartStubProviderBindsAndAdvertises(t *testing.T) {
 	const origin = "http://127.0.0.1"
 	t.Setenv(stubOriginEnv, origin)
 
@@ -74,17 +76,11 @@ func TestStartStubProviderSeedsAProviderConfig(t *testing.T) {
 	if len(config) != 1 {
 		t.Fatalf("ProviderConfig has %d entries, want 1: %v", len(config), config)
 	}
-	for name := range config {
-		if name != stubSnippetName {
-			t.Errorf("snippet name = %q, want %q", name, stubSnippetName)
-		}
-		if !agent.MergesSnippetName("opencode2", name) {
-			t.Errorf("opencode2's merge does not read snippet %q", name)
-		}
+	content, ok := config[stubAgentConfigTarget]
+	if !ok {
+		t.Fatalf("ProviderConfig has no target %q: %v", stubAgentConfigTarget, config)
 	}
-
-	baseURL := providerBaseURL(t, config[stubSnippetName])
-	if got, want := baseURL, provider.Addr()+"/v1"; got != want {
+	if got, want := providerBaseURL(t, content), provider.Addr()+"/v1"; got != want {
 		t.Errorf("provider baseURL = %q, want %q", got, want)
 	}
 
@@ -94,8 +90,82 @@ func TestStartStubProviderSeedsAProviderConfig(t *testing.T) {
 	provider.Stop() // idempotent
 }
 
-// providerBaseURL extracts provider.<id>.options.baseURL from a seeded snippet.
-func providerBaseURL(t *testing.T, snippet string) string {
+// TestStepSeedStubProvisionsThroughTheHomeManifest pins the fix for the
+// first-run regression: StepSeedStub must get the provider config into the VM
+// without writing a file under the launcher's agent config dir (which
+// firstrun.managedConfigPresent counts as a managed layer) or under the isolated
+// HOME's host config (which firstrun.HostFiles reads). It provisions through the
+// launcher's `home:` manifest instead, so it writes a seed file and maps the VM
+// target to it, and creates no managed agent-config layer.
+func TestStepSeedStubProvisionsThroughTheHomeManifest(t *testing.T) {
+	home := t.TempDir()
+	ctx := &Context{TB: t, Agent: "opencode2", Home: home}
+
+	if err := StepSeedStub().Run(ctx); err != nil {
+		t.Fatalf("StepSeedStub: %v", err)
+	}
+	if ctx.Stub == nil {
+		t.Fatal("StepSeedStub left no provider on the context")
+	}
+
+	seedPath := filepath.Join(home, "seed", stubAgentConfigTarget)
+	content, err := os.ReadFile(seedPath)
+	if err != nil {
+		t.Fatalf("read the provisioned seed file %s: %v", seedPath, err)
+	}
+	if got, want := providerBaseURL(t, string(content)), ctx.Stub.Addr()+"/v1"; got != want {
+		t.Errorf("provisioned baseURL = %q, want %q", got, want)
+	}
+
+	assertHomeManifestMaps(t, home, stubAgentConfigTarget, seedPath)
+	assertNoManagedAgentConfigLayer(t, home)
+}
+
+// assertHomeManifestMaps checks the isolated launcher config declares a `home:`
+// manifest entry mapping the VM-home-relative target to source.
+func assertHomeManifestMaps(t *testing.T, home, target, source string) {
+	t.Helper()
+
+	launcherConfig := filepath.Join(home, "config", "agents-sandbox", "config.json")
+	data, err := os.ReadFile(launcherConfig)
+	if err != nil {
+		t.Fatalf("read %s: %v", launcherConfig, err)
+	}
+	var config struct {
+		Home map[string]string `json:"home"`
+	}
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatalf("decode %s: %v", launcherConfig, err)
+	}
+	if got := config.Home[target]; got != source {
+		t.Errorf("home manifest[%q] = %q, want %q", target, got, source)
+	}
+}
+
+// assertNoManagedAgentConfigLayer fails when the isolated launcher config holds
+// a regular file in any of the journey agent's config dirs, which would make
+// firstrun treat the run as already configured and suppress the menu.
+func assertNoManagedAgentConfigLayer(t *testing.T, home string) {
+	t.Helper()
+
+	for _, name := range []string{"opencode2", "opencode"} {
+		dir := filepath.Join(home, "config", "agents-sandbox", name)
+		entries, err := os.ReadDir(dir)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("read %s: %v", dir, err)
+		}
+		if len(entries) > 0 {
+			t.Errorf("StepSeedStub wrote a managed agent-config layer in %s: %v", dir, entries)
+		}
+	}
+}
+
+// providerBaseURL extracts provider.<id>.options.baseURL from a seeded
+// provider document.
+func providerBaseURL(t *testing.T, content string) string {
 	t.Helper()
 
 	var document struct {
@@ -105,25 +175,26 @@ func providerBaseURL(t *testing.T, snippet string) string {
 			} `json:"options"`
 		} `json:"provider"`
 	}
-	if err := json.Unmarshal([]byte(snippet), &document); err != nil {
-		t.Fatalf("decode provider config %q: %v", snippet, err)
+	if err := json.Unmarshal([]byte(content), &document); err != nil {
+		t.Fatalf("decode provider config %q: %v", content, err)
 	}
 	entry, ok := document.Provider[stubProviderID]
 	if !ok {
-		t.Fatalf("provider config %q has no provider %q", snippet, stubProviderID)
+		t.Fatalf("provider config %q has no provider %q", content, stubProviderID)
 	}
 	if entry.Options.BaseURL == "" {
-		t.Fatalf("provider config %q has no baseURL", snippet)
+		t.Fatalf("provider config %q has no baseURL", content)
 	}
 	return entry.Options.BaseURL
 }
 
-// assertStubReachable issues one request to the stub through a proxy-free client,
-// so the test proves the listener really answers rather than only that it bound.
+// assertStubReachable issues one request to the stub through a proxy-free,
+// bounded client, so the test proves the listener really answers rather than
+// only that it bound.
 func assertStubReachable(t *testing.T, target string) {
 	t.Helper()
 
-	client := &http.Client{Transport: &http.Transport{Proxy: nil}}
+	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{Proxy: nil}}
 	response, err := client.Get(target)
 	if err != nil {
 		t.Fatalf("GET %s: %v", target, err)

@@ -139,11 +139,15 @@ closed by `tb.Cleanup`.
   request, which the proxy records (`protocol: "http"`), so the stub needs no CA and the run needs no
   `network.observe.skip-upstream-verify`. An `https` advertised route would need `skip-upstream-verify`,
   because the stub's certificate is not trusted.
-- **Provider config.** `StubProvider.ProviderConfig()` returns one launcher snippet, `opencode-stub.json`
-  (opencode2's merge pattern is `opencode*.json*`), declaring an OpenAI-compatible provider `stub` whose
-  `options.baseURL` is `<advertised>/v1`, plus the top-level `model: stub/stub`. `StepSeedStub` writes it
-  through `driver.SeedAgentSnippets` (the launcher config dir), never the agent's host config, so the
-  first-run host-setup detection is not triggered.
+- **Provider config.** `StubProvider.ProviderConfig()` returns the VM-home-relative config manifest
+  (`driver.SeedLauncherConfig`'s target→content map): one target, opencode's `.config/opencode/opencode.json`
+  (the file opencode actually reads; `config.json < opencode.json < opencode.jsonc`), holding an
+  OpenAI-compatible provider `stub` whose `options.baseURL` is `<advertised>/v1` plus the top-level
+  `model: stub/stub`. `StepSeedStub` provisions it through the launcher's `home:` manifest. That path
+  matters: seeding a launcher snippet under `XDG_CONFIG_HOME/agents-sandbox/<agent dir>` makes
+  `firstrun.managedConfigPresent` count a managed layer and suppresses the menu, and seeding the isolated
+  HOME's `~/.config/opencode` makes `firstrun.HostFiles` read it as host config; the `home:` manifest
+  avoids both, so the first-run menu (and its "Learn by using it" choice) is still offered.
 - **Advertised route.** The listener always binds `127.0.0.1:0`; the *advertised* origin (scheme + host) is
   `AGENTS_SANDBOX_JOURNEYS_STUB_ORIGIN`, default `http://agents-sandbox-stub.invalid`. A host accept pins a
   route that both the runtime interception and the proxy's upstream dial reach, without a code change; the
@@ -151,10 +155,8 @@ closed by `tb.Cleanup`.
 - **Assertion.** The spike asserts the saved observation names the advertised stub host. A denied proxy dial
   is still recorded, so the assertion passes whenever the turn reaches the proxy at all.
 
-**Provisional.** Two things the host accept settles: whether the default route reaches the proxy, and whether
-seeding the snippet through the launcher config dir suppresses the first-run menu — `firstrun.managedConfigPresent`
-counts that directory as a managed layer, and the UC1 journey exercises the menu by launching plain `run`
-(no `--learn`) rather than skipping it.
+**Provisional.** The one open question the host accept settles is whether the default route reaches the
+proxy; the managed-layer suppression is resolved by provisioning through the `home:` manifest (above).
 
 ### Harness scope for v1
 
