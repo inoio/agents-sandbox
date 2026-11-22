@@ -93,6 +93,16 @@ func smokeVMCPUs() uint8 {
 	return smokeVMCPUsFromValue(os.Getenv(smokeVMCPUsEnv))
 }
 
+// smokeTimeoutFactor is the multiplier every smoke readiness and quit ceiling
+// carries, read from the environment: the KVM guest sets
+// AGENTS_SANDBOX_MSB_TIMEOUT_FACTOR, so a nested guest's slower VM start does
+// not blow a budget sized for a host. One (unset or invalid) leaves every
+// ceiling unchanged. It reads the environment, so it lives in the msb-tagged
+// file; timeoutFactorFromValue holds the parsing policy.
+func smokeTimeoutFactor() float64 {
+	return timeoutFactorFromValue(os.Getenv(smokeTimeoutFactorEnv))
+}
+
 // TestHarnessSmoke starts every registered harness the way a user does
 // (`agents-sandbox run --agent <name>`) inside a real microsandbox VM and
 // asserts it reaches its full-screen TUI, exits 0 on its quit key, and never
@@ -228,11 +238,12 @@ func TestHarnessSmoke(t *testing.T) {
 //     process has already exited, so it never observes the guest's earlier
 //     restore.
 func quit(ses *ptySession, spec harnessSpec) (int, error) {
-	deadline := time.Now().Add(quitTimeout)
+	budget := scaleTimeout(quitTimeout, smokeTimeoutFactor())
+	deadline := time.Now().Add(budget)
 	interval := quitPressInterval
 	for presses := 1; ; presses++ {
 		if teardownStarted(ses, presses) {
-			return waitExitWithin(ses, deadline, presses, spec)
+			return waitExitWithin(ses, deadline, budget, presses, spec)
 		}
 		if err := ses.write(spec.QuitKey); err != nil {
 			return 0, err
@@ -242,7 +253,7 @@ func quit(ses *ptySession, spec harnessSpec) (int, error) {
 			return code, nil
 		}
 		if !time.Now().Before(deadline) {
-			return 0, quitTimeoutError(presses, spec, err)
+			return 0, quitTimeoutError(presses, spec, budget, err)
 		}
 		interval = quitIntervalAfterPress(presses)
 	}
@@ -251,19 +262,25 @@ func quit(ses *ptySession, spec harnessSpec) (int, error) {
 // waitExitWithin waits out the remaining quit budget for a process that has
 // begun tearing down, returning its exit code or the same timeout error the
 // tapping loop reports.
-func waitExitWithin(ses *ptySession, deadline time.Time, presses int, spec harnessSpec) (int, error) {
+func waitExitWithin(
+	ses *ptySession,
+	deadline time.Time,
+	budget time.Duration,
+	presses int,
+	spec harnessSpec,
+) (int, error) {
 	code, err := ses.waitExit(time.Until(deadline))
 	if err == nil {
 		return code, nil
 	}
-	return 0, quitTimeoutError(presses, spec, err)
+	return 0, quitTimeoutError(presses, spec, budget, err)
 }
 
-// quitTimeoutError reports that a harness did not exit within quitTimeout after
+// quitTimeoutError reports that a harness did not exit within budget after
 // presses taps of its key.
-func quitTimeoutError(presses int, spec harnessSpec, err error) error {
+func quitTimeoutError(presses int, spec harnessSpec, budget time.Duration, err error) error {
 	return fmt.Errorf("%d presses of %#x within %s did not exit it: %w",
-		presses, spec.QuitKey, quitTimeout, err)
+		presses, spec.QuitKey, budget, err)
 }
 
 // waitReady blocks until the harness can be driven with its quit key. A harness
@@ -272,13 +289,14 @@ func quitTimeoutError(presses int, spec harnessSpec, err error) error {
 // keeps the terminal's normal buffer and has neither marker is given the
 // launcher's start-up time instead.
 func waitReady(ses *ptySession, spec harnessSpec) error {
+	factor := smokeTimeoutFactor()
 	if spec.ReadyMarker != "" {
-		return ses.waitForMarker(spec.ReadyMarker, spec.readyTimeout())
+		return ses.waitForMarker(spec.ReadyMarker, scaleTimeout(spec.readyTimeout(), factor))
 	}
 	if spec.KeepsNormalBuffer {
-		return ses.waitSettled(spec.readyTimeout())
+		return ses.waitSettled(scaleTimeout(spec.readyTimeout(), factor))
 	}
-	return ses.waitForTUI(tuiReadyTimeout)
+	return ses.waitForTUI(scaleTimeout(tuiReadyTimeout, factor))
 }
 
 // preflight skips the suite when the host cannot run it at all: an unsupported

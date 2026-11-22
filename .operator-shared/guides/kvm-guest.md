@@ -35,11 +35,15 @@ make kvm-down               # destroy the guest and its disk (the base image sta
 ```
 
 `make kvm-run` defaults to `make test-msb-in-vm`, the in-guest variant of `make test-msb`: the same caching
-suite, with three changes that only matter on a nested guest. The two `msb`-tagged packages run serialized
+suite, with changes that only matter on a nested guest. The two `msb`-tagged packages run serialized
 (`go test -p 1`), because each starts its own VMs and a nested guest cannot absorb both at once. Each smoke
 VM's vCPUs are capped (`MSB_GUEST_VM_CPUS`, default 2, passed as `AGENTS_SANDBOX_MSB_VM_CPUS`), because a
-project VM otherwise claims every guest vCPU. And the parallel-harness count defaults to
-`MSB_GUEST_PARALLEL` (2) when `MSB_PARALLEL` is unset, instead of the host-sized memory heuristic.
+project VM otherwise claims every guest vCPU. The parallel-harness count defaults to
+`MSB_GUEST_PARALLEL` (2) when `MSB_PARALLEL` is unset, instead of the host-sized memory heuristic. And the
+readiness/quit ceilings scale (`MSB_GUEST_TIMEOUT_FACTOR`, default 2, passed as
+`AGENTS_SANDBOX_MSB_TIMEOUT_FACTOR`), while the launcher's own VM-setup readiness ceilings are raised
+(`MSB_GUEST_DOCKER_READY_TIMEOUT`/`MSB_GUEST_DAEMON_READY_TIMEOUT`, passed as the `AGENTS_SANDBOX_*` vars),
+because a nested guest starts a VM and its services slower than the fixed host budgets allow.
 `make test-msb` and `make test-msb-cold` are unchanged.
 
 `up` prints the guest's SSH address and a next-steps checklist; cloud-init takes a few minutes on first boot. Once it

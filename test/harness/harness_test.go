@@ -148,6 +148,45 @@ func TestHeavyweightReadyTimeoutIsTheDocumentedCeiling(t *testing.T) {
 	}
 }
 
+// TestTimeoutFactorFromValue pins the smoke timeout-factor parsing: a positive
+// float scales the ceilings, and every other value (unset, zero, negative,
+// non-numeric) leaves them at 1, so a host run is unchanged.
+func TestTimeoutFactorFromValue(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value string
+		want  float64
+	}{
+		{"unset", "", 1},
+		{"zero", "0", 1},
+		{"negative", "-2", 1},
+		{"non-numeric", "fast", 1},
+		{"whole", "2", 2},
+		{"fractional", "1.5", 1.5},
+		{"padded", "  3  ", 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := timeoutFactorFromValue(tc.value); got != tc.want {
+				t.Errorf("timeoutFactorFromValue(%q) = %v, want %v", tc.value, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestScaleTimeout pins the ceiling scaler: a factor of 1 is the identity (so a
+// host run's ceilings are byte-for-byte unchanged) and other factors multiply.
+func TestScaleTimeout(t *testing.T) {
+	if got := scaleTimeout(15*time.Second, 1); got != 15*time.Second {
+		t.Errorf("scaleTimeout(f=1) = %s, want 15s", got)
+	}
+	if got := scaleTimeout(15*time.Second, 2); got != 30*time.Second {
+		t.Errorf("scaleTimeout(f=2) = %s, want 30s", got)
+	}
+	if got := scaleTimeout(15*time.Second, 0.5); got != 7500*time.Millisecond {
+		t.Errorf("scaleTimeout(f=0.5) = %s, want 7.5s", got)
+	}
+}
+
 // TestHermesSeedsAConfiguredHomeAndMarker pins how the smoke test reaches
 // hermes' interactive REPL without a real credential: it seeds a home config
 // that makes hermes consider a dummy, loopback provider configured and settles

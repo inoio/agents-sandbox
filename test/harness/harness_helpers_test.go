@@ -222,6 +222,34 @@ func withVMCPUs(args []string, cpus uint8) []string {
 	return append(args, "--"+cpusFlag, strconv.Itoa(int(cpus)))
 }
 
+// smokeTimeoutFactorEnv scales the smoke suite's readiness and quit ceilings.
+// Unset (the default) leaves them at 1, every host value. The KVM guest sets
+// it: a nested guest starts a VM and its services far slower, so the fixed
+// ceilings that fit a host time out there.
+const smokeTimeoutFactorEnv = "AGENTS_SANDBOX_MSB_TIMEOUT_FACTOR"
+
+// timeoutFactorFromValue parses the timeout factor: a positive float scales the
+// ceilings; anything else (unset, zero, negative, non-numeric) leaves them at
+// 1, so a host run is unchanged. Kept pure so it is testable without the host,
+// like smokeVMCPUsFromValue.
+func timeoutFactorFromValue(value string) float64 {
+	factor, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil || factor <= 0 {
+		return 1
+	}
+	return factor
+}
+
+// scaleTimeout returns d multiplied by factor to the nearest nanosecond. A
+// factor of 1 is the identity, so an unset factor leaves every ceiling exactly
+// what the suite has always used.
+func scaleTimeout(d time.Duration, factor float64) time.Duration {
+	if factor == 1 {
+		return d
+	}
+	return time.Duration(float64(d) * factor)
+}
+
 // msbHomeUnderRoot is the private microsandbox home a suite root derives.
 func msbHomeUnderRoot(root string) string {
 	return filepath.Join(root, dataDirName, "agents-sandbox", "msb")

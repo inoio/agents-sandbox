@@ -47,6 +47,16 @@ MSB_GUEST_VM_CPUS ?= 2
 # The host's memory-derived default sizes for a full host; a nested guest with
 # MSB_GUEST_VM_CPUS-capped VMs wants a small fixed count instead.
 MSB_GUEST_PARALLEL ?= 2
+# Multiplier the in-guest KVM run applies to every smoke readiness and quit
+# ceiling. A nested guest starts a VM far slower, so budgets sized for a host
+# time out there. Passed as AGENTS_SANDBOX_MSB_TIMEOUT_FACTOR.
+MSB_GUEST_TIMEOUT_FACTOR ?= 2
+# Launcher-side VM-setup readiness ceilings for the in-guest KVM run: the
+# in-VM Docker engine and the agent serve daemon. Raised from the built-in 30s /
+# 60s, which a slow nested guest can exceed. Passed as
+# AGENTS_SANDBOX_DOCKER_READY_TIMEOUT / AGENTS_SANDBOX_DAEMON_READY_TIMEOUT.
+MSB_GUEST_DOCKER_READY_TIMEOUT ?= 90s
+MSB_GUEST_DAEMON_READY_TIMEOUT ?= 180s
 # Standing root for the caching `test-msb`. Two constraints: it must stay short
 # enough for microsandbox's derived sandbox control socket (see
 # test/harness/harness_helpers_test.go — the smoke root must be under 30 bytes),
@@ -266,11 +276,15 @@ test-msb-cold: msb-reuse-root
 # packages run serialized (`-p 1`), because each starts its own VMs and a nested
 # guest cannot absorb both at once; each smoke VM's vCPUs are capped
 # (AGENTS_SANDBOX_MSB_VM_CPUS), because a project VM otherwise claims every guest
-# vCPU; and the parallel-harness count defaults to MSB_GUEST_PARALLEL instead of
-# the host-sized heuristic. The host targets are unchanged — the cap env var is
-# unset and the parallel default is untouched there.
+# vCPU; the parallel-harness count defaults to MSB_GUEST_PARALLEL instead of the
+# host-sized heuristic; and the readiness/quit ceilings are scaled
+# (AGENTS_SANDBOX_MSB_TIMEOUT_FACTOR). The host targets are unchanged — the cap
+# env var is unset, the parallel default is untouched, and the factor is unset.
 test-msb-in-vm: msb-reuse-root
 	AGENTS_SANDBOX_MSB_VM_CPUS=$(MSB_GUEST_VM_CPUS) \
+	AGENTS_SANDBOX_MSB_TIMEOUT_FACTOR=$(MSB_GUEST_TIMEOUT_FACTOR) \
+	AGENTS_SANDBOX_DOCKER_READY_TIMEOUT=$(MSB_GUEST_DOCKER_READY_TIMEOUT) \
+	AGENTS_SANDBOX_DAEMON_READY_TIMEOUT=$(MSB_GUEST_DAEMON_READY_TIMEOUT) \
 	AGENTS_SANDBOX_SMOKE_ROOT=$(MSB_REUSE_ROOT)/smoke \
 	AGENTS_SANDBOX_MSB_TEST_HOME=$(MSB_REUSE_ROOT)/msb \
 	AGENTS_SANDBOX_MSB_PARALLEL=$(or $(MSB_PARALLEL),$(MSB_GUEST_PARALLEL)) \

@@ -31,8 +31,8 @@ The same gap means a newly registered harness has no test that it starts at all.
 runtime it requires, as `integration` names a real docker daemon). `make test-msb` runs it, together with the
 `msb`-tagged real-client tests in `internal/sandbox/msb/` (`realstack_msb_test.go`); it is not part of
 `make check`, `make test`, or the default CI. The KVM guest's `make kvm-run` drives `make test-msb-in-vm`
-instead: the same suite with the two packages serialized (`go test -p 1`) and each smoke VM's vCPUs capped
-(see Isolation). `make compile-all` compiles it (`-tags 'integration msb'`) so a
+instead: the same suite with the two packages serialized (`go test -p 1`), each smoke VM's vCPUs capped, and the
+readiness/quit ceilings scaled (see Isolation). `make compile-all` compiles it (`-tags 'integration msb'`) so a
 tagged-only compile regression is caught on every PR.
 
 **Scope of the assertion.** For every name in `agent.Names()`, the suite starts the harness the way a user does
@@ -109,6 +109,12 @@ harness whose startup is much slower raises the ceiling with `ReadyTimeout`: `he
 store, so its spec sets `heavyweightReadyTimeout` (120s). The override bounds either wait (marker or settle), not a
 sleep — hermes' banner marker ends its wait as soon as the CLI is up. An alternate-screen harness is bounded by the TUI
 marker wait (180s) instead.
+
+`AGENTS_SANDBOX_MSB_TIMEOUT_FACTOR` (a positive float, unset = 1) multiplies every readiness ceiling
+(`settledReadyTimeout`, `heavyweightReadyTimeout`, `tuiReadyTimeout`) and `quitTimeout`, so the in-guest
+`make test-msb-in-vm` can give a nested guest's slower start and teardown a proportionally larger budget. It does
+not scale the quit press/retry cadence: those are tuned to qwen-code's sub-1.2s "press again" chaining window and
+a longer interval would stop the exit chaining. At the default 1 a host run is byte-for-byte unchanged.
 
 **Harness table completeness.** A single table maps harness name to the key the smoke test taps, an optional network
 override, a `KeepsNormalBuffer` flag, an optional readiness marker, an optional readiness-timeout ceiling, and optional
