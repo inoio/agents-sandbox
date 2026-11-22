@@ -33,7 +33,7 @@
 # /dev/kvm, docker and msb work, so it can build the launcher and run the msb
 # suites. `agent` attaches an interactive tmux session; `agent-provision` syncs
 # the host's launcher config and materializes the agent's provisioned config into
-# the guest home. Credentials are not provisioned: pass them as env assignments on
+# the guest home. Model credentials are not provisioned: pass them as env assignments on
 # the agent command, e.g.
 #   make kvm-agent KVM_AGENT='LITELLM_API_KEY=… opencode'
 #
@@ -462,7 +462,8 @@ sync_in() {
 # working tree would make the next commit silently revert the fetch — so update
 # it by merging the namespace ref instead (`git merge kvm-guest/<name>`). The
 # guest keeps its own .git (sync excludes it), so this fetch is the return path;
-# the guest never pushes.
+# a guest signed in via `gh_auth` can also push directly, but sync-back needs no
+# credential and is the path for a guest without one.
 sync_back() {
   local ip branch
   branch="${1:-}"
@@ -583,9 +584,11 @@ agent_provision() {
 # gh_auth signs the guest's `gh` in to GitHub from the host environment's
 # GITHUB_PAT, so the in-guest agent can read and comment on issues and PRs and
 # push. It also points git at gh's credential helper and rewrites SSH GitHub
-# remotes to HTTPS, so a push from the guest's HTTPS clone authenticates. It is a
-# no-op when GITHUB_PAT is unset, and the token rides stdin, never argv. It must
-# run after `agent_provision`, which rewrites the guest ~/.gitconfig.
+# remotes to HTTPS, so a push from the guest's HTTPS clone authenticates. The
+# rewrites use `--replace-all` before the second `--add`, so re-running on a
+# reattach stays at two values instead of accumulating. It is a no-op when
+# GITHUB_PAT is unset, and the token rides stdin, never argv. It must run after
+# `agent_provision`, which rewrites the guest ~/.gitconfig.
 gh_auth() {
   local ip="$1"
   if [ -z "${GITHUB_PAT:-}" ]; then
@@ -593,8 +596,8 @@ gh_auth() {
   fi
   log "signing gh in to GitHub in '$VM_NAME'"
   if ! printf '%s\n' "$GITHUB_PAT" | ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
-      -- "bash -lc 'gh auth login --with-token && gh auth setup-git && git config --global url.https://github.com/.insteadOf git@github.com: && git config --global --add url.https://github.com/.insteadOf ssh://git@github.com/'"; then
-    die "gh sign-in failed in '$VM_NAME'; a guest booted before gh was installed has none — rebuild with: make kvm-down && make kvm-up"
+      -- "bash -lc 'gh auth login --with-token && gh auth setup-git && git config --global --replace-all url.https://github.com/.insteadOf git@github.com: && git config --global --add url.https://github.com/.insteadOf ssh://git@github.com/'"; then
+    die "gh sign-in failed in '$VM_NAME'; check the token (GITHUB_PAT), or rebuild a guest that predates gh: make kvm-down && make kvm-up"
   fi
 }
 

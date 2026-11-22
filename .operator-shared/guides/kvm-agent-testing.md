@@ -111,7 +111,7 @@ materialization still running against the guest's project scope.
 ## T3 — start an interactive agent session
 
 ```console
-make kvm-agent KVM_AGENT='LITELLM_API_KEY=<key> GITHUB_PAT=<pat> opencode'
+make kvm-agent KVM_AGENT='LITELLM_API_KEY=<key> opencode'
 ```
 
 Expect the opencode2 TUI in the guest, in `~/agents-sandbox`. Ask it something cheap ("summarise AGENTS.md") and

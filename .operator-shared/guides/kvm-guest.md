@@ -154,14 +154,16 @@ the same config scopes. It runs in the guest because the Go toolchain lives ther
 own agent config (`opencode.jsonc` → `AGENTS.md`, `.agents/skills/`, `.operator-shared/`) is picked up from the working
 directory, not provisioned. It also gives the guest the host's git identity — only `user.name` and `user.email`, not the
 rest of the host's `~/.gitconfig` (credential helpers, aliases, signing config) — so the agent commits as the host user;
-a host with neither key keeps the guest's own identity.
+a host with neither key keeps the guest's own identity. Because this rewrites the guest's identity file, running
+`make kvm-agent-provision` **after** a `kvm-agent-up` sign-in drops gh's git configuration (credential helper, rewrites);
+re-run `make kvm-agent-up` to restore it.
 
 `make kvm-agent` allocates a TTY and runs the agent inside a named `tmux` session (`KVM_AGENT_SESSION`, default
 `agents-sandbox`), so a dropped SSH connection leaves the agent running and re-running the command reattaches. The
 default command is `opencode2`; pass another, and credentials as an inline assignment, with `KVM_AGENT`:
 
 ```console
-make kvm-agent KVM_AGENT='LITELLM_API_KEY=… GITHUB_PAT=… opencode'
+make kvm-agent KVM_AGENT='LITELLM_API_KEY=… opencode'
 ```
 
 **Model credentials are not provisioned** — the guest's opencode2 is not behind the launcher's secret proxy, so an

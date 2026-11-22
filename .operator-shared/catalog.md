@@ -200,7 +200,7 @@
   - Description: Design for running an agent (opencode2) directly on the KVM guest so it can build the launcher and drive real VMs: provisioning the guest toolchain, materializing the launcher's provisioned agent config into the guest (`config provision`), attaching a durable session, credential handling, and the git return path.
   - Read If: Working on `make kvm-agent`/`kvm-agent-provision`, the `agents-sandbox config provision` command, or how an agent works on this repo from the guest.
 - `plans/2026-11-22-kvm-guest-sync-back.md`
-  - Description: Implementation plan for the guest git identity and `make kvm-sync-back`: `kvm-agent-provision` writes the host's git `user.name`/`user.email` into the guest (later narrowed from a whole-`~/.gitconfig` copy; see `plans/2026-11-22-kvm-guest-gh-design.md`), and the new sync-back subcommand fetches the guest's branches back (all into `refs/remotes/kvm-guest/*`, or one into a local branch).
+  - Description: Implementation plan for the guest git identity and `make kvm-sync-back`: `kvm-agent-provision` writes the host's git `user.name`/`user.email` into the guest (later narrowed from a whole-`~/.gitconfig` copy; see `guides/kvm-guest.md`), and the new sync-back subcommand fetches the guest's branches back (all into `refs/remotes/kvm-guest/*`, or one into a local branch).
   - Read If: Working on `make kvm-sync-back`, the guest git identity provisioning, or `scripts/kvm-guest.sh`'s `sync_back`/`agent_provision`.
 - `plans/2026-11-22-kvm-agent-up-design.md`
   - Description: Design for the one-command KVM-guest agent bring-up (`make kvm-agent-up`, the `agent-up` subcommand): idempotent ensure-running, the cloud-init gate, and credential passthrough.
@@ -208,9 +208,3 @@
 - `plans/2026-11-22-kvm-agent-up.md`
   - Description: Implementation plan for the same one-command bring-up (its tasks and tests); retire when folded into `guides/kvm-guest.md`.
   - Read If: Executing or reviewing the `kvm-agent-up` plan.
-- `plans/2026-11-22-kvm-guest-gh-design.md`
-  - Description: Design for installing the GitHub CLI in the KVM guest and signing it in from a host-environment `GITHUB_PAT` on `make kvm-agent-up` (token over ssh stdin; `setup-git` and SSH→HTTPS rewrites for push/PRs); also reduces the guest git identity to the host's `user.name`/`user.email`.
-  - Read If: Working on gh provisioning, `make kvm-agent-up`'s sign-in, or the guest git identity.
-- `plans/2026-11-22-kvm-guest-gh.md`
-  - Description: Implementation plan for gh in the guest and the `GITHUB_PAT` sign-in; retire when folded into `guides/kvm-guest.md`.
-  - Read If: Executing or reviewing that plan.

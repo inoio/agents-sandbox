@@ -378,7 +378,10 @@ func TestKvmGuestAgentUpSignsGhInFromTheHostPat(t *testing.T) {
 	sshArgv := readText(t, filepath.Join(dir, "ssh-argv"))
 	assertContains(t, "ssh argv", sshArgv, "gh auth login --with-token")
 	assertContains(t, "ssh argv", sshArgv, "gh auth setup-git")
-	assertContains(t, "ssh argv", sshArgv, "url.https://github.com/.insteadOf git@github.com:")
+	// Idempotent on reattach: --replace-all collapses any prior values before
+	// the second is added, so repeated runs do not accumulate insteadOf lines.
+	assertContains(t, "ssh argv", sshArgv, "--replace-all url.https://github.com/.insteadOf git@github.com:")
+	assertContains(t, "ssh argv", sshArgv, "--add url.https://github.com/.insteadOf ssh://git@github.com/")
 	assertContains(t, "gh stdin", readText(t, filepath.Join(dir, "ssh-stdin")), "ghp_secret")
 	assertNotContains(t, "ssh argv", sshArgv, "ghp_secret")
 }
@@ -437,6 +440,8 @@ func TestKvmGuestAgentUpFailsWhenGhSignInFails(t *testing.T) {
 	assertStatus(t, result, 1)
 
 	assertContains(t, "stderr", result.Stderr, "gh sign-in failed")
+	// The hint must cover a rejected token, not only a pre-gh guest.
+	assertContains(t, "stderr", result.Stderr, "token")
 	assertNotContains(t, "ssh argv", readText(t, filepath.Join(dir, "ssh-argv")), "tmux new")
 }
 
