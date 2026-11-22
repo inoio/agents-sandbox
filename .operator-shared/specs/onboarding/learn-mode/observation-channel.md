@@ -116,8 +116,21 @@ the runtime trusts ours. It remains the fallback only if a future runtime cannot
 
 Once our CA is trusted upstream, the spike confirmed `curl`, `git` over HTTPS, and `npm` work through termination.
 
+**The proxy issues its terminating certificate for the SNI name, not the CONNECT target.** The runtime opens its tunnel
+to our proxy by the destination's IP (`CONNECT 160.79.104.10:443`) but verifies our certificate against the hostname it
+sends as SNI (`api.anthropic.com`). A certificate for the CONNECT target fails that handshake (`tls: bad certificate`),
+and every request through the channel dies before it is seen. The leaf is therefore signed per ClientHello name, with
+the CONNECT target as the fallback for a client that sends no SNI. Under T2 the CONNECT target is an IP, so the
+hostname of a destination is known only from the TLS handshake and the terminated request, never from the tunnel.
+
 The trust is VM-creation state and does not survive a recreate on its own; a learning session that recreates the VM
 re-establishes it with that session's fresh CA.
+
+The proxy verifies the upstream certificate when it dials the real destination, because it forwards the real credential:
+an upstream whose certificate the system roots do not contain is refused and the destination is recorded as a denial,
+so a forwarded credential cannot reach an impostor. `network.observe.skip-upstream-verify` (default `false`) drops that
+verification for a host whose egress is transparently intercepted with a private CA. It is launcher-side — it never
+reaches the VM, the SDK spec, or the network fingerprint — so changing it does not recreate the VM.
 
 ## The capture artefact
 
@@ -143,7 +156,9 @@ so the analyser attributes a header to a configured secret by falling back to `r
 
 The artefact stays on the host, is deleted after analysis by default, and is never uploaded. It is secret material
 (invariant 3). An unreviewed artefact — a session whose owning process died — is swept at the next launcher start once
-it is 30 days old.
+it is 30 days old. The artefact is uncapped: the recorder keeps one entry per distinct `(host, ip, port, path,
+protocol)` for the whole session and `Save`/`Load` impose no size bound, so a session that generates many distinct
+paths can grow the launcher's memory and write a large file under the user state dir.
 
 ## Prerequisites and constraints
 
@@ -165,11 +180,13 @@ when other clients are attached — with the prompt naming the temporary observa
 never written for the overlay. If the observation channel cannot start, the run continues as a passive read-back
 session, which establishes facts 1–3 and proposes no network change. It can still propose a static secret whose
 endpoint the entry's own config names (the config-entry fallback in [findings and apply](findings-and-apply.md)),
-since that needs no attribution.
+since that needs no attribution. The launcher records the overlay's fingerprint as the running VM's network state, so
+the first ordinary run after a learning session sees the overlay gone and recreates the VM again through the same
+path.
 
 ## Open validation
 
-The spike settled the channel but left five checks unrun; none blocks the design, and each is a known limitation of
+The spike settled the channel but left four checks unrun; none blocks the design, and each is a known limitation of
 what the proposal may claim until it is closed:
 
 - **Policy-denied destinations are invisible under T2** — the runtime enforces the guest's egress before the proxy is
@@ -178,11 +195,14 @@ what the proposal may claim until it is closed:
   and bypasses the sandbox egress policy — a temporary widening, so S7 must either compose the base policy onto the
   proxy's dial or explicitly announce and accept it.
 - **QUIC/HTTP3 bypass** — with the proxy active, only TCP consumers were tested; a QUIC client may reach the network
-  directly, so the learned destination set is authoritative for TCP, not exhaustive.
+  directly, so the learned destination set is authoritative for TCP, not exhaustive. The set could later be made
+  exhaustive by blocking QUIC (`TLSConfig.BlockQUIC`) and by an explicit intercepted-port list; both are deliberately
+  out of scope today.
 - **Certificate pinning** — no pinning client was available to test, so the fallback to config-derived attribution
   is used with a warning, unverified.
 - **`msb-trust java` / `chrome`** — the base image has neither, so the Java/Chrome trust imports are unverified.
-- **The end-to-end agent turn through the proxy** — measured only with synthetic operations; the real streaming turn
-  is a host-accept step for the channel (the proxy surface `#149` has landed, so it is measurable, not blocked).
+
+The end-to-end agent turn through the proxy was verified on 2026-11-22: a model turn completes in a learning session for
+claude-code, pi, and codex (it had failed on the CONNECT-target certificate above, #812).
 
 The per-harness read-back check (S1) is an open item on the [home read-back](home-read-back.md) page.

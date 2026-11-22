@@ -102,6 +102,11 @@ top to bottom.
 
 Run `make check` and confirm it passes.
 
+Run `make test-hermetic` and confirm it passes. It is the strict hermetic envelope (a temp copy, a scrubbed
+environment, the sentinel pass, and a loopback-only network namespace; needs Linux unprivileged user
+namespaces). The tag-triggered `hermetic` CI job runs the same envelope and gates the release
+(`release.needs`), so a red envelope refuses to publish.
+
 Confirm the last `fuzz` workflow run on `main` is green (`gh run list --workflow=fuzz.yml --branch main --limit 1`), or
 dispatch one (`gh workflow run fuzz.yml -f fuzztime=15m`) and wait for it. It runs nightly and on merges that touch the
 fuzzed parsers, needs no VM or docker, and nothing is gated on it: a red run means a crasher to fix and commit as a
@@ -121,8 +126,8 @@ the mutant with `// gomutants:disable <TYPE> reason="..."` — and leave one you
 debt, not a release blocker. If you do strengthen tests, that is the one write in steps 1-4: nothing
 reaches a remote until step 5.
 
-Completion: `make check` green, the last `main` fuzz run green, and the host-only integration and
-harness-smoke steps run or noted for the maintainer.
+Completion: `make check` green, `make test-hermetic` green, the last `main` fuzz run green, and the
+host-only integration and harness-smoke steps run or noted for the maintainer.
 
 ### 3. Choose a version
 

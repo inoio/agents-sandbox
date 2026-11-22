@@ -137,9 +137,10 @@ if [[ -z "$selected" ]]; then
       scripts/upstream-drift.sh|test/scripts/upstream_drift_test.go) add_targets upstream-drift-test; known=1 ;;
       scripts/rebase-status.sh|test/scripts/rebase_status_test.go) add_targets rebase-status-test; known=1 ;;
       scripts/enqueue-pr.sh|test/scripts/enqueue_pr_test.go) add_targets enqueue-pr-test; known=1 ;;
-      scripts/brain-check.sh|test/scripts/brain_check_test.go) add_targets brain-check-test; known=1 ;;
+      scripts/brain-check.sh|test/scripts/brain_check_test.go) add_targets brain-check brain-check-test; known=1 ;;
       scripts/backport-audit.sh|test/scripts/backport_audit_test.go) add_targets backport-audit-test; known=1 ;;
       scripts/open-backport-pr.sh|test/scripts/open_backport_pr_test.go) add_targets open-backport-pr-test; known=1 ;;
+      scripts/kvm-guest.sh|test/scripts/kvm_guest_test.go) add_targets kvm-guest-test; known=1 ;;
     esac
     # A changed shell script selects the lint gate. Two trees used to fall
     # through to the full-set fail-safe and would otherwise lose coverage: the
@@ -154,7 +155,8 @@ if [[ -z "$selected" ]]; then
       */*.md) known=1 ;; # nested markdown: no `make check` target reads it
     esac
     case "$path" in
-      .operator-shared/*|.agents-sandbox/*|.agents/*|opencode.jsonc|.codecov.yml) known=1 ;;
+      .operator-shared/*) add_targets brain-check; known=1 ;;
+      .agents-sandbox/*|.agents/*|opencode.jsonc|.codecov.yml) known=1 ;;
     esac
     if [[ "$known" -eq 0 ]]; then
       select_all

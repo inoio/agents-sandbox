@@ -167,10 +167,12 @@ func TestConfigEnvKeysGoldenSet(t *testing.T) {
 		keyAgent, KeyDocker, keyCPUs,
 		keyProvisionHostConfig, KeyOpenLinks,
 		keyAutoStopOnActiveSessions, keyAutoStopTimeout, keyAutoStopMaxSessionRetries,
+		keyDockerReadyTimeout, keyDaemonReadyTimeout,
 		keyNetworkProfile, keyNetworkDNSServers, keyPorts,
 		keyNetworkInterceptTLS, keyNetworkDisableStrict,
 		"network.proxy.protocol", "network.proxy.address",
 		"network.proxy.username", "network.proxy.password-env",
+		"network.observe.skip-upstream-verify",
 		keyUpgradeMode, keyUpgradeInterval, keyUpgradeChannel,
 		"image-cache-from", "image-cache-to",
 		KeyDind,
@@ -217,6 +219,7 @@ func TestConfigBindKeysCoverTheConfigBackedFlags(t *testing.T) {
 	for _, key := range []string{
 		keyCPUs, "memory", "tmp-size", "disk-size", "workspace-quota",
 		keyYes, keyQuiet, "log-level", keyAgent, KeyDocker, KeyOpenLinks,
+		keyDockerReadyTimeout, keyDaemonReadyTimeout,
 	} {
 		if !slices.Contains(configBindKeys, key) {
 			t.Errorf("configBindKeys is missing the config-backed flag key %q", key)

@@ -1,6 +1,6 @@
 ---
 title: Networking
-description: "Control the sandbox VM's network egress and TLS interception: composable public, private, and host profiles, the allowlist-only none profile, explicit allow lists, and the intercept-tls, tls-bypass, and disable-strict keys."
+description: "Control the sandbox VM's network egress and TLS interception: composable public, private, and host profiles, the allowlist-only none profile, explicit allow lists, the intercept-tls, tls-bypass, and disable-strict keys, the outbound proxy, and the learn-mode observation channel's upstream verification."
 layout: default
 parent: Configuration
 nav_order: 30
@@ -27,6 +27,7 @@ deny-by-default, allowlist-only policy.
 | `tls-bypass`        | []string | Hosts microsandbox must not intercept: an exact host, or a `*.suffix` covering its subdomains. |
 | `disable-strict`    | bool     | Drops microsandbox's strict-hostname enforcement. Defaults to `false`.                                                |
 | `proxy`             | map      | Outbound proxy for the VM's egress (see [Outbound proxy](#outbound-proxy)).                                           |
+| `observe`           | map      | Launcher-side settings for the learn-mode observation channel (see [Observation channel](#observation-channel)).       |
 
 - `public` (the default) allows egress to the public internet only; `private` allows the private/LAN ranges (RFC 1918,
   ULA, CGN) — your whole local network, including other machines, not just the host, and any private resources you reach
@@ -56,7 +57,13 @@ network:
   profile: none
   egress-allow:
     - api.example.com
+  intercept-tls: on
 ```
+
+Under `none`, a hostname entry admits a TLS connection only when it is intercepted (see
+[TLS interception and the strict-hostname mode](#tls-interception-and-the-strict-hostname-mode)). With a configured
+secret, interception is already on; without one, set `intercept-tls: on`, or every connection to the allowed host fails
+during the TLS handshake.
 
 Profile and lists can be combined, e.g. a `private` profile with an `egress-allow: [.internal]` exception.
 
@@ -213,6 +220,35 @@ that omits it, and the VM never sees the proxy address as a destination.
 Like the rest of the `network:` block, the proxy is part of the network fingerprint and is creation-only: changing any
 `proxy` value recreates the VM on the next run (see
 [Resource Config Application]({% link configuration/launcher.md %}#resource-config-application)).
+
+## Observation channel
+
+A learning session ([`--learn`]({% link commands.md %})) runs a launcher-owned terminating proxy as the VM's egress: the
+runtime re-originates the guest's requests to it, and it records which destinations the session reached and which
+credential-bearing header names they carried. The proxy then dials the real upstream and forwards the real credential,
+so it verifies the upstream's TLS certificate against the system roots by default — a forwarded credential must not
+reach an impostor.
+
+The `observe:` block tunes that proxy:
+
+```yaml
+network:
+  observe:
+    skip-upstream-verify: false  # default; set true only for a privately-intercepted host
+```
+
+| Key                     | Type | Effect                                                                                                              |
+|-------------------------|------|--------------------------------------------------------------------------------------------------------------------|
+| `skip-upstream-verify`  | bool | Skip TLS certificate verification when the observation proxy dials the upstream. Defaults to `false`.               |
+
+Set `skip-upstream-verify: true` only when the host's egress is transparently intercepted with a private CA that the
+proxy's roots do not include; it removes the check that stops a forwarded credential reaching an impostor. Prefer adding
+that CA to the launcher's trust store instead — the Go TLS client honours `SSL_CERT_FILE` and `SSL_CERT_DIR`, which
+keeps verification on. The key has no CLI flag; the `AGENTS_SANDBOX_NETWORK_OBSERVE_SKIP_UPSTREAM_VERIFY` environment
+variable sets it too.
+
+Unlike the rest of the `network:` block, `observe` is launcher-side: it never reaches the VM, the SDK spec, or the
+network fingerprint, so changing it does not recreate the VM.
 
 ## Published ports
 

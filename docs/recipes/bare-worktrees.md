@@ -137,8 +137,20 @@ agents-sandbox
   under `/workspace` or `/tmp` — agents-sandbox warns, and git commands inside the VM fail to resolve the
   repository.
 
-Your IDE can attach to the stable checkout, to any worktree, or hop between them; that is a local choice and does not
-change the layout.
+### Open a worktree in your IDE
+
+The two editors want the opposite thing, so open the checkout the way each one expects.
+
+- **IntelliJ IDEA**: open a worktree, such as `main/` — not the bare root, which has no working tree, and not a
+  folder that contains the worktrees, which IDEA reads as a multi-root project and then loses its worktree support.
+  The Git tool window's **Worktrees** tab then lists every worktree, including ones you created with git, and you can
+  open any of them from there. Keep `.idea/workspace.xml` untracked: every worktree checks out the same tracked
+  `.idea/` files, and a committed `workspace.xml` gives them all one project id, so IDEA treats the worktrees as one
+  project.
+- **VS Code**: open the bare checkout itself, with **Git: Detect Worktrees** (`git.detectWorktrees`) turned on. The
+  **Source Control Repositories** view then lists every worktree. If you open a single worktree instead, VS Code
+  shows only that one and gives you no way back to the others. So open a worktree in a new window, and keep the
+  bare-checkout window open to switch between them.
 
 ## Checking for uncommitted work
 

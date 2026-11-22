@@ -26,6 +26,9 @@ type RootState struct {
 	// LearnDeclines records, per repo slug, the learn-mode findings the user
 	// declined. See LearnDecline.
 	LearnDeclines map[string][]LearnDecline `yaml:"learn_declines,omitempty"`
+	// FirstRuns records, per "<repo slug>/<agent>" key, how the first run
+	// resolved. See FirstRunRecord.
+	FirstRuns map[string]FirstRunRecord `yaml:"first_runs,omitempty"`
 }
 
 // Updates groups the launcher-global update-check state: Launcher for

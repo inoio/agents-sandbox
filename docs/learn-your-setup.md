@@ -23,6 +23,28 @@ session needed.
 | Review a session whose process is gone | `agents-sandbox config learn` |
 | Audit your configuration without a session | `agents-sandbox config harden` |
 
+## Your first run
+
+On a first run in a checkout with no managed config, agents-sandbox asks how to set the sandbox up. It offers three
+choices:
+
+| Choice | What it does |
+| --- | --- |
+| Learn by using it | Start a learning session (the recommended choice when no host config exists) |
+| Learn from my host setup | Seed the sandbox from your host config, then start the same learning session (only offered when host config exists, and recommended in that case) |
+| Configure it myself | Configure the sandbox by hand; also offers to copy your host config and credentials into the VM, and warns before it turns that on |
+
+Before the menu, agents-sandbox shows one consent sentence:
+
+> Let agents-sandbox learn from this session: set up your providers here, use the agent normally, and when you exit it
+> offers to save what it needed.
+
+Either learning choice runs the session described on this page. "Learn from my host setup" copies your host config as
+placeholders, never raw credentials. "Configure it myself" is the only choice that turns on
+[drop-in provisioning]({% link configuration/agent.md %}#drop-in-provisioning-opt-in), and it warns first.
+
+The choice is recorded, so later runs start the agent directly. It returns if you change your host agent config.
+
 ## Learn from a session
 
 Start the agent with `--learn`:
@@ -33,7 +55,9 @@ agents-sandbox run --learn
 
 During the session, agents-sandbox routes the sandbox's network traffic through a proxy it owns and reads the sandbox
 home back afterwards. The proxy sees which destinations the session reached and which credential each request carried.
-The read-back finds the config files the session changed and the secrets in the sandbox home.
+The read-back finds the config files the session changed and the secrets in the sandbox home. The proxy verifies the
+upstream TLS certificate; if a private CA intercepts your host's egress, see the
+[Observation channel]({% link configuration/networking.md %}#observation-channel) settings.
 
 Set up your agent as you normally would — sign in to a provider, add an API key, reach a private endpoint — and use it.
 When you exit, agents-sandbox reports what it learned and offers three choices:
@@ -49,7 +73,12 @@ When you exit, agents-sandbox reports what it learned and offers three choices:
 Learn mode writes to your **per-slug user config** (`~/.config/agents-sandbox/<repo-slug>/`), keyed by the repository
 so every clone of it shares the same settings. It proposes:
 
-- a `network.egress-allow` set — the destinations the session used, added to the ones you already allow;
+- a `network.egress-allow` set — the hostnames the session used, added to the ones you already allow, with
+  `network.profile: none` so nothing else is reachable. The review lists every hostname, and the entries you already
+  allow, before you apply it. Under the strict-hostname mode a hostname rule admits only an intercepted connection, so
+  the lock also sets `network.intercept-tls: on` unless interception is already on or `disable-strict` is set. Hosts
+  the session did not use, such as a sign-in refresh endpoint, are not on the list; add them yourself if the agent
+  needs them later;
 - a static secret for each credential it can attribute to a destination;
 - a managed copy of each agent config file the session created or changed that the launcher merges, written to the same
   per-slug user config with each static secret value replaced by a placeholder. The value itself goes to

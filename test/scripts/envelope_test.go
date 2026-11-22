@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/inoio/agents-sandbox/internal/hostfigures/hostfigurestest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -64,6 +65,20 @@ func TestEnvelope(t *testing.T) {
 		if !strings.HasSuffix(goflagsLine, "-count=1") {
 			t.Errorf("forced -count=1 is not last: %q", goflagsLine)
 		}
+	})
+
+	t.Run("pins GOTOOLCHAIN=local", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		fixture := envelopeFixture(t, filepath.Join(root, "base"))
+
+		// An inherited GOTOOLCHAIN must lose to the pinned one, so a toolchain
+		// directive cannot trigger a download inside the network namespace.
+		result := runEnvelope(t, root, map[string]string{"GOTOOLCHAIN": "auto"},
+			"--source", fixture, "--print")
+
+		assertStatus(t, result, 0)
+		assertContains(t, "stdout", result.Stdout, "env GOTOOLCHAIN=local")
 	})
 
 	t.Run("print shows the plan and runs nothing", func(t *testing.T) {
@@ -310,6 +325,25 @@ func TestEnvelope(t *testing.T) {
 		assertStatus(t, result, 0)
 		assertContains(t, "stdout", result.Stdout, "LOOPBACK_UP")
 	})
+}
+
+// TestEnvelopeSentinelEnv pins that the sentinel env var reaches the child only
+// when --sentinel is passed: the sentinel pass pins the host-figure seams, and a
+// scrubbed run must not inherit the pin.
+func TestEnvelopeSentinelEnv(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	fixture := envelopeFixture(t, filepath.Join(root, "base"))
+
+	plain := runEnvelope(t, root, nil, "--source", fixture, "--print")
+	assertStatus(t, plain, 0)
+	if strings.Contains(plain.Stdout, hostfigurestest.SentinelEnv) {
+		t.Errorf("plain print names the sentinel env:\n%s", plain.Stdout)
+	}
+
+	pinned := runEnvelope(t, root, nil, "--source", fixture, "--sentinel", "--print")
+	assertStatus(t, pinned, 0)
+	assertContains(t, "stdout", pinned.Stdout, "env "+hostfigurestest.SentinelEnv+"=1")
 }
 
 // envelopeFixture writes the bash harness's new_fixture module: a Makefile whose

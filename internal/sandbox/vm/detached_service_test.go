@@ -281,3 +281,25 @@ func testDetachedService() detachedService {
 		cleanupNote:        "cleanup failed: %v",
 	}
 }
+
+// TestResolvedReadyTimeout pins the readiness-timeout precedence: a positive
+// run-supplied override wins, and a zero or negative value falls back to the
+// package default (the value a test overrides and production leaves built-in).
+func TestResolvedReadyTimeout(t *testing.T) {
+	const fallback = 30 * time.Second
+	for _, tc := range []struct {
+		name     string
+		override time.Duration
+		want     time.Duration
+	}{
+		{"zero falls back", 0, fallback},
+		{"negative falls back", -1 * time.Second, fallback},
+		{"positive wins", 90 * time.Second, 90 * time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := resolvedReadyTimeout(tc.override, fallback); got != tc.want {
+				t.Errorf("resolvedReadyTimeout(%s, %s) = %s, want %s", tc.override, fallback, got, tc.want)
+			}
+		})
+	}
+}

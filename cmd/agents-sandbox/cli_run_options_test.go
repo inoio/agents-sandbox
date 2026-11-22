@@ -1,14 +1,22 @@
 package main
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/firstrun"
 	"github.com/inoio/agents-sandbox/internal/runoptions"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
+	"github.com/inoio/agents-sandbox/internal/testutil"
 	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 )
 
@@ -55,6 +63,26 @@ func TestRunAndShellHaveDockerFlags(t *testing.T) {
 		if flag := foundCmd.Flags().Lookup(flagDind); flag == nil {
 			t.Errorf("%s command must keep the deprecated --dind alias", name)
 		}
+	}
+}
+
+// TestRunAndShellHaveReadyTimeoutFlags pins that both VM-setup commands expose
+// the readiness-timeout overrides, so the config keys are settable via a flag
+// and not only via env/config.
+func TestRunAndShellHaveReadyTimeoutFlags(t *testing.T) {
+	for _, name := range []string{cmdRun, cmdShell} {
+		t.Run(name, func(t *testing.T) {
+			cmd, _ := setupCommandFixtures(t, name, "--help")
+			foundCmd, _, err := cmd.Find([]string{name})
+			if err != nil {
+				t.Fatalf("Find %q: %v", name, err)
+			}
+			for _, flagName := range []string{flagDockerReadyTimeout, flagDaemonReadyTimeout} {
+				if flag := foundCmd.Flags().Lookup(flagName); flag == nil {
+					t.Errorf("%s command must have --%s flag", name, flagName)
+				}
+			}
+		})
 	}
 }
 
@@ -214,6 +242,148 @@ func TestRunNotifySpaceFormInvalidValueRejected(t *testing.T) {
 				t.Fatalf("execute run --notify %s error = %v, want the invalid value rejected", value, err)
 			}
 		})
+	}
+}
+
+// stubFirstRunMenu replaces the first-run menu with a no-op for the test, so an
+// interactive run/shell test is not interrupted by the first-run setup prompt.
+func stubFirstRunMenu(t *testing.T) {
+	t.Helper()
+	original := firstRunMenu
+	firstRunMenu = func(termio.UI, *options.RunOptions, string, string) error { return nil }
+	t.Cleanup(func() { firstRunMenu = original })
+}
+
+// captureSessionRun replaces the session-start seam with one that records the
+// options the cmd boundary hands the session, so a test can assert the menu's
+// outcome reaches the options session.Run actually consumes.
+func captureSessionRun(t *testing.T) func() options.RunOptions {
+	t.Helper()
+	var captured options.RunOptions
+	original := sessionRun
+	sessionRun = func(_ context.Context, opts options.RunOptions, _ options.Mode, _ termio.UI) error {
+		captured = opts
+		return nil
+	}
+	t.Cleanup(func() { sessionRun = original })
+	return func() options.RunOptions { return captured }
+}
+
+// TestRunFirstRunMenuSetsLearn pins Review Focus 6: the outcome the first-run
+// menu applies reaches the very options session.Run consumes, not a copy. The
+// menu is stubbed so the test needs no host config or state dir.
+func TestRunFirstRunMenuSetsLearn(t *testing.T) {
+	initTestProjectDir(t)
+
+	original := firstRunMenu
+	firstRunMenu = func(_ termio.UI, opts *options.RunOptions, _, _ string) error {
+		opts.Learn = true
+		return nil
+	}
+	t.Cleanup(func() { firstRunMenu = original })
+
+	captured := captureSessionRun(t)
+	root, _ := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, cmdRun)
+	if err := root.Execute(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if !captured().Learn {
+		t.Error("session.Run did not see opts.Learn set by the first-run menu")
+	}
+}
+
+// TestRunFirstRunMenuSeedsFromHostAndStartsLearning drives the PRODUCTION
+// first-run seam end to end for UC4: with a host config the agent's provision
+// rules select, the "learn from my host setup" choice must seed the per-slug
+// managed scope AND start a learning session. It is the only test covering the
+// seed call inside the production seam, so dropping or reordering that call
+// fails here rather than only in the manual accept.
+func TestRunFirstRunMenuSeedsFromHostAndStartsLearning(t *testing.T) {
+	initTestProjectDir(t)
+
+	captured := captureSessionRun(t)
+	root, ui := setupRunMocks(
+		t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, cmdRun, "--agent", "codex",
+	)
+
+	paths := configpaths.Get()
+	hostHome, err := paths.UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir: %v", err)
+	}
+	hostConfigDir := filepath.Join(hostHome, ".codex")
+	if err := os.MkdirAll(hostConfigDir, 0o755); err != nil {
+		t.Fatalf("create host config dir: %v", err)
+	}
+	testutil.WriteFile(t, hostConfigDir, "config.toml", "model = \"gpt-5\"\n")
+
+	slug := effectiveConfigSlugForTest(t, mustIdentity(t, "."))
+
+	ui.IsInteractiveResult = true
+	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		return string(firstrun.ChoiceLearnFromHost), nil
+	}
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	seeded := filepath.Join(paths.UserSlugConfigDir(slug), "codex", "config.toml")
+	if _, err := os.Stat(seeded); err != nil {
+		t.Errorf("the host-seed choice must write the per-slug managed config %s: %v", seeded, err)
+	}
+	if !captured().Learn {
+		t.Error("session.Run did not see opts.Learn for the host-seed choice")
+	}
+}
+
+// TestRunFirstRunMenuManualCarriesProvisioning drives the PRODUCTION first-run
+// seam end to end for the manual path: choosing "configure it myself" and
+// confirming the warning must reach session.Run as the provisioning opt-in, so
+// the gated warning is what enables host-config copying, not a default.
+func TestRunFirstRunMenuManualCarriesProvisioning(t *testing.T) {
+	initTestProjectDir(t)
+
+	captured := captureSessionRun(t)
+	_, ui := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, cmdRun)
+
+	ui.IsInteractiveResult = true
+	ui.ConfirmResult = true
+	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		return string(firstrun.ChoiceManual), nil
+	}
+
+	if err := execute([]string{cmdRun}, ui); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if len(ui.ConfirmCalls) != 1 {
+		t.Errorf("Confirm calls = %d, want the provisioning warning asked once", len(ui.ConfirmCalls))
+	}
+	got := captured().ProvisionHostConfig
+	if got == nil || !*got {
+		t.Errorf(
+			"session.Run saw ProvisionHostConfig = %v, want a pointer to true from the confirmed manual choice",
+			got,
+		)
+	}
+}
+
+// TestRunFirstRunMenuSkippedNonInteractive pins invariant 6 at the cmd boundary:
+// a non-interactive run runs the production menu (against mocked config and
+// state), which offers nothing and warns, so session.Run sees no learning.
+func TestRunFirstRunMenuSkippedNonInteractive(t *testing.T) {
+	initTestProjectDir(t)
+
+	captured := captureSessionRun(t)
+	root, ui := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, cmdRun)
+	if err := root.Execute(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if captured().Learn {
+		t.Error("a non-interactive run must not start a learning session")
+	}
+	if !slices.ContainsFunc(ui.WarnCalls, func(w string) bool { return strings.Contains(w, "first-run") }) {
+		t.Errorf("warnings = %v, want a non-interactive first-run warning", ui.WarnCalls)
 	}
 }
 

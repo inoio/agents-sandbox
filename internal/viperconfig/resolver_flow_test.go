@@ -404,16 +404,16 @@ func TestResolverDottedKeyUsesAgentsEnvPrefix(t *testing.T) {
 	}
 }
 
-// Host-config provisioning defaults to on with no configuration at all.
-func TestResolverProvisionHostConfigDefaultsOn(t *testing.T) {
+// Host-config provisioning defaults to off with no configuration at all.
+func TestResolverProvisionHostConfigDefaultsOff(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
 	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	if !r.ProvisionHostConfig() {
-		t.Error("ProvisionHostConfig() = false, want the default true")
+	if r.ProvisionHostConfig() {
+		t.Error("ProvisionHostConfig() = true, want the default false")
 	}
 }
 
@@ -1006,6 +1006,31 @@ func TestNetworkDisableStrictEnv(t *testing.T) {
 	}
 }
 
+// TestNetworkObserveSkipUpstreamVerifyEnv pins that the
+// network.observe.skip-upstream-verify key decodes through its env var into
+// Policy.Observe, and that it defaults to false (the observation proxy verifies
+// the upstream).
+func TestNetworkObserveSkipUpstreamVerifyEnv(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+
+	r, err := NewResolver(nil, configpaths.Get(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.cfg.Network.Observe.SkipUpstreamVerify {
+		t.Fatal("skip-upstream-verify defaulted to true, want false")
+	}
+
+	t.Setenv("AGENTS_SANDBOX_NETWORK_OBSERVE_SKIP_UPSTREAM_VERIFY", "true")
+	r, err = NewResolver(nil, configpaths.Get(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.cfg.Network.Observe.SkipUpstreamVerify {
+		t.Fatal("skip-upstream-verify not decoded")
+	}
+}
+
 // TestNetworkProxyFromEnv pins that the network.proxy.* derived keys decode
 // through their AGENTS_SANDBOX_NETWORK_PROXY_* env vars into Policy.Proxy.
 func TestNetworkProxyFromEnv(t *testing.T) {
@@ -1054,6 +1079,27 @@ func TestNetworkProxyFromConfigFile(t *testing.T) {
 	}
 	if r.cfg.Network.Proxy != want {
 		t.Fatalf("Network.Proxy = %+v, want %+v", r.cfg.Network.Proxy, want)
+	}
+}
+
+// TestNetworkObserveFromConfigFile pins that the nested network.observe
+// config-file block decodes into Policy.Observe, the form the docs present.
+func TestNetworkObserveFromConfigFile(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
+		"network": map[string]any{
+			"observe": map[string]any{
+				"skip-upstream-verify": true,
+			},
+		},
+	})
+
+	r, err := NewResolver(nil, configpaths.Get(), "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if !r.cfg.Network.Observe.SkipUpstreamVerify {
+		t.Fatal("network.observe.skip-upstream-verify not decoded from the config file")
 	}
 }
 

@@ -123,7 +123,10 @@ func (mistralVibeProfile) ConfigFileNames() []string { return []string{mistralVi
 // per-machine or runtime state.
 func (mistralVibeProfile) ProvisionRules() []ProvisionRule {
 	return []ProvisionRule{
-		{Dir: mistralVibeDataDir, Patterns: []string{agentsRulesPattern, "/agents/", "/prompts/", skillsDirPattern}},
+		{
+			Dir:      mistralVibeDataDir,
+			Patterns: []string{agentsRulesPattern, "/agents/", promptsDirPattern, skillsDirPattern},
+		},
 	}
 }
 

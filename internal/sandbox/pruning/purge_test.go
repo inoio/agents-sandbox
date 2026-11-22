@@ -3,6 +3,7 @@ package pruning
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -435,10 +436,11 @@ func TestSweepStaleStatePropagatesErrors(t *testing.T) {
 			t.Fatal(err)
 		}
 		testutil.WritePath(t, filepath.Join(claimsDir, "free.claim"), "")
-		if err := os.Chmod(claimsDir, 0o500); err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = os.Chmod(claimsDir, 0o700) })
+		// Deny the claim unlink through the seam: chmod 0500 no longer denies
+		// once the suite runs as uid 0.
+		restore := removeUnheldClaim
+		removeUnheldClaim = func(string, string) (bool, error) { return false, fs.ErrPermission }
+		t.Cleanup(func() { removeUnheldClaim = restore })
 		plan := &RemovalPlan{Slugs: []string{slug}}
 		if err := plan.sweepStaleState(); err == nil {
 			t.Fatal("expected the claim removal error")
@@ -463,6 +465,74 @@ func TestRemoveSandboxesWarnsAndJoinsFailures(t *testing.T) {
 	if !running.DidStop {
 		t.Error("the running sandbox should have been asked to stop")
 	}
+}
+
+// TestPurgeRoutesThroughSweepSeams pins that the sweep seams intercept the purge
+// and candidate call sites, not only sweepSlug: a test that stubs one seam to
+// force a failure must not miss a call site that still calls state directly.
+func TestPurgeRoutesThroughSweepSeams(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+
+	t.Run("planStateKeys routes through statefulAgentNames", func(t *testing.T) {
+		stub := statefulAgentNames
+		var called bool
+		statefulAgentNames = func(string) ([]string, error) { called = true; return nil, nil }
+		t.Cleanup(func() { statefulAgentNames = stub })
+
+		if err := planStateKeys(map[string]struct{}{"seam-slug": {}}, func(state.Key) {}); err != nil {
+			t.Fatalf("planStateKeys: %v", err)
+		}
+		if !called {
+			t.Error("planStateKeys did not route through statefulAgentNames")
+		}
+	})
+
+	t.Run("sweepStaleState routes through removeHomeStateIf", func(t *testing.T) {
+		key := state.Key{Slug: "seam-sweep", Agent: "opencode"}
+		if err := seedHomeState(key, state.HomeState{}); err != nil {
+			t.Fatalf("seed state: %v", err)
+		}
+		stub := removeHomeStateIf
+		var called bool
+		removeHomeStateIf = func(state.Key, func(*state.HomeState) bool) error { called = true; return nil }
+		t.Cleanup(func() { removeHomeStateIf = stub })
+
+		plan := &RemovalPlan{Slugs: []string{key.Slug}, Keys: []state.Key{key}}
+		if err := plan.sweepStaleState(); err != nil {
+			t.Fatalf("sweepStaleState: %v", err)
+		}
+		if !called {
+			t.Error("sweepStaleState did not route through removeHomeStateIf")
+		}
+	})
+
+	t.Run("removeEmptyDirs routes through removeSlugDirIfEmpty", func(t *testing.T) {
+		stub := removeSlugDirIfEmpty
+		var called bool
+		removeSlugDirIfEmpty = func(string) error { called = true; return nil }
+		t.Cleanup(func() { removeSlugDirIfEmpty = stub })
+
+		ui := termiotest.NewTestMock(t)
+		plan := &RemovalPlan{Slugs: []string{"seam-dirs"}}
+		_ = plan.removeEmptyDirs(&ui)
+		if !called {
+			t.Error("removeEmptyDirs did not route through removeSlugDirIfEmpty")
+		}
+	})
+
+	t.Run("removeStateForGoneKeys routes through removeHomeStateIf", func(t *testing.T) {
+		key := state.Key{Slug: "seam-gone", Agent: "opencode"}
+		stub := removeHomeStateIf
+		var called bool
+		removeHomeStateIf = func(state.Key, func(*state.HomeState) bool) error { called = true; return nil }
+		t.Cleanup(func() { removeHomeStateIf = stub })
+
+		ui := termiotest.NewTestMock(t)
+		removeStateForGoneKeys(&ui, map[state.Key]int{key: 1}, map[state.Key]int{key: 1})
+		if !called {
+			t.Error("removeStateForGoneKeys did not route through removeHomeStateIf")
+		}
+	})
 }
 
 // TestPruneSurvivingClaims pins the claim-retention rule: a planned claim is
@@ -539,11 +609,12 @@ func TestExecuteJoinsOwnershipUpdateFailure(t *testing.T) {
 		t.Fatal("expected the checkout's adoption claim to be planned")
 	}
 
-	root := configpaths.Get().UserStateDir()
-	if err := os.Chmod(root, 0o500); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(root, 0o700) })
+	// Deny the root-state write through the seam: chmod 0500 no longer denies
+	// once the suite runs as uid 0.
+	restore := state.OverrideStateWriteForTest(func(path string, _ []byte) error {
+		return &os.PathError{Op: "write", Path: path, Err: os.ErrPermission}
+	})
+	t.Cleanup(restore)
 
 	if err := plan.Execute(context.Background(), false, false, &ui); err == nil {
 		t.Fatal("expected the ownership-update failure to be joined")
@@ -578,14 +649,22 @@ func TestExecuteJoinsStateAndDirRemovalFailures(t *testing.T) {
 		t.Fatalf("PlanRemoval: %v", err)
 	}
 
-	// Neither the agent dir (the state file's parent) nor the slug dir (the
-	// claims dir's parent) is writable, so both removals fail.
-	for _, dir := range []string{state.KeyDir(agentKey), state.SlugDir(slug)} {
-		if err := os.Chmod(dir, 0o500); err != nil {
-			t.Fatal(err)
+	// Deny the state-file removal and the claims-dir unlink through the seams:
+	// chmod 0500 no longer denies once the suite runs as uid 0. The state seam
+	// fails only a removal that would actually happen, so step 1's sweep
+	// (predicate false: the state still names its volume) is not intercepted.
+	restoreState := removeHomeStateIf
+	removeHomeStateIf = func(k state.Key, shouldRemove func(*state.HomeState) bool) error {
+		cur, err := state.ReadState(k)
+		if err == nil && !shouldRemove(cur) {
+			return nil
 		}
-		t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+		return fs.ErrPermission
 	}
+	t.Cleanup(func() { removeHomeStateIf = restoreState })
+	restoreDir := removeSweepEntry
+	removeSweepEntry = func(string) error { return fs.ErrPermission }
+	t.Cleanup(func() { removeSweepEntry = restoreDir })
 
 	if err := plan.Execute(context.Background(), false, false, &ui); err == nil {
 		t.Fatal("expected the state and dir removal failures to be joined")

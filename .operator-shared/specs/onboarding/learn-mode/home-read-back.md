@@ -18,8 +18,8 @@ only channel that works when the launcher-owned proxy
    sources from the copy.
 2. Which **static** secrets exist in the sandbox home, from either of two shapes:
    - A **dotenv** key names a secret when one of its `_`/`-`-separated segments is `KEY`, `TOKEN`, `SECRET`, or
-     `PASSWORD`; the markers are matched as whole segments, so a token-count setting such as `MAX_TOKENS` is
-     configuration, not a secret.
+     `PASSWORD`; the markers are matched as whole singular segments (`MAX_TOKENS` is configuration, not a secret,
+     because `TOKENS` is a distinct segment from `TOKEN`).
    - An **inline** credential key (`api_key`/`apiKey`/`key`/`token`) inside a provider entry of a declared config
      file is a static secret too. Its provider and host come from that same entry (the endpoint walk below); the
      entry the walk reads includes its nested `options` object, where opencode keeps a provider's `apiKey` beside its
@@ -37,13 +37,19 @@ only channel that works when the launcher-owned proxy
    (invariant 5). A credential the read-back cannot name is not scoped and is not proposed.
 3. Which **login** credentials exist in the sandbox home (recorded, never copied). A login store is declared by an
    exact path or by a glob, so a store that is a **directory of files** — kimi's `~/.kimi-code/credentials/*.json` —
-   is recorded as one login per matched file rather than missed.
+   is recorded as one login per matched file rather than missed. Claude Code's login is `~/.claude/.credentials.json`.
 
 A profile declares a config file as a read-back path only when the reader classifies every credential shape that file
 can hold. An inline key the walk does not recognise would otherwise reach the managed-config write-back verbatim
 (its content is sanitized only against the *classified* static set), so an as-yet-unclassified file is withheld until
 its shape is covered: `grok-build` declares `~/.grok/auth.json` only, withholding `~/.grok/config.toml` because its
-`[model.<id>] api_key` is not classified yet (the `codex` precedent, which omits its own `config.toml`).
+`[model.<id>] api_key` is not classified yet (the `codex` precedent, which omits its own `config.toml`). `claude-code`
+withholds `~/.claude/settings.json` for the same reason, and more strictly: it is also excluded from the inline walk
+and the first-run host seed (`readback.SkipsInlineCredentials`), because it carries credentials in values whose key
+names no secret (custom auth headers, a proxy URL with userinfo, hook commands, `apiKeyHelper`).
+
+An agent whose profile declares no read-back — unknown, or a harness whose layout is not yet verified — yields an empty
+manifest and an empty read-back, never an error and never a false "no credentials" result.
 
 Facts 1–3 come from reading the home volume. It also gives configured providers, login presence, and
 harness-specific host and error mentions where the harness happens to record them (usually failure paths, and never
@@ -56,7 +62,9 @@ Reading a credential is not always reading a dotenv file. A harness may keep its
 must therefore parse the agent's database and walk its config files, not only its `.env`. The spike verified the
 database shape for opencode2 alone: `~/.config/opencode/` is empty, and the API key sits inline in
 `~/.local/share/opencode/opencode.db` (SQLite), table `credential` (`integration_id`, `label`, `active`), column
-`value` = JSON `{"type":"key","key":"…"}` — a static key, not a login. Its sessions and transcripts are in the same
+`value` = JSON `{"type":"key","key":"…"}` — a static key, not a login. The row's `value.type` discriminates them:
+`key` is a static credential whose `key` field is read; any other type (`oauth`) is a login whose value is not read
+out. Its sessions and transcripts are in the same
 DB, with prompt history and small state files under `~/.local/state/opencode/` and its log under
 `~/.local/share/opencode/log/`. The other harnesses' layouts are unverified.
 
@@ -82,7 +90,9 @@ is not a scan of the home volume.
 UC2's file-attributed detection will need a baseline from an ordinary run too, refreshed at the end of every run once
 that detection lands. A manifest must expect large, frequently-changing files inside a config
 dir — opencode2's `opencode.db` is ~13 MB, almost all of it a churny model catalog — so a whole-file hash changes
-often and only a changed entry is evidence, not every refreshed line.
+often and only a changed entry is evidence, not every refreshed line. A credential-probe entry carries neither size
+nor mtime and is compared on its row digest alone; that digest covers only the rows the probe selected, never the
+store file, so a catalog change does not fire it.
 
 ## Open validation
 

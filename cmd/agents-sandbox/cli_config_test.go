@@ -393,6 +393,127 @@ func TestConfigAgentUnknownAgent(t *testing.T) {
 	}
 }
 
+// TestConfigProvisionMaterializesAgentConfigIntoTarget pins the host-target
+// materializer at the command boundary: the agent's provisioned merged config
+// lands as a real file under --target, mapped from the VM home.
+func TestConfigProvisionMaterializesAgentConfigIntoTarget(t *testing.T) {
+	target := t.TempDir()
+	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdProvision, "--"+flagTarget, target)
+	snippetDir := configpathstest.CreateDir(
+		filepath.Join(configpaths.Get().UserConfigDir(), mustOpencode(t).ConfigDirName()),
+	)
+	testutil.WriteFile(t, snippetDir, "opencode-model.json5", `{"model":"x"}`)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config provision: %v", err)
+	}
+	dest := filepath.Join(target, ".config", "opencode", "opencode.jsonc")
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("read materialized merged config %s: %v", dest, err)
+	}
+	if !strings.Contains(string(got), `"model": "x"`) {
+		t.Errorf("materialized config = %q, want the merged snippet", got)
+	}
+	joined := strings.Join(ui.InfoCalls, "\n")
+	if !strings.Contains(joined, "opencode") || !strings.Contains(joined, target) {
+		t.Errorf("InfoCalls = %v, want the agent and target named", ui.InfoCalls)
+	}
+}
+
+// TestConfigProvisionRequiresTarget pins that the command refuses to run
+// without a destination directory.
+func TestConfigProvisionRequiresTarget(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, cmdConfig, cmdProvision)
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("config provision without --target = nil error, want an error")
+	}
+	if !strings.Contains(err.Error(), flagTarget) {
+		t.Errorf("config provision error = %v, want it to name --%s", err, flagTarget)
+	}
+}
+
+// TestConfigProvisionRejectsUnknownAgent pins that config provision propagates
+// an unresolvable agent rather than materializing a default's config.
+func TestConfigProvisionRejectsUnknownAgent(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, cmdConfig, cmdProvision, "--"+flagTarget, t.TempDir(), "bogus")
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("config provision with an unknown agent = nil error, want an error")
+	}
+}
+
+// TestConfigProvisionRejectsTwoArgs pins the provision arity bound with two
+// otherwise-valid agent names, so the error can only be the arity check.
+func TestConfigProvisionRejectsTwoArgs(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, cmdConfig, cmdProvision, "--"+flagTarget, t.TempDir(), "pi", "claude-code")
+	if err := cmd.Execute(); err == nil {
+		t.Error("expected an error for two positional args")
+	}
+}
+
+// TestConfigProvisionPropagatesAConfigLoadFailure pins that a config read
+// failure (here an escaping home manifest) is returned rather than materializing
+// a partial tree.
+func TestConfigProvisionPropagatesAConfigLoadFailure(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, cmdConfig, cmdProvision, "--"+flagTarget, t.TempDir())
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml", "home:\n  ../escape:\n")
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("config provision over an escaping home manifest = nil error, want the load failure")
+	}
+	if !strings.Contains(err.Error(), "escapes the home directory") {
+		t.Errorf("config provision error = %v, want the home-manifest failure", err)
+	}
+}
+
+// TestConfigProvisionPropagatesAMaterializeFailure pins that a target the
+// materializer cannot write into fails the command rather than reporting
+// success.
+func TestConfigProvisionPropagatesAMaterializeFailure(t *testing.T) {
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd, _ := setupCommandFixtures(t, cmdConfig, cmdProvision, "--"+flagTarget, filepath.Join(blocker, "sub"))
+	snippetDir := configpathstest.CreateDir(
+		filepath.Join(configpaths.Get().UserConfigDir(), mustOpencode(t).ConfigDirName()),
+	)
+	testutil.WriteFile(t, snippetDir, "opencode-model.json5", `{"model":"x"}`)
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("config provision into a blocked target = nil error, want the materialize failure")
+	}
+}
+
+// TestConfigProvisionAgentFlagSelectsTheAgent pins the --agent flag on the
+// provision command: it selects the agent whose config is materialized rather
+// than falling back to the default.
+func TestConfigProvisionAgentFlagSelectsTheAgent(t *testing.T) {
+	target := t.TempDir()
+	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdProvision, "--"+flagAgent, "pi", "--"+flagTarget, target)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config provision --agent pi: %v", err)
+	}
+	if joined := strings.Join(ui.InfoCalls, "\n"); !strings.Contains(joined, "pi") {
+		t.Errorf("InfoCalls = %v, want the selected agent named", ui.InfoCalls)
+	}
+}
+
+// TestConfigProvisionPositionalAgentArg pins the single positional-agent form,
+// so the arity bound accepts one argument rather than rejecting everything.
+func TestConfigProvisionPositionalAgentArg(t *testing.T) {
+	target := t.TempDir()
+	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdProvision, "--"+flagTarget, target, "pi")
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config provision pi: %v", err)
+	}
+	if joined := strings.Join(ui.InfoCalls, "\n"); !strings.Contains(joined, "pi") {
+		t.Errorf("InfoCalls = %v, want the positional agent named", ui.InfoCalls)
+	}
+}
+
 func TestConfigHomeManifestError(t *testing.T) {
 	cmd, _ := setupCommandFixtures(t, "config", "home")
 	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml", "home:\n  ../escape:\n")
@@ -428,9 +549,9 @@ func TestConfigAgentPrintsMirrorFiles(t *testing.T) {
 	}
 }
 
-func TestProvisionHostConfigEnabledDefaultsTrueWithoutResolver(t *testing.T) {
-	if !provisionHostConfigEnabled(&cobra.Command{}) {
-		t.Error("provisionHostConfigEnabled() = false, want true without a resolver")
+func TestProvisionHostConfigEnabledDefaultsFalseWithoutResolver(t *testing.T) {
+	if provisionHostConfigEnabled(&cobra.Command{}) {
+		t.Error("provisionHostConfigEnabled() = true, want false without a resolver")
 	}
 }
 
@@ -1077,8 +1198,8 @@ func hardenPerSlugConfigFile(t *testing.T, slug string) string {
 // naming `run --learn`, and writes no file.
 func TestConfigHardenNonInteractiveWritesNothing(t *testing.T) {
 	initTestProjectDir(t)
-	// The default config has provision-host-config true, so the finder yields a
-	// finding and Apply is reached.
+	// The default `public` network profile with no allow list yields a finding,
+	// so the finder is non-empty and Apply is reached.
 	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdHarden)
 	stubPrepareMSBRuntime(t)
 
@@ -1108,6 +1229,8 @@ func TestConfigHardenDryRunWritesNothing(t *testing.T) {
 	initTestProjectDir(t)
 	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdHarden, "--"+flagDryRun)
 	stubPrepareMSBRuntime(t)
+	// Provisioning is opt-in; enable it so C6 is among the previewed findings.
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml", "provision-host-config: true\n")
 	selects := 0
 	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
 		selects++
@@ -1189,6 +1312,9 @@ func TestConfigHardenAppliesAFindingInteractively(t *testing.T) {
 	initTestProjectDir(t)
 	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdHarden)
 	stubPrepareMSBRuntime(t)
+	// Provisioning is opt-in; enable it so C6 (turning it off) is the finding
+	// the applier writes.
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml", "provision-host-config: true\n")
 	acceptEveryFinding(ui)
 
 	if err := cmd.Execute(); err != nil {

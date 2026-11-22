@@ -516,7 +516,7 @@ done <<<"$(job_names)"
 # push to a release branch triggers CI (so a patch reaches a tag only through a
 # checked ref), a `tag-guard` job gates a release tag on main or a release branch,
 # the release waits on the guard *and* the full check set (`tag-guard`, `lint`,
-# `test`, `integration`, `integration-podman`) before publishing, and the GHCR
+# `test`, `integration`, `integration-podman`, `hermetic`) before publishing, and the GHCR
 # build cache keeps exactly one writer (a main push). A silent edit — dropping the
 # branch trigger, deleting the guard, unbundling the guard or a check from
 # `release.needs`, or widening the writer's ref — reopens the hole the design
@@ -559,7 +559,7 @@ release_needs="$(printf '%s\n' "$(job_block release)" | grep -E '^    needs:' ||
 if [[ -z "$release_needs" ]]; then
   report "ci.yml: 'release' has no needs: list (the release must wait on the tag guard and the check set)"
 else
-  for required in tag-guard lint test integration integration-podman; do
+  for required in tag-guard lint test integration integration-podman hermetic; do
     # Match the token as a whole list element, so `integration` cannot be
     # satisfied by the `integration-podman` substring.
     if ! block_matches "$release_needs" "(^|[^A-Za-z0-9_-])${required}([^A-Za-z0-9_-]|\$)"; then

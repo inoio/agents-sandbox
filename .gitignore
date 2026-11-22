@@ -11,3 +11,4 @@ mutation-report.json
 docs/diagrams/*.svg
 /docs/superpowers/
 /.operator/
+/.kvm-guest/

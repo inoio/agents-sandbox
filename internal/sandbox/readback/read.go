@@ -1,6 +1,7 @@
 package readback
 
 import (
+	"fmt"
 	"io"
 	"maps"
 	"net/url"
@@ -386,10 +387,10 @@ func (s loginCredentialStore) appliesTo(agentName string) bool {
 // fresh database never imports the file, so reporting it as an opencode2 login
 // would be a false positive.
 var loginCredentialStores = []loginCredentialStore{
-	{pattern: ".claude/settings.json", provider: "claude-code"},
+	{pattern: ".claude/.credentials.json", provider: "claude-code"},
 	{pattern: ".codex/auth.json", provider: "codex"},
 	{pattern: ".local/share/opencode/auth.json", provider: "opencode", agents: []string{"opencode"}},
-	{pattern: ".pi/agent/settings.json", provider: "pi"},
+	{pattern: ".pi/agent/auth.json", provider: "pi"},
 	{pattern: ".kimi-code/credentials/*.json", provider: "kimi-code"},
 	{pattern: ".qwen/oauth_creds.json", provider: "qwen-code"},
 	{pattern: ".qwen/mcp-oauth-tokens.json", provider: "qwen-code"},
@@ -411,7 +412,8 @@ func loginStoreFor(key string) (loginCredentialStore, bool) {
 
 // SkipsInlineCredentials reports whether the declared config file at path is
 // excluded from the inline-credential walk: it is the dotenv (a value store,
-// not a provider config), or it is a declared login credential store, whose
+// not a provider config), an unclassified config file, or a declared login
+// credential store, whose
 // value is never read even when the store is shaped like a provider entry and
 // would otherwise be classified. path is matched as either a
 // sandbox-home-relative key (the read-back's spelling) or a host path under a
@@ -421,17 +423,51 @@ func loginStoreFor(key string) (loginCredentialStore, bool) {
 // both match. It is the one exclusion both the read-back and the config finder
 // consult.
 func SkipsInlineCredentials(path string) bool {
-	if filepath.Base(path) == dotenvFileName {
+	if filepath.Base(path) == dotenvFileName || isUnclassifiedConfigFile(path) {
 		return true
+	}
+	_, isStore := credentialStoreForPath(path)
+	return isStore
+}
+
+// unclassifiedConfigFiles are agent config files that can hold credentials in
+// shapes the inline walk does not classify, so they are never seeded from the
+// host and never walked: claude-code's settings.json carries API keys in its
+// env table and in values with no secret-looking key (custom auth headers, a
+// proxy URL with userinfo, hook commands, apiKeyHelper). It is configuration,
+// not a login store, but a missed shape would reach managed config verbatim.
+var unclassifiedConfigFiles = []string{".claude/settings.json"}
+
+// isUnclassifiedConfigFile reports whether path is an unclassified config file,
+// matched by its trailing elements like a login store.
+func isUnclassifiedConfigFile(path string) bool {
+	segments := strings.Split(filepath.ToSlash(path), "/")
+	for _, file := range unclassifiedConfigFiles {
+		if matchesStoreTail(strings.Split(strings.TrimPrefix(file, "."), "/"), segments) {
+			return true
+		}
+	}
+	return false
+}
+
+// credentialStoreForPath returns the login store whose pattern matches path,
+// matched either as an exact or glob key (the read-back's sandbox-home-relative
+// spelling) or by the path's trailing elements (a host path under a launcher
+// config scope). It is the store-aware form of the SkipsInlineCredentials
+// exclusion.
+func credentialStoreForPath(path string) (loginCredentialStore, bool) {
+	// gomutants:disable-next-line BRANCH_IF reason="the tail matcher below covers every path loginStoreFor matches: the pattern's leading dot is stripped on both the pattern and the path's first tail element, so a match through the exact/glob form is also a tail match"
+	if store, ok := loginStoreFor(path); ok {
+		return store, true
 	}
 	segments := strings.Split(filepath.ToSlash(path), "/")
 	for _, store := range loginCredentialStores {
 		pattern := strings.Split(strings.TrimPrefix(store.pattern, "."), "/")
 		if matchesStoreTail(pattern, segments) {
-			return true
+			return store, true
 		}
 	}
-	return false
+	return loginCredentialStore{}, false
 }
 
 // matchesStoreTail reports whether pathSegments' trailing elements match pattern.
@@ -497,6 +533,52 @@ func isSecretKeySeparator(r rune) bool {
 // inlineCredentialKeys are the normalized keys whose value inside a provider
 // entry is that provider's own static credential.
 var inlineCredentialKeys = []string{"apikey", "key", "token"}
+
+// ClassifyConfigContent splits path's credential-bearing entries into static
+// (provider/host/env-var) and login classifications. No credential value is
+// returned: a static classification names the entry (provider, host, env-var)
+// but carries no value, and a login classification carries presence only, so
+// the caller that needs a value re-reads it with InlineCredentialsIn. path may
+// be a sandbox-home-relative key or a host path under a launcher config scope. A
+// file the inline walk excludes (the dotenv, or a login store the agent does not
+// own) yields no inline static, while a login store the agent owns yields one
+// login. An unknown format or a document the decoder cannot parse is an error,
+// never a guess.
+//
+//nolint:nonamedreturns // the documented (static, login, err) signature is the contract
+func ClassifyConfigContent(
+	path string,
+	content []byte,
+	agentName string,
+) (static, login []Credential, err error) {
+	if store, ok := credentialStoreForPath(path); ok {
+		if !store.appliesTo(agentName) {
+			return nil, nil, nil
+		}
+		return nil, []Credential{{Kind: CredentialLogin, Source: path, Provider: store.provider}}, nil
+	}
+	if SkipsInlineCredentials(path) {
+		return nil, nil, nil
+	}
+	format, ok := configdecode.FormatFor(path)
+	if !ok {
+		return nil, nil, fmt.Errorf("classify config %s: unsupported extension %q", path, filepath.Ext(path))
+	}
+	if _, err := configdecode.Decode(format, content); err != nil {
+		return nil, nil, fmt.Errorf("classify config %s: %w", path, err)
+	}
+	return withoutCredentialValues(InlineCredentialsIn(path, content)), nil, nil
+}
+
+// withoutCredentialValues clears each credential's value, so a classification
+// exposes the entry, not the secret: a caller that needs the value re-reads the
+// document through InlineCredentialsIn, threading it to the writer in memory.
+func withoutCredentialValues(credentials []Credential) []Credential {
+	for i := range credentials {
+		credentials[i].Value = ""
+	}
+	return credentials
+}
 
 // InlineCredentialsIn returns each inline static credential the config document
 // in data holds: a credential-bearing key inside a provider entry, with the

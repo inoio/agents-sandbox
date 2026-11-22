@@ -72,8 +72,8 @@ func checkProfileCombination(profiles []Profile) error {
 
 // Policy is the resolved launcher network policy. The mapstructure tags let
 // viper decode the nested `network:` YAML block (profile, egress-allow,
-// egress-deny, dns-servers, intercept-tls, tls-bypass, disable-strict, proxy)
-// directly into this struct. The `profile` key accepts a single name, a
+// egress-deny, dns-servers, intercept-tls, tls-bypass, disable-strict, proxy,
+// observe) directly into this struct. The `profile` key accepts a single name, a
 // comma-separated string, or a YAML list; viperconfig's string-to-slice decode
 // hook normalizes the scalar forms into Profiles.
 type Policy struct {
@@ -96,6 +96,10 @@ type Policy struct {
 	// registry recurses into the network.proxy.* keys; the zero value means no
 	// proxy. It is creation-only, like the TLS-interception fields.
 	Proxy Proxy `mapstructure:"proxy"`
+	// Observe configures the learn-mode observation channel's terminating
+	// proxy. It is launcher-side only: it never reaches the VM, the SDK spec, or
+	// the fingerprint, so a change cannot recreate the VM.
+	Observe ObserveConfig `mapstructure:"observe"`
 	// upstreamCACerts holds paths to the CA bundles the runtime must trust
 	// upstream. It is in-memory only: unexported and untagged, so the derived
 	// config-key registry never sees it and no network.upstream-ca* key, env
@@ -104,11 +108,23 @@ type Policy struct {
 	upstreamCACerts []string
 }
 
+// ObserveConfig configures the learn-mode observation channel's terminating
+// proxy. Every field is launcher-side only: it shapes how the launcher runs its
+// own proxy, never what the runtime projects into the VM.
+type ObserveConfig struct {
+	// SkipUpstreamVerify disables TLS certificate verification when the
+	// observation channel's proxy dials the real upstream. The zero value
+	// verifies, so a forwarded credential cannot be sent to an impostor; enable
+	// it only when the host's egress is transparently intercepted with a private
+	// CA the proxy's roots do not include.
+	SkipUpstreamVerify bool `mapstructure:"skip-upstream-verify"`
+}
+
 // Empty reports whether the policy is unset (zero value).
 func (p Policy) Empty() bool {
 	return len(p.Profiles) == 0 && len(p.EgressAllow) == 0 && len(p.EgressDeny) == 0 &&
 		len(p.DNSServers) == 0 && p.InterceptTLS == "" && len(p.TLSBypass) == 0 && !p.DisableStrict &&
-		p.Proxy.Empty() && len(p.upstreamCACerts) == 0
+		p.Proxy.Empty() && !p.Observe.SkipUpstreamVerify && len(p.upstreamCACerts) == 0
 }
 
 // Effective applies the default profile when no profile was selected.

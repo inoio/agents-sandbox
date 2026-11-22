@@ -10,14 +10,43 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
+	"github.com/inoio/agents-sandbox/internal/hostfigures"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/prepare"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
+
+// The package-var seams captured at init, before main_test.go pins them, so a
+// test can assert their production wiring.
+var (
+	defaultBootMaxMemoryMiB       = bootMaxMemoryMiB
+	defaultHostAvailableMemoryMiB = hostAvailableMemoryMiB
+)
+
+// TestDefaultSeamsReadTheHostFigures pins that the two package-var seams default
+// to the hostfigures reads, not a raw host read: overriding the seam moves the
+// default's result. Without this a silent swap back to sysinfo would leave the
+// suite hitting the real host with no failing test.
+func TestDefaultSeamsReadTheHostFigures(t *testing.T) {
+	restoreMemory := hostfigures.OverrideTotalMemoryGiBForTest(func() int { return 16 })
+	restoreAvailable := hostfigures.OverrideAvailableMemoryMiBForTest(func() (uint32, bool) { return 12345, true })
+	t.Cleanup(func() {
+		restoreMemory()
+		restoreAvailable()
+	})
+
+	if got, want := defaultBootMaxMemoryMiB(), options.ParseMemoryGiB(16); got != want {
+		t.Errorf("default bootMaxMemoryMiB = %d, want the seam's %d", got, want)
+	}
+	if got, ok := defaultHostAvailableMemoryMiB(); got != 12345 || !ok {
+		t.Errorf("default hostAvailableMemoryMiB = (%d, %v), want the seam's (12345, true)", got, ok)
+	}
+}
 
 // seedPressureMarker writes a pressure marker as the key's HomeState.
 func seedPressureMarker(t *testing.T, k state.Key, marker state.ResourcePressureState) {
@@ -216,6 +245,124 @@ const dfFullTmp = "Filesystem 1024-blocks Used Available Capacity Mounted on\n" 
 func diskProbeKey() string {
 	command, args := pressure.DiskProbeCommand()
 	return command + " " + strings.Join(args, " ")
+}
+
+// TestOfferMemoryRaiseAfterAttachUsesConfiguredMemoryWhenMetricsFail pins the
+// post-attach fallback on a runtime that reports no live metrics: the offer is
+// still made, with the run's configured memory as its basis, instead of
+// deferring to the next launch.
+func TestOfferMemoryRaiseAfterAttachUsesConfiguredMemoryWhenMetricsFail(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_MEMORY", "")
+	t.Setenv("OPENCODE_SANDBOX_MEMORY", "")
+	k := state.Key{Slug: "fallbacklimit", Agent: "opencode"}
+	seedSessionHomeState(t, k)
+	var inputDefault string
+	ui := &termiotest.Mock{
+		IsInteractiveResult: true,
+		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
+		InputFn: func(_ string, defaultValue string) (string, error) {
+			inputDefault = defaultValue
+			return defaultValue, nil
+		},
+	}
+	sb := &msbtest.MockSandbox{
+		LogsResult: []msb.LogEntry{sessionOOMLogLine(time.Now())},
+		MetricsErr: errors.New("sandbox 199 has no verified live metrics slot"),
+	}
+
+	offerMemoryRaiseAfterAttach(
+		context.Background(), k, sb, pressureSummary{}, options.RunOptions{Memory: "4G"}, ui,
+	)
+
+	if inputDefault != "5G" {
+		t.Errorf("Input default = %q, want 5G from the run's configured memory", inputDefault)
+	}
+}
+
+// TestRunOffersFromTheAppliedMemoryLimit pins that Run hands the post-attach
+// offer the memory the run applied rather than the CLI-resolved value: a raise
+// accepted in prepare for this same run is the offer's basis, so the offer
+// cannot persist a value below the live limit (the stale-value regression).
+func TestRunOffersFromTheAppliedMemoryLimit(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_MEMORY", "")
+	t.Setenv("OPENCODE_SANDBOX_MEMORY", "")
+	k := state.Key{Slug: "appliedmemory", Agent: "opencode"}
+	seedSessionHomeState(t, k)
+	var inputDefault string
+	ui := &termiotest.Mock{
+		IsInteractiveResult: true,
+		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
+		InputFn: func(_ string, defaultValue string) (string, error) {
+			inputDefault = defaultValue
+			return defaultValue, nil
+		},
+	}
+	sb := &msbtest.MockSandbox{
+		AttachCode: -1,
+		Name_:      "test-vm",
+		LogsResult: []msb.LogEntry{sessionOOMLogLine(time.Now())},
+		MetricsErr: errors.New("sandbox 199 has no verified live metrics slot"),
+	}
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{sb: sb, target: "/workspace", key: k, limits: prepare.AppliedLimits{Memory: "12G"}}, nil
+	}
+	defer func() { prepareSandbox = orig }()
+
+	// The attach ends abnormally (signal death), so Run returns an ExitError;
+	// the offer's basis is what this test asserts.
+	_ = Run(context.Background(), resolvedRunOptions(t, options.RunOptions{
+		Agent: "opencode", Memory: "4G", ReapPolicy: options.NewReapPolicy(true, 5),
+	}), options.ModeRun, ui)
+
+	if inputDefault != "15G" {
+		t.Errorf("Input default = %q, want 15G from the session's applied memory", inputDefault)
+	}
+}
+
+// TestApplyAppliedLimitsReplacesEveryLimit pins that the run's configured limits
+// are replaced by the applied ones, not merged, so a same-run raise reaches both
+// the memory offer and the disk offer's bases; the other options are kept.
+func TestApplyAppliedLimitsReplacesEveryLimit(t *testing.T) {
+	ses := &fakePrepared{limits: prepare.AppliedLimits{
+		Memory: "12G", DiskSize: "4G", WorkspaceQuota: "16G", TmpSize: "2G",
+	}}
+	got := applyAppliedLimits(ses, options.RunOptions{
+		Agent: "opencode", Memory: "4G", DiskSize: "2G", WorkspaceQuota: "8G", TmpSize: "1G",
+	})
+
+	if got.Memory != "12G" || got.DiskSize != "4G" || got.WorkspaceQuota != "16G" || got.TmpSize != "2G" {
+		t.Errorf("applyAppliedLimits = %+v, want the applied limits", got)
+	}
+	if got.Agent != "opencode" {
+		t.Errorf("applyAppliedLimits dropped the other options: %+v", got)
+	}
+}
+
+// TestRunAttachTracesWhyNoMemoryOffer pins the diagnostic: a clean exit skips
+// the in-session memory offer, and the reason is reported at verbose level so
+// an operator can tell a skipped offer from detection that never ran.
+func TestRunAttachTracesWhyNoMemoryOffer(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	k := state.Key{Slug: "traceoffer", Agent: "opencode"}
+	seedSessionHomeState(t, k)
+	ui := &termiotest.Mock{}
+	sb := &msbtest.MockSandbox{AttachCode: 0}
+
+	_ = runAttach(context.Background(), k, sb, "/workspace", ui,
+		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(false, 5)}), "-l")
+
+	traced := false
+	for _, call := range ui.VerboseCalls {
+		if strings.Contains(call, "no in-session memory-raise offer") {
+			traced = true
+		}
+	}
+	if !traced {
+		t.Errorf("verbose calls %v do not trace the skipped offer", ui.VerboseCalls)
+	}
 }
 
 // TestOfferDiskRaiseAfterAttachOffersAFullTmp pins the post-attach disk probe:

@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-cold test-msb-reuse compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic envelope-test check check-test verify print-check-targets check-local-changes check-branch-changes check-selected changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test backport-audit-test open-backport-pr-test event-base-test classify-changes-test brain-check brain-check-test shellcheck docs-serve
+.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-cold test-msb-journeys test-msb-in-vm test-msb-reuse msb-reuse-root compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic test-hermetic-sentinel envelope-test check check-test verify print-check-targets check-local-changes check-branch-changes check-selected changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test backport-audit-test open-backport-pr-test kvm-guest-test kvm-up kvm-sync kvm-prime kvm-ssh kvm-run kvm-agent kvm-agent-up kvm-agent-provision kvm-sync-back kvm-down event-base-test classify-changes-test brain-check brain-check-test shellcheck docs-serve
 
 VERSION ?= dev
 
@@ -30,7 +30,7 @@ TEST_TIMEOUT ?= 5m
 # Bounded concurrency for the host-only tiers' parallel stages; both suites are
 # otherwise serial across their top-level tests. test-integration uses
 # INTEGRATION_PARALLEL. test-msb sizes its parallel harnesses from the host's
-# free memory (test/harness) and is additionally capped by an internal
+# free memory (test/msb/driver) and is additionally capped by an internal
 # semaphore, so a bare `go test -tags msb` cannot start a VM per harness; set
 # MSB_PARALLEL to a count to force it instead of the memory-derived default.
 INTEGRATION_PARALLEL ?= 4
@@ -39,10 +39,47 @@ INTEGRATION_PARALLEL ?= 4
 # the image builds lengthens the one binary that dominates the run.
 INTEGRATION_TIMEOUT ?= 60m
 MSB_PARALLEL ?=
-# Standing root for the caching `test-msb`: it must stay short enough for
-# microsandbox's derived sandbox control socket (see test/harness/harness_helpers_test.go).
-# Remove it to start fresh.
-MSB_REUSE_ROOT ?= /tmp/asb-reuse
+# Per-smoke-VM vCPU cap for the in-guest KVM run (`test-msb-in-vm`). Each smoke
+# VM otherwise claims every host vCPU, so parallel harnesses oversubscribe a
+# nested guest's few vCPUs. Passed as AGENTS_SANDBOX_MSB_VM_CPUS.
+MSB_GUEST_VM_CPUS ?= 2
+# Parallel-harness count the in-guest KVM run uses when MSB_PARALLEL is unset.
+# The host's memory-derived default sizes for a full host; a nested guest with
+# MSB_GUEST_VM_CPUS-capped VMs wants a small fixed count instead.
+MSB_GUEST_PARALLEL ?= 2
+# Multiplier the in-guest KVM run applies to every smoke readiness and quit
+# ceiling. A nested guest starts a VM far slower, and shares the host's CPU with
+# whatever else runs there, so budgets sized for an idle host time out. Passed as
+# AGENTS_SANDBOX_MSB_TIMEOUT_FACTOR.
+MSB_GUEST_TIMEOUT_FACTOR ?= 3
+# Launcher-side VM-setup readiness ceilings for the in-guest KVM run: the
+# in-VM Docker engine and the agent serve daemon. Raised from the built-in 30s /
+# 60s, which a slow nested guest can exceed. Passed as
+# AGENTS_SANDBOX_DOCKER_READY_TIMEOUT / AGENTS_SANDBOX_DAEMON_READY_TIMEOUT.
+MSB_GUEST_DOCKER_READY_TIMEOUT ?= 90s
+MSB_GUEST_DAEMON_READY_TIMEOUT ?= 180s
+# Standing root for the caching `test-msb`. Two constraints: it must stay short
+# enough for microsandbox's derived sandbox control socket (see
+# test/msb/driver/root_test.go — the smoke root must be under 30 bytes),
+# and it must live on a real disk, because the suite caches 10+ GiB of runner
+# images here. /tmp is a RAM-backed tmpfs where systemd mounts it as one, and
+# /var/tmp often is too; a tmpfs root either exhausts at the largest runner
+# image ("Disk quota exceeded") or silently spends 14+ GiB of RAM. /opt is
+# disk-backed on Linux and macOS. `msb-reuse-root` creates it as your user where
+# the parent is writable; otherwise run the one-time command it prints:
+#   sudo install -d -o "$USER" -g "$USER" -m 0755 /opt/asb-reuse
+# The KVM guest pre-creates it in cloud-init (scripts/kvm-guest.sh). Remove it to
+# start fresh.
+MSB_REUSE_ROOT ?= /opt/asb-reuse
+# Host-only: the msb suites need a KVM host, and the dev VM has no working
+# /dev/kvm. `make kvm-up` builds a libvirt guest and these run the suite inside
+# it. See .operator-shared/guides/kvm-guest.md. Never run by CI.
+KVM_RUN ?= make test-msb-in-vm
+# The agent command `make kvm-agent` runs in the guest, and the agent profile
+# `make kvm-agent-provision` materializes. Override KVM_AGENT to pass a command
+# and credentials, e.g. KVM_AGENT='LITELLM_API_KEY=… opencode'.
+KVM_AGENT ?= opencode2
+KVM_AGENT_NAME ?= opencode2
 # The SDK's microsandbox_ffi_path tag swaps its //go:embed for reading the FFI
 # library from $MICROSANDBOX_FFI_PATH at runtime. The unit and integration
 # suites reach the SDK only through seams, so they never read that path and need
@@ -140,8 +177,14 @@ bootstrap:
 	    fi; \
 	fi
 
+# The sentinel installer reads AGENTS_SANDBOX_HERMETIC_SENTINEL in TestMain, before
+# Go's test-cache log is active, so the variable is not part of the cache key: a
+# cached PASS could stand in for a run that never pinned the seams. Force -count=1
+# when the sentinel is requested, so the pass really runs.
+TEST_COUNT = $(if $(AGENTS_SANDBOX_HERMETIC_SENTINEL),-count=1,)
+
 test:
-	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -timeout $(TEST_TIMEOUT) ./...
+	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -timeout $(TEST_TIMEOUT) $(TEST_COUNT) ./...
 
 test-uncached:
 	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -timeout $(TEST_TIMEOUT) -count=1 ./...
@@ -198,25 +241,132 @@ test-integration:
 # network); excluded from test/check via the `msb` build tag. These keep the
 # embedded native library: they are the tests that actually load it.
 #
+# Ensure the standing reuse root exists before `test-msb` runs. Without it the
+# suite either fails deep in the image prebuild (a tmpfs root) or hits a bare
+# permission error. Created as the current user where the parent allows it; on a
+# stock host /opt is root-owned, so print the one-time command instead.
+msb-reuse-root:
+	@mkdir -p "$(MSB_REUSE_ROOT)" 2>/dev/null || { \
+		printf '%s\n' \
+			"error: cannot create $(MSB_REUSE_ROOT)." \
+			"Create it once on a short, disk-backed path (not tmpfs):" \
+			"  sudo install -d -o \"$$(id -un)\" -g \"$$(id -gn)\" -m 0755 $(MSB_REUSE_ROOT)" >&2; \
+		exit 1; \
+	}
+
 # test-msb reuses a standing microsandbox home and smoke root, so the multi-GB
 # `docker save | msb ImageLoad` transfer and the docker layers are paid once and
 # each agent's runner image is rebuilt in place under one tag. The home outlives
 # the run, so remove $(MSB_REUSE_ROOT) to start fresh, and a reused home is held
 # under a lock so a second run waits rather than racing. Add -v for timings.
-test-msb:
+test-msb: msb-reuse-root
 	AGENTS_SANDBOX_SMOKE_ROOT=$(MSB_REUSE_ROOT)/smoke \
 	AGENTS_SANDBOX_MSB_TEST_HOME=$(MSB_REUSE_ROOT)/msb \
 	AGENTS_SANDBOX_MSB_PARALLEL=$(MSB_PARALLEL) \
-	CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/harness/... ./internal/sandbox/msb/...
+	CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/msb/startup/... ./internal/sandbox/msb/...
 
 # Like test-msb, but on a fresh, isolated microsandbox home that caches nothing
 # between runs. It forces the reuse variables unset, so an exported
 # AGENTS_SANDBOX_SMOKE_ROOT or AGENTS_SANDBOX_MSB_TEST_HOME cannot turn it into a
-# caching run. The suite removes the runner images it built (and its temp root),
+# caching run. It still creates its fresh root under the disk-backed
+# $(MSB_REUSE_ROOT) via AGENTS_SANDBOX_MSB_ROOT_BASE, because the fresh root holds
+# the same 10+ GiB of runner images a tmpfs /tmp cannot. The suite removes the
+# runner images it built (and its temp root),
 # untagging only the leaf so the classic builder's layer cache survives, so a
 # cold run leaves no tagged runner image.
-test-msb-cold:
-	AGENTS_SANDBOX_SMOKE_ROOT= AGENTS_SANDBOX_MSB_TEST_HOME= AGENTS_SANDBOX_MSB_PARALLEL=$(MSB_PARALLEL) CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/harness/... ./internal/sandbox/msb/...
+test-msb-cold: msb-reuse-root
+	AGENTS_SANDBOX_SMOKE_ROOT= AGENTS_SANDBOX_MSB_TEST_HOME= AGENTS_SANDBOX_MSB_ROOT_BASE=$(MSB_REUSE_ROOT) AGENTS_SANDBOX_MSB_PARALLEL=$(MSB_PARALLEL) CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/msb/startup/... ./internal/sandbox/msb/...
+
+# The harness-journey acceptance suite: drives full user journeys (v1: learn
+# mode on opencode2) through real harnesses in real VMs, beyond the startup
+# smoke's "the TUI came up" gate. It shares test-msb's standing reuse root and
+# image cache through AGENTS_SANDBOX_SMOKE_ROOT (so a journey's budget only
+# absorbs its VM start), and the shared reuse lock serializes the two targets;
+# it does not read AGENTS_SANDBOX_MSB_TEST_HOME, the internal/sandbox/msb
+# runtime's reuse home. Host-only; excluded from test/check via the `msb` build
+# tag. See .operator-shared/specs/testing/msb-journeys.md.
+test-msb-journeys: msb-reuse-root
+	AGENTS_SANDBOX_SMOKE_ROOT=$(MSB_REUSE_ROOT)/smoke \
+	AGENTS_SANDBOX_MSB_PARALLEL=$(MSB_PARALLEL) \
+	CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/msb/journeys/...
+
+# The in-guest variant `kvm-run` drives by default: the same caching suite as
+# test-msb, with changes that only matter on a nested guest. The two msb-tagged
+# packages run serialized (`-p 1`), because each starts its own VMs and a nested
+# guest cannot absorb both at once; each smoke VM's vCPUs are capped
+# (AGENTS_SANDBOX_MSB_VM_CPUS), because a project VM otherwise claims every guest
+# vCPU; the parallel-harness count defaults to MSB_GUEST_PARALLEL instead of the
+# host-sized heuristic; and the readiness/quit ceilings are scaled
+# (AGENTS_SANDBOX_MSB_TIMEOUT_FACTOR). The host targets are unchanged — the cap
+# env var is unset, the parallel default is untouched, and the factor is unset.
+test-msb-in-vm: msb-reuse-root
+	AGENTS_SANDBOX_MSB_VM_CPUS=$(MSB_GUEST_VM_CPUS) \
+	AGENTS_SANDBOX_MSB_TIMEOUT_FACTOR=$(MSB_GUEST_TIMEOUT_FACTOR) \
+	AGENTS_SANDBOX_MSB_DOCKER_READY_TIMEOUT=$(MSB_GUEST_DOCKER_READY_TIMEOUT) \
+	AGENTS_SANDBOX_MSB_DAEMON_READY_TIMEOUT=$(MSB_GUEST_DAEMON_READY_TIMEOUT) \
+	AGENTS_SANDBOX_SMOKE_ROOT=$(MSB_REUSE_ROOT)/smoke \
+	AGENTS_SANDBOX_MSB_TEST_HOME=$(MSB_REUSE_ROOT)/msb \
+	AGENTS_SANDBOX_MSB_PARALLEL=$(or $(MSB_PARALLEL),$(MSB_GUEST_PARALLEL)) \
+	CGO_ENABLED=1 go test -tags msb -p 1 -timeout 60m -count=1 ./test/msb/startup/... ./internal/sandbox/msb/...
+
+# Host-only KVM-guest workflow. These build a libvirt guest (cloud-init seeds
+# docker, Go, msb, and the repo), sync a checkout into it, and run a command
+# there — the msb suites need a KVM host, which the dev VM is not. They are
+# never run by CI. See .operator-shared/guides/kvm-guest.md.
+kvm-up:
+	scripts/kvm-guest.sh up
+
+kvm-sync:
+	scripts/kvm-guest.sh sync
+
+# Copy the host's runner images and microsandbox home into the guest so its
+# image prebuild is a no-op. Both sides must use the same $(MSB_REUSE_ROOT): the
+# runner-image slug hashes the project directory's absolute path, so a different
+# root names different images. See the guide.
+kvm-prime:
+	scripts/kvm-guest.sh prime
+
+kvm-ssh:
+	scripts/kvm-guest.sh ssh
+
+kvm-run:
+	scripts/kvm-guest.sh run '$(KVM_RUN)'
+
+# Open an interactive agent session in the guest, in a tmux session so a dropped
+# SSH connection leaves it running. Pass credentials as an inline assignment:
+#   make kvm-agent KVM_AGENT='LITELLM_API_KEY=… opencode'
+kvm-agent:
+	scripts/kvm-guest.sh agent $(KVM_AGENT)
+
+# Materialize the agent's provisioned config into the guest home, reusing the
+# launcher's own config pipeline (`config provision`). Run `make kvm-sync` first
+# so the checkout carries the command.
+kvm-agent-provision:
+	scripts/kvm-guest.sh agent-provision $(KVM_AGENT_NAME)
+
+# One command from nothing to an interactive guest agent session: ensure the
+# guest is running (idempotent — a created, stopped, or running guest all work),
+# wait for cloud-init, sync this checkout, materialize the agent config, and
+# attach. LITELLM_API_KEY is read from the host environment and handed to the
+# agent; extend the credential set with KVM_AGENT='GITHUB_PAT=… opencode2'. A
+# host-environment GITHUB_PAT is forwarded to the guest so gh signs in there (the
+# agent can then work with issues and PRs and push); it is optional. If
+# KVM_AGENT runs a different binary, set KVM_AGENT_NAME to the profile to
+# materialize (default opencode2), so the config matches the agent attached. The
+# step-by-step targets above stay for manual control.
+kvm-agent-up:
+	@test -n "$$LITELLM_API_KEY" || { printf 'error: set LITELLM_API_KEY\n' >&2; exit 1; }
+	GITHUB_PAT="$$GITHUB_PAT" KVM_AGENT_NAME="$(KVM_AGENT_NAME)" scripts/kvm-guest.sh agent-up "LITELLM_API_KEY=$$LITELLM_API_KEY $(KVM_AGENT)"
+
+# Fetch the guest agent's branches back to the host. Default: every branch into
+# refs/remotes/kvm-guest/*. BRANCH=<name> fetches just that branch into the local
+# branch of the same name (fast-forward only). A branch checked out here refuses
+# the fetch — merge kvm-guest/<name> instead.
+kvm-sync-back:
+	scripts/kvm-guest.sh sync-back $(BRANCH)
+
+kvm-down:
+	scripts/kvm-guest.sh down
 
 # Compile every test binary including build-tagged files (`//go:build
 # integration`, `//go:build msb`) so a regression that only breaks tagged code
@@ -329,16 +479,25 @@ surface-sweep-test:
 	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -count=1 ./test/scripts/ -run SurfaceSweep
 
 # Run the default suite in a hermetic envelope: a module copy outside any git
-# checkout and a scrubbed environment. See specs/testing/test-isolation.md.
+# checkout and a scrubbed environment, with the host-figure sentinel pass (which
+# macOS relies on, since it has no network namespace). See
+# specs/testing/test-isolation.md.
 test-scrubbed:
 	./scripts/hermetic-envelope.sh -- make test
+	./scripts/hermetic-envelope.sh --sentinel -- make test
 
 # Strict envelope: adds a network namespace with only loopback (Linux).
-# Currently red: the six uid/permission fixtures still assume an unprivileged
-# uid and the strict run is uid 0. See
-# .operator-shared/plans/2026-11-07-hermetic-uid-permission-surface.md.
+# Runs the suite as uid 0, so a test must not depend on the effective uid.
+# See specs/testing/test-isolation.md.
 test-hermetic:
 	./scripts/hermetic-envelope.sh --netns -- make test
+	./scripts/hermetic-envelope.sh --netns --sentinel -- make test
+
+# The sentinel pass alone: the strict envelope with the host figures pinned to
+# non-host sentinels, so a test that still reads the real host figures fails.
+# See specs/testing/test-isolation.md.
+test-hermetic-sentinel:
+	./scripts/hermetic-envelope.sh --netns --sentinel -- make test
 
 # Test the hermetic envelope driver itself (fixtures only: never touches this repo).
 envelope-test:
@@ -374,6 +533,11 @@ backport-audit-test:
 open-backport-pr-test:
 	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -count=1 ./test/scripts/ -run OpenBackport
 
+# Test the libvirt guest provisioner's arg handling, cloud-init seed, and
+# domain XML (fixtures only: fakes virsh/ssh/rsync, never touches a hypervisor).
+kvm-guest-test:
+	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -count=1 ./test/scripts/ -run KvmGuest
+
 # Test the check runner itself (fixtures only: never runs the real targets).
 check-test:
 	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -count=1 ./test/scripts/ -run TestCheck
@@ -397,7 +561,7 @@ check-test:
 JOBS ?= $(shell n=$$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2); q=$$((n / 4)); [ "$$q" -lt 2 ] && q=2; echo "$$q")
 
 CHECK_HEAVY_TARGETS = lint test compile-all
-CHECK_LIGHT_TARGETS = validate-fmt actionlint shellcheck docs-linkcheck ci-guards-check changelog-check
+CHECK_LIGHT_TARGETS = validate-fmt actionlint shellcheck docs-linkcheck ci-guards-check changelog-check brain-check
 CHECK_TARGETS = $(CHECK_HEAVY_TARGETS) $(CHECK_LIGHT_TARGETS)
 VERIFY_HEAVY_TARGETS = $(CHECK_HEAVY_TARGETS) test-race vulncheck deadcode
 VERIFY_TARGETS = $(CHECK_TARGETS) test-race vulncheck deadcode

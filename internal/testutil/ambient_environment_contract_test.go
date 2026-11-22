@@ -38,6 +38,13 @@ var ambientEnvCalls = map[string]bool{
 	"Getenv": true, "LookupEnv": true, "Setenv": true, "Unsetenv": true, "Environ": true,
 }
 
+// ambientTimeCalls are the time package's blocking waits. A test that waits on
+// the clock for an event is load-dependent; it should block on the seam's signal
+// instead. A genuine dwell (a poll cadence, a negative assertion that something
+// does not happen within a window) keeps the sleep under a reason-bearing
+// //testenv:allow marker.
+var ambientTimeCalls = map[string]bool{"Sleep": true}
+
 // ambientDeviceCalls are the os package's file functions, flagged only when the
 // path argument is a literal device path (under /dev), which is host state no
 // temp-dir fixture can imitate.
@@ -57,10 +64,19 @@ type hostProbe struct {
 	name         string
 }
 
+// hostProbeCalls lists the known host-figure readers a test must not call
+// directly. Both the raw `sysinfo` reads and the seam accessors above them —
+// `hostfigures.*` and `sandbox/vm.BootMaxMemoryMiB` — are listed: a direct call
+// still resolves the seam's host default unless the test pins it, so it makes the
+// test depend on the runner's hardware just as a raw read does. `vm` stays listed
+// to keep a cross-package (non-sysinfo) case in the scanner fixture.
 var hostProbeCalls = []hostProbe{
 	{importSuffix: "/internal/sysinfo", name: "NumCPUs"},
 	{importSuffix: "/internal/sysinfo", name: "TotalMemoryGiB"},
 	{importSuffix: "/internal/sysinfo", name: "AvailableMemoryMiB"},
+	{importSuffix: "/internal/hostfigures", name: "NumCPUs"},
+	{importSuffix: "/internal/hostfigures", name: "TotalMemoryGiB"},
+	{importSuffix: "/internal/hostfigures", name: "AvailableMemoryMiB"},
 	{importSuffix: "/internal/sandbox/vm", name: "BootMaxMemoryMiB"},
 }
 
@@ -86,10 +102,11 @@ type ambientUse struct {
 // TestUntaggedTestsReachNoUnsanctionedEnvironment enforces the ambient half of
 // the test-isolation contract: a *_test.go the default build compiles must not
 // open a real socket, read or write the process environment, stat a device path,
-// send a signal, exec an absolute-path binary, or read a host figure through a
-// known host-probe function unless the line carries a reason-bearing
-// //testenv:allow marker. The check reads the source, so a site is sanctioned in
-// place rather than through a maintained allowlist; the fixture test below pins
+// send a signal, exec an absolute-path binary, read a host figure through a
+// known host-probe function, or wait on the clock (`time.Sleep`) unless the line
+// carries a reason-bearing //testenv:allow marker. The check reads the source, so
+// a site is sanctioned in place rather than through a maintained allowlist; the
+// fixture test below pins
 // the scanner.
 func TestUntaggedTestsReachNoUnsanctionedEnvironment(t *testing.T) {
 	root := moduleRoot(t)
@@ -242,6 +259,8 @@ func ambientCallKind(importPath, name string, call *ast.CallExpr) string {
 		return "os." + name + "(device path)"
 	case importPath == "syscall" && name == "Kill":
 		return "syscall.Kill"
+	case importPath == "time" && ambientTimeCalls[name]:
+		return "time." + name
 	case importPath == "os/exec" && (name == "Command" || name == "CommandContext"):
 		toolIndex := 0
 		if name == "CommandContext" {
@@ -328,13 +347,32 @@ func (m testEnvMarkers) standaloneAboveHasTestEnvAllow(start int) bool {
 	return strings.TrimSpace(m.lines[line-1][:prefixEnd]) == ""
 }
 
-// defaultBuildTestSources returns the source of every *_test.go file the default
-// build compiles, so a scanner can read both the AST and the raw lines.
+// testSourcePrefix names the module subtree whose non-test .go files are test
+// code. The shared untagged driver package lives under test/, so its non-test
+// files carry the same ambient escapes a *_test.go file would and must be
+// scanned. A non-test file elsewhere is production code these gates do not own.
+// The dead-code gate defines the same rule in ci/deadcodecheck/main.go; keep the
+// two in sync.
+const testSourcePrefix = "test/"
+
+// scansNonTestSources reports whether a package's non-test .go files are test
+// sources the ambient gates own. Only the test/ subtree qualifies; a package
+// elsewhere contributes its *_test.go files alone.
+func scansNonTestSources(pkgDir string) bool {
+	return strings.HasPrefix(pkgDir, testSourcePrefix)
+}
+
+// scanDefaultBuildTestSources returns the source of every default-build file a
+// scanner reads: each *_test.go file, plus every non-test .go file under test/,
+// where the shared untagged driver package keeps test code in non-test files.
+// The default-build guard keeps an integration- or msb-tagged file out of the
+// scan, so a scanner can read both the AST and the raw lines.
 func scanDefaultBuildTestSources(t *testing.T, root string, packages []modulePackage) []testSource {
 	t.Helper()
 	var sources []testSource
 	for _, pkg := range packages {
-		if !pkg.hasTests {
+		scansNonTest := scansNonTestSources(pkg.dir)
+		if !pkg.hasTests && !scansNonTest {
 			continue
 		}
 		dir := filepath.Join(root, pkg.dir)
@@ -344,7 +382,10 @@ func scanDefaultBuildTestSources(t *testing.T, root string, packages []modulePac
 		}
 		for _, entry := range entries {
 			name := entry.Name()
-			if entry.IsDir() || !strings.HasSuffix(name, "_test.go") {
+			if entry.IsDir() || !strings.HasSuffix(name, ".go") {
+				continue
+			}
+			if !strings.HasSuffix(name, "_test.go") && !scansNonTest {
 				continue
 			}
 			inDefaultBuild, err := build.Default.MatchFile(dir, name)
@@ -373,10 +414,11 @@ type testSource struct {
 
 // TestAmbientEnvironmentUses pins the scanner: each ambient surface is flagged
 // (a socket, the process environment, a device path, a signal, an absolute-path
-// exec, a host-figure probe), a //testenv:allow marker with a reason on the
-// statement sanctions it, a marker without a reason does not, a device-path
-// check is flagged while an ordinary temp path is not, and an absolute-path exec
-// is flagged while a bare non-ambient tool and os.Args[0] are not. The
+// exec, a host-figure probe, a clock wait), a //testenv:allow marker with a
+// reason on the statement sanctions it, a marker without a reason does not, a
+// device-path check is flagged while an ordinary temp path is not, and an
+// absolute-path exec is flagged while a bare non-ambient tool and os.Args[0]
+// are not. The
 // default-build file filter itself is exercised by TestRealCommandUses.
 func TestAmbientEnvironmentUses(t *testing.T) {
 	tests := []struct {
@@ -462,6 +504,28 @@ func TestX(t *testing.T) { _ = syscall.Kill(1, syscall.SIGINT) }
 			want: []string{"syscall.Kill"},
 		},
 		{
+			name: "a time.Sleep wait is flagged",
+			file: `package example
+import (
+	"testing"
+	"time"
+)
+func TestX(t *testing.T) { time.Sleep(time.Millisecond) }
+`,
+			want: []string{"time.Sleep"},
+		},
+		{
+			name: "a marker sanctions a genuine dwell",
+			file: `package example
+import (
+	"testing"
+	"time"
+)
+func TestX(t *testing.T) { time.Sleep(time.Millisecond) } //testenv:allow proves the proxy refuses after Stop
+`,
+			want: nil,
+		},
+		{
 			name: "an absolute-path exec is flagged",
 			file: `package example
 import (
@@ -507,6 +571,18 @@ import (
 func TestX(t *testing.T) { _ = vm.BootMaxMemoryMiB() }
 `,
 			want: []string{"vm.BootMaxMemoryMiB"},
+		},
+		{
+			name: "a host-figure seam accessor read is flagged",
+			file: `package example
+import (
+	"testing"
+
+	"example.com/mod/internal/hostfigures"
+)
+func TestX(t *testing.T) { _ = hostfigures.TotalMemoryGiB() }
+`,
+			want: []string{"hostfigures.TotalMemoryGiB"},
 		},
 		{
 			name: "a marker sanctions a host-probe read",
@@ -705,6 +781,74 @@ func TestX(t *testing.T) {
 			}
 			if !slices.Equal(got, tt.want) {
 				t.Errorf("ambientEnvironmentUsesIn() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestAmbientScanCoversNonTestSourcesUnderTest pins the scan scope: a non-test
+// .go file under test/ is scanned like a *_test.go file, so the shared untagged
+// driver package cannot hide an ambient read behind a non-test file name. A
+// file outside test/ is still scanned only when it is a *_test.go file, and the
+// default-build guard keeps an msb-tagged file under test/ out of the scan.
+func TestAmbientScanCoversNonTestSourcesUnderTest(t *testing.T) {
+	tests := []struct {
+		name string
+		rel  string
+		file string
+		want []string
+	}{
+		{
+			name: "a non-test file under test/ is scanned",
+			rel:  "test/foo/helper.go",
+			file: `package foo
+import "os"
+func Helper() string { return os.Getenv("HOME") }
+`,
+			want: []string{"os.Getenv"},
+		},
+		{
+			name: "a marker sanctions a non-test file under test/",
+			rel:  "test/foo/helper.go",
+			file: `package foo
+import "os"
+func Helper() string { return os.Getenv("HOME") } //testenv:allow the caller pins the home it reads
+`,
+			want: nil,
+		},
+		{
+			name: "an msb-tagged file under test/ is not scanned",
+			rel:  "test/foo/helper.go",
+			file: `//go:build msb
+
+package foo
+import "os"
+func Helper() string { return os.Getenv("HOME") }
+`,
+			want: nil,
+		},
+		{
+			name: "a non-test file outside test/ is not scanned",
+			rel:  "internal/foo/helper.go",
+			file: `package foo
+import "os"
+func Helper() string { return os.Getenv("HOME") }
+`,
+			want: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeFixtureFile(t, root, tt.rel, tt.file)
+
+			var got []string
+			for _, use := range ambientUses(t, root, modulePackages(t, root)) {
+				got = append(got, use.what)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("ambientUses() = %v, want %v", got, tt.want)
 			}
 		})
 	}

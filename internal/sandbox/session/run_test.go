@@ -2413,6 +2413,28 @@ func TestRunAttachSignalSkipsTheOfferAndStillReaps(t *testing.T) {
 	}
 }
 
+// samplingSandbox signals when the pressure watcher takes its second Metrics
+// sample. The second call happens only after the first sample was folded into
+// the summary, so a test that receives on sampled and then reads the watcher's
+// output observes the post-sample state rather than a sample still in flight.
+type samplingSandbox struct {
+	*msbtest.MockSandbox
+
+	sampled chan struct{}
+	samples int
+}
+
+func (s *samplingSandbox) Metrics(context.Context) (*msb.Metrics, error) {
+	s.samples++
+	if s.samples >= 2 {
+		select {
+		case s.sampled <- struct{}{}:
+		default:
+		}
+	}
+	return nil, errors.New("metrics unsupported")
+}
+
 // TestRunAttachReportsWatcherReadErrorsAfterTheAttach pins that a failing
 // metrics read is reported once after the attach returns, never while the
 // agent's full-screen TUI owns the terminal.
@@ -2432,13 +2454,15 @@ func TestRunAttachReportsWatcherReadErrorsAfterTheAttach(t *testing.T) {
 		return count
 	}
 	linesDuringAttach := -1
-	sb := &msbtest.MockSandbox{
-		MetricsErr: errors.New("metrics unsupported"),
-		AttachFn: func(context.Context) (int, error) {
-			time.Sleep(20 * pressureWatchInterval)
-			linesDuringAttach = watcherLines()
-			return 0, nil
-		},
+	sb := &samplingSandbox{MockSandbox: &msbtest.MockSandbox{}, sampled: make(chan struct{}, 1)}
+	sb.AttachFn = func(context.Context) (int, error) {
+		select {
+		case <-sb.sampled:
+		case <-time.After(2 * time.Second):
+			t.Fatal("the pressure watcher did not sample twice during the attach")
+		}
+		linesDuringAttach = watcherLines()
+		return 0, nil
 	}
 
 	_ = runAttach(context.Background(), k, sb, "/workspace", ui,

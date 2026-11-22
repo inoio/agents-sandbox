@@ -62,8 +62,8 @@ Don't install additional tools yourself without permission.
 
 Common development commands (run from the Go module root):
 
-- `make check` — run `validate-fmt`, lint, and test targets, read-only (the same formatting gate CI
-  runs). It delegates to `scripts/check.sh`, which captures each target and prints a one-line
+- `make check` — run `validate-fmt`, lint, test, the doc/script gates, and the brain check, read-only
+  (the same formatting gate CI runs). It delegates to `scripts/check.sh`, which captures each target and prints a one-line
   `PASS`/`FAIL` summary — the target's runtime, the CPU seconds its process tree consumed, and its
   `[heavy]`/`[light]` lane — plus a `check: <n> targets in <t>s` total, dumping every failing target's log
   last; the CPU-heavy targets run one at a time and the rest in a `JOBS=<n>` pool, and on a terminal a
@@ -79,6 +79,10 @@ Common development commands (run from the Go module root):
 - `make test`/`go test ./...` — run all tests. `make test` passes `-tags microsandbox_ffi_path`, which keeps the
   SDK's ~36 MB native library out of every test binary; a bare `go test ./...` links it and is slower. See
   `.operator-shared/guides/test-runtime-cost.md`.
+- `make test-scrubbed`/`make test-hermetic` — run the default suite in the hermetic envelope (a temp copy outside any
+  git checkout, a scrubbed environment, and the host-figure sentinel pass); `test-hermetic` (Linux) adds a
+  loopback-only network namespace and runs as uid 0. The CI job running it is advisory on PRs and required on a
+  release tag. See `.operator-shared/specs/testing/test-isolation.md`.
 - `make compile-all` — compile every test binary including `integration`-tagged files without a docker daemon (catches
   tagged-only compile regressions; run by CI on every PR). Its `-run='^$'` output reads `[no tests to run]` for every
   package — that is compile-only, not skipped tests.
@@ -115,6 +119,9 @@ Use the linter as a guide for code style: Run it after every major edit, for sma
 ## Documentation
 
 - User-facing docs follow [`STYLEGUIDE.md`](STYLEGUIDE.md).
+- Design docs and plans live in `.operator-shared/` (`specs/`, `plans/`), which is published with the repo.
+  `docs/superpowers/` is gitignored scratch — a doc written there cannot be PR'd — so override the
+  `brainstorming`/`writing-plans` default path and write to `.operator-shared/`.
 - When changing or adding behavior, keep `README.md` and `docs` directory (except `docs/superpowers`) in sync and
   current, and add a `changelog.d/<PR-number>.<type>.md` fragment (see `CONTRIBUTING.md`).
 - Linking style: root-level docs (README.md, SECURITY.md, ...) link into `docs/` with rendered HTML links

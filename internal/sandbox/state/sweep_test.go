@@ -560,8 +560,7 @@ func TestRemoveSlugDirIfEmptyReadError(t *testing.T) {
 }
 
 // TestRemoveSlugDirIfEmptyRemoveError pins the bottom-up unlink failure: an
-// empty child dir in a read-only slug dir cannot be removed, and the error
-// propagates from the child.
+// empty child dir cannot be removed, and the error propagates from the child.
 func TestRemoveSlugDirIfEmptyRemoveError(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	const slug = "sweep-dir-readonly"
@@ -569,10 +568,17 @@ func TestRemoveSlugDirIfEmptyRemoveError(t *testing.T) {
 	if err := os.MkdirAll(child, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(SlugDir(slug), 0o500); err != nil {
-		t.Fatal(err)
+	// Deny the child removal through the seam: chmod 0500 no longer denies once
+	// the suite runs as uid 0, so the child error the recursion returns is
+	// induced directly.
+	restore := removeSweepEntry
+	removeSweepEntry = func(path string) error {
+		if path == child {
+			return fs.ErrPermission
+		}
+		return os.Remove(path)
 	}
-	t.Cleanup(func() { _ = os.Chmod(SlugDir(slug), 0o700) })
+	t.Cleanup(func() { removeSweepEntry = restore })
 
 	if err := RemoveSlugDirIfEmpty(slug); err == nil {
 		t.Fatal("RemoveSlugDirIfEmpty should surface a failed child removal")

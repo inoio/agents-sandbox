@@ -2,11 +2,14 @@ package agent_test
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/pelletier/go-toml/v2"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 )
@@ -50,16 +53,55 @@ func TestCodexImageSpec(t *testing.T) {
 	}
 }
 
-func TestCodexAttachCommandDisablesUpdateCheck(t *testing.T) {
+func TestCodexAttachCommandRunsWithoutTheBackgroundServer(t *testing.T) {
 	a, _ := agent.Lookup("codex")
 	runner, ok := agent.AsAttachRunner(a)
 	if !ok {
 		t.Fatal("codex should implement AttachRunner")
 	}
 	got := runner.AttachCommand("/workspace", []string{"--model", "gpt-5"})
-	want := "codex -c check_for_update_on_startup=false -c 'sandbox_mode=\"danger-full-access\"' '--model' 'gpt-5'"
+	want := "codex --no-daemon '--model' 'gpt-5'"
 	if got != want {
 		t.Errorf("AttachCommand = %q, want %q", got, want)
+	}
+}
+
+// TestCodexRunnerCommandBakesTheSystemConfig runs the runner-stage command with
+// /etc redirected into a temp dir and decodes the file it writes, so a quoting
+// mistake in the printf surfaces as a TOML error rather than in an image build.
+func TestCodexRunnerCommandBakesTheSystemConfig(t *testing.T) {
+	a, _ := agent.Lookup("codex")
+	command := a.ImageSpec().RunnerCommand
+	if !strings.Contains(command, "/etc/codex/config.toml") {
+		t.Fatalf("RunnerCommand = %q, want it to write /etc/codex/config.toml", command)
+	}
+	root := t.TempDir()
+	redirected := strings.ReplaceAll(command, "/etc/codex", filepath.Join(root, "etc", "codex"))
+	if output, err := exec.Command("sh", "-c", redirected).CombinedOutput(); err != nil {
+		t.Fatalf("run RunnerCommand: %v\n%s", err, output)
+	}
+	content, err := os.ReadFile(filepath.Join(root, "etc", "codex", "config.toml"))
+	if err != nil {
+		t.Fatalf("read baked config: %v", err)
+	}
+	var baked struct {
+		CheckForUpdateOnStartup *bool  `toml:"check_for_update_on_startup"`
+		SandboxMode             string `toml:"sandbox_mode"`
+		Projects                map[string]struct {
+			TrustLevel string `toml:"trust_level"`
+		} `toml:"projects"`
+	}
+	if err := toml.Unmarshal(content, &baked); err != nil {
+		t.Fatalf("baked config is not valid TOML: %v\n%s", err, content)
+	}
+	if baked.CheckForUpdateOnStartup == nil || *baked.CheckForUpdateOnStartup {
+		t.Errorf("check_for_update_on_startup = %v, want false", baked.CheckForUpdateOnStartup)
+	}
+	if baked.SandboxMode != "danger-full-access" {
+		t.Errorf("sandbox_mode = %q, want danger-full-access", baked.SandboxMode)
+	}
+	if got := baked.Projects["/workspace"].TrustLevel; got != "trusted" {
+		t.Errorf(`projects."/workspace".trust_level = %q, want trusted`, got)
 	}
 }
 
@@ -139,8 +181,9 @@ func TestCodexAttachCommandPreservesShellSpecialPrompts(t *testing.T) {
 	runner, _ := agent.AsAttachRunner(a)
 	prompts := []string{"Explain this project's tests", "cost in $HOME; `id` && echo hi", ""}
 	command := runner.AttachCommand("/workspace", prompts)
-	// printf stands in for codex so the shell's word splitting is observable.
-	script := "codex() { shift 4; printf '[%s]' \"$@\"; }; " + command
+	// printf stands in for codex (after its --no-daemon flag) so the shell's word
+	// splitting is observable.
+	script := "codex() { shift 1; printf '[%s]' \"$@\"; }; " + command
 	output, err := exec.Command("bash", "-c", script).Output()
 	if err != nil {
 		t.Fatalf("bash -c %q: %v", script, err)

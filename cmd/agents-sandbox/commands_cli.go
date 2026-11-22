@@ -15,6 +15,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/firstrun"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/runoptions"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
@@ -43,6 +44,45 @@ var autoPrune = pruning.AutoPrune
 // assert the startup stage sweeps abandoned observation artefacts without
 // touching the state dir.
 var pruneLearnArtefacts = learn.PruneArtefacts
+
+// firstRunMenu is the first-run setup seam: a variable so a test can drive the
+// run path without a host config or a state dir. Production gathers the
+// first-run facts, offers the menu, seeds the per-slug scope for the host-seed
+// choice, and applies the outcome to opts (including the manual choice's
+// provisioned host config, gated by the menu's warning). An explicit --learn
+// (UC2) is left alone: the menu must not override the user's flag. It applies
+// only to a full `run` attach (see offerFirstRunMenu).
+var firstRunMenu = func(ui termio.UI, opts *options.RunOptions, slug, agentName string) error {
+	if opts.Learn {
+		return nil
+	}
+	paths := configpaths.Get()
+	hostHome, err := paths.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("resolve the host home for the first-run menu: %w", err)
+	}
+	facts, err := firstrun.BuildFacts(agentName, slug, hostHome, paths)
+	if err != nil {
+		return err
+	}
+	outcome, offered := firstrun.Prompt(ui, facts)
+	if !offered {
+		return nil
+	}
+	if outcome.Choice == firstrun.ChoiceLearnFromHost {
+		seeded, err := firstrun.SeedFromHost(facts, paths, hostHome)
+		if err != nil {
+			ui.Warnf("first-run setup: seeding from your host config was incomplete: %v", err)
+		} else if seeded > 0 {
+			ui.Infof("first-run setup: seeded %d secret(s) from your host config", seeded)
+		}
+	}
+	return outcome.Apply(opts, slug, agentName)
+}
+
+// sessionRun is the session-start seam: a variable so a cmd test can capture the
+// resolved options the session actually consumes without starting a VM.
+var sessionRun = session.Run
 
 // newLifecycleTrace creates the trace a run or shell records its lifecycle
 // stages into (specs/vm/lifecycle.md). It is a seam so a test can keep the trace it
@@ -173,7 +213,24 @@ func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 		if err != nil || exit {
 			return err
 		}
-		return session.Run(ctx, opts, mode, ui)
+		offerFirstRunMenu(ui, &opts, mode)
+		return sessionRun(ctx, opts, mode, ui)
+	}
+}
+
+// offerFirstRunMenu runs the first-run setup before a full `run` attach. It is
+// skipped on any non-attach mode (preview, dry-run-vm) and on a serve-only run:
+// those paths return before the learning after-run, so a learning choice would
+// be recorded while the observation is dropped. `shell` does not call it at all:
+// session.Shell starts neither the agent serve daemon nor a learning session, so
+// the menu can only record a decision with no session behind it. A menu error is
+// surfaced as a warning: setup guides the run, it never blocks it.
+func offerFirstRunMenu(ui termio.UI, opts *options.RunOptions, mode options.Mode) {
+	if mode.SkipsVM() || opts.ServeOnly {
+		return
+	}
+	if err := firstRunMenu(ui, opts, opts.ConfigSlug, opts.Agent); err != nil {
+		ui.Warnf("first-run setup: %v", err)
 	}
 }
 
@@ -387,6 +444,8 @@ func registerSharedRunShellFlags(cmd *cobra.Command) {
 	cmd.Flags().String(flagTmpSize, "", "Size of the /tmp tmpfs in the sandbox (default: min(2G, memory/2))")
 	cmd.Flags().String(flagDiskSize, "", "Size of the project VM root disk (e.g. 16G)")
 	cmd.Flags().String(flagWorkspaceQuota, "16G", "Guest-write quota for the /workspace bind mount (e.g. 32G)")
+	cmd.Flags().Duration(flagDockerReadyTimeout, 0, "Readiness timeout for the in-VM Docker engine (default 30s)")
+	cmd.Flags().Duration(flagDaemonReadyTimeout, 0, "Readiness timeout for the agent's serve daemon (default 60s)")
 	cmd.Flags().
 		StringSlice(flagNetwork, nil, "Network egress profile(s) for the VM: public, private, host, or none (default public); comma-separated or repeated")
 	cmd.Flags().

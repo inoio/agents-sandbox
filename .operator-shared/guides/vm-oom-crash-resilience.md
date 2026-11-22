@@ -1,6 +1,6 @@
 ---
-description: How the microsandbox VM enforces memory/disk/CPU limits (virtio-mem, no swap, guest global OOM killer), how a guest OOM kill or crash surfaces to the launcher (exit code -1, no OOM flag, kernel.log), how host-terminal corruption arises and is recovered, and the ranked detect-and-propose mitigation path for the launcher.
-read_if: Working on VM OOM/crash handling, a memory/disk/CPU limit-hit detector or "raise the limit" proposal, terminal corruption after an in-VM kill, or the daemon/dockerd re-ensure and supervision behaviour.
+description: How the microsandbox VM enforces memory/disk/CPU limits (virtio-mem, no swap, guest global OOM killer), how a guest OOM kill or crash surfaces to the launcher (exit code -1, no OOM flag, kernel.log), how host-terminal corruption arises and is recovered, how a sandbox can report no live metrics slot, and the ranked detect-and-propose mitigation path for the launcher.
+read_if: Working on VM OOM/crash handling, a memory/disk/CPU limit-hit detector or "raise the limit" proposal, terminal corruption after an in-VM kill, a `Metrics` read that never succeeds (`no verified live metrics slot`) or how to diagnose it on a host, or the daemon/dockerd re-ensure and supervision behaviour.
 ---
 
 # VM OOM and crash resilience
@@ -179,6 +179,25 @@ immediately with `STATE=converging` and a *stale* `memory_limit_bytes` (still 1 
 read), so a live resize is **asynchronous**: a post-resize read must wait for convergence, not read
 once.
 
+**Metrics can be unavailable for a sandbox's whole life — the "no verified live metrics slot" failure.**
+Observed on a KVM host (msb 0.7.16): every `Metrics(ctx)` for one project sandbox failed with
+`sandbox N has no verified live metrics slot`, at the prepare-time reconcile confirmation
+(`vm.reconcileResourceConfig` → `waitForMemoryLimit`) and on every 2 s sample through an attach. The
+SDK's own `integration/metrics_test.go` retries `no live metrics slot` for ~2 s, so a *persistent*
+one is a sandbox/runtime condition, not a still-starting VM. Consequences: the headroom detector
+never trips (it needs `Metrics`), so only the OOM-log path can resolve a hit; a live memory resize is
+left *unconfirmed* (the read error is returned and `reconcileResourceConfig` warns "could not confirm
+the live memory change", which is the spec's unconfirmed path, not a failure); the OOM-log path and
+the disk probe are unaffected. **Cause confirmed on a KVM host (msb 0.7.16, versions matching):** a *fresh* sandbox's
+metrics work (a verbose shell run sampled headroom, no read error), so the runtime and SDK are not
+mismatched; the failure is sandbox-specific, on a long-lived project sandbox. The slot is established
+at sandbox *creation*: a stop/start does not bring it back, but recreating the sandbox
+(`agents-sandbox sandbox remove <name>`; the home volume is kept) does. A sandbox created before the
+runtime gained the slot therefore never has one for its whole life. The memory-raise offer no longer
+depends on the slot (`specs/resources/resource-limit-proposal.md` §3 uses the memory the run applied
+as a fallback basis); the remedy for an affected sandbox is the recreate in step 3 of "Diagnosing a
+missing metrics slot" below.
+
 **Guest kernel OOM messages — persisted logs via the `system` source.** The SDK exposes
 `SandboxHandle.Logs(ctx, LogOptions)`/`Sandbox.Logs` with `LogSourceSystem`, which the docs describe
 as "Lifecycle markers plus runtime and kernel diagnostics"; `logs.md` maps the on-disk files
@@ -328,6 +347,72 @@ Ranked; each names the seam, cost/risk, and whether it is verified or needs a KV
    capacity, muddies the pressure signal the detector reads, and only wins on RAM-constrained hosts.
    Revisit only if msb ships a zram-capable kernel *and* a real workload is seen thrashing rather
    than OOMing.
+
+### Diagnosing a missing metrics slot
+
+Host-only (needs KVM, a docker daemon, and the pinned runtime); the slot is a runtime property, so
+the launcher cannot repair it.
+
+1. **Version pair.** `agents-sandbox doctor` names the private runtime path. Compare the installed
+   runtime build against the pinned SDK (`go.mod`'s
+   `github.com/superradcompany/microsandbox/sdk/go`; the launcher compares it via `PinnedRuntimeVersion`).
+   A mismatch is the first suspect.
+2. **Fresh sandbox vs the failing one.** Run the launcher in a brand-new project and watch prepare:
+   `mkdir /tmp/metrics-probe && cd /tmp/metrics-probe && git init && agents-sandbox shell --log-level verbose`.
+   A slot error for a *fresh* sandbox means the runtime cannot provide the slot at all; if only the
+   long-lived project sandbox fails, the sandbox record (or the runtime process that started it) is
+   stale.
+3. **Restart, then recreate, the failing sandbox.** Run `agents-sandbox stop` from the failing
+   checkout and re-run; if the slot does not return, `agents-sandbox sandbox remove <name>` (the home
+   volume is kept) and let the next run recreate the VM. A recreate that fixes it points at a sandbox
+   created before the slot existed, or by an older runtime.
+4. **Direct SDK probe (bypasses the launcher).** From the checkout root, drop this in `probe/main.go`
+   and run `CGO_ENABLED=1 go run ./probe` (delete it afterwards):
+
+   ```go
+   package main
+
+   import (
+       "context"
+       "fmt"
+       "time"
+
+       msb "github.com/superradcompany/microsandbox/sdk/go"
+   )
+
+   func main() {
+       ctx := context.Background()
+       name := fmt.Sprintf("metrics-probe-%d", time.Now().UnixNano())
+       sb, err := msb.CreateSandbox(ctx, name,
+           msb.WithImage("alpine:3.20"), msb.WithReplace(), msb.WithDetached(),
+           msb.WithIdleTimeout(2*time.Minute))
+       if err != nil {
+           panic(err)
+       }
+       defer func() {
+           if h, e := msb.GetSandbox(ctx, name); e == nil {
+               _ = h.Destroy(ctx)
+           }
+       }()
+       for i := range 50 {
+           m, err := sb.Metrics(ctx)
+           if err == nil && m != nil && m.MemoryLimitBytes > 0 {
+               fmt.Printf("metrics available after %dms: limit=%d MiB\n", i*200, m.MemoryLimitBytes>>20)
+               return
+           }
+           fmt.Printf("attempt %d: %v\n", i, err)
+           time.Sleep(200 * time.Millisecond)
+       }
+       fmt.Println("NO live metrics slot within 10s")
+   }
+   ```
+
+   The 10 s budget is ~5x the SDK test's own retry window; a slot should appear within a second or
+   two of creation. A persistent "no verified live metrics slot" here is a runtime/SDK defect to
+   report upstream, independent of the launcher.
+5. **Runtime log** if the probe fails: the sandbox's `runtime.log` under the private home
+   `agents-sandbox doctor` names (`sandbox-dir/logs/`), which is where the runtime would say why it
+   declined to open the slot.
 
 ### Honest uncertainties
 

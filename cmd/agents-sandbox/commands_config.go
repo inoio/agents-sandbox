@@ -39,6 +39,8 @@ func buildConfigCmd(ui termio.UI) *cobra.Command {
 
 	cmd.AddCommand(buildConfigAgentCmd(ui))
 
+	cmd.AddCommand(buildConfigProvisionCmd(ui))
+
 	cmd.AddCommand(buildConfigPathsCmd(ui))
 
 	cmd.AddCommand(buildConfigLearnCmd(ui))
@@ -194,6 +196,49 @@ func buildConfigAgentCmd(ui termio.UI) *cobra.Command {
 	return cmd
 }
 
+// buildConfigProvisionCmd returns the config provision subcommand: it
+// materializes the exact config the launcher would provision into a sandbox for
+// the selected agent into a host directory. It is for host-side tooling that
+// needs the provisioned config without a VM, such as seeding a KVM guest's home.
+func buildConfigProvisionCmd(ui termio.UI) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   cmdProvision,
+		Args:  cobra.MaximumNArgs(1),
+		Short: "Materialize the agent's provisioned config into a host directory",
+		RunE: func(c *cobra.Command, args []string) error {
+			a, err := configAgentFor(c, args)
+			if err != nil {
+				return err
+			}
+			target, _ := c.Flags().GetString(flagTarget)
+			if target == "" {
+				return fmt.Errorf("--%s is required: name the host directory to materialize into", flagTarget)
+			}
+			provision := provisionHostConfigEnabled(c)
+			hostHome, _ := configpaths.Get().UserHomeDir()
+			cf, err := reprovision.LoadConfigFilesForHost(
+				agent.Resolve(a),
+				configSlugFromContext(c.Context()),
+				hostHome,
+				reprovision.VMHomeDir,
+				ui,
+				provision,
+			)
+			if err != nil {
+				return err
+			}
+			if err := reprovision.Materialize(cf, reprovision.VMHomeDir, target); err != nil {
+				return err
+			}
+			ui.Infof("Provisioned config for agent %s into %s.", a.Name(), target)
+			return nil
+		},
+	}
+	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile")
+	cmd.Flags().String(flagTarget, "", "Host directory to materialize the provisioned config into")
+	return cmd
+}
+
 // configAgentFor resolves the agent for the config agent command, or errors if
 // the resolved name is unknown.
 func configAgentFor(c *cobra.Command, args []string) (agent.Agent, error) {
@@ -208,13 +253,14 @@ func configAgentFor(c *cobra.Command, args []string) (agent.Agent, error) {
 	return a, nil
 }
 
-// provisionHostConfigEnabled reports whether host config provisioning is on,
-// defaulting to true when no resolver is present.
+// provisionHostConfigEnabled reports whether host config provisioning is on.
+// Without a resolver it reports false, matching the documented
+// `provision-host-config: false` default.
 func provisionHostConfigEnabled(c *cobra.Command) bool {
 	if r := resolverFromContext(c.Context()); r != nil {
 		return r.ProvisionHostConfig()
 	}
-	return true
+	return false
 }
 
 // printConfigAgent renders the merged config, mirror files, and drop-in host

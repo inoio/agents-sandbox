@@ -32,6 +32,9 @@ One finding shape serves both a learning session and config-only analysis (`conf
 - **A harden move writes two scopes.** A static secret wrongly committed in the project scope is removed from the
   project config and added at the per-slug user scope; the removal is harden's "reduce" contract, which the
   proposal never invokes. Both writes are trust-gated and applied together (or neither).
+- **A write shadowed by a flag or environment variable is reported, not written.** A per-slug config write is also
+  skipped when a CLI flag or environment variable supplies that key (`resourceproposal.ShadowSource`), since a value
+  written there would not take effect; it is reported like the project-owned case.
 
 ## The credential store
 
@@ -39,7 +42,9 @@ One finding shape serves both a learning session and config-only analysis (`conf
 unconditionally on every start, so a managed file that carries a login entry the agent refreshed in the sandbox
 would destroy it. The copy-back therefore never targets a file the agent refreshes, and never adds a `home:` or
 provision rule for the credential store. Static secrets go to `env.secret.yaml` and appear as placeholders in the
-managed agent config; login entries stay only in the persistent sandbox home.
+managed agent config; login entries stay only in the persistent sandbox home. The secret writer never persists a spec
+with an empty value or with neither hosts nor an explicit dangerous flag — `BuildSecretsFromSpecs` would drop it — so
+a finding that cannot produce a provisionable spec writes nothing.
 
 ## The agent-config write-back
 
@@ -51,7 +56,19 @@ log. A placeholder never appears without its entry: a credential the analysis wi
 no env-var name) leaves the whole file uncopied rather than copied with an orphan `${ENVVAR}` or a raw sibling value.
 Only a file the agent's **snippet pattern** matches is proposed — a candidate the merge never reads (a reserved
 config-family name such as opencode's `config.json`, or any name outside the pattern) would be a managed write that
-takes no effect.
+takes no effect. The shared predicate `agent.MergesSnippetName` carries the pattern match; the host seed applies the
+same check, so it never copies a host config file the merge would not read.
+
+**The no-raw-sibling rule is enforced only on the host-seed path so far.** The shared sanitizer
+(`readback.SanitizeConfig`) takes a `RefuseUndeclaredSecretKeys` flag: the UC4 host seed sets it, so any non-reference
+string left under a secret-shaped key the credential walk did not name — directly or inside a nested array or object —
+refuses the whole file. A key is secret-shaped when a camelCase/separator-aware key segment is one of the markers
+`KEY`/`TOKEN`/`SECRET`/`PASSWORD`/`AUTHORIZATION`/`CREDENTIAL`, **or its plural** (so a secret list spelled `tokens`,
+`secrets`, `keys`, `credentials`, or `passwords` is covered); a downstream non-string value (a numeric count) is not a
+raw value, so `maxTokens: 4096` stays allowed while `tokens: ["sk-…"]` refuses. The after-run write-back
+(`analyser.ManagedConfigFindings`) leaves it off — a pre-existing S10 gap — so a secret-shaped value the walk did not
+classify can still be copied verbatim into the managed config. Until that flag is turned on for the write-back, the
+shared sanitizer must not be read as enforcing this rule on both paths.
 
 A candidate whose path matches a **declared credential-store pattern** is excluded by the pattern alone, independently
 of whether that store is a login for the current agent: `readback.IsCredentialStorePath` tests the pattern
@@ -73,7 +90,11 @@ in its config needs its **native env indirection** instead — kimi reads no key
 accepts `api_key_env = "<ENVVAR>"`, so the write-back emits that form, and msb puts the placeholder into the named
 env var. An assignment whose key is already the env-var name — an env-table entry such as `KIMI_API_KEY = "…"` —
 keeps its key and takes `${ENVVAR}` instead: that name is what the harness reads. Which form a harness needs is a
-per-harness property of the write-back, not of the finding.
+per-harness property of the write-back, not of the finding. The placeholder is explicit (`envsecret.PlaceholderFor`)
+because the runtime's default placeholder is generated and cannot be referenced from a config file, so the launcher
+names one and records the same string on the secret's `env.secret.yaml` entry. Re-applying the write-back is
+idempotent — identical content yields an identical file — and a decline is remembered by evidence hash like any other
+finding.
 
 ## Attribution and the network diff
 
@@ -88,7 +109,30 @@ per-harness property of the write-back, not of the finding.
 - **Network changes are proposed as a diff**: `network.profile = none` plus `network.egress-allow` set to the
   current allow set **∪** the observed-and-used destinations, where observed-and-used means a destination the
   session reached successfully and that was not denied. It never widens: no current allow entry is removed and no
-  denied destination enters the allow set. Denied destinations are reported separately and never auto-allowed.
+  denied destination enters the allow set. Denied destinations are reported separately and never auto-allowed. The
+  diff's *current* allow set is the user's policy **before** the channel overlay is applied: the overlay injects the
+  observation proxy's address and its upstream CA only so the session can be observed, so neither is ever fed back as
+  a proposed egress entry nor written to the user's config.
+- **Entries are hostnames where the channel saw one.** The channel names each tunnel by its TLS SNI (the runtime
+  opens tunnels by IP); a request from a client that sends no SNI to an IP literal is still proposed under that IP. A tunnel
+  still recorded under an IP is not use: the requests inside any tunnel are recorded on their own entries, so an
+  address-only tunnel is an abandoned attempt (happy eyeballs, a pre-warmed connection) or non-HTTP traffic the channel
+  cannot attribute to a host. It never becomes an allow entry (an address would also break when it rotates), and the
+  after-run's "services reached" leaves it out too. A session with no used destination proposes no lock: it would lock
+  egress to the current allow set alone.
+- **The lock carries interception.** Under the runtime's strict-hostname mode a hostname allow rule admits only an
+  intercepted connection, and `intercept-tls: auto` is off without a secret, so a `none` lock with hostname entries and
+  no interception would block every destination it allows. The finding therefore also writes `network.intercept-tls: on`
+  unless the current policy already has it on or sets `disable-strict`; with a secret configured, `auto` already
+  intercepts and the write only makes that explicit (one VM recreate). A policy already narrowed to the used set with
+  interception on stays silent; one without interception gets an interception-only finding, because the learning
+  session's overlay forced interception on and hid that the policy blocks its own hosts outside learn mode. That
+  finding's evidence carries no per-session count, so a decline (a user whose secret already intercepts) sticks. A used host that `tls-bypass` covers stays denied under the strict mode, so the write names those hosts instead
+  of promising they work; the lock never proposes `disable-strict`.
+- **The review shows the entries.** The apply prompt lists every proposed destination with the request count and the
+  channel, the entries already allowed that the write keeps, and the denied destinations apart, before the user accepts
+  the lock. Only the observed lock renders this list: a secret's or a config finding's destinations (config harden's wildcard
+  drop) are not observed egress.
 - The applied network policy is creation-only, so it takes effect at the next VM creation through the existing
   recreate path; the proposal states that.
 
@@ -99,10 +143,13 @@ per-harness property of the write-back, not of the finding.
   top-level accept-all, never `--yes`); Not now writes nothing and records nothing.
 - Applying is interactive and per finding, and a finding's writes each name their own scope and are applied together
   (a move applies both writes or neither). A decline is remembered, keyed on a hash of the evidence, and re-armed
-  when the evidence changes. The record lives in the user state dir, keyed by repo slug, so it survives a config-dir
-  reset and is shared by clones.
-- A non-interactive run writes no proposal and prints one line naming the command that produces it. A dry run
-  records nothing and proposes nothing.
+  when the evidence changes. The hash is canonical — list fields are sorted — so it is stable across runs for the
+  same observation and changes with any evidence change. The record lives in the user state dir, keyed by repo slug,
+  so it survives a config-dir reset and is shared by clones.
+- A non-interactive run writes no proposal and prints one line naming the command that produces it. `--learn` is
+  refused together with `--serve-only` at option resolution (a learning session attaches a TUI). A `--dry-run` returns
+  before the channel starts, and a `--dry-run-vm` prepares but skips the VM, so neither writes a session record or runs
+  the after-run.
 
 ## After-run ownership
 

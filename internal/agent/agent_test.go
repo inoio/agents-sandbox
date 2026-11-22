@@ -66,11 +66,11 @@ func TestOpencodeImplementsDaemon(t *testing.T) {
 	}
 }
 
-// TestExperimentalAgentSet pins the tested default agents: only opencode and
-// opencode2 are stable, and every other registered profile, including one added
-// later, is experimental.
+// TestExperimentalAgentSet pins the tested default agents: only opencode,
+// opencode2 and pi are stable, and every other registered profile, including
+// one added later, is experimental.
 func TestExperimentalAgentSet(t *testing.T) {
-	stable := map[string]bool{"opencode": true, "opencode2": true}
+	stable := map[string]bool{"opencode": true, "opencode2": true, "pi": true}
 	for name := range stable {
 		if _, ok := agent.Lookup(name); !ok {
 			t.Errorf("stable agent %q is not registered", name)

@@ -1,6 +1,7 @@
 package runtimemigration
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -294,17 +295,21 @@ func loopedVolumeHome(t *testing.T) string {
 	return home
 }
 
-// makeVolumeDirUnreadable chmods <home>/volumes to 000 so its listing fails with
-// permission denied: the tolerant listing treats that as empty, while the strict
-// listing reports it. The mode is restored in cleanup so t.TempDir can recurse
-// into the directory when removing it.
+// makeVolumeDirUnreadable makes <home>/volumes fail to list with a permission
+// error through the readDir seam: the tolerant listing treats that as empty,
+// while the strict listing reports it. chmod 000 would not deny once the suite
+// runs as uid 0.
 func makeVolumeDirUnreadable(t *testing.T, home string) {
 	t.Helper()
 	volumes := filepath.Join(home, "volumes")
-	if err := os.Chmod(volumes, 0o000); err != nil {
-		t.Fatalf("chmod volumes 000: %v", err)
+	restore := readDir
+	readDir = func(dir string) ([]os.DirEntry, error) {
+		if dir == volumes {
+			return nil, fs.ErrPermission
+		}
+		return os.ReadDir(dir)
 	}
-	t.Cleanup(func() { _ = os.Chmod(volumes, 0o750) })
+	t.Cleanup(func() { readDir = restore })
 }
 
 func TestPresentLegacyTargets(t *testing.T) {

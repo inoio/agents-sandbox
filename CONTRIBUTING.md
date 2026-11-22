@@ -64,12 +64,14 @@ Run these from the module root:
 |----------------------|------------------------------------------------------------|
 | `make test`          | Run the test suite                                         |
 | `make test-race`     | Run the test suite under the race detector                 |
+| `make test-scrubbed` | Run the suite in a hermetic envelope (temp copy + scrubbed env + sentinel pass) |
+| `make test-hermetic` | `test-scrubbed` plus a loopback-only network namespace (strict; Linux) |
 | `make fuzz`          | Fuzz the parsers for `FUZZTIME` per target (default `30s`)  |
 | `make vulncheck`     | Scan for reachable vulnerabilities (`govulncheck`)         |
 | `make compile-all`   | Compile all code incl. `integration`-tagged test files      |
 | `make lint`          | Run the linter                                             |
 | `make fmt`           | Format all source files                                    |
-| `make check`         | Format, lint, and test — prints one line per target (runtime, CPU seconds, heavy/light lane), a total, and failing logs (a live status line on a terminal); run before finalizing any change |
+| `make check`         | Format, lint, test, and the brain check — prints one line per target (runtime, CPU seconds, heavy/light lane), a total, and failing logs (a live status line on a terminal); run before finalizing any change |
 | `make check-local-changes` | Fast inner loop: run only the checks the uncommitted working tree affects |
 | `make check-branch-changes` | Fast inner loop: run only the checks the branch (since `origin/main`) affects |
 | `make verify`        | Read-only CI-parity check: format-check, lint, test, race, vulncheck, deadcode |
@@ -111,6 +113,13 @@ This project defaults to **test-driven development**:
 - `make verify` is the CI-parity check and additionally runs `make test-race` (race detector) and `make vulncheck`
   (`govulncheck` against the Go vulnerability database; needs network on first run). CI runs each as its own job, so run
   `make verify` when a change touches concurrency or dependencies.
+- `make test-scrubbed` and `make test-hermetic` run the default suite decoupled from the execution environment: a module
+  copy outside any git checkout, a scrubbed environment, and the host-figure sentinel pass. `test-scrubbed` is the floor
+  (it also runs on macOS); the strict `test-hermetic` (Linux) adds a loopback-only network namespace and so runs as uid 0
+  — a permission-denial fixture must induce the failure through a package seam, never `chmod`. The suite must stay green
+  under both. The `hermetic` CI job is advisory on a pull request and required on a release tag (`release.needs`), so a
+  red envelope refuses to publish; promotion to the default `make test` follows a measured runtime budget, not a date.
+  See `specs/testing/test-isolation.md`.
 - `make deadcode` fails when production code cannot be reached from any `main` package — code only tests call. It
   analyses the default, `integration`, `msb`, and `integration msb` configurations and unions the findings, so a function
   only a tagged build reaches still fails. When unreachable code is deliberate (a test seam, an internal extension
@@ -144,6 +153,14 @@ This project defaults to **test-driven development**:
   off the merge path. The same suite also runs against rootless podman, kept opt-in behind the
   `run-integration-podman` label and run on the schedule: podman advertises only the classic builder, so it neither
   exercises the BuildKit path nor uses the cache, and it stays a tested engine without adding the build to every PR.
+- The `msb`-tagged suites (`make test-msb`, `make test-msb-journeys`) start real microsandbox VMs, so they need a KVM
+  host and stay **host-only**: `make compile-all` compiles them on every PR, but CI never runs them. The development VM
+  has no working `/dev/kvm`, so build a libvirt guest with `make kvm-up`, sync a checkout with `make kvm-sync`, and run
+  the suite inside it with `make kvm-run` (`KVM_RUN` selects the command, default `make test-msb`). The same guest is
+  provisioned to run an **agent** on the repo — so it can build the launcher and drive real VMs — via
+  `make kvm-agent-up` (one command: ensure the guest is up, wait for cloud-init, sync, materialize the config, and
+  attach) or its steps `make kvm-agent-provision` (materialize the agent config) and `make kvm-agent` (attach a durable
+  session), and fetch its branches back with `make kvm-sync-back`. See `.operator-shared/guides/kvm-guest.md`.
 
 ## Documentation
 

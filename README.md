@@ -51,9 +51,12 @@ Legend for the first four rows: ✅ = stronger isolation or host-side handling; 
 | Project config            | `.agents-sandbox/` sits in the checkout the agent can edit. A run uses it only after you approve its content for the checkout, and asks again whenever it changes; see [Approving project config changes](https://inoio.github.io/agents-sandbox/configuration/launcher.html#approving-project-config-changes). |
 | Raw credentials           | `env.secret` and `env.secret.yaml` keep the real value on the host and expose a placeholder to the guest. This is separate from ordinary file provisioning. |
 
-> **Credential warning:** The convenience setup copies the active agent's host configuration into the VM by default. For
-> opencode, that can include `~/.local/share/opencode/auth.json`. If credentials must not be stored in the VM, set
-> `provision-host-config: false`, use the secret mechanism, and keep credentials out of `/workspace`, `home:`, `env`, and
+> **Credential warning:** Host agent configuration is not copied into the VM by default. Opt in with
+> `provision-host-config: true` to copy the active agent's host configuration; for
+> opencode, that can include `~/.local/share/opencode/auth.json`. Because the default is off, previously drop-in-copied
+> host config and credentials are removed from existing sandboxes on the next run; opt in again to keep the drop-in
+> copy. If credentials must not be stored in the VM, leave
+> provisioning off and use the secret mechanism, and keep credentials out of `/workspace`, `home:`, `env`, and
 > writable mounts. See the [Secrets](https://inoio.github.io/agents-sandbox/configuration/secrets.html) and [Agent configuration](https://inoio.github.io/agents-sandbox/configuration/agent.html)
 > documentation.
 
@@ -80,8 +83,11 @@ start the configured agent (OpenCode 2 by default):
 agents-sandbox
 ```
 
-The default path uses the agent configuration already present on the host. For a self-contained setup with explicit secret
-handling, start with [Manage config in the sandbox](https://inoio.github.io/agents-sandbox/manage-config.html) instead.
+On a first run, agents-sandbox asks how to set the sandbox up — learn by using it, learn from your host setup (when
+your host has agent config), or configure it myself (see
+[Letting agents-sandbox learn your setup](https://inoio.github.io/agents-sandbox/learn-your-setup.html)).
+For a self-contained setup with explicit secret handling, start with
+[Manage config in the sandbox](https://inoio.github.io/agents-sandbox/manage-config.html) instead.
 
 ## Agent selection
 
@@ -93,7 +99,7 @@ provided by a custom base or project Dockerfile.
 Built-in profiles cover the most widely used agents — `opencode`, `opencode2` (default, opencode 2 beta), `claude-code`
 (Claude Code), `codex` (OpenAI Codex), and `pi` — plus further experimental agents. The
 [agent docs](https://inoio.github.io/agents-sandbox/configuration/agent.html#built-in-agents) list every profile with its install method and capabilities.
-`opencode` and `opencode2` are the tested default agents; every other profile is experimental — not well tested with
+`opencode`, `opencode2`, and `pi` are the tested agents; every other profile is experimental — not well tested with
 agents-sandbox.
 
 ## Documentation

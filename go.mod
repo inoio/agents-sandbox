@@ -6,8 +6,8 @@ require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/creack/pty v1.1.24
 	github.com/distribution/reference v0.6.0
-	github.com/docker/cli v29.9.3+incompatible
-	github.com/elazarl/goproxy v1.7.2
+	github.com/docker/cli v29.10.0+incompatible
+	github.com/elazarl/goproxy v1.9.4
 	github.com/go-git/go-git/v5 v5.19.3
 	github.com/go-viper/mapstructure/v2 v2.5.0
 	github.com/moby/buildkit v0.35.0

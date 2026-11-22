@@ -44,16 +44,15 @@ func TestRecordImageProvenanceWarnsWhenStateCannotBeWritten(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
 	// Persist an initial state first so the subsequent ReadState call succeeds,
-	// then make the state directory read-only so the atomic write fails while
-	// loading still works.
+	// then deny the write through the seam so it fails while loading still works:
+	// chmod 0555 no longer denies once the suite runs as uid 0.
 	if err := seedHomeState(k, state.NewHomeState("vol", "digest")); err != nil {
 		t.Fatal(err)
 	}
-	dir := state.KeyDir(k)
-	if err := os.Chmod(dir, 0o555); err != nil {
-		t.Skipf("cannot chmod state dir: %v", err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	restore := state.OverrideStateWriteForTest(func(string, []byte) error {
+		return &os.PathError{Op: "write", Path: state.KeyDir(k), Err: os.ErrPermission}
+	})
+	t.Cleanup(restore)
 
 	fs := msbtest.NewTestFS(map[string][]byte{
 		"/etc/agents-sandbox/agent-source": []byte("user\n"),

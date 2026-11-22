@@ -68,7 +68,7 @@ into that consumer's `*_helpers_test.go` the same way, rather than kept importab
 The standalone tools (`scripts/*.sh`, `ci/*.sh`) stay bash: a Makefile target, a CI workflow, or a human runs one
 file from a checkout with no build step.
 
-A harness moves to Go — the test-only package `test/scripts`, beside `test/harness`, whose `TestMain` installs
+A harness moves to Go — the test-only package `test/scripts`, beside `test/msb/startup`, whose `TestMain` installs
 the fail-fast mocks — when it drives a script and can build its fixtures with go-git. A harness whose fixture
 needs real-git porcelain that go-git does not implement — an in-progress rebase, `git worktree`, `clone --bare`,
 `cherry-pick`/`merge`, `push --force-with-lease` — still moves to Go: it drives that git through the shared
@@ -105,11 +105,11 @@ See [test isolation](test-isolation.md) for the Go-side seam contract this sits 
 
 ## Current state
 
-The migration is complete. Eighteen harnesses live in the Go `test/scripts` package —
+The migration is complete. Nineteen harnesses live in the Go `test/scripts` package —
 `open-backport-pr`, `backport-audit`, `changed-files`, `changed-targets`, `upstream-drift`,
 `enqueue-pr`, `event-base`, `brain-check`, `check`, `changelog`, `ci-guards`,
 `classify-changes`, `deadcode`, `surface-sweep`, `envelope`, `rebase-status`,
-`cleanup-merged-branches`, and `check-docs` — each driving its standalone `scripts/*.sh` or
+`cleanup-merged-branches`, `kvm-guest`, and `check-docs` — each driving its standalone `scripts/*.sh` or
 `ci/*.sh` tool through `RunScript` with go-git `gittest` fixtures and re-exec fakes; the two
 porcelain fixtures (`rebase-status`, `cleanup-merged-branches`) drive real git through the shared
 exec-git helper. The helpers are `GitIsolationEnvironment` in

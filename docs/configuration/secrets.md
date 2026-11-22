@@ -19,7 +19,7 @@ variables. Put credentials in `env.secret` or `env.secret.yaml`, never in `env`.
 > **Note:** If you use OpenCode's `/connect` command, see [OpenCode authentication](#opencode-authentication). That is the
 > recommended workflow for credentials, which opencode stores in `auth.json`; it uses a literal microsandbox placeholder
 > and an explicit `home:` mapping. The `provision-host-config: false` setting shown there belongs in the top-level
-> launcher configuration in `~/.config/agents-sandbox/config.yaml`.
+> launcher configuration in `~/.config/agents-sandbox/config.yaml`, and is the default.
 
 ## Format
 

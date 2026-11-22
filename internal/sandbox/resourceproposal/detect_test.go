@@ -127,6 +127,9 @@ func TestDetectAndOfferMemoryRaiseOffersAndPersists(t *testing.T) {
 	if marker == nil || !marker.OOMSeenAt.Equal(kill) || marker.OfferedAt.IsZero() {
 		t.Fatalf("marker = %+v, want the kill recorded and answered", marker)
 	}
+	if marker.Evidence != string(pressure.EvidenceOOMLog) || marker.Victim != "opencode" {
+		t.Errorf("marker = %+v, want the OOM-log identity recorded from the log hit", marker)
+	}
 	if got := resolveMemory(t, k.Slug); got != "8192M" {
 		t.Errorf("persisted memory = %q, want 8192M", got)
 	}
@@ -579,6 +582,9 @@ func TestDetectAndOfferMemoryRaiseUnansweredOOMWithoutLogOffers(t *testing.T) {
 	}
 	if marker.Kind != "memory" || marker.Evidence != string(pressure.EvidenceOOMLog) {
 		t.Errorf("marker = %+v, want an OOM-log hit reconstructed from the marker", marker)
+	}
+	if !marker.OOMSeenAt.Equal(kill) {
+		t.Errorf("marker.OOMSeenAt = %v, want the recorded kill %v preserved", marker.OOMSeenAt, kill)
 	}
 }
 
@@ -1267,6 +1273,109 @@ func TestMarkResourcePressureOfferedErrorIsBestEffort(t *testing.T) {
 	markResourcePressureOffered(detectKey(), time.Now(), &ui)
 	if !verboseContains(&ui, "recording the memory raise answer failed") {
 		t.Errorf("verbose calls %v do not report the answer-write failure", ui.VerboseCalls)
+	}
+}
+
+// TestDetectAndOfferMemoryRaiseUsesTheConfiguredFallbackWhenMetricsAreUnavailable
+// pins the runtime without metrics: an OOM line whose metrics read fails still
+// offers, building its basis from the configured memory the caller passes as the
+// fallback (a runtime reporting "no verified live metrics slot" never yields a
+// live limit).
+func TestDetectAndOfferMemoryRaiseUsesTheConfiguredFallbackWhenMetricsAreUnavailable(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	testutil.UnsetEnv(t, "AGENTS_SANDBOX_MEMORY")
+	testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
+	k := detectKey()
+	seedDetectState(t, k, state.HomeState{})
+	r := &msbtest.MockSandbox{
+		LogsResult: []msb.LogEntry{oomLogLine(time.Now())},
+		MetricsErr: errors.New("sandbox 199 has no verified live metrics slot"),
+	}
+	var inputDefault string
+	ui := &termiotest.Mock{
+		IsInteractiveResult: true,
+		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
+		InputFn: func(_ string, defaultValue string) (string, error) {
+			inputDefault = defaultValue
+			return defaultValue, nil
+		},
+	}
+
+	raised := DetectAndOfferMemoryRaise(
+		context.Background(), k, r, nil,
+		MemoryLimits{CurrentMiB: 0, FallbackCurrentMiB: 4096, BootMaxMiB: 16384},
+		false, options.RunOptions{}, configpaths.Get(), ui,
+	)
+
+	if inputDefault != "5G" {
+		t.Errorf("Input default = %q, want 5G from the configured fallback", inputDefault)
+	}
+	if raised != "5120M" {
+		t.Errorf("raised = %q, want the raise persisted from the fallback basis", raised)
+	}
+}
+
+// TestDetectAndOfferMemoryRaisePrefersTheLiveMetricsLimitOverTheFallback pins
+// that the live limit still wins when the metrics read works: the fallback is
+// only a basis when the live read gives none, so a running VM's real limit is
+// never understated by a stale configured one.
+func TestDetectAndOfferMemoryRaisePrefersTheLiveMetricsLimitOverTheFallback(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	testutil.UnsetEnv(t, "AGENTS_SANDBOX_MEMORY")
+	testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
+	k := detectKey()
+	seedDetectState(t, k, state.HomeState{})
+	r := &msbtest.MockSandbox{
+		LogsResult:    []msb.LogEntry{oomLogLine(time.Now())},
+		MetricsResult: &msb.Metrics{MemoryBytes: 1 << 20, MemoryLimitBytes: 8192 << 20},
+	}
+	var inputDefault string
+	ui := &termiotest.Mock{
+		IsInteractiveResult: true,
+		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
+		InputFn: func(_ string, defaultValue string) (string, error) {
+			inputDefault = defaultValue
+			return defaultValue, nil
+		},
+	}
+
+	DetectAndOfferMemoryRaise(
+		context.Background(), k, r, nil,
+		MemoryLimits{CurrentMiB: 0, FallbackCurrentMiB: 4096, BootMaxMiB: 16384},
+		false, options.RunOptions{}, configpaths.Get(), ui,
+	)
+
+	if inputDefault != "10G" {
+		t.Errorf("Input default = %q, want 10G from the live metrics limit, not the fallback", inputDefault)
+	}
+}
+
+// TestDetectAndOfferMemoryRaiseReportsWhyNoOffer pins the decision trace: a
+// detected hit the marker already answered is not re-offered, and the reason is
+// reported at verbose level so an operator can tell a deliberate no-offer from
+// detection that never ran.
+func TestDetectAndOfferMemoryRaiseReportsWhyNoOffer(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	k := detectKey()
+	kill := time.Now()
+	seedDetectState(t, k, state.HomeState{ResourcePressure: &state.ResourcePressureState{
+		Kind: "memory", Evidence: string(pressure.EvidenceOOMLog), Victim: "opencode",
+		OOMSeenAt: kill, OfferedAt: time.Now(),
+	}})
+	r := &msbtest.MockSandbox{LogsResult: []msb.LogEntry{oomLogLine(kill)}}
+	var selects int
+	ui := &termiotest.Mock{
+		IsInteractiveResult: true,
+		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
+	}
+
+	detectRun(t, r, readDetectMarker(t, k), 4096, 8192, false, ui)
+
+	if selects != 0 {
+		t.Fatalf("Select called %d times, want 0 for an answered kill", selects)
+	}
+	if !verboseContains(ui, "no memory-raise offer") {
+		t.Errorf("verbose calls %v do not trace the no-offer decision", ui.VerboseCalls)
 	}
 }
 

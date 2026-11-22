@@ -4,6 +4,8 @@ import (
 	"context"
 	"path/filepath"
 	"strings"
+
+	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 )
 
 // codexName is the canonical registry name of the Codex CLI agent.
@@ -11,6 +13,28 @@ const codexName = "codex"
 
 // codexConfigFileName is the Codex CLI's native config file under ~/.codex.
 const codexConfigFileName = "config.toml"
+
+// codexSystemConfigLines are the launcher's codex defaults, baked into the
+// system config /etc/codex/config.toml, codex's lowest config layer: the user's
+// config.toml and a forwarded flag such as --sandbox still override them. The
+// update check is off because the sandbox pins the baked version and offers
+// upgrades itself; codex's own command sandbox is off because the VM is the
+// isolation boundary; the workspace is trusted because the user chose it when
+// launching the sandbox.
+var codexSystemConfigLines = []string{
+	"check_for_update_on_startup = false",
+	`sandbox_mode = "danger-full-access"`,
+	"",
+	`[projects."` + mounts.WorkspaceMountPath + `"]`,
+	`trust_level = "trusted"`,
+}
+
+// codexWriteSystemConfig writes codexSystemConfigLines in the runner stage, the
+// only stage whose files reach the final image. Settings passed as -c instead
+// would force codex into its embedded mode, which it warns about on every start.
+var codexWriteSystemConfig = "mkdir -p /etc/codex && printf '%s\\n' " +
+	strings.Join(shellQuoteArgs(codexSystemConfigLines), " ") +
+	" > /etc/codex/config.toml"
 
 type codexProfile struct{}
 
@@ -35,7 +59,7 @@ func (codexProfile) ImageSpec() ImageSpec {
 		RequiresNode:  false,
 		OwnsToolTree:  false,
 		RuntimeLibs:   nil,
-		RunnerCommand: "",
+		RunnerCommand: codexWriteSystemConfig,
 	}
 }
 
@@ -66,18 +90,14 @@ func (codexProfile) ReadBackPaths() []string { return []string{".codex/auth.json
 
 func (codexProfile) CredentialProbes() []string { return nil }
 
-// AttachCommand disables the startup update check (the sandbox pins the baked
-// version and offers upgrades itself) and turns off codex's own command
-// sandbox: the VM is the isolation boundary. A forwarded --sandbox flag still
-// overrides it.
+// AttachCommand runs codex without its shared background server: by default
+// codex installs and starts its own daemon binary under ~/.codex, beside the
+// version the sandbox pins. The launcher's defaults come from the baked system
+// config, so the command carries no -c override.
 // Every forwarded argument is shell-quoted, because the command runs through
 // `bash -c`.
 func (codexProfile) AttachCommand(_ string, args []string) string {
-	parts := []string{
-		"codex",
-		"-c", "check_for_update_on_startup=false",
-		"-c", shellQuote(`sandbox_mode="danger-full-access"`),
-	}
+	parts := []string{"codex", "--no-daemon"}
 	parts = append(parts, shellQuoteArgs(args)...)
 	return strings.Join(parts, " ")
 }

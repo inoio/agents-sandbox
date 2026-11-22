@@ -371,6 +371,76 @@ memory: 8G
 The launcher also detects an out-of-memory kill and offers to raise `memory` for you; see
 [Launcher configuration]({% link configuration/launcher.md %}).
 
+## Slow filesystem, compilation, or sandbox commands
+
+If `git`, a package manager, or a compiler runs much slower inside the sandbox than on your machine, the cause is usually
+where the files live. `/workspace` (your project) and `/home/dev` (the persistent home volume) use microsandbox's shared
+filesystem, which is tuned for throughput, not for many small files. Copying one large file there is fast; creating,
+listing, or modifying thousands of small files is an order of magnitude or more slower than on the sandbox's own disk or
+in `/tmp`.
+
+Approximate costs measured in one sandbox on a 16-core host:
+
+| Operation, inside the sandbox | `/tmp` (memory) | `/var/tmp` (sandbox disk) | `/workspace` or `/home/dev` |
+| --- | --- | --- | --- |
+| Create 3,000 files of 4 KiB | 0.04 s | 0.14 s | 1.3 s |
+| `git add` 3,000 files | — | 0.4 s | 3.7 s |
+| Write a 512 MiB file | 377 MB/s | 442 MB/s | about 600 MB/s |
+
+Tools that write many small files pay this cost: a compiler's build cache, a package manager's store, and lock files.
+Move the caches and build output that can live elsewhere onto the sandbox's own disk. Set these as environment variables
+in `.agents-sandbox/env` in your project:
+
+| Language or tool | What to move | Example |
+| --- | --- | --- |
+| Go | build cache | `GOCACHE=/var/tmp/go-build` |
+| Rust (Cargo) | build output | `CARGO_TARGET_DIR=/var/tmp/cargo-target` |
+| Node (npm, Yarn) | package download cache | `npm_config_cache=/var/tmp/npm-cache`, `YARN_CACHE_FOLDER=/var/tmp/yarn-cache` |
+| Python (pip, uv) | wheel cache, bytecode | `PIP_CACHE_DIR=/var/tmp/pip-cache`, `UV_CACHE_DIR=/var/tmp/uv-cache`, `PYTHONPYCACHEPREFIX=/var/tmp/pycache` |
+| Java (Gradle, Maven) | dependency and build cache | `GRADLE_USER_HOME=/var/tmp/gradle`, `MAVEN_OPTS=-Dmaven.repo.local=/var/tmp/m2` |
+| C and C++ (ccache) | compiler cache | `CCACHE_DIR=/var/tmp/ccache` |
+| Ruby (Bundler) | gem install path | `BUNDLE_PATH=/var/tmp/bundle` |
+| .NET (NuGet) | package cache | `NUGET_PACKAGES=/var/tmp/nuget` |
+
+A few tools take a config command or a flag instead of an environment variable: run `pnpm config set store-dir
+/var/tmp/pnpm-store`, or point a build at `/var/tmp` with `cmake -B /var/tmp/build` or `bazel --output_base=/var/tmp/bazel`.
+Put one `KEY=value` per line in `.agents-sandbox/env`, for example:
+
+```shell
+# .agents-sandbox/env
+GOCACHE=/var/tmp/go-build
+CARGO_TARGET_DIR=/var/tmp/cargo-target
+```
+
+Prefer `/var/tmp` over `/tmp` for a cache: `/tmp` is faster because it lives in the sandbox's memory, but `tmp-size`
+caps it (2 GiB by default, or half `memory` when that is smaller), so a build that stages large temporary files there
+can exhaust it. `/var/tmp` lives on the sandbox's root disk.
+
+`/var/tmp` is world-writable and keeps its contents across a stop and start, so give each tool its own subdirectory (as
+in the table) rather than writing at the top level. Do not point `TMPDIR` at `/var/tmp` itself for the same reason:
+another account can create a name there first, and files left behind outlive a stop and start. If a tool overflows
+`/tmp`, create a private directory (for example `/var/tmp/dev-tmp`, owned by you, from a
+[startup hook]({% link configuration/home-provisioning.md %})) and set `TMPDIR` to it.
+
+The root disk is small by default — `disk-size` is about 4 GiB unless you set it — so a cache of tens of GiB fills it.
+Raise it for the project:
+
+```yaml
+# .agents-sandbox/config.yaml
+disk-size: 16G
+```
+
+The launcher also watches the root disk, the `/workspace` write quota (`workspace-quota`), and `/tmp` (`tmp-size`) after
+every session and offers to raise whichever runs short; see
+[Launcher configuration]({% link configuration/launcher.md %}). A change to `env` needs a new sandbox, so the next run
+recreates it once.
+
+Dependencies that must sit inside the project — `node_modules` in particular — still pay the cost and cannot be relocated
+this way; a [host mount]({% link configuration/mounts.md %}) is the alternative when a tool insists on that location.
+
+If the delay is before anything has run — the `agents-sandbox` command itself is slow to start — the sandbox is usually
+rebuilding its runner image instead; see [Runner Image]({% link runner-image.md %}).
+
 ## Config not applying
 
 If your config files aren't being picked up:

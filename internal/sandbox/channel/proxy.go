@@ -28,6 +28,7 @@ import (
 // tests substitute them to exercise the error handling.
 var (
 	generateECKey     = ecdsa.GenerateKey
+	randomSerial      = rand.Int
 	createCertificate = x509.CreateCertificate
 	parseCertificate  = x509.ParseCertificate
 	writeCATempFile   = (*os.File).WriteString
@@ -73,7 +74,13 @@ type proxyState struct {
 // An empty bindHost means loopback (127.0.0.1): the channel is never bound to
 // every interface, so an unset or blank value cannot expose the proxy on the
 // network.
-func Start(bindHost string) (Handle, error) {
+//
+// skipUpstreamVerify disables TLS certificate verification on the proxy's dial
+// to the real upstream. It is false in the normal case, so a credential the
+// proxy forwards cannot reach an impostor; it is the
+// network.observe.skip-upstream-verify escape hatch for a host whose egress is
+// transparently intercepted with a private CA the system roots do not include.
+func Start(bindHost string, skipUpstreamVerify bool) (Handle, error) {
 	if bindHost == "" {
 		bindHost = "127.0.0.1"
 	}
@@ -96,7 +103,7 @@ func Start(bindHost string) (Handle, error) {
 	state.recorder = new(recorder)
 	state.caFile = caFile
 	state.server = &http.Server{
-		Handler: terminateProxy(ca, state),
+		Handler: terminateProxy(ca, state, skipUpstreamVerify),
 		// A defensive ceiling on reading a request's headers; the value is not
 		// a contract and a local test server answers before it can fire.
 		// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT,ARITHMETIC_BASE reason="a defensive ReadHeaderTimeout cannot be observed by a local test server and the value is not a contract"
@@ -121,7 +128,7 @@ func Start(bindHost string) (Handle, error) {
 // before our proxy is consulted, so a policy-denied destination never reaches
 // the request hook at all; the denial this records is our proxy's dial error,
 // not a sandbox-policy denial.
-func terminateProxy(ca tls.Certificate, state *proxyState) *goproxy.ProxyHttpServer {
+func terminateProxy(ca tls.Certificate, state *proxyState, skipUpstreamVerify bool) *goproxy.ProxyHttpServer {
 	proxy := goproxy.NewProxyHttpServer()
 	// goproxy's own logger warns unconditionally; route it to a discard so it
 	// cannot interleave with the agent's TUI during a learning session.
@@ -130,11 +137,19 @@ func terminateProxy(ca tls.Certificate, state *proxyState) *goproxy.ProxyHttpSer
 	// directly instead of honouring a host proxy environment variable.
 	proxy.Tr.Proxy = nil
 	proxy.ConnectDial = nil
+	// goproxy's origin transport verifies upstream certificates by default;
+	// keep that unless the operator opted out for a host whose egress is
+	// transparently intercepted. Verification is what stops a forwarded
+	// credential reaching an impostor.
+	if skipUpstreamVerify {
+		//nolint:gosec,exhaustruct_v5 // deliberate opt-out: only InsecureSkipVerify describes the intent, and the rest of the TLS config keeps the library defaults
+		proxy.Tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	}
 
 	mitm := &goproxy.ConnectAction{
 		Action:    goproxy.ConnectMitm,
 		Hijack:    nil,
-		TLSConfig: goproxy.TLSConfigFromCA(&ca),
+		TLSConfig: mitmTLSConfig(ca, state.nameTunnel),
 	}
 	proxy.OnRequest().HandleConnect(goproxy.FuncHttpsHandler(
 		func(host string, _ *goproxy.ProxyCtx) (*goproxy.ConnectAction, string) {
@@ -165,12 +180,30 @@ func (s *proxyState) observeConnect(host string) {
 	hostname, port := splitHostPort(host)
 	ip := ""
 	if parsed := net.ParseIP(hostname); parsed != nil {
+		// The canonical form, so nameTunnel matches the same address however
+		// the client spelled it.
 		ip = parsed.String()
+		hostname = ip
 	}
 
 	s.mu.Lock()
-	destination := s.recorder.observe(hostname, ip, "", "connect", port, nil)
+	destination := s.recorder.observe(hostname, ip, "", ConnectProtocol, port, nil)
 	destination.Success = true
+	s.mu.Unlock()
+}
+
+// nameTunnel records the SNI hostname a client sent through a tunnel it opened
+// by IP, so the tunnel is attributed to the host rather than the address. A
+// tunnel opened by hostname, or a handshake without SNI, needs no naming.
+func (s *proxyState) nameTunnel(connectTarget, serverName string) {
+	hostname, port := splitHostPort(connectTarget)
+	parsed := net.ParseIP(hostname)
+	if serverName == "" || parsed == nil || serverName == parsed.String() {
+		return
+	}
+	hostname = parsed.String()
+	s.mu.Lock()
+	s.recorder.nameTunnel(hostname, port, serverName)
 	s.mu.Unlock()
 }
 

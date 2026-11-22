@@ -45,6 +45,7 @@ type Session struct {
 	servePortDeferred bool
 	key               state.Key
 	homeVolume        string
+	appliedLimits     AppliedLimits
 }
 
 // Cleanup releases the sandbox handle. It is safe to call on a nil session.
@@ -87,6 +88,36 @@ func (s *Session) ServePortDeferred() bool {
 // HomeVolume returns the name of the home volume mounted at /home/dev.
 func (s *Session) HomeVolume() string {
 	return s.homeVolume
+}
+
+// AppliedLimits are the resource-limit settings a prepared run applied,
+// including raises the user accepted while planning. The post-attach offers
+// build on these rather than the CLI-resolved values a same-run raise
+// supersedes (specs/resources/resource-limit-proposal.md).
+type AppliedLimits struct {
+	Memory         string
+	DiskSize       string
+	WorkspaceQuota string
+	TmpSize        string
+}
+
+// AppliedLimits returns the resource limits the run applied.
+func (s *Session) AppliedLimits() AppliedLimits {
+	return s.appliedLimits
+}
+
+// appliedLimitsOf copies the string-only limit values out of a plan's
+// plannedLimits. The session stores those rather than the plan's limits so its
+// boxed value does not reach options.RunOptions (and so *lifecycle.Trace) by
+// reflection, which would mark Trace's exported methods live for the deadcode
+// gate.
+func appliedLimitsOf(limits plannedLimits) AppliedLimits {
+	return AppliedLimits{
+		Memory:         limits.memory,
+		DiskSize:       limits.diskSize,
+		WorkspaceQuota: limits.workspaceQuota,
+		TmpSize:        limits.tmpSize,
+	}
 }
 
 // Key returns the state key the session was prepared with: the checkout-scoped
@@ -224,6 +255,19 @@ func PrepareSandbox(
 		return nil, err
 	}
 
+	return newSession(sb, session, sandboxTarget, opts, plan), nil
+}
+
+// newSession builds the prepared session from the stages' outputs. The limits
+// are the plan's, which include raises accepted while planning, so the
+// post-attach offers can build on the applied values (Session.AppliedLimits).
+func newSession(
+	sb msb.Sandbox,
+	session sessionIdentity,
+	sandboxTarget string,
+	opts options.RunOptions,
+	plan reconfigPlan,
+) *Session {
 	return &Session{
 		sb:                sb,
 		name:              vm.ProjectVMName(session.key),
@@ -234,7 +278,8 @@ func PrepareSandbox(
 		servePortDeferred: plan.decision.ServePortDeferred,
 		key:               session.key,
 		homeVolume:        plan.homeVolume,
-	}, nil
+		appliedLimits:     appliedLimitsOf(plan.limits),
+	}
 }
 
 // sessionIdentity is what resolve-identity hands to the later stages: the
@@ -863,7 +908,9 @@ func persistConfigHashes(k state.Key, fingerprints state.Fingerprints, ui termio
 }
 
 // provisionHostConfig reports whether the agent's host config files should be
-// copied into the VM. A nil option enables it (the launcher default).
+// copied into the VM. A nil option enables it, kept as the internal contract;
+// the CLI always sets the option from the resolved config, whose default is
+// off (provisioning is opt-in).
 func provisionHostConfig(opts options.RunOptions) bool {
 	if opts.ProvisionHostConfig == nil {
 		return true

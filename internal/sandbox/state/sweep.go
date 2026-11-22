@@ -134,6 +134,10 @@ func RemoveUnheldClaim(slug, token string) (bool, error) {
 	return false, nil
 }
 
+// removeSweepEntry is os.Remove; tests substitute it to force a failed removal
+// without relying on permission bits, which an effective uid of 0 bypasses.
+var removeSweepEntry = os.Remove
+
 // SweepClientLeases unlinks free, non-fresh client leases for a key — a crashed
 // client's leftovers — and returns how many it removed. Live (held) leases and
 // fresh unlocked ones (a client between creating its file and taking its flock)
@@ -184,7 +188,7 @@ func removeEmptyTree(path string) (bool, error) {
 	if !empty {
 		return false, nil
 	}
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+	if err := removeSweepEntry(path); err != nil && !os.IsNotExist(err) {
 		return false, fmt.Errorf("remove state dir %s: %w", path, err)
 	}
 	return true, nil

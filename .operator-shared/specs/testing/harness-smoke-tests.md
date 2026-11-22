@@ -1,8 +1,9 @@
 ---
 description: Contract for the `msb`-tagged harness smoke tests that start every registered harness to its TUI in a real microsandbox VM (readiness by alternate-screen marker, a startup-line marker, or a settled wait; optional seeded home files, via the isolated home or the launcher config's `home:` manifest), the per-harness isolated home tree with a shared microsandbox image cache, the parallel subtests sized to the host's free memory and the bounded image prebuild, the smaller per-VM memory cap, the reusable-root escape hatch, and the isolation that keeps them off the developer's existing agents-sandbox state.
 read_if: Adding or changing the harness smoke tests, the `msb` build tag, `make test-msb`/`make test-msb-cold` or
-  `AGENTS_SANDBOX_SMOKE_ROOT`, the harness quit-press table, the readiness signals or seeded home files, the
-  per-harness home split or how the harnesses' concurrency is bounded, or when a harness's TUI startup or quit behavior changes.
+  `AGENTS_SANDBOX_SMOKE_ROOT`, the harness quit-press table, the readiness signals, ceilings or timeout factor, the
+  pty session (`Session.Write`/`TapUntilMarker`), the per-harness home split or how the harnesses' concurrency is
+  bounded, or when a harness's TUI startup or quit behavior changes.
 ---
 
 # Harness smoke tests
@@ -12,7 +13,7 @@ read_if: Adding or changing the harness smoke tests, the `msb` build tag, `make 
 Harness support can break without any test noticing. `opencode2` did: its `DaemonProvider.DaemonHealthCmd`
 sent no credentials, v2's `serve` answers every `/api/*` route with `401` when unauthenticated, and
 `ensureDaemon` (`internal/sandbox/vm/daemon.go`) polled to its `daemonReadyTimeout` (60s) before failing. The
-daemon was healthy; the launcher could not see it, and the user got "… did not become healthy within 60s"
+daemon was healthy; the launcher could not see it, and the user got "… did not become ready within 60s"
 instead of a TUI. See `specs/agents/opencode2.md` for the fix.
 
 No existing test could catch it:
@@ -27,14 +28,16 @@ The same gap means a newly registered harness has no test that it starts at all.
 
 ## Contract
 
-**Tag and location.** The suite lives in package `test/harness/` behind the build tag `msb` (a tag names the
+**Tag and location.** The suite lives in package `test/msb/startup/` behind the build tag `msb` (a tag names the
 runtime it requires, as `integration` names a real docker daemon). `make test-msb` runs it, together with the
 `msb`-tagged real-client tests in `internal/sandbox/msb/` (`realstack_msb_test.go`); it is not part of
-`make check`, `make test`, or the default CI. `make compile-all` compiles it (`-tags 'integration msb'`) so a
+`make check`, `make test`, or the default CI. The KVM guest's `make kvm-run` drives `make test-msb-in-vm`
+instead: the same suite with the two packages serialized (`go test -p 1`), each smoke VM's vCPUs capped, and the
+readiness/quit ceilings scaled (see Isolation). `make compile-all` compiles it (`-tags 'integration msb'`) so a
 tagged-only compile regression is caught on every PR.
 
 **Scope of the assertion.** For every name in `agent.Names()`, the suite starts the harness the way a user does
-(`agents-sandbox run --agent <name>` under a pseudo-terminal, `github.com/creack/pty`) and asserts:
+(`agents-sandbox run --agent <name> --yes` under a pseudo-terminal, `github.com/creack/pty`) and asserts:
 
 1. the attach client reached its full-screen TUI, within a timeout; a first-run/login screen counts. A harness
    whose UI takes over the alternate screen (`ESC [ ? 1049 h`) announces this while the process is still alive; one
@@ -42,7 +45,30 @@ tagged-only compile regression is caught on every PR.
    (see Readiness);
 2. the process then exited `0` after the harness's quit presses were written to the terminal; escalation
    (`SIGTERM`/`SIGKILL`) is cleanup only and fails the subtest if reached;
-3. the output never contains the daemon-timeout marker (`did not become healthy`).
+3. the output never contains the detached-service readiness-timeout marker (`did not become ready`).
+
+**`--yes` skips the launcher's first-run menu.** `run` on a checkout with no managed config layer offers the
+first-run setup menu (`internal/firstrun`) before the session. Under the suite's pty that menu is interactive and
+blocks, so the harness never starts. `--yes` makes the launcher non-interactive (`termio`'s `IsInteractive` is false
+under `assumeYes`), so `firstrun.Prompt` warns and skips the menu; the run proceeds as a plain attach with no
+learning session. The warning line is harmless and unreserved. The menu itself is exercised by the
+`cmd/agents-sandbox` first-run tests; the smoke suite only needs it out of the way.
+
+**`--no-rebuild` keeps the runs off the release-resolution endpoints.** Both the harness `run` and the docker-storage
+`shell` pass `--no-rebuild`. The suite prebuilt every image, so the flag cannot change what is built; what it removes is
+the agent upgrade check. That check runs against the run's isolated root state (`XDG_STATE_HOME` is per run), so its
+once-a-day window is always expired and every harness would otherwise re-resolve its agent's newest release. For the five
+GitHub-backed agents (`opencode`, `codex`, `goose`, `hermes`, `oh-my-pi`) those lookups share the anonymous
+60-requests/hour `api.github.com` budget, which the suite has to stay under. The prebuild's `build` still resolves an
+unpinned version, so the suite pays that budget once per GitHub-backed agent there — authenticated when the environment
+carries a GitHub token (see Isolation).
+
+**The isolated launcher config turns host-config provisioning on.** `provision-host-config` is opt-in since the
+first-run change (default off), so a `SeedHomeFiles` seed — written under the isolated HOME for the agent's
+`ProvisionRules` to copy — would never reach the VM, and the harness would stop at its own first-run setup. So every
+subtest writes a launcher config into the run's isolated `XDG_CONFIG_HOME` with `provision-host-config: true`,
+alongside any `home:` manifest seed. What provisioning copies from is that isolated, seed-only home, so nothing of the
+developer's config is provisioned.
 
 It proves "the harness reached its TUI", not "the client session is functional": a healthy daemon whose client
 renders a connection-error screen still passes. Daemon health itself is covered because the launcher blocks in
@@ -80,10 +106,28 @@ the launcher; no harness currently needs it, but it stays for one that does. Two
   is live and the harness is already painting, so the loss is on the harness's side — see "Press until it goes" below.
 
 Once the image prebuild has run, the harness's UI comes up about 14s after launch, so the settled fallback is 25s. A
-harness whose startup is much slower raises the ceiling with `ReadyTimeout`: `hermes` carries a whole Python/Node tool
+harness whose startup is much slower raises the ceiling with `Spec.ReadyTimeout()`: `hermes` carries a whole Python/Node tool
 store, so its spec sets `heavyweightReadyTimeout` (120s). The override bounds either wait (marker or settle), not a
 sleep — hermes' banner marker ends its wait as soon as the CLI is up. An alternate-screen harness is bounded by the TUI
 marker wait (180s) instead.
+
+`AGENTS_SANDBOX_MSB_TIMEOUT_FACTOR` (a positive float, unset = 1) multiplies every readiness ceiling
+(`settledReadyTimeout`, `heavyweightReadyTimeout`, `driver.TuiReadyTimeout`) and `driver.QuitTimeout`, so the in-guest
+`make test-msb-in-vm` can give a nested guest's slower start and teardown a proportionally larger budget. It does
+not scale the quit press/retry cadence: those are tuned to qwen-code's sub-1.2s "press again" chaining window and
+a longer interval would stop the exit chaining. At the default 1 a host run is byte-for-byte unchanged.
+
+The ceilings are the only margin against CPU starvation, and that can come from outside the guest: a nested KVM
+guest shares the host's cores, so a busy host — or any concurrent guest `run`/`shell` that is not vCPU-capped
+(`--cpus`) — can make a harness miss its ceiling even when the suite runs alone. The in-guest
+`MSB_GUEST_TIMEOUT_FACTOR` default is 3 for this reason; `MSB_GUEST_VM_CPUS` (2) stays the per-VM cap. kimi-code
+carries the tightest ceiling (no `ReadyTimeoutOverride`, so `settledReadyTimeout` × factor), so it is the first
+harness to miss when the box is loaded.
+
+**A stalled shell must fail, not hang.** `Session.Write` (`test/msb/driver/pty.go`) writes to the pty master with
+no write deadline, so a stalled pty slave blocks the write forever; `TapUntilMarker`'s budget and `HasExited`
+checks cannot run while a write is in flight, and `TestHarnessSmoke` hangs until `go test -timeout` instead of
+failing with the step named (observed at `MSB_GUEST_PARALLEL=4`; see #837).
 
 **Harness table completeness.** A single table maps harness name to the key the smoke test taps, an optional network
 override, a `KeepsNormalBuffer` flag, an optional readiness marker, an optional readiness-timeout ceiling, and optional
@@ -101,7 +145,7 @@ coverage.
 | `hermes` | `0x04` (Ctrl-D) | its classic CLI's REPL exits on Ctrl-D; readied on its banner marker and seeded (below) so it starts the REPL instead of its first-run setup guard |
 | `kimi-code` | `0x04` (Ctrl-D) | its TUI renders in the normal buffer; seeded past its workspace-trust dialog it lands at the prompt, and Ctrl-D exits on a second press, which the repeated tap covers; readied on its welcome banner |
 | `grok-build` | `0x03` (Ctrl-C) | quits on Ctrl-C; with no credential it comes up on its device-code sign-in screen, which is its alternate-screen TUI |
-| `qwen-code` | `0x03` (Ctrl-C) | with no provider it starts at its auth dialog on the alternate screen; it ignores the first Ctrl-C and exits on the second, which the repeated tap covers |
+| `qwen-code` | `0x03` (Ctrl-C) | with no provider it starts at its auth dialog on the alternate screen; it ignores the first Ctrl-C and exits on the second, which the paired presses cover |
 | `goose` | `0x04` (Ctrl-D) | its session REPL keeps the normal buffer; a seeded launcher config snippet names a local Ollama provider and records the telemetry choice, so it skips its configure flow and consent prompt; readied on the goose drawn in its greeting |
 | `mistral-vibe` | `0x03` (Ctrl-C) | its Rust TUI draws on the alternate screen and leaves on Ctrl-C, also from the folder-trust dialog it can show before a session; needs no seed and no egress |
 
@@ -111,8 +155,9 @@ Five harnesses keep the terminal's normal buffer (`KeepsNormalBuffer`) and are a
 
 **Seeded home files.** A harness whose host-side state decides whether its CLI starts headful declares `SeedHomeFiles`,
 a map of home-relative path to content written under the harness's isolated HOME
-(`<root>/runs/<name>/home`) before the run; the launcher
-provisions it into the VM the way it provisions a real `~/.hermes/config.yaml`. `hermes` needs it: with no provider its
+(`<root>/runs/<name>/home`) before the run; the launcher copies it into the VM through the agent's `ProvisionRules`,
+which the isolated launcher config's `provision-host-config: true` enables (see above), the way it copies a real
+`~/.hermes/config.yaml`. `hermes` needs it: with no provider its
 classic CLI stops at a first-run setup guard that always exits `1` (`_first_run_setup_guard`), so no quit key could
 leave it `0`. The seed makes a dummy, loopback provider count as configured (and settles the shared-metrics offer) so
 hermes reaches its REPL, where Ctrl-D exits `0`. The seed is a config, not a credential: the endpoint is a closed
@@ -129,9 +174,33 @@ workspace-trust dialog — whose only quit key aborts the launch with exit 1, so
 The seed sets `hasCompletedOnboarding` and pre-trusts the guest working directory (the project dir is not a repository,
 so it binds at `/workspace`), so claude-code reaches its prompt, where repeated Ctrl-C exits 0.
 
-**Tap until it goes, then assert the exit.** `quit` taps the harness's key every `quitPressInterval` (400ms) until the
-process exits, for at most `quitTimeout` (15s), then asserts exit code 0. A fixed sequence is wrong for two measured
-reasons. A TUI paints its screen seconds before it accepts input, so taps made in that window are ignored: on a KVM host
+**Tap until it goes, then assert the exit.** `driver.Quit` taps the harness's key in pairs until the process exits, for at most
+`driver.QuitTimeout` (15s), then asserts exit code 0. The two presses of a pair are one `driver.QuitPressInterval` (400ms) apart, so a
+repeated-key exit chains; every pair is followed by a 2s retry interval before the next pair, so a harness that has
+caught the quit can finish tearing down before another press is written. The loop also stops tapping once either teardown
+signal appears and only waits for the exit:
+
+- **the alternate screen came back** (`driver.TuiLeft`): the alternate-screen-leave sequence (`ESC [ ? 1049 l`) is the
+  harness's own, guest-side teardown signal, emitted as it restores its terminal. It is the only signal visible before
+  the guest process exits — which is when `qwen-code`'s slow "Agent powering down. Goodbye!" teardown gets tapped past:
+  the next 400ms tap reaches the terminal the harness has already restored to cooked mode, becomes SIGINT, and kills it
+  mid-teardown. The guest then reports `-1`, which `os.Exit(-1)` turns into the launcher's `255`. The check starts from
+  the second press, so a leave left by the readiness wait cannot end the loop before the first tap.
+- **the test pty is back in cooked mode** (`driver.Session.inRawMode`, read through the master, which shares the slave's
+  termios): the launcher's msb attach holds the pty raw for the session and restores it on the way out. This covers a
+  normal-buffer harness (`claude-code`) that emits no alternate-screen sequence, where a tap after the restore is the
+  SIGINT the cooked terminal makes of it and kills the launcher mid-teardown, reporting its clean exit as `-1`. It
+  cannot stand in for the guest-side signal, though: the attach owns the host pty and restores it only after the guest
+  process has already exited, so it never observes the guest's earlier restore.
+
+The cadence serves two constraints that pull against each other. The arm and fire
+presses must stay within the window the harness's "press again" prompt allows, and `qwen-code`'s was measured at under
+1.2s (a 0.8s gap still chained; a 1.2s gap did not). But a teardown can outlast one press interval, and a press written
+while it runs is delivered into the terminal the harness has already restored to cooked mode, where it becomes SIGINT.
+Pairing the presses satisfies both: an arm and a fire land 400ms apart, while the 2s between pairs — and the teardown
+signals above — keep a further press out of the teardown. The older exponential backoff (growing the interval up to 3s)
+was rejected because its longer gaps break the chaining window.
+A fixed sequence is wrong for two measured reasons. A TUI paints its screen seconds before it accepts input, so taps made in that window are ignored: on a KVM host
 `opencode2` leaves on a tap ~3s after the alternate-screen marker and ignores the same key at ~0ms and ~350ms, and
 `opencode` ignores a tap at ~3s while its screen still shows the launcher's own output. Whether those early bytes sit
 buffered in the guest and are consumed once the harness reads, or are delivered and ignored while it initialises, is not
@@ -143,22 +212,28 @@ manual testing showed three presses leave it, so the exception is gone and every
 **Isolation (hard requirement).** The child never reads or writes the developer's existing agents-sandbox
 configuration or state. Each run creates one temp root, shared by all subtests, and:
 
-- the root is created under a **short, fixed base** (`/tmp/asb-…`), not the host's `TMPDIR`: microsandbox
+- the root is created under a **short base** — `smokeRootBaseDefault` (`/tmp`) or the `AGENTS_SANDBOX_MSB_ROOT_BASE`
+  override — not the host's `TMPDIR`: microsandbox
   derives its sandbox control-socket path from the private home under `XDG_DATA_HOME` (`<root>/data/agents-sandbox/msb`)
   and rejects a derived path that does not fit a Unix socket's `sun_path` (104 bytes on macOS, the tighter
   target), so a long `TMPDIR` — macOS's default is ~49 bytes — would fail every harness before its TUI with
-  "sandbox runtime socket path is too long"; a fast unit test pins the budget (`msb` appends a fixed 50-byte
-  suffix and rejects a home above 55 bytes on Linux, microsandbox v0.7.8);
+  "sandbox runtime socket path is too long"; a created root (fresh or reused) is validated against the budget and
+  rejected when it does not fit, and a fast unit test pins the default and the budget (`msb` appends a fixed 50-byte
+  suffix and rejects a home above 55 bytes on Linux, microsandbox v0.7.8). The override exists because `/tmp` is a
+  RAM-backed tmpfs where systemd mounts it as one, which the 10+ GiB image cache would exhaust or spend the RAM; the
+  Makefile points it at the disk-backed `$(MSB_REUSE_ROOT)`;
 - the per-harness subtests run **in parallel**, bounded by a semaphore sized from the host's **free memory**
-  (`harnessConcurrencyFor`: as many `smokeWorkingSetMiB` (1.5 GiB) VMs as fit after a fixed 2 GiB host reserve — the
+  (`driver.HarnessConcurrencyFor`: as many `driver.SmokeWorkingSetMiB` (1.5 GiB) VMs as fit after a fixed 2 GiB host reserve — the
   host OS, docker, and the concurrently running `internal/sandbox/msb` test binary — never fewer than one). The
   count is read via `sysinfo.AvailableMemoryMiB` (falling back to `TotalMemoryGiB`), and `AGENTS_SANDBOX_MSB_PARALLEL`
   overrides it. It is enforced by the semaphore, not `-parallel`, so even a bare `go test -tags msb ./...` cannot
-  start a VM per harness; each smoke run boots its VM at `--memory` `smokeMemorySpec()` (2 GiB) instead of the
-  launcher's 4 GiB default. The working set, not the VM ceiling, sizes the count because a guest allocates only the
+  start a VM per harness; each smoke run boots its VM at `--memory` `driver.SmokeMemorySpec()` (2 GiB) instead of the
+  launcher's 4 GiB default, and — when `AGENTS_SANDBOX_MSB_VM_CPUS` is set (the in-guest `make test-msb-in-vm`
+  sets it) — caps vCPUs with `--cpus`, because a project VM otherwise claims every host vCPU and parallel
+  harnesses oversubscribe a nested guest. The working set, not the VM ceiling, sizes the count because a guest allocates only the
   pages it touches (virtio-mem); it tracks the heaviest harness (measured peaks under 0.5 GiB for pi, over 1 GiB for
   opencode2), so sizing on the lightest would oversubscribe the host. Each harness gets its own home base
-  `<root>/runs/<name>` — created before the child starts by `prepareHome`, including its `TMPDIR`, which the launcher
+  `<root>/runs/<name>` — created before the child starts by `driver.PrepareHome`, including its `TMPDIR`, which the launcher
   needs (a missing `TMPDIR` fails sandbox creation with `io error: no such file or directory`) — so overlapping runs
   never share a `HOME` or a seeded config, while `XDG_DATA_HOME` stays `<root>/data` so every harness shares one
   microsandbox home (the image cache);
@@ -173,9 +248,27 @@ configuration or state. Each run creates one temp root, shared by all subtests, 
   docker endpoint the runner-image build needs and hold no agents-sandbox config or state, so keeping them
   does not weaken the isolation — and the docker preflight runs under the same isolated environment, before
   any image build, so it can never certify a daemon the child cannot reach;
+- the launcher readiness-timeout overrides reach the child through the suite's **own namespace**, not the
+  launcher's: `AGENTS_SANDBOX_MSB_DOCKER_READY_TIMEOUT` / `AGENTS_SANDBOX_MSB_DAEMON_READY_TIMEOUT` (set by the
+  in-guest `make test-msb-in-vm`) are rewritten to `AGENTS_SANDBOX_DOCKER_READY_TIMEOUT` /
+  `AGENTS_SANDBOX_DAEMON_READY_TIMEOUT` in the child env. A host that happens to export the launcher's variable
+  still has it dropped by the allowlist, so only the suite's opt-in crosses;
+- the **prebuild** env additionally carries the environment's GitHub API token when one is set (`driver.WithGitHubToken`,
+  `GH_TOKEN` then `GITHUB_TOKEN`, matching the launcher's precedence). The prebuild's `build` resolves each unpinned
+  agent's latest release, and the GitHub-backed agents' requests would otherwise share the anonymous
+  60-requests/hour `api.github.com` limit. The launcher sends the token only to `api.github.com` — never into a VM,
+  whose secrets come from config files — so keeping it host-side does not weaken the isolation. The harness runs and the
+  docker-storage `shell` do not carry it: `--no-rebuild` leaves them nothing to resolve;
 - the child gets a sized terminal — the parent's window when the test process has a tty, else 40×120 — so a
   full-screen TUI does not render into a zero-column terminal;
 - the working directory is a temp project dir, so project config and the derived slug are throwaway;
+- the suite **sweeps the root's sandboxes at start and at teardown** (`driver.SweepSandboxes`: `sandbox list -q`,
+  then `sandbox remove --force --yes` per name). The start sweep runs before the prebuild and the parallel
+  subtests, so a reused root never carries a previous run's stopped-but-persisted VM into this run, where
+  `EnsureProjectVM` would restart it (`started existing project VM`) and repay the whole start cost; the
+  teardown sweep stops a failed harness leaking a VM that points at a home the suite is about to delete. Both
+  are best-effort — a `list` or `remove` failure is logged, never fatal — because a sandbox mid create/cleanup
+  can make `list` itself fail;
 - consequently no real `~/.config/agents-sandbox`, `~/.local/{share,state}/agents-sandbox`, or
   `~/.cache/agents-sandbox` path is read or written, and the child starts from deterministic defaults.
 
@@ -195,8 +288,12 @@ between runs (resolved to an absolute path, validated to fit the socket-path bud
 root, so the microsandbox image cache under `<root>/data` survives and the per-run image transfer is paid once.
 The caching `make test-msb` sets it to the standing `$(MSB_REUSE_ROOT)/smoke` root, so the image cache and the
 docker layers survive and each agent's runner image is rebuilt in place under one tag; `make test-msb-cold` leaves
-it unset and so takes a fresh root. The default (unset) is a fresh root removed
-after the run; the reused directory is left in place. A reused root is held under an exclusive lock beside it for
+it unset and so takes a fresh root. `MSB_REUSE_ROOT` defaults to `/opt/asb-reuse`, not `/tmp`: the cache is 10+ GiB
+and `/tmp` is a RAM-backed tmpfs on hosts where systemd mounts it as one (`/var/tmp` is too on many), which either
+exhausts at the largest runner image or spends the RAM — while `/opt` is disk-backed and still short enough for the
+socket budget. The `msb-reuse-root` target creates it as the current user where the parent allows it and otherwise
+prints the `sudo install -d` command, and the KVM guest's cloud-init pre-creates it. The default (unset) is a fresh
+root removed after the run; the reused directory is left in place. A reused root is held under an exclusive lock beside it for
 the run's lifetime, so a second run that shares the root waits rather than racing: the run that finishes first
 would otherwise sweep every sandbox in the shared home, destroying the other's live VMs.
 
@@ -218,7 +315,7 @@ home; it lists with `sandbox list -q` and removes each name with `sandbox remove
 required, or the non-interactive remove blocks on its confirmation). A freshly created temp root's removal is
 registered as soon as the root is created, so a skip (the docker preflight) or a failed launcher build removes
 it too; a reused root (`AGENTS_SANDBOX_SMOKE_ROOT`) is kept. A fresh root's cleanup also removes the runner-image
-tags the run built (`cleanupRunnerImages`, deriving each tag from `git.ResolveIdentity` over the project dir, skipping
+tags the run built (`driver.CleanupRunnerImages`, deriving each tag from `git.ResolveIdentity` over the project dir, skipping
 a project dir that did not resolve), untagging the leaf only (`docker rmi --no-prune`) so the classic builder's layer
 cache survives: a cold run leaves no tagged runner image; a reused root keeps its tags, which are rebuilt in place on
 the next run. The
@@ -247,7 +344,7 @@ waiting run only proceeds once the sweep sharing the root is done.
   (whether a bare custom provider still counts as configured) and its shared-metrics `offer_version` (a bump re-asks
   the prompt before the REPL). A change to either fails the subtest with the screen hermes stopped on, and the fix is to
   update the seed, not the harness.
-- The quit tap is a bound, not a diagnosis: a harness that starts ignoring its key fails after `quitTimeout` of taps
+- The quit tap is a bound, not a diagnosis: a harness that starts ignoring its key fails after `driver.QuitTimeout` of taps
   rather than reporting why.
 - Twelve harnesses mean twelve runner-image builds on a cold home. The cold home also re-transfers each
   multi-GB runner image into the microsandbox cache, which dominates the suite's wall time; the caching `make test-msb`

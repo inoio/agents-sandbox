@@ -300,7 +300,7 @@ would re-derive is not redundant code either: dropping it would ignore an error,
   `t.Errorf` (the test framework's own output goes to stdout too), then assert the read end contains the error's path —
   the mutated branch prints nothing, or `<nil>` when the condition is negated.
 - **A best-effort helper's `t.Logf` diagnostics are observable through a recording `testing.TB`; assert them instead of
-  recording a "log only" claim.** `cleanupRunnerImages` logs a skipped project dir and each failed `docker rmi`; a
+  recording a "log only" claim.** `CleanupRunnerImages` logs a skipped project dir and each failed `docker rmi`; a
   `recordingTB{TB: t}` that overrides `Logf` (embedding `testing.TB` supplies its private method) pins the failure text,
   which kills the `STATEMENT_REMOVE` and the `BRANCH_IF`. Add a case that logs nothing on the success path: the
   `CONDITIONALS_NEGATION` (`err != nil` → `==`) inverts *which* outcomes are reported, so only that case kills it.
@@ -417,6 +417,17 @@ would re-derive is not redundant code either: dropping it would ignore an error,
   `OpenFile(…, 0o600)` mutate to `0o701`/`0o601`, which the process umask may or may not preserve (`0o701 &^ 0o022`
   is `0o701`, but `&^ 0o077` is `0o700`). Replacing the `mkdir`/`open` seams with a recorder makes the argument
   assertion deterministic and umask-free.
+- **When there is no seam for the mode, assert "no wider than" instead of equality.** A `MkdirAll(dir, 0o750)` on a
+  real filesystem is umask-masked, so `stat`-ing for exactly `0o750` is fragile; `got&^0o750 != 0 || got&0o007 != 0`
+  still kills `0o750`→`0o749`/`0o751` under any umask (the `configpathstest` pattern), while a bare `IsDir()` check
+  leaves both integer mutants LIVED.
+- **A truthiness guard on a slice whose fixture payload is always multi-byte needs a boundary input.** `if
+  len(cf.Merged) > 0` mutated to `> 1` still writes every fixture whose merged config is a JSON document (length ≫ 1),
+  so the `INTEGER_INCREMENT` LIVEs; add a case with a **one-byte** payload and assert it is still written.
+- **When the wrapped cause is a plain stdlib `errors.New` with no sentinel and a `%v` would embed the same message,
+  assert the wrap by unwrap depth on the wrapping function directly.** `filepath.Rel` returns a fresh
+  `*errors.errorString`, so no `errors.Is`/`errors.As` distinguishes `%w` from `%v`; test the wrapper
+  (`targetPath`) in-package and assert `errors.Unwrap(err) != nil`.
 - **A `blocking bool` flock seam's blocking branch is observable in-process.** Mutating `if blocking { return
   hostlock.Exclusive(f) }` to fall through to the non-blocking call is invisible while the lock is free (both succeed)
   and unreachable through the same-process registry (it fails before the flock), but a test that holds a raw flock on a
@@ -424,7 +435,7 @@ would re-derive is not redundant code either: dropping it would ignore an error,
   error under the mutant and a block-then-success under the original. The "must not have returned" window costs
   nothing and cannot be flaky: the correct code cannot return while the lock is held.
 - **A "drop the rune" sentinel is equivalent under any negative value — record it.** `strings.Map`'s contract drops the
-  rune for *any* negative mapping result, so `markerText`'s `return -1` mutated to `return -2` changes nothing; a
+  rune for *any* negative mapping result, so `MarkerText`'s `return -1` mutated to `return -2` changes nothing; a
   `// gomutants:disable-next-line INTEGER_INCREMENT reason="strings.Map drops the rune for any negative mapping"` closes
   it. Confirm the stdlib's documented tolerance before assuming a sentinel's exact value is load-bearing.
 - **A wall-clock budget constant is observable as an exact value; pin it with a literal test.** `heavyweightReadyTimeout`'s

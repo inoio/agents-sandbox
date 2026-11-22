@@ -1,6 +1,6 @@
 ---
-description: Contract for keeping tests off real host state - where test doubles and fail-fast installers live (the `<pkg>/<name>test` test-support subpackages), the fail-fast seam mocks installed by every test package's TestMain, the external-TestMain rule, the file-scope vs declaration-scope `//deadcode:ignore` policy, the host-home redirect in WithMockConfigPaths, the seam import-chain exceptions, the msb-tagged isolated runtime home and its stop-then-remove sandbox teardown, the rule that seam overrides must be restored so the suite stays idempotent under -count>1, the trap that a dependency memoizing an environment variable (docker/cli `config.Dir()`) is not isolated by t.Setenv, and the absolute-write-root invariant that guards every state/config write funnel at the consumer so an unresolved root cannot write relative to the process CWD.
-read_if: Adding a test package, a test double, or a TestMain; deciding where a test double or fail-fast installer lives; debugging a test that reads or writes real host state (config, home, docker, msb, doctor), an msb-tagged test that leaks a sandbox/VM, a test that passes at -count=1 but fails under -count>1, or a state/config/lock write that must reject a path that did not resolve to an absolute root; or when a test's DOCKER_CONFIG/HOME no longer reaches docker/cli's config loading.
+description: Contract for keeping tests off real host state - where test doubles and fail-fast installers live (the `<pkg>/<name>test` test-support subpackages), the fail-fast seam mocks installed by every test package's TestMain, the external-TestMain rule, the file-scope vs declaration-scope `//deadcode:ignore` policy, the host-home redirect in WithMockConfigPaths, the seam import-chain exceptions, the msb-tagged isolated runtime home and its stop-then-remove sandbox teardown, the rule that seam overrides must be restored so the suite stays idempotent under -count>1, the trap that a dependency memoizing an environment variable (docker/cli `config.Dir()`) is not isolated by t.Setenv, the absolute-write-root invariant that guards every state/config write funnel at the consumer so an unresolved root cannot write relative to the process CWD, the hermetic envelope (`make test-scrubbed`/`test-hermetic`) with its uid-0 strict tier, the host-figure seam (`internal/hostfigures`) shared by `vm`/`prepare`/`session`, and the `--sentinel` pass that pins the host RAM/CPU/available-memory figures to non-host sentinels.
+read_if: Adding a test package, a test double, or a TestMain; deciding where a test double or fail-fast installer lives; debugging a test that reads or writes real host state (config, home, docker, msb, doctor), an msb-tagged test that leaks a sandbox/VM, a test that passes at -count=1 but fails under -count>1, or a state/config/lock write that must reject a path that did not resolve to an absolute root; the hermetic envelope targets (`make test-scrubbed`/`test-hermetic`) or a failure only the scrubbed/uid-0 run sees; when a test's DOCKER_CONFIG/HOME no longer reaches docker/cli's config loading; or when a test depends on the host's RAM or CPU count, or a host-figure read (`--sentinel`) must be pinned or seamed.
 ---
 
 # Test isolation
@@ -75,10 +75,15 @@ Add a `main_test.go` with such a `TestMain` to every new package that has tests;
 
 A test double or a fail-fast installer never ships in the production import graph. Each lives in a
 `<pkg>/<name>test` subpackage beside the package it supports — `configpathstest`, `dockertest`, `doctortest`,
-`msbtest` (with its `msbtest/runtime` isolation-helpers leaf), `notifytest`, `openertest`, `termiotest` — so the
-shipped binary links neither `testing` nor the double. The subpackage name is the package name plus `test` (for
-example `configpaths` → `configpathstest`, `termio` → `termiotest`). The central doubles keep the `testmock*.go`
-file name the Codecov glob and the lint path rule match, except `termiotest`, whose double is `mock.go`.
+`hostfigurestest`, `msbtest` (with its `msbtest/runtime` isolation-helpers leaf), `notifytest`, `openertest`,
+`termiotest` — so the shipped binary links neither `testing` nor the double. The subpackage name is the package name
+plus `test` (for example `configpaths` → `configpathstest`, `termio` → `termiotest`). The central doubles keep the
+`testmock*.go` file name the Codecov glob and the lint path rule match, except `termiotest`, whose double is `mock.go`.
+
+Two shapes. A **sibling double** — a `<pkg>/<name>test` subpackage — supports exactly one production
+package (the marker and `TestMain` rules below). **Shared test infrastructure** — the pty driver, the
+harness table, the `test/scripts` helpers — lives under the top-level `test/` tree and is shared by
+suites, not owned by one package.
 
 Each test-support package's own tests declare `TestMain` in an **external** test package (`package <name>test_test`).
 The isolation contract test treats an external `TestMain` as reaching every seam family — it can import
@@ -171,6 +176,28 @@ sits inside a bare checkout). A test that needs a specific layout chdirs into it
 bare-checkout tests do. This is why `configpaths`' project-path accessor tests assert the relative base without
 pinning the CWD themselves, and it closes the incident below.
 
+## Hermetic envelope
+
+`scripts/hermetic-envelope.sh` runs the default suite decoupled from the execution environment, as two make targets:
+`make test-scrubbed` (a module copy outside any git checkout, run under `env -i` with an explicit variable allowlist
+and a pre-warmed module cache, with `-count=1` so Go's test cache is not consulted) and `make test-hermetic` (adds a
+loopback-only network namespace via `--netns`, isolating name resolution and sockets). The suite must stay green under
+both.
+
+The cadence is the release gate as the floor: the `hermetic` CI job runs `make test-hermetic`, and on a release tag
+`release.needs` names it, so a red envelope refuses to publish. On a pull request the job is advisory — it exists but is
+not in the `protect main` ruleset. Promotion is a judgment on the measured cost, not a fixed threshold or a date (see
+`guides/test-runtime-cost.md`): the job becomes a required PR check on its clean advisory record, and the envelope
+becomes the default `make test` only once it stops being the local loop's bottleneck; until then the strict run stays
+the PR and release gate. The hosted runner restricts unprivileged user namespaces
+(`kernel.apparmor_restrict_unprivileged_userns`), so the job lifts the restriction and warms the module cache before the
+offline, namespaced run (`specs/ci/ci-pipeline.md`).
+
+The `--netns` tier runs as uid 0 (`unshare --net --map-root-user`), so a test must not depend on the effective uid: a
+permission-denial fixture induces the read/write failure through a package seam, never `chmod`. The fixtures the tier
+surfaced now do this and it is green; the other permission-denial fixtures still `chmod` and skip under root
+(`requireNonRoot` or an `os.Geteuid() == 0` guard), so the strict tier does not exercise their error branches.
+
 ## Ambient-environment gate
 
 The fail-fast seams cover config, home, docker, msb, doctor, notify and the host opener. They do not cover
@@ -195,12 +222,16 @@ The gate covers these known direct forms:
   `t.Setenv`, so a direct call leaks across tests);
 - `os.Open`/`OpenFile`/`Stat`/`Lstat`/`ReadFile`/`ReadDir`/`Readlink` of a `/dev/...` literal;
 - `syscall.Kill`;
+- `time.Sleep` (a clock wait: a test that waits for an event blocks on the seam's signal instead, and only a
+  genuine dwell — a poll cadence, a negative assertion that something does not happen within a window, the spinner's
+  frame cadence — keeps the sleep under a reason-bearing `//testenv:allow` marker);
 - `exec.Command`/`CommandContext` of an absolute-path literal (the existing ambient-tool check in
   `real_command_contract_test.go` still covers `docker`/`gh`/`git`/`gpg`/`msb`/`ssh`, and a shell interpreter is
   allowed there);
-- a known host-figure read — `sysinfo.NumCPUs`/`TotalMemoryGiB`/`AvailableMemoryMiB` and
-  `sandbox/vm.BootMaxMemoryMiB` (`hostProbeCalls`) — because such a read makes the test depend on the runner's
-  hardware.
+- a known host-figure read — the raw `sysinfo.NumCPUs`/`TotalMemoryGiB`/`AvailableMemoryMiB`, the seam accessors
+  `hostfigures.NumCPUs`/`TotalMemoryGiB`/`AvailableMemoryMiB`, and `sandbox/vm.BootMaxMemoryMiB` (`hostProbeCalls`) —
+  because a direct call resolves the seam's host default unless the test pins it, so it makes the test depend on the
+  runner's hardware just as a raw read does.
 
 The scan is a source heuristic over known direct selector calls, not a proof of isolation. It does not see method
 forms (`net.Dialer.Dial`, `net.DefaultResolver.LookupHost`, `net.ListenTCP`), an `http` client, `os.UserHomeDir`
@@ -208,6 +239,28 @@ forms (`net.Dialer.Dial`, `net.DefaultResolver.LookupHost`, `net.ListenTCP`), an
 Those stay a review responsibility; the gate guards against the common direct form regressing.
 
 `TestAmbientEnvironmentUses` pins the scanner and the marker semantics.
+
+## Host-figure seams and the sentinel pass
+
+A production read of a host figure (installed RAM, CPU count, available memory) is invisible to the ambient gate,
+which sees only a test's direct call. The reads live behind one seam, `internal/hostfigures`: `vm`'s boot RAM and CPU
+defaults, `prepare`'s available-memory read, and `session`'s two reads all go through it. The gate still flags a direct
+read of the raw `sysinfo` functions or of the seam accessors in a default-suite test — the seam is the fix, and the gate
+keeps a new direct read from reappearing.
+
+The seam alone cannot falsify a remaining host read (the envelope's copy leaves the host figures unchanged), so the
+envelope runs a second, **sentinel pass** (`--sentinel`): it sets `AGENTS_SANDBOX_HERMETIC_SENTINEL`, and the fail-fast
+installer a test binary runs pins the seams through `hostfigurestest.InstallSentinelsFromEnv` to non-host sentinels
+(RAM 1 GiB, CPUs 1, 1 MiB available). Every TestMain that installs a fail-fast family installs the sentinel too —
+`mocks.InitFailFastMocks` for the packages that can import it, and the hand-mirrored TestMains (which install families
+directly because the wrapper cannot reach them) call `hostfigurestest.InstallSentinelsFromEnv` themselves; two contract
+tests keep both wired. `test-scrubbed` (the floor, on macOS too) and `test-hermetic` (the strict tier) each run a
+normal pass then the sentinel pass, and `test-hermetic-sentinel` runs the strict sentinel pass alone. A test that still
+derives an expected value from the real host figures then fails; a test that pins the value it asserts against, or
+compares seam to seam, passes. The leaf's own wiring test asserts the defaults are the `sysinfo` functions by qualified
+name, so it reads no host figure and needs no `//testenv:allow`. The sentinel is read in `TestMain`, before Go's
+test-cache log records env reads, so a run that sets it must pass `-count=1`; the `test` target forces it, and the
+envelope already does.
 
 ## Deliberate real-state reads
 
@@ -312,12 +365,13 @@ seam family is reached without its injectable factory. The remaining ambient pat
   `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` triplet, which stay active even with the files disabled), so
   a fixture commit can never reach commit signing or pop an askpass GUI (ksshaskpass). `TestUntaggedTestsExecuteNoAmbientTool`
   (`real_command_contract_test.go`) enforces the split in the default suite: it walks every `_test.go` the default build
-  compiles and fails if one calls `testutil.RunGit`/`ConfigureRepo` — through a qualified or a same-package unqualified
+  compiles and every non-test `.go` file under `test/` (where the shared untagged driver keeps test code in non-test
+  files), and fails if one calls `testutil.RunGit`/`ConfigureRepo` — through a qualified or a same-package unqualified
   call — or execs an ambient tool (`git`, `ssh`, `gpg`, `gh`,
   `docker`, `msb`) named by an interpreted or raw string literal — a shell interpreter is allowed. A use the statement
   sanctions with, or has immediately above it, a reason-bearing `//testenv:allow <reason>` marker is not reported — the
-  same in-place escape the ambient gate reads, which the `test/harness` smoke suite's shared `_test.go` helpers use for
-  the real `docker` they drive by design. A test that asserts on a
+  same in-place escape the ambient gate reads, which the `test/msb/driver` helpers the smoke suite shares use for the real
+  `docker` they drive by design (the calls live in the non-test `launcher.go`/`images.go`). A test that asserts on a
   git-generated artifact still pins the setting it depends on in its own fixture — a linked worktree's recorded gitdir is
   absolute only while `worktree.useRelativePaths` is false, and CI on a plain clone never exercises a developer's global
   setting (`TestResolveIdentityOutsideWorktreeReportsSharedGitDir`). Because those tests are `integration`-tagged they are
@@ -337,16 +391,16 @@ gate above. Every sanctioned use now carries a `//testenv:allow <reason>` marker
   reachable from a test, route it through a seam the same way rather than asserting against the runner's hardware.
   The gate's `hostProbeCalls` list should grow with each such production read, so a direct call from a test cannot
   reintroduce the dependency unnoticed.
-- **Git identity from the ambient CWD.** Untagged `cmd/**` and `prepare`/`session` tests call
-  `git.MustCheckoutSlug`/`MustRepoSlug`/`ResolveIdentity` on the suite's real checkout, so the suite must run inside
-  the repo (the `Must*` variants panic otherwise). Read-only and self-consistent — the fixture lands under the mock
-  state dir for that same key — but it is the last sizable ambient dependency not behind a seam. A
-  `testutil.CheckoutSlug(t)` helper that owns the one intentional resolution (or `t.Chdir(testutil.InitRepo(t))`
-  first) would centralize it.
-- **Wall-clock waits.** Several tests `time.Sleep` through interval seams (`spinnerInterval`,
-  `pressureWatchInterval`); under load they are slower but not host-dependent. Prefer channel synchronization where a
-  test does not need the interval dwell. `watchReconnectPolicy` moved behind the `watchClock` seam, so the notify
-  backoff no longer sleeps.
+- **Git identity from the ambient CWD — resolved by the envelope.** Untagged `cmd/**` and `prepare`/`session` tests
+  call `git.MustCheckoutSlug`/`MustRepoSlug`/`ResolveIdentity` on the ambient CWD. The envelope runs from a copy
+  outside any git checkout, and `ResolveIdentity` falls back to a path-derived non-repo identity rather than erroring,
+  so the suite stays green and no default-suite test depends on the module's real checkout. No seam and no gate: the
+  read is total, and the sites that read a slug after `t.Chdir` into their own fixture repo are already deterministic.
+- **Wall-clock waits.** Enforced by the ambient gate's `time.Sleep` category: an event-wait blocks on the seam's
+  signal, and only a genuine dwell (a poll cadence, a negative assertion, the spinner's frame cadence) keeps a sleep
+  under a reason-bearing `//testenv:allow` marker. The notify watch, opener late-request, and session reaper/attach
+  sleeps now synchronize on a signal; `watchReconnectPolicy` moved behind the `watchClock` seam, so the notify backoff
+  no longer sleeps.
 
 The gate also moved the `ports` exclusion tests off the hardcoded `5999` onto a bound-`:0` port, so they no longer
 collide with whatever the host already holds.

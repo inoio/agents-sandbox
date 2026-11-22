@@ -1,6 +1,11 @@
 package agent
 
-import "context"
+import (
+	"context"
+	"path/filepath"
+
+	"github.com/inoio/agents-sandbox/internal/globmatch"
+)
 
 // settingsFileName is the settings filename shared by the pi, claude-code, and
 // qwen-code agents, whose merged snippet config is written to
@@ -22,6 +27,10 @@ const agentsRulesPattern = "/AGENTS.md"
 // skillsDirPattern is the drop-in pattern for an agent's skills tree at the
 // root of its data dir.
 const skillsDirPattern = "/skills/"
+
+// promptsDirPattern is the drop-in pattern for an agent's prompts tree at the
+// root of its data dir.
+const promptsDirPattern = "/prompts/"
 
 // Daemon bind hostnames: loopback for a co-located client, the external
 // interface when the host forwards a published port into the VM.
@@ -177,6 +186,26 @@ func AsSessionStatusProvider(a Agent) (SessionStatusProvider, bool) {
 
 // AsConfigMerger returns the agent's ConfigMerger, if it implements one.
 func AsConfigMerger(a Agent) (ConfigMerger, bool) { p, ok := a.(ConfigMerger); return p, ok }
+
+// MergesSnippetName reports whether agentName's config merger reads a snippet
+// with base name name — its SnippetPattern matched against the file. Both the
+// managed config write-back and the first-run host seed use it, so neither
+// writes a config file the agent's merge would never read. An unknown agent, or
+// one whose profile declares no snippet pattern, reports true: the caller is not
+// second-guessed here, and a write's target is resolved and refused at apply
+// time if needed.
+func MergesSnippetName(agentName, name string) bool {
+	profile, ok := Lookup(agentName)
+	// gomutants:disable-next-line BRANCH_IF reason="removing the guard falls through to AsConfigMerger(nil), which is also false, so the function still returns true for an unknown agent"
+	if !ok {
+		return true
+	}
+	merger, ok := AsConfigMerger(profile)
+	if !ok {
+		return true
+	}
+	return globmatch.NameMatches(merger.SnippetPattern(), filepath.Base(name))
+}
 
 // AsAttachRunner returns the agent's AttachRunner, if it implements one.
 func AsAttachRunner(a Agent) (AttachRunner, bool) { p, ok := a.(AttachRunner); return p, ok }

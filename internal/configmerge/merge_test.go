@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -244,32 +243,6 @@ func TestBuildMergedUsesCallerPattern(t *testing.T) {
 	}
 	if !strings.Contains(string(merged.Content), `"model": "x"`) {
 		t.Errorf("merged data = %s, want model:x", merged.Content)
-	}
-}
-
-func TestExpandBracesUnbalanced(t *testing.T) {
-	// Unmatched open or close brace: returned unchanged.
-	if got := expandBraces("a-{b,c"); len(got) != 1 || got[0] != "a-{b,c" {
-		t.Errorf("unmatched open brace = %v, want [a-{b,c]", got)
-	}
-	if got := expandBraces("a-b}"); len(got) != 1 || got[0] != "a-b}" {
-		t.Errorf("unmatched close brace = %v, want [a-b}]", got)
-	}
-}
-
-func TestExpandBracesStartingWithBrace(t *testing.T) {
-	// open == 0 is a real brace group, not "no brace".
-	cases := []struct {
-		pattern string
-		want    []string
-	}{
-		{"{a,b}", []string{"a", "b"}},
-		{"{a,b}x", []string{"ax", "bx"}},
-	}
-	for _, c := range cases {
-		if got := expandBraces(c.pattern); !slices.Equal(got, c.want) {
-			t.Errorf("expandBraces(%q) = %v, want %v", c.pattern, got, c.want)
-		}
 	}
 }
 
@@ -679,17 +652,18 @@ func TestScanMirrorSkipsUnreadableEntries(t *testing.T) {
 	if err := os.MkdirAll(locked, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	secretFile := filepath.Join(locked, "secret.json")
 	testutil.WriteFile(t, locked, "secret.json", `{"s": 1}`)
-	if err := os.Chmod(locked, 0o000); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
-
 	noread := filepath.Join(user, "noread.json")
-	if err := os.WriteFile(noread, []byte(`{}`), 0o000); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(noread, 0o644) })
+	testutil.WriteFile(t, user, "noread.json", `{}`)
+
+	// Deny the two reads through the project guard the walk reads with: chmod
+	// 000 no longer denies once the suite runs as uid 0.
+	restore := projectguard.Install(nil, map[string]projectguard.Approval{
+		secretFile: {Absent: true},
+		noread:     {Absent: true},
+	})
+	t.Cleanup(restore)
 
 	entries := ScanMirror("opencode*.json*", nil, []string{user, ""}, dest)
 	if len(entries) != 1 || entries[0].HostPath != filepath.Join(user, "ok.json") {
