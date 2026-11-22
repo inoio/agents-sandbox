@@ -239,7 +239,7 @@ func TestKvmGuestAgentUpGatesOnCloudInitBeforeSyncing(t *testing.T) {
 	if cloudInit < 0 || provision < 0 || attach < 0 {
 		t.Fatalf("agent-up skipped a step:\n%s", sshArgv)
 	}
-	if !(cloudInit < provision && provision < attach) {
+	if cloudInit >= provision || provision >= attach {
 		t.Fatalf("steps out of order (cloud-init=%d provision=%d attach=%d):\n%s",
 			cloudInit, provision, attach, sshArgv)
 	}
