@@ -160,4 +160,18 @@ func TestSelectedProjectAgentsFollowTheSelection(t *testing.T) {
 			t.Errorf("selection (%q, %q) = %v, want %v", tc.journey, tc.harness, got, tc.want)
 		}
 	}
+	// A subtest outside the table runs whenever no journey is named, whatever
+	// the harness filter, so its harness is built then and only then.
+	for _, tc := range []struct {
+		journey, harness string
+		want             []string
+	}{
+		{"", "pi", []string{"pi", "opencode2"}},
+		{"b", "pi", []string{"pi"}},
+	} {
+		got := names(selectedProjectAgents(journeys, tc.journey, tc.harness, "opencode2"))
+		if !slices.Equal(got, tc.want) {
+			t.Errorf("selection (%q, %q) = %v, want %v", tc.journey, tc.harness, got, tc.want)
+		}
+	}
 }

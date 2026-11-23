@@ -22,9 +22,8 @@ const (
 // and network; the `msb` build tag keeps it out of the default test run, and
 // driver.Preflight skips (never fails) on a host that cannot run it.
 //
-// The suite builds the launcher and prebuilds every runner image once, exactly
-// as the startup smoke does, so a journey's budget only has to absorb its VM
-// start. A step's error aborts its journey and names the failing step, so a
+// The suite builds the launcher and prebuilds the runner images of the
+// selected cells once, so a journey's budget only has to absorb its VM start. A step's error aborts its journey and names the failing step, so a
 // scenario reads top-to-bottom and a failure points at one line.
 //
 // Each journey runs once per harness it lists, as TestHarnessJourneys/<journey>/
@@ -44,11 +43,10 @@ func TestHarnessJourneys(t *testing.T) {
 	// Register cleanup after the docker preflight so a skip touches nothing, but
 	// before the prebuild so a prebuild failure cannot leak the root.
 	t.Cleanup(func() { driver.SweepSandboxes(t, root, binary, "cleanup") })
+	selection := journeySelection(t)
 	if !driver.SmokeRootReused() {
-		t.Cleanup(func() { driver.CleanupRunnerImages(t, root) })
+		t.Cleanup(func() { driver.CleanupRunnerImagesFor(t, root, selection) })
 	}
-	//testenv:allow the make target passes the JOURNEY/HARNESS selection through the environment
-	selection := selectedProjectAgents(Journeys, os.Getenv(journeySelectionEnv), os.Getenv(harnessSelectionEnv))
 	driver.PrebuildImagesFor(t, root, selection)
 
 	for _, journey := range Journeys {
@@ -87,4 +85,22 @@ func journeyContext(t *testing.T, root, binary string, journey Journey, harness 
 		TB: t, Root: root, Binary: binary, Spec: journeySpec(spec, journey, adapter), Agent: harness,
 		Harness: adapter, Home: t.TempDir(),
 	}
+}
+
+// journeySelection is the images the make target's JOURNEY/HARNESS selection
+// drives, the opt-in proxy spike's harness included when it runs. A selection
+// that names no cell fails, so a typo cannot pass as an empty green run.
+func journeySelection(t *testing.T) []driver.ProjectAgent {
+	t.Helper()
+	//testenv:allow the make target passes the JOURNEY/HARNESS selection through the environment
+	journey, harness, spike := os.Getenv(journeySelectionEnv), os.Getenv(harnessSelectionEnv), os.Getenv(proxySpikeEnv)
+	var outsideTable []string
+	if spike != "" {
+		outsideTable = append(outsideTable, opencode2AgentName)
+	}
+	selection := selectedProjectAgents(Journeys, journey, harness, outsideTable...)
+	if len(selection) == 0 && (journey != "" || harness != "") {
+		t.Fatalf("JOURNEY=%q HARNESS=%q selects no journey cell", journey, harness)
+	}
+	return selection
 }

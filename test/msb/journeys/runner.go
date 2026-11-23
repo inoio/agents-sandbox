@@ -73,21 +73,32 @@ func journeySpec(spec driver.Spec, journey Journey, adapter Harness) driver.Spec
 
 // selectedProjectAgents are the runner images the selected journeys drive: each
 // harness of each journey named journey (all when empty), narrowed to harness
-// when set, in table order and without duplicates. The suite prebuilds only
-// these, never the startup smoke's whole set.
-func selectedProjectAgents(journeys []Journey, journey, harness string) []driver.ProjectAgent {
+// when set, in table order and without duplicates, plus unfiltered the
+// harnesses of the subtests outside the table, which run whenever no journey is
+// named (their names have no harness level for -run to filter). The suite
+// prebuilds only these, never the startup smoke's whole set.
+func selectedProjectAgents(journeys []Journey, journey, harness string, outsideTable ...string) []driver.ProjectAgent {
 	var pairs []driver.ProjectAgent
 	seen := map[string]bool{}
+	add := func(name string) {
+		if !seen[name] {
+			seen[name] = true
+			pairs = append(pairs, driver.ProjectAgent{Project: name, Agent: name, Docker: false})
+		}
+	}
 	for _, candidate := range journeys {
 		if journey != "" && candidate.Name != journey {
 			continue
 		}
 		for _, name := range candidate.Harnesses {
-			if (harness != "" && name != harness) || seen[name] {
-				continue
+			if harness == "" || name == harness {
+				add(name)
 			}
-			seen[name] = true
-			pairs = append(pairs, driver.ProjectAgent{Project: name, Agent: name, Docker: false})
+		}
+	}
+	if journey == "" {
+		for _, name := range outsideTable {
+			add(name)
 		}
 	}
 	return pairs

@@ -56,7 +56,11 @@ func SuiteProjectAgents() []ProjectAgent {
 // it) skips only that tag: the resolvable tags come back with the skips joined
 // into the error, so a partway-failed run still cleans the images it built.
 func HarnessRunnerImageTags(root string) ([]string, error) {
-	pairs := SuiteProjectAgents()
+	return runnerImageTags(root, SuiteProjectAgents())
+}
+
+// runnerImageTags derives the runner-image tag of each pair's project dir.
+func runnerImageTags(root string, pairs []ProjectAgent) ([]string, error) {
 	tags := make([]string, 0, len(pairs))
 	var failures []error
 	for _, pair := range pairs {
@@ -93,8 +97,16 @@ var removeDockerImage = func(env []string, tag string) ([]byte, error) {
 func CleanupRunnerImages(tb TB, root string) {
 	// gomutants:disable-next-line STATEMENT_REMOVE reason="Helper only shifts the location a cleanup log reports; no behaviour depends on it"
 	tb.Helper()
+	CleanupRunnerImagesFor(tb, root, SuiteProjectAgents())
+}
 
-	tags, err := HarnessRunnerImageTags(root)
+// CleanupRunnerImagesFor removes the runner images of pairs, the set a suite
+// prebuilt with PrebuildImagesFor.
+func CleanupRunnerImagesFor(tb TB, root string, pairs []ProjectAgent) {
+	// gomutants:disable-next-line STATEMENT_REMOVE reason="Helper only shifts the location a cleanup log reports; no behaviour depends on it"
+	tb.Helper()
+
+	tags, err := runnerImageTags(root, pairs)
 	if err != nil {
 		tb.Logf("cleanup: some runner image tags could not be derived: %v", err)
 	}
