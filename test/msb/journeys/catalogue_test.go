@@ -1,0 +1,55 @@
+package journeys
+
+import (
+	"flag"
+	"os"
+	"strings"
+	"testing"
+)
+
+var updateCatalogue = flag.Bool("update-catalogue", false, "regenerate "+catalogueFileName)
+
+// TestJourneyCatalogueIsCurrent keeps the generated scenario catalogue in step
+// with the journey table: it fails when the file is stale and rewrites it with
+// -update-catalogue.
+func TestJourneyCatalogueIsCurrent(t *testing.T) {
+	want := renderCatalogue(Journeys, Exemptions)
+	if *updateCatalogue {
+		//testenv:allow regenerating the checked-in catalogue on request
+		if err := os.WriteFile(
+			catalogueFileName,
+			[]byte(want),
+			0o644,
+		); err != nil {
+			t.Fatalf("write %s: %v", catalogueFileName, err)
+		}
+	}
+	//testenv:allow the checked-in catalogue beside the test
+	got, err := os.ReadFile(catalogueFileName)
+	if err != nil {
+		t.Fatalf("read %s: %v (regenerate it with -update-catalogue)", catalogueFileName, err)
+	}
+	if string(got) != want {
+		t.Errorf(
+			"%s is stale; regenerate it: go test ./test/msb/journeys/ -run TestJourneyCatalogueIsCurrent -args -update-catalogue",
+			catalogueFileName,
+		)
+	}
+}
+
+func TestRenderCatalogueShowsTheScenarioAndExemptions(t *testing.T) {
+	journeys := []Journey{{Name: "core", Harnesses: []string{"opencode2"}, Network: "host", Steps: []Step{
+		Given(Step{Name: "a fresh home"}),
+		Then(AsCheck(Step{Name: "the reply shows"})),
+	}}}
+	text := renderCatalogue(journeys, map[string]map[string]string{"core": {"codex": "later", "pi": "later"}})
+
+	for _, want := range []string{
+		"## core", "Runs on: opencode2", "Network profile: `host`", "- codex, pi: later",
+		"Scenario: core\n  Given a fresh home\n  Then the reply shows    # check\n",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("catalogue lacks %q:\n%s", want, text)
+		}
+	}
+}

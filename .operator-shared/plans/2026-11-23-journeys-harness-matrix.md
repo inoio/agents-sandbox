@@ -133,8 +133,8 @@ shared code.
 
 ### Task 14: Catalogue, docs, brain
 
-- [ ] A small generator renders the journey table as Gherkin Markdown (`go test -run TestRenderJourneyCatalogue
-      -update` writes `test/msb/journeys/JOURNEYS.md`; the default test fails when the file is stale).
+- [x] A small generator renders the journey table as Gherkin Markdown (`TestJourneyCatalogueIsCurrent`,
+      `-update-catalogue` writes `test/msb/journeys/JOURNEYS.md`; the default test fails when the file is stale).
 - [ ] `specs/testing/msb-journeys.md`: matrix model, adapter boundary, stub protocols and route, per-journey isolation,
       the few-long-journeys rule, action/check semantics, the checkpoint outcomes. Remove v1 wording that no longer
       holds.

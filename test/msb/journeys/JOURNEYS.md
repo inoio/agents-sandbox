@@ -1,0 +1,150 @@
+# msb journeys
+
+Generated from `test/msb/journeys/table.go` by `TestJourneyCatalogueIsCurrent`; do not edit.
+Run `go test ./test/msb/journeys/ -run TestJourneyCatalogueIsCurrent -args -update-catalogue` to regenerate it. See `.operator-shared/specs/testing/msb-journeys.md`.
+
+## uc1-learn-by-using
+
+Runs on: opencode2
+
+Not yet:
+
+- claude-code, codex, oh-my-pi, pi: learn mode on this harness lands with #852
+- goose, grok-build, hermes, kimi-code, mistral-vibe, opencode, qwen-code: learn mode on this harness lands with the full rollout, #794
+
+```gherkin
+Scenario: uc1-learn-by-using
+  Given a fresh isolated home
+  And the stub provider is provisioned into the VM
+  When the user runs `agents-sandbox run`
+  Then the first-run menu offers learn-by-using
+  When the user chooses learn-by-using in the first-run menu
+  Then the harness TUI comes up
+  When the user sends the prompt "hello"
+  And the user quits the harness and the learn exit prompt appears
+  And the user answers the exit prompt with Save all
+  Then the per-slug scope holds the learned credential    # check
+  And no project scaffolding appears    # check
+  And the first-run decision is recorded    # check
+```
+
+## uc4-learn-from-host
+
+Runs on: opencode2
+
+Not yet:
+
+- claude-code, codex, oh-my-pi, pi: learn mode on this harness lands with #852
+- goose, grok-build, hermes, kimi-code, mistral-vibe, opencode, qwen-code: learn mode on this harness lands with the full rollout, #794
+
+```gherkin
+Scenario: uc4-learn-from-host
+  Given a fresh isolated home
+  And the stub provider is provisioned into the VM
+  And the harness's own host config points at the stub
+  When the user runs `agents-sandbox run`
+  Then the first-run menu offers learn-from-host
+  When the user chooses learn-from-host in the first-run menu
+  Then the harness TUI comes up
+  When the user sends the prompt "hello"
+  And the user quits the harness and the learn exit prompt appears
+  And the user answers the exit prompt with Save all
+  Then the per-slug scope holds the learned credential    # check
+  And the per-slug scope excludes the host login store    # check
+```
+
+## config-learn-replay
+
+Runs on: opencode2
+
+Not yet:
+
+- claude-code, codex, oh-my-pi, pi: learn mode on this harness lands with #852
+- goose, grok-build, hermes, kimi-code, mistral-vibe, opencode, qwen-code: learn mode on this harness lands with the full rollout, #794
+
+```gherkin
+Scenario: config-learn-replay
+  Given a fresh isolated home
+  And the stub provider is provisioned into the VM
+  And the user runs `agents-sandbox run --learn`
+  And the harness TUI comes up
+  And the user quits the harness and the learn exit prompt appears
+  And the user answers the exit prompt with Not now
+  And a recorded learning session whose launcher is gone
+  When the user runs `agents-sandbox config learn`
+  And the user applies every proposal
+  Then the per-slug scope holds the learned credential    # check
+  And the learn artefact is deleted    # check
+  And the learn session record is cleared    # check
+```
+
+## attribution-observed-pair
+
+Runs on: opencode2
+
+Network profile: `public`
+
+Not yet:
+
+- claude-code, codex, oh-my-pi, pi: learn mode on this harness lands with #852
+- goose, grok-build, hermes, kimi-code, mistral-vibe, opencode, qwen-code: learn mode on this harness lands with the full rollout, #794
+
+```gherkin
+Scenario: attribution-observed-pair
+  Given a fresh isolated home
+  And the stub provider is provisioned into the VM
+  And the harness's own host config points at the stub
+  When the user runs `agents-sandbox run --learn`
+  Then the harness TUI comes up
+  When the user sends the prompt "hello"
+  And the user quits the harness and the learn exit prompt appears
+  And the user answers the exit prompt with Save all
+  Then the per-slug scope holds the learned credential    # check
+  And the learned network policy is no wider than the run's    # check
+```
+
+## core-session
+
+Runs on: opencode2, claude-code, codex
+
+Network profile: `host`
+
+Not yet:
+
+- goose, grok-build, hermes, kimi-code, mistral-vibe, opencode, qwen-code: core session on this harness lands with the full rollout, #794
+- oh-my-pi, pi: core session on this harness lands with #852
+
+```gherkin
+Scenario: core-session
+  Given the journey runs on a project of its own (core)
+  And a fresh isolated home
+  And the stub provider is provisioned into the VM
+  And the launcher is configured with the harness's stub settings
+  And the stub answers the next turn by writing "journeys-core.txt"
+  When the user runs `agents-sandbox run`
+  Then the harness TUI comes up
+  And the experimental notice matches the harness's profile    # check
+  And no project scaffolding appears    # check
+  When the user sends the prompt "journeys core first turn"
+  Then the stub provider served the turn
+  And "journeys-core.txt" is in the project on the host, owned by the host user    # check
+  And the harness shows the stub's reply    # check
+  When another client runs `agents-sandbox run` on the same project
+  Then the harness TUI comes up
+  And no reconfig prompt appears    # check
+  When the user sends the prompt "journeys core second client"
+  Then the harness shows the stub's reply    # check
+  When the user switches to client 1
+  And the user sends the prompt "journeys core first client again"
+  Then the harness shows the stub's reply    # check
+  When the user switches to client 2
+  And the user quits the harness and the launcher exits 0
+  And the user switches to client 1
+  And the user quits the harness and the launcher exits 0
+  And the user stops the project VM
+  When the user runs the harness again, resuming the last session
+  Then the harness TUI comes up
+  And the launcher boots the stopped VM again    # check
+  And the resumed session shows "journeys core first client again"    # check
+  When the user quits the harness and the launcher exits 0
+```
