@@ -3,6 +3,7 @@ package journeys
 import (
 	"bufio"
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
 )
@@ -88,5 +89,24 @@ func TestStubStreamsTheScriptedFunctionCall(t *testing.T) {
 	if item.Type != "function_call" || item.Name != "shell" || item.Arguments != `{"command":["true"]}` ||
 		item.CallID == "" {
 		t.Errorf("item = %+v, want the scripted function_call", item)
+	}
+}
+
+// codex's tool-less title request is a side request on the Responses path too.
+func TestStubAnswersAToolLessResponsesRequestAsASideRequest(t *testing.T) {
+	provider := startTestStub(t)
+	provider.ScriptToolCall(ToolCall{Name: "exec_command", Arguments: `{"cmd":"true"}`})
+
+	response := postMessages(t, provider, "/v1/responses", `{"model":"stub","stream":true,"input":[]}`)
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(string(body), stubTitleReply) || strings.Contains(string(body), "function_call") {
+		t.Errorf("body = %s, want the title reply and no function call", body)
+	}
+	if len(provider.Replies()) != 0 || servedTurn(provider.Requests()) {
+		t.Error("a tool-less Responses request counted as a turn")
 	}
 }

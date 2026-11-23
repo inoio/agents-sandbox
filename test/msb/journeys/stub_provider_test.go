@@ -297,3 +297,18 @@ func TestStubAnswersAnUnknownPathWithNotFound(t *testing.T) {
 		t.Errorf("replies = %v, want only the chat completion's", got)
 	}
 }
+
+func TestStubAnswersAnUndecodableTurnWithBadRequest(t *testing.T) {
+	provider := startTestStub(t)
+	provider.ScriptToolCall(ToolCall{Name: "write", Arguments: `{}`})
+
+	response := postChat(t, provider, "\x28\xb5\x2f\xfd compressed")
+
+	if response.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", response.StatusCode)
+	}
+	requests := provider.Requests()
+	if len(requests) != 1 || requests[0].DecodeError == "" || servedTurn(requests) {
+		t.Errorf("requests = %+v, want one recorded with its decode error and not a turn", requests)
+	}
+}

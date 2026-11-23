@@ -36,7 +36,8 @@ var codexHarness = Harness{
 }
 
 // codexStubConfig renders the config.toml fragment that selects the stub
-// provider at addr.
+// provider at addr. Go's %q stands in for TOML string escaping, which holds for
+// its inputs only: ASCII identifiers and an http URL with no control characters.
 func codexStubConfig(addr string) string {
 	return fmt.Sprintf(`model = %q
 model_provider = %q

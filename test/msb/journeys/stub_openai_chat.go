@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 )
 
 // stubReplyPrefix starts every main-model text reply; the stub numbers its
@@ -55,7 +54,9 @@ type chatRequest struct {
 
 // side reports a side request rather than a turn: one for the small model
 // (opencode's and claude-code's titles), or one that offers no tools (codex
-// asks its main model for the title without tools). It gets stubTitleReply and
+// asks its main model for the title without tools). A real turn without tools
+// (opencode's compaction agent runs tool-less) would count as a side request;
+// a journey that drives one must refine this rule. It gets stubTitleReply and
 // neither takes the armed tool call nor a numbered reply.
 func (r chatRequest) side() bool {
 	return r.Model == stubTitleModel || len(r.Tools) == 0
@@ -177,10 +178,7 @@ func streamChatCompletion(response http.ResponseWriter, delta chatMessage, finis
 // request or a token count is not one).
 func servedTurn(requests []StubRequest) bool {
 	for _, request := range requests {
-		turnPath := strings.HasSuffix(request.Path, stubCompletionPath) ||
-			strings.HasSuffix(request.Path, stubMessagesPath) ||
-			strings.HasSuffix(request.Path, stubResponsesPath)
-		if request.Method == http.MethodPost && turnPath && !request.Side {
+		if request.Method == http.MethodPost && isTurnPath(request.Path) && !request.Side && request.DecodeError == "" {
 			return true
 		}
 	}

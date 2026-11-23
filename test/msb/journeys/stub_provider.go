@@ -3,7 +3,9 @@ package journeys
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -44,6 +46,8 @@ type StubRequest struct {
 	Model string
 	// Side marks a side request (a title), not a turn (chatRequest.side).
 	Side bool
+	// DecodeError is why the request body did not decode, empty when it did.
+	DecodeError string
 }
 
 // stubOriginEnv overrides the advertised destination origin (scheme://host) the
@@ -202,14 +206,29 @@ func bracketedHost(hostname string) string {
 
 // ServeHTTP records the request and answers it by its path: the model list, an
 // Anthropic token count, an Anthropic Messages turn, an OpenAI Responses turn,
-// or an OpenAI chat completion; anything else is not found. A body that does
-// not decode offers no tools, so it is answered as a non-streamed side request.
+// or an OpenAI chat completion; anything else is not found. A turn whose body
+// does not decode (a compressed or unexpected body) is answered 400 and recorded
+// with its error, so a protocol mismatch shows in the request log instead of
+// passing as a tool-less side request.
 func (p *stubProvider) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	var completion chatRequest
-	_ = json.NewDecoder(request.Body).Decode(&completion)
-	p.record(StubRequest{
+	decodeErr := json.NewDecoder(request.Body).Decode(&completion)
+	if errors.Is(decodeErr, io.EOF) {
+		decodeErr = nil
+	}
+	decodeError := ""
+	if decodeErr != nil {
+		decodeError = decodeErr.Error()
+	}
+	recorded := StubRequest{
 		Method: request.Method, Path: request.URL.Path, Model: completion.Model, Side: completion.side(),
-	})
+		DecodeError: decodeError,
+	}
+	p.record(recorded)
+	if decodeErr != nil && isTurnPath(request.URL.Path) {
+		http.Error(response, "stub: undecodable request body: "+decodeErr.Error(), http.StatusBadRequest)
+		return
+	}
 	switch path := request.URL.Path; {
 	case strings.HasSuffix(path, "/models"):
 		response.Header().Set("Content-Type", "application/json")
@@ -228,6 +247,13 @@ func (p *stubProvider) ServeHTTP(response http.ResponseWriter, request *http.Req
 	default:
 		http.NotFound(response, request)
 	}
+}
+
+// isTurnPath reports whether path is one of the protocols' turn paths.
+func isTurnPath(path string) bool {
+	return strings.HasSuffix(path, stubCompletionPath) ||
+		strings.HasSuffix(path, stubMessagesPath) ||
+		strings.HasSuffix(path, stubResponsesPath)
 }
 
 // answerFor decides a completion's answer: the title reply for a side

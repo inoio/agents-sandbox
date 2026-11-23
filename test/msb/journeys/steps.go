@@ -336,7 +336,11 @@ func newReplySince(stub StubProvider, seen int, budget time.Duration) (string, e
 			return replies[len(replies)-1], nil
 		}
 		if !time.Now().Before(deadline) {
-			return "", fmt.Errorf("the stub sent no reply for the prompt within %s", budget)
+			return "", fmt.Errorf(
+				"the stub sent no reply for the prompt within %s (requests: %v)",
+				budget,
+				stub.Requests(),
+			)
 		}
 		//testenv:allow polling a live harness on a wall-clock interval
 		time.Sleep(stubPollInterval)

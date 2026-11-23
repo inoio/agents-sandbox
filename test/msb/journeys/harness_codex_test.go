@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/inoio/agents-sandbox/internal/agent"
 )
 
 // codex writes through exec_command with a shell command line; the line must
@@ -33,8 +35,14 @@ func TestCodexWriteFileCallWritesTheContentThroughTheShell(t *testing.T) {
 func TestCodexStubConfigSelectsAResponsesProviderAtTheStub(t *testing.T) {
 	snippets := codexHarness.StubSnippets("http://stub.test:1234")
 	content := snippets[codexStubSnippet]
-	if !strings.HasPrefix(codexStubSnippet, "config") || !strings.HasSuffix(codexStubSnippet, ".toml") {
-		t.Errorf("snippet name %q does not match the launcher's config*.toml pattern", codexStubSnippet)
+	profile, _ := agent.Lookup(codexAgentName)
+	merger, ok := profile.(agent.ConfigMerger)
+	if !ok {
+		t.Fatal("codex does not merge config snippets")
+	}
+	pattern := merger.SnippetPattern()
+	if matched, err := filepath.Match(pattern, codexStubSnippet); err != nil || !matched {
+		t.Errorf("snippet name %q does not match codex's snippet pattern %q", codexStubSnippet, pattern)
 	}
 	for _, want := range []string{`model = "stub"`, `model_provider = "stub"`, `base_url = "http://stub.test:1234/v1"`, `wire_api = "responses"`} {
 		if !strings.Contains(content, want) {

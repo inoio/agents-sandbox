@@ -254,7 +254,9 @@ field, and one stub rule:
   file. A dummy `~/.codex/auth.json` skips codex's sign-in screen.
 - **A tool-less request is a side request.** codex asks its main model for the session title without tools, so
   the stub treats a request for the small model *or* without tools as a side request (`stubTitleReply`, no
-  numbered reply, not a turn).
+  numbered reply, not a turn). A real tool-less turn (opencode's compaction agent) would be misread; a journey
+  that drives one must refine the rule. A turn whose body does not decode is answered 400 and recorded with its
+  error rather than taken for a side request.
 - codex writes through `exec_command` with a shell command line; the adapter quotes the content for the shell.
 
 The adapter now has three ways to point a harness at the stub (`StubConfig` home files, `StubEnv`,

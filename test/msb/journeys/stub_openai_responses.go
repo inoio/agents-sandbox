@@ -22,6 +22,7 @@ type (
 		Response     *responsesStatus `json:"response,omitempty"`
 		OutputIndex  *int             `json:"output_index,omitempty"`
 		ContentIndex *int             `json:"content_index,omitempty"`
+		ItemID       string           `json:"item_id,omitempty"`
 		Delta        string           `json:"delta,omitempty"`
 		Item         *responsesItem   `json:"item,omitempty"`
 	}
@@ -57,8 +58,10 @@ type (
 )
 
 // serveResponses answers an OpenAI Responses request (codex) as the event
-// stream codex reads: response.created, the reply's text delta (for a text
-// reply), the finished output item, and response.completed. A function call is
+// stream codex reads: response.created, the output item added, the reply's
+// text delta (for a text reply), the finished output item, and
+// response.completed. The ids are the same on every turn; codex 0.171 does not
+// match them across turns. A function call is
 // one function_call item with the call's JSON arguments.
 func serveResponses(response http.ResponseWriter, call *ToolCall, reply string) {
 	zero := 0
@@ -74,10 +77,11 @@ func serveResponses(response http.ResponseWriter, call *ToolCall, reply string) 
 	}
 	events := []responsesEvent{
 		{Type: "response.created", Response: &responsesStatus{ID: "resp_stub", Status: "in_progress"}},
+		{Type: "response.output_item.added", OutputIndex: &zero, Item: &item},
 	}
 	if call == nil {
 		events = append(events, responsesEvent{
-			Type: "response.output_text.delta", OutputIndex: &zero, ContentIndex: &zero, Delta: reply,
+			Type: "response.output_text.delta", OutputIndex: &zero, ContentIndex: &zero, ItemID: item.ID, Delta: reply,
 		})
 	}
 	events = append(events,
