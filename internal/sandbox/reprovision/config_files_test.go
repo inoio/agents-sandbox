@@ -495,6 +495,9 @@ func TestHostFilesFromProvisioner(t *testing.T) {
 	}
 }
 
+// TestHostFilesFromProvisionerNoSnippets verifies that without snippets the
+// drop-in's main-config destination is still marked merged: it is reconciled
+// with the agent's own settings, not copied verbatim.
 func TestHostFilesFromProvisionerNoSnippets(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	hostHome := t.TempDir()
@@ -507,10 +510,11 @@ func TestHostFilesFromProvisionerNoSnippets(t *testing.T) {
 	}
 	testutil.WriteFile(t, ocConfig, "opencode.json", `{"a":1}`)
 
-	cf := &ConfigFiles{HasSnippets: false}
+	mergedPath := filepath.Join(vmHome, ".config", "opencode", "opencode.jsonc")
+	cf := &ConfigFiles{HasSnippets: false, MergedPath: mergedPath}
 	files := resolveConfigSubject(agent.Resolve(a), vmHome).hostFilesFromProvisioner(hostHome, cf)
-	if len(files) != 1 || files[0].Merged {
-		t.Errorf("hostFilesFromProvisioner = %+v, want 1 non-merged file", files)
+	if len(files) != 1 || !files[0].Merged {
+		t.Errorf("hostFilesFromProvisioner = %+v, want 1 reconciled file", files)
 	}
 }
 
@@ -962,9 +966,9 @@ func TestLoadConfigFilesHermesMergedConfig(t *testing.T) {
 }
 
 // TestLoadConfigFilesOhMyPiMergedConfig verifies that oh-my-pi snippets merge
-// into ~/.omp/agent/config.yml as YAML and that both names omp reads, config.yml
-// and its config.yaml fallback, are removed from the VM, so a stale copy of
-// either cannot shadow the merged config.
+// into ~/.omp/agent/config.yml as YAML, the main config itself is reconciled
+// rather than removed, and its config.yaml fallback is removed from the VM, so a
+// stale copy of the fallback cannot shadow the merged config.
 func TestLoadConfigFilesOhMyPiMergedConfig(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()

@@ -3,6 +3,7 @@ package reprovision
 import (
 	"context"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -330,6 +331,93 @@ func TestReconcileMainConfigWithoutAMainConfigDoesNothing(t *testing.T) {
 	}
 }
 
+// memoryMainConfigStore is an in-memory mainConfigStore whose contents persist
+// across reconciliations, so a test can drive the same VM file and base through
+// consecutive runs.
+type memoryMainConfigStore struct {
+	files map[string][]byte
+}
+
+func newMemoryMainConfigStore(files map[string][]byte) *memoryMainConfigStore {
+	contents := make(map[string][]byte, len(files))
+	maps.Copy(contents, files)
+	return &memoryMainConfigStore{files: contents}
+}
+
+// read reports a missing key as an absent file, as hostConfigStore does.
+func (s *memoryMainConfigStore) read(path string) ([]byte, bool) { return s.files[path], true }
+
+func (s *memoryMainConfigStore) write(path string, data []byte, _ os.FileMode) error {
+	s.files[path] = data
+	return nil
+}
+
+func (s *memoryMainConfigStore) remove(path string) { delete(s.files, path) }
+
+// TestReconcileMainConfigKeylessLauncherIsAFixedPoint pins the review finding
+// that a keyless launcher document (a snippet merging to no keys, or a host
+// drop-in decoding to none) must not be recorded as the base: recording its raw
+// bytes would make the next run read them as a base and delete an agent file the
+// first run kept. A keyless live document is present-but-nonempty, so the
+// byte-empty check alone would not have kept it.
+func TestReconcileMainConfigKeylessLauncherIsAFixedPoint(t *testing.T) {
+	const opencodeBase = "/home/dev/.local/state/agents-sandbox/config-base/.config/opencode/opencode.jsonc"
+	for name, live := range map[string]string{
+		"keyless JSON document": `{}`,
+		"null JSON document":    `null`,
+		"whitespace document":   " \n",
+		"comment-only document": "// nothing\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			store := newMemoryMainConfigStore(map[string][]byte{opencodeMergedPath: []byte(live)})
+			cf := &ConfigFiles{
+				HasSnippets:    true,
+				Merged:         []byte(`{}`),
+				MergedPath:     opencodeMergedPath,
+				MergedBasePath: opencodeBase,
+			}
+
+			for run := range 4 {
+				if err := reconcileMainConfig(store, cf); err != nil {
+					t.Fatalf("run %d: reconcileMainConfig = %v", run, err)
+				}
+				if got, _ := store.read(opencodeMergedPath); string(got) != live {
+					t.Fatalf("run %d: main config = %q, want the agent's own %q kept", run, got, live)
+				}
+				if recorded, _ := store.read(opencodeBase); recorded != nil {
+					t.Fatalf("run %d: a keyless launcher was recorded as the base", run)
+				}
+			}
+		})
+	}
+}
+
+// TestReconcileMainConfigKeylessDropInIsAFixedPoint pins the same rule for the
+// drop-in copy of a host file: a host file at the main config path that decodes
+// to zero keys is no launcher content, so it is not recorded as a base and does
+// not delete the agent's file on a later run.
+func TestReconcileMainConfigKeylessDropInIsAFixedPoint(t *testing.T) {
+	const opencodeBase = "/home/dev/.local/state/agents-sandbox/config-base/.config/opencode/opencode.jsonc"
+	store := newMemoryMainConfigStore(map[string][]byte{opencodeMergedPath: []byte(`{"theme":"dark"}`)})
+	cf := &ConfigFiles{
+		MergedPath:     opencodeMergedPath,
+		MergedBasePath: opencodeBase,
+		Provisioned:    map[string][]byte{opencodeMergedPath: []byte("{}\n")},
+	}
+
+	for run := range 4 {
+		if err := reconcileMainConfig(store, cf); err != nil {
+			t.Fatalf("run %d: reconcileMainConfig = %v", run, err)
+		}
+		if got, _ := store.read(opencodeMergedPath); string(got) != `{"theme":"dark"}` {
+			t.Fatalf("run %d: main config = %q, want the agent's own settings kept", run, got)
+		}
+		if recorded, _ := store.read(opencodeBase); recorded != nil {
+			t.Fatalf("run %d: a keyless drop-in was recorded as the base", run)
+		}
+	}
+}
+
 func bytesOrNil(text string) []byte {
 	if text == "" {
 		return nil
@@ -358,6 +446,45 @@ func TestChangedAgentConfigPathsWithoutABaseComparesTheFile(t *testing.T) {
 	if changed := ChangedAgentConfigPaths(cf, vmData); !slices.Equal(changed, []string{codexMainConfig}) {
 		t.Errorf("changed = %v, want the main config", changed)
 	}
+}
+
+// TestChangedAgentConfigPathsWithAKeylessLauncher pins the shared keyless rule:
+// a launcher document with no keys owns nothing, and recordMainConfigBase removes
+// the base for it, so the reconfig comparison must not fall back to comparing the
+// raw keyless bytes against the agent's live file and report a change every run.
+func TestChangedAgentConfigPathsWithAKeylessLauncher(t *testing.T) {
+	const (
+		opencodeBase   = "/home/dev/.local/state/agents-sandbox/config-base/.config/opencode/opencode.jsonc"
+		agentSettings  = `{"theme":"dark"}`
+		launcherWithIt = `{"model":"gpt-5","theme":"dark"}`
+	)
+	keyless := &ConfigFiles{
+		HasSnippets:    true,
+		Merged:         []byte("{}\n"),
+		MergedPath:     opencodeMergedPath,
+		MergedBasePath: opencodeBase,
+	}
+	for name, live := range map[string]string{
+		"the agent's own settings": agentSettings,
+		"also the launcher's keys": launcherWithIt,
+	} {
+		t.Run(name, func(t *testing.T) {
+			vmData := map[string][]byte{opencodeMergedPath: []byte(live)}
+			if changed := ChangedAgentConfigPaths(keyless, vmData); len(changed) != 0 {
+				t.Errorf("changed = %v, want none for a keyless launcher with no recorded base", changed)
+			}
+		})
+	}
+
+	t.Run("a recorded base reports a change", func(t *testing.T) {
+		vmData := map[string][]byte{
+			opencodeMergedPath: []byte(launcherWithIt),
+			opencodeBase:       []byte(`{"model":"gpt-5"}`),
+		}
+		if changed := ChangedAgentConfigPaths(keyless, vmData); !slices.Equal(changed, []string{opencodeMergedPath}) {
+			t.Errorf("changed = %v, want the main config for a dropped key", changed)
+		}
+	})
 }
 
 func TestComparedPathsAddsTheBase(t *testing.T) {

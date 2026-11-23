@@ -47,6 +47,21 @@ func (cf *ConfigFiles) mainConfigContent() []byte {
 	return cf.Provisioned[cf.MergedPath]
 }
 
+// launcherMainConfigContent is mainConfigContent with a document that decodes to
+// zero keys read as no content, so a keyless launcher document is neither
+// reconciled as content nor recorded as the base. Without this, recording the raw
+// keyless bytes would make the next run read them as a base and remove a file the
+// run before kept. A document that does not decode is returned as written, which
+// Reconcile then rejects.
+func (cf *ConfigFiles) launcherMainConfigContent() []byte {
+	launcher := cf.mainConfigContent()
+	content, err := config.LauncherContent(cf.MergedPath, launcher)
+	if err != nil {
+		return launcher
+	}
+	return content
+}
+
 // filesBesideMainConfig returns files without the main config, which
 // reconcileMainConfig writes.
 func (cf *ConfigFiles) filesBesideMainConfig(files map[string][]byte) map[string][]byte {
@@ -56,11 +71,12 @@ func (cf *ConfigFiles) filesBesideMainConfig(files map[string][]byte) map[string
 }
 
 // reconcileMainConfig brings the agent's main config file in line with the
-// launcher's content (mainConfigContent) without discarding the agent's own
-// settings: configmerge.Reconcile against the recorded base decides, and the
-// launcher's content becomes the new base. A file that cannot be read is left
-// alone with its base; one that does not decode is replaced by the launcher's
-// content.
+// launcher's content (launcherMainConfigContent) without discarding the agent's
+// own settings: configmerge.Reconcile against the recorded base decides, and the
+// launcher's content becomes the new base. A launcher document with no keys owns
+// nothing, so it is neither merged nor recorded as a base, and the outcome stays
+// the same on every run. A file that cannot be read is left alone with its base;
+// one that does not decode is replaced by the launcher's content.
 func reconcileMainConfig(store mainConfigStore, cf *ConfigFiles) error {
 	// gomutants:disable-next-line BRANCH_IF reason="without a merger there is no launcher content and no base path, so the reconciliation would keep and record nothing; the guard only spares the store a read of an empty path"
 	if cf.MergedPath == "" {
@@ -72,7 +88,7 @@ func reconcileMainConfig(store mainConfigStore, cf *ConfigFiles) error {
 		// next run.
 		return nil
 	}
-	launcher := cf.mainConfigContent()
+	launcher := cf.launcherMainConfigContent()
 	outcome := decideMainConfig(store, cf, live, launcher)
 	switch outcome.Action {
 	case config.ReconcileWrite:
@@ -106,7 +122,9 @@ func decideMainConfig(store mainConfigStore, cf *ConfigFiles, live, launcher []b
 }
 
 // recordMainConfigBase records the launcher's content as the base of the next
-// reconciliation, or removes the base when the launcher has none.
+// reconciliation, or removes the base when the launcher has no content. The
+// caller passes launcherMainConfigContent, so a keyless launcher document has
+// already read as no content here.
 func recordMainConfigBase(store mainConfigStore, basePath string, launcher []byte) error {
 	if basePath == "" {
 		return nil

@@ -117,9 +117,21 @@ func TestReconcile(t *testing.T) {
 			launcher: `{"a":{"x":2},"b":{"x":2},"c":{"x":2}}`,
 			want:     ReconcileWrite, wantContent: `{"a":{"x":2,"u":1},"b":{"x":2,"u":1},"c":{"x":2,"u":1}}`,
 		},
-		"a fresh file gets a launcher document without keys": {
+		"a launcher document without keys owns nothing": {
 			liveAbsent: true, launcher: `{}`,
-			want: ReconcileWrite, wantContent: `{}`,
+			want: ReconcileKeep,
+		},
+		"a launcher document without keys leaves the agent's file alone": {
+			live: `{"theme":"dark"}`, launcher: `{}`,
+			want: ReconcileKeep,
+		},
+		"a null launcher document owns nothing": {
+			live: `{"theme":"dark"}`, launcher: `null`,
+			want: ReconcileKeep,
+		},
+		"a null live document is a file without keys": {
+			live: `null`, launcher: `{"model":"haiku"}`,
+			want: ReconcileWrite, wantContent: `{"model":"haiku"}`,
 		},
 		"an empty live file is a file without keys": {
 			live: "", launcher: `{"model":"haiku"}`,
@@ -143,6 +155,137 @@ func TestReconcile(t *testing.T) {
 		if tc.want == ReconcileWrite && !DocumentsEqual("settings.json", got.Content, []byte(tc.wantContent)) {
 			t.Errorf("%s: content = %s, want %s", name, got.Content, tc.wantContent)
 		}
+	}
+}
+
+// TestReconcileHandlesATopLevelNullDocument pins that a live main config that is
+// a top-level null (YAML "null", "~", "---"; JSON/JSONC/JSON5 "null") decodes to
+// a document with no keys instead of a nil map the merge would panic on.
+func TestReconcileHandlesATopLevelNullDocument(t *testing.T) {
+	cases := map[string]struct {
+		path, live, launcher, want string
+	}{
+		"yaml null":              {"settings.yaml", "null", "model: x\n", "model: x"},
+		"yaml tilde":             {"settings.yaml", "~", "model: x\n", "model: x"},
+		"yaml document marker":   {"settings.yaml", "---", "model: x\n", "model: x"},
+		"json null":              {"settings.json", "null", `{"model":"x"}`, `{"model":"x"}`},
+		"json null with comment": {"settings.json", "null // c", `{"model":"x"}`, `{"model":"x"}`},
+	}
+	for name, tc := range cases {
+		got, err := Reconcile(tc.path, nil, []byte(tc.live), []byte(tc.launcher))
+		if err != nil {
+			t.Errorf("%s: Reconcile error %v", name, err)
+			continue
+		}
+		if got.Action != ReconcileWrite {
+			t.Errorf("%s: action = %v, want a write", name, got.Action)
+			continue
+		}
+		if !DocumentsEqual(tc.path, got.Content, []byte(tc.want)) {
+			t.Errorf("%s: content = %s, want %s", name, got.Content, tc.want)
+		}
+	}
+	// A null live document with no launcher has nothing to merge.
+	for _, path := range []string{"settings.yaml", "settings.json"} {
+		got, err := Reconcile(path, nil, []byte("null"), nil)
+		if err != nil || got.Action != ReconcileKeep {
+			t.Errorf("%s: Reconcile = %+v, %v; want keep", path, got, err)
+		}
+	}
+}
+
+// TestReconcileReachesAFixedPoint applies each outcome the way the launcher does
+// — writing ReconcileWrite.Content, treating ReconcileRemove as an absent file,
+// and recording the launcher's content (via LauncherContent, as
+// reconcileMainConfig does) as the next base — and pins that a keyless launcher
+// document cannot make the main config alternate between created and deleted
+// across runs. The live cases cover a present-but-keyless agent file, which a
+// raw-bytes base would delete on the second run.
+func TestReconcileReachesAFixedPoint(t *testing.T) {
+	cases := map[string]struct {
+		base, live, launcher string
+	}{
+		"keyless launcher":                              {launcher: `{}`},
+		"keyless launcher over the agent's file":        {live: `{"theme":"dark"}`, launcher: `{}`},
+		"keyless launcher over a keyless agent file":    {live: `{}`, launcher: `{}`},
+		"keyless launcher over a null agent file":       {live: `null`, launcher: `{}`},
+		"keyless launcher over a whitespace agent file": {live: "  \n", launcher: `{}`},
+		"empty launcher":                                {},
+		"null launcher":                                 {launcher: `null`},
+		"null launcher over a keyless agent file":       {live: `{}`, launcher: `null`},
+		"launcher with keys":                            {live: `{"a":1}`, launcher: `{"a":2}`},
+		"launcher that drops its last key":              {base: `{"a":1}`, live: `{"a":1}`, launcher: `{}`},
+	}
+	for name, tc := range cases {
+		live := bytesOrNil(tc.live)
+		base := bytesOrNil(tc.base)
+		launcher := bytesOrNil(tc.launcher)
+		var settled ReconcileAction
+		for run := range 4 {
+			got, err := Reconcile("settings.json", base, live, launcher)
+			if err != nil {
+				t.Fatalf("%s: run %d: Reconcile error %v", name, run, err)
+			}
+			// The first run settles the file and the base; every run after it
+			// must find nothing to do, or the main config would be rewritten (or
+			// deleted) on one run and recreated on the next.
+			if run > 0 {
+				if run == 1 {
+					settled = got.Action
+				}
+				if got.Action != settled {
+					t.Errorf("%s: run %d action = %v, want %v as on run 1", name, run, got.Action, settled)
+				}
+				if got.Action != ReconcileKeep {
+					t.Errorf("%s: run %d action = %v, want a fixed point (keep)", name, run, got.Action)
+				}
+			}
+			switch got.Action {
+			case ReconcileWrite:
+				live = got.Content
+			case ReconcileRemove:
+				live = nil
+			case ReconcileKeep:
+				// The file is unchanged.
+			}
+			// recordMainConfigBase records the launcher's content, with a
+			// keyless document read as no content.
+			recorded, err := LauncherContent("settings.json", launcher)
+			if err != nil {
+				t.Fatalf("%s: run %d: LauncherContent error %v", name, run, err)
+			}
+			base = recorded
+		}
+	}
+}
+
+// TestReconcileReportsAMarshalFailure pins that a result the encoder cannot
+// serialize is reported rather than returned as an empty write. JSON5 decodes a
+// bare NaN to a float the JSON encoder refuses; a launcher key differing from
+// the live file forces the merged document through the encoder.
+func TestReconcileReportsAMarshalFailure(t *testing.T) {
+	_, err := Reconcile(
+		"settings.json",
+		[]byte(`{"model":"opus"}`),
+		[]byte(`{"model":"haiku"}`),
+		[]byte(`{"model":"sonnet","limit":NaN}`),
+	)
+	if err == nil {
+		t.Fatal("Reconcile over an unmarshalable value = nil error, want the marshal failure")
+	}
+	if !strings.Contains(err.Error(), "unsupported value") {
+		t.Errorf("Reconcile error = %v, want the marshal failure", err)
+	}
+}
+
+// TestApplyLauncherKeysHandlesANilLiveDocument pins the defensive guard: a nil
+// live document (no keys) is written into without panicking, since maps.Clone
+// keeps a nil map nil. decodeOrEmpty never returns a nil map, but the guard keeps
+// applyLauncherKeys safe for any caller.
+func TestApplyLauncherKeysHandlesANilLiveDocument(t *testing.T) {
+	got := applyLauncherKeys(nil, nil, map[string]any{"model": "haiku"})
+	if len(got) != 1 || got["model"] != "haiku" {
+		t.Errorf("applyLauncherKeys(nil, nil, launcher) = %v, want the launcher's key", got)
 	}
 }
 

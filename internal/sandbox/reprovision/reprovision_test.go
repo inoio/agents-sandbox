@@ -467,7 +467,7 @@ func TestProvisionChownsWhatItCreatedBeforeAFailure(t *testing.T) {
 		},
 		{
 			name:      "merged config directory creation fails",
-			cf:        &ConfigFiles{HasSnippets: true, Merged: []byte("{}"), MergedPath: opencodeMergedPath},
+			cf:        &ConfigFiles{HasSnippets: true, Merged: []byte(`{"model":"x"}`), MergedPath: opencodeMergedPath},
 			failPath:  "/home/dev/.config/opencode",
 			wantChown: "chown -R dev:dev /home /home/dev /home/dev/.config",
 		},

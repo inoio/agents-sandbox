@@ -169,7 +169,7 @@ func TestMaterializeReportsMergedWriteFailure(t *testing.T) {
 	}
 	cf := &ConfigFiles{
 		HasSnippets:    true,
-		Merged:         []byte("{}\n"),
+		Merged:         []byte(`{"model":"x"}`),
 		MergedPath:     opencodeMergedPath,
 		MergedBasePath: mainConfigBasePath(VMHomeDir, opencodeMergedPath),
 	}
@@ -282,7 +282,7 @@ func TestMaterializeRemovesStaleTargetsBeforeWriting(t *testing.T) {
 	}
 	cf := &ConfigFiles{
 		HasSnippets: true,
-		Merged:      []byte("{}\n"),
+		Merged:      []byte(`{"model":"x"}`),
 		MergedPath:  opencodeMergedPath,
 		Remove:      []string{"/home/dev/.config/opencode/opencode.json"},
 	}

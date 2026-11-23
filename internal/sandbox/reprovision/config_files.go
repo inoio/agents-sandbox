@@ -708,14 +708,18 @@ func (s configSubject) mirrorFilesFromConfig(src ConfigSource) []MirrorFile {
 
 // hostFilesFromProvisioner walks the subject's provision rules against hostHome
 // and records each host file it would copy, marking whether the VM destination
-// is merged into the single config rather than copied as a drop-in. It never
-// modifies any state.
+// is the agent's main config (reconciled with the agent's own settings) or one
+// of its removed siblings, rather than copied as a drop-in. It never modifies
+// any state.
 func (s configSubject) hostFilesFromProvisioner(hostHome string, cf *ConfigFiles) []HostFile {
 	if s.provisioner == nil {
 		return nil
 	}
 	merged := make(map[string]struct{})
-	if cf.HasSnippets {
+	if cf.MergedPath != "" {
+		// The main config path is reconciled and its siblings are removed, so a
+		// host drop-in there is never copied verbatim — with or without
+		// snippets.
 		for _, path := range configFileFamilyPaths(cf.MergedPath, s.familyNames) {
 			merged[path] = struct{}{}
 		}
@@ -778,18 +782,12 @@ func (cf *ConfigFiles) ComparedPaths() []string {
 // require a daemon restart. The merged config is compared with the launcher's
 // recorded base (vmData[cf.MergedBasePath]), so the agent's own writes to its
 // main config are not a change; a VM with no recorded base compares the file
-// itself.
+// itself, except for a keyless launcher document, which owns nothing and so is
+// a change only when a base was recorded (see changedMergedPath).
 func ChangedAgentConfigPaths(cf *ConfigFiles, vmData map[string][]byte) []string {
 	var changed []string
 	if cf.HasSnippets {
-		vm, ok := vmData[cf.MergedBasePath]
-		if !ok {
-			vm, ok = vmData[cf.MergedPath]
-		}
-		// gomutants:disable-next-line BRANCH_IF,EXPRESSION_REMOVE reason="DocumentsEqual fails to parse a missing (nil) VM document against any non-empty merged one, so it already reports the difference"
-		if !ok || !config.DocumentsEqual(cf.MergedPath, cf.Merged, vm) {
-			changed = append(changed, cf.MergedPath)
-		}
+		changed = append(changed, changedMergedPath(cf, vmData)...)
 	}
 	var mirrorChanged []string
 	for path, want := range cf.Mirror {
@@ -800,6 +798,32 @@ func ChangedAgentConfigPaths(cf *ConfigFiles, vmData map[string][]byte) []string
 	}
 	sort.Strings(mirrorChanged)
 	return append(changed, mirrorChanged...)
+}
+
+// changedMergedPath reports the merged config path when it differs from the VM
+// state, using the shared keyless rule. A launcher document with no keys owns
+// nothing (configmerge.LauncherContent) and is not recorded as a base, so it
+// reports a change only when a base exists (the launcher dropped keys it
+// previously wrote); otherwise the agent's own writes to the file are not a
+// change. A launcher with content is compared with its recorded base, or with
+// the VM file when no base exists.
+func changedMergedPath(cf *ConfigFiles, vmData map[string][]byte) []string {
+	if launcher, err := config.LauncherContent(cf.MergedPath, cf.Merged); err == nil && len(launcher) == 0 {
+		if _, recorded := vmData[cf.MergedBasePath]; recorded {
+			return []string{cf.MergedPath}
+		}
+		return nil
+	}
+	vm, ok := vmData[cf.MergedBasePath]
+	if !ok {
+		vm, ok = vmData[cf.MergedPath]
+	}
+	// gomutants:disable-next-line BRANCH_IF,EXPRESSION_REMOVE reason="DocumentsEqual fails to parse a missing (nil) VM document against any non-empty merged one, so it already reports the difference"
+	if !ok || !config.DocumentsEqual(cf.MergedPath, cf.Merged, vm) {
+		return []string{cf.MergedPath}
+	}
+	// gomutants:disable-next-line RETURN_ZERO reason="no change is an empty result"
+	return nil
 }
 
 // withoutPath returns paths without path.
