@@ -17,8 +17,10 @@ const catalogueFileName = "JOURNEYS.md"
 func renderCatalogue(journeys []Journey, exemptions map[string]map[string]string) string {
 	var text strings.Builder
 	text.WriteString("# msb journeys\n\n")
-	text.WriteString("Generated from `test/msb/journeys/table.go` by `TestJourneyCatalogueIsCurrent`; do not edit.\n")
-	text.WriteString("Run `go test ./test/msb/journeys/ -run TestJourneyCatalogueIsCurrent -args -update-catalogue`")
+	text.WriteString("Generated from the journey table (`Journeys`, `Exemptions`) by `TestJourneyCatalogueIsCurrent`;")
+	text.WriteString(" do not edit. Steps marked `# check` are recorded on failure and the journey goes on.\n")
+	text.WriteString("Run `go test -tags microsandbox_ffi_path ./test/msb/journeys/ -run TestJourneyCatalogueIsCurrent")
+	text.WriteString(" -args -update-catalogue`")
 	text.WriteString(" to regenerate it. See `.operator-shared/specs/testing/msb-journeys.md`.\n")
 	for _, journey := range journeys {
 		text.WriteString("\n## " + journey.Name + "\n\n")
@@ -29,11 +31,10 @@ func renderCatalogue(journeys []Journey, exemptions map[string]map[string]string
 		writeExemptions(&text, exemptions[journey.Name])
 		text.WriteString("\n```gherkin\nScenario: " + journey.Name + "\n")
 		for _, step := range journey.Steps {
-			line := step.Text()
 			if step.Kind == Check {
-				line += "    # check"
+				text.WriteString("  # check\n")
 			}
-			text.WriteString("  " + line + "\n")
+			text.WriteString("  " + step.Text() + "\n")
 		}
 		text.WriteString("```\n")
 	}

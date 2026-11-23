@@ -2,6 +2,7 @@ package journeys
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -31,8 +32,9 @@ func TestJourneyCatalogueIsCurrent(t *testing.T) {
 	}
 	if string(got) != want {
 		t.Errorf(
-			"%s is stale; regenerate it: go test ./test/msb/journeys/ -run TestJourneyCatalogueIsCurrent -args -update-catalogue",
-			catalogueFileName,
+			"%s is stale (%s); regenerate it: go test -tags microsandbox_ffi_path ./test/msb/journeys/"+
+				" -run TestJourneyCatalogueIsCurrent -args -update-catalogue",
+			catalogueFileName, firstDifference(string(got), want),
 		)
 	}
 }
@@ -46,10 +48,28 @@ func TestRenderCatalogueShowsTheScenarioAndExemptions(t *testing.T) {
 
 	for _, want := range []string{
 		"## core", "Runs on: opencode2", "Network profile: `host`", "- codex, pi: later",
-		"Scenario: core\n  Given a fresh home\n  Then the reply shows    # check\n",
+		"Scenario: core\n  Given a fresh home\n  # check\n  Then the reply shows\n",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("catalogue lacks %q:\n%s", want, text)
 		}
 	}
+}
+
+// firstDifference names the first line where got and want differ.
+func firstDifference(got, want string) string {
+	gotLines, wantLines := strings.Split(got, "\n"), strings.Split(want, "\n")
+	for index := range max(len(gotLines), len(wantLines)) {
+		var gotLine, wantLine string
+		if index < len(gotLines) {
+			gotLine = gotLines[index]
+		}
+		if index < len(wantLines) {
+			wantLine = wantLines[index]
+		}
+		if gotLine != wantLine {
+			return fmt.Sprintf("line %d is %q, want %q", index+1, gotLine, wantLine)
+		}
+	}
+	return "no line differs"
 }

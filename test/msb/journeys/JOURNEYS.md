@@ -1,7 +1,7 @@
 # msb journeys
 
-Generated from `test/msb/journeys/table.go` by `TestJourneyCatalogueIsCurrent`; do not edit.
-Run `go test ./test/msb/journeys/ -run TestJourneyCatalogueIsCurrent -args -update-catalogue` to regenerate it. See `.operator-shared/specs/testing/msb-journeys.md`.
+Generated from the journey table (`Journeys`, `Exemptions`) by `TestJourneyCatalogueIsCurrent`; do not edit. Steps marked `# check` are recorded on failure and the journey goes on.
+Run `go test -tags microsandbox_ffi_path ./test/msb/journeys/ -run TestJourneyCatalogueIsCurrent -args -update-catalogue` to regenerate it. See `.operator-shared/specs/testing/msb-journeys.md`.
 
 ## uc1-learn-by-using
 
@@ -23,9 +23,12 @@ Scenario: uc1-learn-by-using
   When the user sends the prompt "hello"
   And the user quits the harness and the learn exit prompt appears
   And the user answers the exit prompt with Save all
-  Then the per-slug scope holds the learned credential    # check
-  And no project scaffolding appears    # check
-  And the first-run decision is recorded    # check
+  # check
+  Then the per-slug scope holds the learned credential
+  # check
+  And no project scaffolding appears
+  # check
+  And the first-run decision is recorded
 ```
 
 ## uc4-learn-from-host
@@ -49,8 +52,10 @@ Scenario: uc4-learn-from-host
   When the user sends the prompt "hello"
   And the user quits the harness and the learn exit prompt appears
   And the user answers the exit prompt with Save all
-  Then the per-slug scope holds the learned credential    # check
-  And the per-slug scope excludes the host login store    # check
+  # check
+  Then the per-slug scope holds the learned credential
+  # check
+  And the per-slug scope excludes the host login store
 ```
 
 ## config-learn-replay
@@ -73,9 +78,12 @@ Scenario: config-learn-replay
   And a recorded learning session whose launcher is gone
   When the user runs `agents-sandbox config learn`
   And the user applies every proposal
-  Then the per-slug scope holds the learned credential    # check
-  And the learn artefact is deleted    # check
-  And the learn session record is cleared    # check
+  # check
+  Then the per-slug scope holds the learned credential
+  # check
+  And the learn artefact is deleted
+  # check
+  And the learn session record is cleared
 ```
 
 ## attribution-observed-pair
@@ -99,8 +107,10 @@ Scenario: attribution-observed-pair
   When the user sends the prompt "hello"
   And the user quits the harness and the learn exit prompt appears
   And the user answers the exit prompt with Save all
-  Then the per-slug scope holds the learned credential    # check
-  And the learned network policy is no wider than the run's    # check
+  # check
+  Then the per-slug scope holds the learned credential
+  # check
+  And the learned network policy is no wider than the run's
 ```
 
 ## core-session
@@ -123,20 +133,27 @@ Scenario: core-session
   And the stub answers the next turn by writing "journeys-core.txt"
   When the user runs `agents-sandbox run`
   Then the harness TUI comes up
-  And the experimental notice matches the harness's profile    # check
-  And no project scaffolding appears    # check
+  # check
+  And the experimental notice matches the harness's profile
+  # check
+  And no project scaffolding appears
   When the user sends the prompt "journeys core first turn"
   Then the stub provider served the turn
-  And "journeys-core.txt" is in the project on the host, owned by the host user    # check
-  And the harness shows the stub's reply    # check
+  # check
+  And "journeys-core.txt" is in the project on the host, owned by the host user
+  # check
+  And the harness shows the stub's reply
   When another client runs `agents-sandbox run` on the same project
   Then the harness TUI comes up
-  And no reconfig prompt appears    # check
+  # check
+  And no reconfig prompt appears
   When the user sends the prompt "journeys core second client"
-  Then the harness shows the stub's reply    # check
+  # check
+  Then the harness shows the stub's reply
   When the user switches to client 1
   And the user sends the prompt "journeys core first client again"
-  Then the harness shows the stub's reply    # check
+  # check
+  Then the harness shows the stub's reply
   When the user switches to client 2
   And the user quits the harness and the launcher exits 0
   And the user switches to client 1
@@ -144,7 +161,9 @@ Scenario: core-session
   And the user stops the project VM
   When the user runs the harness again, resuming the last session
   Then the harness TUI comes up
-  And the launcher boots the stopped VM again    # check
-  And the resumed session shows "journeys core first client again"    # check
+  # check
+  And the launcher boots the stopped VM again
+  # check
+  And the resumed session shows "journeys core first client again"
   When the user quits the harness and the launcher exits 0
 ```
