@@ -193,7 +193,9 @@ usage() {
   cat <<'EOF'
 usage: kvm-guest.sh {up|render|ssh|sync|prime|run <cmd...>|agent [cmd]|agent-up [cmd]|agent-provision [name]|sync-back [branch]|pause|firewall|down}
 
-  up                create and boot the KVM guest (cloud-init provisions it)
+  up                bring the shared guest up for this branch (create if absent,
+                    resume a paused one, start a stopped one; refuses a guest
+                    another branch holds). cloud-init provisions a new guest.
   render            write the cloud-init seed and domain XML to ARTIFACT_DIR, no boot
   ssh               open a shell in the guest
   sync              point the guest's git at the host and pull its branch
@@ -528,13 +530,22 @@ write_guest_owner() {
 clear_guest_owner() { rm -f "$OWNER_PATH"; }
 
 # guest_state prints "absent" when the domain is not defined, else libvirt's
-# state name with whitespace removed ("running", "paused", "shutoff", ...).
+# state name with whitespace removed ("running", "paused", "shutoff", ...). An
+# undefined domain is proven by its absence from `virsh list --all --name`; a
+# failed query dies rather than reading as absent, so a caller acting on
+# "absent" (pause releasing the lock, create) never mistakes an unreachable or
+# mis-permitted libvirt for a guest that is not there.
 guest_state() {
-  if ! virsh_cmd dominfo "$VM_NAME" >/dev/null 2>&1; then
+  local defined state
+  defined="$(virsh_cmd list --all --name 2>/dev/null)" ||
+    die "cannot query libvirt at $LIBVIRT_URI (is it running? set LIBVIRT_URI?)"
+  if ! grep -qxF "$VM_NAME" <<<"$defined"; then
     printf 'absent\n'
     return
   fi
-  virsh_cmd domstate "$VM_NAME" 2>/dev/null | tr -d '[:space:]' || true
+  state="$(virsh_cmd domstate "$VM_NAME" 2>/dev/null | tr -d '[:space:]')" ||
+    die "cannot read the state of guest '$VM_NAME'"
+  printf '%s\n' "$state"
 }
 
 # acquire_guest brings the shared guest up for this branch and records it as the
@@ -560,6 +571,8 @@ acquire_guest() {
     paused)
       log "resuming guest '$VM_NAME'"
       virsh_cmd resume "$VM_NAME" >/dev/null
+      ip="$(wait_for_lease)"
+      probe_guest_egress "$ip"
       ;;
     shutoff)
       # A host reboot drops the default network and the firewall accepts the
@@ -1032,8 +1045,8 @@ create() {
 }
 
 # wait_for_lease blocks until the guest has a DHCP lease, printing progress, and
-# warns (printing nothing) on timeout. It is the boot gate `create` and the
-# ensure-running path share.
+# warns (printing nothing) on timeout. It is the boot gate `create` and
+# `acquire_guest`'s resume/start arms share.
 wait_for_lease() {
   local timeout="${KVM_BOOT_TIMEOUT:-300}" waited=0 ip=""
   log "waiting up to ${timeout}s for a DHCP lease (cloud-init first boot takes a few minutes)"

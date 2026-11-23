@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -563,6 +564,7 @@ func TestKvmGuestAgentProvisionCopiesOnlyTheUserIdentity(t *testing.T) {
 	stdinLog := filepath.Join(dir, "ssh-stdin")
 	rsyncLog := filepath.Join(dir, "rsync-argv")
 	env := kvmGuestEnv(dir)
+	lockKvmGuest(t, env)
 	env["HOME"] = home
 	env["GIT_USER_NAME"] = "Host User"
 	env["GIT_USER_EMAIL"] = "host@example.test"
@@ -900,6 +902,7 @@ func TestKvmGuestSyncQuotesAShellMetacharacterBranch(t *testing.T) {
 	dir := t.TempDir()
 	env := kvmGuestSyncEnv(t, dir)
 	env["REPO_BRANCH"] = "feat/x;id"
+	lockKvmGuest(t, env)
 
 	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync")
 	assertStatus(t, result, 0)
@@ -1111,9 +1114,10 @@ func TestKvmGuestSyncProceedsWhenTheOwnerBranchHoldsTheGuest(t *testing.T) {
 
 	assertContains(t, "ssh argv", readText(t, filepath.Join(dir, "ssh-argv")), "git fetch origin --prune")
 	virshArgv := readText(t, filepath.Join(dir, "virsh-argv"))
-	// The log must be wired: the acquire probe ran (dominfo), so the absence of a
-	// resume/start below is meaningful rather than an assertion against "".
-	assertContains(t, "virsh argv", virshArgv, "dominfo")
+	// The log must be wired: the acquire probe ran (the state query), so the
+	// absence of a resume/start below is meaningful rather than an assertion
+	// against "".
+	assertContains(t, "virsh argv", virshArgv, "list --all --name")
 	assertNotContains(t, "virsh argv", virshArgv, "resume")
 	assertNotContains(t, "virsh argv", virshArgv, "start")
 }
@@ -1227,11 +1231,78 @@ func TestKvmGuestPauseSuspendsTheGuestAndReleasesTheLock(t *testing.T) {
 func TestKvmGuestPauseOnAnAbsentGuestIsANoOp(t *testing.T) {
 	dir := t.TempDir()
 	env := kvmGuestEnv(dir)
+	env["VIRSH_ARGV"] = filepath.Join(dir, "virsh-argv")
 	env["PATH"] = kvmGuestPath(t, "virsh")
 
 	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "pause")
 	assertStatus(t, result, 0)
-	assertNotContains(t, "stderr", result.Stderr, "suspend")
+
+	// The state probe (list) ran, and nothing beyond it: no suspend, start, or
+	// destroy. Without VIRSH_ARGV this case could not fail.
+	virshArgv := readText(t, filepath.Join(dir, "virsh-argv"))
+	assertContains(t, "virsh argv", virshArgv, "list --all --name")
+	assertNotContains(t, "virsh argv", virshArgv, "suspend")
+	assertNotContains(t, "virsh argv", virshArgv, "start")
+	assertNotContains(t, "virsh argv", virshArgv, "destroy")
+}
+
+// TestKvmGuestPauseFailsWhenTheStateQueryFails pins that an unreachable or
+// mis-permitted libvirt is not read as an absent guest: pause dies, and the
+// owner label is left for the real holder rather than cleared.
+func TestKvmGuestPauseFailsWhenTheStateQueryFails(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestEnv(dir)
+	writeGuestOwnerFile(t, dir, "feat/793-msb-journeys")
+	env["VIRSH_ARGV"] = filepath.Join(dir, "virsh-argv")
+	env["VIRSH_LIST_FAIL"] = "1"
+	env["PATH"] = kvmGuestPath(t, "virsh")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "pause")
+	assertStatus(t, result, 1)
+
+	assertContains(t, "stderr", result.Stderr, "cannot query libvirt")
+	assertNotContains(t, "virsh argv", readText(t, filepath.Join(dir, "virsh-argv")), "suspend")
+	if _, err := os.Stat(filepath.Join(dir, "asb-kvm-test.owner")); err != nil {
+		t.Errorf("pause cleared the owner label after a failed state query: %v", err)
+	}
+}
+
+// TestKvmGuestUpOnAHeldGuestIsANoOp pins that the `up` dispatch routes through
+// acquire_guest: the branch that already holds the guest is a no-op, so the
+// create path (define/start, which need a hypervisor) is never reached.
+func TestKvmGuestUpOnAHeldGuestIsANoOp(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestEnv(dir)
+	lockKvmGuest(t, env)
+	env["VIRSH_ARGV"] = filepath.Join(dir, "virsh-argv")
+	env["PATH"] = kvmGuestPath(t, "virsh")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "up")
+	assertStatus(t, result, 0)
+
+	virshArgv := readText(t, filepath.Join(dir, "virsh-argv"))
+	assertNotContains(t, "virsh argv", virshArgv, "define")
+	assertNotContains(t, "virsh argv", virshArgv, "start")
+	assertNotContains(t, "stderr", result.Stderr, "qemu-img")
+}
+
+// TestKvmGuestUpOnAnAbsentGuestCreatesIt pins the other acquire_guest arm: with
+// no domain defined, `up` falls through to create. create's host checks fail
+// here (no qemu-img on PATH), which is how the case observes that create was
+// reached rather than a held-guest no-op.
+func TestKvmGuestUpOnAnAbsentGuestCreatesIt(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestEnv(dir)
+	env["VIRSH_ARGV"] = filepath.Join(dir, "virsh-argv")
+	env["PATH"] = kvmGuestPath(t, "virsh")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "up")
+	if result.Status == 0 {
+		t.Fatalf("up on an absent guest did not reach create:\n%s", result.Stderr)
+	}
+	assertContains(t, "stderr", result.Stderr, "missing 'qemu-img'")
+	// create was reached, so the state probe proved absence first.
+	assertContains(t, "virsh argv", readText(t, filepath.Join(dir, "virsh-argv")), "list --all --name")
 }
 
 // TestKvmGuestSyncRefusesADetachedCheckout pins fail-closed on an unresolved
@@ -1360,7 +1431,21 @@ func kvmGuestVirshHandler(args []string) (string, string, int) {
 			return "Name:           asb-kvm-test\n", "", 0
 		}
 		return "", "error: failed to get domain 'asb-kvm-test'\n", 1
+	case strings.Contains(joined, "list"):
+		// `virsh list --all --name` proves a domain is defined. VIRSH_LIST_FAIL
+		// models an unreachable/mis-permitted libvirt so a case can pin that the
+		// state query failing is fatal, not read as absent.
+		if envOption("VIRSH_LIST_FAIL") != "" {
+			return "", "error: failed to connect to the hypervisor\n", 1
+		}
+		if envOption("VIRSH_DOMINFO_OK") != "" {
+			return "asb-kvm-test\n", "", 0
+		}
+		return "", "", 0
 	case strings.Contains(joined, "domstate"):
+		if envOption("VIRSH_DOMSTATE_FAIL") != "" {
+			return "", "error: failed to get domain 'asb-kvm-test'\n", 1
+		}
 		return envOption("VIRSH_DOMSTATE") + "\n", "", 0
 	case strings.Contains(joined, "net-info"):
 		return "Name:           default\nActive:         yes\n", "", 0
@@ -1441,16 +1526,26 @@ func kvmGuestSSHKeygenHandler(args []string) (string, string, int) {
 	return "", "", 0
 }
 
-// kvmGuestGrepHandler serves the `grep` call ensure_host_authorized_key makes,
-// `-v <pattern> <file>`: print the lines that do not match. It models only a
-// leading `^` anchor and a literal substring, not `.*`/`$`: the one case that
-// puts this fake on PATH sets GREP_READ_ERROR and short-circuits before matching,
-// so the partial matcher is never reached. GREP_READ_ERROR makes the rewrite fail
-// with grep's read-error status (2), so a case can pin that a failed rewrite does
-// not clobber the host's authorized_keys. The other authorized_keys cases run the
-// real grep (their PATH has no grep fake), so the real pattern is exercised there.
+// kvmGuestGrepHandler serves the `grep` calls the script under test makes. The
+// rewrite's `-v <pattern> <file>` prints the lines that do not match, modelling
+// only a leading `^` anchor and a literal substring, not `.*`/`$`: the one case
+// that puts this fake on PATH sets GREP_READ_ERROR and short-circuits before
+// matching, so the partial matcher is never reached. GREP_READ_ERROR makes the
+// rewrite fail with grep's read-error status (2), so a case can pin that a failed
+// rewrite does not clobber the host's authorized_keys. A `-qxF <name>` call
+// (guest_state's defined-domain probe) reads the domain list on stdin and matches
+// a whole line. The other authorized_keys cases run the real grep (their PATH has
+// no grep fake), so the real pattern is exercised there.
 func kvmGuestGrepHandler(args []string) (string, string, int) {
 	recordArgv("GREP_ARGV", args)
+	if len(args) == 2 && args[0] == "-qxF" {
+		data, _ := io.ReadAll(os.Stdin)
+		lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+		if slices.Contains(lines, args[1]) {
+			return "", "", 0
+		}
+		return "", "", 1
+	}
 	if len(args) != 3 || args[0] != "-v" {
 		return "", "grep fake: unexpected arguments\n", 2
 	}

@@ -10,6 +10,23 @@
 
 **Spec:** the approved design is the "Design (approved)" section below; this plan travels with it.
 
+## Rebased onto the host-git-remote work
+
+This branch was rebased onto main's host-git-remote work (PR #843), which rewrote `sync` and changed two things this
+plan assumed. The task steps below are the original, pre-rebase record; the shipped code differs as follows:
+
+- **`sync` is a host `git pull`, not an rsync of the checkout.** Main replaced `sync_in` with
+  `ensure_guest_git_remote` + `git fetch origin --prune` / `git checkout` / `git merge --ff-only` in the guest. The
+  `ARTIFACT_DIR` exclude-anchoring fix and its two exclude tests were dropped with the rsync path; `sync_in` just
+  prepends `acquire_guest` (after `require_safe_branch`).
+- **`guest_state` fails closed.** It proves an undefined domain from `virsh list --all --name` (not a failed
+  `virsh dominfo`, which read a mis-permitted/unreachable libvirt as `absent`), and a failed state query `die`s so
+  `pause`/`up` never drop the owner label for a guest that is merely out of view.
+- **The paused arm mirrors the shut-off arm.** After `virsh resume`, `acquire_guest` waits for the DHCP lease and probes
+  guest egress, rather than returning immediately after resuming.
+- **The lock key is `lock_branch`.** An explicit `REPO_BRANCH` wins, else the live branch; a detached checkout prints
+  nothing and `acquire_guest` refuses, rather than keying on the `main` fallback and colliding with a real main checkout.
+
 ## Design (approved)
 
 - **Central artifacts.** `ARTIFACT_DIR` defaults to `$KVM_IMAGE_CACHE/guest` (`/var/lib/libvirt/images/agents-sandbox/guest`). `KVM_IMAGE_CACHE` is defined first; the env override still wins. The `guest/` subdir keeps the live disk distinct from the cached base image inside the same libvirt-allowed tree that AppArmor already permits. `VM_NAME` stays `asb-kvm` — one shared domain.

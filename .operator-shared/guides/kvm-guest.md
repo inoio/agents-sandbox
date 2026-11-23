@@ -1,6 +1,6 @@
 ---
-description: The host-only libvirt KVM guest for running the msb test suites and an agent that works on this repo - why the development VM cannot run them, the `scripts/kvm-guest.sh` provisioner and its `make kvm-up`/`kvm-sync`/`kvm-prime`/`kvm-run`/`kvm-agent`/`kvm-agent-provision`/`kvm-down` targets, the host git remote the guest pulls from and pushes to over a `git-shell`-restricted key, the disk-backed reuse root the guest pre-creates, the nested-KVM prerequisites, and the volatile host-firewall fix guest egress needs.
-read_if: Running the msb suites (`make test-msb`, `make test-msb-journeys`) and needing a KVM host; running an agent (opencode2) on the guest so it can build the launcher and drive real VMs (`make kvm-agent`, `make kvm-agent-provision`); provisioning or destroying the libvirt guest; priming the guest's runner-image/msb cache from the host (`make kvm-prime`) or diagnosing a `prime` that copies nothing; diagnosing a guest that never gets a DHCP lease, a `virsh start` `Permission denied` on the cache (AppArmor), or no DNS/egress behind Docker's `ip filter` table; the guest's host git remote (`make kvm-sync`, guest `git push`, the `git-shell`-restricted key) or a sync that refuses; or changing `scripts/kvm-guest.sh`.
+description: The host-only libvirt KVM guest for running the msb test suites and an agent that works on this repo - why the development VM cannot run them, the `scripts/kvm-guest.sh` provisioner and its `make kvm-up`/`kvm-sync`/`kvm-prime`/`kvm-run`/`kvm-agent`/`kvm-agent-provision`/`kvm-sync-back`/`kvm-pause`/`kvm-down` targets, the shared-across-worktrees guest and its state-derived branch lock, the host git remote the guest pulls from and pushes to over a `git-shell`-restricted key, the disk-backed reuse root the guest pre-creates, the nested-KVM prerequisites, and the volatile host-firewall fix guest egress needs.
+read_if: Running the msb suites (`make test-msb`, `make test-msb-journeys`) and needing a KVM host; running an agent (opencode2) on the guest so it can build the launcher and drive real VMs (`make kvm-agent`, `make kvm-agent-provision`); provisioning, pausing, or destroying the libvirt guest; handing the shared guest between branches or diagnosing an `in use by branch` refusal, an `owner label` message, or an unexpected `domstate`; priming the guest's runner-image/msb cache from the host (`make kvm-prime`) or diagnosing a `prime` that copies nothing; diagnosing a guest that never gets a DHCP lease, a `virsh start` `Permission denied` on the cache (AppArmor), or no DNS/egress behind Docker's `ip filter` table; the guest's host git remote (`make kvm-sync`, guest `git push`, the `git-shell`-restricted key) or a sync that refuses; or changing `scripts/kvm-guest.sh`.
 ---
 
 # The KVM guest for the msb suites
@@ -91,7 +91,9 @@ session, so hand over only once the agent is done.
 The owner key is the branch name, so a checkout whose branch cannot be resolved — a detached HEAD, or a directory git
 does not recognize — **cannot acquire**; check out a branch or set `REPO_BRANCH` explicitly. The artifacts path is
 host-global, so two separate clones of this repository on one host resolve to the same guest: keep them off the
-same-named branch, or give one a distinct `VM_NAME`/`ARTIFACT_DIR`.
+same-named branch, or give one a distinct `VM_NAME`/`ARTIFACT_DIR`. Whether the guest is *defined* is proven from
+`virsh list --all --name`, and a state query that cannot reach libvirt is **fatal**: `up` and `pause` fail closed rather
+than mistake an unreachable guest for an absent one and drop the owner label.
 
 ### Priming the guest from the host
 
