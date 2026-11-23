@@ -385,12 +385,23 @@ func StepQuit() Step {
 	}}
 }
 
+// exitChoiceLabel names a learn exit prompt key as the prompt shows it.
+func exitChoiceLabel(key string) string {
+	switch key {
+	case exitSaveAllKey:
+		return "Save all"
+	case exitNotNowKey:
+		return "Not now"
+	}
+	return strconv.Quote(key)
+}
+
 // StepChooseExit answers the learn exit prompt with key (the launcher's
 // r/s/n choice) and waits for the launcher to exit 0. Answering "Save all" runs
 // the analysis/save path before the process exits, so the post-answer wait uses
 // the larger ExitSaveTimeout rather than the quit budget.
 func StepChooseExit(key string) Step {
-	return Step{Name: "the user answers the exit prompt with " + strconv.Quote(key), Run: func(c *Context) error {
+	return Step{Name: "the user answers the exit prompt with " + exitChoiceLabel(key), Run: func(c *Context) error {
 		ses, err := session(c)
 		if err != nil {
 			return err

@@ -766,3 +766,11 @@ func TestLaunchArgvPassesTheAdaptersLaunchArgsOnlyToARun(t *testing.T) {
 		t.Errorf("run argv = %v, want the binary, the agent, and --no-rebuild", run)
 	}
 }
+
+func TestExitChoiceLabelNamesThePromptsChoices(t *testing.T) {
+	for key, want := range map[string]string{exitSaveAllKey: "Save all", exitNotNowKey: "Not now", "r": `"r"`} {
+		if got := exitChoiceLabel(key); got != want {
+			t.Errorf("exitChoiceLabel(%q) = %q, want %q", key, got, want)
+		}
+	}
+}
