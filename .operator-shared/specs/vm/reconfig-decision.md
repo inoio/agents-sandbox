@@ -92,6 +92,15 @@ and the user's own config, env, and flags stay unprompted.
 - Values read from the live VM need no persistence: image and home volume show old → new, published ports their
   binding diff, and an agent-config restart the guest paths that differ.
 
+## Agent-config changes restart only a daemon
+
+An agent-config change (`ChangeFlags.AgentConfig`, compared against the recorded base, see
+[main config ownership](../configuration/main-config-ownership.md)) sets `RestartDaemons` only for an agent with a
+`DaemonProvider`. Provisioning writes the files on every run, so a daemonless agent (`ChangeFlags.DaemonlessAgent`)
+reads them at its next start: the plan records them in `NewSessionAgentConfig`, adds no prompt-worthy change, and
+`ResolveReconfig` names them in one info line, with or without other attached clients. An unresolved agent is not
+treated as daemonless.
+
 ## Invariant: preserve fingerprints on every state rewrite
 
 Every path that rewrites a project's `HomeState` must carry the existing env/secret/network/mount fingerprints forward,
