@@ -54,25 +54,26 @@ func StepSeedHostConfig(build func(*Context) (map[string]string, error)) Step {
 	}}
 }
 
-// StepSeedStub starts the journey's host-side stub provider and provisions the
-// agent's VM config so its provider points at the stub, storing the provider on
-// the context. It writes the file through the launcher's `home:` manifest
-// (driver.SeedLauncherConfig), not the agent's launcher config dir and not the
-// home the first-run host seed reads, so a fresh-home journey still gets the
-// first-run menu rather than a managed layer or a host-setup seed. The listener
-// is closed by StartStubProvider's tb.Cleanup.
+// StepSeedStub starts the journey's host-side stub provider, storing it on the
+// context, and seeds the home: the startup smoke's host files and `home:`
+// manifest for the harness (driver.Spec.Seeds), with the adapter's stub files
+// added to the manifest. The smoke's agent snippets wait for
+// StepConfigureLauncherEnv: a snippet is a managed layer, and a fresh-home
+// journey must still get the first-run menu. The listener is closed by
+// StartStubProvider's tb.Cleanup.
 func StepSeedStub() Step {
 	return Step{Name: "the stub provider is provisioned into the VM", Run: func(c *Context) error {
-		if c.Harness.Stub.HomeFiles == nil {
-			return fmt.Errorf("the %s adapter declares no stub config", c.Agent)
-		}
 		provider, err := StartStubProvider(c.TB)
 		if err != nil {
 			return err
 		}
 		c.Stub = provider
-		if err := driver.SeedLauncherConfig(c.Home, c.Harness.Stub.HomeFiles(provider.Addr())); err != nil {
-			return fmt.Errorf("provision stub provider config: %w", err)
+		seeds := driver.Seeds{HomeFiles: c.Spec.Seeds.HomeFiles, HomeManifest: c.Spec.Seeds.HomeManifest}
+		if c.Harness.Stub.HomeFiles != nil {
+			seeds = seeds.Merge(driver.Seeds{HomeManifest: c.Harness.Stub.HomeFiles(provider.Addr())})
+		}
+		if err := seeds.Apply(c.Home, ""); err != nil {
+			return fmt.Errorf("seed the home: %w", err)
 		}
 		return nil
 	}}

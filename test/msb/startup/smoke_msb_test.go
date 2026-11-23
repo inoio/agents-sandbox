@@ -63,15 +63,9 @@ func TestHarnessSmoke(t *testing.T) {
 			if err := driver.PrepareHome(homeBase); err != nil {
 				t.Fatalf("prepare %s home: %v", name, err)
 			}
-			if err := driver.SeedHomeFiles(homeBase, spec.SeedHomeFiles); err != nil {
-				t.Fatalf("seed %s home files: %v", name, err)
-			}
-			if err := driver.SeedLauncherConfig(homeBase, spec.SeedHomeManifest); err != nil {
-				t.Fatalf("seed %s launcher config: %v", name, err)
-			}
 			profile, _ := agent.Lookup(name)
-			if err := driver.SeedAgentSnippets(homeBase, profile.ConfigDirName(), spec.SeedAgentSnippets); err != nil {
-				t.Fatalf("seed %s agent snippets: %v", name, err)
+			if err := spec.Seeds.Apply(homeBase, profile.ConfigDirName()); err != nil {
+				t.Fatalf("seed %s home: %v", name, err)
 			}
 			ses := driver.MustStartUnderPTY(
 				t,

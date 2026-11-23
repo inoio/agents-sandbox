@@ -64,7 +64,7 @@ func TestOhMyPiSeedsAHomeConfigWithoutSetupWizard(t *testing.T) {
 	if spec.Network != "" {
 		t.Errorf("oh-my-pi Network = %q, want the default `none`", spec.Network)
 	}
-	cfg, ok := spec.SeedHomeFiles[ohMyPiConfigPath]
+	cfg, ok := spec.Seeds.HomeFiles[ohMyPiConfigPath]
 	if !ok {
 		t.Fatalf("oh-my-pi SeedHomeFiles missing %s", ohMyPiConfigPath)
 	}
@@ -89,7 +89,7 @@ func TestKimiCodeSeedsATrustedWorkspaceThroughASnippet(t *testing.T) {
 	if spec.Network != "" {
 		t.Errorf("kimi-code Network = %q, want the default `none`", spec.Network)
 	}
-	cfg, ok := spec.SeedAgentSnippets[kimiCodeSmokeSnippet]
+	cfg, ok := spec.Seeds.AgentSnippets[kimiCodeSmokeSnippet]
 	if !ok {
 		t.Fatalf("kimi-code SeedAgentSnippets missing %s", kimiCodeSmokeSnippet)
 	}
@@ -114,7 +114,7 @@ func TestGooseSeedsAProviderThroughASnippet(t *testing.T) {
 	if spec.Network != "" {
 		t.Errorf("goose Network = %q, want the default `none`", spec.Network)
 	}
-	cfg, ok := spec.SeedAgentSnippets[gooseSmokeSnippet]
+	cfg, ok := spec.Seeds.AgentSnippets[gooseSmokeSnippet]
 	if !ok {
 		t.Fatalf("goose SeedAgentSnippets missing %s", gooseSmokeSnippet)
 	}
@@ -174,7 +174,7 @@ func TestHermesSeedsAConfiguredHomeAndMarker(t *testing.T) {
 	if spec.Network != "" {
 		t.Errorf("hermes Network = %q, want the default `none` (the seeded provider is loopback)", spec.Network)
 	}
-	cfg, ok := spec.SeedHomeFiles[HermesConfigPath]
+	cfg, ok := spec.Seeds.HomeFiles[HermesConfigPath]
 	if !ok {
 		t.Fatalf("hermes SeedHomeFiles missing %s", HermesConfigPath)
 	}
@@ -210,7 +210,7 @@ func TestClaudeCodeSeedsItsFirstRunState(t *testing.T) {
 	if !ok {
 		t.Fatal("claude-code has no smoke-test spec")
 	}
-	cfg, ok := spec.SeedHomeManifest[ClaudeCodeConfigPath]
+	cfg, ok := spec.Seeds.HomeManifest[ClaudeCodeConfigPath]
 	if !ok {
 		t.Fatalf("claude-code SeedHomeManifest missing %s", ClaudeCodeConfigPath)
 	}
@@ -219,8 +219,8 @@ func TestClaudeCodeSeedsItsFirstRunState(t *testing.T) {
 			t.Errorf("claude-code seeded config missing %q:\n%s", want, cfg)
 		}
 	}
-	if len(spec.SeedHomeFiles) != 0 {
-		t.Errorf("claude-code SeedHomeFiles = %v; want the home: manifest", spec.SeedHomeFiles)
+	if len(spec.Seeds.HomeFiles) != 0 {
+		t.Errorf("claude-code SeedHomeFiles = %v; want the home: manifest", spec.Seeds.HomeFiles)
 	}
 }
 
