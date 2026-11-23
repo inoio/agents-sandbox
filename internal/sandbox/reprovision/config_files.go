@@ -203,6 +203,21 @@ func noLauncherConfigDir(src ConfigSource) bool {
 	return !IsDir(src.PrimaryProjectDir)
 }
 
+// suggestedSnippetDir returns the generic user config dir, home-relative, when
+// the agent has no launcher config dir yet, so a new user learns where agent
+// settings go; "" otherwise.
+func suggestedSnippetDir(src ConfigSource, hostHome string) string {
+	if !noLauncherConfigDir(src) || len(src.PrimaryUserDirs) == 0 {
+		return ""
+	}
+	dir := src.PrimaryUserDirs[0]
+	// A failed Rel returns "", which is not local either.
+	if rel, _ := filepath.Rel(hostHome, dir); filepath.IsLocal(rel) {
+		return filepath.Join("~", rel)
+	}
+	return dir
+}
+
 // IsDir reports whether path names an existing directory.
 func IsDir(path string) bool {
 	info, err := os.Stat(path)
@@ -230,7 +245,11 @@ type ConfigFiles struct {
 	Hooks          []homeconfig.HookSpec   // startup hooks to run at vm.SetUpSandbox
 	// StateDefaults are keys merged into the agent's own state files.
 	StateDefaults []StateDefault
-	Keys          []string // merged config path first (when snippets exist), then the remaining VM paths sorted
+	// SuggestedSnippetDir is the generic user config dir for the agent, shown
+	// home-relative, when the agent has no launcher config dir in any scope yet;
+	// "" otherwise.
+	SuggestedSnippetDir string
+	Keys                []string // merged config path first (when snippets exist), then the remaining VM paths sorted
 }
 
 // configSubject materializes the agent facts the config pipeline needs, derived
@@ -362,29 +381,23 @@ func LoadConfigFilesForHost(
 			describeConfigScopes(src.PrimaryUserDirs, src.PrimaryProjectDir, false),
 		)
 	}
-	if noLauncherConfigDir(src) {
-		ui.Infof(
-			"No launcher config dir for agent %s yet (%s); create one to add config snippets, "+
-				"mirrored files, and hooks. Run 'agents-sandbox config agent' to inspect what gets provisioned.",
-			a.Profile.Name(), describeConfigScopes(src.PrimaryUserDirs, src.PrimaryProjectDir, false),
-		)
-	}
 	return &ConfigFiles{
-		HasSnippets:    merged.hasSnippets,
-		Merged:         merged.content,
-		MergedPath:     merged.path,
-		MergedBasePath: mainConfigBasePath(vmHome, merged.path),
-		Sources:        merged.sources,
-		Skipped:        merged.skipped,
-		Source:         src,
-		HomeFiles:      homeFiles,
-		Provisioned:    provisioned,
-		Mirror:         mirror,
-		Modes:          modes,
-		Remove:         remove,
-		Hooks:          hooks,
-		Keys:           keys,
-		StateDefaults:  stateDefaultsFor(a.Profile, vmHome),
+		HasSnippets:         merged.hasSnippets,
+		Merged:              merged.content,
+		MergedPath:          merged.path,
+		MergedBasePath:      mainConfigBasePath(vmHome, merged.path),
+		Sources:             merged.sources,
+		Skipped:             merged.skipped,
+		Source:              src,
+		HomeFiles:           homeFiles,
+		Provisioned:         provisioned,
+		Mirror:              mirror,
+		Modes:               modes,
+		Remove:              remove,
+		Hooks:               hooks,
+		Keys:                keys,
+		StateDefaults:       stateDefaultsFor(a.Profile, vmHome),
+		SuggestedSnippetDir: suggestedSnippetDir(src, hostHome),
 	}, nil
 }
 

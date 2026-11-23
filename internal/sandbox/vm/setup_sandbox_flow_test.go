@@ -759,3 +759,42 @@ func setUpSandboxProvisionsConfig(t *testing.T) {
 		t.Error("expected the merged config to be provisioned, but it was never written")
 	}
 }
+
+// TestSetUpSandboxShowsTheSnippetTipOnlyOnANewProjectVM pins #782: the tip
+// naming where agent settings go appears on the run that creates the VM, not on
+// every run.
+func TestSetUpSandboxShowsTheSnippetTipOnlyOnANewProjectVM(t *testing.T) {
+	for boot, wantTip := range map[VMBoot]bool{VMBootCreated: true, VMBootStarted: false, VMBootConnected: false} {
+		configpathstest.WithMockConfigPaths(t)
+		ui := termiotest.NewTestMock(t)
+		sb := &msbtest.MockSandbox{Name_: "vm", FSValue_: msbtest.NewTestFS(nil), ShellCalls: &[]string{}}
+		cfs := &reprovision.ConfigFiles{SuggestedSnippetDir: "~/.config/agents-sandbox/opencode"}
+
+		if _, err := SetUpSandbox(context.Background(), testVMKey(), sb, opencodeResolved(t),
+			options.RunOptions{Agent: "opencode"}, healthyOpencodeDaemon(t), cfs, &ui, false, boot,
+			mounts.WorkspaceMountPath); err != nil {
+			t.Fatalf("boot %v: SetUpSandbox: %v", boot, err)
+		}
+
+		gotTip := strings.Contains(strings.Join(ui.InfoCalls, "\n"), "~/.config/agents-sandbox/opencode")
+		if gotTip != wantTip {
+			t.Errorf("boot %v: tip shown = %v, want %v (info: %v)", boot, gotTip, wantTip, ui.InfoCalls)
+		}
+	}
+}
+
+func TestSetUpSandboxShowsNoSnippetTipOnceAConfigDirExists(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	ui := termiotest.NewTestMock(t)
+	sb := &msbtest.MockSandbox{Name_: "vm", FSValue_: msbtest.NewTestFS(nil), ShellCalls: &[]string{}}
+
+	if _, err := SetUpSandbox(context.Background(), testVMKey(), sb, opencodeResolved(t),
+		options.RunOptions{Agent: "opencode"}, healthyOpencodeDaemon(t), &reprovision.ConfigFiles{}, &ui, false,
+		VMBootCreated, mounts.WorkspaceMountPath); err != nil {
+		t.Fatalf("SetUpSandbox: %v", err)
+	}
+
+	if strings.Contains(strings.Join(ui.InfoCalls, "\n"), "Tip:") {
+		t.Errorf("info = %v, want no tip when the agent already has a config dir", ui.InfoCalls)
+	}
+}

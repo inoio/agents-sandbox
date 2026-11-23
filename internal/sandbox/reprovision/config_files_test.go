@@ -656,28 +656,44 @@ func TestLoadConfigFilesPrimarySuppressesLegacy(t *testing.T) {
 	}
 }
 
-func TestLoadConfigFilesInfosWhenNoLauncherConfigDirExists(t *testing.T) {
+// TestLoadConfigFilesSuggestsTheUserDirWhenNoLauncherConfigDirExists pins #782:
+// loading prints nothing (it runs on every run and for config agent) and names
+// the generic user dir for the tip on a new project VM.
+func TestLoadConfigFilesSuggestsTheUserDirWhenNoLauncherConfigDirExists(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	a, _ := agent.Lookup("opencode2")
 
 	ui := termiotest.NewTestMock(t)
-	if _, err := LoadConfigFiles(agent.Resolve(a), "", &ui, true); err != nil {
+	cf, err := LoadConfigFiles(agent.Resolve(a), "", &ui, true)
+	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	if len(ui.InfoCalls) != 1 {
-		t.Fatalf("info count = %d, want 1; infos: %v", len(ui.InfoCalls), ui.InfoCalls)
+	if len(ui.InfoCalls) != 0 || len(ui.WarnCalls) != 0 {
+		t.Errorf("loading printed info %v, warnings %v; want nothing", ui.InfoCalls, ui.WarnCalls)
 	}
-	info := ui.InfoCalls[0]
-	userDir := filepath.Join(cp.UserConfigDir(), "opencode2")
-	projectDir := filepath.Join(cp.ProjectConfigDirAbs(), "opencode2")
-	for _, want := range []string{userDir, projectDir, "agents-sandbox config agent"} {
-		if !strings.Contains(info, want) {
-			t.Errorf("info should mention %q; got %q", want, info)
-		}
+	if want := filepath.Join(cp.UserConfigDir(), "opencode2"); cf.SuggestedSnippetDir != want {
+		t.Errorf("SuggestedSnippetDir = %q, want the generic user dir %q", cf.SuggestedSnippetDir, want)
 	}
-	if len(ui.WarnCalls) != 0 {
-		t.Errorf("unexpected warnings: %v", ui.WarnCalls)
+}
+
+func TestSuggestedSnippetDirShortensAPathUnderTheHome(t *testing.T) {
+	src := ConfigSource{
+		PrimaryUserDirs:   []string{"/home/dev/.config/agents-sandbox/x"},
+		PrimaryProjectDir: "/nonexistent/x",
+	}
+	if got := suggestedSnippetDir(src, "/home/dev"); got != "~/.config/agents-sandbox/x" {
+		t.Errorf("suggestedSnippetDir = %q, want it home-relative", got)
+	}
+}
+
+func TestSuggestedSnippetDirKeepsAPathOutsideTheHome(t *testing.T) {
+	src := ConfigSource{PrimaryUserDirs: []string{"/etc/agents-sandbox/x"}, PrimaryProjectDir: "/nonexistent/project/x"}
+	if got := suggestedSnippetDir(src, "/home/dev"); got != "/etc/agents-sandbox/x" {
+		t.Errorf("suggestedSnippetDir = %q, want the absolute path", got)
+	}
+	if got := suggestedSnippetDir(ConfigSource{PrimaryProjectDir: "/nonexistent"}, "/home/dev"); got != "" {
+		t.Errorf("suggestedSnippetDir without a user dir = %q, want none", got)
 	}
 }
 
@@ -695,11 +711,15 @@ func TestLoadConfigFilesNoInfoWhenALauncherConfigDirExists(t *testing.T) {
 			}
 			a, _ := agent.Lookup("opencode2")
 			ui := termiotest.NewTestMock(t)
-			if _, err := LoadConfigFiles(agent.Resolve(a), "", &ui, true); err != nil {
+			cf, err := LoadConfigFiles(agent.Resolve(a), "", &ui, true)
+			if err != nil {
 				t.Fatalf("LoadConfigFiles: %v", err)
 			}
-			if len(ui.InfoCalls) != 0 {
-				t.Errorf("unexpected info: %v", ui.InfoCalls)
+			if cf.SuggestedSnippetDir != "" {
+				t.Errorf(
+					"SuggestedSnippetDir = %q, want none once a launcher config dir exists",
+					cf.SuggestedSnippetDir,
+				)
 			}
 		})
 	}
