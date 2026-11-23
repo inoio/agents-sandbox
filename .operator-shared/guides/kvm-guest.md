@@ -95,6 +95,18 @@ same-named branch, or give one a distinct `VM_NAME`/`ARTIFACT_DIR`. Whether the 
 `virsh list --all --name`, and a state query that cannot reach libvirt is **fatal**: `up` and `pause` fail closed rather
 than mistake an unreachable guest for an absent one and drop the owner label.
 
+A host that already had a guest **before** this change is not migrated. Its domain was defined against the old
+per-worktree `$PWD/.kvm-guest/asb-kvm.qcow2`, and `up` only runs `create` when *no* domain is defined, so it
+resumes/starts that existing domain at the old path instead of redefining it into `ARTIFACT_DIR`; `down` then removes
+the domain and the *new* artifact paths, leaving the old 80 GiB overlay behind. Reclaim it once, after `make kvm-down`:
+
+```console
+rm -f <old-worktree>/.kvm-guest/asb-kvm.qcow2   # plus -seed.img/-user-data/-meta-data/.xml if present
+```
+
+The next `make kvm-up` then builds a fresh guest under `ARTIFACT_DIR`. Re-defining a live domain onto a new disk source
+is not done automatically: it is rare, one-time, and not worth the risk of touching a running guest.
+
 ### Priming the guest from the host
 
 The guest builds its runner images and loads them into microsandbox itself; on a cold guest that is the suite's

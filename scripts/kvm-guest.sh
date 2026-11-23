@@ -994,11 +994,13 @@ EOF
 
 create() {
   check_host
-  mkdir -p "$ARTIFACT_DIR"
   # The base image must be readable by libvirt's QEMU user, and on
   # Debian/Ubuntu AppArmor only allows libvirt's own paths, so the cache
   # defaults to /var/lib/libvirt/images/agents-sandbox. Create it once,
-  # owned by us so the fetch can write.
+  # owned by us so the fetch can write. The check precedes the artifact
+  # mkdir: with the default ARTIFACT_DIR ($KVM_IMAGE_CACHE/guest) the mkdir
+  # would otherwise create the very cache this guards, or abort with a bare
+  # "No such file or directory" when the parent is read-only.
   if [ ! -d "$KVM_IMAGE_CACHE" ]; then
     die "image cache '$KVM_IMAGE_CACHE' does not exist. Create it once:
       sudo install -d -o \"\$USER\" -g \"\$USER\" -m 0755 '$KVM_IMAGE_CACHE'
@@ -1006,6 +1008,8 @@ create() {
      not allow, makes 'virsh start' fail with Permission denied)"
   fi
   [ -w "$KVM_IMAGE_CACHE" ] || die "image cache '$KVM_IMAGE_CACHE' is not writable by $USER; chown it: sudo chown \"\$USER\" '$KVM_IMAGE_CACHE'"
+
+  mkdir -p "$ARTIFACT_DIR"
 
   if [ "${KVM_REFRESH_IMAGE:-}" = "1" ]; then
     log "KVM_REFRESH_IMAGE set; discarding the cached base image"
@@ -1067,13 +1071,23 @@ wait_for_lease() {
 }
 
 destroy() {
-  if virsh_cmd dominfo "$VM_NAME" >/dev/null 2>&1; then
-    log "destroying domain '$VM_NAME'"
-    virsh_cmd destroy "$VM_NAME" >/dev/null 2>&1 || true
-    virsh_cmd undefine "$VM_NAME" --nvram >/dev/null 2>&1 || virsh_cmd undefine "$VM_NAME" >/dev/null 2>&1 || true
-  else
-    log "domain '$VM_NAME' is not defined; removing any leftover disk"
-  fi
+  local state
+  state="$(guest_state)"
+  case "$state" in
+    absent)
+      log "domain '$VM_NAME' is not defined; removing any leftover disk"
+      ;;
+    running|paused|shutoff)
+      log "destroying domain '$VM_NAME'"
+      virsh_cmd destroy "$VM_NAME" >/dev/null 2>&1 || true
+      virsh_cmd undefine "$VM_NAME" --nvram >/dev/null 2>&1 ||
+        virsh_cmd undefine "$VM_NAME" >/dev/null 2>&1 ||
+        die "cannot undefine domain '$VM_NAME'; not removing its disk"
+      ;;
+    *)
+      die "guest '$VM_NAME' is in an unexpected state '$state'; refusing to remove its disk"
+      ;;
+  esac
   rm -f "$DISK_PATH" "$SEED_PATH" "$USERDATA_PATH" "$METADATA_PATH" "$DOMAIN_XML_PATH"
   clear_guest_owner
   log "removed '$VM_NAME' and its disk (base image kept in cache at $IMAGE_PATH)"

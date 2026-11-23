@@ -1267,6 +1267,29 @@ func TestKvmGuestPauseFailsWhenTheStateQueryFails(t *testing.T) {
 	}
 }
 
+// TestKvmGuestPauseFailsWhenTheStateReadFails pins the second fail-closed arm:
+// the domain is defined (the list query succeeds) but its state cannot be read,
+// so pause dies and leaves the owner label rather than treating the guest as
+// free and handoff-able.
+func TestKvmGuestPauseFailsWhenTheStateReadFails(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestEnv(dir)
+	writeGuestOwnerFile(t, dir, "feat/793-msb-journeys")
+	env["VIRSH_ARGV"] = filepath.Join(dir, "virsh-argv")
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE_FAIL"] = "1"
+	env["PATH"] = kvmGuestPath(t, "virsh")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "pause")
+	assertStatus(t, result, 1)
+
+	assertContains(t, "stderr", result.Stderr, "cannot read the state of guest")
+	assertNotContains(t, "virsh argv", readText(t, filepath.Join(dir, "virsh-argv")), "suspend")
+	if _, err := os.Stat(filepath.Join(dir, "asb-kvm-test.owner")); err != nil {
+		t.Errorf("pause cleared the owner label after a failed state read: %v", err)
+	}
+}
+
 // TestKvmGuestUpOnAHeldGuestIsANoOp pins that the `up` dispatch routes through
 // acquire_guest: the branch that already holds the guest is a no-op, so the
 // create path (define/start, which need a hypervisor) is never reached.
@@ -1281,20 +1304,44 @@ func TestKvmGuestUpOnAHeldGuestIsANoOp(t *testing.T) {
 	assertStatus(t, result, 0)
 
 	virshArgv := readText(t, filepath.Join(dir, "virsh-argv"))
+	// The state probe ran (list), so the absence of define/start below is
+	// meaningful rather than an assertion against "".
+	assertContains(t, "virsh argv", virshArgv, "list --all --name")
 	assertNotContains(t, "virsh argv", virshArgv, "define")
 	assertNotContains(t, "virsh argv", virshArgv, "start")
 	assertNotContains(t, "stderr", result.Stderr, "qemu-img")
 }
 
+// kvmGuestFakeOnlyPath builds a PATH of only the named fake bin directories, with
+// no ambient PATH. A case that needs a tool to be genuinely missing (create's
+// host check must not find a real qemu-img on a KVM host) cannot prepend to the
+// ambient PATH: `command -v` would find the real tool behind the fakes. The
+// script still reaches acquire_guest because the fakes cover its startup
+// coreutils (uname, dirname, basename).
+func kvmGuestFakeOnlyPath(t *testing.T, names ...string) string {
+	t.Helper()
+	bins := make([]string, 0, len(names))
+	for _, name := range names {
+		bins = append(bins, BinDir(t, name))
+	}
+	return strings.Join(bins, string(os.PathListSeparator))
+}
+
 // TestKvmGuestUpOnAnAbsentGuestCreatesIt pins the other acquire_guest arm: with
-// no domain defined, `up` falls through to create. create's host checks fail
-// here (no qemu-img on PATH), which is how the case observes that create was
-// reached rather than a held-guest no-op.
+// no domain defined, `up` falls through to create. The case gives create a PATH
+// of only the fakes, so check_host stops at the first missing required tool
+// (qemu-img) deterministically — on a KVM host a real qemu-img would otherwise
+// let create build and boot a guest — and asserts the create stage was reached
+// rather than a held-guest no-op.
 func TestKvmGuestUpOnAnAbsentGuestCreatesIt(t *testing.T) {
 	dir := t.TempDir()
 	env := kvmGuestEnv(dir)
+	// create is only reached once; pin the two version envs the script would
+	// otherwise resolve with sed/head, which the fake-only PATH does not carry.
+	env["GH_VERSION"] = "9.9.9"
+	env["GOLANGCI_LINT_VERSION"] = "1.2.3"
 	env["VIRSH_ARGV"] = filepath.Join(dir, "virsh-argv")
-	env["PATH"] = kvmGuestPath(t, "virsh")
+	env["PATH"] = kvmGuestFakeOnlyPath(t, "uname", "dirname", "basename", "id", "virsh", "grep")
 
 	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "up")
 	if result.Status == 0 {
@@ -1360,6 +1407,65 @@ func TestKvmGuestDownClearsTheLabelWhenTheDomainIsUndefined(t *testing.T) {
 	}
 }
 
+// TestKvmGuestDownFailsWhenTheStateQueryFails pins the fail-closed destroy: an
+// unreachable or mis-permitted libvirt is not read as an undefined domain, so
+// down dies without deleting the disk or clearing the owner label.
+func TestKvmGuestDownFailsWhenTheStateQueryFails(t *testing.T) {
+	dir := t.TempDir()
+	diskPath := filepath.Join(dir, "asb-kvm-test.qcow2")
+	if err := os.WriteFile(diskPath, []byte("disk"), 0o644); err != nil {
+		t.Fatalf("write disk: %v", err)
+	}
+	env := kvmGuestEnv(dir)
+	writeGuestOwnerFile(t, dir, "feat/793-msb-journeys")
+	env["VIRSH_ARGV"] = filepath.Join(dir, "virsh-argv")
+	env["VIRSH_LIST_FAIL"] = "1"
+	env["PATH"] = kvmGuestPath(t, "virsh")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "down")
+	assertStatus(t, result, 1)
+
+	assertContains(t, "stderr", result.Stderr, "cannot query libvirt")
+	if _, err := os.Stat(diskPath); err != nil {
+		t.Fatalf("down removed the disk after a failed state query: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "asb-kvm-test.owner")); err != nil {
+		t.Errorf("down cleared the owner label after a failed state query: %v", err)
+	}
+	virshArgv := readText(t, filepath.Join(dir, "virsh-argv"))
+	assertNotContains(t, "virsh argv", virshArgv, "destroy")
+	assertNotContains(t, "virsh argv", virshArgv, "undefine")
+}
+
+// TestKvmGuestDownRefusesAnUnexpectedState pins that a state the lock does not
+// model is refused by name, leaving the disk of a guest in an unknown state
+// alone rather than removing it.
+func TestKvmGuestDownRefusesAnUnexpectedState(t *testing.T) {
+	dir := t.TempDir()
+	diskPath := filepath.Join(dir, "asb-kvm-test.qcow2")
+	if err := os.WriteFile(diskPath, []byte("disk"), 0o644); err != nil {
+		t.Fatalf("write disk: %v", err)
+	}
+	env := kvmGuestEnv(dir)
+	writeGuestOwnerFile(t, dir, "feat/793-msb-journeys")
+	env["VIRSH_ARGV"] = filepath.Join(dir, "virsh-argv")
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "crashed"
+	env["PATH"] = kvmGuestPath(t, "virsh")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "down")
+	assertStatus(t, result, 1)
+
+	assertContains(t, "stderr", result.Stderr, "'crashed'")
+	if _, err := os.Stat(diskPath); err != nil {
+		t.Fatalf("down removed the disk of a guest in an unexpected state: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "asb-kvm-test.owner")); err != nil {
+		t.Errorf("down cleared the owner label of a guest in an unexpected state: %v", err)
+	}
+	assertNotContains(t, "virsh argv", readText(t, filepath.Join(dir, "virsh-argv")), "destroy")
+}
+
 func TestKvmGuestRunRejectsNoCommand(t *testing.T) {
 	dir := t.TempDir()
 	env := kvmGuestEnv(dir)
@@ -1376,6 +1482,7 @@ func TestKvmGuestDownDestroysTheDomain(t *testing.T) {
 	env := kvmGuestEnv(dir)
 	env["VIRSH_ARGV"] = argvPath
 	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "running"
 	env["PATH"] = kvmGuestPath(t, "virsh")
 	writeGuestOwnerFile(t, dir, "feat/793-msb-journeys")
 
@@ -1405,6 +1512,7 @@ func TestKvmGuestDownKeepsTheCachedBaseImage(t *testing.T) {
 	env["KVM_IMAGE_CACHE"] = cacheDir
 	env["IMAGE_URL"] = "https://example.test/guest.qcow2"
 	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "running"
 	env["PATH"] = kvmGuestPath(t, "virsh")
 
 	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "down")
@@ -1617,6 +1725,23 @@ func kvmGuestNftHandler(args []string) (string, string, int) {
 // calls the faked `nft` directly.
 func kvmGuestIDHandler(_ []string) (string, string, int) {
 	return "0\n", "", 0
+}
+
+// kvmGuestUnameHandler reports x86_64 so the script's host-arch gate passes on a
+// PATH that carries only fakes (the arch case runs at startup, before dispatch).
+func kvmGuestUnameHandler(_ []string) (string, string, int) {
+	return "x86_64\n", "", 0
+}
+
+// kvmGuestDirnameHandler and kvmGuestBasenameHandler stand in for the two
+// coreutils the script resolves its own paths with, so a fake-only PATH reaches
+// acquire_guest instead of aborting during startup.
+func kvmGuestDirnameHandler(args []string) (string, string, int) {
+	return filepath.Dir(strings.Join(args, " ")) + "\n", "", 0
+}
+
+func kvmGuestBasenameHandler(args []string) (string, string, int) {
+	return filepath.Base(strings.Join(args, " ")) + "\n", "", 0
 }
 
 // recordArgv appends the faked command's argv to the file named by envVar, when
