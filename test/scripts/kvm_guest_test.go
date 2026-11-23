@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -38,6 +39,30 @@ func kvmGuestPath(t *testing.T, names ...string) string {
 	}
 	bins = append(bins, envOption("PATH"))
 	return strings.Join(bins, string(os.PathListSeparator))
+}
+
+// lockKvmGuest marks the faked guest running and owned by this branch, so a
+// guarded subcommand proceeds through acquire_guest instead of trying to create
+// a guest (which would need a hypervisor). It writes the owner label the script
+// reads from ARTIFACT_DIR.
+func lockKvmGuest(t *testing.T, env map[string]string) {
+	t.Helper()
+	artifactDir := env["ARTIFACT_DIR"]
+	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
+		t.Fatalf("mkdir artifact dir: %v", err)
+	}
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "running"
+	writeGuestOwnerFile(t, artifactDir, env["REPO_BRANCH"])
+}
+
+// writeGuestOwnerFile writes the owner label for VM_NAME=asb-kvm-test.
+func writeGuestOwnerFile(t *testing.T, artifactDir, branch string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(artifactDir, "asb-kvm-test.owner"),
+		[]byte("branch="+branch+"\n"), 0o644); err != nil {
+		t.Fatalf("write guest owner: %v", err)
+	}
 }
 
 func TestKvmGuestUsageWithoutSubcommand(t *testing.T) {
@@ -105,6 +130,26 @@ func TestKvmGuestRenderDefaultsTheImageCacheToLibvirtDir(t *testing.T) {
 	assertContains(t, "render stdout", result.Stdout, "image path: /var/lib/libvirt/images/agents-sandbox/")
 }
 
+// TestKvmGuestRenderDefaultsArtifactsUnderTheImageCache pins that the guest's
+// disk, seed, and XML default under the image cache (a fixed, host-global,
+// AppArmor-safe tree) rather than $PWD, so worktrees do not each grow a copy.
+func TestKvmGuestRenderDefaultsArtifactsUnderTheImageCache(t *testing.T) {
+	dir := t.TempDir()
+	cacheDir := filepath.Join(dir, "image-cache")
+	env := kvmGuestEnv(dir)
+	env["KVM_IMAGE_CACHE"] = cacheDir
+	delete(env, "ARTIFACT_DIR") // let the script derive its default
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "render")
+	assertStatus(t, result, 0)
+
+	rendered := filepath.Join(cacheDir, "guest", "asb-kvm-test-user-data")
+	assertContains(t, "render stdout", result.Stdout, "rendered:\n"+rendered)
+	if _, err := os.Stat(rendered); err != nil {
+		t.Fatalf("artifacts not written under the image cache: %v", err)
+	}
+}
+
 func TestKvmGuestFirewallAcceptsTheBridgeInInputAndDockerUser(t *testing.T) {
 	dir := t.TempDir()
 	argvPath := filepath.Join(dir, "nft-argv")
@@ -129,6 +174,7 @@ func TestKvmGuestRunForwardsTheCommandOverSSH(t *testing.T) {
 	dir := t.TempDir()
 	argvPath := filepath.Join(dir, "ssh-argv")
 	env := kvmGuestEnv(dir)
+	lockKvmGuest(t, env)
 	env["SSH_ARGV"] = argvPath
 	env["PATH"] = kvmGuestPath(t, "virsh", "ssh")
 
@@ -148,6 +194,7 @@ func TestKvmGuestAgentAllocatesATTYAndRunsInAGuestTmux(t *testing.T) {
 	dir := t.TempDir()
 	argvPath := filepath.Join(dir, "ssh-argv")
 	env := kvmGuestEnv(dir)
+	lockKvmGuest(t, env)
 	env["SSH_ARGV"] = argvPath
 	env["PATH"] = kvmGuestPath(t, "virsh", "ssh")
 
@@ -168,6 +215,7 @@ func TestKvmGuestAgentForwardsAnInlineCredentialCommand(t *testing.T) {
 	dir := t.TempDir()
 	argvPath := filepath.Join(dir, "ssh-argv")
 	env := kvmGuestEnv(dir)
+	lockKvmGuest(t, env)
 	env["SSH_ARGV"] = argvPath
 	env["PATH"] = kvmGuestPath(t, "virsh", "ssh")
 
@@ -203,6 +251,7 @@ func agentUpEnv(t *testing.T, dir string) map[string]string {
 	env["RSYNC_ARGV"] = filepath.Join(dir, "rsync-argv")
 	env["VIRSH_ARGV"] = filepath.Join(dir, "virsh-argv")
 	env["PATH"] = kvmGuestPath(t, "virsh", "ssh", "rsync", "git", "ssh-keygen")
+	lockKvmGuest(t, env)
 	return env
 }
 
@@ -468,6 +517,7 @@ func TestKvmGuestAgentProvisionSyncsConfigAndMaterializes(t *testing.T) {
 	sshLog := filepath.Join(dir, "ssh-argv")
 	rsyncLog := filepath.Join(dir, "rsync-argv")
 	env := kvmGuestEnv(dir)
+	lockKvmGuest(t, env)
 	env["HOME"] = home
 	env["SSH_ARGV"] = sshLog
 	env["RSYNC_ARGV"] = rsyncLog
@@ -514,6 +564,7 @@ func TestKvmGuestAgentProvisionCopiesOnlyTheUserIdentity(t *testing.T) {
 	stdinLog := filepath.Join(dir, "ssh-stdin")
 	rsyncLog := filepath.Join(dir, "rsync-argv")
 	env := kvmGuestEnv(dir)
+	lockKvmGuest(t, env)
 	env["HOME"] = home
 	env["GIT_USER_NAME"] = "Host User"
 	env["GIT_USER_EMAIL"] = "host@example.test"
@@ -554,6 +605,7 @@ func TestKvmGuestAgentProvisionKeepsTheGuestIdentityWithoutAHostIdentity(t *test
 	sshLog := filepath.Join(dir, "ssh-argv")
 	rsyncLog := filepath.Join(dir, "rsync-argv")
 	env := kvmGuestEnv(dir)
+	lockKvmGuest(t, env)
 	env["HOME"] = home
 	env["SSH_ARGV"] = sshLog
 	env["RSYNC_ARGV"] = rsyncLog
@@ -583,6 +635,7 @@ func kvmGuestSyncEnv(t *testing.T, dir string) map[string]string {
 	env["SSH_ARGV"] = filepath.Join(dir, "ssh-argv")
 	env["SSH_KEYGEN_ARGV"] = filepath.Join(dir, "ssh-keygen-argv")
 	env["PATH"] = kvmGuestPath(t, "virsh", "ssh", "git", "ssh-keygen", "rsync")
+	lockKvmGuest(t, env)
 	return env
 }
 
@@ -849,6 +902,7 @@ func TestKvmGuestSyncQuotesAShellMetacharacterBranch(t *testing.T) {
 	dir := t.TempDir()
 	env := kvmGuestSyncEnv(t, dir)
 	env["REPO_BRANCH"] = "feat/x;id"
+	lockKvmGuest(t, env)
 
 	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync")
 	assertStatus(t, result, 0)
@@ -996,6 +1050,7 @@ func TestKvmGuestPrimeCopiesImagesAndHome(t *testing.T) {
 	}
 
 	env := kvmGuestEnv(dir)
+	lockKvmGuest(t, env)
 	env["KVM_PRIME_ROOT"] = root
 	env["SURFACE_SWEEP_DOCKER_LOG"] = dockerLog
 	env["SURFACE_SWEEP_DOCKER_IMAGES"] = "agents-sandbox/runner-opencode-abc:opencode-latest"
@@ -1031,6 +1086,7 @@ func TestKvmGuestPrimeWarnsWhenTheHostHasNoCache(t *testing.T) {
 	dir := t.TempDir()
 	sshLog := filepath.Join(dir, "ssh-argv")
 	env := kvmGuestEnv(dir)
+	lockKvmGuest(t, env)
 	env["KVM_PRIME_ROOT"] = filepath.Join(dir, "empty-root")
 	env["SSH_ARGV"] = sshLog
 	env["PATH"] = kvmGuestPath(t, "virsh", "ssh", "rsync", "docker")
@@ -1042,6 +1098,383 @@ func TestKvmGuestPrimeWarnsWhenTheHostHasNoCache(t *testing.T) {
 	if _, err := os.Stat(sshLog); err == nil {
 		t.Error("prime opened an ssh connection with nothing to copy")
 	}
+}
+
+// TestKvmGuestSyncProceedsWhenTheOwnerBranchHoldsTheGuest pins that the branch
+// that already holds the guest proceeds without resuming or recreating it.
+func TestKvmGuestSyncProceedsWhenTheOwnerBranchHoldsTheGuest(t *testing.T) {
+	dir := t.TempDir()
+	// kvmGuestSyncEnv records this branch as the guest's holder and fakes the
+	// guest as running, so acquire_guest is a no-op.
+	env := kvmGuestSyncEnv(t, dir)
+	env["VIRSH_ARGV"] = filepath.Join(dir, "virsh-argv")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync")
+	assertStatus(t, result, 0)
+
+	assertContains(t, "ssh argv", readText(t, filepath.Join(dir, "ssh-argv")), "git fetch origin --prune")
+	virshArgv := readText(t, filepath.Join(dir, "virsh-argv"))
+	// The log must be wired: the acquire probe ran (the state query), so the
+	// absence of a resume/start below is meaningful rather than an assertion
+	// against "".
+	assertContains(t, "virsh argv", virshArgv, "list --all --name")
+	assertNotContains(t, "virsh argv", virshArgv, "resume")
+	assertNotContains(t, "virsh argv", virshArgv, "start")
+}
+
+// TestKvmGuestSyncRefusesAGuestHeldByAnotherBranch pins the cross-branch guard:
+// a running guest owned by another branch is refused, by name, before any sync.
+func TestKvmGuestSyncRefusesAGuestHeldByAnotherBranch(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestEnv(dir)
+	lockKvmGuest(t, env)
+	writeGuestOwnerFile(t, dir, "some/other-branch")
+	env["RSYNC_ARGV"] = filepath.Join(dir, "rsync-argv")
+	env["PATH"] = kvmGuestPath(t, "virsh", "rsync")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync")
+	assertStatus(t, result, 1)
+
+	assertContains(t, "stderr", result.Stderr, "in use by branch 'some/other-branch'")
+	if _, err := os.Stat(filepath.Join(dir, "rsync-argv")); err == nil {
+		t.Error("sync ran despite another branch holding the guest")
+	}
+}
+
+// TestKvmGuestSyncRefusesARunningGuestWithoutAnOwnerLabel pins the pre-lock case:
+// a running guest with no label is refused, never silently adopted.
+func TestKvmGuestSyncRefusesARunningGuestWithoutAnOwnerLabel(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestEnv(dir)
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "running"
+	env["RSYNC_ARGV"] = filepath.Join(dir, "rsync-argv")
+	env["PATH"] = kvmGuestPath(t, "virsh", "rsync")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync")
+	assertStatus(t, result, 1)
+
+	assertContains(t, "stderr", result.Stderr, "without an owner label")
+}
+
+// assertOwnerLabeledAtLeaseProbe pins the ordering the lock depends on: the
+// owner label exists when wait_for_lease first polls the guest for its address,
+// not after the boot-long wait. It fails when the captured content lacks the
+// branch — including an empty capture, an absent label.
+func assertOwnerLabeledAtLeaseProbe(t *testing.T, capturePath string) {
+	t.Helper()
+	assertContains(t, "owner at the lease probe", readText(t, capturePath), "branch=feat/793-msb-journeys")
+}
+
+// TestKvmGuestRunLabelsAPausedGuestBeforeWaitingForItsLease pins the hand-off
+// ordering: the branch takes the guest the moment it resumes it, before
+// wait_for_lease. A competing branch that reads a running guest with no label
+// reads it as a pre-lock guest and is invited to take it over, so a label
+// written only after the wait leaves exactly that window open.
+func TestKvmGuestRunLabelsAPausedGuestBeforeWaitingForItsLease(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestEnv(dir)
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "paused"
+	env["SSH_ARGV"] = filepath.Join(dir, "ssh-argv")
+	env["VIRSH_ARGV"] = filepath.Join(dir, "virsh-argv")
+	env["VIRSH_OWNER_AT_PROBE"] = filepath.Join(dir, "owner-at-lease")
+	env["KVM_BOOT_TIMEOUT"] = "5" // one lease poll, no 300s wait
+	env["PATH"] = kvmGuestPath(t, "virsh", "ssh")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "run", "true")
+	assertStatus(t, result, 0)
+
+	assertContains(t, "virsh argv", readText(t, filepath.Join(dir, "virsh-argv")), "resume asb-kvm-test")
+	assertContains(t, "virsh argv", readText(t, filepath.Join(dir, "virsh-argv")), "domifaddr asb-kvm-test")
+	assertOwnerLabeledAtLeaseProbe(t, filepath.Join(dir, "owner-at-lease"))
+}
+
+// TestKvmGuestRunLabelsAStoppedGuestBeforeWaitingForItsLease pins the same
+// ordering on the start arm, which re-ensures the default network first.
+func TestKvmGuestRunLabelsAStoppedGuestBeforeWaitingForItsLease(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestEnv(dir)
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "shut off"
+	env["SSH_ARGV"] = filepath.Join(dir, "ssh-argv")
+	env["VIRSH_ARGV"] = filepath.Join(dir, "virsh-argv")
+	env["VIRSH_OWNER_AT_PROBE"] = filepath.Join(dir, "owner-at-lease")
+	env["KVM_BOOT_TIMEOUT"] = "5" // one lease poll, no 300s wait
+	env["PATH"] = kvmGuestPath(t, "virsh", "ssh")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "run", "true")
+	assertStatus(t, result, 0)
+
+	assertContains(t, "virsh argv", readText(t, filepath.Join(dir, "virsh-argv")), "start asb-kvm-test")
+	assertContains(t, "virsh argv", readText(t, filepath.Join(dir, "virsh-argv")), "net-info default")
+	assertOwnerLabeledAtLeaseProbe(t, filepath.Join(dir, "owner-at-lease"))
+}
+
+// TestKvmGuestRunRefusesAnUnexpectedState pins that a state the lock does not
+// model is refused by name rather than mis-locked.
+func TestKvmGuestRunRefusesAnUnexpectedState(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestEnv(dir)
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "crashed"
+	env["PATH"] = kvmGuestPath(t, "virsh", "ssh")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "run", "true")
+	assertStatus(t, result, 1)
+
+	assertContains(t, "stderr", result.Stderr, "'crashed'")
+}
+
+// TestKvmGuestPauseSuspendsTheGuestAndReleasesTheLock pins the hand-off: pause
+// suspends the running guest and drops the owner label, keeping the disk.
+func TestKvmGuestPauseSuspendsTheGuestAndReleasesTheLock(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestEnv(dir)
+	lockKvmGuest(t, env)
+	env["VIRSH_ARGV"] = filepath.Join(dir, "virsh-argv")
+	env["PATH"] = kvmGuestPath(t, "virsh")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "pause")
+	assertStatus(t, result, 0)
+
+	assertContains(t, "virsh argv", readText(t, filepath.Join(dir, "virsh-argv")), "suspend asb-kvm-test")
+	if _, err := os.Stat(filepath.Join(dir, "asb-kvm-test.owner")); err == nil {
+		t.Error("pause left the owner label behind")
+	}
+}
+
+// TestKvmGuestPauseOnAnAbsentGuestIsANoOp pins idempotence: pausing a guest that
+// is not there succeeds without touching libvirt.
+func TestKvmGuestPauseOnAnAbsentGuestIsANoOp(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestEnv(dir)
+	env["VIRSH_ARGV"] = filepath.Join(dir, "virsh-argv")
+	env["PATH"] = kvmGuestPath(t, "virsh")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "pause")
+	assertStatus(t, result, 0)
+
+	// The state probe (list) ran, and nothing beyond it: no suspend, start, or
+	// destroy. Without VIRSH_ARGV this case could not fail.
+	virshArgv := readText(t, filepath.Join(dir, "virsh-argv"))
+	assertContains(t, "virsh argv", virshArgv, "list --all --name")
+	assertNotContains(t, "virsh argv", virshArgv, "suspend")
+	assertNotContains(t, "virsh argv", virshArgv, "start")
+	assertNotContains(t, "virsh argv", virshArgv, "destroy")
+}
+
+// TestKvmGuestPauseFailsWhenTheStateQueryFails pins that an unreachable or
+// mis-permitted libvirt is not read as an absent guest: pause dies, and the
+// owner label is left for the real holder rather than cleared.
+func TestKvmGuestPauseFailsWhenTheStateQueryFails(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestEnv(dir)
+	writeGuestOwnerFile(t, dir, "feat/793-msb-journeys")
+	env["VIRSH_ARGV"] = filepath.Join(dir, "virsh-argv")
+	env["VIRSH_LIST_FAIL"] = "1"
+	env["PATH"] = kvmGuestPath(t, "virsh")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "pause")
+	assertStatus(t, result, 1)
+
+	assertContains(t, "stderr", result.Stderr, "cannot query libvirt")
+	assertNotContains(t, "virsh argv", readText(t, filepath.Join(dir, "virsh-argv")), "suspend")
+	if _, err := os.Stat(filepath.Join(dir, "asb-kvm-test.owner")); err != nil {
+		t.Errorf("pause cleared the owner label after a failed state query: %v", err)
+	}
+}
+
+// TestKvmGuestPauseFailsWhenTheStateReadFails pins the second fail-closed arm:
+// the domain is defined (the list query succeeds) but its state cannot be read,
+// so pause dies and leaves the owner label rather than treating the guest as
+// free and handoff-able.
+func TestKvmGuestPauseFailsWhenTheStateReadFails(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestEnv(dir)
+	writeGuestOwnerFile(t, dir, "feat/793-msb-journeys")
+	env["VIRSH_ARGV"] = filepath.Join(dir, "virsh-argv")
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE_FAIL"] = "1"
+	env["PATH"] = kvmGuestPath(t, "virsh")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "pause")
+	assertStatus(t, result, 1)
+
+	assertContains(t, "stderr", result.Stderr, "cannot read the state of guest")
+	assertNotContains(t, "virsh argv", readText(t, filepath.Join(dir, "virsh-argv")), "suspend")
+	if _, err := os.Stat(filepath.Join(dir, "asb-kvm-test.owner")); err != nil {
+		t.Errorf("pause cleared the owner label after a failed state read: %v", err)
+	}
+}
+
+// TestKvmGuestUpOnAHeldGuestIsANoOp pins that the `up` dispatch routes through
+// acquire_guest: the branch that already holds the guest is a no-op, so the
+// create path (define/start, which need a hypervisor) is never reached.
+func TestKvmGuestUpOnAHeldGuestIsANoOp(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestEnv(dir)
+	lockKvmGuest(t, env)
+	env["VIRSH_ARGV"] = filepath.Join(dir, "virsh-argv")
+	env["PATH"] = kvmGuestPath(t, "virsh")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "up")
+	assertStatus(t, result, 0)
+
+	virshArgv := readText(t, filepath.Join(dir, "virsh-argv"))
+	// The state probe ran (list), so the absence of define/start below is
+	// meaningful rather than an assertion against "".
+	assertContains(t, "virsh argv", virshArgv, "list --all --name")
+	assertNotContains(t, "virsh argv", virshArgv, "define")
+	assertNotContains(t, "virsh argv", virshArgv, "start")
+	assertNotContains(t, "stderr", result.Stderr, "qemu-img")
+}
+
+// TestKvmGuestUpOnAnAbsentGuestLabelsItBeforeAnyReadinessWait covers the create
+// arm's ordering. create defines and starts the domain and only then waits for a
+// lease, so the label must be written before create is called; the case gives its
+// fake virsh no domifaddr answer (VIRSH_LEASE_NONE), which leaves create still
+// booting — the state a competing branch used to see as an unlabeled guest — and
+// asserts the label was already there when create polled for the lease.
+func TestKvmGuestUpOnAnAbsentGuestLabelsItBeforeAnyReadinessWait(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestEnv(dir)
+	env["VIRSH_ARGV"] = filepath.Join(dir, "virsh-argv")
+	env["VIRSH_OWNER_AT_PROBE"] = filepath.Join(dir, "owner-at-lease")
+	env["KVM_BOOT_TIMEOUT"] = "5" // one lease poll, no 300s wait
+	env["VIRSH_LEASE_NONE"] = "1"
+	imageCache := filepath.Join(dir, "image-cache")
+	if err := os.MkdirAll(imageCache, 0o755); err != nil {
+		t.Fatalf("create image cache: %v", err)
+	}
+	env["KVM_IMAGE_CACHE"] = imageCache
+	// State the host's /dev/kvm answer, so the case drives create's remaining
+	// gates without a real KVM device (see kvm_device_writable). The faked curl
+	// writes the base image, so create builds from it instead of downloading.
+	env["KVM_FAKE_DEVICE_WRITABLE"] = "1"
+	env["PATH"] = kvmGuestPath(t, "virsh", "qemu-img", "cloud-localds", "curl")
+
+	assertStatus(t, RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "up"), 0)
+
+	virshArgv := readText(t, filepath.Join(dir, "virsh-argv"))
+	assertContains(t, "virsh argv", virshArgv, "define")
+	assertContains(t, "virsh argv", virshArgv, "start asb-kvm-test")
+	assertContains(t, "virsh argv", virshArgv, "domifaddr asb-kvm-test")
+	assertOwnerLabeledAtLeaseProbe(t, filepath.Join(dir, "owner-at-lease"))
+}
+
+// TestKvmGuestSyncRefusesADetachedCheckout pins fail-closed on an unresolved
+// branch: without a branch name the lock key would fall back to `main` and let a
+// detached checkout impersonate main's guest.
+func TestKvmGuestSyncRefusesADetachedCheckout(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestEnv(dir)
+	delete(env, "REPO_BRANCH") // resolve the branch from git (the faked git prints nothing)
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "running"
+	env["RSYNC_ARGV"] = filepath.Join(dir, "rsync-argv")
+	env["PATH"] = kvmGuestPath(t, "virsh", "rsync", "git")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync")
+	assertStatus(t, result, 1)
+
+	assertContains(t, "stderr", result.Stderr, "not on a branch")
+	if _, err := os.Stat(filepath.Join(dir, "rsync-argv")); err == nil {
+		t.Error("sync ran from a detached checkout")
+	}
+}
+
+// TestKvmGuestPauseOnAPausedGuestIsANoOp pins idempotence for the already-paused
+// arm: pause succeeds, does not re-suspend, and still drops the label.
+func TestKvmGuestPauseOnAPausedGuestIsANoOp(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestEnv(dir)
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "paused"
+	writeGuestOwnerFile(t, dir, "feat/793-msb-journeys")
+	env["VIRSH_ARGV"] = filepath.Join(dir, "virsh-argv")
+	env["PATH"] = kvmGuestPath(t, "virsh")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "pause")
+	assertStatus(t, result, 0)
+	assertNotContains(t, "virsh argv", readText(t, filepath.Join(dir, "virsh-argv")), "suspend")
+	if _, err := os.Stat(filepath.Join(dir, "asb-kvm-test.owner")); err == nil {
+		t.Error("pause left the owner label behind")
+	}
+}
+
+// TestKvmGuestDownClearsTheLabelWhenTheDomainIsUndefined pins Review Focus item
+// 4: down clears a stale label even when the domain is already gone.
+func TestKvmGuestDownClearsTheLabelWhenTheDomainIsUndefined(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestEnv(dir)
+	writeGuestOwnerFile(t, dir, "feat/793-msb-journeys")
+	env["PATH"] = kvmGuestPath(t, "virsh")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "down")
+	assertStatus(t, result, 0)
+	if _, err := os.Stat(filepath.Join(dir, "asb-kvm-test.owner")); err == nil {
+		t.Error("down left the owner label behind")
+	}
+}
+
+// TestKvmGuestDownFailsWhenTheStateQueryFails pins the fail-closed destroy: an
+// unreachable or mis-permitted libvirt is not read as an undefined domain, so
+// down dies without deleting the disk or clearing the owner label.
+func TestKvmGuestDownFailsWhenTheStateQueryFails(t *testing.T) {
+	dir := t.TempDir()
+	diskPath := filepath.Join(dir, "asb-kvm-test.qcow2")
+	if err := os.WriteFile(diskPath, []byte("disk"), 0o644); err != nil {
+		t.Fatalf("write disk: %v", err)
+	}
+	env := kvmGuestEnv(dir)
+	writeGuestOwnerFile(t, dir, "feat/793-msb-journeys")
+	env["VIRSH_ARGV"] = filepath.Join(dir, "virsh-argv")
+	env["VIRSH_LIST_FAIL"] = "1"
+	env["PATH"] = kvmGuestPath(t, "virsh")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "down")
+	assertStatus(t, result, 1)
+
+	assertContains(t, "stderr", result.Stderr, "cannot query libvirt")
+	if _, err := os.Stat(diskPath); err != nil {
+		t.Fatalf("down removed the disk after a failed state query: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "asb-kvm-test.owner")); err != nil {
+		t.Errorf("down cleared the owner label after a failed state query: %v", err)
+	}
+	virshArgv := readText(t, filepath.Join(dir, "virsh-argv"))
+	assertNotContains(t, "virsh argv", virshArgv, "destroy")
+	assertNotContains(t, "virsh argv", virshArgv, "undefine")
+}
+
+// TestKvmGuestDownRefusesAnUnexpectedState pins that a state the lock does not
+// model is refused by name, leaving the disk of a guest in an unknown state
+// alone rather than removing it.
+func TestKvmGuestDownRefusesAnUnexpectedState(t *testing.T) {
+	dir := t.TempDir()
+	diskPath := filepath.Join(dir, "asb-kvm-test.qcow2")
+	if err := os.WriteFile(diskPath, []byte("disk"), 0o644); err != nil {
+		t.Fatalf("write disk: %v", err)
+	}
+	env := kvmGuestEnv(dir)
+	writeGuestOwnerFile(t, dir, "feat/793-msb-journeys")
+	env["VIRSH_ARGV"] = filepath.Join(dir, "virsh-argv")
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "crashed"
+	env["PATH"] = kvmGuestPath(t, "virsh")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "down")
+	assertStatus(t, result, 1)
+
+	assertContains(t, "stderr", result.Stderr, "'crashed'")
+	if _, err := os.Stat(diskPath); err != nil {
+		t.Fatalf("down removed the disk of a guest in an unexpected state: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "asb-kvm-test.owner")); err != nil {
+		t.Errorf("down cleared the owner label of a guest in an unexpected state: %v", err)
+	}
+	assertNotContains(t, "virsh argv", readText(t, filepath.Join(dir, "virsh-argv")), "destroy")
 }
 
 func TestKvmGuestRunRejectsNoCommand(t *testing.T) {
@@ -1060,7 +1493,9 @@ func TestKvmGuestDownDestroysTheDomain(t *testing.T) {
 	env := kvmGuestEnv(dir)
 	env["VIRSH_ARGV"] = argvPath
 	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "running"
 	env["PATH"] = kvmGuestPath(t, "virsh")
+	writeGuestOwnerFile(t, dir, "feat/793-msb-journeys")
 
 	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "down")
 	assertStatus(t, result, 0)
@@ -1068,6 +1503,9 @@ func TestKvmGuestDownDestroysTheDomain(t *testing.T) {
 	argv := readText(t, argvPath)
 	assertContains(t, "virsh argv", argv, "destroy asb-kvm-test")
 	assertContains(t, "virsh argv", argv, "undefine asb-kvm-test")
+	if _, err := os.Stat(filepath.Join(dir, "asb-kvm-test.owner")); err == nil {
+		t.Error("down left the owner label behind")
+	}
 }
 
 func TestKvmGuestDownKeepsTheCachedBaseImage(t *testing.T) {
@@ -1085,6 +1523,7 @@ func TestKvmGuestDownKeepsTheCachedBaseImage(t *testing.T) {
 	env["KVM_IMAGE_CACHE"] = cacheDir
 	env["IMAGE_URL"] = "https://example.test/guest.qcow2"
 	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "running"
 	env["PATH"] = kvmGuestPath(t, "virsh")
 
 	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "down")
@@ -1097,21 +1536,40 @@ func TestKvmGuestDownKeepsTheCachedBaseImage(t *testing.T) {
 
 // kvmGuestVirshHandler serves the `virsh` a script under test calls. It logs
 // every invocation to VIRSH_ARGV and answers by subcommand: `domifaddr`
-// returns one IPv4 lease, `dominfo` succeeds only when VIRSH_DOMINFO_OK is set
-// (so `down` can exercise the destroy path), `net-info` reports an active
+// returns one IPv4 lease (none when VIRSH_LEASE_NONE is set, so a case can leave
+// a boot still waiting for one), `dominfo` succeeds only when VIRSH_DOMINFO_OK is
+// set (so `down` can exercise the destroy path), `net-info` reports an active
 // network, and define/start/destroy/undefine succeed silently.
 func kvmGuestVirshHandler(args []string) (string, string, int) {
 	recordArgv("VIRSH_ARGV", args)
 	joined := strings.Join(args, " ")
 	switch {
 	case strings.Contains(joined, "domifaddr"):
+		recordOwnerAtLeaseProbe()
+		if envOption("VIRSH_LEASE_NONE") != "" {
+			return "", "", 0
+		}
 		return " vnet0      52:54:00:00:00:00    ipv4         192.168.122.55/24  \n", "", 0
 	case strings.Contains(joined, "dominfo"):
 		if envOption("VIRSH_DOMINFO_OK") != "" {
 			return "Name:           asb-kvm-test\n", "", 0
 		}
 		return "", "error: failed to get domain 'asb-kvm-test'\n", 1
+	case strings.Contains(joined, "list"):
+		// `virsh list --all --name` proves a domain is defined. VIRSH_LIST_FAIL
+		// models an unreachable/mis-permitted libvirt so a case can pin that the
+		// state query failing is fatal, not read as absent.
+		if envOption("VIRSH_LIST_FAIL") != "" {
+			return "", "error: failed to connect to the hypervisor\n", 1
+		}
+		if envOption("VIRSH_DOMINFO_OK") != "" {
+			return "asb-kvm-test\n", "", 0
+		}
+		return "", "", 0
 	case strings.Contains(joined, "domstate"):
+		if envOption("VIRSH_DOMSTATE_FAIL") != "" {
+			return "", "error: failed to get domain 'asb-kvm-test'\n", 1
+		}
 		return envOption("VIRSH_DOMSTATE") + "\n", "", 0
 	case strings.Contains(joined, "net-info"):
 		return "Name:           default\nActive:         yes\n", "", 0
@@ -1121,6 +1579,29 @@ func kvmGuestVirshHandler(args []string) (string, string, int) {
 	default:
 		return "", "", 0
 	}
+}
+
+// recordOwnerAtLeaseProbe captures the owner label's content the first time the
+// guest is polled for an address — the wait_for_lease gate — into the file named
+// by VIRSH_OWNER_AT_PROBE. A case seeds a small KVM_BOOT_TIMEOUT so wait_for_lease
+// polls a bounded number of times whether or not it gets a lease.
+//
+// The guest enters the lock the moment it is resumed/started/defined, so the
+// label must already exist when that first poll runs: assertOwnerLabeledAtLeaseProbe
+// reads this capture, and a regression that moved the write back after the wait
+// would leave the file empty (readText returns "" for an absent file) and fail
+// the case.
+func recordOwnerAtLeaseProbe() {
+	path := envOption("VIRSH_OWNER_AT_PROBE")
+	if path == "" {
+		return
+	}
+	if _, err := os.Stat(path); err == nil {
+		return // first poll only: record the label as it stood at the lease wait
+	}
+	owner := filepath.Join(envOption("ARTIFACT_DIR"), envOption("VM_NAME")+".owner")
+	data, _ := os.ReadFile(owner)
+	_ = os.WriteFile(path, data, 0o600)
 }
 
 // kvmGuestSSHHandler serves the `ssh` a script under test calls: it logs the
@@ -1192,16 +1673,55 @@ func kvmGuestSSHKeygenHandler(args []string) (string, string, int) {
 	return "", "", 0
 }
 
-// kvmGuestGrepHandler serves the `grep` call ensure_host_authorized_key makes,
-// `-v <pattern> <file>`: print the lines that do not match. It models only a
-// leading `^` anchor and a literal substring, not `.*`/`$`: the one case that
-// puts this fake on PATH sets GREP_READ_ERROR and short-circuits before matching,
-// so the partial matcher is never reached. GREP_READ_ERROR makes the rewrite fail
-// with grep's read-error status (2), so a case can pin that a failed rewrite does
-// not clobber the host's authorized_keys. The other authorized_keys cases run the
-// real grep (their PATH has no grep fake), so the real pattern is exercised there.
+// kvmGuestQemuImgHandler serves `qemu-img`: create's check_host requires it, and
+// a case that drives the create path fakes it to write the overlay image at the
+// path create names, so the build proceeds without a real qemu-img.
+func kvmGuestQemuImgHandler(args []string) (string, string, int) {
+	if len(args) > 0 {
+		_ = os.WriteFile(args[len(args)-1], []byte("FAKE-OVERLAY\n"), 0o644)
+	}
+	return "", "", 0
+}
+
+// kvmGuestCloudLocaldsHandler serves `cloud-localds`, which create's check_host
+// requires and build_seed runs; it writes the seed image it is asked to produce.
+func kvmGuestCloudLocaldsHandler(args []string) (string, string, int) {
+	if len(args) > 0 {
+		_ = os.WriteFile(args[0], []byte("FAKE-SEED\n"), 0o644)
+	}
+	return "", "", 0
+}
+
+// kvmGuestCurlHandler serves `curl`: it writes the output named by -o, so a case
+// can drive create's base-image fetch without a download.
+func kvmGuestCurlHandler(args []string) (string, string, int) {
+	for i, arg := range args {
+		if arg == "-o" && i+1 < len(args) {
+			_ = os.WriteFile(args[i+1], []byte("FAKE-IMAGE\n"), 0o644)
+		}
+	}
+	return "", "", 0
+}
+
+// rewrite's `-v <pattern> <file>` prints the lines that do not match, modelling
+// only a leading `^` anchor and a literal substring, not `.*`/`$`: the one case
+// that puts this fake on PATH sets GREP_READ_ERROR and short-circuits before
+// matching, so the partial matcher is never reached. GREP_READ_ERROR makes the
+// rewrite fail with grep's read-error status (2), so a case can pin that a failed
+// rewrite does not clobber the host's authorized_keys. A `-qxF <name>` call
+// (guest_state's defined-domain probe) reads the domain list on stdin and matches
+// a whole line. The other authorized_keys cases run the real grep (their PATH has
+// no grep fake), so the real pattern is exercised there.
 func kvmGuestGrepHandler(args []string) (string, string, int) {
 	recordArgv("GREP_ARGV", args)
+	if len(args) == 2 && args[0] == "-qxF" {
+		data, _ := io.ReadAll(os.Stdin)
+		lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+		if slices.Contains(lines, args[1]) {
+			return "", "", 0
+		}
+		return "", "", 1
+	}
 	if len(args) != 3 || args[0] != "-v" {
 		return "", "grep fake: unexpected arguments\n", 2
 	}
@@ -1273,6 +1793,23 @@ func kvmGuestNftHandler(args []string) (string, string, int) {
 // calls the faked `nft` directly.
 func kvmGuestIDHandler(_ []string) (string, string, int) {
 	return "0\n", "", 0
+}
+
+// kvmGuestUnameHandler reports x86_64 so the script's host-arch gate passes on a
+// PATH that carries only fakes (the arch case runs at startup, before dispatch).
+func kvmGuestUnameHandler(_ []string) (string, string, int) {
+	return "x86_64\n", "", 0
+}
+
+// kvmGuestDirnameHandler and kvmGuestBasenameHandler stand in for the two
+// coreutils the script resolves its own paths with, so a fake-only PATH reaches
+// acquire_guest instead of aborting during startup.
+func kvmGuestDirnameHandler(args []string) (string, string, int) {
+	return filepath.Dir(strings.Join(args, " ")) + "\n", "", 0
+}
+
+func kvmGuestBasenameHandler(args []string) (string, string, int) {
+	return filepath.Base(strings.Join(args, " ")) + "\n", "", 0
 }
 
 // recordArgv appends the faked command's argv to the file named by envVar, when

@@ -17,6 +17,9 @@ func TestMain(m *testing.M) {
 	Register("asb", surfaceSweepAsbHandler)
 	Register("docker", surfaceSweepDockerHandler)
 	Register("virsh", kvmGuestVirshHandler)
+	Register("qemu-img", kvmGuestQemuImgHandler)
+	Register("cloud-localds", kvmGuestCloudLocaldsHandler)
+	Register("curl", kvmGuestCurlHandler)
 	Register("ssh", kvmGuestSSHHandler)
 	Register("rsync", kvmGuestRsyncHandler)
 	Register("ssh-keygen", kvmGuestSSHKeygenHandler)
@@ -24,6 +27,9 @@ func TestMain(m *testing.M) {
 	Register("git", kvmGuestGitHandler)
 	Register("nft", kvmGuestNftHandler)
 	Register("id", kvmGuestIDHandler)
+	Register("uname", kvmGuestUnameHandler)
+	Register("dirname", kvmGuestDirnameHandler)
+	Register("basename", kvmGuestBasenameHandler)
 	Register("faketool", func(args []string) (string, string, int) {
 		return "out:" + strings.Join(args, ","), "err\n", 3
 	})

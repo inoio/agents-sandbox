@@ -42,6 +42,12 @@
 # GitHub issues and PRs. Unset it to skip the sign-in. The guest's git remote is
 # the host repository, not GitHub, so the agent pushes to the host.
 #
+# The guest is shared by every worktree and its artifacts live in one host-global
+# ARTIFACT_DIR (default $KVM_IMAGE_CACHE/guest), not in $PWD. Its domain state is
+# the lock: running means one branch holds it, paused or absent means it is free.
+# The holder is named in $ARTIFACT_DIR/$VM_NAME.owner; a competing branch is
+# refused and hands over with `pause` (keeps the disk) or `down`.
+#
 # Host prerequisites:
 #   qemu-kvm libvirt-daemon-system cloud-image-utils genisoimage
 #   your user in the `libvirt` and `kvm` groups
@@ -49,7 +55,7 @@
 #
 # Env overrides:
 #   VM_NAME=asb-kvm  VM_VCPUS=12  VM_MEMORY_MIB=16384  VM_DISK_GIB=80
-#   VM_USER=dev  SSH_PUBKEY=<path-or-key>  ARTIFACT_DIR=$PWD/.kvm-guest
+#   VM_USER=dev  SSH_PUBKEY=<path-or-key>  ARTIFACT_DIR=$KVM_IMAGE_CACHE/guest
 #   KVM_HOST_USER=<host user>  KVM_GUEST_STATE=<guest git key/state dir>
 #   LIBVIRT_URI=qemu:///system
 #   UBUNTU_CODENAME=resolute  IMAGE_URL=<full cloud-image URL>
@@ -90,10 +96,14 @@ VM_DISK_GIB="${VM_DISK_GIB:-80}"
 VM_USER="${VM_USER:-dev}"
 LIBVIRT_URI="${LIBVIRT_URI:-qemu:///system}"
 REPO_URL="${REPO_URL:-https://github.com/inoio/agents-sandbox.git}"
-ARTIFACT_DIR="${ARTIFACT_DIR:-$PWD/.kvm-guest}"
 KVM_IMAGE_CACHE="${KVM_IMAGE_CACHE:-/var/lib/libvirt/images/agents-sandbox}"
-# The guest authenticates to the host for git with a key kept in a host-global
-# state dir (not ARTIFACT_DIR, which is per-worktree while the domain is shared).
+# Guest artifacts are host-global, not per-worktree: one guest is shared by every
+# worktree, so its disk, seed, and XML live beside the base-image cache in the
+# libvirt images tree (AppArmor-safe) rather than in $PWD.
+ARTIFACT_DIR="${ARTIFACT_DIR:-$KVM_IMAGE_CACHE/guest}"
+# The guest authenticates to the host for git with a key kept in a separate
+# host-global state dir: it is private key material, not a libvirt artifact, so
+# it does not belong with the guest artifacts.
 KVM_HOST_USER="${KVM_HOST_USER:-${USER:-$(id -un)}}"
 KVM_GUEST_STATE="${KVM_GUEST_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/agents-sandbox/kvm-guest}"
 KVM_GUEST_KEY="$KVM_GUEST_STATE/id_kvm_guest"
@@ -106,6 +116,11 @@ KVM_CLOUD_INIT_INTERVAL="${KVM_CLOUD_INIT_INTERVAL:-5}"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 
+# REPO_BRANCH names the branch the guest clones; it falls back to `main` so a
+# detached host checkout still has something to check out. The shared-guest lock
+# needs a real branch, so it reads REPO_BRANCH_EXPLICIT (the caller's override)
+# or the live branch, and refuses a checkout that has neither.
+REPO_BRANCH_EXPLICIT="${REPO_BRANCH:-}"
 if [ -z "${REPO_BRANCH:-}" ]; then
   REPO_BRANCH="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
   [ -n "$REPO_BRANCH" ] && [ "$REPO_BRANCH" != "HEAD" ] || REPO_BRANCH="main"
@@ -141,6 +156,7 @@ SEED_PATH="$ARTIFACT_DIR/$VM_NAME-seed.img"
 USERDATA_PATH="$ARTIFACT_DIR/$VM_NAME-user-data"
 METADATA_PATH="$ARTIFACT_DIR/$VM_NAME-meta-data"
 DOMAIN_XML_PATH="$ARTIFACT_DIR/$VM_NAME.xml"
+OWNER_PATH="$ARTIFACT_DIR/$VM_NAME.owner"
 
 log() { printf '%s\n' "==> $*" >&2; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -175,9 +191,11 @@ require_safe_branch() {
 
 usage() {
   cat <<'EOF'
-usage: kvm-guest.sh {up|render|ssh|sync|prime|run <cmd...>|agent [cmd]|agent-up [cmd]|agent-provision [name]|sync-back [branch]|firewall|down}
+usage: kvm-guest.sh {up|render|ssh|sync|prime|run <cmd...>|agent [cmd]|agent-up [cmd]|agent-provision [name]|sync-back [branch]|pause|firewall|down}
 
-  up                create and boot the KVM guest (cloud-init provisions it)
+  up                bring the shared guest up for this branch (create if absent,
+                    resume a paused one, start a stopped one; refuses a guest
+                    another branch holds). cloud-init provisions a new guest.
   render            write the cloud-init seed and domain XML to ARTIFACT_DIR, no boot
   ssh               open a shell in the guest
   sync              point the guest's git at the host and pull its branch
@@ -191,6 +209,8 @@ usage: kvm-guest.sh {up|render|ssh|sync|prime|run <cmd...>|agent [cmd]|agent-up 
   sync-back [branch]
                     fetch the guest's branches back (all into
                     refs/remotes/kvm-guest/*, or one into a local branch)
+  pause             suspend the shared guest and release it for another branch
+                    (the disk is kept; the next command resumes it)
   firewall          re-apply the host nft rules the guest's egress needs
   down              destroy the guest and its disk
 
@@ -359,7 +379,9 @@ render() {
 check_host() {
   local tool
   for tool in virsh qemu-img cloud-localds curl; do require_tool "$tool"; done
-  [ -w /dev/kvm ] || die "/dev/kvm not writable on the host (add \$USER to the kvm group)"
+  if ! kvm_device_writable; then
+    die "/dev/kvm not writable on the host (add \$USER to the kvm group)"
+  fi
   local nested="" module path
   for module in kvm_amd kvm_intel; do
     path="/sys/module/$module/parameters/nested"
@@ -370,11 +392,38 @@ check_host() {
     "") log "warn: could not read the host nested-virt parameter; continuing" ;;
     *) die "host nested virtualization is off (nested=$nested); set options kvm-amd nested=1 and reboot" ;;
   esac
-  virsh_cmd list >/dev/null 2>&1 || die "cannot reach libvirt at $LIBVIRT_URI (is it running? set LIBVIRT_URI?)"
-  virsh_cmd net-info default >/dev/null 2>&1 || die "libvirt network 'default' not found at $LIBVIRT_URI"
+  require_libvirt_probe
+  require_default_network_gate
   if virsh_cmd dominfo "$VM_NAME" >/dev/null 2>&1; then
     die "libvirt domain '$VM_NAME' already exists (run: $0 down)"
   fi
+}
+
+# kvm_device_writable is the one host fact the harness cannot state any other
+# way: a real /dev/kvm cannot be made writable inside a test, so a case that
+# drives the create path sets KVM_FAKE_DEVICE_WRITABLE.
+kvm_device_writable() {
+  [ "${KVM_FAKE_DEVICE_WRITABLE:-}" = "1" ] || [ -w /dev/kvm ]
+}
+
+# fetch_base_image downloads the cloud image to a .part and moves it on success,
+# so a failed fetch (a 404, a dropped connection) leaves no partial base image to
+# be mistaken for a complete one.
+fetch_base_image() {
+  log "fetching $IMAGE_URL"
+  curl -fL --progress-bar "$IMAGE_URL" -o "$IMAGE_PATH.part"
+  mv "$IMAGE_PATH.part" "$IMAGE_PATH"
+}
+
+# require_libvirt_probe and require_default_network_gate are the create-path's
+# fail-closed host checks: an unreachable libvirt must not read as an absent
+# guest, and a missing network is fatal.
+require_libvirt_probe() {
+  virsh_cmd list >/dev/null 2>&1 || die "cannot reach libvirt at $LIBVIRT_URI (is it running? set LIBVIRT_URI?)"
+}
+
+require_default_network_gate() {
+  virsh_cmd net-info default >/dev/null 2>&1 || die "libvirt network 'default' not found at $LIBVIRT_URI"
 }
 
 ensure_default_network() {
@@ -480,6 +529,128 @@ require_guest_ip() {
   ip="$(guest_ip)"
   [ -n "$ip" ] || die "no DHCP lease for '$VM_NAME' — still booting? check: virsh -c $LIBVIRT_URI net-dhcp-leases default"
   printf '%s\n' "$ip"
+}
+
+# lock_branch is this checkout's identity for the shared-guest lock: an explicit
+# REPO_BRANCH wins, else the live branch. An unresolved checkout (detached HEAD,
+# not a repo) prints nothing, and acquire_guest refuses rather than calling it
+# `main` and colliding with a real main checkout.
+lock_branch() {
+  if [ -n "$REPO_BRANCH_EXPLICIT" ]; then
+    printf '%s\n' "$REPO_BRANCH_EXPLICIT"
+    return
+  fi
+  git -C "$repo_root" rev-parse --abbrev-ref HEAD 2>/dev/null || true
+}
+
+# The shared guest is locked by its domain state: running means one branch holds
+# it, paused or absent means it is free. The label names the holding branch so a
+# competing branch can be told who has it; it is a record, not the lock.
+guest_owner_branch() {
+  [ -r "$OWNER_PATH" ] || return 0
+  sed -n 's/^branch=//p' "$OWNER_PATH" 2>/dev/null | head -1
+}
+
+write_guest_owner() {
+  mkdir -p "$ARTIFACT_DIR"
+  printf 'branch=%s\npid=%s\ncwd=%s\n' "$1" "$$" "$PWD" > "$OWNER_PATH"
+}
+
+clear_guest_owner() { rm -f "$OWNER_PATH"; }
+
+# guest_state prints "absent" when the domain is not defined, else libvirt's
+# state name with whitespace removed ("running", "paused", "shutoff", ...). An
+# undefined domain is proven by its absence from `virsh list --all --name`; a
+# failed query dies rather than reading as absent, so a caller acting on
+# "absent" (pause releasing the lock, create) never mistakes an unreachable or
+# mis-permitted libvirt for a guest that is not there.
+guest_state() {
+  local defined state
+  defined="$(virsh_cmd list --all --name 2>/dev/null)" ||
+    die "cannot query libvirt at $LIBVIRT_URI (is it running? set LIBVIRT_URI?)"
+  if ! grep -qxF "$VM_NAME" <<<"$defined"; then
+    printf 'absent\n'
+    return
+  fi
+  state="$(virsh_cmd domstate "$VM_NAME" 2>/dev/null | tr -d '[:space:]')" ||
+    die "cannot read the state of guest '$VM_NAME'"
+  printf '%s\n' "$state"
+}
+
+# acquire_guest brings the shared guest up for this branch and records it as the
+# holder. Idempotent for the branch that already holds it; a guest held by
+# another branch (or a pre-lock guest with no label) is refused by name. The
+# label is written the moment the branch has the guest — before any readiness
+# wait — so a guest that is merely booting is never mistaken for an unlabeled
+# pre-lock one.
+acquire_guest() {
+  local state owner ip branch
+  branch="$(lock_branch)"
+  case "$branch" in
+    ""|HEAD)
+      die "cannot lock the shared guest: this checkout is not on a branch (detached HEAD?). Check out a branch or set REPO_BRANCH." ;;
+  esac
+  state="$(guest_state)"
+  case "$state" in
+    running)
+      owner="$(guest_owner_branch)"
+      [ "$owner" = "$branch" ] && return 0
+      if [ -n "$owner" ]; then
+        die "guest '$VM_NAME' is in use by branch '$owner'. Hand it over with '$0 pause' (keeps the disk) or '$0 down' (destroys it)."
+      fi
+      die "guest '$VM_NAME' is running without an owner label (created before the lock). Hand it over with '$0 pause' or '$0 down'."
+      ;;
+    paused)
+      log "resuming guest '$VM_NAME'"
+      virsh_cmd resume "$VM_NAME" >/dev/null
+      write_guest_owner "$branch"
+      ip="$(wait_for_lease)"
+      probe_guest_egress "$ip"
+      ;;
+    shutoff)
+      # A host reboot drops the default network and the firewall accepts the
+      # guest egress needs, so re-ensure both, matching `create`.
+      ensure_default_network
+      log "starting the stopped guest '$VM_NAME'"
+      virsh_cmd start "$VM_NAME" >/dev/null
+      write_guest_owner "$branch"
+      ip="$(wait_for_lease)"
+      probe_guest_egress "$ip"
+      ;;
+    absent)
+      # Labeled before create: create defines and starts the domain, and the
+      # label must land before its boot-long lease wait, or a competing branch
+      # reads the booting guest as an unlabeled pre-lock one and is invited to
+      # take it over.
+      write_guest_owner "$branch"
+      create
+      ;;
+    *)
+      die "guest '$VM_NAME' is in state '$state'; expected running, paused, shut off, or absent"
+      ;;
+  esac
+  # Re-asserted after the readiness wait (idempotent): the label is written the
+  # moment the branch has the guest, and rewritten here so its pid and cwd name
+  # this run.
+  write_guest_owner "$branch"
+}
+
+# suspend_guest pauses the guest and releases the lock, keeping the disk so the
+# next branch resumes rather than rebuilds. Hand-off is explicit: a running guest
+# stays held until it is paused or destroyed.
+suspend_guest() {
+  local state
+  state="$(guest_state)"
+  case "$state" in
+    running)
+      log "pausing guest '$VM_NAME' (disk kept; '$0 up' resumes it)"
+      virsh_cmd suspend "$VM_NAME" >/dev/null
+      ;;
+    paused) log "guest '$VM_NAME' is already paused" ;;
+    absent|shutoff) log "guest '$VM_NAME' is not running" ;;
+    *) die "guest '$VM_NAME' is in an unexpected state '$state'" ;;
+  esac
+  clear_guest_owner
 }
 
 ssh_in() {
@@ -598,6 +769,7 @@ sync_in() {
   local ip branch
   branch="${REPO_BRANCH:-main}"
   require_safe_branch "$branch"
+  acquire_guest
   ip="$(require_guest_ip)"
   ensure_guest_git_remote "$ip"
   log "pulling $branch from the host into $VM_USER@$ip:~/agents-sandbox"
@@ -639,6 +811,7 @@ sync_back() {
 # prime before a run, never while one is using the home.
 prime() {
   local ip root="${KVM_PRIME_ROOT:-/opt/asb-reuse}" tags home
+  acquire_guest
   ip="$(require_guest_ip)"
   home="$root/smoke/data/agents-sandbox/msb"
 
@@ -671,6 +844,7 @@ prime() {
 
 run_in() {
   [ "$#" -gt 0 ] || { usage >&2; exit 2; }
+  acquire_guest
   # A login shell so /etc/profile.d puts Go and ~/.local/bin (msb) on PATH for
   # the suite the command runs.
   exec ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$(require_guest_ip)" \
@@ -689,6 +863,7 @@ agent_in() {
   session="${KVM_AGENT_SESSION:-agents-sandbox}"
   command="${*:-opencode2}"
   require_safe_agent_command "$command"
+  acquire_guest
   ip="$(require_guest_ip)"
   exec ssh -tt -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
     -- "bash -lc 'cd ~/agents-sandbox && exec tmux new -A -s $session bash -c \"$command\"'"
@@ -706,6 +881,7 @@ agent_in() {
 agent_provision() {
   local ip agent
   agent="${1:-opencode2}"
+  acquire_guest
   ip="$(require_guest_ip)"
   if [ -d "$HOME/.config/agents-sandbox" ]; then
     log "syncing $HOME/.config/agents-sandbox → $VM_USER@$ip"
@@ -748,29 +924,6 @@ gh_auth() {
       -- "bash -lc 'gh auth login --with-token && gh auth setup-git'"; then
     die "gh sign-in failed in '$VM_NAME'; check the token (GITHUB_PAT), or rebuild a guest that predates gh: make kvm-down && make kvm-up"
   fi
-}
-
-# ensure_running brings the guest to a running state without recreating an
-# existing domain: undefined is created, a stopped domain is started (sharing
-# the boot path's lease wait), a running one is left alone. `create`'s
-# check_host refuses an existing domain, so it is never called over one.
-ensure_running() {
-  if ! virsh_cmd dominfo "$VM_NAME" >/dev/null 2>&1; then
-    create
-    return
-  fi
-  if [ "$(virsh_cmd domstate "$VM_NAME" 2>/dev/null | tr -d '[:space:]')" = "running" ]; then
-    log "guest '$VM_NAME' is running"
-    return
-  fi
-  local ip
-  log "starting the stopped guest '$VM_NAME'"
-  # A host reboot drops the default network and the firewall accepts the guest
-  # egress needs, so the start path re-ensures both, matching `create`.
-  ensure_default_network
-  virsh_cmd start "$VM_NAME" >/dev/null
-  ip="$(wait_for_lease)"
-  probe_guest_egress "$ip"
 }
 
 # wait_for_cloud_init gates on the guest being provisioned: it retries the SSH
@@ -817,7 +970,7 @@ guest_agent_session_state() {
 agent_up() {
   local ip session_state
   require_safe_agent_command "${*:-opencode2}"
-  ensure_running
+  acquire_guest
   ip="$(require_guest_ip)"
   wait_for_cloud_init "$ip"
   session_state="$(guest_agent_session_state "$ip" || true)"
@@ -883,11 +1036,13 @@ EOF
 
 create() {
   check_host
-  mkdir -p "$ARTIFACT_DIR"
   # The base image must be readable by libvirt's QEMU user, and on
   # Debian/Ubuntu AppArmor only allows libvirt's own paths, so the cache
   # defaults to /var/lib/libvirt/images/agents-sandbox. Create it once,
-  # owned by us so the fetch can write.
+  # owned by us so the fetch can write. The check precedes the artifact
+  # mkdir: with the default ARTIFACT_DIR ($KVM_IMAGE_CACHE/guest) the mkdir
+  # would otherwise create the very cache this guards, or abort with a bare
+  # "No such file or directory" when the parent is read-only.
   if [ ! -d "$KVM_IMAGE_CACHE" ]; then
     die "image cache '$KVM_IMAGE_CACHE' does not exist. Create it once:
       sudo install -d -o \"\$USER\" -g \"\$USER\" -m 0755 '$KVM_IMAGE_CACHE'
@@ -896,17 +1051,14 @@ create() {
   fi
   [ -w "$KVM_IMAGE_CACHE" ] || die "image cache '$KVM_IMAGE_CACHE' is not writable by $USER; chown it: sudo chown \"\$USER\" '$KVM_IMAGE_CACHE'"
 
+  mkdir -p "$ARTIFACT_DIR"
+
   if [ "${KVM_REFRESH_IMAGE:-}" = "1" ]; then
     log "KVM_REFRESH_IMAGE set; discarding the cached base image"
     rm -f "$IMAGE_PATH"
   fi
   if [ ! -f "$IMAGE_PATH" ]; then
-    log "fetching $IMAGE_URL"
-    # Download to a .part and move on success, so a failed fetch (a 404, a
-    # dropped connection) leaves no partial base image to be mistaken for a
-    # complete one on the next run.
-    curl -fL --progress-bar "$IMAGE_URL" -o "$IMAGE_PATH.part"
-    mv "$IMAGE_PATH.part" "$IMAGE_PATH"
+    fetch_base_image
   else
     log "using cached base image $IMAGE_PATH"
   fi
@@ -934,8 +1086,8 @@ create() {
 }
 
 # wait_for_lease blocks until the guest has a DHCP lease, printing progress, and
-# warns (printing nothing) on timeout. It is the boot gate `create` and the
-# ensure-running path share.
+# warns (printing nothing) on timeout. It is the boot gate `create` and
+# `acquire_guest`'s resume/start arms share.
 wait_for_lease() {
   local timeout="${KVM_BOOT_TIMEOUT:-300}" waited=0 ip=""
   log "waiting up to ${timeout}s for a DHCP lease (cloud-init first boot takes a few minutes)"
@@ -956,19 +1108,30 @@ wait_for_lease() {
 }
 
 destroy() {
-  if virsh_cmd dominfo "$VM_NAME" >/dev/null 2>&1; then
-    log "destroying domain '$VM_NAME'"
-    virsh_cmd destroy "$VM_NAME" >/dev/null 2>&1 || true
-    virsh_cmd undefine "$VM_NAME" --nvram >/dev/null 2>&1 || virsh_cmd undefine "$VM_NAME" >/dev/null 2>&1 || true
-  else
-    log "domain '$VM_NAME' is not defined; removing any leftover disk"
-  fi
+  local state
+  state="$(guest_state)"
+  case "$state" in
+    absent)
+      log "domain '$VM_NAME' is not defined; removing any leftover disk"
+      ;;
+    running|paused|shutoff)
+      log "destroying domain '$VM_NAME'"
+      virsh_cmd destroy "$VM_NAME" >/dev/null 2>&1 || true
+      virsh_cmd undefine "$VM_NAME" --nvram >/dev/null 2>&1 ||
+        virsh_cmd undefine "$VM_NAME" >/dev/null 2>&1 ||
+        die "cannot undefine domain '$VM_NAME'; not removing its disk"
+      ;;
+    *)
+      die "guest '$VM_NAME' is in an unexpected state '$state'; refusing to remove its disk"
+      ;;
+  esac
   rm -f "$DISK_PATH" "$SEED_PATH" "$USERDATA_PATH" "$METADATA_PATH" "$DOMAIN_XML_PATH"
+  clear_guest_owner
   log "removed '$VM_NAME' and its disk (base image kept in cache at $IMAGE_PATH)"
 }
 
 case "${1:-}" in
-  up|create)       create ;;
+  up|create)       acquire_guest ;;
   render)          render ;;
   ssh)             ssh_in ;;
   sync)            sync_in ;;
@@ -978,6 +1141,7 @@ case "${1:-}" in
   agent-up)        shift; agent_up "$@" ;;
   agent-provision) shift; agent_provision "$@" ;;
   sync-back)       shift; sync_back "$@" ;;
+  pause|suspend)   suspend_guest ;;
   firewall|fix-net) fix_firewall ;;
   down|destroy)    destroy ;;
   *) usage >&2; exit 2 ;;

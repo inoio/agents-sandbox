@@ -1,6 +1,6 @@
 ---
-description: The host-only libvirt KVM guest for running the msb test suites and an agent that works on this repo - why the development VM cannot run them, the `scripts/kvm-guest.sh` provisioner and its `make kvm-up`/`kvm-sync`/`kvm-prime`/`kvm-run`/`kvm-agent`/`kvm-agent-provision`/`kvm-down` targets, the host git remote the guest pulls from and pushes to over a `git-shell`-restricted key, the disk-backed reuse root the guest pre-creates, the nested-KVM prerequisites, and the volatile host-firewall fix guest egress needs.
-read_if: Running the msb suites (`make test-msb`, `make test-msb-journeys`) and needing a KVM host; running an agent (opencode2) on the guest so it can build the launcher and drive real VMs (`make kvm-agent`, `make kvm-agent-provision`); provisioning or destroying the libvirt guest; priming the guest's runner-image/msb cache from the host (`make kvm-prime`) or diagnosing a `prime` that copies nothing; diagnosing a guest that never gets a DHCP lease, a `virsh start` `Permission denied` on the cache (AppArmor), or no DNS/egress behind Docker's `ip filter` table; the guest's host git remote (`make kvm-sync`, guest `git push`, the `git-shell`-restricted key) or a sync that refuses; or changing `scripts/kvm-guest.sh`.
+description: The host-only libvirt KVM guest for running the msb test suites and an agent that works on this repo - why the development VM cannot run them, the `scripts/kvm-guest.sh` provisioner and its `make kvm-up`/`kvm-sync`/`kvm-prime`/`kvm-run`/`kvm-agent`/`kvm-agent-provision`/`kvm-sync-back`/`kvm-pause`/`kvm-down` targets, the shared-across-worktrees guest and its state-derived branch lock, the host git remote the guest pulls from and pushes to over a `git-shell`-restricted key, the disk-backed reuse root the guest pre-creates, the nested-KVM prerequisites, and the volatile host-firewall fix guest egress needs.
+read_if: Running the msb suites (`make test-msb`, `make test-msb-journeys`) and needing a KVM host; running an agent (opencode2) on the guest so it can build the launcher and drive real VMs (`make kvm-agent`, `make kvm-agent-provision`); provisioning, pausing, or destroying the libvirt guest; handing the shared guest between branches or diagnosing an `in use by branch` refusal, an `owner label` message, or an unexpected `domstate`; priming the guest's runner-image/msb cache from the host (`make kvm-prime`) or diagnosing a `prime` that copies nothing; diagnosing a guest that never gets a DHCP lease, a `virsh start` `Permission denied` on the cache (AppArmor), or no DNS/egress behind Docker's `ip filter` table; the guest's host git remote (`make kvm-sync`, guest `git push`, the `git-shell`-restricted key) or a sync that refuses; or changing `scripts/kvm-guest.sh`.
 ---
 
 # The KVM guest for the msb suites
@@ -33,6 +33,7 @@ make kvm-prime              # copy the host's built runner images + msb home int
 make kvm-run                # run KVM_RUN (default: make test-msb-in-vm) in the guest
 make kvm-run KVM_RUN='make test-msb'          # the host variant, unchanged
 make kvm-run KVM_RUN='make test-msb-journeys'
+make kvm-pause              # pause the guest and hand it to another branch (disk kept)
 make kvm-down               # destroy the guest and its disk (the base image stays cached)
 make kvm-agent-up           # one command: ensure up + cloud-init + pull + provision + attach (gh sign-in from GITHUB_PAT)
 ```
@@ -55,7 +56,7 @@ on the guest that is not vCPU-capped with `--cpus` — can make a harness miss i
 `up` prints the guest's SSH address and a next-steps checklist; cloud-init takes a few minutes on first boot. Once it
 is done, gate the guest (`ls -la /dev/kvm`, `msb doctor`) before running a suite. `up` waits up to `KVM_BOOT_TIMEOUT`
 seconds (default 300) for a DHCP lease, printing progress, and warns with diagnostics if none arrives. `scripts/kvm-guest.sh render` writes
-the cloud-init seed and domain XML under `ARTIFACT_DIR` (default `./.kvm-guest`) without booting, useful to inspect
+the cloud-init seed and domain XML under `ARTIFACT_DIR` (default `$KVM_IMAGE_CACHE/guest`) without booting, useful to inspect
 before `up`. Env overrides (`VM_NAME`, `VM_VCPUS`, `VM_MEMORY_MIB`, `VM_DISK_GIB`, `VM_USER`, `REPO_URL`,
 `REPO_BRANCH`, `GO_VERSION`, `SSH_PUBKEY`, `KVM_HOST_USER`, `KVM_GUEST_STATE`, `LIBVIRT_URI`, `UBUNTU_CODENAME`,
 `IMAGE_URL`, `ARTIFACT_DIR`, `KVM_IMAGE_CACHE`, `KVM_REFRESH_IMAGE`, `KVM_BOOT_TIMEOUT`) are documented in the script
@@ -65,6 +66,46 @@ cloud-init also creates `/opt/asb-reuse`, owned by the guest user, for the msb s
 test-msb` caches 10+ GiB of runner images under `MSB_REUSE_ROOT` (default `/opt/asb-reuse`), while the guest's `/tmp`
 is a RAM-backed tmpfs that would exhaust at the largest runner image. See
 `.operator-shared/specs/testing/harness-smoke-tests.md`.
+
+### Sharing the guest across worktrees
+
+Every worktree resolves to the **same** guest: `VM_NAME` is the constant `asb-kvm`, and its disk, seed, and domain XML
+live in one host-global `ARTIFACT_DIR` (default `$KVM_IMAGE_CACHE/guest`), never in `$PWD`. So worktrees no longer each
+grow an 80 GiB overlay, and `make kvm-sync` swaps whichever checkout you are in into the one guest.
+
+Because one guest serves every branch, its **domain state is the lock**: `running` means a branch holds it, `paused` or
+absent means it is free. The holding branch is named in `$ARTIFACT_DIR/$VM_NAME.owner`. `up`, `sync`, `prime`, `run`,
+`agent`, `agent-up`, and `agent-provision` all acquire first — idempotent for the branch that already holds it, and
+refused, by name, for any other:
+
+```console
+$ make kvm-sync                               # on branch B while branch A holds the guest
+error: guest 'asb-kvm' is in use by branch 'A'. Hand it over with '… pause' (keeps the disk) or '… down' (destroys it).
+```
+
+`make kvm-pause` (`virsh suspend`) is the hand-off: it releases the lock but keeps the disk, so the next branch's
+`up`/`sync`/`run` **resumes** rather than rebuilds. `make kvm-down` releases too and destroys the disk. Because the lock
+is the `running` state, a dropped SSH that leaves the tmux agent alive keeps the guest held; and `pause` freezes that
+session, so hand over only once the agent is done.
+
+The owner key is the branch name, so a checkout whose branch cannot be resolved — a detached HEAD, or a directory git
+does not recognize — **cannot acquire**; check out a branch or set `REPO_BRANCH` explicitly. The artifacts path is
+host-global, so two separate clones of this repository on one host resolve to the same guest: keep them off the
+same-named branch, or give one a distinct `VM_NAME`/`ARTIFACT_DIR`. Whether the guest is *defined* is proven from
+`virsh list --all --name`, and a state query that cannot reach libvirt is **fatal**: `up` and `pause` fail closed rather
+than mistake an unreachable guest for an absent one and drop the owner label.
+
+A host that already had a guest **before** this change is not migrated. Its domain was defined against the old
+per-worktree `$PWD/.kvm-guest/asb-kvm.qcow2`, and `up` only runs `create` when *no* domain is defined, so it
+resumes/starts that existing domain at the old path instead of redefining it into `ARTIFACT_DIR`; `down` then removes
+the domain and the *new* artifact paths, leaving the old 80 GiB overlay behind. Reclaim it once, after `make kvm-down`:
+
+```console
+rm -f <old-worktree>/.kvm-guest/asb-kvm.qcow2   # plus -seed.img/-user-data/-meta-data/.xml if present
+```
+
+The next `make kvm-up` then builds a fresh guest under `ARTIFACT_DIR`. Re-defining a live domain onto a new disk source
+is not done automatically: it is rare, one-time, and not worth the risk of touching a running guest.
 
 ### Priming the guest from the host
 
@@ -82,7 +123,8 @@ nothing is reused. Host and guest must also share the CPU architecture and the m
 the host's cache first (`make test-msb` on the host), and prime before a run, never while a run is using the home.
 
 The base cloud image is cached in `KVM_IMAGE_CACHE` (default
-`/var/lib/libvirt/images/agents-sandbox`), **outside** `ARTIFACT_DIR`: only the first `up` fetches it, `down` leaves it
+`/var/lib/libvirt/images/agents-sandbox`), and the guest's own disk, seed, and domain XML live in `ARTIFACT_DIR`
+(default `$KVM_IMAGE_CACHE/guest`) inside that same tree: only the first `up` fetches the base image, `down` leaves it
 in place, and every worktree of a bare checkout reuses the one copy. The default is libvirt's own image dir because
 libvirt runs QEMU as its own user (`libvirt-qemu`) and, on Debian/Ubuntu, confines it with AppArmor to paths libvirt
 knows about — a qcow2 backing file under `$HOME` is denied even at `0644` in a `0755` dir (see below). Create the dir
