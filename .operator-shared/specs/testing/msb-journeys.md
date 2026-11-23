@@ -208,7 +208,8 @@ source of truth and its steps are type-checked. It reads as Gherkin anyway:
   starting state (another first-run choice, network profile, or a clean VM).
 - **Journey × harness.** A journey lists the harnesses it runs on and runs once per harness as
   `TestHarnessJourneys/<journey>/<harness>`; `make test-msb-journeys JOURNEY=<name> HARNESS=<agent>` selects
-  one cell (either may be left out). `test/msb/journeys/JOURNEYS.md` is the generated scenario catalogue
+  one cell (either may be left out), and the suite then prebuilds only the images the selected cells drive (never
+  the startup smoke's whole set). `test/msb/journeys/JOURNEYS.md` is the generated scenario catalogue
   (`TestJourneyCatalogueIsCurrent` fails when it is stale; `-update-catalogue` regenerates it). The
   completeness contract is per pair: every (journey, registered agent) pair is driven or exempted with a
   recorded reason (`Exemptions`), so a newly registered agent fails the default suite until it is placed, and a

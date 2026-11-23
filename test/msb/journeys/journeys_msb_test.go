@@ -3,10 +3,18 @@
 package journeys
 
 import (
+	"os"
 	"testing"
 	"time"
 
 	"github.com/inoio/agents-sandbox/test/msb/driver"
+)
+
+// The make target's JOURNEY and HARNESS selection, which also narrows the
+// prebuild to the images the selected cells drive.
+const (
+	journeySelectionEnv = "AGENTS_SANDBOX_JOURNEYS_JOURNEY"
+	harnessSelectionEnv = "AGENTS_SANDBOX_JOURNEYS_HARNESS"
 )
 
 // TestHarnessJourneys drives each journey in the table against a real
@@ -39,7 +47,9 @@ func TestHarnessJourneys(t *testing.T) {
 	if !driver.SmokeRootReused() {
 		t.Cleanup(func() { driver.CleanupRunnerImages(t, root) })
 	}
-	driver.PrebuildImages(t, root)
+	//testenv:allow the make target passes the JOURNEY/HARNESS selection through the environment
+	selection := selectedProjectAgents(Journeys, os.Getenv(journeySelectionEnv), os.Getenv(harnessSelectionEnv))
+	driver.PrebuildImagesFor(t, root, selection)
 
 	for _, journey := range Journeys {
 		t.Run(journey.Name, func(t *testing.T) {

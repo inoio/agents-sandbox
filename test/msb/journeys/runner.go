@@ -70,3 +70,25 @@ func journeySpec(spec driver.Spec, journey Journey, adapter Harness) driver.Spec
 	}
 	return spec
 }
+
+// selectedProjectAgents are the runner images the selected journeys drive: each
+// harness of each journey named journey (all when empty), narrowed to harness
+// when set, in table order and without duplicates. The suite prebuilds only
+// these, never the startup smoke's whole set.
+func selectedProjectAgents(journeys []Journey, journey, harness string) []driver.ProjectAgent {
+	var pairs []driver.ProjectAgent
+	seen := map[string]bool{}
+	for _, candidate := range journeys {
+		if journey != "" && candidate.Name != journey {
+			continue
+		}
+		for _, name := range candidate.Harnesses {
+			if (harness != "" && name != harness) || seen[name] {
+				continue
+			}
+			seen[name] = true
+			pairs = append(pairs, driver.ProjectAgent{Project: name, Agent: name, Docker: false})
+		}
+	}
+	return pairs
+}

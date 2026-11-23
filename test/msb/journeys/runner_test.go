@@ -3,6 +3,7 @@ package journeys
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -128,5 +129,35 @@ func TestJourneySpecAppliesTheJourneysAndTheAdaptersOverrides(t *testing.T) {
 	overridden := journeySpec(smoke, Journey{Network: "host"}, Harness{Drive: Driving{ReadyMarker: "status line"}})
 	if overridden.Network != "host" || overridden.ReadyMarker != "status line" {
 		t.Errorf("spec with overrides = %+v, want the journey's network and the adapter's marker", overridden)
+	}
+}
+
+func TestSelectedProjectAgentsFollowTheSelection(t *testing.T) {
+	journeys := []Journey{
+		{Name: "a", Harnesses: []string{"opencode2", "codex"}},
+		{Name: "b", Harnesses: []string{"opencode2", "pi"}},
+	}
+	names := func(pairs []driver.ProjectAgent) []string {
+		var agents []string
+		for _, pair := range pairs {
+			if pair.Project != pair.Agent || pair.Docker {
+				t.Errorf("pair = %+v, want the harness's own project without docker", pair)
+			}
+			agents = append(agents, pair.Agent)
+		}
+		return agents
+	}
+	for _, tc := range []struct {
+		journey, harness string
+		want             []string
+	}{
+		{"", "", []string{"opencode2", "codex", "pi"}},
+		{"b", "", []string{"opencode2", "pi"}},
+		{"", "pi", []string{"pi"}},
+		{"a", "pi", nil},
+	} {
+		if got := names(selectedProjectAgents(journeys, tc.journey, tc.harness)); !slices.Equal(got, tc.want) {
+			t.Errorf("selection (%q, %q) = %v, want %v", tc.journey, tc.harness, got, tc.want)
+		}
 	}
 }

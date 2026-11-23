@@ -168,20 +168,27 @@ func CreateRootAndBuildBinary() {
 // PreflightDocker has confirmed the child can reach a daemon.
 func PrebuildImages(tb TB, root string) {
 	tb.Helper()
+	PrebuildImagesFor(tb, root, SuiteProjectAgents())
+}
 
-	prebuildOnce.Do(func() { errPrebuild = BuildHarnessImages(tb, root) })
+// PrebuildImagesFor builds the images of pairs once, for a suite that drives
+// only some harnesses (the journeys under a HARNESS selection).
+func PrebuildImagesFor(tb TB, root string, pairs []ProjectAgent) {
+	tb.Helper()
+
+	prebuildOnce.Do(func() { errPrebuild = BuildHarnessImages(tb, root, pairs) })
 	if errPrebuild != nil {
 		tb.Fatalf("prebuild harness images: %v", errPrebuild)
 	}
 }
 
-// BuildHarnessImages builds every image in SuiteProjectAgents in the same
+// BuildHarnessImages builds every image in pairs in the same
 // throwaway project directory its subtest will run from, so the project slug
 // and agent identity match. The builds run up to prebuildConcurrency at a time;
 // the isolated home pays for the microsandbox runtime install here, outside any
 // harness's TUI budget. The env carries the environment's GitHub token when one
 // is set, so its release resolutions authenticate.
-func BuildHarnessImages(tb TB, root string) error {
+func BuildHarnessImages(tb TB, root string, pairs []ProjectAgent) error {
 	tb.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), prepareTimeout)
@@ -190,7 +197,6 @@ func BuildHarnessImages(tb TB, root string) error {
 	//testenv:allow the prebuild runs under the host environment it authenticates from
 	inherited := os.Environ()
 	env := WithGitHubToken(IsolatedEnv(root, root, inherited), inherited)
-	pairs := SuiteProjectAgents()
 	for _, pair := range pairs {
 		if err := os.MkdirAll(ProjectDir(root, pair.Project), 0o750); err != nil {
 			return fmt.Errorf("create project dir for %s: %w", pair.Project, err)
