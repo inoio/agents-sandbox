@@ -1,0 +1,63 @@
+package journeys
+
+import "github.com/inoio/agents-sandbox/internal/firstrun"
+
+// The core-session journey's prompts and the file its first turn writes. Each
+// prompt is distinctive, so its echo and its restored message cannot be matched
+// by a repaint or by another prompt.
+const (
+	coreFirstPrompt  = "journeys core first turn"
+	coreSecondPrompt = "journeys core second client"
+	coreThirdPrompt  = "journeys core first client again"
+	coreFile         = "journeys-core.txt"
+	coreFileContent  = "written by the stub's tool call"
+)
+
+// hostGatewayNetwork is the network profile that admits the host gateway the
+// stub's default route names.
+const hostGatewayNetwork = "host"
+
+// coreSessionJourney chains the #783 promotion bar's first run (A), real turn
+// (C), second client (E), and persistence (D) over one project and two boots:
+// the harness starts on a fresh home, a turn writes a file the host sees, a
+// second client works next to the first, and after both quit and the VM is
+// stopped, the harness resumes the session from what the home volume kept. It runs on a project of its own, because it restarts
+// and attaches twice, and under the host profile the stub route needs.
+var coreSessionJourney = Journey{
+	Name:      "core-session",
+	Harnesses: []string{opencode2AgentName},
+	Network:   hostGatewayNetwork,
+	Steps: []Step{
+		Given(StepOwnProject("core")),
+		And(StepFreshHome()),
+		And(StepSeedStub()),
+		And(StepScriptWriteFile(coreFile, coreFileContent)),
+		When(StepLaunch("run")),
+		And(StepChooseFirstRun(firstrun.ChoiceManual)),
+		And(StepDeclineHostProvisioning()),
+		Then(StepWaitReady()),
+		And(StepAssertExperimentalNotice()),
+		And(StepAssertNoProjectScaffolding()),
+		When(StepSendPrompt(coreFirstPrompt)),
+		Then(StepAssertStubServed()),
+		And(StepAssertProjectFile(coreFile, coreFileContent)),
+		And(StepAssertReplyShown()),
+		When(StepAttachClient()),
+		Then(StepWaitReady()),
+		And(StepAssertNoReconfigPrompt()),
+		When(StepSendPrompt(coreSecondPrompt)),
+		Then(StepAssertReplyShown()),
+		When(StepUseClient(1)),
+		And(StepSendPrompt(coreThirdPrompt)),
+		Then(StepAssertReplyShown()),
+		When(StepQuitToExit()),
+		And(StepUseClient(2)),
+		And(StepQuitToExit()),
+		And(StepStopVM()),
+		When(StepRelaunchWithResume()),
+		Then(StepWaitReady()),
+		And(StepAssertVMRestarted()),
+		And(StepAssertSessionRestored(coreThirdPrompt)),
+		When(StepQuitToExit()),
+	},
+}

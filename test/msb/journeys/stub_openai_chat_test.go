@@ -76,8 +76,8 @@ func TestStubAnswersAChatCompletionWithTheReply(t *testing.T) {
 		t.Fatalf("completion = %+v, want one chat.completion choice", completion)
 	}
 	choice := completion.Choices[0]
-	if choice.Message.Role != "assistant" || choice.Message.Content != StubReply {
-		t.Errorf("message = %+v, want the assistant reply %q", choice.Message, StubReply)
+	if choice.Message.Role != "assistant" || choice.Message.Content != stubReply(1) {
+		t.Errorf("message = %+v, want the assistant reply %q", choice.Message, stubReply(1))
 	}
 	if choice.FinishReason == nil || *choice.FinishReason != "stop" {
 		t.Errorf("finish_reason = %v, want stop", choice.FinishReason)
@@ -118,9 +118,9 @@ func TestStubStreamsAChatCompletionWhenAsked(t *testing.T) {
 			stopped = true
 		}
 	}
-	if content.String() != StubReply || !stopped || !done {
+	if content.String() != stubReply(1) || !stopped || !done {
 		t.Errorf("stream content = %q, stopped = %v, done = %v; want %q, a stop chunk, and [DONE]",
-			content.String(), stopped, done, StubReply)
+			content.String(), stopped, done, stubReply(1))
 	}
 }
 
@@ -161,7 +161,120 @@ func TestStubAnswersTheTitleModelWithADifferentReply(t *testing.T) {
 	if err := json.NewDecoder(response.Body).Decode(&completion); err != nil {
 		t.Fatalf("decode completion: %v", err)
 	}
-	if got := completion.Choices[0].Message.Content; got == StubReply || !strings.Contains(got, "title") {
-		t.Errorf("title reply = %q, want a reply other than %q", got, StubReply)
+	if got := completion.Choices[0].Message.Content; strings.HasPrefix(got, stubReplyPrefix) || got != stubTitleReply {
+		t.Errorf("title reply = %q, want %q", got, stubTitleReply)
+	}
+}
+
+type toolCallCompletion struct {
+	Choices []struct {
+		Message struct {
+			ToolCalls []struct {
+				ID       string `json:"id"`
+				Type     string `json:"type"`
+				Function struct {
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
+				} `json:"function"`
+			} `json:"tool_calls"`
+		} `json:"message"`
+		Delta struct {
+			ToolCalls []struct {
+				Function struct {
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
+				} `json:"function"`
+			} `json:"tool_calls"`
+		} `json:"delta"`
+		FinishReason *string `json:"finish_reason"`
+	} `json:"choices"`
+}
+
+var writeCall = ToolCall{Name: "write", Arguments: `{"filePath":"/workspace/x.txt","content":"hi"}`}
+
+func TestStubAnswersTheNextTurnWithTheScriptedToolCallOnce(t *testing.T) {
+	provider := startTestStub(t)
+	provider.ScriptToolCall(writeCall)
+
+	var first toolCallCompletion
+	if err := json.NewDecoder(postChat(t, provider, `{"model":"stub","messages":[]}`).Body).Decode(&first); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	calls := first.Choices[0].Message.ToolCalls
+	if len(calls) != 1 || calls[0].Function.Name != "write" || calls[0].Function.Arguments != writeCall.Arguments ||
+		calls[0].Type != "function" || calls[0].ID == "" {
+		t.Fatalf("tool calls = %+v, want the scripted write call", calls)
+	}
+	if reason := first.Choices[0].FinishReason; reason == nil || *reason != "tool_calls" {
+		t.Errorf("finish_reason = %v, want tool_calls", reason)
+	}
+
+	var second chatCompletion
+	if err := json.NewDecoder(postChat(t, provider, `{"model":"stub","messages":[]}`).Body).
+		Decode(&second); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got := second.Choices[0].Message.Content; got != stubReply(1) {
+		t.Errorf("the turn after the tool call = %q, want the text reply", got)
+	}
+}
+
+func TestStubStreamsTheScriptedToolCall(t *testing.T) {
+	provider := startTestStub(t)
+	provider.ScriptToolCall(writeCall)
+
+	response := postChat(t, provider, `{"model":"stub","stream":true,"messages":[]}`)
+
+	var name, arguments strings.Builder
+	var finished bool
+	scanner := bufio.NewScanner(response.Body)
+	for scanner.Scan() {
+		data, ok := strings.CutPrefix(scanner.Text(), "data: ")
+		if !ok || data == "[DONE]" {
+			continue
+		}
+		var chunk toolCallCompletion
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			t.Fatalf("decode chunk %q: %v", data, err)
+		}
+		for _, call := range chunk.Choices[0].Delta.ToolCalls {
+			name.WriteString(call.Function.Name)
+			arguments.WriteString(call.Function.Arguments)
+		}
+		if reason := chunk.Choices[0].FinishReason; reason != nil && *reason == "tool_calls" {
+			finished = true
+		}
+	}
+	if name.String() != "write" || arguments.String() != writeCall.Arguments || !finished {
+		t.Errorf("streamed call = %q(%s), finished = %v; want the scripted call and a tool_calls finish",
+			name.String(), arguments.String(), finished)
+	}
+}
+
+// The title model never consumes the scripted call: it belongs to the turn.
+func TestStubKeepsTheScriptedToolCallFromTheTitleModel(t *testing.T) {
+	provider := startTestStub(t)
+	provider.ScriptToolCall(writeCall)
+
+	_, _ = io.Copy(io.Discard, postChat(t, provider, `{"model":"`+stubTitleModel+`","messages":[]}`).Body)
+
+	var turn toolCallCompletion
+	if err := json.NewDecoder(postChat(t, provider, `{"model":"stub","messages":[]}`).Body).Decode(&turn); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(turn.Choices[0].Message.ToolCalls) != 1 {
+		t.Errorf("turn = %+v, want the scripted call after a title request", turn)
+	}
+}
+
+func TestStubNumbersItsRepliesAndRecordsThem(t *testing.T) {
+	provider := startTestStub(t)
+	for range 2 {
+		_, _ = io.Copy(io.Discard, postChat(t, provider, `{"model":"stub","messages":[]}`).Body)
+	}
+	_, _ = io.Copy(io.Discard, postChat(t, provider, `{"model":"`+stubTitleModel+`","messages":[]}`).Body)
+
+	if got, want := provider.Replies(), []string{stubReply(1), stubReply(2)}; !slices.Equal(got, want) {
+		t.Errorf("Replies() = %v, want %v (title replies excluded)", got, want)
 	}
 }

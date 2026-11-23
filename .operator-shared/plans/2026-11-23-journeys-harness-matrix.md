@@ -76,7 +76,7 @@ Outcome (host runs, 2026-11-23; the durable part is in the spec's "Stub provider
   `typeUntilEchoed` (retype until echoed); the learn journeys now really send their prompt and still pass.
 - `.invalid` never resolves in the guest, and the runtime enforces the policy before the proxy, so it is never
   observed. The default route is now the host gateway (`http://host.microsandbox.internal`, network profile
-  `host`): `stub-turn-completes` completes a real turn. Host-gateway traffic bypasses the observation
+  `host`): a real turn completes (now part of `core-session`). Host-gateway traffic bypasses the observation
   proxy, so the proxy spike is opt-in (`AGENTS_SANDBOX_JOURNEYS_PROXY_SPIKE=1`) and stays #793's open question.
 - A later journey attached to the VM an earlier journey left running (its network policy, its still-running
   sessions). `StepOwnProject` gives a journey its own project and VM; Task 5 decides the default.
@@ -92,65 +92,23 @@ with per-pair exemptions and `JOURNEY`/`HARNESS` selection, and the opencode2 ad
 
 - The kind follows dependency, not the keyword: "Then the harness TUI comes up" is an action, so the planned
   "a `Then` step must be a check" rule was dropped.
-- The stub-turn subtest became the table journey `stub-turn-completes`.
+- The stub-turn subtest became a table journey, later folded into `core-session` (Phase 2).
 - Prompt submission stays out of the adapter until a harness submits differently (claude-code, Task 9).
 - The four learn-mode journeys passed on the host after the refactor with unchanged assertions.
 
 ---
 
-## Phase 2 — Isolation and the core-session journey on opencode2
+## Phase 2 — Isolation and the core-session journey on opencode2 — done
 
-### Task 5: Per-journey project isolation
+Tasks 5–7 landed together (durable part: the spec's "The core-session journey"). Outcome:
 
-`StepOwnProject(label)` exists (Task 0); the teardown sweep already removes every sandbox in the suite's home.
-
-- [ ] Decide the default: every journey on its own project (the shared VM carries network policy and running
-      sessions between journeys), or opt-in per journey. Measure the cost with Task 2's durations and record the
-      decision in the spec.
-- [ ] Apply it to the learn-mode journeys if the default changes.
-
-### Task 6: Stub provider — protocol layer, script, request log (OpenAI chat first)
-
-**Files:** split `stub_provider.go` into `stub_provider.go` (listener, origin, request log) and
-`stub_openai_chat.go`; tests beside each.
-
-- [ ] Test: the stub records every request (method, path, model) so a step can assert it was hit.
-- [ ] Test: a `StubScript` is an ordered list of turns; a turn is either a text reply or a tool call
-      (`name`, JSON arguments). The OpenAI chat handler serves both, streamed (SSE) and non-streamed, in the shape
-      opencode's `@ai-sdk/openai-compatible` accepts (fixture: a minimal recorded request/response).
-- [ ] The empty-completion behaviour the learn journeys rely on stays the default when no script is set.
-
-### Task 7: Core-session journey, opencode2
-
-**Files:** Create `test/msb/journeys/core_session.go`; new steps in `steps.go` with unit tests.
-
-The chain, one fresh project, two boots:
-
-```
-Given a fresh home and the stub provider scripted to write "journey-c.txt"
-When the user starts the harness
-Then the TUI comes up
-And the experimental notice is shown iff the harness is experimental
-And no first-run scaffolding appears                                   (#252)
-When the user sends the prompt
-Then the stub served the turn
-And "journey-c.txt" exists in the project on the host, owned by the host user
-When a second client attaches to the same VM
-Then both sessions answer, and no reconfig prompt appears              (#810)
-When both clients quit and the user starts the harness again with resume
-Then the previous session is restored
-```
-
-- [ ] New steps (each unit-tested where it has host-side logic): `StepAssertProjectFile(name, ownedByHostUser)`,
-      `StepAttachSecondClient` (a second `driver.Session` on the same project; `Context` gains `Sessions`),
-      `StepAssertNoReconfigPrompt`, `StepRelaunchWithResume` (adapter: `ResumeArgs`), `StepAssertSessionRestored`
-      (adapter: a marker that proves the resumed history, e.g. the earlier prompt text).
-- [ ] Adapter fields added now, because this journey needs them: `ResumeArgs`, `ExperimentalNotice` derived from
-      `agent.Experimental()` (not hard-coded), `DismissFirstRun` (empty for opencode2).
-- [ ] Decide whether the first-run menu appears for a fresh home without host config and how the journey answers it
-      (likely "Configure manually" or a `--yes`-free path that does not enable learn mode). Record the decision in the
-      spec.
-- [ ] **[host]** Core-session passes on opencode2; learn journeys still pass.
+- Per-journey projects stay opt-in (`StepOwnProject`); `core-session` uses one.
+- The stub's protocol layer gained a one-shot scripted tool call (`ScriptToolCall`); the per-protocol file
+  split waits for the second protocol (Task 8).
+- The adapter gained `WriteFileCall` and `ResumeArgs`; the experimental notice is derived from the profile.
+- Finding: opencode2's `write` tool takes `path`, not opencode 1.x's `filePath`; a wrong key is a tool error the
+  turn survives, so the adapter's call is now pinned by a unit test.
+- `core-session` passes on opencode2 in ~14 s; `stub-turn-completes` was folded into it.
 
 ---
 

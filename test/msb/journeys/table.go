@@ -8,7 +8,7 @@ var Journeys = []Journey{
 	uc4Journey,
 	configLearnJourney,
 	attributionJourney,
-	stubTurnJourney,
+	coreSessionJourney,
 }
 
 // learnSliceHarnesses are the harnesses the learn-mode journeys extend to in
@@ -41,13 +41,19 @@ func learnExemptions() map[string]string {
 	return reasons
 }
 
-// stubTurnExemptions records why the stub turn does not yet run on a harness:
-// the stub speaks only OpenAI chat completions and only opencode2 is pointed
-// at it; the core-session journey (#851) supersedes this journey.
-func stubTurnExemptions() map[string]string {
+// coreSessionExemptions records why the core-session journey does not yet run
+// on a harness: claude-code and codex are its next harnesses in #851, the rest
+// follow in #852 and #794.
+func coreSessionExemptions() map[string]string {
 	reasons := map[string]string{}
-	for _, name := range append(append([]string{}, learnSliceHarnesses...), learnRolloutHarnesses...) {
-		reasons[name] = "no stub protocol or harness adapter for it yet; the core-session journey (#851) covers it"
+	for _, name := range []string{"claude-code", "codex"} {
+		reasons[name] = "needs its stub protocol and adapter; next in #851"
+	}
+	for _, name := range []string{"oh-my-pi", "pi"} {
+		reasons[name] = "core session on this harness lands with #852"
+	}
+	for _, name := range learnRolloutHarnesses {
+		reasons[name] = "core session on this harness lands with the full rollout, #794"
 	}
 	return reasons
 }
@@ -61,5 +67,5 @@ var Exemptions = map[string]map[string]string{
 	uc4Journey.Name:         learnExemptions(),
 	configLearnJourney.Name: learnExemptions(),
 	attributionJourney.Name: learnExemptions(),
-	stubTurnJourney.Name:    stubTurnExemptions(),
+	coreSessionJourney.Name: coreSessionExemptions(),
 }

@@ -35,6 +35,26 @@ var opencode2Harness = Harness{
 		return map[string]string{opencodeHostConfigRelPath: opencodeProviderDocument(addr)}
 	},
 	HostLoginStore: map[string]string{opencodeLoginStoreRelPath: `{"openai":{"type":"api"}}`},
+	// opencode2's write tool takes the file as `path` (opencode 1.x named it
+	// `filePath`); a wrong key is a tool error the turn survives, so only the
+	// file check notices.
+	WriteFileCall: func(guestPath, content string) ToolCall {
+		return ToolCall{
+			Name:      "write",
+			Arguments: jsonObject(map[string]string{"path": guestPath, "content": content}),
+		}
+	},
+	ResumeArgs: []string{"--continue"},
+}
+
+// jsonObject renders a string map as a JSON object.
+func jsonObject(fields map[string]string) string {
+	data, err := json.Marshal(fields)
+	if err != nil {
+		// A string map always marshals, so this is unreachable.
+		return "{}"
+	}
+	return string(data)
 }
 
 // opencodeProviderDocument renders the opencode provider config that points the

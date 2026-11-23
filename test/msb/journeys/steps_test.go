@@ -326,6 +326,8 @@ type fakeStubProvider struct{}
 
 func (fakeStubProvider) Addr() string            { return "http://stub.invalid" }
 func (fakeStubProvider) Requests() []StubRequest { return nil }
+func (fakeStubProvider) ScriptToolCall(ToolCall) {}
+func (fakeStubProvider) Replies() []string       { return nil }
 func (fakeStubProvider) Stop()                   {}
 
 // TestCommandArgvAppendsNoJourneyFlags pins StepLaunchCommand's arg handling:
@@ -725,5 +727,25 @@ func TestStepAssertStubServedFailsNamingWhatTheStubSaw(t *testing.T) {
 func TestStepAssertStubServedNeedsAStub(t *testing.T) {
 	if err := stepAssertStubServed(time.Millisecond).Run(&Context{TB: t}); err == nil {
 		t.Fatal("step passed with no stub on the context")
+	}
+}
+
+// repliesStub is a StubProvider whose sent replies a test sets.
+type repliesStub struct {
+	fakeStubProvider
+
+	replies []string
+}
+
+func (r repliesStub) Replies() []string { return r.replies }
+
+func TestNewReplySinceReturnsOnlyAReplySentAfterThePrompt(t *testing.T) {
+	stub := repliesStub{replies: []string{"stub-reply-1", "stub-reply-2"}}
+
+	if got, err := newReplySince(stub, 1, time.Millisecond); err != nil || got != "stub-reply-2" {
+		t.Errorf("newReplySince(seen 1) = %q, %v; want stub-reply-2", got, err)
+	}
+	if _, err := newReplySince(stub, 2, time.Millisecond); err == nil {
+		t.Error("newReplySince(seen 2) found a reply although none followed the prompt")
 	}
 }
