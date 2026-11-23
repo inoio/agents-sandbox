@@ -167,6 +167,12 @@ func TestArgumentsLeakValue(t *testing.T) {
 		"flag then bool":             {[]any{"--token", true}, false},
 		"flag then nil":              {[]any{"--token", nil}, false},
 		"non-string before the flag": {[]any{1, "--token", "abcdef"}, true},
+		"separate env flag":          {[]any{"-e", "DB_PASSWORD=hunter2pass"}, true},
+		"joined env flag":            {[]any{"--env=DB_PASSWORD=hunter2pass"}, true},
+		"short joined env flag":      {[]any{"-e=DB_PASSWORD=hunter2pass"}, true},
+		"joined env harmless":        {[]any{"--env=LOG_LEVEL=debug"}, false},
+		"quoted placeholder value":   {[]any{"--api_key", `"${X_API_KEY}"`}, false},
+		"path flag value":            {[]any{"--key", "/home/dev/.ssh/id_ed25519"}, false},
 	}
 	for name, tc := range cases {
 		if got := argumentsLeakValue(tc.arguments); got != tc.want {
@@ -176,7 +182,10 @@ func TestArgumentsLeakValue(t *testing.T) {
 }
 
 func TestLiteralCredential(t *testing.T) {
-	for value, want := range map[string]bool{"": false, "  ": false, "-x": false, "${X}": false, "{env:X}": false, "{file:/x}": false, "abc": true} {
+	for value, want := range map[string]bool{
+		"": false, "  ": false, "-x": false, "${X}": false, "{env:X}": false, "{file:/x}": false, "abc": true,
+		`"${X}"`: false, `'${X}'`: false, "/home/dev/.ssh/id_ed25519": false, "~/a/b": false,
+	} {
 		if got := literalCredential(value); got != want {
 			t.Errorf("literalCredential(%q) = %v, want %v", value, got, want)
 		}
@@ -277,6 +286,11 @@ func TestCommandStringLeaksValue(t *testing.T) {
 		"env assignment":           {"docker run -e API_KEY=hunter2pass x", true},
 		"env long flag":            {"docker run --env DB_PASSWORD=hunter2pass x", true},
 		"placeholdered flag":       {"mytool --api_key ${X_API_KEY}", false},
+		"quoted placeholder flag":  {`mytool --api_key "${X_API_KEY}"`, false},
+		"path flag":                {"curl --key /home/dev/.ssh/id_ed25519", false},
+		"joined env assignment":    {"docker run --env=DB_PASSWORD=hunter2pass x", true},
+		"joined env short flag":    {"docker run -e=DB_PASSWORD=hunter2pass x", true},
+		"joined env harmless":      {"docker run --env=LOG_LEVEL=debug x", false},
 		"harmless environment":     {"docker run -e LOG_LEVEL=debug x", false},
 		"plain command":            {"npx -y @modelcontextprotocol/server-filesystem /workspace", false},
 		"header line":              {"Authorization=Bearer ${OTEL_TOKEN}", false},

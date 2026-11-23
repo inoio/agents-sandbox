@@ -399,14 +399,42 @@ const tokenCountMarker = "TOKEN"
 var leafSecretKeyMarkers = []string{"AUTH", "COOKIE", "SESSION"}
 
 // namesAStoredSecret reports whether key names a secret that can be a number
-// (a password, a PIN, a key) rather than only a token count: every secret
-// marker except TOKEN.
+// (a token, password, PIN, or key) rather than only a token count: every secret
+// marker except TOKEN, and a TOKEN marker only when it does not name a count.
+// An access_token or apiToken names a stored secret, so a number under it is not
+// cleared; a maxTokens, MAX_THINKING_TOKENS, tokenCount, or max_output_tokens
+// names a count.
 func namesAStoredSecret(key string) bool {
-	return slices.ContainsFunc(keySegments(key), func(segment string) bool {
+	segments := keySegments(key)
+	for _, segment := range segments {
 		singular := strings.TrimSuffix(segment, "S")
-		return singular != tokenCountMarker &&
-			(slices.Contains(secretShapedKeyMarkers, segment) || slices.Contains(secretShapedKeyMarkers, singular))
-	})
+		if !slices.Contains(secretShapedKeyMarkers, segment) &&
+			!slices.Contains(secretShapedKeyMarkers, singular) {
+			continue
+		}
+		if singular == tokenCountMarker && tokenSegmentNamesACount(segments, segment) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// tokenSegmentNamesACount reports whether a TOKEN/TOKENS segment names a count
+// rather than a token credential: a plural TOKENS (maxTokens, max_tokens,
+// tokens) names a count, and a singular TOKEN does only when it is the bare key
+// or sits beside a MAX or COUNT word (token, tokenCount). A singular TOKEN with
+// any other qualifier (access_token, apiToken) names a stored secret.
+func tokenSegmentNamesACount(segments []string, segment string) bool {
+	if segment != tokenCountMarker {
+		return true
+	}
+	return len(segments) == 1 || slices.ContainsFunc(segments, isTokenCountWord)
+}
+
+// isTokenCountWord reports whether a key segment names a count of tokens.
+func isTokenCountWord(segment string) bool {
+	return segment == "MAX" || segment == "COUNT"
 }
 
 // leafSecretKeyLeaksValue reports whether a key with a leaf-only marker holds a
@@ -583,11 +611,26 @@ func holdsRawSecret(node any, allowNumbers bool, leafIsRawSecret func(value stri
 		// A switch or a bare key is never a secret.
 		return false
 	}
-	// Every other decoded scalar — a number, or a timestamp the parser resolved
-	// from an unquoted date (time.Time, toml.LocalDate and its siblings) — is a
-	// raw value. Every container shape is handled above, so this recurses into
-	// nothing.
+	// A non-string scalar that is not a number — a timestamp the parser
+	// resolved from an unquoted date (time.Time, toml.LocalDate and its
+	// siblings) — is always a raw value, so the numeric exemption cannot
+	// swallow it. A numeric scalar is a raw value unless allowNumbers. Every
+	// container shape is handled above, so this recurses into nothing.
+	if !isNumericScalar(node) {
+		return true
+	}
 	return !allowNumbers
+}
+
+// isNumericScalar reports whether node is a decoded number. A decoded document
+// holds numbers as int or float64 (and their sized variants across the decoders),
+// so a scalar that is none of these — a timestamp in particular — is not a number.
+func isNumericScalar(node any) bool {
+	switch node.(type) {
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+		return true
+	}
+	return false
 }
 
 // isUndeclaredSecretValue reports whether value is a non-empty string that is

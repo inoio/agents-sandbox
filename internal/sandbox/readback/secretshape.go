@@ -20,7 +20,7 @@ const tokenChars = `[A-Za-z0-9._~+/=-]`
 var secretValuePatterns = []*regexp.Regexp{
 	// A credential header: authorization (any scheme), an API key, an auth token.
 	regexp.MustCompile(`(?i)\b(proxy-)?authorization\s*[:=]\s*((bearer|basic|token)\s+)?` + tokenChars + `{8,}`),
-	regexp.MustCompile(`(?i)\b(x-)?api-?key\s*[:=]\s*` + tokenChars + `{8,}`),
+	regexp.MustCompile(`(?i)\b(x-)?api[_-]?key\s*[:=]\s*` + tokenChars + `{8,}`),
 	regexp.MustCompile(`(?i)\bx-auth-token\s*[:=]\s*` + tokenChars + `{8,}`),
 	// A URL with userinfo: a password (possibly with an empty user or a '/'), or
 	// a long token as the user name.
@@ -31,11 +31,11 @@ var secretValuePatterns = []*regexp.Regexp{
 		`(?i)[?&;](api[_-]?key|apikey|access[_-]?token|auth[_-]?token|token|key|secret|client[_-]?secret|` +
 			`password|passwd|pwd|auth|sig|signature)=[^&\s'"$\{]`,
 	),
-	regexp.MustCompile(`(?i)(^|[\s;])(password|passwd|pwd)=[^\s;'"$\{]`),
+	regexp.MustCompile(`(?i)(^|[\s;])(password|passwd|pwd)\s*=\s*[^\s;'"$\{]`),
 	// A credential passed as a command-line flag value in the same string. The
 	// flag name may spell a separator as '-' or '_' (--api_key), so the prefix
 	// and the api-key alternative both span underscores and digits.
-	regexp.MustCompile(`(?i)(^|\s)--?[a-z0-9_-]*(token|password|passwd|api[-_]?key|secret|auth)(=|\s+)[^\s'"$\{-]`),
+	regexp.MustCompile(`(?i)(^|\s)--?[a-z0-9_-]*(token|password|passwd|api[-_]?key|secret|auth)(=|\s+)[^\s'"$\{\\-]`),
 	// Well-known vendor token prefixes, also inside a command ("echo sk-...").
 	regexp.MustCompile(`\b(sk|rk)_(live|test)_[A-Za-z0-9]{10,}`),
 	regexp.MustCompile(`\b(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}`),
@@ -90,29 +90,39 @@ func looksLikeSecretValue(value string) bool {
 // as two elements, or "--client-secret=abc" as one. A flag naming where a
 // secret lives (--token-file, --password-stdin) passes none. A following
 // element that is not a string is judged on its raw form, so a native number
-// (a numeric token or password) is not cleared by the string rule.
+// (a numeric token or password) is not cleared by the string rule. An
+// environment flag introduces an assignment the env-table rule judges, whether
+// it is separate ("-e", "API_KEY=abc") or joined ("--env=API_KEY=abc").
 func argumentsLeakValue(arguments []any) bool {
 	for index, argument := range arguments {
-		flag, _ := argument.(string)
-		if !strings.HasPrefix(flag, "-") {
-			continue
-		}
-		name, value, joined := strings.Cut(strings.TrimLeft(flag, "-"), "=")
-		if !flagNamesASecret(name) {
-			continue
-		}
-		if !joined {
-			if index+1 >= len(arguments) {
-				continue
-			}
-			if argumentLeaksValue(arguments[index+1]) {
-				return true
-			}
-			continue
-		}
-		if literalCredential(value) {
+		if argumentFlagLeaksValue(argument, arguments[index+1:]) {
 			return true
 		}
+	}
+	return false
+}
+
+// argumentFlagLeaksValue reports whether one argument leaks as a flag, judged by
+// the arguments that follow it: a secret-named flag with its value joined or in
+// the next element, or an environment flag introducing a NAME=value the env
+// rule does not clear.
+func argumentFlagLeaksValue(argument any, following []any) bool {
+	flag, _ := argument.(string)
+	if !strings.HasPrefix(flag, "-") {
+		return false
+	}
+	name, value, joined := strings.Cut(strings.TrimLeft(flag, "-"), "=")
+	switch {
+	case flagNamesASecret(name):
+		if joined {
+			return literalCredential(value)
+		}
+		return len(following) > 0 && argumentLeaksValue(following[0])
+	case isEnvironmentFlag(name):
+		if joined {
+			return assignmentLeaksValue(value)
+		}
+		return len(following) > 0 && assignmentLeaksValue(following[0])
 	}
 	return false
 }
@@ -147,10 +157,17 @@ func leafMarkerName(name string) bool {
 }
 
 // literalCredential reports whether value would be a literal credential: not
-// empty, not a reference, and not another flag.
+// empty, not another flag, not a filesystem path, and not a reference. Any
+// surrounding quotes or JSON escapes are removed first, so a shell-quoted
+// placeholder ("${X_API_KEY}", or the escaped \"${X_API_KEY}\" of raw JSON text)
+// is a reference like the unquoted form, and a path ("--key
+// /home/dev/.ssh/id_ed25519") names where a credential lives, not the value.
 func literalCredential(value string) bool {
-	trimmed := strings.TrimSpace(value)
-	return trimmed != "" && !strings.HasPrefix(trimmed, "-") && !isPlaceholderReference(trimmed)
+	trimmed := strings.Trim(strings.TrimSpace(value), "\"'\\")
+	if trimmed == "" || strings.HasPrefix(trimmed, "-") || isFilesystemPath(trimmed) {
+		return false
+	}
+	return !isPlaceholderReference(trimmed)
 }
 
 // assignmentPattern matches an environment assignment NAME=value.
@@ -165,9 +182,13 @@ func assignmentLeaksValue(node any) bool {
 	return match != nil && !envEntryIsSafe(match[1], match[2])
 }
 
-// environmentFlags are the command flags that introduce an environment
-// assignment NAME=value as their own argument.
-var environmentFlags = []string{"-e", "--env"}
+// isEnvironmentFlag reports whether a dedashed and '='-split flag name
+// introduces an environment assignment NAME=value: "-e" or "--env", whose name
+// is "e" or "env". The assignment may be a following token ("-e API_KEY=abc")
+// or joined ("--env=API_KEY=abc").
+func isEnvironmentFlag(name string) bool {
+	return name == "e" || name == "env"
+}
 
 // commandStringLeaksValue reports whether a single command string passes a
 // literal credential, so the string form agrees with the args list form: a flag
@@ -187,20 +208,26 @@ func commandStringLeaksValue(value string) bool {
 
 // flagTokenLeaksValue reports whether one whitespace-separated command token
 // leaks a credential, given the tokens that follow it: a flag that names a
-// secret, or an environment flag introducing an assignment.
+// secret, or an environment flag introducing an assignment, whether the value
+// is joined ("--env=NAME=value") or a following token ("--env NAME=value").
 func flagTokenLeaksValue(token string, following []string) bool {
 	if !strings.HasPrefix(token, "-") {
 		return false
 	}
 	name, assigned, joined := strings.Cut(strings.TrimLeft(token, "-"), "=")
-	if flagNamesASecret(name) {
+	switch {
+	case flagNamesASecret(name):
 		if joined {
 			return literalCredential(assigned)
 		}
 		return len(following) > 0 && literalCredential(following[0])
+	case isEnvironmentFlag(name):
+		if joined {
+			return assignmentLeaksValue(assigned)
+		}
+		return len(following) > 0 && assignmentLeaksValue(following[0])
 	}
-	return slices.Contains(environmentFlags, token) && len(following) > 0 &&
-		assignmentLeaksValue(following[0])
+	return false
 }
 
 // nameValuePairLeaksValue reports whether a mapping is a {name, value} env

@@ -942,6 +942,8 @@ func TestNamesAStoredSecret(t *testing.T) {
 	for key, want := range map[string]bool{
 		"tokens": false, "MAX_TOKENS": false, "token": false, "pass": true, "passwords": true, "dbPass": true,
 		"pin": true, "apiKey": true, "model": false,
+		"access_token": true, "apiToken": true, "refresh_tokens": false, "MAX_THINKING_TOKENS": false,
+		"tokenCount": false, "max_output_tokens": false,
 	} {
 		if got := namesAStoredSecret(key); got != want {
 			t.Errorf("namesAStoredSecret(%q) = %v, want %v", key, got, want)
@@ -1015,18 +1017,21 @@ func TestSanitizeConfigGuardRuleBoundaries(t *testing.T) {
 // spelling of the same value is refused, so the native spelling must be too.
 func TestSanitizeConfigRefusesANativeScalarCredential(t *testing.T) {
 	refused := map[string]struct{ path, content string }{
-		"yaml top-level password": {"config.yaml", "password: 2021-01-01\n"},
-		"yaml nested password":    {"config.yaml", "db:\n  password: 2021-01-01\n"},
-		"yaml client secret":      {"config.yaml", "client_secret: 2021-01-01\n"},
-		"yaml pin":                {"config.yaml", "pin: 2021-01-01\n"},
-		"yaml datetime":           {"config.yaml", "pin: 2021-01-01T12:30:00Z\n"},
-		"toml password":           {"config.toml", "password = 2021-01-01\n"},
-		"toml time":               {"config.toml", "pin = 12:30:00\n"},
-		"toml datetime":           {"config.toml", "pin = 2021-01-01T12:30:00Z\n"},
-		"name-value pair date":    {"opencode.json", `{"env":[{"name":"DB_PASSWORD","value":20210101}]}`},
-		"name-value pair yaml":    {"config.yaml", "env:\n  - name: DB_PASSWORD\n    value: 20210101.0\n"},
-		"args list date":          {"config.toml", "[mcp_servers.x]\nargs = [\"--access-token\", 2021-01-01]\n"},
-		"args list date joined":   {"config.toml", "args = [\"--access-token=20210101\"]\n"},
+		"yaml top-level password":  {"config.yaml", "password: 2021-01-01\n"},
+		"yaml nested password":     {"config.yaml", "db:\n  password: 2021-01-01\n"},
+		"yaml client secret":       {"config.yaml", "client_secret: 2021-01-01\n"},
+		"yaml pin":                 {"config.yaml", "pin: 2021-01-01\n"},
+		"yaml datetime":            {"config.yaml", "pin: 2021-01-01T12:30:00Z\n"},
+		"toml password":            {"config.toml", "password = 2021-01-01\n"},
+		"toml time":                {"config.toml", "pin = 12:30:00\n"},
+		"toml datetime":            {"config.toml", "pin = 2021-01-01T12:30:00Z\n"},
+		"name-value pair date":     {"opencode.json", `{"env":[{"name":"DB_PASSWORD","value":20210101}]}`},
+		"name-value pair yaml":     {"config.yaml", "env:\n  - name: DB_PASSWORD\n    value: 20210101.0\n"},
+		"args list date":           {"config.toml", "[mcp_servers.x]\nargs = [\"--access-token\", 2021-01-01]\n"},
+		"args list date joined":    {"config.toml", "args = [\"--access-token=20210101\"]\n"},
+		"yaml access token date":   {"config.yaml", "access_token: 2021-01-01\n"},
+		"json api token number":    {"opencode.json", `{"apiToken":84736251}`},
+		"date under a token count": {"config.yaml", "maxTokens: 2021-01-01\n"},
 	}
 	for name, tc := range refused {
 		if _, ok := SanitizeConfig(
@@ -1038,7 +1043,7 @@ func TestSanitizeConfigRefusesANativeScalarCredential(t *testing.T) {
 	}
 
 	accepted := map[string]struct{ path, content string }{
-		"date under a token count":   {"config.yaml", "maxTokens: 2021-01-01\n"},
+		"numeric token count":        {"config.yaml", "max_output_tokens: 4096\n"},
 		"date under an ordinary key": {"config.yaml", "model: 2021-01-01\n"},
 	}
 	for name, tc := range accepted {
@@ -1135,6 +1140,111 @@ func TestSanitizeConfigRefusesABareWordInANestedEnvTable(t *testing.T) {
 		"nested placeholder":  {"opencode.json", `{"env":{"cfg":{"note":"${X}"}}}`},
 		"nested env ref":      {"opencode.json", `{"env":{"cfg":{"note":"{env:X}"}}}`},
 		"nested empty string": {"opencode.json", `{"headers":{"cfg":[""]}}`},
+	}
+	for name, tc := range accepted {
+		if _, ok := SanitizeConfig(
+			[]byte(tc.content),
+			SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+		); !ok {
+			t.Errorf("%s: SanitizeConfig refused %s", name, tc.content)
+		}
+	}
+}
+
+// TestSanitizeConfigRefusesAJoinedEnvironmentAssignment pins that the joined
+// spelling of an environment flag leaks like the separate one: the assignment
+// after "--env=" or "-e=" is judged by the env-table rule, so a joined password
+// is refused where the separate token and the args-list forms already are.
+func TestSanitizeConfigRefusesAJoinedEnvironmentAssignment(t *testing.T) {
+	refused := map[string]struct{ path, content string }{
+		"long joined flag": {
+			"opencode.json",
+			`{"hooks":{"type":"command","command":"docker run --env=DB_PASSWORD=hunter2pass img"}}`,
+		},
+		"short joined flag": {
+			"opencode.json",
+			`{"hooks":{"type":"command","command":"docker run -e=DB_PASSWORD=hunter2pass img"}}`,
+		},
+		"long joined args":  {"opencode.json", `{"args":["--env=DB_PASSWORD=hunter2pass"]}`},
+		"short joined args": {"opencode.json", `{"args":["-e=DB_PASSWORD=hunter2pass"]}`},
+	}
+	for name, tc := range refused {
+		if _, ok := SanitizeConfig(
+			[]byte(tc.content),
+			SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+		); ok {
+			t.Errorf("%s: SanitizeConfig accepted %s", name, tc.content)
+		}
+	}
+
+	accepted := map[string]struct{ path, content string }{
+		"long joined harmless": {
+			"opencode.json",
+			`{"hooks":{"type":"command","command":"docker run --env=LOG_LEVEL=debug img"}}`,
+		},
+		"joined harmless args": {"opencode.json", `{"args":["-e=LOG_LEVEL=debug"]}`},
+	}
+	for name, tc := range accepted {
+		if _, ok := SanitizeConfig(
+			[]byte(tc.content),
+			SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+		); !ok {
+			t.Errorf("%s: SanitizeConfig refused %s", name, tc.content)
+		}
+	}
+}
+
+// TestSanitizeConfigAcceptsAQuotedPlaceholderAndAPathValue pins that the
+// command-string path judges a candidate by the same rules as the args list
+// form: a shell-quoted placeholder is a reference, and a flag value that is a
+// filesystem path names where a credential lives, so neither is a literal.
+func TestSanitizeConfigAcceptsAQuotedPlaceholderAndAPathValue(t *testing.T) {
+	accepted := map[string]struct{ path, content string }{
+		"quoted placeholder command": {
+			"opencode.json",
+			`{"hooks":{"type":"command","command":"mytool --api_key \"${X_API_KEY}\""}}`,
+		},
+		"quoted placeholder args": {"opencode.json", `{"args":["--api_key","\"${X_API_KEY}\""]}`},
+		"path flag command": {
+			"opencode.json",
+			`{"hooks":{"type":"command","command":"curl --key /home/dev/.ssh/id_ed25519 https://api.example"}}`,
+		},
+		"path flag args": {"opencode.json", `{"args":["--key","/home/dev/.ssh/id_ed25519"]}`},
+	}
+	for name, tc := range accepted {
+		if _, ok := SanitizeConfig(
+			[]byte(tc.content),
+			SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+		); !ok {
+			t.Errorf("%s: SanitizeConfig refused %s", name, tc.content)
+		}
+	}
+}
+
+// TestSanitizeConfigRefusesACommentCredentialSpelling pins that the raw-text
+// scan sees the same key spellings in a comment the decoded walk sees in a
+// value: a separator-spelled api-key and a spaced password assignment are a
+// credential whether the comment uses the hyphen or the underscore, or spaces
+// around the '='.
+func TestSanitizeConfigRefusesACommentCredentialSpelling(t *testing.T) {
+	refused := map[string]struct{ path, content string }{
+		"underscore api key comment": {"config.yaml", "# api_key: hunter2pass\nmodel: x\n"},
+		"hyphen api key comment":     {"config.yaml", "# api-key: hunter2pass\nmodel: x\n"},
+		"spaced password comment":    {"config.yaml", "# password = hunter2pass\nmodel: x\n"},
+		"joined password comment":    {"config.yaml", "# password=hunter2pass\nmodel: x\n"},
+		"toml api key comment":       {"config.toml", "# api_key: hunter2pass\nmodel = \"x\"\n"},
+	}
+	for name, tc := range refused {
+		if _, ok := SanitizeConfig(
+			[]byte(tc.content),
+			SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+		); ok {
+			t.Errorf("%s: SanitizeConfig accepted %s", name, tc.content)
+		}
+	}
+
+	accepted := map[string]struct{ path, content string }{
+		"harmless comment": {"config.yaml", "# password = ${DB_PW}\nmodel: x\n"},
 	}
 	for name, tc := range accepted {
 		if _, ok := SanitizeConfig(
