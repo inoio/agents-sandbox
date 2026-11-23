@@ -314,3 +314,45 @@ func TestStubTreatsAToolLessRequestAsASideRequest(t *testing.T) {
 		t.Error("a tool-less request counted as a turn")
 	}
 }
+
+// TestSideRequestRuleHoldsForEachHarnesssObservedRequests pins the side-request
+// rule (small model, or no tools) to the request shapes each harness was seen
+// sending on a KVM host: its side requests (titles, startup probes) and its
+// turns. A harness whose side request carries tools on the main model, or whose
+// turn carries none, breaks the rule and must be configured around it (as
+// oh-my-pi's adapter is) before the rule changes.
+func TestSideRequestRuleHoldsForEachHarnesssObservedRequests(t *testing.T) {
+	const (
+		turn       = `{"model":"stub","stream":true,"tools":[{"type":"function"}]}`
+		smallModel = `{"model":"stub-title","stream":true,"messages":[]}`
+		toolLess   = `{"model":"stub","stream":true,"messages":[]}`
+	)
+	observed := map[string]struct{ side, turns []string }{
+		opencode2AgentName:  {side: []string{smallModel}, turns: []string{turn}},
+		claudeCodeAgentName: {side: []string{smallModel}, turns: []string{turn}},
+		codexAgentName:      {side: []string{toolLess}, turns: []string{turn}},
+		piAgentName:         {side: nil, turns: []string{turn}},
+		ohMyPiAgentName:     {side: []string{toolLess, smallModel}, turns: []string{turn}},
+	}
+	for name, requests := range observed {
+		for _, body := range requests.side {
+			var request chatRequest
+			if err := json.Unmarshal([]byte(body), &request); err != nil || !request.side() {
+				t.Errorf("%s side request %s: side() = false (%v)", name, body, err)
+			}
+		}
+		for _, body := range requests.turns {
+			var request chatRequest
+			if err := json.Unmarshal([]byte(body), &request); err != nil || request.side() {
+				t.Errorf("%s turn %s: side() = true (%v)", name, body, err)
+			}
+		}
+	}
+	for _, journey := range Journeys {
+		for _, name := range journey.Harnesses {
+			if _, ok := observed[name]; !ok {
+				t.Errorf("journey %q drives %s, whose side and turn requests are not pinned here", journey.Name, name)
+			}
+		}
+	}
+}
