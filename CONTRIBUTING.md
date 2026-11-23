@@ -155,12 +155,13 @@ This project defaults to **test-driven development**:
   exercises the BuildKit path nor uses the cache, and it stays a tested engine without adding the build to every PR.
 - The `msb`-tagged suites (`make test-msb`, `make test-msb-journeys`) start real microsandbox VMs, so they need a KVM
   host and stay **host-only**: `make compile-all` compiles them on every PR, but CI never runs them. The development VM
-  has no working `/dev/kvm`, so build a libvirt guest with `make kvm-up`, sync a checkout with `make kvm-sync`, and run
-  the suite inside it with `make kvm-run` (`KVM_RUN` selects the command, default `make test-msb`). The same guest is
-  provisioned to run an **agent** on the repo — so it can build the launcher and drive real VMs — via
-  `make kvm-agent-up` (one command: ensure the guest is up, wait for cloud-init, sync, materialize the config, and
-  attach) or its steps `make kvm-agent-provision` (materialize the agent config) and `make kvm-agent` (attach a durable
-  session), and fetch its branches back with `make kvm-sync-back`. See `.operator-shared/guides/kvm-guest.md`.
+  has no working `/dev/kvm`, so build a libvirt guest with `make kvm-up`, pull a checkout into it from the host with
+  `make kvm-sync`, and run the suite inside it with `make kvm-run` (`KVM_RUN` selects the command, default
+  `make test-msb`). The same guest is provisioned to run an **agent** on the repo — so it can build the launcher and
+  drive real VMs — via `make kvm-agent-up` (one command: ensure the guest is up, wait for cloud-init, pull, materialize
+  the config, and attach) or its steps `make kvm-agent-provision` (materialize the agent config) and `make kvm-agent`
+  (attach a durable session). The guest's git remote is the host, so the agent pushes its branches straight back (with
+  `make kvm-sync-back` as the host-initiated fallback). See `.operator-shared/guides/kvm-guest.md`.
 
 ## Documentation
 

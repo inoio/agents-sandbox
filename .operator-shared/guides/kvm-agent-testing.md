@@ -12,9 +12,9 @@ seams and the launcher's unit tests; the rest needs a real hypervisor, so it is 
 Run the `make` commands from a checkout of the branch on the **KVM host**, not in the development VM. The workflow and
 its rationale are in `guides/kvm-guest.md`.
 
-`make kvm-agent-up` is the one-command path: it ensures the guest is running, waits for cloud-init, syncs, provisions,
-and attaches, reading `LITELLM_API_KEY` from the environment. The T1–T6 steps below stay the per-step detail for
-diagnosing that flow.
+`make kvm-agent-up` is the one-command path: it ensures the guest is running, waits for cloud-init, pulls the host
+branch into the guest, provisions, and attaches, reading `LITELLM_API_KEY` from the environment. The T1–T6 steps below
+stay the per-step detail for diagnosing that flow.
 
 ## Automated preflight (development VM; no KVM)
 
@@ -35,6 +35,8 @@ go run ./cmd/agents-sandbox config provision --agent opencode2 --target /tmp/asb
 - Nested virtualization enabled (`options kvm-amd nested=1` + reboot).
 - The libvirt `default` network, and the image cache dir:
   `sudo install -d -o "$USER" -g "$USER" -m 0755 /var/lib/libvirt/images/agents-sandbox`.
+- An `sshd` the guest can reach at the bridge gateway, and `git-shell` on the host (the guest's git remote is the host;
+  `make kvm-sync` fails with a diagnostic when either is missing).
 - A host launcher config carrying the agent's providers/models. **Highest-value case:** a populated
   `~/.config/agents-sandbox/opencode2/` (what the launcher merges). Without it, T2 writes nothing and T3 has no
   provider to call.
@@ -81,7 +83,7 @@ from the Makefile at `up` time. Cloud-init is one-shot: after changing provision
 ## T2 — `make kvm-agent-provision` materializes the agent config
 
 ```console
-make kvm-sync              # the checkout, so the guest has the `config provision` command
+make kvm-sync              # pull the checkout from the host, so the guest has the `config provision` command
 make kvm-agent-provision
 ```
 
@@ -125,7 +127,9 @@ confirm it answers — that proves the credentials reached the process.
   and shell history — expected for this channel, not a leak to fix here.
 - `make kvm-agent KVM_AGENT=definitely-not-a-command` should fail loudly in the session, not silently.
 - `GITHUB_PAT` in the host environment makes `kvm-agent-up` sign `gh` in the guest; verify in the session with
-  `gh auth status` and `gh issue list`. A guest built before `gh` was installed fails the sign-in loudly (rebuild it).
+  `gh auth status` and `gh issue list --repo inoio/agents-sandbox`. A guest built before `gh` was installed
+  fails the sign-in loudly (rebuild it). The `--repo` is needed because the guest's `origin` resolves to the
+  host, so `gh` cannot infer the GitHub repository from the remote.
 
 ## T4 — the agent does the work the development VM cannot
 
@@ -142,7 +146,15 @@ The first run builds runner images; `make kvm-prime` from the host can pre-seed 
 
 ## T5 — work returns to the host
 
-Commit on a branch in the guest (the agent's worktree flow per `AGENTS.md`), then from the host:
+The primary path is a **guest push**: commit on a branch in the guest (the agent's worktree flow per `AGENTS.md`), then
+from the agent's session in the guest:
+
+```console
+git push origin <branch>           # lands in the host repository, no GITHUB_PAT needed
+```
+
+From the host, confirm the branch arrived (`git log --oneline <branch> -1`) and that a branch checked out in a host
+worktree is refused. Falling back, or when the guest cannot push:
 
 ```console
 make kvm-sync-back                 # every guest branch -> kvm-guest/<name>
@@ -151,11 +163,9 @@ git log --oneline kvm-guest/<branch> -1   # the guest's commit
 ```
 
 Expect each guest branch under `kvm-guest/<name>` after the default run, and the local `<branch>` created or
-fast-forwarded by the `BRANCH=` form.
-
-There is no push unless `make kvm-agent-up` signed `gh` in with a `GITHUB_PAT` (then a push over the HTTPS remote and
-`gh pr create` work); without a PAT the guest does not push, and `kvm-sync-back` is the return path either way. Confirm
-the hazard is real: `make kvm-sync` is one-way and `--delete`s, so never run it over a live agent session.
+fast-forwarded by the `BRANCH=` form. Also confirm the pull is safe to re-run: `make kvm-sync` fast-forwards only and
+refuses a diverged guest branch — it never resets the working tree. The guest does not push to GitHub: `gh` is signed in
+for issues and PRs only, and `gh pr create` is done from the host.
 
 ## T6 — re-provision after a rebuild
 
@@ -180,5 +190,9 @@ The guest is disposable, so `agent-provision` must be re-runnable and the agent 
   list/history.
 - Materialization runs in the guest, so the host's `~/.config/agents-sandbox/` (which may hold `env.secret`) is rsynced
   into the guest.
+- The `git-shell` key confines the guest's git to `git-upload-pack`/`git-receive-pack` but not to a path: the guest can
+  reach any repository the host user can read. Treat the guest as sharing the host user's git trust.
+- The guest's git remote is the host, so `gh`'s remote-based repository inference sees the host — pass `--repo <owner/repo>`
+  or set `GH_REPO` on the guest for GitHub operations.
 - The guest-specific instruction overlay is not built yet: the agent reads the repository's `AGENTS.md`, which describes
   a sandbox that is not there — prompt it accordingly, or track that as follow-up.

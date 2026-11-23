@@ -19,7 +19,7 @@
 #   ./scripts/kvm-guest.sh up        # create + boot the guest
 #   ./scripts/kvm-guest.sh render    # write the cloud-init seed + domain XML, no boot
 #   ./scripts/kvm-guest.sh ssh       # ssh into the guest
-#   ./scripts/kvm-guest.sh sync      # rsync the current checkout into the guest
+#   ./scripts/kvm-guest.sh sync      # point the guest's git at the host and pull its branch
 #   ./scripts/kvm-guest.sh prime     # copy the host's runner images + msb home into the guest
 #   ./scripts/kvm-guest.sh run make test-msb-journeys   # run a command in the guest
 #   ./scripts/kvm-guest.sh agent            # interactive agent session in the guest
@@ -39,7 +39,8 @@
 #
 # `agent-up` additionally signs the guest's `gh` in from a host-environment
 # `GITHUB_PAT` when set (see `gh_auth`), so the in-guest agent can work with
-# GitHub issues and PRs and push. Unset it to skip the sign-in.
+# GitHub issues and PRs. Unset it to skip the sign-in. The guest's git remote is
+# the host repository, not GitHub, so the agent pushes to the host.
 #
 # Host prerequisites:
 #   qemu-kvm libvirt-daemon-system cloud-image-utils genisoimage
@@ -49,7 +50,8 @@
 # Env overrides:
 #   VM_NAME=asb-kvm  VM_VCPUS=12  VM_MEMORY_MIB=16384  VM_DISK_GIB=80
 #   VM_USER=dev  SSH_PUBKEY=<path-or-key>  ARTIFACT_DIR=$PWD/.kvm-guest
-#   SOURCE_DIR=<checkout to sync>  LIBVIRT_URI=qemu:///system
+#   KVM_HOST_USER=<host user>  KVM_GUEST_STATE=<guest git key/state dir>
+#   LIBVIRT_URI=qemu:///system
 #   UBUNTU_CODENAME=resolute  IMAGE_URL=<full cloud-image URL>
 #   KVM_IMAGE_CACHE=/var/lib/libvirt/images/agents-sandbox  KVM_REFRESH_IMAGE=1  KVM_BOOT_TIMEOUT=300
 #   REPO_URL=https://github.com/inoio/agents-sandbox.git  REPO_BRANCH=<current branch>
@@ -90,6 +92,11 @@ LIBVIRT_URI="${LIBVIRT_URI:-qemu:///system}"
 REPO_URL="${REPO_URL:-https://github.com/inoio/agents-sandbox.git}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-$PWD/.kvm-guest}"
 KVM_IMAGE_CACHE="${KVM_IMAGE_CACHE:-/var/lib/libvirt/images/agents-sandbox}"
+# The guest authenticates to the host for git with a key kept in a host-global
+# state dir (not ARTIFACT_DIR, which is per-worktree while the domain is shared).
+KVM_HOST_USER="${KVM_HOST_USER:-${USER:-$(id -un)}}"
+KVM_GUEST_STATE="${KVM_GUEST_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/agents-sandbox/kvm-guest}"
+KVM_GUEST_KEY="$KVM_GUEST_STATE/id_kvm_guest"
 # The cloud-init gate waits for sshd, then for cloud-init itself. The attempts ×
 # interval bound only how long the guest may take to accept SSH; the
 # `cloud-init status --wait` that follows blocks until cloud-init reports.
@@ -151,6 +158,21 @@ require_safe_agent_command() {
   done
 }
 
+# require_safe_branch rejects a branch name that cannot be embedded safely in the
+# guest shell string the sync commands build. A git branch name may contain shell
+# metacharacters (`;`, `&`, `|`, …), so the name is placed inside double quotes in
+# the remote `bash -lc` script; the characters it still cannot carry are the single
+# quote, which ends the outer single-quoted remote script, and the double quote,
+# backslash, dollar sign, and backtick, which double quotes do not neutralize.
+require_safe_branch() {
+  local branch="$1" char
+  for char in "'" '"' '$' '`' "\\"; do
+    case "$branch" in
+      *"$char"*) die "the branch name must not contain a single quote, double quote, backslash, dollar sign, or backtick (it is embedded in a shell string): $branch" ;;
+    esac
+  done
+}
+
 usage() {
   cat <<'EOF'
 usage: kvm-guest.sh {up|render|ssh|sync|prime|run <cmd...>|agent [cmd]|agent-up [cmd]|agent-provision [name]|sync-back [branch]|firewall|down}
@@ -158,7 +180,7 @@ usage: kvm-guest.sh {up|render|ssh|sync|prime|run <cmd...>|agent [cmd]|agent-up 
   up                create and boot the KVM guest (cloud-init provisions it)
   render            write the cloud-init seed and domain XML to ARTIFACT_DIR, no boot
   ssh               open a shell in the guest
-  sync              rsync SOURCE_DIR (default: this checkout) into the guest
+  sync              point the guest's git at the host and pull its branch
   prime             copy the host's runner images and microsandbox home into the guest
   run <..>          run a command in ~/agents-sandbox in the guest
   agent [cmd]       open an interactive agent session in a guest tmux session (default: opencode2)
@@ -379,6 +401,32 @@ default_bridge() {
   printf '%s\n' "${bridge:-virbr0}"
 }
 
+# default_gateway prints the host's address on the guest's bridge: the guest
+# reaches the host there, and the guest's git remote points at it.
+default_gateway() {
+  local gateway
+  gateway="$(virsh_cmd net-dumpxml default 2>/dev/null |
+    sed -n "s/.*<ip address='\([^']*\)'.*/\1/p" | head -1)"
+  printf '%s\n' "$gateway"
+}
+
+require_gateway() {
+  local gateway
+  gateway="$(default_gateway)"
+  [ -n "$gateway" ] || die "could not determine the '$VM_NAME' bridge gateway; is the libvirt 'default' network active?"
+  printf '%s\n' "$gateway"
+}
+
+# host_repo_path prints the host repository the guest's origin is routed to.
+# --git-common-dir is the bare repository in the bare-worktree layout and the
+# .git gitdir in a plain clone; git serves both as a remote path.
+host_repo_path() {
+  local path
+  path="$(git -C "$repo_root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+  [ -n "$path" ] || die "cannot resolve the host repository path from $repo_root"
+  printf '%s\n' "$path"
+}
+
 print_firewall_hint() {
   local bridge
   bridge="$(default_bridge)"
@@ -438,20 +486,123 @@ ssh_in() {
   exec ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$(require_guest_ip)"
 }
 
+# configure_guest_remote routes the guest checkout's single origin remote to the
+# host: a url.<host>.insteadOf rewrite sends every git operation on origin to the
+# host repository, while origin keeps the URL the boot clone recorded. The branch
+# upstream is pinned to origin and the guest's git uses the dedicated key. Each
+# setting is repository-local (in ~/agents-sandbox/.git/config), not --global:
+# `agent-provision` truncates the guest's ~/.gitconfig, which would wipe a global
+# rewrite and send the agent's pushes back to GitHub. The host URL is recorded in
+# kvmguest.hostUrl so a re-run against a different host first removes the previous
+# url.<host> section — two insteadOf rules for the same URL would let the stale
+# one shadow the new one. push.autoSetupRemote makes the agent's plain `git push`
+# of a new branch work.
+configure_guest_remote() {
+  local ip="$1" gateway="$2" repo_path="$3" host_url branch
+  branch="${REPO_BRANCH:-main}"
+  require_safe_branch "$branch"
+  host_url="ssh://$KVM_HOST_USER@$gateway$repo_path"
+  log "routing the guest origin to $host_url"
+  ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
+    -- "bash -lc 'set -e && cd ~/agents-sandbox && prev=\$(git config kvmguest.hostUrl 2>/dev/null || true); if [ -n \"\$prev\" ]; then git config --remove-section \"url.\$prev\" || true; fi; git config url.\"$host_url\".insteadOf \"$REPO_URL\" && git config kvmguest.hostUrl \"$host_url\" && git config push.autoSetupRemote true && git config branch.\"$branch\".remote origin && git config branch.\"$branch\".merge refs/heads/\"$branch\" && git config core.sshCommand \"ssh -i \$HOME/.ssh/id_kvm_guest -o StrictHostKeyChecking=accept-new\"'"
+}
+
+# ensure_guest_git_key gives the guest a key that authenticates it to the host for
+# git: the key is generated once under the host-global state dir (so a guest
+# rebuild reuses it and authorized_keys does not accumulate lines), authorized on
+# the host, and installed in the guest.
+ensure_guest_git_key() {
+  local ip="$1"
+  if [ ! -f "$KVM_GUEST_KEY" ]; then
+    log "generating the guest git key at $KVM_GUEST_KEY"
+    mkdir -p "$KVM_GUEST_STATE"
+    chmod 700 "$KVM_GUEST_STATE"
+    ssh-keygen -t ed25519 -N '' -C agents-sandbox-kvm-guest -f "$KVM_GUEST_KEY" >/dev/null
+  fi
+  ensure_host_authorized_key
+  log "installing the guest git key in $VM_USER@$ip"
+  ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
+    -- "bash -lc 'install -d -m 700 ~/.ssh && cat > ~/.ssh/id_kvm_guest && chmod 600 ~/.ssh/id_kvm_guest'" \
+    < "$KVM_GUEST_KEY"
+}
+
+# ensure_host_authorized_key authorizes the guest key for git on this host,
+# confined to git-shell (it can run git-upload-pack/receive-pack, not a shell).
+# It drops any previous guest line before appending, so a re-run replaces rather
+# than accumulates. The line is identified by the options prefix it must begin
+# with AND the key's 'agents-sandbox-kvm-guest' comment: the comment makes the
+# match rotation-safe (a rotated key is still this script's line) without
+# matching another git-shell key that shares the prefix. It is not matched by
+# the comment alone, so a line a pre-fix run merged this options block onto (the
+# appended-without-newline bug) — which does not begin with the prefix — is
+# preserved; deleting it would drop the host key it was merged onto.
+ensure_host_authorized_key() {
+  local pubkey line auth="$HOME/.ssh/authorized_keys" prefix='^command="git-shell -c.*agents-sandbox-kvm-guest$'
+  command -v git-shell >/dev/null 2>&1 || die "git-shell not found on the host; install git"
+  pubkey="$(cat "$KVM_GUEST_KEY.pub")"
+  line="command=\"git-shell -c \\\"\$SSH_ORIGINAL_COMMAND\\\"\",restrict $pubkey"
+  mkdir -p "$HOME/.ssh"
+  chmod 700 "$HOME/.ssh"
+  touch "$auth"
+  chmod 600 "$auth"
+  # grep exits 1 when it selects no lines (a fresh or all-removed file), which is
+  # success here; any higher status is a read error and the rewrite must abort
+  # rather than move a partial temp file over authorized_keys. It terminates the
+  # last selected line, so the rewrite also gives the append its trailing newline.
+  local rewrite_status=0
+  grep -v "$prefix" "$auth" > "$auth.tmp" || rewrite_status=$?
+  if [ "$rewrite_status" -gt 1 ]; then
+    rm -f "$auth.tmp"
+    die "could not rewrite $auth (grep exited $rewrite_status); it is unchanged"
+  fi
+  mv "$auth.tmp" "$auth"
+  chmod 600 "$auth"
+  printf '%s\n' "$line" >> "$auth"
+}
+
+# probe_guest_to_host_ssh checks that the guest can complete a git exchange with
+# the host, so a host without sshd (or one refusing the key) fails with a
+# diagnostic instead of an opaque git error. There is no fallback transport. It
+# runs a real `git ls-remote`: the key is forced through `git-shell`, which rejects
+# any command but git-upload-pack/git-receive-pack, so a plain `ssh … true` would
+# always fail on a correctly configured host. Relies on configure_guest_remote
+# having set the rewrite and core.sshCommand.
+probe_guest_to_host_ssh() {
+  local ip="$1" gateway="$2"
+  if ! ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=8 -o LogLevel=ERROR \
+      "$VM_USER@$ip" \
+      "bash -lc 'cd ~/agents-sandbox && git ls-remote origin >/dev/null 2>&1'" \
+      >/dev/null 2>&1; then
+    die "the guest cannot reach the host over SSH at $KVM_HOST_USER@$gateway for git.
+    On the host: run sshd and accept the guest's key (authorized in $HOME/.ssh/authorized_keys),
+    and install git-shell. Retry: $0 sync"
+  fi
+}
+
+# ensure_guest_git_remote makes the host the guest's git remote. Idempotent.
+ensure_guest_git_remote() {
+  local ip="$1" gateway repo_path
+  gateway="$(require_gateway)"
+  repo_path="$(host_repo_path)"
+  ensure_guest_git_key "$ip"
+  configure_guest_remote "$ip" "$gateway" "$repo_path"
+  probe_guest_to_host_ssh "$ip" "$gateway"
+}
+
+# sync_in brings the guest checkout to the host's branch: it ensures the host is
+# the guest's git remote, then, in the guest, fetches the host, switches to the
+# branch, and fast-forwards. A diverged branch refuses (never a reset), so the
+# agent's work is not clobbered; only committed host work moves — uncommitted
+# changes are no longer copied.
 sync_in() {
-  local ip source
+  local ip branch
+  branch="${REPO_BRANCH:-main}"
+  require_safe_branch "$branch"
   ip="$(require_guest_ip)"
-  source="${SOURCE_DIR:-$(git -C "$repo_root" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$repo_root")}"
-  log "syncing $source → $VM_USER@$ip:~/agents-sandbox"
-  # Exclude the `.git` entry, not a `.git/` directory: the guest owns its own
-  # clone's .git, and the host checkout may be a linked worktree whose .git is a
-  # *file* recording a relative `gitdir: ../.git/worktrees/<name>`. A
-  # directory-only `.git/` pattern does not match that file, so rsync would copy
-  # the dangling pointer over the guest's real .git directory and every launcher
-  # command in the guest would then fail to resolve the project identity.
-  rsync -az --delete --exclude '.git' --exclude '.superpowers/' \
-    --exclude "$(basename "$ARTIFACT_DIR")/" \
-    "$source/" "$VM_USER@$ip:~/agents-sandbox/"
+  ensure_guest_git_remote "$ip"
+  log "pulling $branch from the host into $VM_USER@$ip:~/agents-sandbox"
+  ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
+    -- "bash -lc 'set -e && cd ~/agents-sandbox && git fetch origin --prune && git checkout \"$branch\" && git merge --ff-only origin/\"$branch\"'"
 }
 
 # sync_back fetches the guest checkout's branches back to the host: by default
@@ -461,9 +612,9 @@ sync_in() {
 # here refuses the fetch — git protects it, because updating the ref without the
 # working tree would make the next commit silently revert the fetch — so update
 # it by merging the namespace ref instead (`git merge kvm-guest/<name>`). The
-# guest keeps its own .git (sync excludes it), so this fetch is the return path;
-# a guest signed in via `gh_auth` can also push directly, but sync-back needs no
-# credential and is the path for a guest without one.
+# guest keeps its own .git (sync pulls it from the host, it is not copied), so
+# this fetch is the fallback return path; the guest's origin already resolves to
+# the host, so a plain `git push` works and is the primary path.
 sync_back() {
   local ip branch
   branch="${1:-}"
@@ -582,13 +733,11 @@ agent_provision() {
 }
 
 # gh_auth signs the guest's `gh` in to GitHub from the host environment's
-# GITHUB_PAT, so the in-guest agent can read and comment on issues and PRs and
-# push. It also points git at gh's credential helper and rewrites SSH GitHub
-# remotes to HTTPS, so a push from the guest's HTTPS clone authenticates. The
-# rewrites use `--replace-all` before the second `--add`, so re-running on a
-# reattach stays at two values instead of accumulating. It is a no-op when
-# GITHUB_PAT is unset, and the token rides stdin, never argv. It must run after
-# `agent_provision`, which rewrites the guest ~/.gitconfig.
+# GITHUB_PAT, so the in-guest agent can read and comment on issues and PRs. The
+# guest's git targets the host (see ensure_guest_git_remote), not GitHub, so no
+# GitHub remote rewrite is set up here. It is a no-op when GITHUB_PAT is unset,
+# and the token rides stdin, never argv. It must run after `agent_provision`,
+# which rewrites the guest ~/.gitconfig.
 gh_auth() {
   local ip="$1"
   if [ -z "${GITHUB_PAT:-}" ]; then
@@ -596,7 +745,7 @@ gh_auth() {
   fi
   log "signing gh in to GitHub in '$VM_NAME'"
   if ! printf '%s\n' "$GITHUB_PAT" | ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
-      -- "bash -lc 'gh auth login --with-token && gh auth setup-git && git config --global --replace-all url.https://github.com/.insteadOf git@github.com: && git config --global --add url.https://github.com/.insteadOf ssh://git@github.com/'"; then
+      -- "bash -lc 'gh auth login --with-token && gh auth setup-git'"; then
     die "gh sign-in failed in '$VM_NAME'; check the token (GITHUB_PAT), or rebuild a guest that predates gh: make kvm-down && make kvm-up"
   fi
 }
@@ -650,8 +799,8 @@ wait_for_cloud_init() {
 
 # guest_agent_session_state prints "present" or "absent" for the agent's tmux
 # session, and returns non-zero only when the guest could not be reached. A
-# failed probe must not read as "absent": the caller syncs on "absent", and that
-# sync is one-way with `--delete`.
+# failed probe must not read as "absent": the caller pulls on "absent", which
+# checks out the host branch and would disturb a live session's work.
 guest_agent_session_state() {
   local ip="$1" session="${KVM_AGENT_SESSION:-agents-sandbox}"
   ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=8 \
@@ -661,9 +810,10 @@ guest_agent_session_state() {
 
 # agent_up is the one-command bring-up: ensure the guest is running, gate on
 # cloud-init, then — checking for a live session only now that the guest is
-# reachable — sync this checkout and materialize the agent config (or, for a live
-# session, reattach without syncing), sign gh in from GITHUB_PAT, and attach. It
-# composes the subcommands so the step-by-step targets remain available.
+# reachable — pull the host branch and materialize the agent config (or, for a
+# live session, reattach without syncing), sign gh in from GITHUB_PAT, and
+# attach. It composes the subcommands so the step-by-step targets remain
+# available.
 agent_up() {
   local ip session_state
   require_safe_agent_command "${*:-opencode2}"
@@ -721,7 +871,7 @@ When cloud-init is done, gate the guest (after: make kvm-ssh):
   go version                                        # Go from /etc/profile.d
   exit
 
-Then, on the host, sync this checkout and run the suite:
+Then, on the host, pull the host branch into the guest and run the suite:
 
   make kvm-sync && make kvm-run                     # KVM_RUN (default: make test-msb)
 
