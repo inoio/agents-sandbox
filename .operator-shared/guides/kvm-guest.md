@@ -88,6 +88,11 @@ error: guest 'asb-kvm' is in use by branch 'A'. Hand it over with '… pause' (k
 is the `running` state, a dropped SSH that leaves the tmux agent alive keeps the guest held; and `pause` freezes that
 session, so hand over only once the agent is done.
 
+The owner key is the branch name, so a checkout whose branch cannot be resolved — a detached HEAD, or a directory git
+does not recognize — **cannot acquire**; check out a branch or set `REPO_BRANCH` explicitly. The artifacts path is
+host-global, so two separate clones of this repository on one host resolve to the same guest: keep them off the
+same-named branch, or give one a distinct `VM_NAME`/`ARTIFACT_DIR`.
+
 ### Priming the guest from the host
 
 The guest builds its runner images and loads them into microsandbox itself; on a cold guest that is the suite's

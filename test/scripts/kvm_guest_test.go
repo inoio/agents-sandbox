@@ -1111,6 +1111,9 @@ func TestKvmGuestSyncProceedsWhenTheOwnerBranchHoldsTheGuest(t *testing.T) {
 
 	assertContains(t, "ssh argv", readText(t, filepath.Join(dir, "ssh-argv")), "git fetch origin --prune")
 	virshArgv := readText(t, filepath.Join(dir, "virsh-argv"))
+	// The log must be wired: the acquire probe ran (dominfo), so the absence of a
+	// resume/start below is meaningful rather than an assertion against "".
+	assertContains(t, "virsh argv", virshArgv, "dominfo")
 	assertNotContains(t, "virsh argv", virshArgv, "resume")
 	assertNotContains(t, "virsh argv", virshArgv, "start")
 }
@@ -1229,6 +1232,61 @@ func TestKvmGuestPauseOnAnAbsentGuestIsANoOp(t *testing.T) {
 	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "pause")
 	assertStatus(t, result, 0)
 	assertNotContains(t, "stderr", result.Stderr, "suspend")
+}
+
+// TestKvmGuestSyncRefusesADetachedCheckout pins fail-closed on an unresolved
+// branch: without a branch name the lock key would fall back to `main` and let a
+// detached checkout impersonate main's guest.
+func TestKvmGuestSyncRefusesADetachedCheckout(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestEnv(dir)
+	delete(env, "REPO_BRANCH") // resolve the branch from git (the faked git prints nothing)
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "running"
+	env["RSYNC_ARGV"] = filepath.Join(dir, "rsync-argv")
+	env["PATH"] = kvmGuestPath(t, "virsh", "rsync", "git")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync")
+	assertStatus(t, result, 1)
+
+	assertContains(t, "stderr", result.Stderr, "not on a branch")
+	if _, err := os.Stat(filepath.Join(dir, "rsync-argv")); err == nil {
+		t.Error("sync ran from a detached checkout")
+	}
+}
+
+// TestKvmGuestPauseOnAPausedGuestIsANoOp pins idempotence for the already-paused
+// arm: pause succeeds, does not re-suspend, and still drops the label.
+func TestKvmGuestPauseOnAPausedGuestIsANoOp(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestEnv(dir)
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "paused"
+	writeGuestOwnerFile(t, dir, "feat/793-msb-journeys")
+	env["VIRSH_ARGV"] = filepath.Join(dir, "virsh-argv")
+	env["PATH"] = kvmGuestPath(t, "virsh")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "pause")
+	assertStatus(t, result, 0)
+	assertNotContains(t, "virsh argv", readText(t, filepath.Join(dir, "virsh-argv")), "suspend")
+	if _, err := os.Stat(filepath.Join(dir, "asb-kvm-test.owner")); err == nil {
+		t.Error("pause left the owner label behind")
+	}
+}
+
+// TestKvmGuestDownClearsTheLabelWhenTheDomainIsUndefined pins Review Focus item
+// 4: down clears a stale label even when the domain is already gone.
+func TestKvmGuestDownClearsTheLabelWhenTheDomainIsUndefined(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestEnv(dir)
+	writeGuestOwnerFile(t, dir, "feat/793-msb-journeys")
+	env["PATH"] = kvmGuestPath(t, "virsh")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "down")
+	assertStatus(t, result, 0)
+	if _, err := os.Stat(filepath.Join(dir, "asb-kvm-test.owner")); err == nil {
+		t.Error("down left the owner label behind")
+	}
 }
 
 func TestKvmGuestRunRejectsNoCommand(t *testing.T) {

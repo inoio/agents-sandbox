@@ -116,6 +116,11 @@ KVM_CLOUD_INIT_INTERVAL="${KVM_CLOUD_INIT_INTERVAL:-5}"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 
+# REPO_BRANCH names the branch the guest clones; it falls back to `main` so a
+# detached host checkout still has something to check out. The shared-guest lock
+# needs a real branch, so it reads REPO_BRANCH_EXPLICIT (the caller's override)
+# or the live branch, and refuses a checkout that has neither.
+REPO_BRANCH_EXPLICIT="${REPO_BRANCH:-}"
 if [ -z "${REPO_BRANCH:-}" ]; then
   REPO_BRANCH="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
   [ -n "$REPO_BRANCH" ] && [ "$REPO_BRANCH" != "HEAD" ] || REPO_BRANCH="main"
@@ -495,6 +500,18 @@ require_guest_ip() {
   printf '%s\n' "$ip"
 }
 
+# lock_branch is this checkout's identity for the shared-guest lock: an explicit
+# REPO_BRANCH wins, else the live branch. An unresolved checkout (detached HEAD,
+# not a repo) prints nothing, and acquire_guest refuses rather than calling it
+# `main` and colliding with a real main checkout.
+lock_branch() {
+  if [ -n "$REPO_BRANCH_EXPLICIT" ]; then
+    printf '%s\n' "$REPO_BRANCH_EXPLICIT"
+    return
+  fi
+  git -C "$repo_root" rev-parse --abbrev-ref HEAD 2>/dev/null || true
+}
+
 # The shared guest is locked by its domain state: running means one branch holds
 # it, paused or absent means it is free. The label names the holding branch so a
 # competing branch can be told who has it; it is a record, not the lock.
@@ -505,7 +522,7 @@ guest_owner_branch() {
 
 write_guest_owner() {
   mkdir -p "$ARTIFACT_DIR"
-  printf 'branch=%s\npid=%s\ncwd=%s\n' "$REPO_BRANCH" "$$" "$PWD" > "$OWNER_PATH"
+  printf 'branch=%s\npid=%s\ncwd=%s\n' "$1" "$$" "$PWD" > "$OWNER_PATH"
 }
 
 clear_guest_owner() { rm -f "$OWNER_PATH"; }
@@ -524,12 +541,17 @@ guest_state() {
 # holder. Idempotent for the branch that already holds it; a guest held by
 # another branch (or a pre-lock guest with no label) is refused by name.
 acquire_guest() {
-  local state owner ip
+  local state owner ip branch
+  branch="$(lock_branch)"
+  case "$branch" in
+    ""|HEAD)
+      die "cannot lock the shared guest: this checkout is not on a branch (detached HEAD?). Check out a branch or set REPO_BRANCH." ;;
+  esac
   state="$(guest_state)"
   case "$state" in
     running)
       owner="$(guest_owner_branch)"
-      [ "$owner" = "$REPO_BRANCH" ] && return 0
+      [ "$owner" = "$branch" ] && return 0
       if [ -n "$owner" ]; then
         die "guest '$VM_NAME' is in use by branch '$owner'. Hand it over with '$0 pause' (keeps the disk) or '$0 down' (destroys it)."
       fi
@@ -555,7 +577,7 @@ acquire_guest() {
       die "guest '$VM_NAME' is in state '$state'; expected running, paused, shut off, or absent"
       ;;
   esac
-  write_guest_owner
+  write_guest_owner "$branch"
 }
 
 # suspend_guest pauses the guest and releases the lock, keeping the disk so the
