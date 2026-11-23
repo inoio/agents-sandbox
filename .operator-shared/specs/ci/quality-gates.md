@@ -20,7 +20,7 @@ This replaced `gofmt` + `goimports` + `golines`: `gofmt` was redundant with `goi
 **Linter posture.** The linter set tracks the upstream `maratori/golangci-lint-config` golden config for the pinned golangci-lint version, with deliberate repo deviations:
 
 - **Added:** `decorder`, `exhaustruct_v5` (with a project-specific `ignore-patterns` list).
-- **Replaced:** `revive.exported` is disabled (stutter detection is intentionally not enforced), and the upstream revive/TODO *text* exclusions are replaced by `testmock`/`_test.go` path rules.
+- **Replaced:** `revive.exported` is disabled (stutter detection is intentionally not enforced), and the upstream revive/TODO *text* exclusions are replaced by `testmock`/`_test.go` path rules, plus a `^test/` rule that relaxes the test-only linters (`exhaustruct`, `goconst`, `gosec`, `nonamedreturns`, `reassign`) for the non-test code under `test/` (see `specs/testing/msb-journeys.md`).
 - **Kept off though upstream enables them:** `funcorder`, `gochecknoglobals`, `mnd`, `paralleltest`, `recvcheck`, `testpackage` (each a taste or false-positive call documented inline).
 
 Two free upstream settings are adopted because they surfaced no findings (`exhaustruct_v5 allow-empty-blank-assignments: true`, `perfsprint.error-format: false`). Two stricter settings are **deliberately declined**, both for large manual churn with no auto-fix: `godoclint.require-stdlib-doclink` (~54 doc-comment sites) and `govet.shadow.strict` (~119 `err`-shadow reports, mostly benign). Settings blocks for linters not enabled (`funcorder`, `inamedparam`, `mnd`) are commented out as dormant; uncomment alongside the linter if it is enabled. (`issues.max-issues-per-linter` defaults to 50, capping how many of a linter's findings a sweep shows.)

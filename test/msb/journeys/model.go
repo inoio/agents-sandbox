@@ -10,8 +10,6 @@ import "github.com/inoio/agents-sandbox/test/msb/driver"
 
 // Context is the mutable state one journey's steps share. The runner builds it
 // once per journey and passes the same pointer to every step in order.
-//
-//exhaustruct:ignore
 type Context struct {
 	TB     driver.TB   // the *testing.T the runner passed in
 	Root   string      // the suite root from driver.Prepare
@@ -94,8 +92,6 @@ const (
 
 // Step is one named step in a journey. Name is the sentence after the keyword,
 // so Text reads as a Gherkin line and a failure names the step in that form.
-//
-//exhaustruct:ignore
 type Step struct {
 	Keyword Keyword
 	Kind    StepKind
@@ -141,8 +137,6 @@ func AsCheck(step Step) Step {
 // profile that admits the stub, so the run's baseline is broad enough for the
 // analyser to actually narrow it and the network-not-widened assertion to have a
 // posture to check.
-//
-//exhaustruct:ignore
 type Journey struct {
 	Name      string
 	Harnesses []string

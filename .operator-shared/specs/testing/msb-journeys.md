@@ -113,7 +113,10 @@ the built binary, not the SDK).
   and ambient-tool contract tests to scan **non-test `.go` files under `test/`** as well as `_test.go`.
   No `//deadcode:ignore` on `driver`; its host calls keep the `//testenv:allow` markers they carry
   today. The widening reaches the shared untagged driver's non-test files (they live under `test/`),
-  which would otherwise escape the ambient scan because they are not `_test.go` files.
+  which would otherwise escape the ambient scan because they are not `_test.go` files. The linter follows
+  the same scope: a `^test/` path rule in `.golangci.yml` relaxes `exhaustruct`, `goconst`, `gosec`,
+  `nonamedreturns`, and `reassign` there (the test-only subset of the `_test.go` rule), so non-test files
+  under `test/` carry no `//exhaustruct:ignore` or `//nolint` markers for them.
 - **B — marker-driven:** add the file-scope marker to `driver` and key the ambient scans on it.
   Rejected as fiddlier for no extra reach.
 - **C — keep host-touching calls in `_test.go`, extract only pure helpers.** Rejected: it defeats

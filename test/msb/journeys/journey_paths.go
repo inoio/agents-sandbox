@@ -41,13 +41,13 @@ func (p journeyStatePaths) UserStateDir() string { return p.stateDir }
 // swap cannot race another journey.
 func withJourneyStatePaths(home string) func() {
 	previous := configpaths.Get
-	configpaths.Get = func() configpaths.ConfigPaths { //nolint:reassign // the seeding steps write through production helpers that resolve through this factory
+	configpaths.Get = func() configpaths.ConfigPaths {
 		return journeyStatePaths{
 			ConfigPaths: configpaths.NewRealConfigPaths(),
 			stateDir:    filepath.Join(home, isolatedStateDir, launcherConfigDirName),
 		}
 	}
-	return func() { configpaths.Get = previous } //nolint:reassign // restore the factory the seeding step replaced
+	return func() { configpaths.Get = previous }
 }
 
 // journeyIdentity resolves the checkout identity of the journey's project

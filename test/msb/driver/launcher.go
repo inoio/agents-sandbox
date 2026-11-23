@@ -98,8 +98,6 @@ func PreflightDocker(tb TB, root string) {
 // (SmokeRootReuseEnv) is kept. Destroying the sandboxes inside the root stays
 // separate: that needs the binary and a reachable docker daemon, so it runs only
 // after the docker preflight.
-//
-//nolint:nonamedreturns // the named results document the returned root/binary pair
 func Prepare(tb TB) (root, binary string) {
 	tb.Helper()
 

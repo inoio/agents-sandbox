@@ -29,8 +29,6 @@ const NetworkNone = "none"
 const opencodeAgentName = "opencode"
 
 // Spec describes how to drive one harness to its TUI and out of it.
-//
-//exhaustruct:ignore
 type Spec struct {
 	// QuitKey leaves the harness's full-screen TUI. The smoke test taps it
 	// until the process goes, because a harness can paint its TUI seconds
