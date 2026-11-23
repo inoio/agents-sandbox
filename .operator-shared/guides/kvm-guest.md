@@ -74,7 +74,8 @@ live in one host-global `ARTIFACT_DIR` (default `$KVM_IMAGE_CACHE/guest`), never
 grow an 80 GiB overlay, and `make kvm-sync` swaps whichever checkout you are in into the one guest.
 
 Because one guest serves every branch, its **domain state is the lock**: `running` means a branch holds it, `paused` or
-absent means it is free. The holding branch is named in `$ARTIFACT_DIR/$VM_NAME.owner`. `up`, `sync`, `prime`, `run`,
+`pmsuspended` (a host suspend/resume), or absent means it is free. The holding branch is named in
+`$ARTIFACT_DIR/$VM_NAME.owner`. `up`, `sync`, `prime`, `run`,
 `agent`, `agent-up`, and `agent-provision` all acquire first — idempotent for the branch that already holds it, and
 refused, by name, for any other:
 
