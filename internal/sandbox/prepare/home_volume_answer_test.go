@@ -102,6 +102,9 @@ func TestHomeVolumePolicyCarriesTheConfiguredAnswer(t *testing.T) {
 	if policy.Answer != volume.AnswerAsk || policy.Remember == nil {
 		t.Fatalf("policy = %+v, want ask with a writer", policy)
 	}
+	if dir, err := policy.Remember("keep"); err != nil || dir != configpaths.Get().UserSlugConfigDir("s") {
+		t.Errorf("Remember = %q, %v; want the per-slug user config", dir, err)
+	}
 	// A skip-VM run must not persist a change.
 	if dryRun := homeVolumePolicy(configpaths.Get(), opts, state.Key{Slug: "s"}, true); dryRun.Remember != nil {
 		t.Error("a --dry-run-vm policy can remember an answer")
