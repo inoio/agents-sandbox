@@ -49,7 +49,7 @@
 #
 # Env overrides:
 #   VM_NAME=asb-kvm  VM_VCPUS=12  VM_MEMORY_MIB=16384  VM_DISK_GIB=80
-#   VM_USER=dev  SSH_PUBKEY=<path-or-key>  ARTIFACT_DIR=$PWD/.kvm-guest
+#   VM_USER=dev  SSH_PUBKEY=<path-or-key>  ARTIFACT_DIR=$KVM_IMAGE_CACHE/guest
 #   KVM_HOST_USER=<host user>  KVM_GUEST_STATE=<guest git key/state dir>
 #   LIBVIRT_URI=qemu:///system
 #   UBUNTU_CODENAME=resolute  IMAGE_URL=<full cloud-image URL>
@@ -90,10 +90,14 @@ VM_DISK_GIB="${VM_DISK_GIB:-80}"
 VM_USER="${VM_USER:-dev}"
 LIBVIRT_URI="${LIBVIRT_URI:-qemu:///system}"
 REPO_URL="${REPO_URL:-https://github.com/inoio/agents-sandbox.git}"
-ARTIFACT_DIR="${ARTIFACT_DIR:-$PWD/.kvm-guest}"
 KVM_IMAGE_CACHE="${KVM_IMAGE_CACHE:-/var/lib/libvirt/images/agents-sandbox}"
-# The guest authenticates to the host for git with a key kept in a host-global
-# state dir (not ARTIFACT_DIR, which is per-worktree while the domain is shared).
+# Guest artifacts are host-global, not per-worktree: one guest is shared by every
+# worktree, so its disk, seed, and XML live beside the base-image cache in the
+# libvirt images tree (AppArmor-safe) rather than in $PWD.
+ARTIFACT_DIR="${ARTIFACT_DIR:-$KVM_IMAGE_CACHE/guest}"
+# The guest authenticates to the host for git with a key kept in a separate
+# host-global state dir: it is private key material, not a libvirt artifact, so
+# it does not belong with the guest artifacts.
 KVM_HOST_USER="${KVM_HOST_USER:-${USER:-$(id -un)}}"
 KVM_GUEST_STATE="${KVM_GUEST_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/agents-sandbox/kvm-guest}"
 KVM_GUEST_KEY="$KVM_GUEST_STATE/id_kvm_guest"
@@ -141,6 +145,7 @@ SEED_PATH="$ARTIFACT_DIR/$VM_NAME-seed.img"
 USERDATA_PATH="$ARTIFACT_DIR/$VM_NAME-user-data"
 METADATA_PATH="$ARTIFACT_DIR/$VM_NAME-meta-data"
 DOMAIN_XML_PATH="$ARTIFACT_DIR/$VM_NAME.xml"
+OWNER_PATH="$ARTIFACT_DIR/$VM_NAME.owner"
 
 log() { printf '%s\n' "==> $*" >&2; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }

@@ -55,7 +55,7 @@ on the guest that is not vCPU-capped with `--cpus` — can make a harness miss i
 `up` prints the guest's SSH address and a next-steps checklist; cloud-init takes a few minutes on first boot. Once it
 is done, gate the guest (`ls -la /dev/kvm`, `msb doctor`) before running a suite. `up` waits up to `KVM_BOOT_TIMEOUT`
 seconds (default 300) for a DHCP lease, printing progress, and warns with diagnostics if none arrives. `scripts/kvm-guest.sh render` writes
-the cloud-init seed and domain XML under `ARTIFACT_DIR` (default `./.kvm-guest`) without booting, useful to inspect
+the cloud-init seed and domain XML under `ARTIFACT_DIR` (default `$KVM_IMAGE_CACHE/guest`) without booting, useful to inspect
 before `up`. Env overrides (`VM_NAME`, `VM_VCPUS`, `VM_MEMORY_MIB`, `VM_DISK_GIB`, `VM_USER`, `REPO_URL`,
 `REPO_BRANCH`, `GO_VERSION`, `SSH_PUBKEY`, `KVM_HOST_USER`, `KVM_GUEST_STATE`, `LIBVIRT_URI`, `UBUNTU_CODENAME`,
 `IMAGE_URL`, `ARTIFACT_DIR`, `KVM_IMAGE_CACHE`, `KVM_REFRESH_IMAGE`, `KVM_BOOT_TIMEOUT`) are documented in the script
@@ -82,7 +82,8 @@ nothing is reused. Host and guest must also share the CPU architecture and the m
 the host's cache first (`make test-msb` on the host), and prime before a run, never while a run is using the home.
 
 The base cloud image is cached in `KVM_IMAGE_CACHE` (default
-`/var/lib/libvirt/images/agents-sandbox`), **outside** `ARTIFACT_DIR`: only the first `up` fetches it, `down` leaves it
+`/var/lib/libvirt/images/agents-sandbox`), and the guest's own disk, seed, and domain XML live in `ARTIFACT_DIR`
+(default `$KVM_IMAGE_CACHE/guest`) inside that same tree: only the first `up` fetches the base image, `down` leaves it
 in place, and every worktree of a bare checkout reuses the one copy. The default is libvirt's own image dir because
 libvirt runs QEMU as its own user (`libvirt-qemu`) and, on Debian/Ubuntu, confines it with AppArmor to paths libvirt
 knows about — a qcow2 backing file under `$HOME` is denied even at `0644` in a `0755` dir (see below). Create the dir

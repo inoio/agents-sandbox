@@ -105,6 +105,26 @@ func TestKvmGuestRenderDefaultsTheImageCacheToLibvirtDir(t *testing.T) {
 	assertContains(t, "render stdout", result.Stdout, "image path: /var/lib/libvirt/images/agents-sandbox/")
 }
 
+// TestKvmGuestRenderDefaultsArtifactsUnderTheImageCache pins that the guest's
+// disk, seed, and XML default under the image cache (a fixed, host-global,
+// AppArmor-safe tree) rather than $PWD, so worktrees do not each grow a copy.
+func TestKvmGuestRenderDefaultsArtifactsUnderTheImageCache(t *testing.T) {
+	dir := t.TempDir()
+	cacheDir := filepath.Join(dir, "image-cache")
+	env := kvmGuestEnv(dir)
+	env["KVM_IMAGE_CACHE"] = cacheDir
+	delete(env, "ARTIFACT_DIR") // let the script derive its default
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "render")
+	assertStatus(t, result, 0)
+
+	rendered := filepath.Join(cacheDir, "guest", "asb-kvm-test-user-data")
+	assertContains(t, "render stdout", result.Stdout, "rendered:\n"+rendered)
+	if _, err := os.Stat(rendered); err != nil {
+		t.Fatalf("artifacts not written under the image cache: %v", err)
+	}
+}
+
 func TestKvmGuestFirewallAcceptsTheBridgeInInputAndDockerUser(t *testing.T) {
 	dir := t.TempDir()
 	argvPath := filepath.Join(dir, "nft-argv")
