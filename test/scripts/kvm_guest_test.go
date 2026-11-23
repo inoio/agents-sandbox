@@ -4,7 +4,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 )
@@ -673,6 +672,37 @@ func TestKvmGuestSyncAppendsTheKeyAfterAMissingTrailingNewline(t *testing.T) {
 	assertContains(t, "authorized_keys", authorized, `command="git-shell -c \"$SSH_ORIGINAL_COMMAND\"",restrict`)
 }
 
+// TestKvmGuestSyncRepairsAPreviouslyMergedKeyLine pins the repair path: a line a
+// pre-fix run merged the guest options onto (the appended-without-newline bug)
+// does not begin with the options prefix, so it must be kept — deleting it would
+// drop the host key it was merged onto — while a clean guest line is appended so
+// the guest key is authorized. A substring idempotency check would mistake the
+// merged line for the whole line and skip the repair.
+func TestKvmGuestSyncRepairsAPreviouslyMergedKeyLine(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestSyncEnv(t, dir)
+	authorizedPath := filepath.Join(dir, "home", ".ssh", "authorized_keys")
+	if err := os.MkdirAll(filepath.Dir(authorizedPath), 0o755); err != nil {
+		t.Fatalf("create .ssh: %v", err)
+	}
+	existing := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEXISTING existing@host"
+	merged := existing + `command="git-shell -c \"$SSH_ORIGINAL_COMMAND\"",restrict ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGUEST agents-sandbox-kvm-guest`
+	if err := os.WriteFile(authorizedPath, []byte(merged+"\n"), 0o600); err != nil {
+		t.Fatalf("seed authorized_keys: %v", err)
+	}
+
+	assertStatus(t, RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync"), 0)
+
+	authorized := readText(t, authorizedPath)
+	assertContains(t, "authorized_keys", authorized, existing)
+	assertContains(
+		t,
+		"authorized_keys",
+		authorized,
+		"\ncommand=\"git-shell -c \\\"$SSH_ORIGINAL_COMMAND\\\"\",restrict ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGUEST agents-sandbox-kvm-guest\n",
+	)
+}
+
 // TestKvmGuestSyncFailsWhenTheGuestCannotReachTheHost pins the preflight: a guest
 // that cannot complete a git exchange with the host fails with the diagnostic and
 // never proceeds to the fetch. The probe must be a real git handshake, not a plain
@@ -735,7 +765,7 @@ func TestKvmGuestSyncReplacesAStaleRewriteOnAChangedHost(t *testing.T) {
 }
 
 // TestKvmGuestSyncPreservesAuthorizedKeysWhenTheRewriteFails pins the guard in
-// ensure_host_authorized_key: when the grep that filters the old marker line fails
+// ensure_host_authorized_key: when the grep that filters the old guest line fails
 // with a read error (not the no-match exit 1), the partial temp file must not be
 // moved over the host's authorized_keys — that would drop the user's other keys
 // and can lock them out of the host.
@@ -807,6 +837,20 @@ func TestKvmGuestSyncRejectsABranchNameThatCannotBeQuoted(t *testing.T) {
 	dir := t.TempDir()
 	env := kvmGuestSyncEnv(t, dir)
 	env["REPO_BRANCH"] = "feat/$(id)"
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync")
+	assertStatus(t, result, 1)
+
+	assertContains(t, "stderr", result.Stderr, "branch name must not contain")
+}
+
+// TestKvmGuestSyncRejectsABranchNameWithASingleQuote pins the guard's single
+// quote: the branch is embedded in a single-quoted remote script, so a name like
+// `fix/it's` must be refused, not left to end the script early.
+func TestKvmGuestSyncRejectsABranchNameWithASingleQuote(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestSyncEnv(t, dir)
+	env["REPO_BRANCH"] = "fix/it's"
 
 	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync")
 	assertStatus(t, result, 1)
@@ -1120,49 +1164,44 @@ func kvmGuestSSHKeygenHandler(args []string) (string, string, int) {
 	return "", "", 0
 }
 
-// kvmGuestGrepHandler serves the `grep` calls ensure_host_authorized_key makes,
-// implementing the two forms it uses: `-qF <pattern> <file>` (does a line contain
-// the pattern?) and `-vF <pattern> <file>` (print the non-matching lines).
-// GREP_READ_ERROR makes the -vF rewrite fail with grep's read-error status (2), so
-// a case can pin that a failed rewrite does not clobber the host's authorized_keys.
+// kvmGuestGrepHandler serves the `grep` call ensure_host_authorized_key makes,
+// `-v <pattern> <file>`: print the lines that do not match. A leading `^` in the
+// pattern anchors at the line start, the only regex form the script uses.
+// GREP_READ_ERROR makes the rewrite fail with grep's read-error status (2), so a
+// case can pin that a failed rewrite does not clobber the host's authorized_keys.
 func kvmGuestGrepHandler(args []string) (string, string, int) {
 	recordArgv("GREP_ARGV", args)
-	if len(args) != 3 {
+	if len(args) != 3 || args[0] != "-v" {
 		return "", "grep fake: unexpected arguments\n", 2
 	}
-	flag, pattern, path := args[0], args[1], args[2]
+	pattern, path := args[1], args[2]
+	anchored := strings.HasPrefix(pattern, "^")
+	pattern = strings.TrimPrefix(pattern, "^")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", "grep: " + err.Error() + "\n", 2
+	}
+	if envOption("GREP_READ_ERROR") != "" {
+		return "", "grep: simulated read error\n", 2
 	}
 	var lines []string
 	if len(data) > 0 {
 		lines = strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
 	}
-	matches := func(line string) bool { return strings.Contains(line, pattern) }
-	switch flag {
-	case "-qF":
-		if slices.ContainsFunc(lines, matches) {
-			return "", "", 0
+	var out []string
+	for _, line := range lines {
+		matches := strings.Contains(line, pattern)
+		if anchored {
+			matches = strings.HasPrefix(line, pattern)
 		}
-		return "", "", 1
-	case "-vF":
-		if envOption("GREP_READ_ERROR") != "" {
-			return "", "grep: simulated read error\n", 2
+		if !matches {
+			out = append(out, line)
 		}
-		var out []string
-		for _, line := range lines {
-			if !matches(line) {
-				out = append(out, line)
-			}
-		}
-		if len(out) == 0 {
-			return "", "", 1
-		}
-		return strings.Join(out, "\n") + "\n", "", 0
-	default:
-		return "", "grep fake: unexpected flag " + flag + "\n", 2
 	}
+	if len(out) == 0 {
+		return "", "", 1
+	}
+	return strings.Join(out, "\n") + "\n", "", 0
 }
 
 // kvmGuestGitHandler serves the `git` a script under test calls: it logs the

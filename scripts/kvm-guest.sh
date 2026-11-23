@@ -161,13 +161,14 @@ require_safe_agent_command() {
 # require_safe_branch rejects a branch name that cannot be embedded safely in the
 # guest shell string the sync commands build. A git branch name may contain shell
 # metacharacters (`;`, `&`, `|`, …), so the name is placed inside double quotes in
-# the remote `bash -lc` script; the double quote, backslash, dollar sign, and
-# backtick — the characters double quotes do not neutralize — must be absent.
+# the remote `bash -lc` script; the characters it still cannot carry are the single
+# quote, which ends the outer single-quoted remote script, and the double quote,
+# backslash, dollar sign, and backtick, which double quotes do not neutralize.
 require_safe_branch() {
   local branch="$1" char
-  for char in '"' '$' '`' "\\"; do
+  for char in "'" '"' '$' '`' "\\"; do
     case "$branch" in
-      *"$char"*) die "the branch name must not contain a double quote, backslash, dollar sign, or backtick (it is embedded in a shell string): $branch" ;;
+      *"$char"*) die "the branch name must not contain a single quote, double quote, backslash, dollar sign, or backtick (it is embedded in a shell string): $branch" ;;
     esac
   done
 }
@@ -527,36 +528,31 @@ ensure_guest_git_key() {
 
 # ensure_host_authorized_key authorizes the guest key for git on this host,
 # confined to git-shell (it can run git-upload-pack/receive-pack, not a shell).
-# Idempotent by the whole key: a rotated key replaces the marker-tagged line.
+# It drops any previous guest line before appending, so a re-run replaces rather
+# than accumulates. The line is identified by the options prefix it must begin
+# with, not by the key's comment: a line a pre-fix run merged this options block
+# onto (the appended-without-newline bug) does not begin with the prefix, so it
+# is preserved — deleting it would drop the host key it was merged onto.
 ensure_host_authorized_key() {
-  local pubkey line auth="$HOME/.ssh/authorized_keys"
+  local pubkey line auth="$HOME/.ssh/authorized_keys" prefix='^command="git-shell -c'
   command -v git-shell >/dev/null 2>&1 || die "git-shell not found on the host; install git"
   pubkey="$(cat "$KVM_GUEST_KEY.pub")"
   line="command=\"git-shell -c \\\"\$SSH_ORIGINAL_COMMAND\\\"\",restrict $pubkey"
   mkdir -p "$HOME/.ssh"
   touch "$auth"
   chmod 600 "$auth"
-  if grep -qF "$line" "$auth"; then
-    return 0
+  # grep exits 1 when it selects no lines (a fresh or all-removed file), which is
+  # success here; any higher status is a read error and the rewrite must abort
+  # rather than move a partial temp file over authorized_keys. It terminates the
+  # last selected line, so the rewrite also gives the append its trailing newline.
+  local rewrite_status=0
+  grep -v "$prefix" "$auth" > "$auth.tmp" || rewrite_status=$?
+  if [ "$rewrite_status" -gt 1 ]; then
+    rm -f "$auth.tmp"
+    die "could not rewrite $auth (grep exited $rewrite_status); it is unchanged"
   fi
-  if grep -qF 'agents-sandbox-kvm-guest' "$auth"; then
-    # grep exits 1 when it selects no lines (the only marker line was removed),
-    # which is success here; any higher status is a read error and the rewrite
-    # must abort rather than move a partial temp file over authorized_keys.
-    local rewrite_status=0
-    grep -vF 'agents-sandbox-kvm-guest' "$auth" > "$auth.tmp" || rewrite_status=$?
-    if [ "$rewrite_status" -gt 1 ]; then
-      rm -f "$auth.tmp"
-      die "could not rewrite $auth (grep exited $rewrite_status); it is unchanged"
-    fi
-    mv "$auth.tmp" "$auth"
-  fi
-  # A last line with no trailing newline (written by printf, some editors, some
-  # config managers) would otherwise be merged onto the key line's options, which
-  # both breaks the previous key and hides the appended key from sshd.
-  if [ -s "$auth" ] && [ -n "$(tail -c 1 "$auth")" ]; then
-    printf '\n' >> "$auth"
-  fi
+  mv "$auth.tmp" "$auth"
+  chmod 600 "$auth"
   printf '%s\n' "$line" >> "$auth"
 }
 
