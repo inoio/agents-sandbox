@@ -273,7 +273,7 @@ func TestStartStubProviderAppendsTheListenerPort(t *testing.T) {
 func TestStubAnswersAnUnknownPathWithNotFound(t *testing.T) {
 	provider := startTestStub(t)
 
-	response := postChat(t, provider, `{"model":"stub"}`)
+	response := postChat(t, provider, `{"model":"stub","tools":[{}]}`)
 	_ = response.Body.Close()
 	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{Proxy: nil}}
 	request, err := http.NewRequestWithContext(

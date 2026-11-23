@@ -215,8 +215,9 @@ source of truth and its steps are type-checked. It reads as Gherkin anyway:
   harness with an adapter. One assumption remains in a step: the host seed would store a copied login store under
   the host file's base name, which holds for opencode's `auth.json`. The adapter grows a field only when a journey needs it.
 
-The journeys cover **opencode2 only** so far, the S1-verified profile with its SQLite credential probe.
-Learn mode on claude-code, codex, pi, and oh-my-pi is #852; the rest is #794.
+The learn-mode journeys cover **opencode2 only** so far, the S1-verified profile with its SQLite credential
+probe; core-session covers opencode2, claude-code, and codex. Learn mode on claude-code, codex, pi, and oh-my-pi
+(and core-session on pi and oh-my-pi) is #852; the rest is #794.
 
 ### Checkpoint 1: claude-code (the abstraction held)
 
@@ -239,6 +240,26 @@ and why:
 - **Resume picks different sessions.** opencode2 continues the last active session, claude-code the last saved
   one; the journey orders its quits so both are the same session, rather than adding an adapter field.
 - Prompt submission needed no adapter field: both TUIs take the echoed text and `\r`.
+
+### Checkpoint 2: codex (a third harness needed no new mechanism)
+
+codex (OpenAI Responses, `exec_command`, a merged `config.toml`) needed a stub protocol, an adapter, one adapter
+field, and one stub rule:
+
+- **Responses protocol** (`/responses`): the event stream codex reads (`response.created`, text delta,
+  `response.output_item.done` with a message or `function_call` item, `response.completed`).
+- **`StubSnippets`.** codex ignores `OPENAI_BASE_URL`, its `config.toml` is a reserved `home:` target, and `-c`
+  switches it into embedded mode, so its adapter writes a launcher snippet (`config*.toml`, the only names the
+  launcher merges) that adds a Responses provider at the stub. `StepConfigureLauncherEnv` seeds it with the env
+  file. A dummy `~/.codex/auth.json` skips codex's sign-in screen.
+- **A tool-less request is a side request.** codex asks its main model for the session title without tools, so
+  the stub treats a request for the small model *or* without tools as a side request (`stubTitleReply`, no
+  numbered reply, not a turn).
+- codex writes through `exec_command` with a shell command line; the adapter quotes the content for the shell.
+
+The adapter now has three ways to point a harness at the stub (`StubConfig` home files, `StubEnv`,
+`StubSnippets`), each used because a harness's natural config file is reserved or ignored, never as a
+harness-name branch. Every field is used by at least one harness, and shared code still names none.
 
 ### The core-session journey
 

@@ -121,26 +121,11 @@ the first-run menu, and the quit order makes both harnesses' resume pick the sam
 
 ---
 
-## Phase 4 — Checkpoint 2: codex
+## Phase 4 — Checkpoint 2: codex — done
 
-### Task 11: OpenAI Responses protocol
-
-- [ ] Test (default suite): the stub serves `POST /v1/responses` with a scripted text and function-call turn,
-      streamed (`response.created`/`response.output_item.*`/`response.completed`), matching a minimal recorded codex
-      request. Codex's file-writing path is `apply_patch`/shell; the script uses whichever the recorded request
-      advertises.
-
-### Task 12: codex adapter and core-session row
-
-- [ ] Adapter: provider seed via `config.toml` (`model_provider` with `base_url`, `wire_api = "responses"`,
-      `env_key`), folder-trust handling, quit `Ctrl-C`, resume `resume --last`.
-- [ ] Remove codex's core-session exemption.
-- [ ] **[host]** Core-session passes on codex.
-
-### Task 13: Checkpoint 2 review
-
-- [ ] Codex should have needed only a table entry, an adapter, and a protocol. List anything more as a finding
-      about the abstraction, fix it, and record the outcome in the spec and on #851.
+`core-session` passes on codex (~6 s). The outcome is in the spec's "Checkpoint 2": a Responses protocol, one
+adapter field (`StubSnippets`), and one stub rule (a tool-less request is a side request); no harness branch in
+shared code.
 
 ---
 

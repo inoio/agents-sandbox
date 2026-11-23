@@ -66,7 +66,7 @@ func startTestStub(t *testing.T) StubProvider {
 func TestStubAnswersAChatCompletionWithTheReply(t *testing.T) {
 	provider := startTestStub(t)
 
-	response := postChat(t, provider, `{"model":"stub","messages":[{"role":"user","content":"hello"}]}`)
+	response := postChat(t, provider, `{"model":"stub","tools":[{}],"messages":[{"role":"user","content":"hello"}]}`)
 
 	var completion decodedCompletion
 	if err := json.NewDecoder(response.Body).Decode(&completion); err != nil {
@@ -89,7 +89,11 @@ func TestStubAnswersAChatCompletionWithTheReply(t *testing.T) {
 func TestStubStreamsAChatCompletionWhenAsked(t *testing.T) {
 	provider := startTestStub(t)
 
-	response := postChat(t, provider, `{"model":"stub","stream":true,"messages":[{"role":"user","content":"hello"}]}`)
+	response := postChat(
+		t,
+		provider,
+		`{"model":"stub","stream":true,"tools":[{}],"messages":[{"role":"user","content":"hello"}]}`,
+	)
 
 	if got := response.Header.Get("Content-Type"); !strings.HasPrefix(got, "text/event-stream") {
 		t.Errorf("Content-Type = %q, want text/event-stream", got)
@@ -130,7 +134,7 @@ func TestStubRecordsTheRequestsItServed(t *testing.T) {
 		t.Fatalf("Requests() before any request = %v, want none", requests)
 	}
 
-	_, _ = io.Copy(io.Discard, postChat(t, provider, `{"model":"stub","messages":[]}`).Body)
+	_, _ = io.Copy(io.Discard, postChat(t, provider, `{"model":"stub","tools":[{}],"messages":[]}`).Body)
 
 	want := []StubRequest{{Method: http.MethodPost, Path: "/v1/chat/completions", Model: "stub"}}
 	if got := provider.Requests(); !slices.Equal(got, want) {
@@ -140,7 +144,7 @@ func TestStubRecordsTheRequestsItServed(t *testing.T) {
 
 func TestStubServedTurnCountsOnlyMainModelCompletions(t *testing.T) {
 	models := StubRequest{Method: http.MethodGet, Path: "/v1/models"}
-	title := StubRequest{Method: http.MethodPost, Path: "/v1/chat/completions", Model: stubTitleModel}
+	title := StubRequest{Method: http.MethodPost, Path: "/v1/chat/completions", Model: stubTitleModel, Side: true}
 	turn := StubRequest{Method: http.MethodPost, Path: "/v1/chat/completions", Model: stubProviderModel}
 	if !servedTurn([]StubRequest{models, title, turn}) {
 		t.Error("servedTurn = false with a main-model chat completion")
@@ -197,7 +201,8 @@ func TestStubAnswersTheNextTurnWithTheScriptedToolCallOnce(t *testing.T) {
 	provider.ScriptToolCall(writeCall)
 
 	var first toolCallCompletion
-	if err := json.NewDecoder(postChat(t, provider, `{"model":"stub","messages":[]}`).Body).Decode(&first); err != nil {
+	if err := json.NewDecoder(postChat(t, provider, `{"model":"stub","tools":[{}],"messages":[]}`).Body).
+		Decode(&first); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	calls := first.Choices[0].Message.ToolCalls
@@ -210,7 +215,7 @@ func TestStubAnswersTheNextTurnWithTheScriptedToolCallOnce(t *testing.T) {
 	}
 
 	var second decodedCompletion
-	if err := json.NewDecoder(postChat(t, provider, `{"model":"stub","messages":[]}`).Body).
+	if err := json.NewDecoder(postChat(t, provider, `{"model":"stub","tools":[{}],"messages":[]}`).Body).
 		Decode(&second); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -223,7 +228,7 @@ func TestStubStreamsTheScriptedToolCall(t *testing.T) {
 	provider := startTestStub(t)
 	provider.ScriptToolCall(writeCall)
 
-	response := postChat(t, provider, `{"model":"stub","stream":true,"messages":[]}`)
+	response := postChat(t, provider, `{"model":"stub","stream":true,"tools":[{}],"messages":[]}`)
 
 	var name, arguments strings.Builder
 	var finished bool
@@ -259,7 +264,8 @@ func TestStubKeepsTheScriptedToolCallFromTheTitleModel(t *testing.T) {
 	_, _ = io.Copy(io.Discard, postChat(t, provider, `{"model":"`+stubTitleModel+`","messages":[]}`).Body)
 
 	var turn toolCallCompletion
-	if err := json.NewDecoder(postChat(t, provider, `{"model":"stub","messages":[]}`).Body).Decode(&turn); err != nil {
+	if err := json.NewDecoder(postChat(t, provider, `{"model":"stub","tools":[{}],"messages":[]}`).Body).
+		Decode(&turn); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if len(turn.Choices[0].Message.ToolCalls) != 1 {
@@ -270,7 +276,7 @@ func TestStubKeepsTheScriptedToolCallFromTheTitleModel(t *testing.T) {
 func TestStubNumbersItsRepliesAndRecordsThem(t *testing.T) {
 	provider := startTestStub(t)
 	for range 2 {
-		_, _ = io.Copy(io.Discard, postChat(t, provider, `{"model":"stub","messages":[]}`).Body)
+		_, _ = io.Copy(io.Discard, postChat(t, provider, `{"model":"stub","tools":[{}],"messages":[]}`).Body)
 	}
 	_, _ = io.Copy(io.Discard, postChat(t, provider, `{"model":"`+stubTitleModel+`","messages":[]}`).Body)
 
@@ -282,5 +288,29 @@ func TestStubNumbersItsRepliesAndRecordsThem(t *testing.T) {
 func TestStubServedTurnCountsAnthropicMessages(t *testing.T) {
 	if !servedTurn([]StubRequest{{Method: http.MethodPost, Path: "/v1/messages", Model: "stub"}}) {
 		t.Error("servedTurn = false for a Messages turn")
+	}
+}
+
+func TestStubServedTurnCountsResponses(t *testing.T) {
+	if !servedTurn([]StubRequest{{Method: http.MethodPost, Path: "/v1/responses", Model: "stub"}}) {
+		t.Error("servedTurn = false for a Responses turn")
+	}
+}
+
+// codex asks its main model for the session title without tools; that side
+// request must not take the armed call or a numbered reply.
+func TestStubTreatsAToolLessRequestAsASideRequest(t *testing.T) {
+	provider := startTestStub(t)
+	provider.ScriptToolCall(writeCall)
+
+	var title decodedCompletion
+	if err := json.NewDecoder(postChat(t, provider, `{"model":"stub","messages":[]}`).Body).Decode(&title); err != nil {
+		t.Fatal(err)
+	}
+	if got := title.Choices[0].Message.Content; got != stubTitleReply {
+		t.Errorf("tool-less reply = %q, want %q", got, stubTitleReply)
+	}
+	if len(provider.Replies()) != 0 || servedTurn(provider.Requests()) {
+		t.Error("a tool-less request counted as a turn")
 	}
 }

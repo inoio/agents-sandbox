@@ -34,10 +34,11 @@ const reconfigPromptMarker = "Applying requires"
 // harness whose adapter needs no variables.
 const journeyEnvMarker = "AGENTS_SANDBOX_JOURNEY"
 
-// StepConfigureLauncherEnv writes the launcher's env file with the adapter's
-// StubEnv: the home then counts as configured, so the launcher skips the
-// first-run menu, and a harness configured through its environment reaches the
-// stub.
+// StepConfigureLauncherEnv configures the launcher with the adapter's stub
+// settings: the env file with StubEnv (always written, with a marker), and the
+// agent-config snippets with StubSnippets. The home then counts as configured,
+// so the launcher skips the first-run menu, and a harness configured through
+// its environment or merged config reaches the stub.
 func StepConfigureLauncherEnv() Step {
 	return Step{Name: "the launcher is configured with the harness's stub settings", Run: func(c *Context) error {
 		if c.Stub == nil {
@@ -47,7 +48,17 @@ func StepConfigureLauncherEnv() Step {
 		if c.Harness.StubEnv != nil {
 			maps.Copy(vars, c.Harness.StubEnv(c.Stub.Addr()))
 		}
-		return driver.SeedLauncherEnv(c.Home, vars)
+		if err := driver.SeedLauncherEnv(c.Home, vars); err != nil {
+			return err
+		}
+		if c.Harness.StubSnippets == nil {
+			return nil
+		}
+		profile, ok := agent.Lookup(c.Agent)
+		if !ok {
+			return fmt.Errorf("unknown agent %q", c.Agent)
+		}
+		return driver.SeedAgentSnippets(c.Home, profile.ConfigDirName(), c.Harness.StubSnippets(c.Stub.Addr()))
 	}}
 }
 

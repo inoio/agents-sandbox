@@ -12,6 +12,13 @@ const (
 	stubCountTokenPath = "/messages/count_tokens"
 )
 
+// stubMessageID is the id of the stub's one message per answer.
+const stubMessageID = "msg_stub"
+
+// messageType is the type of a whole message (Anthropic) or message item
+// (Responses).
+const messageType = "message"
+
 // toolUseType is the type of a tool_use content block, and its stop reason.
 const toolUseType = "tool_use"
 
@@ -117,7 +124,7 @@ func serveMessages(response http.ResponseWriter, request chatRequest, call *Tool
 	}
 	response.Header().Set("Content-Type", "application/json")
 	_, _ = response.Write([]byte(mustJSON(messagesMessage{
-		ID: "msg_stub", Type: "message", Role: assistantRole, Model: stubProviderModel,
+		ID: stubMessageID, Type: messageType, Role: assistantRole, Model: stubProviderModel,
 		Content: []messagesBlock{answer.block}, StopReason: &answer.stopReason,
 		Usage: messagesUsage{InputTokens: 1, OutputTokens: 1},
 	})))
@@ -136,7 +143,7 @@ func streamMessages(response http.ResponseWriter, answer messagesAnswer) {
 	usage := messagesUsage{InputTokens: 1, OutputTokens: 1}
 	events := []messagesEvent{
 		{Type: "message_start", Message: &messagesMessage{
-			ID: "msg_stub", Type: "message", Role: assistantRole, Model: stubProviderModel,
+			ID: stubMessageID, Type: messageType, Role: assistantRole, Model: stubProviderModel,
 			Content: []messagesBlock{}, Usage: usage,
 		}},
 		{Type: "content_block_start", Index: &index, ContentBlock: &answer.startBlock},

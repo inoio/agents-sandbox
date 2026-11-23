@@ -48,8 +48,17 @@ const stubToolCallID = "call_stub"
 
 // chatRequest is the part of a chat completion request the stub reads.
 type chatRequest struct {
-	Model  string `json:"model"`
-	Stream bool   `json:"stream"`
+	Model  string            `json:"model"`
+	Stream bool              `json:"stream"`
+	Tools  []json.RawMessage `json:"tools"`
+}
+
+// side reports a side request rather than a turn: one for the small model
+// (opencode's and claude-code's titles), or one that offers no tools (codex
+// asks its main model for the title without tools). It gets stubTitleReply and
+// neither takes the armed tool call nor a numbered reply.
+func (r chatRequest) side() bool {
+	return r.Model == stubTitleModel || len(r.Tools) == 0
 }
 
 // stubCompletionPath is the request path of an OpenAI chat completion.
@@ -164,13 +173,14 @@ func streamChatCompletion(response http.ResponseWriter, delta chatMessage, finis
 }
 
 // servedTurn reports whether requests include a main-model turn, an OpenAI chat
-// completion or an Anthropic Messages request (a small-model title request or a
-// token count is not one).
+// completion or Responses request or an Anthropic Messages request (a side
+// request or a token count is not one).
 func servedTurn(requests []StubRequest) bool {
 	for _, request := range requests {
 		turnPath := strings.HasSuffix(request.Path, stubCompletionPath) ||
-			strings.HasSuffix(request.Path, stubMessagesPath)
-		if request.Method == http.MethodPost && turnPath && request.Model != stubTitleModel {
+			strings.HasSuffix(request.Path, stubMessagesPath) ||
+			strings.HasSuffix(request.Path, stubResponsesPath)
+		if request.Method == http.MethodPost && turnPath && !request.Side {
 			return true
 		}
 	}
