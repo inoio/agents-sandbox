@@ -1,9 +1,11 @@
 package journeys
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -144,7 +146,9 @@ func StepUseClient(number int) Step {
 }
 
 // StepAssertNoReconfigPrompt checks the active client was not asked to rebuild
-// the VM or restart the server.
+// the VM or restart the server. A reconfig prompt blocks before the TUI, so in a
+// journey the readiness step before this check fails first; its failure report
+// carries the harness output with the prompt.
 func StepAssertNoReconfigPrompt() Step {
 	return AsCheck(Step{Name: "no reconfig prompt appears", Run: func(c *Context) error {
 		ses, err := session(c)
@@ -163,6 +167,55 @@ func reconfigPromptProblem(output string) error {
 	return nil
 }
 
+// vmStartedMarker is what the launcher prints when it boots a stopped project
+// VM again.
+const vmStartedMarker = "started existing project VM"
+
+// vmStopTimeout bounds `agents-sandbox stop`; it is a ceiling, not the
+// expected wait.
+const vmStopTimeout = 2 * time.Minute
+
+// StepStopVM stops the journey's project VM with `agents-sandbox stop`, so the
+// next run boots it again and only state the home volume kept survives.
+func StepStopVM() Step {
+	return Step{Name: "the user stops the project VM", Run: func(c *Context) error {
+		ctx, cancel := context.WithTimeout(
+			context.Background(),
+			driver.ScaleTimeout(vmStopTimeout, driver.SmokeTimeoutFactor()),
+		)
+		defer cancel()
+		//nolint:gosec // G204: the suite-built launcher and a registered agent name
+		stop := exec.CommandContext(ctx, c.Binary, "stop", "--agent", c.Agent)
+		stop.Dir = c.ProjectDir()
+		//testenv:allow the journey launcher runs under the host environment it isolates from
+		stop.Env = driver.IsolatedEnv(c.Root, c.Home, os.Environ())
+		if out, err := stop.CombinedOutput(); err != nil {
+			return fmt.Errorf("agents-sandbox stop: %w\n%s", err, out)
+		}
+		return nil
+	}}
+}
+
+// StepAssertVMRestarted checks the active client's launcher booted the stopped
+// project VM again rather than attaching to a running one.
+func StepAssertVMRestarted() Step {
+	return AsCheck(Step{Name: "the launcher boots the stopped VM again", Run: func(c *Context) error {
+		ses, err := session(c)
+		if err != nil {
+			return err
+		}
+		return vmRestartProblem(driver.StripANSI(ses.Output()))
+	}})
+}
+
+// vmRestartProblem reports output that does not show the VM booting again.
+func vmRestartProblem(output string) error {
+	if !strings.Contains(output, vmStartedMarker) {
+		return errors.New("the launcher did not boot the stopped VM; it attached to a running one or created a new one")
+	}
+	return nil
+}
+
 // StepRelaunchWithResume starts the harness again with its resume arguments
 // (the adapter's ResumeArgs) as the active client.
 func StepRelaunchWithResume() Step {
@@ -176,7 +229,9 @@ func StepRelaunchWithResume() Step {
 }
 
 // StepAssertSessionRestored checks the active client shows prompt, a message of
-// the resumed session.
+// the resumed session. It matches the client's whole output, which holds only
+// because the relaunched client's pty is fresh and a harness's start screen
+// does not list earlier prompts.
 func StepAssertSessionRestored(prompt string) Step {
 	return AsCheck(Step{Name: "the resumed session shows " + strconv.Quote(prompt), Run: func(c *Context) error {
 		ses, err := session(c)

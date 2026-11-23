@@ -139,7 +139,7 @@ journeys depend on the spike.
 
 The stub is a host-side loopback HTTP listener (`test/msb/journeys/stub_provider.go`), started per journey and
 closed by `tb.Cleanup`. It records every request it served (`StubProvider.Requests`) and answers a chat completion
-with a fixed reply (`StubReply`), streamed when the request asks for a stream, so a journey can assert that a turn
+with a numbered reply (`stub-reply-<n>`), streamed when the request asks for a stream, so a journey can assert that a turn
 reached the stub and completed. The provider config declares a separate `small_model` (`stub/stub-title`), which
 opencode uses for side requests such as the session title, and the stub answers it with a different text: a title
 on screen cannot pass for the turn's reply, and a title request does not count as the turn.
@@ -228,15 +228,18 @@ first run (A), real turn (C), second client (E), and persistence (D) over one pr
   experimental; the project gets no `.agents-sandbox` scaffolding.
 - **C:** the stub answers the first turn with the harness's own write-file tool call (the adapter's
   `WriteFileCall`, e.g. opencode2's `write` with `path`/`content`), then with its text reply; the file
-  appears in the project on the host, owned by the host user, and the reply shows.
+  appears in the project on the host, owned by the host user, and the reply shows. The stub numbers its
+  replies (`stub-reply-1`, …), and a reply check accepts only a reply sent after the client's last prompt and
+  shown after it, so a repainted earlier reply cannot pass.
 - **E:** a second `run` attaches to the same VM while the first runs; it gets no reconfig prompt, and both
   clients complete a turn.
-- **D:** both clients quit; a run with the adapter's `ResumeArgs` (opencode2: `--continue`) shows the last
-  session's message.
+- **D:** both clients quit and `agents-sandbox stop` stops the VM; the next run boots it again (asserted from
+  the launcher's "started existing project VM"), and with the adapter's `ResumeArgs` (opencode2: `--continue`) it
+  shows the last session's message, so the session survived in the home volume, not in a live server.
 
 A wrong tool argument is a tool error the harness reports back to the model and the turn survives, so only
-the file check notices it: the adapter's tool call is pinned by a unit test against the harness's tool
-schema. The journey runs on its own project (`StepOwnProject`), because it restarts and attaches twice, and
+the file check notices it: the adapter's tool call is pinned by a unit test to the argument keys the
+harness's tool schema names (read from a recorded request). The journey runs on its own project (`StepOwnProject`), because it restarts and attaches twice, and
 under the `host` profile the stub route needs. Per-journey projects stay opt-in: the learn-mode journeys run
 in seconds on the shared project and assert only state in their own HOME.
 

@@ -288,21 +288,45 @@ func stepAssertStubServed(budget time.Duration) Step {
 	}}
 }
 
-// StepAssertReplyShown waits until the active client shows the stub's reply
-// after its last prompt, so the turn completed rather than only reaching the
-// stub.
+// StepAssertReplyShown waits until the stub sent a new reply since the active
+// client's last prompt and the client shows it after that prompt, so the turn
+// completed rather than only reaching the stub, and a repainted earlier reply
+// cannot pass for it.
 func StepAssertReplyShown() Step {
 	return AsCheck(Step{Name: "the harness shows the stub's reply", Run: func(c *Context) error {
 		ses, err := session(c)
 		if err != nil {
 			return err
 		}
+		if c.Stub == nil {
+			return errors.New("no stub provider on the context; seed it first")
+		}
 		budget := driver.ScaleTimeout(stubTurnTimeout, driver.SmokeTimeoutFactor())
-		if !waitForEcho(ses, c.promptOffset(ses), driver.MarkerText(StubReply), budget) {
-			return fmt.Errorf("the harness showed no reply %q since the last prompt within %s", StubReply, budget)
+		reply, err := newReplySince(c.Stub, c.lastPrompt(ses).replies, budget)
+		if err != nil {
+			return err
+		}
+		if !waitForEcho(ses, c.lastPrompt(ses).offset, driver.MarkerText(reply), budget) {
+			return fmt.Errorf("the harness did not show the stub's reply %q within %s", reply, budget)
 		}
 		return nil
 	}})
+}
+
+// newReplySince waits until stub has sent more than seen replies and returns
+// the newest one.
+func newReplySince(stub StubProvider, seen int, budget time.Duration) (string, error) {
+	deadline := time.Now().Add(budget)
+	for {
+		if replies := stub.Replies(); len(replies) > seen {
+			return replies[len(replies)-1], nil
+		}
+		if !time.Now().Before(deadline) {
+			return "", fmt.Errorf("the stub sent no reply for the prompt within %s", budget)
+		}
+		//testenv:allow polling a live harness on a wall-clock interval
+		time.Sleep(stubPollInterval)
+	}
 }
 
 // StepQuitToExit leaves the harness with its quit key and waits for the

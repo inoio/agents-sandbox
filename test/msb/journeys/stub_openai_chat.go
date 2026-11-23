@@ -7,9 +7,15 @@ import (
 	"strings"
 )
 
-// StubReply is the text the stub answers a main-model turn with: distinctive
-// enough for a journey to find it on the harness's screen.
-const StubReply = "stub-reply-ok"
+// stubReplyPrefix starts every main-model text reply; the stub numbers its
+// replies ("stub-reply-1", "stub-reply-2", …), so a journey can tell a turn's
+// reply from an earlier one the TUI repaints.
+const stubReplyPrefix = "stub-reply-"
+
+// stubReply is the stub's number-th main-model text reply.
+func stubReply(number int) string {
+	return stubReplyPrefix + strconv.Itoa(number)
+}
 
 // stubTitleReply answers a small-model request (opencode's session title), so a
 // title on screen cannot pass for the turn's reply.
@@ -31,23 +37,15 @@ type chatRequest struct {
 	Stream bool   `json:"stream"`
 }
 
-// replyFor is the reply text for a request's model.
-func replyFor(model string) string {
-	if model == stubTitleModel {
-		return stubTitleReply
-	}
-	return StubReply
-}
-
 // stubCompletionPath is the request path of an OpenAI chat completion.
 const stubCompletionPath = "/chat/completions"
 
 // serveChatCompletion answers an OpenAI chat completion with call when one is
-// given, else with the reply for its model; streamed as server-sent chunks when
+// given, else with reply; streamed as server-sent chunks when
 // the request asks for a stream (opencode's AI SDK provider does) and as one
 // JSON completion otherwise.
-func serveChatCompletion(response http.ResponseWriter, request chatRequest, call *ToolCall) {
-	answer := textAnswer(replyFor(request.Model))
+func serveChatCompletion(response http.ResponseWriter, request chatRequest, call *ToolCall, reply string) {
+	answer := textAnswer(reply)
 	if call != nil {
 		answer = toolCallAnswer(*call)
 	}

@@ -23,6 +23,9 @@ type StubProvider interface {
 	// carrying the listener's own ephemeral port. The agent's provider baseURL
 	// is Addr()+"/v1".
 	Addr() string
+	// Replies returns the main-model text replies the stub sent so far, in
+	// order.
+	Replies() []string
 	// ScriptToolCall makes the stub answer the next main-model turn with call
 	// instead of its text reply, once; the turn after it gets the text reply.
 	ScriptToolCall(call ToolCall)
@@ -135,6 +138,7 @@ type stubProvider struct {
 	mu       sync.Mutex
 	requests []StubRequest
 	toolCall *ToolCall
+	replies  []string
 }
 
 // Addr returns the advertised origin, scheme://host:port.
@@ -206,7 +210,33 @@ func (p *stubProvider) ServeHTTP(response http.ResponseWriter, request *http.Req
 		_, _ = response.Write([]byte(`{"object":"list","data":[{"id":"` + stubProviderModel + `","object":"model"}]}`))
 		return
 	}
-	serveChatCompletion(response, completion, p.takeToolCall(completion.Model))
+	call, reply := p.answerFor(completion.Model)
+	serveChatCompletion(response, completion, call, reply)
+}
+
+// answerFor decides a completion's answer: the title reply for the small
+// model, else the armed tool call (disarming it), else the next numbered text
+// reply, which it records.
+func (p *stubProvider) answerFor(model string) (*ToolCall, string) {
+	if model == stubTitleModel {
+		return nil, stubTitleReply
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if call := p.toolCall; call != nil {
+		p.toolCall = nil
+		return call, ""
+	}
+	reply := stubReply(len(p.replies) + 1)
+	p.replies = append(p.replies, reply)
+	return nil, reply
+}
+
+// Replies returns a copy of the main-model text replies sent so far.
+func (p *stubProvider) Replies() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.replies...)
 }
 
 // ScriptToolCall arms call for the next main-model turn.
@@ -214,19 +244,6 @@ func (p *stubProvider) ScriptToolCall(call ToolCall) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.toolCall = &call
-}
-
-// takeToolCall returns the armed tool call and disarms it, or nil; a
-// small-model request never takes it.
-func (p *stubProvider) takeToolCall(model string) *ToolCall {
-	if model == stubTitleModel {
-		return nil
-	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	call := p.toolCall
-	p.toolCall = nil
-	return call
 }
 
 func (p *stubProvider) record(request StubRequest) {

@@ -28,9 +28,9 @@ type Context struct {
 	// later steps. Clients holds every client the journey started, in order.
 	Session *driver.Session
 	Clients []*driver.Session
-	// prompts maps a client to its output length before its last prompt, so a
-	// reply check only looks at what followed.
-	prompts map[*driver.Session]int
+	// prompts maps a client to where its last prompt started, so a reply check
+	// only accepts what followed.
+	prompts map[*driver.Session]promptMark
 	// Stub is set by StepSeedStub: the host-side destination the journey's
 	// agent sends to, kept so a later step or a host accept can inspect it.
 	Stub StubProvider
@@ -45,16 +45,28 @@ func (c *Context) ProjectDir() string {
 	return driver.ProjectDir(c.Root, c.Agent)
 }
 
-// markPrompt records where client's output stood before a prompt was typed.
-func (c *Context) markPrompt(client *driver.Session) {
-	if c.prompts == nil {
-		c.prompts = map[*driver.Session]int{}
-	}
-	c.prompts[client] = len(client.Output())
+// promptMark is where a client's last prompt started: its output length and the
+// number of replies the stub had sent by then.
+type promptMark struct {
+	offset  int
+	replies int
 }
 
-// promptOffset is where client's output stood before its last prompt, or 0.
-func (c *Context) promptOffset(client *driver.Session) int {
+// markPrompt records where client's output and the stub's replies stood before
+// a prompt was typed.
+func (c *Context) markPrompt(client *driver.Session) {
+	if c.prompts == nil {
+		c.prompts = map[*driver.Session]promptMark{}
+	}
+	replies := 0
+	if c.Stub != nil {
+		replies = len(c.Stub.Replies())
+	}
+	c.prompts[client] = promptMark{offset: len(client.Output()), replies: replies}
+}
+
+// lastPrompt is where client's last prompt started (zero before any prompt).
+func (c *Context) lastPrompt(client *driver.Session) promptMark {
 	return c.prompts[client]
 }
 

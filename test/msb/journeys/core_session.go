@@ -20,8 +20,8 @@ const hostGatewayNetwork = "host"
 // coreSessionJourney chains the #783 promotion bar's first run (A), real turn
 // (C), second client (E), and persistence (D) over one project and two boots:
 // the harness starts on a fresh home, a turn writes a file the host sees, a
-// second client works next to the first, and after both quit the harness
-// resumes the session. It runs on a project of its own, because it restarts
+// second client works next to the first, and after both quit and the VM is
+// stopped, the harness resumes the session from what the home volume kept. It runs on a project of its own, because it restarts
 // and attaches twice, and under the host profile the stub route needs.
 var coreSessionJourney = Journey{
 	Name:      "core-session",
@@ -53,8 +53,10 @@ var coreSessionJourney = Journey{
 		When(StepQuitToExit()),
 		And(StepUseClient(2)),
 		And(StepQuitToExit()),
+		And(StepStopVM()),
 		When(StepRelaunchWithResume()),
 		Then(StepWaitReady()),
+		And(StepAssertVMRestarted()),
 		And(StepAssertSessionRestored(coreThirdPrompt)),
 		When(StepQuitToExit()),
 	},

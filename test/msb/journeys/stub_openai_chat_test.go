@@ -76,8 +76,8 @@ func TestStubAnswersAChatCompletionWithTheReply(t *testing.T) {
 		t.Fatalf("completion = %+v, want one chat.completion choice", completion)
 	}
 	choice := completion.Choices[0]
-	if choice.Message.Role != "assistant" || choice.Message.Content != StubReply {
-		t.Errorf("message = %+v, want the assistant reply %q", choice.Message, StubReply)
+	if choice.Message.Role != "assistant" || choice.Message.Content != stubReply(1) {
+		t.Errorf("message = %+v, want the assistant reply %q", choice.Message, stubReply(1))
 	}
 	if choice.FinishReason == nil || *choice.FinishReason != "stop" {
 		t.Errorf("finish_reason = %v, want stop", choice.FinishReason)
@@ -118,9 +118,9 @@ func TestStubStreamsAChatCompletionWhenAsked(t *testing.T) {
 			stopped = true
 		}
 	}
-	if content.String() != StubReply || !stopped || !done {
+	if content.String() != stubReply(1) || !stopped || !done {
 		t.Errorf("stream content = %q, stopped = %v, done = %v; want %q, a stop chunk, and [DONE]",
-			content.String(), stopped, done, StubReply)
+			content.String(), stopped, done, stubReply(1))
 	}
 }
 
@@ -161,8 +161,8 @@ func TestStubAnswersTheTitleModelWithADifferentReply(t *testing.T) {
 	if err := json.NewDecoder(response.Body).Decode(&completion); err != nil {
 		t.Fatalf("decode completion: %v", err)
 	}
-	if got := completion.Choices[0].Message.Content; got == StubReply || !strings.Contains(got, "title") {
-		t.Errorf("title reply = %q, want a reply other than %q", got, StubReply)
+	if got := completion.Choices[0].Message.Content; strings.HasPrefix(got, stubReplyPrefix) || got != stubTitleReply {
+		t.Errorf("title reply = %q, want %q", got, stubTitleReply)
 	}
 }
 
@@ -214,7 +214,7 @@ func TestStubAnswersTheNextTurnWithTheScriptedToolCallOnce(t *testing.T) {
 		Decode(&second); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if got := second.Choices[0].Message.Content; got != StubReply {
+	if got := second.Choices[0].Message.Content; got != stubReply(1) {
 		t.Errorf("the turn after the tool call = %q, want the text reply", got)
 	}
 }
@@ -264,5 +264,17 @@ func TestStubKeepsTheScriptedToolCallFromTheTitleModel(t *testing.T) {
 	}
 	if len(turn.Choices[0].Message.ToolCalls) != 1 {
 		t.Errorf("turn = %+v, want the scripted call after a title request", turn)
+	}
+}
+
+func TestStubNumbersItsRepliesAndRecordsThem(t *testing.T) {
+	provider := startTestStub(t)
+	for range 2 {
+		_, _ = io.Copy(io.Discard, postChat(t, provider, `{"model":"stub","messages":[]}`).Body)
+	}
+	_, _ = io.Copy(io.Discard, postChat(t, provider, `{"model":"`+stubTitleModel+`","messages":[]}`).Body)
+
+	if got, want := provider.Replies(), []string{stubReply(1), stubReply(2)}; !slices.Equal(got, want) {
+		t.Errorf("Replies() = %v, want %v (title replies excluded)", got, want)
 	}
 }

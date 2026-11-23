@@ -105,3 +105,12 @@ type armingStub struct {
 }
 
 func (a *armingStub) ScriptToolCall(call ToolCall) { a.call = call }
+
+func TestVMRestartProblem(t *testing.T) {
+	if vmRestartProblem("Starting project VM ✓\nstarted existing project VM: x") != nil {
+		t.Error("a restarted VM: got a problem")
+	}
+	if vmRestartProblem("connected to existing project VM: x") == nil {
+		t.Error("an attach to a running VM: got no problem")
+	}
+}
