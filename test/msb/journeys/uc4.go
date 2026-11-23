@@ -1,6 +1,10 @@
 package journeys
 
-import "github.com/inoio/agents-sandbox/internal/firstrun"
+import (
+	"maps"
+
+	"github.com/inoio/agents-sandbox/internal/firstrun"
+)
 
 // uc4Prompt is the one message UC4 sends. Like UC1, a completed model turn is
 // not required: the journey asserts what the host seed wrote to the per-slug
@@ -8,29 +12,16 @@ import "github.com/inoio/agents-sandbox/internal/firstrun"
 // request at the stub provider's baseURL.
 const uc4Prompt = "hello"
 
-// The host files UC4 seeds into the isolated HOME: opencode2's provision rules
-// select both, so the first-run decision sees host setup and offers "Learn from
-// my host setup".
-const (
-	// uc4LoginStoreRelPath is opencode's auth.json, a declared login credential
-	// store. The seed must drop it rather than copy its raw value.
-	uc4LoginStoreRelPath = ".local/share/opencode/auth.json"
-	// uc4LoginStoreFileName is the name the login store would take in the
-	// scope's managed agent config dir had the seed copied it.
-	uc4LoginStoreFileName = "auth.json"
-)
-
 // uc4HostConfig builds UC4's host agent config from the journey context: the
-// same OpenAI-compatible provider the stub serves, but as the agent's own host
-// config file (opencodeHostConfigRelPath). Its baseURL host is the stub's
+// same provider the stub serves, but as the harness's own host config
+// (Harness.HostConfig). Its baseURL host is the stub's
 // advertised origin, so the static apiKey the seed migrates is scoped to
-// exactly the host uc4Scope asserts. The login store beside it is a value store
-// the seed must never copy.
+// exactly the host uc4Scope asserts. The harness's login store beside it
+// (Harness.HostLoginStore) is a value store the seed must never copy.
 func uc4HostConfig(c *Context) map[string]string {
-	return map[string]string{
-		opencodeHostConfigRelPath: stubProviderDocument(c.Stub.Addr()),
-		uc4LoginStoreRelPath:      `{"openai":{"type":"api"}}`,
-	}
+	files := c.Harness.HostConfig(c.Stub.Addr())
+	maps.Copy(files, c.Harness.HostLoginStore)
+	return files
 }
 
 // uc4Scope is what UC4 asserts the host seed wrote to the per-slug user scope
@@ -54,20 +45,20 @@ var uc4Scope = ScopeWant{
 // never be offered. The stub is started before the host config so the host
 // config's provider baseURL can carry the stub's runtime address.
 var uc4Journey = Journey{
-	Name:  "uc4-learn-from-host",
-	Agent: opencode2AgentName,
+	Name:      "uc4-learn-from-host",
+	Harnesses: []string{opencode2AgentName},
 	Steps: []Step{
-		StepFreshHome(),
-		StepSeedStub(),
-		StepSeedHostConfig(uc4HostConfig),
-		StepLaunch("run"),
-		StepAssertFirstRunOffered(firstrun.ChoiceLearnFromHost),
-		StepChooseFirstRun(firstrun.ChoiceLearnFromHost),
-		StepWaitReady(),
-		StepSendPrompt(uc4Prompt),
-		StepQuit(),
-		StepChooseExit(exitSaveAllKey),
-		StepAssertScopeWritten(uc4Scope),
-		StepAssertScopeExcludes(uc4LoginStoreFileName),
+		Given(StepFreshHome()),
+		And(StepSeedStub()),
+		And(StepSeedHostConfig(uc4HostConfig)),
+		When(StepLaunch("run")),
+		Then(StepAssertFirstRunOffered(firstrun.ChoiceLearnFromHost)),
+		When(StepChooseFirstRun(firstrun.ChoiceLearnFromHost)),
+		Then(StepWaitReady()),
+		When(StepSendPrompt(uc4Prompt)),
+		And(StepQuit()),
+		And(StepChooseExit(exitSaveAllKey)),
+		Then(StepAssertScopeWritten(uc4Scope)),
+		And(StepAssertScopeExcludesHostLoginStore()),
 	},
 }

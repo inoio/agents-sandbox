@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -79,7 +80,7 @@ const (
 // gets its own project slug, VM, and home volume instead of the agent's shared
 // project, so a VM another journey left running cannot leak into it.
 func StepOwnProject(label string) Step {
-	return Step{Name: "an own project " + label, Run: func(c *Context) error {
+	return Step{Name: "the journey runs on a project of its own (" + label + ")", Run: func(c *Context) error {
 		project := driver.ProjectDir(c.Root, c.Agent+"-"+label)
 		if err := driver.BuildProjectImage(c.Root, c.Binary, project, c.Agent); err != nil {
 			return err
@@ -93,7 +94,7 @@ func StepOwnProject(label string) Step {
 // config and no managed layer: no first-run decision exists and the menu is
 // offered.
 func StepFreshHome() Step {
-	return Step{Name: "fresh isolated home", Run: func(c *Context) error {
+	return Step{Name: "a fresh isolated home", Run: func(c *Context) error {
 		return driver.PrepareHome(c.Home)
 	}}
 }
@@ -107,7 +108,7 @@ func StepFreshHome() Step {
 // points at the stub's runtime address, which only StepSeedStub knows. A later
 // journey needing the same shape (Task 17's attribution journey) reuses it.
 func StepSeedHostConfig(build func(*Context) map[string]string) Step {
-	return Step{Name: "seed host agent config", Run: func(c *Context) error {
+	return Step{Name: "the harness's own host config points at the stub", Run: func(c *Context) error {
 		return driver.SeedHomeFiles(c.Home, build(c))
 	}}
 }
@@ -120,13 +121,16 @@ func StepSeedHostConfig(build func(*Context) map[string]string) Step {
 // first-run menu rather than a managed layer or a host-setup seed. The listener
 // is closed by StartStubProvider's tb.Cleanup.
 func StepSeedStub() Step {
-	return Step{Name: "seed the stub provider", Run: func(c *Context) error {
+	return Step{Name: "the stub provider is provisioned into the VM", Run: func(c *Context) error {
+		if c.Harness.StubConfig == nil {
+			return fmt.Errorf("the %s adapter declares no stub config", c.Agent)
+		}
 		provider, err := StartStubProvider(c.TB)
 		if err != nil {
 			return err
 		}
 		c.Stub = provider
-		if err := driver.SeedLauncherConfig(c.Home, provider.ProviderConfig()); err != nil {
+		if err := driver.SeedLauncherConfig(c.Home, c.Harness.StubConfig(provider.Addr())); err != nil {
 			return fmt.Errorf("provision stub provider config: %w", err)
 		}
 		return nil
@@ -140,7 +144,7 @@ func StepSeedStub() Step {
 // the suite prebuilt. It deliberately does not pass --yes: a journey drives the
 // interactive first-run and exit prompts.
 func StepLaunch(args ...string) Step {
-	return Step{Name: "launch " + strings.Join(args, " "), Run: func(c *Context) error {
+	return Step{Name: "the user runs `agents-sandbox " + strings.Join(args, " ") + "`", Run: func(c *Context) error {
 		argv := make([]string, 0, len(args)+8)
 		argv = append(argv, c.Binary)
 		argv = append(argv, args...)
@@ -158,7 +162,7 @@ func StepLaunch(args ...string) Step {
 // StepChooseFirstRun answers the first-run menu with choice's key, which the
 // launcher's termio Select reads as a line.
 func StepChooseFirstRun(choice firstrun.Choice) Step {
-	return Step{Name: "choose first-run " + string(choice), Run: func(c *Context) error {
+	return Step{Name: "the user chooses " + string(choice) + " in the first-run menu", Run: func(c *Context) error {
 		if _, err := session(c); err != nil {
 			return err
 		}
@@ -174,7 +178,7 @@ const hostProvisioningQuestion = "Provisioning copies your host agent config"
 // host-config provisioning question with no, so the run provisions only what the
 // journey seeded.
 func StepDeclineHostProvisioning() Step {
-	return Step{Name: "decline host-config provisioning", Run: func(c *Context) error {
+	return Step{Name: "the user declines host-config provisioning", Run: func(c *Context) error {
 		ses, err := session(c)
 		if err != nil {
 			return err
@@ -194,7 +198,7 @@ func StepDeclineHostProvisioning() Step {
 // omits the choice (no host config, so no "Learn from my host setup") never
 // prints its key and the wait times out with the choice named.
 func StepAssertFirstRunOffered(choice firstrun.Choice) Step {
-	return Step{Name: "assert first-run offers " + string(choice), Run: func(c *Context) error {
+	return Step{Name: "the first-run menu offers " + string(choice), Run: func(c *Context) error {
 		ses, err := session(c)
 		if err != nil {
 			return err
@@ -212,7 +216,7 @@ func StepAssertFirstRunOffered(choice firstrun.Choice) Step {
 // StepWaitReady blocks until the harness reaches its TUI, using the harness
 // table's readiness signal.
 func StepWaitReady() Step {
-	return Step{Name: "wait for the harness TUI", Run: func(c *Context) error {
+	return Step{Name: "the harness TUI comes up", Run: func(c *Context) error {
 		ses, err := session(c)
 		if err != nil {
 			return err
@@ -224,7 +228,7 @@ func StepWaitReady() Step {
 // StepSendPrompt types prompt into the harness's editor, retyping it until the
 // harness echoes it (see typeUntilEchoed), and presses Enter.
 func StepSendPrompt(prompt string) Step {
-	return Step{Name: "send prompt", Run: func(c *Context) error {
+	return Step{Name: "the user sends the prompt " + strconv.Quote(prompt), Run: func(c *Context) error {
 		ses, err := session(c)
 		if err != nil {
 			return err
@@ -267,6 +271,7 @@ func stepAssertStubServed(budget time.Duration) Step {
 			//testenv:allow polling a live harness on a wall-clock interval
 			time.Sleep(stubPollInterval)
 		}
+		c.TB.Logf("the stub served %v", c.Stub.Requests())
 		return nil
 	}}
 }
@@ -274,19 +279,19 @@ func stepAssertStubServed(budget time.Duration) Step {
 // StepAssertReplyShown waits until the harness shows the stub's reply, so the
 // turn completed rather than only reaching the stub.
 func StepAssertReplyShown() Step {
-	return Step{Name: "the harness shows the stub's reply", Run: func(c *Context) error {
+	return AsCheck(Step{Name: "the harness shows the stub's reply", Run: func(c *Context) error {
 		ses, err := session(c)
 		if err != nil {
 			return err
 		}
 		return ses.WaitForMarker(StubReply, driver.ScaleTimeout(stubTurnTimeout, driver.SmokeTimeoutFactor()))
-	}}
+	}})
 }
 
 // StepQuitToExit leaves the harness with its quit key and waits for the
 // launcher to exit 0: the quit for a run with no learn exit prompt.
 func StepQuitToExit() Step {
-	return Step{Name: "quit the harness and the launcher exits", Run: func(c *Context) error {
+	return Step{Name: "the user quits the harness and the launcher exits 0", Run: func(c *Context) error {
 		ses, err := session(c)
 		if err != nil {
 			return err
@@ -308,7 +313,7 @@ func StepQuitToExit() Step {
 // holds open. The wait reuses the driver's tapping cadence and scales its budget
 // with the smoke timeout factor, like driver.Quit.
 func StepQuit() Step {
-	return Step{Name: "quit the harness", Run: func(c *Context) error {
+	return Step{Name: "the user quits the harness and the learn exit prompt appears", Run: func(c *Context) error {
 		ses, err := session(c)
 		if err != nil {
 			return err
@@ -326,7 +331,7 @@ func StepQuit() Step {
 // the analysis/save path before the process exits, so the post-answer wait uses
 // the larger ExitSaveTimeout rather than the quit budget.
 func StepChooseExit(key string) Step {
-	return Step{Name: "choose exit " + key, Run: func(c *Context) error {
+	return Step{Name: "the user answers the exit prompt with " + strconv.Quote(key), Run: func(c *Context) error {
 		ses, err := session(c)
 		if err != nil {
 			return err
@@ -357,7 +362,7 @@ func StepChooseExit(key string) Step {
 // be that default or the record it replays is keyed under a different agent; the
 // step fails rather than drive a command the journey cannot assert.
 func StepLaunchCommand(args ...string) Step {
-	return Step{Name: "launch " + strings.Join(args, " "), Run: func(c *Context) error {
+	return Step{Name: "the user runs `agents-sandbox " + strings.Join(args, " ") + "`", Run: func(c *Context) error {
 		if c.Agent != agent.DefaultAgentName {
 			return fmt.Errorf(
 				"StepLaunchCommand drives a flagless command resolving agent %q, but the journey drives %q",
@@ -393,7 +398,7 @@ func commandArgv(binary string, args []string) []string {
 // state, and the recorded home volume is preserved so the replay does not
 // discard the session as volume-recreated.
 func StepSeedLearnSession() Step {
-	return Step{Name: "seed the recorded learn session", Run: func(c *Context) error {
+	return Step{Name: "a recorded learning session whose launcher is gone", Run: func(c *Context) error {
 		if c.Stub == nil {
 			return errors.New("no stub provider: StepSeedStub must run before StepSeedLearnSession")
 		}
@@ -452,7 +457,7 @@ func StepSeedLearnSession() Step {
 // cadence until the process leaves, so the finding count is not a constant the
 // journey pins, and the post-answer wait reuses StepChooseExit's scaled budget.
 func StepAnswerApplyPrompts() Step {
-	return Step{Name: "answer the apply prompts", Run: func(c *Context) error {
+	return Step{Name: "the user applies every proposal", Run: func(c *Context) error {
 		ses, err := session(c)
 		if err != nil {
 			return err
@@ -497,7 +502,7 @@ func answerApplyPrompts(ses *driver.Session, budget time.Duration) error {
 // absent directory passes: a replay that never saved one leaves none, and the
 // deletion is a no-op on a missing path.
 func StepAssertLearnArtefactGone() Step {
-	return Step{Name: "assert the learn artefact was deleted", Run: func(c *Context) error {
+	return AsCheck(Step{Name: "the learn artefact is deleted", Run: func(c *Context) error {
 		identity, err := journeyIdentity(c)
 		if err != nil {
 			return err
@@ -518,7 +523,7 @@ func StepAssertLearnArtefactGone() Step {
 			}
 		}
 		return nil
-	}}
+	}})
 }
 
 // journeyStatePaths is the isolated config-path resolver the seeding steps use:
@@ -556,7 +561,7 @@ func withJourneyStatePaths(home string) func() {
 // env.secret.yaml, and the expected config keys with the ${ENVVAR} placeholder
 // in the managed agent config.
 func StepAssertScopeWritten(want ScopeWant) Step {
-	return Step{Name: "assert the per-slug scope was written", Run: func(c *Context) error {
+	return AsCheck(Step{Name: "the per-slug scope holds the learned credential", Run: func(c *Context) error {
 		dir, err := journeyScopeDir(c)
 		if err != nil {
 			return err
@@ -565,15 +570,19 @@ func StepAssertScopeWritten(want ScopeWant) Step {
 			return err
 		}
 		return assertManagedConfig(dir, c.Agent, want)
-	}}
+	}})
 }
 
-// StepAssertScopeExcludes asserts none of names is present in the per-slug
-// scope's managed agent config dir. A host value store — a login credential
-// store such as opencode's auth.json — must never be copied into the scope by
-// the host seed, and its absence is not covered by the key/placeholder checks.
-func StepAssertScopeExcludes(names ...string) Step {
-	return Step{Name: "assert the scope excludes " + strings.Join(names, ", "), Run: func(c *Context) error {
+// StepAssertScopeExcludesHostLoginStore asserts the harness's host login store
+// (Harness.HostLoginStore) is not present in the per-slug scope's managed agent
+// config dir. A login credential store such as opencode's auth.json must never
+// be copied into the scope by the host seed, and its absence is not covered by
+// the key/placeholder checks.
+func StepAssertScopeExcludesHostLoginStore() Step {
+	return AsCheck(Step{Name: "the per-slug scope excludes the host login store", Run: func(c *Context) error {
+		if len(c.Harness.HostLoginStore) == 0 {
+			return fmt.Errorf("the %s adapter declares no host login store", c.Agent)
+		}
 		dir, err := journeyScopeDir(c)
 		if err != nil {
 			return err
@@ -588,8 +597,8 @@ func StepAssertScopeExcludes(names ...string) Step {
 		}
 		scope := configpaths.ConfigScope{Kind: configpaths.ScopePerSlugUser, Dir: dir}
 		configDir := scope.AgentConfigDir(configDirNames[0])
-		for _, name := range names {
-			path := filepath.Join(configDir, name)
+		for relPath := range c.Harness.HostLoginStore {
+			path := filepath.Join(configDir, filepath.Base(relPath))
 			_, err := os.Stat(path)
 			if err == nil {
 				return fmt.Errorf("the per-slug scope copied %s, which the host seed must drop", path)
@@ -599,14 +608,14 @@ func StepAssertScopeExcludes(names ...string) Step {
 			}
 		}
 		return nil
-	}}
+	}})
 }
 
 // StepAssertNoProjectScaffolding asserts the run created no `.agents-sandbox`
 // directory in the project: a learning run writes the managed layer to the
 // per-slug user scope, never the checkout (#252).
 func StepAssertNoProjectScaffolding() Step {
-	return Step{Name: "assert no project scaffolding", Run: func(c *Context) error {
+	return AsCheck(Step{Name: "no project scaffolding appears", Run: func(c *Context) error {
 		scaffold := filepath.Join(c.ProjectDir(), configpaths.ProjectConfigDir)
 		_, err := os.Stat(scaffold)
 		if err == nil {
@@ -616,7 +625,7 @@ func StepAssertNoProjectScaffolding() Step {
 			return fmt.Errorf("stat %s: %w", scaffold, err)
 		}
 		return nil
-	}}
+	}})
 }
 
 // StepAssertFirstRunRecorded asserts the run recorded choice's first-run
@@ -627,7 +636,7 @@ func StepAssertNoProjectScaffolding() Step {
 // through state.ReadFirstRun: that resolves the process's real configpaths,
 // while the run wrote under the journey's isolated XDG_STATE_HOME.
 func StepAssertFirstRunRecorded(choice firstrun.Choice) Step {
-	return Step{Name: "assert the first-run decision was recorded", Run: func(c *Context) error {
+	return AsCheck(Step{Name: "the first-run decision is recorded", Run: func(c *Context) error {
 		want, ok := recordedFirstRunChoice(choice)
 		if !ok {
 			return fmt.Errorf("first-run choice %q records no RootState decision", choice)
@@ -667,7 +676,7 @@ func StepAssertFirstRunRecorded(choice firstrun.Choice) Step {
 			return fmt.Errorf("first-run decision %q = %q, want %q", key, record.Choice, want)
 		}
 		return nil
-	}}
+	}})
 }
 
 // recordedFirstRunChoice maps a first-run menu choice to the choice the launcher
@@ -717,7 +726,7 @@ func runNetworkPolicy(c *Context) network.Policy {
 // (analyser.SessionFacts.networkFinding), so the journey's own destination must
 // not read as a widening.
 func StepAssertNetworkNotWidened(baseline func(*Context) network.Policy, allowedEgress ...string) Step {
-	return Step{Name: "assert the network policy was not widened", Run: func(c *Context) error {
+	return AsCheck(Step{Name: "the learned network policy is no wider than the run's", Run: func(c *Context) error {
 		dir, err := journeyScopeDir(c)
 		if err != nil {
 			return err
@@ -737,13 +746,13 @@ func StepAssertNetworkNotWidened(baseline func(*Context) network.Policy, allowed
 			)
 		}
 		return nil
-	}}
+	}})
 }
 
 // StepAssertSessionCleared asserts the project's state file records no learning
 // session, so an owning-process-free replay cleared its record after analysis.
 func StepAssertSessionCleared() Step {
-	return Step{Name: "assert the learn session record was cleared", Run: func(c *Context) error {
+	return AsCheck(Step{Name: "the learn session record is cleared", Run: func(c *Context) error {
 		path, err := journeyStateFile(c)
 		if err != nil {
 			return err
@@ -765,7 +774,7 @@ func StepAssertSessionCleared() Step {
 			return fmt.Errorf("the learn session record is still present in %s", path)
 		}
 		return nil
-	}}
+	}})
 }
 
 // session returns the context's launched session, or an error when no

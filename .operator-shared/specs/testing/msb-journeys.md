@@ -188,15 +188,34 @@ needs its own VM starts with `StepOwnProject(<label>)`, which builds the agent's
 `<agent>-<label>` (cheap, the prebuild's layers are cached) and points the journey's project there; the teardown
 sweep covers it, since it removes every sandbox in the suite's isolated home.
 
-### Harness scope for v1
+### Journey model: scenarios, steps, harnesses
 
-**Decision:** v1 covers **opencode2 only** (the S1-verified profile, with its SQLite credential
-probe). The journey spec is a **table field**, so adding a harness is one entry, and the remaining
-harnesses are recorded as explicit exemptions — the #252 acceptance shape ("covered, or exempted with
-the reason recorded") — so S1's partial state is visible rather than silently so. Coverage of the
-other harnesses is tracked separately (the "extend to all agents" issue). One agent may be driven by
-**several journeys** (v1 drives opencode2 with UC1 and UC4); the completeness contract reports an agent
-only when it is neither covered nor exempted, never because it has more than one entry.
+A journey is a Go table entry (`test/msb/journeys/table.go`), not a `.feature` file: the table is the one
+source of truth and its steps are type-checked. It reads as Gherkin anyway:
+
+- **Keywords.** Every step carries `Given`/`When`/`Then`/`And` (the table test rejects one without) and a
+  sentence name, so `Step.Text()` is a Gherkin line. The runner logs the whole scenario before it runs and one
+  line per step with its duration, so the boot cost of a journey stays visible.
+- **Actions and checks.** A step is an *action* (its failure ends the journey: later steps depend on it) or a
+  *check* (`AsCheck`: its failure is recorded with `t.Errorf` and the journey goes on). The kind is about
+  dependency, not the keyword: "Then the harness TUI comes up" is an action. Final assertions are checks, so
+  one run reports every broken check that does not block the chain.
+- **Few, long journeys.** A harness boot dominates a journey's runtime, so a new check extends an existing
+  journey when it can run on the state that journey already reached; a new journey is for a different
+  starting state (another first-run choice, network profile, or a clean VM).
+- **Journey × harness.** A journey lists the harnesses it runs on and runs once per harness as
+  `TestHarnessJourneys/<journey>/<harness>`; `make test-msb-journeys JOURNEY=<name> HARNESS=<agent>` selects
+  one cell (either may be left out). The completeness contract is per pair: every (journey, registered
+  agent) pair is driven or exempted with a recorded reason (`Exemptions`), so a newly registered agent fails
+  the default suite until it is placed, and a stale exemption for a driven pair fails too.
+- **Harness adapter.** Everything a step needs to know about a harness beyond starting and quitting it
+  (`driver.Spec`, shared with the startup smoke) lives in its `Harness` adapter (`Harnesses`): how to point it
+  at the stub (`StubConfig`), its own host config (`HostConfig`), and the login store a host seed must drop
+  (`HostLoginStore`). A step never names a harness's path or format, and a journey only lists a harness with
+  an adapter. The adapter grows a field only when a journey needs it.
+
+The learn-mode journeys and the stub turn cover **opencode2 only** so far, the S1-verified profile with its
+SQLite credential probe. Learn mode on claude-code, codex, pi, and oh-my-pi is #852; the rest is #794.
 
 ### Production-closure gate
 

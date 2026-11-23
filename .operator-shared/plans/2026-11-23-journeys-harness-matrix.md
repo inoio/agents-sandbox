@@ -83,57 +83,18 @@ Outcome (host runs, 2026-11-23; the durable part is in the spec's "Stub provider
 
 ---
 
-## Phase 1 — Refactor without behaviour change
+## Phase 1 — Refactor without behaviour change — done
 
-The four learn-mode journeys are the regression net: after every task in this phase they pass on the host with the
-same assertions, and the default suite stays green.
+Tasks 1–4 landed together (the durable part is the spec's "Journey model"): keywords and sentence names,
+action/check kinds, the untagged `runJourney` with the scenario log and per-step durations, journey × harness
+with per-pair exemptions and `JOURNEY`/`HARNESS` selection, and the opencode2 adapter (`StubConfig`,
+`HostConfig`, `HostLoginStore`). Deviations from the original task text:
 
-### Task 1: Step keywords, sentence names, and action/check kinds
-
-**Files:** Modify `test/msb/journeys/model.go`, `steps.go`, `uc1.go`, `uc4.go`, `config_learn.go`, `attribution.go`;
-tests in `model_test.go` (new), `steps_test.go`, `table_test.go`.
-
-- [ ] Test: a `Step` has a `Keyword` (`Given`/`When`/`Then`/`And`) and a `Kind` (`Action`/`Check`); the table test
-      fails for a step with no keyword or an empty name, and for a `Then` step that is an `Action`.
-- [ ] Constructors: `Given(...)`, `When(...)`, `Then(...)` wrap a step; assertion steps (`StepAssert*`) become checks,
-      everything else actions. Rename steps to sentences ("the user answers the exit prompt with Save all").
-- [ ] Test the runner semantics on a fake journey (no VM): an action error stops the journey; a check error is
-      recorded with `t.Errorf`, later steps still run, the subtest fails at the end; a check after a failed action
-      never runs.
-- [ ] Extract the runner loop from `journeys_msb_test.go` into an untagged `runJourney(tb, ctx, journey)` so these
-      semantics are unit-testable.
-
-### Task 2: Per-step durations and the scenario log
-
-- [ ] Test: `runJourney` logs the scenario (`Given …/When …/Then …`) before running and one line per step with its
-      duration; a failure names the step in the same form.
-- [ ] Implement with an injectable clock (no wall-clock assertion in tests).
-
-### Task 3: Journey × harness matrix and the completeness contract
-
-**Files:** `model.go`, `table.go`, `table_test.go`, `journeys_msb_test.go`.
-
-- [ ] Test: a `Journey` declares `Harnesses []string`; `Exemptions` becomes `map[journeyName]map[agent]reason`; the
-      completeness test reports every (journey, agent) pair that is neither covered nor exempted, and an exemption for
-      a pair that *is* covered.
-- [ ] Runner expands to `TestHarnessJourneys/<journey>/<harness>`; the learn-mode journeys declare `opencode2` only,
-      with every other agent exempted per journey (reason points at #852/#794).
-- [ ] `make test-msb-journeys HARNESS=<agent> JOURNEY=<name>` maps to `-run`; document both in the spec.
-
-### Task 4: The harness adapter (opencode2 only)
-
-**Files:** Create `test/msb/journeys/harness.go`, `harness_test.go`; modify `stub_provider.go`, `steps.go`,
-`table.go` (move `opencodeHostConfigRelPath`).
-
-- [ ] Test: `Harnesses[agent]` exists for every agent a journey covers (completeness test), and each adapter field
-      a journey's steps use is set.
-- [ ] Define `Harness` with only what the current journeys need — the stub provider config (`ProviderConfig(addr)`),
-      the host config a UC4 seed writes, and prompt submission. Move the opencode constants out of
-      `stub_provider.go`/`table.go` into the opencode2 adapter. Do not add fields for later scenarios yet (YAGNI;
-      they arrive with the task that needs them).
-- [ ] Steps read the adapter through `Context`; no step references an opencode path.
-
-**[host] Regression gate:** the four learn-mode journeys pass with unchanged assertions. Commit.
+- The kind follows dependency, not the keyword: "Then the harness TUI comes up" is an action, so the planned
+  "a `Then` step must be a check" rule was dropped.
+- The stub-turn subtest became the table journey `stub-turn-completes`.
+- Prompt submission stays out of the adapter until a harness submits differently (claude-code, Task 9).
+- The four learn-mode journeys passed on the host after the refactor with unchanged assertions.
 
 ---
 

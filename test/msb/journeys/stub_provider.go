@@ -24,13 +24,6 @@ type StubProvider interface {
 	// carrying the listener's own ephemeral port. The agent's provider baseURL
 	// is Addr()+"/v1".
 	Addr() string
-	// ProviderConfig is the VM-home-relative config manifest the launcher
-	// provisions into the VM (driver.SeedLauncherConfig's target->content map).
-	// Its one target is a config file opencode reads, so the file is written
-	// through the launcher's `home:` manifest rather than the agent's launcher
-	// config dir (which firstrun counts as a managed layer) or the host config
-	// (which the first-run host seed reads).
-	ProviderConfig() map[string]string
 	// Requests returns the requests the stub served so far, in arrival order,
 	// so a journey can assert that a turn reached it.
 	Requests() []StubRequest
@@ -62,13 +55,6 @@ const stubOriginDefault = "http://" + stubGatewayHost
 // stubGatewayHost is microsandbox's name for the host machine inside a VM.
 const stubGatewayHost = "host.microsandbox.internal"
 
-// stubAgentConfigTarget is the VM-home-relative config file the provider
-// document is provisioned to. It is opencode's middle-precedence config file
-// (config.json < opencode.json < opencode.jsonc), so the agent reads it. It is
-// deliberately not a launcher snippet name: a file under the launcher's agent
-// config dir would make firstrun count a managed layer and suppress the menu.
-const stubAgentConfigTarget = ".config/opencode/opencode.json"
-
 // The synthetic provider the seeded config declares: an OpenAI-compatible
 // provider whose baseURL is the stub, plus the model selection that uses it.
 const (
@@ -78,10 +64,6 @@ const (
 	// side requests such as the session title. Keeping it apart from
 	// stubProviderModel lets a journey tell its turn from those requests.
 	stubTitleModel = "stub-title"
-	// stubProviderNPM is the SDK package opencode loads for an
-	// OpenAI-compatible provider, so the provider is real enough for the agent
-	// to issue a request at the baseURL.
-	stubProviderNPM = "@ai-sdk/openai-compatible"
 	// stubProviderAPIKey is the provider's inline credential. The read-back
 	// classifies a literal options.apiKey as a static secret and derives its
 	// env-var name as derivedEnvVarName(stubProviderID); a journey asserts the
@@ -154,44 +136,6 @@ type stubProvider struct {
 
 // Addr returns the advertised origin, scheme://host:port.
 func (p *stubProvider) Addr() string { return p.addr }
-
-// ProviderConfig returns the one VM-home-relative config file pointing at the
-// stub, for the launcher's `home:` manifest.
-func (p *stubProvider) ProviderConfig() map[string]string {
-	return map[string]string{stubAgentConfigTarget: p.providerDocument()}
-}
-
-// providerDocument renders the opencode provider config that points the agent at
-// the stub.
-func (p *stubProvider) providerDocument() string {
-	return stubProviderDocument(p.addr)
-}
-
-// stubProviderDocument renders the opencode provider config that points an agent
-// at addr: an OpenAI-compatible provider whose options.baseURL is addr+"/v1", an
-// inline API key for the read-back to classify, and the top-level model that
-// selects it. It is pure so a journey can render the same document from the
-// context at run time — UC4 seeds it as the agent's own host config, whose
-// filename differs from the stub's provisioned target.
-func stubProviderDocument(addr string) string {
-	document := map[string]any{
-		"provider": map[string]any{
-			stubProviderID: map[string]any{
-				"npm":     stubProviderNPM,
-				"options": map[string]any{"baseURL": addr + "/v1", "apiKey": stubProviderAPIKey},
-				"models":  map[string]any{stubProviderModel: map[string]any{}, stubTitleModel: map[string]any{}},
-			},
-		},
-		"model":       stubProviderID + "/" + stubProviderModel,
-		"small_model": stubProviderID + "/" + stubTitleModel,
-	}
-	data, err := json.Marshal(document)
-	if err != nil {
-		// The document is all marshalable literals, so this is unreachable.
-		return "{}"
-	}
-	return string(data)
-}
 
 // Stop closes the listener. It is idempotent, so tb.Cleanup may run it after a
 // test already did.
