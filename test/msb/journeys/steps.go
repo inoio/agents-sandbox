@@ -150,10 +150,24 @@ func StepLaunch(args ...string) Step {
 	}}
 }
 
-// launchClient starts the launcher with launcherArgs, the journey's agent,
-// network, memory, and CPU flags, and agentArgs after `--`, makes the session
-// the active client, and adds it to the journey's clients.
+// launchClient starts the launcher with launchArgv's arguments, makes the
+// session the active client, and adds it to the journey's clients.
 func launchClient(c *Context, launcherArgs, agentArgs []string) {
+	argv := launchArgv(c, launcherArgs, agentArgs)
+	//testenv:allow the journey launcher runs under the host environment it isolates from
+	env := driver.IsolatedEnv(c.Root, c.Home, os.Environ())
+	c.Session = driver.MustStartUnderPTY(c.TB, c.ProjectDir(), env, argv...)
+	c.Clients = append(c.Clients, c.Session)
+}
+
+// runCommand is the launcher command that starts the agent.
+const runCommand = "run"
+
+// launchArgv is the launcher invocation: launcherArgs, the journey's agent,
+// network, memory, and CPU flags, and after `--` the agent arguments. For a
+// `run` these are the adapter's LaunchArgs followed by agentArgs; another
+// command does not start the agent, so it gets only agentArgs.
+func launchArgv(c *Context, launcherArgs, agentArgs []string) []string {
 	argv := make([]string, 0, len(launcherArgs)+len(agentArgs)+10)
 	argv = append(argv, c.Binary)
 	argv = append(argv, launcherArgs...)
@@ -161,13 +175,13 @@ func launchClient(c *Context, launcherArgs, agentArgs []string) {
 	argv = append(argv, "--network", c.Spec.NetworkOrDefault())
 	argv = append(argv, "--memory", driver.SmokeMemorySpec(), "--no-rebuild")
 	argv = driver.WithVMCPUs(argv, driver.SmokeVMCPUs())
+	if len(launcherArgs) > 0 && launcherArgs[0] == runCommand {
+		agentArgs = append(append([]string(nil), c.Harness.LaunchArgs...), agentArgs...)
+	}
 	if len(agentArgs) > 0 {
 		argv = append(append(argv, "--"), agentArgs...)
 	}
-	//testenv:allow the journey launcher runs under the host environment it isolates from
-	env := driver.IsolatedEnv(c.Root, c.Home, os.Environ())
-	c.Session = driver.MustStartUnderPTY(c.TB, c.ProjectDir(), env, argv...)
-	c.Clients = append(c.Clients, c.Session)
+	return argv
 }
 
 // StepChooseFirstRun answers the first-run menu with choice's key, which the

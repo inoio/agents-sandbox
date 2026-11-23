@@ -269,3 +269,31 @@ func TestStartStubProviderAppendsTheListenerPort(t *testing.T) {
 		t.Errorf("both providers advertise %q, want distinct ports", first.Addr())
 	}
 }
+
+func TestStubAnswersAnUnknownPathWithNotFound(t *testing.T) {
+	provider := startTestStub(t)
+
+	response := postChat(t, provider, `{"model":"stub"}`)
+	_ = response.Body.Close()
+	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{Proxy: nil}}
+	request, err := http.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		stubLoopbackURL(t, provider)+"/v1/other",
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknown, err := client.Do(request)
+	if err != nil {
+		t.Fatalf("POST /v1/other: %v", err)
+	}
+	_ = unknown.Body.Close()
+	if unknown.StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", unknown.StatusCode)
+	}
+	if got := provider.Replies(); len(got) != 1 {
+		t.Errorf("replies = %v, want only the chat completion's", got)
+	}
+}

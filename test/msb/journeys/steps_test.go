@@ -749,3 +749,20 @@ func TestNewReplySinceReturnsOnlyAReplySentAfterThePrompt(t *testing.T) {
 		t.Error("newReplySince(seen 2) found a reply although none followed the prompt")
 	}
 }
+
+func TestLaunchArgvPassesTheAdaptersLaunchArgsOnlyToARun(t *testing.T) {
+	ctx := &Context{Binary: "asb", Agent: "claude-code", Harness: Harness{LaunchArgs: []string{"--mode", "x"}}}
+
+	run := launchArgv(ctx, []string{"run"}, []string{"--continue"})
+	if got := run[slices.Index(run, "--")+1:]; !slices.Equal(got, []string{"--mode", "x", "--continue"}) {
+		t.Errorf("run agent args = %v, want the LaunchArgs then the step's", got)
+	}
+	shell := launchArgv(ctx, []string{"shell"}, nil)
+	if slices.Contains(shell, "--") {
+		t.Errorf("shell argv = %v, want no agent args", shell)
+	}
+	if run[0] != "asb" || !slices.Contains(run, "--no-rebuild") ||
+		run[slices.Index(run, "--agent")+1] != "claude-code" {
+		t.Errorf("run argv = %v, want the binary, the agent, and --no-rebuild", run)
+	}
+}

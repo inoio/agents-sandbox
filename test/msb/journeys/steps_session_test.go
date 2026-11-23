@@ -114,3 +114,26 @@ func TestVMRestartProblem(t *testing.T) {
 		t.Error("an attach to a running VM: got no problem")
 	}
 }
+
+func TestStepConfigureLauncherEnvWritesTheMarkerAndTheAdaptersEnv(t *testing.T) {
+	ctx := &Context{
+		TB: t, Home: t.TempDir(), Stub: fakeStubProvider{},
+		Harness: Harness{StubEnv: func(addr string) map[string]string { return map[string]string{"BASE": addr} }},
+	}
+
+	if err := StepConfigureLauncherEnv().Run(ctx); err != nil {
+		t.Fatalf("StepConfigureLauncherEnv: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(ctx.Home, "config", "agents-sandbox", "env"))
+	if err != nil {
+		t.Fatalf("read env file: %v", err)
+	}
+	for _, line := range []string{journeyEnvMarker + "=1", "BASE=http://stub.invalid"} {
+		if !strings.Contains(string(data), line+"\n") {
+			t.Errorf("env file = %q, want a line %q", data, line)
+		}
+	}
+	if err := StepConfigureLauncherEnv().Run(&Context{TB: t, Home: t.TempDir()}); err == nil {
+		t.Error("no stub on the context: got nil error")
+	}
+}

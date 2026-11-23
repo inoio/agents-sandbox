@@ -10,6 +10,13 @@ type Harness struct {
 	// that point the harness at the stub provider at addr. StepSeedStub
 	// provisions them through the launcher's `home:` manifest.
 	StubConfig func(addr string) map[string]string
+	// StubEnv renders environment variables that point the harness at the stub
+	// at addr, for a harness configured through its environment; they reach the
+	// VM through the launcher's env file (StepConfigureLauncherEnv).
+	StubEnv func(addr string) map[string]string
+	// LaunchArgs are agent arguments every launch of the harness passes, before
+	// any step-specific ones.
+	LaunchArgs []string
 	// HostConfig renders the harness's own host config files pointing at the
 	// stub at addr, for a journey that seeds an existing host setup.
 	HostConfig func(addr string) map[string]string
@@ -26,5 +33,6 @@ type Harness struct {
 // Harnesses maps an agent name to its adapter. Every harness a journey drives
 // has one (TestEveryDrivenHarnessHasAnAdapter).
 var Harnesses = map[string]Harness{
-	opencode2AgentName: opencode2Harness,
+	opencode2AgentName:  opencode2Harness,
+	claudeCodeAgentName: claudeCodeHarness,
 }

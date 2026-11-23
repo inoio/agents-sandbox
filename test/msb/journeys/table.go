@@ -42,13 +42,11 @@ func learnExemptions() map[string]string {
 }
 
 // coreSessionExemptions records why the core-session journey does not yet run
-// on a harness: claude-code and codex are its next harnesses in #851, the rest
+// on a harness: codex is its next harness in #851, the rest
 // follow in #852 and #794.
 func coreSessionExemptions() map[string]string {
 	reasons := map[string]string{}
-	for _, name := range []string{"claude-code", "codex"} {
-		reasons[name] = "needs its stub protocol and adapter; next in #851"
-	}
+	reasons["codex"] = "needs its stub protocol and adapter; next in #851"
 	for _, name := range []string{"oh-my-pi", "pi"} {
 		reasons[name] = "core session on this harness lands with #852"
 	}
