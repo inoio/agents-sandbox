@@ -544,7 +544,7 @@ func planReconfigStage(
 	}
 	decision, err := resolveReconfigDecision(
 		ctx, home.volumes, session.key, opts, imageInfo, home.homeVolume, home.homeState, configFiles,
-		home.env, live, ui,
+		home.env, live, homeVolumePolicy(paths, opts, session.key, skipVM), ui,
 	)
 	if err != nil {
 		return reconfigPlan{}, err
