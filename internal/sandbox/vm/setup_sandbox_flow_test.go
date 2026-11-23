@@ -78,7 +78,9 @@ func TestSetUpSandboxContinuesWhenProvisioningFails(t *testing.T) {
 		},
 	}
 
-	cfs := &reprovision.ConfigFiles{HasSnippets: true, Merged: []byte("{}")}
+	cfs := &reprovision.ConfigFiles{
+		HasSnippets: true, Merged: []byte(`{"model":"x"}`), MergedPath: "/home/dev/.config/opencode/opencode.jsonc",
+	}
 	if _, err := SetUpSandbox(
 		context.Background(),
 		testVMKey(),
@@ -369,7 +371,9 @@ func TestSetUpSandboxSkipsRestartOnProvisionError(t *testing.T) {
 	fs.WriteErr = errors.New("write denied")
 	sb := &msbtest.MockSandbox{Name_: "vm", FSValue_: fs}
 
-	cfs := &reprovision.ConfigFiles{HasSnippets: true, Merged: []byte("{}")}
+	cfs := &reprovision.ConfigFiles{
+		HasSnippets: true, Merged: []byte(`{"model":"x"}`), MergedPath: "/home/dev/.config/opencode/opencode.jsonc",
+	}
 	target, err := SetUpSandbox(
 		context.Background(),
 		testVMKey(),

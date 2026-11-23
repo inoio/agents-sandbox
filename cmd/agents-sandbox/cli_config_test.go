@@ -21,6 +21,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/learn"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
@@ -87,6 +88,47 @@ func TestConfigAgentPrintsMergedAndHostFiles(t *testing.T) {
 	}
 	if !sawMerged {
 		t.Errorf("expected a 'merged' host-file status, got:\n%s", joined)
+	}
+}
+
+// TestConfigAgentNoSnippetsMarksReconciledMainConfigMerged pins that the host
+// drop-in at the agent's main config path is reported as merged even without
+// snippets: it is reconciled with the agent's own settings, not copied verbatim,
+// and the doc says so. The no-snippets notice must not claim no merged config is
+// provisioned while that listing calls it merged.
+func TestConfigAgentNoSnippetsMarksReconciledMainConfigMerged(t *testing.T) {
+	cmd, ui := setupCommandFixtures(t, "config", "agent", "opencode")
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml", "provision-host-config: true\n")
+
+	hostHome, err := configpaths.Get().UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostDir := filepath.Join(hostHome, ".config", "opencode")
+	if err := os.MkdirAll(hostDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WritePath(t, filepath.Join(hostDir, "opencode.jsonc"), `{"model":"host"}`)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config agent: %v", err)
+	}
+	joined := strings.Join(ui.OutCalls, "\n")
+	if !strings.Contains(joined, "No snippet files found") {
+		t.Errorf("expected the no-snippets notice, got:\n%s", joined)
+	}
+	mainConfig := filepath.Join(reprovision.VMHomeDir, ".config", "opencode", "opencode.jsonc")
+	sawMerged := false
+	for _, line := range ui.OutCalls {
+		if strings.HasPrefix(line, "  merged ") && strings.Contains(line, mainConfig) {
+			sawMerged = true
+		}
+	}
+	if !sawMerged {
+		t.Errorf("expected the reconciled main config %s to be 'merged', got:\n%s", mainConfig, joined)
+	}
+	if strings.Contains(joined, "no merged config is provisioned") {
+		t.Errorf("the no-snippets notice contradicts the 'merged' listing:\n%s", joined)
 	}
 }
 
@@ -172,8 +214,11 @@ func TestConfigAgentNoSnippetFiles(t *testing.T) {
 		t.Fatalf("config agent: %v", err)
 	}
 	joined := strings.Join(ui.OutCalls, "\n")
-	if !strings.Contains(joined, "No snippet files found") {
-		t.Errorf("expected no-snippets message, got:\n%s", joined)
+	if !strings.Contains(joined, "No snippet files found; no snippets are merged into the agent's main config.") {
+		t.Errorf("expected the no-snippets message to name what is not merged, got:\n%s", joined)
+	}
+	if strings.Contains(joined, "no merged config is provisioned") {
+		t.Errorf("the no-snippets message claims no merged config while the main config is reconciled:\n%s", joined)
 	}
 	if strings.Contains(joined, "mirror files:") {
 		t.Errorf("did not expect a mirror files section with no mirror files:\n%s", joined)

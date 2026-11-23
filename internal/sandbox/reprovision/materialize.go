@@ -1,10 +1,12 @@
 package reprovision
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 // chmodPath is the file-permission seam. A real filesystem makes Chmod's failure
@@ -30,17 +32,15 @@ func Materialize(cf *ConfigFiles, vmHome, targetDir string) error {
 		}
 		_ = os.Remove(dest)
 	}
-	if len(cf.Merged) > 0 {
-		if err := writeMaterializedFile(cf.MergedPath, cf.Merged, cf.Modes, vmHome, targetDir); err != nil {
-			return fmt.Errorf("materialize merged agent config: %w", err)
-		}
+	if err := reconcileMainConfig(hostConfigStore{vmHome: vmHome, targetDir: targetDir}, cf); err != nil {
+		return fmt.Errorf("materialize the agent's main config: %w", err)
 	}
 	groups := []struct {
 		files map[string][]byte
 		kind  string
 	}{
 		{cf.HomeFiles, "home file"},
-		{cf.Provisioned, "provisioned file"},
+		{cf.filesBesideMainConfig(cf.Provisioned), "provisioned file"},
 		{cf.Mirror, "mirror file"},
 	}
 	for _, group := range groups {
@@ -95,4 +95,34 @@ func targetPath(vmPath, vmHome, targetDir string) (string, error) {
 		return "", fmt.Errorf("VM path %q is not under home %q", vmPath, vmHome)
 	}
 	return filepath.Join(targetDir, rel), nil
+}
+
+// hostConfigStore is the mainConfigStore over a host directory, mapping each VM
+// path under vmHome into targetDir.
+type hostConfigStore struct{ vmHome, targetDir string }
+
+func (s hostConfigStore) read(vmPath string) ([]byte, bool) {
+	// A path outside the home maps to "", which reads as absent; a write to
+	// it reports the error.
+	dest, _ := targetPath(vmPath, s.vmHome, s.targetDir)
+	content, err := os.ReadFile(dest)
+	// A parent that is not a directory means the file cannot exist either.
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+		return nil, true
+	}
+	return content, err == nil
+}
+
+func (s hostConfigStore) write(vmPath string, data []byte, mode os.FileMode) error {
+	modes := map[string]os.FileMode{}
+	if mode != 0 {
+		modes[vmPath] = mode
+	}
+	return writeMaterializedFile(vmPath, data, modes, s.vmHome, s.targetDir)
+}
+
+func (s hostConfigStore) remove(vmPath string) {
+	if dest, err := targetPath(vmPath, s.vmHome, s.targetDir); err == nil {
+		_ = os.Remove(dest)
+	}
 }

@@ -178,9 +178,21 @@ that no snippet could be merged.
 Run `agents-sandbox config agent` to print the merged config that would be provisioned into the VM.
 
 > **Note:** the merged config is written to the agent's VM config path (for opencode, `opencode.jsonc`, the last file
-> opencode loads: `config.json` < `opencode.json` < `opencode.jsonc`), so it always wins the deep merge. When snippets
-> exist, the config-file family (for opencode: `config.json`, `opencode.json`, `opencode.jsonc`, …) is removed from the
-> VM so a host drop-in copy of any of those files cannot shadow the merged snippet config.
+> opencode loads: `config.json` < `opencode.json` < `opencode.jsonc`), so it always wins the deep merge. The other
+> files of the config-file family (for opencode: `config.json`, `opencode.json`, …) are removed from the VM so a stale
+> copy of any of them cannot shadow it.
+
+### Settings the agent writes itself
+
+agents-sandbox owns only the keys it writes into the agent's main config file (the merged snippets, or without
+snippets the drop-in copy of your host file). Settings the agent saves there inside the VM — a model chosen with
+`/model`, codex's folder trust, goose's telemetry answer — stay on the home volume across runs. On each start,
+agents-sandbox sets every key it writes to its own value again — so a setting from a snippet, such as a
+`permissions.deny` entry or codex's `sandbox_mode`, cannot be changed from inside the VM for good — and removes a key
+it wrote last time but no longer writes. Every other key is left alone. When the file already holds the launcher's
+values, it is not touched at all, so its formatting and comments survive. A file that is not valid
+JSON, TOML, or YAML is replaced by the launcher's content. To make an in-VM setting portable across projects and machines, put
+it in a snippet, or let [learn mode]({% link learn-your-setup.md %}) propose it.
 
 See the [permissions example](#example-permissions) for a concrete snippet.
 
@@ -325,9 +337,8 @@ codex logs in inside the VM, and kimi-code, qwen-code, grok-build, and mistral-v
   with the provider and model in a `config*.yaml` snippet (e.g. `GOOSE_PROVIDER: anthropic` and `GOOSE_MODEL: …`). Goose
   reads a secret from the process environment before its secret store, so nothing needs to be written into
   `secrets.yaml`. Keep goose's settings in the snippet, including `GOOSE_TELEMETRY_ENABLED: false` (or `true`):
-  agents-sandbox owns `config.yaml` in the VM — with a snippet it is replaced by the merged document, and with none it
-  is removed — so whatever `goose configure` or the first-run telemetry prompt writes there does not survive the next
-  run. A key that `goose configure` stores in `secrets.yaml` on the home volume does persist, but the `env.secret`
+  what `goose configure` or the first-run telemetry prompt writes into `config.yaml` stays in the VM (see
+  [Settings the agent writes itself](#settings-the-agent-writes-itself)), but only for this project. A key that `goose configure` stores in `secrets.yaml` on the home volume does persist, but the `env.secret`
   route keeps it out of the VM.
 - **grok-build** — `XAI_API_KEY`, supplied through `env.secret` for `api.x.ai`; Grok uses it when no login is active.
   Or sign in once inside the VM with `grok login --device-auth` (or `/login` in the TUI) and finish the sign-in on your
@@ -438,9 +449,9 @@ DASHSCOPE_API_KEY:
 **In the VM:** run `/auth` in the TUI and pick a provider. A Qwen OAuth sign-in is saved into
 `~/.qwen/oauth_creds.json` on the home volume, so you sign in once per project and agent; it is never copied from the
 host. Qwen OAuth signs in through a browser. An API key entered through `/auth` is written to
-`~/.qwen/settings.json`, but agents-sandbox owns that file through the `settings*.json` snippet merge — with a snippet
-it is replaced by the merged document, and with none it is removed — so an API key entered there does not survive the
-next run. Use the `envKey` + `env.secret` snippet instead for an API key that persists.
+`~/.qwen/settings.json` and stays there in plain text on the home volume (see
+[Settings the agent writes itself](#settings-the-agent-writes-itself)). Use the `envKey` + `env.secret` snippet
+instead, so the key reaches the VM only as an msb secret.
 
 ## Example: permissions
 

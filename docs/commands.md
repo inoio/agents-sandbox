@@ -487,7 +487,7 @@ config dirs (primary):
 
 One `user:` line is printed per user scope in precedence order — the generic user dir, then the per-slug user dir — and the project dir follows last. A dir that does not exist is marked `(missing)`, e.g. `user: "/home/me/.config/agents-sandbox/opencode2" (missing)`. The header label is `primary` when the agent's own namespace is used, or `legacy fallback "<namespace>"` when the agent is reading a shared legacy namespace (see [agent configuration]({% link configuration/agent.md %})). These are host launcher-config dirs; the guest agent config path is always `~/.config/opencode` regardless.
 
-Each host file is listed as `merged` (its VM path is the merged config path or part of the removed config-file family) or `not merged` (copied verbatim). Verbatim mirror files are listed as their host source path → VM path.
+Each host file is listed as `merged` (its VM path is the main config path, reconciled with the agent's own settings, or one of its removed siblings) or `not merged` (copied verbatim). Verbatim mirror files are listed as their host source path → VM path.
 
 #### config provision [name]
 

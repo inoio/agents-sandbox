@@ -317,8 +317,15 @@ func TestLoadConfigFilesRemovesStaleConfigWithSnippets(t *testing.T) {
 	mergedPath := filepath.Join(vmHome, ".config", "opencode", "opencode.jsonc")
 	for _, name := range resolveConfigSubject(agent.Resolve(opencodeTestAgent()), vmHome).familyNames {
 		want := filepath.Join(vmHome, ".config", "opencode", name)
-		if !slices.Contains(cf.Remove, want) {
-			t.Errorf("expected config file %s in Remove, got %v", want, cf.Remove)
+		// The main config is reconciled, never removed; its siblings are.
+		if removed := slices.Contains(cf.Remove, want); removed == (want == mergedPath) {
+			t.Errorf(
+				"config file %s in Remove = %v, want only the siblings of %s: %v",
+				want,
+				removed,
+				mergedPath,
+				cf.Remove,
+			)
 		}
 		if _, ok := cf.Provisioned[want]; ok {
 			t.Errorf("config file %s must not be in Provisioned when snippets exist, got %v", want, cf.Provisioned)
@@ -374,10 +381,17 @@ func TestLoadConfigFilesProvisioningDisabled(t *testing.T) {
 	if len(cf.Provisioned) != 0 {
 		t.Errorf("expected no drop-in copy when provisioning disabled, got %v", cf.Provisioned)
 	}
+	mainConfig := filepath.Join(vmHome, ".config", "opencode", "opencode.jsonc")
 	for _, name := range resolveConfigSubject(agent.Resolve(opencodeTestAgent()), vmHome).familyNames {
 		want := filepath.Join(vmHome, ".config", "opencode", name)
-		if !slices.Contains(cf.Remove, want) {
-			t.Errorf("expected config file %s in Remove, got %v", want, cf.Remove)
+		if removed := slices.Contains(cf.Remove, want); removed == (want == mainConfig) {
+			t.Errorf(
+				"config file %s in Remove = %v, want only the siblings of %s: %v",
+				want,
+				removed,
+				mainConfig,
+				cf.Remove,
+			)
 		}
 	}
 	authPath := filepath.Join(vmHome, ".local", "share", "opencode", "auth.json")
@@ -481,6 +495,9 @@ func TestHostFilesFromProvisioner(t *testing.T) {
 	}
 }
 
+// TestHostFilesFromProvisionerNoSnippets verifies that without snippets the
+// drop-in's main-config destination is still marked merged: it is reconciled
+// with the agent's own settings, not copied verbatim.
 func TestHostFilesFromProvisionerNoSnippets(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	hostHome := t.TempDir()
@@ -493,10 +510,11 @@ func TestHostFilesFromProvisionerNoSnippets(t *testing.T) {
 	}
 	testutil.WriteFile(t, ocConfig, "opencode.json", `{"a":1}`)
 
-	cf := &ConfigFiles{HasSnippets: false}
+	mergedPath := filepath.Join(vmHome, ".config", "opencode", "opencode.jsonc")
+	cf := &ConfigFiles{HasSnippets: false, MergedPath: mergedPath}
 	files := resolveConfigSubject(agent.Resolve(a), vmHome).hostFilesFromProvisioner(hostHome, cf)
-	if len(files) != 1 || files[0].Merged {
-		t.Errorf("hostFilesFromProvisioner = %+v, want 1 non-merged file", files)
+	if len(files) != 1 || !files[0].Merged {
+		t.Errorf("hostFilesFromProvisioner = %+v, want 1 reconciled file", files)
 	}
 }
 
@@ -882,8 +900,8 @@ func TestLoadConfigFilesPIMergedConfig(t *testing.T) {
 	if !slices.Contains(cf.Keys, wantMerged) {
 		t.Errorf("Keys = %v, want to include %s", cf.Keys, wantMerged)
 	}
-	if !slices.Contains(cf.Remove, wantMerged) {
-		t.Errorf("Remove = %v, want to include %s", cf.Remove, wantMerged)
+	if slices.Contains(cf.Remove, wantMerged) {
+		t.Errorf("Remove = %v, want the main config %s reconciled, not removed", cf.Remove, wantMerged)
 	}
 }
 
@@ -968,9 +986,9 @@ func TestLoadConfigFilesHermesMergedConfig(t *testing.T) {
 }
 
 // TestLoadConfigFilesOhMyPiMergedConfig verifies that oh-my-pi snippets merge
-// into ~/.omp/agent/config.yml as YAML and that both names omp reads, config.yml
-// and its config.yaml fallback, are removed from the VM, so a stale copy of
-// either cannot shadow the merged config.
+// into ~/.omp/agent/config.yml as YAML, the main config itself is reconciled
+// rather than removed, and its config.yaml fallback is removed from the VM, so a
+// stale copy of the fallback cannot shadow the merged config.
 func TestLoadConfigFilesOhMyPiMergedConfig(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
@@ -996,10 +1014,11 @@ func TestLoadConfigFilesOhMyPiMergedConfig(t *testing.T) {
 	if got, want := string(cf.Merged), "startup:\n    quiet: true\n"; got != want {
 		t.Errorf("Merged = %q, want %q (YAML, not JSON)", got, want)
 	}
-	for _, name := range []string{"config.yml", "config.yaml"} {
-		if path := filepath.Join(vmHome, ".omp", "agent", name); !slices.Contains(cf.Remove, path) {
-			t.Errorf("Remove = %v, want to include %s", cf.Remove, path)
-		}
+	if sibling := filepath.Join(vmHome, ".omp", "agent", "config.yaml"); !slices.Contains(cf.Remove, sibling) {
+		t.Errorf("Remove = %v, want to include the sibling %s", cf.Remove, sibling)
+	}
+	if slices.Contains(cf.Remove, wantMerged) {
+		t.Errorf("Remove = %v, want the main config %s reconciled, not removed", cf.Remove, wantMerged)
 	}
 }
 
@@ -2271,5 +2290,30 @@ func TestLoadConfigFilesPropagatesLoadError(t *testing.T) {
 	}
 	if len(ui.WarnCalls) != 0 {
 		t.Errorf("WarnCalls = %v, want no warnings on an error path", ui.WarnCalls)
+	}
+}
+
+// TestLoadConfigFilesKeepsTheMainConfigWhenProvisioningIsDisabled: a host file at
+// the main config's own name is a drop-in destination, and a disabled drop-in
+// removes its destinations, but never the main config, which is reconciled.
+func TestLoadConfigFilesKeepsTheMainConfigWhenProvisioningIsDisabled(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	hostHome := t.TempDir()
+	vmHome := t.TempDir()
+	a, _ := agent.Lookup("codex")
+	codexDir := filepath.Join(hostHome, ".codex")
+	if err := os.MkdirAll(codexDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, codexDir, "config.toml", "model = \"gpt-5\"\n")
+
+	ui := termiotest.NewTestMock(t)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", hostHome, vmHome, &ui, false)
+	if err != nil {
+		t.Fatalf("LoadConfigFilesForHost: %v", err)
+	}
+
+	if slices.Contains(cf.Remove, cf.MergedPath) {
+		t.Errorf("Remove = %v, want the main config %s reconciled, not removed", cf.Remove, cf.MergedPath)
 	}
 }
