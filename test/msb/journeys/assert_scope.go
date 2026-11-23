@@ -18,8 +18,8 @@ import (
 // ${ENVVAR} placeholder in the managed config. What the keys and the env var are
 // is the adapter's; whether the journey's path produces them is the journey's.
 type ScopeWant struct {
-	ConfigKeys  bool
-	Placeholder bool
+	ManagedConfig bool
+	Placeholder   bool
 }
 
 // scopeExpectation is a ScopeWant resolved against a harness's learn facts: the
@@ -36,7 +36,7 @@ type scopeExpectation struct {
 // expectation resolves want against learn for the stub's advertised host.
 func (want ScopeWant) expectation(learn LearnFacts) scopeExpectation {
 	var configKeys []string
-	if want.ConfigKeys {
+	if want.ManagedConfig {
 		configKeys = learn.ManagedConfigKeys
 	}
 	return scopeExpectation{

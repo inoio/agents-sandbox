@@ -65,12 +65,12 @@ func TestStepAssertScopeExcludesHostLoginStore(t *testing.T) {
 func TestScopeWantResolvesAgainstTheHarnesssLearnFacts(t *testing.T) {
 	learn := LearnFacts{CredentialEnvVar: "STUB_API_KEY", ManagedConfigKeys: []string{"baseURL"}}
 
-	bare := ScopeWant{ConfigKeys: false, Placeholder: false}.expectation(learn)
+	bare := ScopeWant{ManagedConfig: false, Placeholder: false}.expectation(learn)
 	if bare.envVar != "STUB_API_KEY" || !slices.Equal(bare.hosts, []string{stubHost}) || bare.configKeys != nil ||
 		bare.placeholder {
 		t.Errorf("bare expectation = %+v, want only the scoped credential", bare)
 	}
-	full := ScopeWant{ConfigKeys: true, Placeholder: true}.expectation(learn)
+	full := ScopeWant{ManagedConfig: true, Placeholder: true}.expectation(learn)
 	if !slices.Equal(full.configKeys, []string{"baseURL"}) || !full.placeholder {
 		t.Errorf("full expectation = %+v, want the adapter's keys and the placeholder", full)
 	}

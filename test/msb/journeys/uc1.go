@@ -28,7 +28,7 @@ var stubHost = stubAdvertisedHost()
 // ${STUB_API_KEY} placeholder — is produced for UC1. Asserting the placeholder
 // here would fail on what the product actually does, so the scope want stays at
 // the effects the read-back and analyser do produce.
-var uc1Scope = ScopeWant{ConfigKeys: false, Placeholder: false}
+var uc1Scope = ScopeWant{ManagedConfig: false, Placeholder: false}
 
 // uc1Journey is UC1: a fresh install with no host config and no managed layer,
 // offered the first-run menu, that learns by using the seeded stub provider and

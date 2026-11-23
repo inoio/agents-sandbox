@@ -44,9 +44,13 @@ func StepFreshHome() Step {
 // that depends on an earlier step can be rendered then: UC4's provider baseURL
 // points at the stub's runtime address, which only StepSeedStub knows. A later
 // journey needing the same shape (Task 17's attribution journey) reuses it.
-func StepSeedHostConfig(build func(*Context) map[string]string) Step {
+func StepSeedHostConfig(build func(*Context) (map[string]string, error)) Step {
 	return Step{Name: "the harness's own host config points at the stub", Run: func(c *Context) error {
-		return driver.SeedHomeFiles(c.Home, build(c))
+		files, err := build(c)
+		if err != nil {
+			return err
+		}
+		return driver.SeedHomeFiles(c.Home, files)
 	}}
 }
 

@@ -22,12 +22,12 @@ func TestStepSeedHostConfigDerivesFilesFromContext(t *testing.T) {
 	const content = `{"provider":{"stub":{}}}`
 
 	built := false
-	step := StepSeedHostConfig(func(c *Context) map[string]string {
+	step := StepSeedHostConfig(func(c *Context) (map[string]string, error) {
 		built = true
 		if c != ctx {
 			t.Errorf("the builder got context %p, want %p", c, ctx)
 		}
-		return map[string]string{rel: content}
+		return map[string]string{rel: content}, nil
 	})
 	if err := step.Run(ctx); err != nil {
 		t.Fatalf("StepSeedHostConfig: %v", err)
@@ -126,5 +126,15 @@ func TestLaunchArgvPassesTheAdaptersLaunchArgsOnlyToARun(t *testing.T) {
 	if run[0] != "asb" || !slices.Contains(run, "--no-rebuild") ||
 		run[slices.Index(run, "--agent")+1] != "claude-code" {
 		t.Errorf("run argv = %v, want the binary, the agent, and --no-rebuild", run)
+	}
+}
+
+// A host-config builder's error (a harness without learn facts) fails the step
+// instead of seeding anything.
+func TestStepSeedHostConfigReportsTheBuildersError(t *testing.T) {
+	ctx := &Context{TB: t, Agent: "codex", Home: t.TempDir(), Stub: fakeStubProvider{}}
+
+	if err := StepSeedHostConfig(uc4HostConfig).Run(ctx); err == nil || !strings.Contains(err.Error(), "learn facts") {
+		t.Errorf("error = %v, want the missing learn facts named", err)
 	}
 }

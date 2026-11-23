@@ -18,10 +18,14 @@ const uc4Prompt = "hello"
 // advertised origin, so the static apiKey the seed migrates is scoped to
 // exactly the host uc4Scope asserts. The harness's login store beside it
 // (Harness.Learn.HostLoginStore) is a value store the seed must never copy.
-func uc4HostConfig(c *Context) map[string]string {
-	files := c.Harness.Learn.HostConfig(c.Stub.Addr())
-	maps.Copy(files, c.Harness.Learn.HostLoginStore)
-	return files
+func uc4HostConfig(c *Context) (map[string]string, error) {
+	learn, err := learnFacts(c)
+	if err != nil {
+		return nil, err
+	}
+	files := learn.HostConfig(c.Stub.Addr())
+	maps.Copy(files, learn.HostLoginStore)
+	return files, nil
 }
 
 // uc4Scope is what UC4 asserts the host seed wrote to the per-slug user scope
@@ -29,7 +33,7 @@ func uc4HostConfig(c *Context) map[string]string {
 // copied into the managed config as the ${STUB_API_KEY} placeholder and scoped
 // to the stub host in env.secret.yaml. Unlike UC1, the seed writes the managed
 // config before CaptureBaseline, so UC4 can assert the placeholder.
-var uc4Scope = ScopeWant{ConfigKeys: true, Placeholder: true}
+var uc4Scope = ScopeWant{ManagedConfig: true, Placeholder: true}
 
 // uc4Journey is UC4: a fresh install with the agent's host config present, whose
 // first-run menu offers "Learn from my host setup" and whose choice seeds the
