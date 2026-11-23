@@ -58,7 +58,7 @@ type (
 // response.completed. The ids are the same on every turn; codex 0.171 does not
 // match them across turns. A function call is
 // one function_call item with the call's JSON arguments.
-func serveResponses(response http.ResponseWriter, call *ToolCall, reply string) {
+func serveResponses(response http.ResponseWriter, _ chatRequest, call *ToolCall, reply string) {
 	zero := 0
 	item := responsesItem{
 		Type: messageType, ID: stubMessageID, Status: completedStatus, Role: assistantRole,

@@ -8,8 +8,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -49,22 +47,6 @@ type StubRequest struct {
 	// DecodeError is why the request body did not decode, empty when it did.
 	DecodeError string
 }
-
-// stubOriginEnv overrides the advertised destination origin (scheme://host) the
-// provider config points the agent at. The stub always binds host loopback on an
-// ephemeral port; only the *advertised* origin changes. Unset (or invalid) uses
-// stubOriginDefault.
-const stubOriginEnv = "AGENTS_SANDBOX_JOURNEYS_STUB_ORIGIN"
-
-// stubOriginDefault is the advertised destination a run uses with no override:
-// microsandbox's host gateway name, which a VM reaches under the `host` network
-// profile and which lands on the host's loopback listener. Host-gateway traffic
-// does not pass the learn-mode observation proxy, so a turn to it completes but
-// is not observed.
-const stubOriginDefault = "http://" + stubGatewayHost
-
-// stubGatewayHost is microsandbox's name for the host machine inside a VM.
-const stubGatewayHost = "host.microsandbox.internal"
 
 // The synthetic provider the seeded config declares: an OpenAI-compatible
 // provider whose baseURL is the stub, plus the model selection that uses it.
@@ -154,54 +136,6 @@ func (p *stubProvider) Stop() {
 	p.once.Do(func() { _ = p.server.Close() })
 }
 
-// stubOrigin returns the advertised destination origin, from stubOriginEnv when
-// it names a usable http(s) origin, else stubOriginDefault.
-func stubOrigin() string {
-	//testenv:allow the stub provider reads its own advertised-route override
-	return stubOriginFromValue(os.Getenv(stubOriginEnv))
-}
-
-// stubAdvertisedHost is the host part of the advertised origin the stub points
-// agents at, so a journey scopes its credential assertion to the route the run
-// actually used (the default, or a host accept's override). It reads the same
-// override stubOrigin does, and an origin with no host yields "".
-func stubAdvertisedHost() string {
-	parsed, err := url.Parse(stubOrigin())
-	if err != nil || parsed.Hostname() == "" {
-		return ""
-	}
-	return parsed.Hostname()
-}
-
-// stubOriginFromValue parses an advertised-origin override: an http(s) URL with
-// a host yields scheme://hostname (its port, userinfo, and path are dropped,
-// because the listener's own port is always used); anything else yields
-// stubOriginDefault. An IPv6 literal host is re-bracketed, so `http://[::1]`
-// round-trips rather than re-emitting the invalid `http://::1`. Kept pure so it
-// is testable without the host.
-func stubOriginFromValue(value string) string {
-	parsed, err := url.Parse(strings.TrimSpace(value))
-	if err != nil || parsed.Hostname() == "" {
-		return stubOriginDefault
-	}
-	switch parsed.Scheme {
-	case "http", "https":
-		return parsed.Scheme + "://" + bracketedHost(parsed.Hostname())
-	default:
-		return stubOriginDefault
-	}
-}
-
-// bracketedHost wraps an IPv6 literal host in brackets, so an origin URL is
-// valid; every other host is returned unchanged. url.Hostname strips the
-// brackets, which must be restored when the host is emitted in a URL.
-func bracketedHost(hostname string) string {
-	if strings.Contains(hostname, ":") {
-		return "[" + hostname + "]"
-	}
-	return hostname
-}
-
 // ServeHTTP records the request and answers it by its path: the model list, an
 // Anthropic token count, an Anthropic Messages turn, an OpenAI Responses turn,
 // or an OpenAI chat completion; anything else is not found. A turn whose body
@@ -227,31 +161,52 @@ func (p *stubProvider) ServeHTTP(response http.ResponseWriter, request *http.Req
 		http.Error(response, "stub: undecodable request body: "+decodeErr.Error(), http.StatusBadRequest)
 		return
 	}
-	switch path := request.URL.Path; {
+	path := request.URL.Path
+	if protocol, ok := turnProtocolFor(path); ok {
+		call, reply := p.answerFor(completion.side())
+		protocol.serve(response, completion, call, reply)
+		return
+	}
+	switch {
 	case strings.HasSuffix(path, "/models"):
 		response.Header().Set("Content-Type", "application/json")
 		_, _ = response.Write([]byte(`{"object":"list","data":[{"id":"` + stubProviderModel + `","object":"model"}]}`))
 	case strings.HasSuffix(path, stubCountTokenPath):
 		serveTokenCount(response)
-	case strings.HasSuffix(path, stubMessagesPath):
-		call, reply := p.answerFor(completion.side())
-		serveMessages(response, completion, call, reply)
-	case strings.HasSuffix(path, stubResponsesPath):
-		call, reply := p.answerFor(completion.side())
-		serveResponses(response, call, reply)
-	case strings.HasSuffix(path, stubCompletionPath):
-		call, reply := p.answerFor(completion.side())
-		serveChatCompletion(response, completion, call, reply)
 	default:
 		http.NotFound(response, request)
 	}
 }
 
+// turnProtocol is one model protocol the stub speaks: the path suffix of its
+// turn request and how it serves a turn's answer.
+type turnProtocol struct {
+	suffix string
+	serve  func(response http.ResponseWriter, request chatRequest, call *ToolCall, reply string)
+}
+
+// turnProtocols are the protocols the stub answers turns in.
+var turnProtocols = []turnProtocol{
+	{suffix: stubCompletionPath, serve: serveChatCompletion},
+	{suffix: stubMessagesPath, serve: serveMessages},
+	{suffix: stubResponsesPath, serve: serveResponses},
+}
+
+// turnProtocolFor returns the protocol whose turn path path is, if any; an
+// Anthropic token count ends in its own suffix, so it is not a Messages turn.
+func turnProtocolFor(path string) (turnProtocol, bool) {
+	for _, protocol := range turnProtocols {
+		if strings.HasSuffix(path, protocol.suffix) {
+			return protocol, true
+		}
+	}
+	return turnProtocol{}, false
+}
+
 // isTurnPath reports whether path is one of the protocols' turn paths.
 func isTurnPath(path string) bool {
-	return strings.HasSuffix(path, stubCompletionPath) ||
-		strings.HasSuffix(path, stubMessagesPath) ||
-		strings.HasSuffix(path, stubResponsesPath)
+	_, ok := turnProtocolFor(path)
+	return ok
 }
 
 // answerFor decides a completion's answer: the title reply for a side
