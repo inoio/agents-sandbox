@@ -145,18 +145,29 @@ func StepSeedStub() Step {
 // interactive first-run and exit prompts.
 func StepLaunch(args ...string) Step {
 	return Step{Name: "the user runs `agents-sandbox " + strings.Join(args, " ") + "`", Run: func(c *Context) error {
-		argv := make([]string, 0, len(args)+8)
-		argv = append(argv, c.Binary)
-		argv = append(argv, args...)
-		argv = append(argv, "--agent", c.Agent)
-		argv = append(argv, "--network", c.Spec.NetworkOrDefault())
-		argv = append(argv, "--memory", driver.SmokeMemorySpec(), "--no-rebuild")
-		argv = driver.WithVMCPUs(argv, driver.SmokeVMCPUs())
-		//testenv:allow the journey launcher runs under the host environment it isolates from
-		env := driver.IsolatedEnv(c.Root, c.Home, os.Environ())
-		c.Session = driver.MustStartUnderPTY(c.TB, c.ProjectDir(), env, argv...)
+		launchClient(c, args, nil)
 		return nil
 	}}
+}
+
+// launchClient starts the launcher with launcherArgs, the journey's agent,
+// network, memory, and CPU flags, and agentArgs after `--`, makes the session
+// the active client, and adds it to the journey's clients.
+func launchClient(c *Context, launcherArgs, agentArgs []string) {
+	argv := make([]string, 0, len(launcherArgs)+len(agentArgs)+10)
+	argv = append(argv, c.Binary)
+	argv = append(argv, launcherArgs...)
+	argv = append(argv, "--agent", c.Agent)
+	argv = append(argv, "--network", c.Spec.NetworkOrDefault())
+	argv = append(argv, "--memory", driver.SmokeMemorySpec(), "--no-rebuild")
+	argv = driver.WithVMCPUs(argv, driver.SmokeVMCPUs())
+	if len(agentArgs) > 0 {
+		argv = append(append(argv, "--"), agentArgs...)
+	}
+	//testenv:allow the journey launcher runs under the host environment it isolates from
+	env := driver.IsolatedEnv(c.Root, c.Home, os.Environ())
+	c.Session = driver.MustStartUnderPTY(c.TB, c.ProjectDir(), env, argv...)
+	c.Clients = append(c.Clients, c.Session)
 }
 
 // StepChooseFirstRun answers the first-run menu with choice's key, which the
@@ -233,6 +244,7 @@ func StepSendPrompt(prompt string) Step {
 		if err != nil {
 			return err
 		}
+		c.markPrompt(ses)
 		echoWait := driver.ScaleTimeout(promptEchoWait, driver.SmokeTimeoutFactor())
 		if err := typeUntilEchoed(ses, prompt, promptTypeAttempts, echoWait); err != nil {
 			return err
@@ -276,15 +288,20 @@ func stepAssertStubServed(budget time.Duration) Step {
 	}}
 }
 
-// StepAssertReplyShown waits until the harness shows the stub's reply, so the
-// turn completed rather than only reaching the stub.
+// StepAssertReplyShown waits until the active client shows the stub's reply
+// after its last prompt, so the turn completed rather than only reaching the
+// stub.
 func StepAssertReplyShown() Step {
 	return AsCheck(Step{Name: "the harness shows the stub's reply", Run: func(c *Context) error {
 		ses, err := session(c)
 		if err != nil {
 			return err
 		}
-		return ses.WaitForMarker(StubReply, driver.ScaleTimeout(stubTurnTimeout, driver.SmokeTimeoutFactor()))
+		budget := driver.ScaleTimeout(stubTurnTimeout, driver.SmokeTimeoutFactor())
+		if !waitForEcho(ses, c.promptOffset(ses), driver.MarkerText(StubReply), budget) {
+			return fmt.Errorf("the harness showed no reply %q since the last prompt within %s", StubReply, budget)
+		}
+		return nil
 	}})
 }
 

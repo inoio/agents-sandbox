@@ -23,6 +23,9 @@ type StubProvider interface {
 	// carrying the listener's own ephemeral port. The agent's provider baseURL
 	// is Addr()+"/v1".
 	Addr() string
+	// ScriptToolCall makes the stub answer the next main-model turn with call
+	// instead of its text reply, once; the turn after it gets the text reply.
+	ScriptToolCall(call ToolCall)
 	// Requests returns the requests the stub served so far, in arrival order,
 	// so a journey can assert that a turn reached it.
 	Requests() []StubRequest
@@ -131,6 +134,7 @@ type stubProvider struct {
 
 	mu       sync.Mutex
 	requests []StubRequest
+	toolCall *ToolCall
 }
 
 // Addr returns the advertised origin, scheme://host:port.
@@ -202,7 +206,27 @@ func (p *stubProvider) ServeHTTP(response http.ResponseWriter, request *http.Req
 		_, _ = response.Write([]byte(`{"object":"list","data":[{"id":"` + stubProviderModel + `","object":"model"}]}`))
 		return
 	}
-	serveChatCompletion(response, completion)
+	serveChatCompletion(response, completion, p.takeToolCall(completion.Model))
+}
+
+// ScriptToolCall arms call for the next main-model turn.
+func (p *stubProvider) ScriptToolCall(call ToolCall) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.toolCall = &call
+}
+
+// takeToolCall returns the armed tool call and disarms it, or nil; a
+// small-model request never takes it.
+func (p *stubProvider) takeToolCall(model string) *ToolCall {
+	if model == stubTitleModel {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	call := p.toolCall
+	p.toolCall = nil
+	return call
 }
 
 func (p *stubProvider) record(request StubRequest) {

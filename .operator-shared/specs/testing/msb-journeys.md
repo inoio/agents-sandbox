@@ -158,7 +158,7 @@ on screen cannot pass for the turn's reply, and a title request does not count a
   `http://host.microsandbox.internal` (overridable through `AGENTS_SANDBOX_JOURNEYS_STUB_ORIGIN`; the port is
   always the listener's). A VM reaches it under a network profile that includes `host`, and microsandbox
   delivers the connection to the host's loopback listener. Verified on a KVM host: a plain `run` on opencode2
-  completes a turn against the stub (`TestHarnessJourneys/stub-turn-completes`).
+  completes turns against the stub (`TestHarnessJourneys/core-session/opencode2`).
 - **The route does not pass the observation proxy.** Host-gateway traffic bypasses the learn-mode terminating
   proxy, and the runtime enforces the egress policy before the proxy is consulted, so a name the policy denies
   or the guest cannot resolve (the former `agents-sandbox-stub.invalid` default) is never observed either. No
@@ -215,8 +215,30 @@ source of truth and its steps are type-checked. It reads as Gherkin anyway:
   harness with an adapter. One assumption remains in a step: the host seed would store a copied login store under
   the host file's base name, which holds for opencode's `auth.json`. The adapter grows a field only when a journey needs it.
 
-The learn-mode journeys and the stub turn cover **opencode2 only** so far, the S1-verified profile with its
-SQLite credential probe. Learn mode on claude-code, codex, pi, and oh-my-pi is #852; the rest is #794.
+The journeys cover **opencode2 only** so far, the S1-verified profile with its SQLite credential probe.
+Learn mode on claude-code, codex, pi, and oh-my-pi is #852; the rest is #794.
+
+### The core-session journey
+
+`core-session` is the regression spine every harness is meant to pass: it chains the #783 promotion bar's
+first run (A), real turn (C), second client (E), and persistence (D) over one project and two boots.
+
+- **A:** the harness starts on a fresh home through the first-run menu ("Configure it myself", host
+  provisioning declined); the launcher prints the experimental notice exactly when the profile is
+  experimental; the project gets no `.agents-sandbox` scaffolding.
+- **C:** the stub answers the first turn with the harness's own write-file tool call (the adapter's
+  `WriteFileCall`, e.g. opencode2's `write` with `path`/`content`), then with its text reply; the file
+  appears in the project on the host, owned by the host user, and the reply shows.
+- **E:** a second `run` attaches to the same VM while the first runs; it gets no reconfig prompt, and both
+  clients complete a turn.
+- **D:** both clients quit; a run with the adapter's `ResumeArgs` (opencode2: `--continue`) shows the last
+  session's message.
+
+A wrong tool argument is a tool error the harness reports back to the model and the turn survives, so only
+the file check notices it: the adapter's tool call is pinned by a unit test against the harness's tool
+schema. The journey runs on its own project (`StepOwnProject`), because it restarts and attaches twice, and
+under the `host` profile the stub route needs. Per-journey projects stay opt-in: the learn-mode journeys run
+in seconds on the shared project and assert only state in their own HOME.
 
 ### Production-closure gate
 
@@ -301,9 +323,9 @@ config-fork warning). The first-turn round-trip half is likewise **not** covered
 a journey's scope assertion is read-back-driven
 (`analyser.SessionFacts.secretFindings` iterates the read-back's static credentials and `credentialHosts`
 falls back to the config entry's hosts, since `channel.Attribution.Credential` is always empty), so
-UC1/UC4/attribution pass even if no request leaves the VM. `TestHarnessJourneys/stub-turn-completes`
-asserts a turn reaches the stub and completes, outside learn mode; that a learning session's turn reaches the
-proxy is the opt-in proxy spike's open question (see "Stub provider").
+UC1/UC4/attribution pass even if no request leaves the VM. The core-session journey asserts real turns,
+outside learn mode; that a learning session's turn reaches the proxy is the opt-in proxy spike's open
+question (see "Stub provider").
 
 Non-interactive and dry-run behaviour are asserted per the repo's invariants (warn, never hang).
 

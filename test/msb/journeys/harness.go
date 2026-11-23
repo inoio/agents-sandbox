@@ -16,6 +16,11 @@ type Harness struct {
 	// HostLoginStore is a host login store file (relative path to content) the
 	// host seed must drop rather than copy.
 	HostLoginStore map[string]string
+	// WriteFileCall is the harness's tool call that writes content to the
+	// guest's absolute path, which the stub answers a turn with.
+	WriteFileCall func(guestPath, content string) ToolCall
+	// ResumeArgs are the agent arguments that continue the last session.
+	ResumeArgs []string
 }
 
 // Harnesses maps an agent name to its adapter. Every harness a journey drives

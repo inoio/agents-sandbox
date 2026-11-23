@@ -24,8 +24,13 @@ type Context struct {
 	Project string
 	// Harness is the agent's journey adapter (Harnesses[Agent]).
 	Harness Harness
-	// Session is set by StepLaunch and driven by the later steps.
+	// Session is the active client: set by a launch step and driven by the
+	// later steps. Clients holds every client the journey started, in order.
 	Session *driver.Session
+	Clients []*driver.Session
+	// prompts maps a client to its output length before its last prompt, so a
+	// reply check only looks at what followed.
+	prompts map[*driver.Session]int
 	// Stub is set by StepSeedStub: the host-side destination the journey's
 	// agent sends to, kept so a later step or a host accept can inspect it.
 	Stub StubProvider
@@ -38,6 +43,19 @@ func (c *Context) ProjectDir() string {
 		return c.Project
 	}
 	return driver.ProjectDir(c.Root, c.Agent)
+}
+
+// markPrompt records where client's output stood before a prompt was typed.
+func (c *Context) markPrompt(client *driver.Session) {
+	if c.prompts == nil {
+		c.prompts = map[*driver.Session]int{}
+	}
+	c.prompts[client] = len(client.Output())
+}
+
+// promptOffset is where client's output stood before its last prompt, or 0.
+func (c *Context) promptOffset(client *driver.Session) int {
+	return c.prompts[client]
 }
 
 // Keyword is a step's Gherkin keyword: it only shapes how the scenario reads.

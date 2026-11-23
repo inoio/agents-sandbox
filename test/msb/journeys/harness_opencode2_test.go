@@ -2,6 +2,7 @@ package journeys
 
 import (
 	"encoding/json"
+	"maps"
 	"slices"
 	"testing"
 
@@ -75,5 +76,19 @@ func TestOpencodeProviderDocumentClassifiesAsTheAssertedCredential(t *testing.T)
 	}
 	if !found {
 		t.Fatalf("InlineCredentialsIn found no static credential %q in %q", uc1Scope.EnvVar, content)
+	}
+}
+
+// opencode2's write tool requires `path`; any other key is a tool error the
+// turn survives silently.
+func TestOpencode2WriteFileCallMatchesTheWriteToolSchema(t *testing.T) {
+	call := opencode2Harness.WriteFileCall("/workspace/a.txt", "hi")
+	var arguments map[string]string
+	if err := json.Unmarshal([]byte(call.Arguments), &arguments); err != nil {
+		t.Fatalf("arguments %q: %v", call.Arguments, err)
+	}
+	want := map[string]string{"path": "/workspace/a.txt", "content": "hi"}
+	if call.Name != "write" || !maps.Equal(arguments, want) {
+		t.Errorf("call = %s(%v), want write(%v)", call.Name, arguments, want)
 	}
 }

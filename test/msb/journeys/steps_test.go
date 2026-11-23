@@ -326,6 +326,7 @@ type fakeStubProvider struct{}
 
 func (fakeStubProvider) Addr() string            { return "http://stub.invalid" }
 func (fakeStubProvider) Requests() []StubRequest { return nil }
+func (fakeStubProvider) ScriptToolCall(ToolCall) {}
 func (fakeStubProvider) Stop()                   {}
 
 // TestCommandArgvAppendsNoJourneyFlags pins StepLaunchCommand's arg handling:
