@@ -112,30 +112,12 @@ Tasks 5–7 landed together (durable part: the spec's "The core-session journey"
 
 ---
 
-## Phase 3 — Checkpoint 1: claude-code
+## Phase 3 — Checkpoint 1: claude-code — done
 
-### Task 8: Anthropic Messages protocol
-
-- [ ] Test (default suite): the stub serves `POST /v1/messages` with a scripted text and `tool_use` turn, streamed
-      (`message_start`/`content_block_*`/`message_delta`/`message_stop`), matching a minimal recorded claude-code
-      request. Tool name and argument shape come from the adapter (claude-code's `Write` tool).
-
-### Task 9: claude-code adapter and core-session row
-
-- [ ] Adapter: provider seed (`ANTHROPIC_BASE_URL` pointing at the stub plus a dummy key, provisioned through the
-      `home:` manifest or `env`, whichever the launcher passes to the VM without tripping first-run detection),
-      onboarding/folder-trust dismissal (reuse `driver.ClaudeCodeSmokeConfig`'s idea), quit `Ctrl-C`, resume
-      `--continue`, write-tool script.
-- [ ] Remove claude-code's core-session exemption.
-- [ ] **[host]** Core-session passes on claude-code.
-
-### Task 10: Checkpoint 1 review
-
-- [ ] Grep the runner, steps, and stub for agent-name literals and harness-specific branches; list every adapter
-      field and which harness uses it; list every workaround claude-code needed outside its adapter.
-- [ ] Adjust the abstraction where it failed (move knowledge into the adapter, split a step, drop an unused field).
-- [ ] Write the outcome into `specs/testing/msb-journeys.md` (a "Harness adapter" section: what held, what changed,
-      why) and summarize on #851.
+`core-session` passes on claude-code (~8 s) and opencode2. The review outcome is in the spec's "Checkpoint 1":
+the abstraction held (no step or runner change, no harness literal in shared code); the adapter gained `StubEnv`
+and `LaunchArgs`, core-session starts configured instead of through the first-run menu, and the quit order makes
+both harnesses' resume pick the same session.
 
 ---
 

@@ -198,20 +198,29 @@ func bracketedHost(hostname string) string {
 	return hostname
 }
 
-// ServeHTTP records the request and answers it: the model list for a
-// /models request, a chat completion (see serveChatCompletion) for anything else.
-// A body that does not decode is answered as a non-streamed main-model request.
+// ServeHTTP records the request and answers it by its path: the model list, an
+// Anthropic token count, an Anthropic Messages turn, or an OpenAI chat
+// completion; anything else is not found. A body that does not decode is
+// answered as a non-streamed main-model request.
 func (p *stubProvider) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	var completion chatRequest
 	_ = json.NewDecoder(request.Body).Decode(&completion)
 	p.record(StubRequest{Method: request.Method, Path: request.URL.Path, Model: completion.Model})
-	if strings.HasSuffix(request.URL.Path, "/models") {
+	switch path := request.URL.Path; {
+	case strings.HasSuffix(path, "/models"):
 		response.Header().Set("Content-Type", "application/json")
 		_, _ = response.Write([]byte(`{"object":"list","data":[{"id":"` + stubProviderModel + `","object":"model"}]}`))
-		return
+	case strings.HasSuffix(path, stubCountTokenPath):
+		serveTokenCount(response)
+	case strings.HasSuffix(path, stubMessagesPath):
+		call, reply := p.answerFor(completion.Model)
+		serveMessages(response, completion, call, reply)
+	case strings.HasSuffix(path, stubCompletionPath):
+		call, reply := p.answerFor(completion.Model)
+		serveChatCompletion(response, completion, call, reply)
+	default:
+		http.NotFound(response, request)
 	}
-	call, reply := p.answerFor(completion.Model)
-	serveChatCompletion(response, completion, call, reply)
 }
 
 // answerFor decides a completion's answer: the title reply for the small

@@ -151,7 +151,8 @@ func StepLaunch(args ...string) Step {
 }
 
 // launchClient starts the launcher with launcherArgs, the journey's agent,
-// network, memory, and CPU flags, and agentArgs after `--`, makes the session
+// network, memory, and CPU flags, and the adapter's LaunchArgs plus agentArgs
+// after `--`, makes the session
 // the active client, and adds it to the journey's clients.
 func launchClient(c *Context, launcherArgs, agentArgs []string) {
 	argv := make([]string, 0, len(launcherArgs)+len(agentArgs)+10)
@@ -161,6 +162,7 @@ func launchClient(c *Context, launcherArgs, agentArgs []string) {
 	argv = append(argv, "--network", c.Spec.NetworkOrDefault())
 	argv = append(argv, "--memory", driver.SmokeMemorySpec(), "--no-rebuild")
 	argv = driver.WithVMCPUs(argv, driver.SmokeVMCPUs())
+	agentArgs = append(append([]string(nil), c.Harness.LaunchArgs...), agentArgs...)
 	if len(agentArgs) > 0 {
 		argv = append(append(argv, "--"), agentArgs...)
 	}

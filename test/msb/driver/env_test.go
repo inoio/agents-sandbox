@@ -458,3 +458,19 @@ func TestWithGitHubTokenLeavesEnvUnchangedWhenAbsent(t *testing.T) {
 		t.Errorf("WithGitHubToken = %v, want the env unchanged (%v)", got, env)
 	}
 }
+
+func TestSeedLauncherEnvWritesSortedKeyValueLines(t *testing.T) {
+	home := t.TempDir()
+
+	if err := SeedLauncherEnv(home, map[string]string{"B_VAR": "two", "A_VAR": "http://x:1"}); err != nil {
+		t.Fatalf("SeedLauncherEnv: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(home, configDirName, launcherConfigDirName, launcherEnvFileName))
+	if err != nil {
+		t.Fatalf("read env file: %v", err)
+	}
+	if got, want := string(data), "A_VAR=http://x:1\nB_VAR=two\n"; got != want {
+		t.Errorf("env file = %q, want %q", got, want)
+	}
+}

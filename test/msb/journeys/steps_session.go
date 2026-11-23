@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path"
@@ -27,6 +28,28 @@ const experimentalNoticeMarker = "is experimental"
 // reconfigPromptMarker is the part every launcher reconfig prompt prints
 // ("Applying requires rebuilding the VM…" / "…restarting the server…").
 const reconfigPromptMarker = "Applying requires"
+
+// journeyEnvMarker is the variable StepConfigureLauncherEnv always writes, so
+// the env file exists (and the launcher counts the home as configured) for a
+// harness whose adapter needs no variables.
+const journeyEnvMarker = "AGENTS_SANDBOX_JOURNEY"
+
+// StepConfigureLauncherEnv writes the launcher's env file with the adapter's
+// StubEnv: the home then counts as configured, so the launcher skips the
+// first-run menu, and a harness configured through its environment reaches the
+// stub.
+func StepConfigureLauncherEnv() Step {
+	return Step{Name: "the launcher is configured with the harness's stub settings", Run: func(c *Context) error {
+		if c.Stub == nil {
+			return errors.New("no stub provider on the context; seed it first")
+		}
+		vars := map[string]string{journeyEnvMarker: "1"}
+		if c.Harness.StubEnv != nil {
+			maps.Copy(vars, c.Harness.StubEnv(c.Stub.Addr()))
+		}
+		return driver.SeedLauncherEnv(c.Home, vars)
+	}}
+}
 
 // StepScriptWriteFile makes the stub answer the next turn with the harness's
 // tool call that writes content to name in the project, through the adapter's

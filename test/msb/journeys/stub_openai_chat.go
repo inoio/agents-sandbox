@@ -103,12 +103,14 @@ func streamChatCompletion(response http.ResponseWriter, delta, finishReason stri
 	}
 }
 
-// servedTurn reports whether requests include a main-model chat completion, the
-// request a harness sends for a turn (a small-model title request is not one).
+// servedTurn reports whether requests include a main-model turn, an OpenAI chat
+// completion or an Anthropic Messages request (a small-model title request or a
+// token count is not one).
 func servedTurn(requests []StubRequest) bool {
 	for _, request := range requests {
-		if request.Method == http.MethodPost && strings.HasSuffix(request.Path, stubCompletionPath) &&
-			request.Model != stubTitleModel {
+		turnPath := strings.HasSuffix(request.Path, stubCompletionPath) ||
+			strings.HasSuffix(request.Path, stubMessagesPath)
+		if request.Method == http.MethodPost && turnPath && request.Model != stubTitleModel {
 			return true
 		}
 	}

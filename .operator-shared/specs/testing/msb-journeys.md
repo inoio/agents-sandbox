@@ -218,6 +218,24 @@ source of truth and its steps are type-checked. It reads as Gherkin anyway:
 The journeys cover **opencode2 only** so far, the S1-verified profile with its SQLite credential probe.
 Learn mode on claude-code, codex, pi, and oh-my-pi is #852; the rest is #794.
 
+### Checkpoint 1: claude-code (the abstraction held)
+
+Adding claude-code, the harness that differs most from opencode2 (Anthropic Messages instead of OpenAI chat
+completions, environment instead of a provider file, `Write`/`file_path`, Ctrl-C), needed a stub protocol, an
+adapter, and no step or runner change; no shared file names a harness. What changed, and why:
+
+- **Protocol by path.** The stub routes by request path (`/chat/completions`, `/messages`,
+  `/messages/count_tokens`), so a protocol is a handler, not a harness setting. Numbered replies, the
+  one-shot tool call, and the small-model title split work the same for both.
+- **Environment, not files.** claude-code's `.claude/settings.json` is a reserved `home:` target, so the adapter
+  gained `StubEnv` (written to the launcher's env file) and `LaunchArgs` (`--permission-mode acceptEdits`).
+- **Core-session skips the first-run menu.** The launcher env file counts as configuration, so every
+  harness starts core-session configured (`StepConfigureLauncherEnv`); the menu stays the learn-mode journeys'
+  concern.
+- **Resume picks different sessions.** opencode2 continues the last active session, claude-code the last saved
+  one; the journey orders its quits so both are the same session, rather than adding an adapter field.
+- Prompt submission needed no adapter field: both TUIs take the echoed text and `\r`.
+
 ### The core-session journey
 
 `core-session` is the regression spine every harness is meant to pass: it chains the #783 promotion bar's
@@ -235,7 +253,9 @@ first run (A), real turn (C), second client (E), and persistence (D) over one pr
   clients complete a turn.
 - **D:** both clients quit and `agents-sandbox stop` stops the VM; the next run boots it again (asserted from
   the launcher's "started existing project VM"), and with the adapter's `ResumeArgs` (opencode2: `--continue`) it
-  shows the last session's message, so the session survived in the home volume, not in a live server.
+  shows the last session's message, so the session survived in the home volume, not in a live server. Client 1
+  both sends the last prompt and quits last: opencode2 continues the last active session, claude-code the last
+  saved one, and only that order makes them the same session.
 
 A wrong tool argument is a tool error the harness reports back to the model and the turn survives, so only
 the file check notices it: the adapter's tool call is pinned by a unit test to the argument keys the
