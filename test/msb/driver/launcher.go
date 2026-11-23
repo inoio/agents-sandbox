@@ -207,11 +207,9 @@ func BuildHarnessImages(tb TB, root string) error {
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
 
-			args := []string{"build", agentFlag, pair.Agent}
-			if pair.Docker {
-				args = append(args, "--docker")
-			}
+			args := ImageBuildArgs(pair.Agent, pair.Docker)
 			build := exec.CommandContext(ctx, smokeBinary, args...)
+
 			build.Dir = ProjectDir(root, pair.Project)
 			build.Env = env
 			started := time.Now()
@@ -239,6 +237,39 @@ func BuildHarnessImages(tb TB, root string) error {
 	}
 	builds.Wait()
 	return errors.Join(buildErrors...)
+}
+
+// ImageBuildArgs is the launcher invocation that builds agentName's runner
+// image in the current project dir, docker-enabled when docker is set.
+func ImageBuildArgs(agentName string, docker bool) []string {
+	args := []string{"build", agentFlag, agentName}
+	if docker {
+		args = append(args, "--docker")
+	}
+	return args
+}
+
+// BuildProjectImage builds agentName's runner image for projectDir, creating the
+// dir, so a `run --no-rebuild` there finds its image. A journey that runs on a
+// project of its own calls it; the docker layers the prebuild cached make it
+// cheap.
+func BuildProjectImage(root, binary, projectDir, agentName string) error {
+	if err := os.MkdirAll(projectDir, 0o750); err != nil {
+		return fmt.Errorf("create project dir %s: %w", projectDir, err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), prepareTimeout)
+	defer cancel()
+	//testenv:allow the image build runs under the host environment it authenticates from
+	inherited := os.Environ()
+	args := ImageBuildArgs(agentName, false)
+	build := exec.CommandContext(ctx, binary, args...)
+
+	build.Dir = projectDir
+	build.Env = WithGitHubToken(IsolatedEnv(root, root, inherited), inherited)
+	if out, err := build.CombinedOutput(); err != nil {
+		return fmt.Errorf("build %s image for %s: %w\n%s", agentName, projectDir, err, out)
+	}
+	return nil
 }
 
 // SweepSandboxes best-effort destroys any sandbox left in the isolated home. It

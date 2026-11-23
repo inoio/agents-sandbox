@@ -2,11 +2,13 @@ package journeys
 
 import (
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/firstrun"
@@ -320,6 +322,7 @@ type fakeStubProvider struct{}
 
 func (fakeStubProvider) Addr() string                      { return "http://stub.invalid" }
 func (fakeStubProvider) ProviderConfig() map[string]string { return nil }
+func (fakeStubProvider) Requests() []StubRequest           { return nil }
 func (fakeStubProvider) Stop()                             {}
 
 // TestCommandArgvAppendsNoJourneyFlags pins StepLaunchCommand's arg handling:
@@ -684,5 +687,40 @@ func TestStringsFromSetting(t *testing.T) {
 				t.Errorf("stringsFromSetting(%v) = %v, want %v", tc.in, got, tc.want)
 			}
 		})
+	}
+}
+
+// recordingStubProvider is a StubProvider whose served requests a test sets.
+type recordingStubProvider struct {
+	fakeStubProvider
+
+	requests []StubRequest
+}
+
+func (r recordingStubProvider) Requests() []StubRequest { return r.requests }
+
+func TestStepAssertStubServedPassesOnceAChatCompletionArrived(t *testing.T) {
+	stub := recordingStubProvider{requests: []StubRequest{{Method: http.MethodPost, Path: "/v1/chat/completions"}}}
+	ctx := &Context{TB: t, Stub: stub}
+
+	if err := stepAssertStubServed(time.Millisecond).Run(ctx); err != nil {
+		t.Fatalf("stub served a turn, step failed: %v", err)
+	}
+}
+
+func TestStepAssertStubServedFailsNamingWhatTheStubSaw(t *testing.T) {
+	stub := recordingStubProvider{requests: []StubRequest{{Method: http.MethodGet, Path: "/v1/models"}}}
+	ctx := &Context{TB: t, Stub: stub}
+
+	err := stepAssertStubServed(time.Millisecond).Run(ctx)
+
+	if err == nil || !strings.Contains(err.Error(), "/v1/models") {
+		t.Fatalf("error = %v, want a failure naming the requests the stub saw", err)
+	}
+}
+
+func TestStepAssertStubServedNeedsAStub(t *testing.T) {
+	if err := stepAssertStubServed(time.Millisecond).Run(&Context{TB: t}); err == nil {
+		t.Fatal("step passed with no stub on the context")
 	}
 }
