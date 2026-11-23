@@ -31,24 +31,36 @@ type StubProvider interface {
 	// config dir (which firstrun counts as a managed layer) or the host config
 	// (which the first-run host seed reads).
 	ProviderConfig() map[string]string
+	// Requests returns the requests the stub served so far, in arrival order,
+	// so a journey can assert that a turn reached it.
+	Requests() []StubRequest
 	// Stop closes the listener. It is idempotent.
 	Stop()
 }
 
+// StubRequest is one request the stub served.
+type StubRequest struct {
+	Method string
+	Path   string
+	// Model is the request body's model, empty for a request without one.
+	Model string
+}
+
 // stubOriginEnv overrides the advertised destination origin (scheme://host) the
 // provider config points the agent at. The stub always binds host loopback on an
-// ephemeral port; only the *advertised* origin changes, because how a guest's
-// target host resolves to this host-side listener under microsandbox's runtime
-// interception is not yet pinned. A host accept sets it to a route that reaches
-// the proxy and resolves to the listener; unset (or invalid) uses
+// ephemeral port; only the *advertised* origin changes. Unset (or invalid) uses
 // stubOriginDefault.
 const stubOriginEnv = "AGENTS_SANDBOX_JOURNEYS_STUB_ORIGIN"
 
-// stubOriginDefault is the advertised destination a run uses with no override.
-// The reserved .invalid TLD cannot resolve, so the proxy records the destination
-// (and its dial denial) but never reaches a real service; a host accept pins a
-// working route through stubOriginEnv.
-const stubOriginDefault = "http://agents-sandbox-stub.invalid"
+// stubOriginDefault is the advertised destination a run uses with no override:
+// microsandbox's host gateway name, which a VM reaches under the `host` network
+// profile and which lands on the host's loopback listener. Host-gateway traffic
+// does not pass the learn-mode observation proxy, so a turn to it completes but
+// is not observed.
+const stubOriginDefault = "http://" + stubGatewayHost
+
+// stubGatewayHost is microsandbox's name for the host machine inside a VM.
+const stubGatewayHost = "host.microsandbox.internal"
 
 // stubAgentConfigTarget is the VM-home-relative config file the provider
 // document is provisioned to. It is opencode's middle-precedence config file
@@ -62,6 +74,10 @@ const stubAgentConfigTarget = ".config/opencode/opencode.json"
 const (
 	stubProviderID    = "stub"
 	stubProviderModel = "stub"
+	// stubTitleModel is the provider's small model, which opencode uses for
+	// side requests such as the session title. Keeping it apart from
+	// stubProviderModel lets a journey tell its turn from those requests.
+	stubTitleModel = "stub-title"
 	// stubProviderNPM is the SDK package opencode loads for an
 	// OpenAI-compatible provider, so the provider is real enough for the agent
 	// to issue a request at the baseURL.
@@ -109,15 +125,14 @@ func StartStubProvider(tb driver.TB) (StubProvider, error) {
 	}
 
 	provider := &stubProvider{
-		server: &http.Server{
-			Handler: stubHandler{},
-			// A defensive ceiling on reading a request's headers; the value is
-			// not a contract.
-			ReadHeaderTimeout: stubReadHeaderTimeout,
-		},
 		listener: listener,
 		addr:     stubOrigin() + ":" + port,
-		once:     sync.Once{},
+	}
+	provider.server = &http.Server{
+		Handler: provider,
+		// A defensive ceiling on reading a request's headers; the value is
+		// not a contract.
+		ReadHeaderTimeout: stubReadHeaderTimeout,
 	}
 	tb.Cleanup(provider.Stop)
 	go func() { _ = provider.server.Serve(listener) }()
@@ -125,11 +140,16 @@ func StartStubProvider(tb driver.TB) (StubProvider, error) {
 }
 
 // stubProvider is the StubProvider a StartStubProvider call returns.
+//
+//exhaustruct:ignore
 type stubProvider struct {
 	server   *http.Server
 	listener net.Listener
 	addr     string
 	once     sync.Once
+
+	mu       sync.Mutex
+	requests []StubRequest
 }
 
 // Addr returns the advertised origin, scheme://host:port.
@@ -159,10 +179,11 @@ func stubProviderDocument(addr string) string {
 			stubProviderID: map[string]any{
 				"npm":     stubProviderNPM,
 				"options": map[string]any{"baseURL": addr + "/v1", "apiKey": stubProviderAPIKey},
-				"models":  map[string]any{stubProviderModel: map[string]any{}},
+				"models":  map[string]any{stubProviderModel: map[string]any{}, stubTitleModel: map[string]any{}},
 			},
 		},
-		"model": stubProviderID + "/" + stubProviderModel,
+		"model":       stubProviderID + "/" + stubProviderModel,
+		"small_model": stubProviderID + "/" + stubTitleModel,
 	}
 	data, err := json.Marshal(document)
 	if err != nil {
@@ -226,17 +247,30 @@ func bracketedHost(hostname string) string {
 	return hostname
 }
 
-// stubHandler answers the stub's requests. A completed model turn is not
-// required — the journeys assert what the proxy observed — so it returns a
-// minimal OpenAI-compatible model list for /v1/models and an empty chat
-// completion for anything else.
-type stubHandler struct{}
-
-func (stubHandler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
-	response.Header().Set("Content-Type", "application/json")
-	body := `{"id":"stub","object":"chat.completion","choices":[]}`
+// ServeHTTP records the request and answers it: the model list for a
+// /models request, a chat completion (see serveChatCompletion) for anything else.
+// A body that does not decode is answered as a non-streamed main-model request.
+func (p *stubProvider) ServeHTTP(response http.ResponseWriter, request *http.Request) {
+	var completion chatRequest
+	_ = json.NewDecoder(request.Body).Decode(&completion)
+	p.record(StubRequest{Method: request.Method, Path: request.URL.Path, Model: completion.Model})
 	if strings.HasSuffix(request.URL.Path, "/models") {
-		body = `{"object":"list","data":[{"id":"` + stubProviderModel + `","object":"model"}]}`
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write([]byte(`{"object":"list","data":[{"id":"` + stubProviderModel + `","object":"model"}]}`))
+		return
 	}
-	_, _ = response.Write([]byte(body))
+	serveChatCompletion(response, completion)
+}
+
+func (p *stubProvider) record(request StubRequest) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.requests = append(p.requests, request)
+}
+
+// Requests returns a copy of the requests served so far.
+func (p *stubProvider) Requests() []StubRequest {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]StubRequest(nil), p.requests...)
 }

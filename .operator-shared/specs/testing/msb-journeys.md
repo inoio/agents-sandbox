@@ -135,15 +135,16 @@ proxy carries, before the attribution journeys are written. The read-back journe
 static secrets, managed-config write-back) are independent and can land in parallel; the attribution
 journeys depend on the spike.
 
-#### Stub provider (implemented; the advertised route is provisional pending the host accept)
+#### Stub provider
 
 The stub is a host-side loopback HTTP listener (`test/msb/journeys/stub_provider.go`), started per journey and
-closed by `tb.Cleanup`.
+closed by `tb.Cleanup`. It records every request it served (`StubProvider.Requests`) and answers a chat completion
+with a fixed reply (`StubReply`), streamed when the request asks for a stream, so a journey can assert that a turn
+reached the stub and completed. The provider config declares a separate `small_model` (`stub/stub-title`), which
+opencode uses for side requests such as the session title, and the stub answers it with a different text: a title
+on screen cannot pass for the turn's reply, and a title request does not count as the turn.
 
-- **Protocol: plain HTTP.** The agent's request traverses the terminating proxy as an absolute-URI HTTP
-  request, which the proxy records (`protocol: "http"`), so the stub needs no CA and the run needs no
-  `network.observe.skip-upstream-verify`. An `https` advertised route would need `skip-upstream-verify`,
-  because the stub's certificate is not trusted.
+- **Protocol: plain HTTP.** The stub needs no CA, and the run needs no `network.observe.skip-upstream-verify`.
 - **Provider config.** `StubProvider.ProviderConfig()` returns the VM-home-relative config manifest
   (`driver.SeedLauncherConfig`'s target→content map): one target, opencode's `.config/opencode/opencode.json`
   (the file opencode actually reads; `config.json < opencode.json < opencode.jsonc`), holding an
@@ -153,23 +154,39 @@ closed by `tb.Cleanup`.
   `firstrun.managedConfigPresent` count a managed layer and suppresses the menu, and seeding the isolated
   HOME's `~/.config/opencode` makes `firstrun.HostFiles` read it as host config; the `home:` manifest
   avoids both, so the first-run menu (and its "Learn by using it" choice) is still offered.
-- **Advertised route.** The listener always binds `127.0.0.1:0`; the *advertised* origin (scheme + host) is
-  `AGENTS_SANDBOX_JOURNEYS_STUB_ORIGIN`, default `http://agents-sandbox-stub.invalid`. A host accept pins a
-  route that both the runtime interception and the proxy's upstream dial reach, without a code change; the
-  port is always the listener's own ephemeral one.
-- **Assertion.** The spike asserts the saved observation names the advertised stub host. A denied proxy dial
-  is still recorded, so the assertion passes whenever the turn reaches the proxy at all.
+- **Route: the host gateway.** The listener binds `127.0.0.1:0`; the *advertised* origin defaults to
+  `http://host.microsandbox.internal` (overridable through `AGENTS_SANDBOX_JOURNEYS_STUB_ORIGIN`; the port is
+  always the listener's). A VM reaches it under a network profile that includes `host`, and microsandbox
+  delivers the connection to the host's loopback listener. Verified on a KVM host: a plain `run` on opencode2
+  completes a turn against the stub (`TestHarnessJourneys/stub-provider-turn-completes`).
+- **The route does not pass the observation proxy.** Host-gateway traffic bypasses the learn-mode terminating
+  proxy, and the runtime enforces the egress policy before the proxy is consulted, so a name the policy denies
+  or the guest cannot resolve (the former `agents-sandbox-stub.invalid` default) is never observed either. No
+  route is known yet that both completes a turn and is observed; the proxy spike
+  (`TestHarnessJourneys/stub-provider-turn-reaches-the-proxy`) therefore runs only with
+  `AGENTS_SANDBOX_JOURNEYS_PROXY_SPIKE=1` and stays the open question of the attribution half.
 
-**Provisional.** The one open question the host accept settles is whether the default route reaches the
-proxy; the managed-layer suppression is resolved by provisioning through the `home:` manifest (above).
+#### Typing into a harness
+
+A TUI can paint before it takes input: opencode answers its terminal-capability queries first and, on the host,
+swallowed an early write whole. `StepSendPrompt` therefore types the prompt, waits for the harness to echo it (only
+output printed after the write counts), and retypes on a missing echo before it presses Enter. A partly swallowed
+write or a late echo could leave stray characters before the retyped prompt; a journey only needs the turn to be
+sent, so it tolerates that. A prompt must be text a repaint does not print on its own, since the echo is a
+substring match. Before this, the learn-mode journeys' prompts were swallowed, which their read-back-driven
+assertions did not notice; with the prompt sent they still pass on the host.
 
 ### Isolation between journeys
 
-All v1 journeys drive the same project directory (`driver.ProjectDir(root, "opencode2")`), so they share one
-project slug and therefore one microsandbox VM and one home volume. The runner sweeps sandboxes only at
-suite start and teardown, so a journey must not rely on the shared volume being clean: per-journey state it
-asserts must live in the journey's own isolated HOME (a fresh temp dir per subtest, threaded by
-`driver.IsolatedEnv`). A future journey that needs a clean shared VM must reset it itself.
+By default all journeys of an agent drive the same project directory (`driver.ProjectDir(root, <agent>)`), so they
+share one project slug and therefore one microsandbox VM and one home volume. The runner sweeps sandboxes only at
+suite start and teardown, so a journey on the shared project must not rely on the shared volume being clean:
+per-journey state it asserts must live in the journey's own isolated HOME (a fresh temp dir per subtest, threaded
+by `driver.IsolatedEnv`). The shared VM also carries state between journeys: a later journey attaches to the VM an
+earlier one started, with that run's network policy and any agent session still running in it. A journey that
+needs its own VM starts with `StepOwnProject(<label>)`, which builds the agent's runner image in
+`<agent>-<label>` (cheap, the prebuild's layers are cached) and points the journey's project there; the teardown
+sweep covers it, since it removes every sandbox in the suite's isolated home.
 
 ### Harness scope for v1
 
@@ -253,8 +270,9 @@ latter needs the product gap closed first (a follow-up, not #793). The journey r
 rather than the agent spec's default `none`: under `none` the stub dial is denied, so the analyser
 records no used destination and writes no network posture, leaving `StepAssertNetworkNotWidened`
 vacuous; under `public` a turn that reaches the stub is a used destination, so the analyser's lock
-(`none` plus the used host) actually exercises the guard. The default `.invalid` advertised route still
-denies the dial, so this only bites on a host accept that pins a working route.
+(`none` plus the used host) actually exercises the guard. `public` does not include the host gateway the
+default route names, so the dial is still denied; this only bites on a route `public` admits and the
+observation proxy sees.
 
 This also absorbs #252's project-scaffolding check: `StepAssertNoProjectScaffolding` asserts the run
 creates no `.agents-sandbox` directory in the project, which belongs to a journey, not to the minimal
@@ -263,9 +281,9 @@ config-fork warning). The first-turn round-trip half is likewise **not** covered
 a journey's scope assertion is read-back-driven
 (`analyser.SessionFacts.secretFindings` iterates the read-back's static credentials and `credentialHosts`
 falls back to the config entry's hosts, since `channel.Attribution.Credential` is always empty), so
-UC1/UC4/attribution pass even if no request leaves the VM. Only the host-gated
-`TestHarnessJourneys/stub-provider-turn-reaches-the-proxy` subtest asserts a turn reached the proxy, by
-loading the saved observation; folding that assertion into the journey table is a follow-up.
+UC1/UC4/attribution pass even if no request leaves the VM. `TestHarnessJourneys/stub-provider-turn-completes`
+asserts a turn reaches the stub and completes, outside learn mode; that a learning session's turn reaches the
+proxy is the opt-in proxy spike's open question (see "Stub provider").
 
 Non-interactive and dry-run behaviour are asserted per the repo's invariants (warn, never hang).
 

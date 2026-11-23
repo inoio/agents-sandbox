@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -62,5 +63,25 @@ func TestQuitNamesTheKeyWhenTheWriteStalls(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "0x71") {
 		t.Errorf("Quit error %q does not name the quit key", err)
+	}
+}
+
+func TestImageBuildArgsAddsDockerOnlyWhenAsked(t *testing.T) {
+	if got, want := ImageBuildArgs("codex", false), []string{"build", "--agent", "codex"}; !slices.Equal(got, want) {
+		t.Errorf("ImageBuildArgs(codex, false) = %v, want %v", got, want)
+	}
+	if got, want := ImageBuildArgs(
+		"opencode",
+		true,
+	), []string{
+		"build",
+		"--agent",
+		"opencode",
+		"--docker",
+	}; !slices.Equal(
+		got,
+		want,
+	) {
+		t.Errorf("ImageBuildArgs(opencode, true) = %v, want %v", got, want)
 	}
 }

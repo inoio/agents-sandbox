@@ -4,9 +4,11 @@ package journeys
 
 import (
 	"net/url"
+	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/inoio/agents-sandbox/internal/firstrun"
 	"github.com/inoio/agents-sandbox/internal/sandbox/channel"
 	"github.com/inoio/agents-sandbox/test/msb/driver"
 )
@@ -14,6 +16,52 @@ import (
 // stubSpikePrompt is the one message the spike sends; a completed model turn is
 // not required, only that the agent issues a request to the stub host.
 const stubSpikePrompt = "hello"
+
+// stubTurnPrompt is the message the turn subtest sends: distinctive, so its echo
+// cannot be matched by a repaint.
+const stubTurnPrompt = "journeys stub turn"
+
+// proxySpikeEnv opts into the proxy-observation spike.
+const proxySpikeEnv = "AGENTS_SANDBOX_JOURNEYS_PROXY_SPIKE"
+
+// hostGatewayNetwork is the network profile that admits the host gateway the
+// stub's default route names.
+const hostGatewayNetwork = "host"
+
+// runStubProviderTurnCompletes drives a plain `run` on opencode2 against the
+// host-side stub over the default host-gateway route and asserts the turn
+// completes: the stub served a chat completion and the harness shows its reply.
+// It is the route every turn-based journey builds on.
+func runStubProviderTurnCompletes(t *testing.T, root, binary string) {
+	t.Helper()
+
+	const agentName = "opencode2"
+	spec, ok := driver.Specs[agentName]
+	if !ok {
+		t.Fatalf("no smoke spec for agent %s", agentName)
+	}
+	spec.Network = hostGatewayNetwork
+	ctx := &Context{TB: t, Root: root, Binary: binary, Spec: spec, Agent: agentName, Home: t.TempDir()}
+	steps := []Step{
+		StepOwnProject("turn"),
+		StepFreshHome(),
+		StepSeedStub(),
+		StepLaunch("run"),
+		StepChooseFirstRun(firstrun.ChoiceManual),
+		StepDeclineHostProvisioning(),
+		StepWaitReady(),
+		StepSendPrompt(stubTurnPrompt),
+		StepAssertStubServed(),
+		StepAssertReplyShown(),
+		StepQuitToExit(),
+	}
+	for _, step := range steps {
+		if err := step.Run(ctx); err != nil {
+			t.Fatalf("step %q: %v\n%s", step.Name, err, spikeOutput(ctx))
+		}
+	}
+	t.Logf("the stub served %v", ctx.Stub.Requests())
+}
 
 // runStubProviderTurnReachesTheProxy is the Task 13 host-gated spike, run as a
 // subtest of TestHarnessJourneys: it drives a real `run --learn` on opencode2
@@ -36,6 +84,11 @@ const stubSpikePrompt = "hello"
 // proxy at all.
 func runStubProviderTurnReachesTheProxy(t *testing.T, root, binary string) {
 	t.Helper()
+	//testenv:allow the opt-in for a spike whose route is still open
+	if os.Getenv(proxySpikeEnv) == "" {
+		t.Skipf("set %s=1 to run it: no route both completes a turn and passes the observation proxy yet "+
+			"(the host gateway bypasses the proxy, an unresolvable name is denied before it); see #793", proxySpikeEnv)
+	}
 
 	const agentName = "opencode2"
 	spec, ok := driver.Specs[agentName]

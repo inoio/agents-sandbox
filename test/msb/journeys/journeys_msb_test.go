@@ -69,6 +69,9 @@ func TestHarnessJourneys(t *testing.T) {
 	// reuse lock: a separate top-level test would re-enter driver.Prepare, whose
 	// per-caller cleanup tears the shared root down and releases the lock when
 	// the first caller returns.
+	t.Run("stub-provider-turn-completes", func(t *testing.T) {
+		runStubProviderTurnCompletes(t, root, binary)
+	})
 	t.Run("stub-provider-turn-reaches-the-proxy", func(t *testing.T) {
 		runStubProviderTurnReachesTheProxy(t, root, binary)
 	})

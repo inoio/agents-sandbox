@@ -19,11 +19,23 @@ type Context struct {
 	Spec   driver.Spec // driver.Specs[agent]
 	Agent  string      // the journey's registered agent name
 	Home   string      // this journey's isolated HOME base (HOME and the XDG dirs)
+	// Project is the journey's own project dir, set by StepOwnProject; empty
+	// means the agent's shared project (see ProjectDir).
+	Project string
 	// Session is set by StepLaunch and driven by the later steps.
 	Session *driver.Session
 	// Stub is set by StepSeedStub: the host-side destination the journey's
 	// agent sends to, kept so a later step or a host accept can inspect it.
 	Stub StubProvider
+}
+
+// ProjectDir is the project dir the journey runs in: its own project when
+// StepOwnProject set one, else the agent's shared project.
+func (c *Context) ProjectDir() string {
+	if c.Project != "" {
+		return c.Project
+	}
+	return driver.ProjectDir(c.Root, c.Agent)
 }
 
 // Step is one named action in a journey. A step's Run returns an error; the

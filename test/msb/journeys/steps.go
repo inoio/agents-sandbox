@@ -74,6 +74,21 @@ const (
 	launcherConfigDirName = "agents-sandbox"
 )
 
+// StepOwnProject moves the journey onto a project of its own, named
+// <agent>-<label>, and builds the agent's runner image there: the journey then
+// gets its own project slug, VM, and home volume instead of the agent's shared
+// project, so a VM another journey left running cannot leak into it.
+func StepOwnProject(label string) Step {
+	return Step{Name: "an own project " + label, Run: func(c *Context) error {
+		project := driver.ProjectDir(c.Root, c.Agent+"-"+label)
+		if err := driver.BuildProjectImage(c.Root, c.Binary, project, c.Agent); err != nil {
+			return err
+		}
+		c.Project = project
+		return nil
+	}}
+}
+
 // StepFreshHome prepares a journey's isolated HOME, so it starts with no host
 // config and no managed layer: no first-run decision exists and the menu is
 // offered.
@@ -135,7 +150,7 @@ func StepLaunch(args ...string) Step {
 		argv = driver.WithVMCPUs(argv, driver.SmokeVMCPUs())
 		//testenv:allow the journey launcher runs under the host environment it isolates from
 		env := driver.IsolatedEnv(c.Root, c.Home, os.Environ())
-		c.Session = driver.MustStartUnderPTY(c.TB, driver.ProjectDir(c.Root, c.Agent), env, argv...)
+		c.Session = driver.MustStartUnderPTY(c.TB, c.ProjectDir(), env, argv...)
 		return nil
 	}}
 }
@@ -148,6 +163,29 @@ func StepChooseFirstRun(choice firstrun.Choice) Step {
 			return err
 		}
 		return writeLine(c, string(choice))
+	}}
+}
+
+// hostProvisioningQuestion is the start of the question the manual first-run
+// choice asks before it provisions host config.
+const hostProvisioningQuestion = "Provisioning copies your host agent config"
+
+// StepDeclineHostProvisioning answers the manual first-run choice's
+// host-config provisioning question with no, so the run provisions only what the
+// journey seeded.
+func StepDeclineHostProvisioning() Step {
+	return Step{Name: "decline host-config provisioning", Run: func(c *Context) error {
+		ses, err := session(c)
+		if err != nil {
+			return err
+		}
+		if err := ses.WaitForMarker(
+			hostProvisioningQuestion,
+			driver.ScaleTimeout(driver.TuiReadyTimeout, driver.SmokeTimeoutFactor()),
+		); err != nil {
+			return fmt.Errorf("the host-config provisioning question was not asked: %w", err)
+		}
+		return writeLine(c, "n")
 	}}
 }
 
@@ -183,14 +221,84 @@ func StepWaitReady() Step {
 	}}
 }
 
-// StepSendPrompt types prompt into the harness's editor and presses Enter.
+// StepSendPrompt types prompt into the harness's editor, retyping it until the
+// harness echoes it (see typeUntilEchoed), and presses Enter.
 func StepSendPrompt(prompt string) Step {
 	return Step{Name: "send prompt", Run: func(c *Context) error {
 		ses, err := session(c)
 		if err != nil {
 			return err
 		}
-		return ses.Write([]byte(prompt + "\r"))
+		echoWait := driver.ScaleTimeout(promptEchoWait, driver.SmokeTimeoutFactor())
+		if err := typeUntilEchoed(ses, prompt, promptTypeAttempts, echoWait); err != nil {
+			return err
+		}
+		return ses.Write([]byte("\r"))
+	}}
+}
+
+// stubPollInterval is how often StepAssertStubServed checks the stub's log.
+const stubPollInterval = 100 * time.Millisecond
+
+// stubTurnTimeout bounds how long a turn may take to reach the stub provider
+// after the prompt was sent; it is a ceiling, not the expected wait.
+const stubTurnTimeout = 60 * time.Second
+
+// StepAssertStubServed waits until the stub provider served a chat completion,
+// proving the harness's turn reached the host-side stub.
+func StepAssertStubServed() Step {
+	return stepAssertStubServed(driver.ScaleTimeout(stubTurnTimeout, driver.SmokeTimeoutFactor()))
+}
+
+func stepAssertStubServed(budget time.Duration) Step {
+	return Step{Name: "the stub provider served the turn", Run: func(c *Context) error {
+		if c.Stub == nil {
+			return errors.New("no stub provider on the context; seed it first")
+		}
+		deadline := time.Now().Add(budget)
+		for !servedTurn(c.Stub.Requests()) {
+			if !time.Now().Before(deadline) {
+				return fmt.Errorf(
+					"the stub provider served no turn within %s (requests: %v)",
+					budget,
+					c.Stub.Requests(),
+				)
+			}
+			//testenv:allow polling a live harness on a wall-clock interval
+			time.Sleep(stubPollInterval)
+		}
+		return nil
+	}}
+}
+
+// StepAssertReplyShown waits until the harness shows the stub's reply, so the
+// turn completed rather than only reaching the stub.
+func StepAssertReplyShown() Step {
+	return Step{Name: "the harness shows the stub's reply", Run: func(c *Context) error {
+		ses, err := session(c)
+		if err != nil {
+			return err
+		}
+		return ses.WaitForMarker(StubReply, driver.ScaleTimeout(stubTurnTimeout, driver.SmokeTimeoutFactor()))
+	}}
+}
+
+// StepQuitToExit leaves the harness with its quit key and waits for the
+// launcher to exit 0: the quit for a run with no learn exit prompt.
+func StepQuitToExit() Step {
+	return Step{Name: "quit the harness and the launcher exits", Run: func(c *Context) error {
+		ses, err := session(c)
+		if err != nil {
+			return err
+		}
+		code, err := driver.Quit(ses, c.Spec)
+		if err != nil {
+			return err
+		}
+		if code != 0 {
+			return fmt.Errorf("the launcher exited %d, want 0", code)
+		}
+		return nil
 	}}
 }
 
@@ -260,7 +368,7 @@ func StepLaunchCommand(args ...string) Step {
 		argv := commandArgv(c.Binary, args)
 		//testenv:allow the journey launcher runs under the host environment it isolates from
 		env := driver.IsolatedEnv(c.Root, c.Home, os.Environ())
-		c.Session = driver.MustStartUnderPTY(c.TB, driver.ProjectDir(c.Root, c.Agent), env, argv...)
+		c.Session = driver.MustStartUnderPTY(c.TB, c.ProjectDir(), env, argv...)
 		return nil
 	}}
 }
@@ -499,7 +607,7 @@ func StepAssertScopeExcludes(names ...string) Step {
 // per-slug user scope, never the checkout (#252).
 func StepAssertNoProjectScaffolding() Step {
 	return Step{Name: "assert no project scaffolding", Run: func(c *Context) error {
-		scaffold := filepath.Join(driver.ProjectDir(c.Root, c.Agent), configpaths.ProjectConfigDir)
+		scaffold := filepath.Join(c.ProjectDir(), configpaths.ProjectConfigDir)
 		_, err := os.Stat(scaffold)
 		if err == nil {
 			return fmt.Errorf("the run created project scaffolding at %s", scaffold)
@@ -681,7 +789,7 @@ func writeLine(c *Context, line string) error {
 // directory, the same way the launcher does, so the slug the scope and state
 // paths are keyed by matches the run.
 func journeyIdentity(c *Context) (git.Identity, error) {
-	dir := driver.ProjectDir(c.Root, c.Agent)
+	dir := c.ProjectDir()
 	identity, err := git.ResolveIdentity(dir)
 	if err != nil {
 		return git.Identity{}, fmt.Errorf("resolve checkout identity for %s: %w", dir, err)
