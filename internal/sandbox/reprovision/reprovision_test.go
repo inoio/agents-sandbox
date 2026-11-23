@@ -507,3 +507,31 @@ func TestProvisionChownsWhatItCreatedBeforeAFailure(t *testing.T) {
 		})
 	}
 }
+
+// removeFailingFS fails every Remove.
+type removeFailingFS struct{ *msbtest.TestFS }
+
+func (removeFailingFS) Remove(context.Context, string) error { return errors.New("remove boom") }
+
+// TestProvisionReportsEachStaleRemoval pins that a removal, and a failed one,
+// is reported rather than silent, and that a failed removal does not stop
+// provisioning.
+func TestProvisionReportsEachStaleRemoval(t *testing.T) {
+	stale := "/home/dev/.config/opencode/config.json"
+	for name, tc := range map[string]struct {
+		fs   msb.SandboxFS
+		want string
+	}{
+		"removed": {msbtest.NewTestFS(nil), "removed stale config " + stale},
+		"failed":  {removeFailingFS{msbtest.NewTestFS(nil)}, "remove stale config " + stale + " failed: remove boom"},
+	} {
+		ui := testLogger(t)
+		sb := &msbtest.MockSandbox{FSValue_: tc.fs, ShellCalls: &[]string{}}
+		if err := Provision(context.Background(), sb, &ConfigFiles{Remove: []string{stale}}, ui); err != nil {
+			t.Fatalf("%s: Provision: %v", name, err)
+		}
+		if !slices.Contains(ui.VerboseCalls, tc.want) {
+			t.Errorf("%s: verbose = %v, want %q", name, ui.VerboseCalls, tc.want)
+		}
+	}
+}

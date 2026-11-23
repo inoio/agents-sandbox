@@ -370,6 +370,28 @@ func TestSelectManagedProvisionFileNarrowsBroadGlob(t *testing.T) {
 	}
 }
 
+// TestSelectManagedProvisionFileKeepsANarrowRule pins the other branch: a rule
+// without a broad glob keeps its own selection, nested files included, minus
+// directories.
+func TestSelectManagedProvisionFileKeepsANarrowRule(t *testing.T) {
+	rule := agent.ProvisionRule{Dir: ".pi/agent", Patterns: []string{"/settings.json", "/skills/"}}
+	cases := []struct {
+		rel   string
+		isDir bool
+		want  bool
+	}{
+		{rel: "settings.json", want: true},
+		{rel: "skills/foo/SKILL.md", want: true},
+		{rel: "skills", isDir: true, want: false},
+		{rel: "auth.json", want: false},
+	}
+	for _, tc := range cases {
+		if got := agent.SelectManagedProvisionFile(rule, tc.rel, tc.isDir); got != tc.want {
+			t.Errorf("SelectManagedProvisionFile(%q, isDir=%v) = %v, want %v", tc.rel, tc.isDir, got, tc.want)
+		}
+	}
+}
+
 // TestEvalManagedProvisionRulesNarrowsBroadGlob pins the walk end to end: a
 // broad "**" rule copies the rule dir's top-level files (minus negations) and
 // none of the nested files or directories it also selects.
