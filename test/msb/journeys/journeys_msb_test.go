@@ -58,14 +58,6 @@ func TestHarnessJourneys(t *testing.T) {
 			}
 		})
 	}
-
-	// The host-gated stub spike runs last, sharing this test's prepared root and
-	// reuse lock: a separate top-level test would re-enter driver.Prepare, whose
-	// per-caller cleanup tears the shared root down and releases the lock when
-	// the first caller returns.
-	t.Run("stub-provider-turn-reaches-the-proxy", func(t *testing.T) {
-		runStubProviderTurnReachesTheProxy(t, root, binary)
-	})
 }
 
 // journeyContext builds the context one (journey, harness) run starts from: the
@@ -88,17 +80,13 @@ func journeyContext(t *testing.T, root, binary string, journey Journey, harness 
 }
 
 // journeySelection is the images the make target's JOURNEY/HARNESS selection
-// drives, the opt-in proxy spike's harness included when it runs. A selection
+// drives. A selection
 // that names no cell fails, so a typo cannot pass as an empty green run.
 func journeySelection(t *testing.T) []driver.ProjectAgent {
 	t.Helper()
 	//testenv:allow the make target passes the JOURNEY/HARNESS selection through the environment
-	journey, harness, spike := os.Getenv(journeySelectionEnv), os.Getenv(harnessSelectionEnv), os.Getenv(proxySpikeEnv)
-	var outsideTable []string
-	if spike != "" {
-		outsideTable = append(outsideTable, opencode2AgentName)
-	}
-	selection := selectedProjectAgents(Journeys, journey, harness, outsideTable...)
+	journey, harness := os.Getenv(journeySelectionEnv), os.Getenv(harnessSelectionEnv)
+	selection := selectedProjectAgents(Journeys, journey, harness)
 	if len(selection) == 0 && (journey != "" || harness != "") {
 		t.Fatalf("JOURNEY=%q HARNESS=%q selects no journey cell", journey, harness)
 	}

@@ -165,9 +165,9 @@ on screen cannot pass for the turn's reply, and a title request does not count a
 - **The route does not pass the observation proxy.** Host-gateway traffic bypasses the learn-mode terminating
   proxy, and the runtime enforces the egress policy before the proxy is consulted, so a name the policy denies
   or the guest cannot resolve (the former `agents-sandbox-stub.invalid` default) is never observed either. No
-  route is known yet that both completes a turn and is observed; the proxy spike
-  (`TestHarnessJourneys/stub-provider-turn-reaches-the-proxy`) therefore runs only with
-  `AGENTS_SANDBOX_JOURNEYS_PROXY_SPIKE=1` and stays the open question of the attribution half.
+  route is known yet that both completes a turn and is observed; the proxy spike, the table journey
+  `proxy-observes-the-stub` (opencode2), therefore opts in through `StepRequireOptIn`: it is skipped unless
+  `AGENTS_SANDBOX_JOURNEYS_PROXY_SPIKE=1`, and stays the open question of the attribution half.
 
 #### Typing into a harness
 

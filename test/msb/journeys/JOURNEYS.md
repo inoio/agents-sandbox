@@ -166,3 +166,25 @@ Scenario: core-session
   And the resumed session shows "journeys core first client again"
   When the user quits the harness and the launcher exits 0
 ```
+
+## proxy-observes-the-stub
+
+Runs on: opencode2
+
+Not yet:
+
+- claude-code, codex, goose, grok-build, hermes, kimi-code, mistral-vibe, oh-my-pi, opencode, pi, qwen-code: the proxy spike asks whether a stub route passes the learn proxy, which one harness answers (#793)
+
+```gherkin
+Scenario: proxy-observes-the-stub
+  Given the run opts in with AGENTS_SANDBOX_JOURNEYS_PROXY_SPIKE
+  And a fresh isolated home
+  And the stub provider is provisioned into the VM
+  When the user runs `agents-sandbox run --learn`
+  Then the harness TUI comes up
+  When the user sends the prompt "hello"
+  And the user quits the harness and the learn exit prompt appears
+  # check
+  Then the learn proxy observed the stub's host
+  When the user answers the exit prompt with Save all
+```

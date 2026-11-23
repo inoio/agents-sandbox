@@ -191,3 +191,49 @@ func TestExitChoiceLabelNamesThePromptsChoices(t *testing.T) {
 		}
 	}
 }
+
+func TestStepRequireOptInSkipsUnlessTheSwitchIsSet(t *testing.T) {
+	const env = "AGENTS_SANDBOX_JOURNEYS_TEST_OPT_IN"
+	t.Setenv(env, "")
+	var skip skipJourneyError
+	if err := StepRequireOptIn(
+		env,
+		"a spike",
+	).Run(&Context{}); !errors.As(err, &skip) ||
+		!strings.Contains(skip.reason, env) {
+		t.Errorf("without the switch: err = %v, want a skip naming %s", err, env)
+	}
+	t.Setenv(env, "1")
+	if err := StepRequireOptIn(env, "a spike").Run(&Context{}); err != nil {
+		t.Errorf("with the switch: err = %v, want nil", err)
+	}
+}
+
+func TestObservedHostProblemFindsTheStubsHost(t *testing.T) {
+	home := t.TempDir()
+	learnDir := filepath.Join(home, isolatedStateDir, launcherConfigDirName, "learn")
+	if err := observedHostProblem(
+		learnDir,
+		"stub.test",
+	); err == nil ||
+		!strings.Contains(err.Error(), "no learn artefact") {
+		t.Errorf("no artefact: err = %v, want the missing artefact named", err)
+	}
+
+	restore := withJourneyStatePaths(home)
+	defer restore()
+	observation := channel.Observation{Destinations: []channel.Destination{{Host: "other.test"}}}
+	if _, err := channel.Save("slug", 1, observation); err != nil {
+		t.Fatalf("save observation: %v", err)
+	}
+	if err := observedHostProblem(learnDir, "stub.test"); err == nil || !strings.Contains(err.Error(), "other.test") {
+		t.Errorf("another host only: err = %v, want the hosts it saw named", err)
+	}
+	observation.Destinations = append(observation.Destinations, channel.Destination{Host: "stub.test"})
+	if _, err := channel.Save("slug", 2, observation); err != nil {
+		t.Fatalf("save observation: %v", err)
+	}
+	if err := observedHostProblem(learnDir, "stub.test"); err != nil {
+		t.Errorf("the stub's host observed: err = %v", err)
+	}
+}

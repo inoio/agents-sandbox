@@ -1,6 +1,7 @@
 package journeys
 
 import (
+	"errors"
 	"strings"
 	"time"
 
@@ -13,12 +14,21 @@ type journeyTB interface {
 	Logf(format string, args ...any)
 	Errorf(format string, args ...any)
 	Fatalf(format string, args ...any)
+	Skipf(format string, args ...any)
 }
+
+// skipJourneyError is the error a step returns to skip the rest of its journey,
+// for an opt-in journey that was not opted into.
+type skipJourneyError struct {
+	reason string
+}
+
+func (s skipJourneyError) Error() string { return "skipped: " + s.reason }
 
 // runJourney logs the journey's scenario, then runs its steps in order on ctx,
 // logging each step with its duration. A failed Action ends the journey through
 // tb.Fatalf; a failed Check is recorded through tb.Errorf and the journey goes
-// on. now is the clock the durations are taken from.
+// on; a step returning skipJourneyError skips the rest through tb.Skipf. now is the clock the durations are taken from.
 func runJourney(tb journeyTB, ctx *Context, journey Journey, now func() time.Time) {
 	tb.Helper()
 	tb.Logf("%s", scenarioText(journey, ctx.Agent))
@@ -29,6 +39,10 @@ func runJourney(tb journeyTB, ctx *Context, journey Journey, now func() time.Tim
 		tb.Logf("%s (%s)", step.Text(), duration)
 		if err == nil {
 			continue
+		}
+		if skip, ok := errors.AsType[skipJourneyError](err); ok {
+			tb.Skipf("journey %q: %s", journey.Name, skip.reason)
+			return
 		}
 		if step.Kind == Check {
 			tb.Errorf("journey %q: %s: %v%s", journey.Name, step.Text(), err, sessionTail(ctx))
@@ -73,11 +87,9 @@ func journeySpec(spec driver.Spec, journey Journey, adapter Harness) driver.Spec
 
 // selectedProjectAgents are the runner images the selected journeys drive: each
 // harness of each journey named journey (all when empty), narrowed to harness
-// when set, in table order and without duplicates, plus unfiltered the
-// harnesses of the subtests outside the table, which run whenever no journey is
-// named (their names have no harness level for -run to filter). The suite
-// prebuilds only these, never the startup smoke's whole set.
-func selectedProjectAgents(journeys []Journey, journey, harness string, outsideTable ...string) []driver.ProjectAgent {
+// when set, in table order and without duplicates. The suite prebuilds only
+// these, never the startup smoke's whole set.
+func selectedProjectAgents(journeys []Journey, journey, harness string) []driver.ProjectAgent {
 	var pairs []driver.ProjectAgent
 	seen := map[string]bool{}
 	add := func(name string) {
@@ -94,11 +106,6 @@ func selectedProjectAgents(journeys []Journey, journey, harness string, outsideT
 			if harness == "" || name == harness {
 				add(name)
 			}
-		}
-	}
-	if journey == "" {
-		for _, name := range outsideTable {
-			add(name)
 		}
 	}
 	return pairs

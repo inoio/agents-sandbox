@@ -1,5 +1,7 @@
 package journeys
 
+import "slices"
+
 // Journeys is the journey table: one entry per scenario, each run once per
 // harness it lists. Every registered agent a journey does not drive carries a
 // recorded exemption for that journey (Exemptions).
@@ -9,6 +11,7 @@ var Journeys = []Journey{
 	configLearnJourney,
 	attributionJourney,
 	coreSessionJourney,
+	proxySpikeJourney,
 }
 
 // learnSliceHarnesses are the harnesses the learn-mode journeys extend to in
@@ -51,6 +54,16 @@ func coreSessionExemptions() map[string]string {
 	return reasons
 }
 
+// proxySpikeExemptions records why the proxy spike probes opencode2 only: it is
+// a route question, not a harness one.
+func proxySpikeExemptions() map[string]string {
+	reasons := map[string]string{}
+	for _, name := range slices.Concat(learnSliceHarnesses, learnRolloutHarnesses) {
+		reasons[name] = "the proxy spike asks whether a stub route passes the learn proxy, which one harness answers (#793)"
+	}
+	return reasons
+}
+
 // Exemptions records, per journey, why a registered harness is not driven by
 // it. The completeness contract requires every (journey, registered agent) pair
 // to be covered or exempted with a non-empty reason, so a newly registered
@@ -61,4 +74,5 @@ var Exemptions = map[string]map[string]string{
 	configLearnJourney.Name: learnExemptions(),
 	attributionJourney.Name: learnExemptions(),
 	coreSessionJourney.Name: coreSessionExemptions(),
+	proxySpikeJourney.Name:  proxySpikeExemptions(),
 }

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -261,4 +262,63 @@ func StepAssertSessionCleared() Step {
 		}
 		return nil
 	}})
+}
+
+// StepRequireOptIn skips the journey unless env is set: an opt-in journey,
+// such as the proxy spike, runs only when asked for.
+func StepRequireOptIn(env, reason string) Step {
+	return Step{Name: "the run opts in with " + env, Run: func(*Context) error {
+		//testenv:allow an opt-in journey reads its own switch
+		if os.Getenv(env) == "" {
+			return skipJourneyError{reason: "set " + env + "=1 to run it: " + reason}
+		}
+		return nil
+	}}
+}
+
+// StepAssertStubObserved checks that a saved learn artefact under the
+// journey's isolated state names the stub's advertised host, so the turn went
+// through the learn observation proxy. It reads the artefact while the exit
+// prompt holds the launcher open (the after-run deletes it once answered), and
+// names every host it saw, so a route the proxy sees under another name is
+// diagnosable.
+func StepAssertStubObserved() Step {
+	return AsCheck(Step{Name: "the learn proxy observed the stub's host", Run: func(c *Context) error {
+		if c.Stub == nil {
+			return errors.New("no stub provider on the context; seed it first")
+		}
+		addr, err := url.Parse(c.Stub.Addr())
+		if err != nil || addr.Hostname() == "" {
+			return fmt.Errorf("stub address %q is not a URL with a host", c.Stub.Addr())
+		}
+		return observedHostProblem(
+			filepath.Join(c.Home, isolatedStateDir, launcherConfigDirName, "learn"),
+			addr.Hostname(),
+		)
+	}})
+}
+
+// observedHostProblem reports why no learn artefact under learnDir names host.
+func observedHostProblem(learnDir, host string) error {
+	artefacts, err := filepath.Glob(filepath.Join(learnDir, "*", "*.json"))
+	if err != nil {
+		return fmt.Errorf("glob learn artefacts under %s: %w", learnDir, err)
+	}
+	if len(artefacts) == 0 {
+		return fmt.Errorf("the run saved no learn artefact under %s", learnDir)
+	}
+	var observed []string
+	for _, path := range artefacts {
+		observation, err := channel.Load(path)
+		if err != nil {
+			return fmt.Errorf("load observation %s: %w", path, err)
+		}
+		for _, destination := range observation.Destinations {
+			if destination.Host == host {
+				return nil
+			}
+			observed = append(observed, destination.Host)
+		}
+	}
+	return fmt.Errorf("the saved observation names no destination for %q (saw %v)", host, observed)
 }
