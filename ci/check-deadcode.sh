@@ -13,7 +13,7 @@
 # separately and the findings are unioned, so a function the default build cannot
 # reach fails even when a tagged build can.
 #
-# Usage: DEADCODE_VERSION=v0.52.0 ci/check-deadcode.sh
+# Usage: DEADCODE_VERSION=v0.53.0 ci/check-deadcode.sh
 #   DEADCODE_VERSION  required; the pinned golang.org/x/tools release (Makefile).
 #   PKG               package pattern to analyse, default ./... . deadcode needs
 #                     at least one main package in the pattern, so a leaf package
@@ -36,7 +36,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-: "${DEADCODE_VERSION:?DEADCODE_VERSION must be set, e.g. DEADCODE_VERSION=v0.52.0}"
+: "${DEADCODE_VERSION:?DEADCODE_VERSION must be set, e.g. DEADCODE_VERSION=v0.53.0}"
 
 # The microsandbox SDK needs cgo, so the analysis must not silently run with it
 # off: an environment without a C compiler fails the analysis (exit 2) rather

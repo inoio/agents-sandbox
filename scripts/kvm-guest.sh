@@ -138,7 +138,7 @@ fi
 
 if [ -z "${GH_VERSION:-}" ]; then
   GH_VERSION="$(sed -n 's/^ARG GH_VERSION=//p' "$repo_root/.agents-sandbox/Dockerfile" 2>/dev/null | head -1 | tr -d '[:space:]' || true)"
-  [ -n "$GH_VERSION" ] || GH_VERSION="2.104.0"
+  [ -n "$GH_VERSION" ] || GH_VERSION="2.105.0"
 fi
 
 case "$(uname -m)" in

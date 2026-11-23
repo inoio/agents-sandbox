@@ -238,7 +238,8 @@ On any release:
 
 On major/minor releases (from `main` branch):
 
-- `make upgrade-deps`, push any `go.mod`/`go.sum` changes to PR
+- `make upgrade-deps`, push any `go.mod`/`go.sum` changes to PR — but hold the microsandbox SDK on its
+  current v0.7 line (crossing into v0.8 is source-breaking and needs the `msb-seam` migration first)
 - Bump the non-Go tool versions per [NON-GO-DEPS.md](NON-GO-DEPS.md), push to PR
 
 Completion: the bumps are on `main` (or found unnecessary), and the tagged branch's `[Unreleased]`/`changelog.d/`

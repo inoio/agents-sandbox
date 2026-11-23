@@ -91,7 +91,7 @@ ARG GOTESTSUM_VERSION=1.13.0
 # gotestsum: emits JUnit XML (junit.xml) for Codecov Test Analytics alongside coverage.
 RUN GOBIN=/usr/local/bin go install gotest.tools/gotestsum@v${GOTESTSUM_VERSION}
 ARG GOPLS_VERSION=0.24.0
-ARG XTOOLS_VERSION=0.52.0
+ARG XTOOLS_VERSION=0.53.0
 # gopls: type-checked navigation/refactor (definition, references, rename, symbols,
 # call hierarchy). goimports: add/remove imports across a package move. deadcode: the
 # same x/tools pinned by the `make deadcode` gate (DEADCODE_VERSION), prebuilt so the
@@ -100,7 +100,7 @@ RUN GOBIN=/usr/local/bin go install golang.org/x/tools/gopls@v${GOPLS_VERSION}
 RUN GOBIN=/usr/local/bin go install \
     golang.org/x/tools/cmd/goimports@v${XTOOLS_VERSION} \
     golang.org/x/tools/cmd/deadcode@v${XTOOLS_VERSION}
-ARG GOVULNCHECK_VERSION=1.9.0
+ARG GOVULNCHECK_VERSION=1.10.0
 ARG GOMUTANTS_VERSION=0.7.3
 # govulncheck: the `make vulncheck` scanner (part of `make verify`), and
 # gomutants: the on-demand `make mutation` tool. Both follow the deadcode
@@ -163,7 +163,7 @@ FROM fetch AS extras
 #   gh auth setup-git
 # fi
 # ```
-ARG GH_VERSION=2.104.0
+ARG GH_VERSION=2.105.0
 RUN curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_$(dpkg --print-architecture).deb" -o /tmp/gh.deb \
  && dpkg-deb -x /tmp/gh.deb /opt/gh \
  && rm -f /tmp/gh.deb
@@ -172,7 +172,7 @@ RUN curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_$
 # only the GUI app, so pull the manylinux wheel from PyPI and extract the CLI binary
 # directly - no pip, Cargo, or Node. The upstream `sg` alias is omitted: on Linux `sg`
 # is setgroups' command.
-ARG AST_GREP_VERSION=0.51.2
+ARG AST_GREP_VERSION=0.51.3
 RUN ARCH="$(dpkg --print-architecture)" \
  && case "$ARCH" in \
       amd64) SG_WHEEL=x86_64 ;; \
@@ -223,7 +223,7 @@ RUN mkdir -p /usr/local/plantuml \
 # built-ins, so it runs on Debian's nodejs with no npm/npx. The hand-pinned
 # version (see .agents/skills/release/NON-GO-DEPS.md) also means its npm/bun
 # self-update cannot run, which is fine for a baked dev image.
-ARG OPERATOR_HELPER_VERSION=1.12.0
+ARG OPERATOR_HELPER_VERSION=1.13.0
 RUN curl -fsSL "https://registry.npmjs.org/@aerovato/operator-helper/-/operator-helper-${OPERATOR_HELPER_VERSION}.tgz" -o /tmp/operator-helper.tgz \
  && mkdir -p /opt/operator-helper \
  && tar -xzf /tmp/operator-helper.tgz -C /opt/operator-helper --strip-components=1 \

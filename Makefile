@@ -20,10 +20,10 @@ ZIG_ROOT = $(shell f="$$(command -v zig)"; [ -n "$$f" ] || exit 0; cd "$$(dirnam
 # the recipe tell the managed zig apart from one PATH resolves to elsewhere.
 ZIG_MANAGED_ROOT = $(shell cd "$$HOME/.local/zig" 2>/dev/null && pwd -P)
 GOTESTSUM_VERSION = 1.13.0
-GOVULNCHECK_VERSION = v1.9.0
+GOVULNCHECK_VERSION = v1.10.0
 ACTIONLINT_VERSION = v1.7.12
 GOMUTANTS_VERSION = v0.7.3
-DEADCODE_VERSION = v0.52.0
+DEADCODE_VERSION = v0.53.0
 # Per-binary cap for the unit suite: a wedged test panics with a stack dump
 # instead of blocking for go test's default 10m. Override for a slow machine.
 TEST_TIMEOUT ?= 5m

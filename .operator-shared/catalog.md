@@ -90,7 +90,7 @@
 
 - `specs/architecture/`
   - Description: Cross-cutting contracts: `client-injection.md`, `dry-run-preview.md`, `msb-seam.md`, `package-boundaries.md`, `termio-ui.md`.
-  - Read If: Changing a `docker.Get()`/`configpaths.Get()` call site or threading a client/path resolver; the `--dry-run`/`--dry-run-vm` or `options.Mode` boundary; the `msb` role interfaces/composites/mock or how a consumer depends on the seam; moving a Printer/report DTO between `cliout` and `view` or run-preparation code between `prepare` and `vm`; or a termio role interface, `termio.UI`/`New`, prompts/spinners, or non-TTY behavior.
+  - Read If: Changing a `docker.Get()`/`configpaths.Get()` call site or threading a client/path resolver; the `--dry-run`/`--dry-run-vm` or `options.Mode` boundary; the `msb` role interfaces/composites/mock or how a consumer depends on the seam; moving a Printer/report DTO between `cliout` and `view` or run-preparation code between `prepare` and `vm`; or a termio role interface, `termio.UI`/`New`, prompts/spinners, or non-TTY behavior; or upgrading the microsandbox SDK (`go get -u ./...`).
 
 #### `specs/ci/` - CI pipeline and quality gates
 
