@@ -204,7 +204,7 @@
   - Read If: Working on `make kvm-sync-back`, the guest git identity provisioning, or `scripts/kvm-guest.sh`'s `sync_back`/`agent_provision`.
 - `plans/2026-11-22-kvm-agent-up-design.md`
   - Description: Design for the one-command KVM-guest agent bring-up (`make kvm-agent-up`, the `agent-up` subcommand): idempotent ensure-running, the cloud-init gate, and credential passthrough.
-  - Read If: Working on `make kvm-agent-up` or `scripts/kvm-guest.sh`'s `agent_up`/`ensure_running`/`wait_for_cloud_init`.
+  - Read If: Working on `make kvm-agent-up` or `scripts/kvm-guest.sh`'s `agent_up`/`acquire_guest`/`wait_for_cloud_init`.
 - `plans/2026-11-22-kvm-agent-up.md`
   - Description: Implementation plan for the same one-command bring-up (its tasks and tests); retire when folded into `guides/kvm-guest.md`.
   - Read If: Executing or reviewing the `kvm-agent-up` plan.

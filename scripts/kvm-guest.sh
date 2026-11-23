@@ -379,7 +379,9 @@ render() {
 check_host() {
   local tool
   for tool in virsh qemu-img cloud-localds curl; do require_tool "$tool"; done
-  [ -w /dev/kvm ] || die "/dev/kvm not writable on the host (add \$USER to the kvm group)"
+  if ! kvm_device_writable; then
+    die "/dev/kvm not writable on the host (add \$USER to the kvm group)"
+  fi
   local nested="" module path
   for module in kvm_amd kvm_intel; do
     path="/sys/module/$module/parameters/nested"
@@ -390,11 +392,38 @@ check_host() {
     "") log "warn: could not read the host nested-virt parameter; continuing" ;;
     *) die "host nested virtualization is off (nested=$nested); set options kvm-amd nested=1 and reboot" ;;
   esac
-  virsh_cmd list >/dev/null 2>&1 || die "cannot reach libvirt at $LIBVIRT_URI (is it running? set LIBVIRT_URI?)"
-  virsh_cmd net-info default >/dev/null 2>&1 || die "libvirt network 'default' not found at $LIBVIRT_URI"
+  require_libvirt_probe
+  require_default_network_gate
   if virsh_cmd dominfo "$VM_NAME" >/dev/null 2>&1; then
     die "libvirt domain '$VM_NAME' already exists (run: $0 down)"
   fi
+}
+
+# kvm_device_writable is the one host fact the harness cannot state any other
+# way: a real /dev/kvm cannot be made writable inside a test, so a case that
+# drives the create path sets KVM_FAKE_DEVICE_WRITABLE.
+kvm_device_writable() {
+  [ "${KVM_FAKE_DEVICE_WRITABLE:-}" = "1" ] || [ -w /dev/kvm ]
+}
+
+# fetch_base_image downloads the cloud image to a .part and moves it on success,
+# so a failed fetch (a 404, a dropped connection) leaves no partial base image to
+# be mistaken for a complete one.
+fetch_base_image() {
+  log "fetching $IMAGE_URL"
+  curl -fL --progress-bar "$IMAGE_URL" -o "$IMAGE_PATH.part"
+  mv "$IMAGE_PATH.part" "$IMAGE_PATH"
+}
+
+# require_libvirt_probe and require_default_network_gate are the create-path's
+# fail-closed host checks: an unreachable libvirt must not read as an absent
+# guest, and a missing network is fatal.
+require_libvirt_probe() {
+  virsh_cmd list >/dev/null 2>&1 || die "cannot reach libvirt at $LIBVIRT_URI (is it running? set LIBVIRT_URI?)"
+}
+
+require_default_network_gate() {
+  virsh_cmd net-info default >/dev/null 2>&1 || die "libvirt network 'default' not found at $LIBVIRT_URI"
 }
 
 ensure_default_network() {
@@ -550,7 +579,10 @@ guest_state() {
 
 # acquire_guest brings the shared guest up for this branch and records it as the
 # holder. Idempotent for the branch that already holds it; a guest held by
-# another branch (or a pre-lock guest with no label) is refused by name.
+# another branch (or a pre-lock guest with no label) is refused by name. The
+# label is written the moment the branch has the guest — before any readiness
+# wait — so a guest that is merely booting is never mistaken for an unlabeled
+# pre-lock one.
 acquire_guest() {
   local state owner ip branch
   branch="$(lock_branch)"
@@ -571,6 +603,7 @@ acquire_guest() {
     paused)
       log "resuming guest '$VM_NAME'"
       virsh_cmd resume "$VM_NAME" >/dev/null
+      write_guest_owner "$branch"
       ip="$(wait_for_lease)"
       probe_guest_egress "$ip"
       ;;
@@ -580,16 +613,25 @@ acquire_guest() {
       ensure_default_network
       log "starting the stopped guest '$VM_NAME'"
       virsh_cmd start "$VM_NAME" >/dev/null
+      write_guest_owner "$branch"
       ip="$(wait_for_lease)"
       probe_guest_egress "$ip"
       ;;
     absent)
+      # Labeled before create: create defines and starts the domain, and the
+      # label must land before its boot-long lease wait, or a competing branch
+      # reads the booting guest as an unlabeled pre-lock one and is invited to
+      # take it over.
+      write_guest_owner "$branch"
       create
       ;;
     *)
       die "guest '$VM_NAME' is in state '$state'; expected running, paused, shut off, or absent"
       ;;
   esac
+  # Re-asserted after the readiness wait (idempotent): the label is written the
+  # moment the branch has the guest, and rewritten here so its pid and cwd name
+  # this run.
   write_guest_owner "$branch"
 }
 
@@ -1016,12 +1058,7 @@ create() {
     rm -f "$IMAGE_PATH"
   fi
   if [ ! -f "$IMAGE_PATH" ]; then
-    log "fetching $IMAGE_URL"
-    # Download to a .part and move on success, so a failed fetch (a 404, a
-    # dropped connection) leaves no partial base image to be mistaken for a
-    # complete one on the next run.
-    curl -fL --progress-bar "$IMAGE_URL" -o "$IMAGE_PATH.part"
-    mv "$IMAGE_PATH.part" "$IMAGE_PATH"
+    fetch_base_image
   else
     log "using cached base image $IMAGE_PATH"
   fi
