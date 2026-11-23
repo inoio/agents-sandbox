@@ -26,8 +26,7 @@ var urlQuery = regexp.MustCompile(`\?[^\s"]*`)
 // proxyLog is goproxy's logger for an observation session. It writes every
 // warning to the session's log file (never the terminal, where it would
 // interleave with the agent's TUI) with quoted payloads redacted, counts them, and reports a failed
-// terminating handshake so the tunnel is not counted as reached. A nil file
-// only counts.
+// terminating handshake alongside the tunnel it opened. A nil file only counts.
 type proxyLog struct {
 	mu                 sync.Mutex
 	file               *os.File
