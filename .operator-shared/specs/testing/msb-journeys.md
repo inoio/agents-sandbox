@@ -219,11 +219,12 @@ source of truth and its steps are type-checked. It reads as Gherkin anyway:
   completeness contract is per pair: every (journey, registered agent) pair is driven or exempted with a
   recorded reason (`Exemptions`), so a newly registered agent fails the default suite until it is placed, and a
   stale exemption for a driven pair fails too.
-- **Seeds.** A journey starts from the startup smoke's seeds for the harness (`driver.Spec.Seeds`: host files,
-  `home:` manifest, agent snippets), so first-run state the smoke already settles (claude-code's `.claude.json`,
-  oh-my-pi's setup wizard) is not restated per adapter. `StepSeedStub` applies the host files and the manifest with
-  the adapter's `Stub.HomeFiles` added; the agent snippets wait for `StepConfigureLauncherEnv`, because a snippet
-  is a managed layer and a learn journey needs the first-run menu.
+- **Seeds.** A journey starts from the startup smoke's seeds for the harness (`driver.Spec.Seeds`), so
+  first-run state the smoke already settles (claude-code's `.claude.json`) is not restated per adapter:
+  `StepSeedStub` applies the smoke's `home:` manifest with the adapter's `Stub.HomeFiles` added, and
+  `StepConfigureLauncherEnv` the smoke's agent snippets with the adapter's on top (a snippet is a managed layer,
+  and a learn journey needs the first-run menu). The smoke's host files are not seeded: the first-run menu reads
+  host files as host setup, and a journey's host setup is its own (`StepSeedHostConfig`).
 - **Harness adapter.** Everything a step needs to know about a harness beyond starting and quitting it
   (`driver.Spec`, shared with the startup smoke) lives in its `Harness` adapter (`Harnesses`), in three parts:
   `Stub` (how it reaches the stub: `HomeFiles` through the `home:` manifest, `Env` through the launcher env file,

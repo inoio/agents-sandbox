@@ -2,6 +2,7 @@ package journeys
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"time"
 
@@ -28,7 +29,8 @@ func (s skipJourneyError) Error() string { return "skipped: " + s.reason }
 // runJourney logs the journey's scenario, then runs its steps in order on ctx,
 // logging each step with its duration. A failed Action ends the journey through
 // tb.Fatalf; a failed Check is recorded through tb.Errorf and the journey goes
-// on; a step returning skipJourneyError skips the rest through tb.Skipf. now is the clock the durations are taken from.
+// on; a step returning skipJourneyError skips the rest through tb.Skipf. now is
+// the clock the durations are taken from.
 func runJourney(tb journeyTB, ctx *Context, journey Journey, now func() time.Time) {
 	tb.Helper()
 	tb.Logf("%s", scenarioText(journey, ctx.Agent))
@@ -109,4 +111,16 @@ func selectedProjectAgents(journeys []Journey, journey, harness string) []driver
 		}
 	}
 	return pairs
+}
+
+// StepRequireOptIn skips the journey unless env is set: an opt-in journey,
+// such as the proxy spike, runs only when asked for.
+func StepRequireOptIn(env, reason string) Step {
+	return Step{Name: "the run opts in with " + env, Run: func(*Context) error {
+		//testenv:allow an opt-in journey reads its own switch
+		if os.Getenv(env) == "" {
+			return skipJourneyError{reason: "set " + env + "=1 to run it: " + reason}
+		}
+		return nil
+	}}
 }

@@ -154,7 +154,7 @@ func PrepareHome(homeBase string) error {
 
 // SeedHomeFiles writes each home-relative file under the run's isolated HOME
 // (<homeBase>/home/<rel>), creating parent directories, so the launcher
-// provisions it into the VM (see Spec.SeedHomeFiles).
+// provisions it into the VM (see Seeds.HomeFiles).
 //
 // It writes through mkdirAll and writeFile, seams a test can replace to assert
 // the seed's private modes without depending on the process umask.
@@ -173,7 +173,7 @@ func SeedHomeFiles(homeBase string, files map[string]string) error {
 
 // SeedAgentSnippets writes each snippet into the agent's config dir under the
 // run's isolated launcher config dir, where the launcher's snippet merge reads
-// it (see Spec.SeedAgentSnippets). A nil or empty map writes nothing.
+// it (see Seeds.AgentSnippets). A nil or empty map writes nothing.
 //
 // It uses the same mkdirAll/writeFile seams as SeedHomeFiles.
 func SeedAgentSnippets(homeBase, agentConfigDirName string, snippets map[string]string) error {

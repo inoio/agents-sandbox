@@ -253,11 +253,18 @@ func ImageBuildArgs(agentName string, docker bool) []string {
 	return args
 }
 
+// projectImageBuilds caps concurrent BuildProjectImage calls at the prebuild's
+// concurrency: parallel journey cells each build their own project's image,
+// and every build shares the suite root's image store.
+var projectImageBuilds = make(chan struct{}, prebuildConcurrency)
+
 // BuildProjectImage builds agentName's runner image for projectDir, creating the
 // dir, so a `run --no-rebuild` there finds its image. A journey that runs on a
 // project of its own calls it; the docker layers the prebuild cached make it
 // cheap.
 func BuildProjectImage(root, binary, projectDir, agentName string) error {
+	projectImageBuilds <- struct{}{}
+	defer func() { <-projectImageBuilds }()
 	if err := os.MkdirAll(projectDir, 0o750); err != nil {
 		return fmt.Errorf("create project dir %s: %w", projectDir, err)
 	}

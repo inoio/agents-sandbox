@@ -66,7 +66,7 @@ func TestOhMyPiSeedsAHomeConfigWithoutSetupWizard(t *testing.T) {
 	}
 	cfg, ok := spec.Seeds.HomeFiles[ohMyPiConfigPath]
 	if !ok {
-		t.Fatalf("oh-my-pi SeedHomeFiles missing %s", ohMyPiConfigPath)
+		t.Fatalf("oh-my-pi Seeds.HomeFiles missing %s", ohMyPiConfigPath)
 	}
 	if !strings.Contains(cfg, "setupWizard: false") {
 		t.Errorf("oh-my-pi seeded config must turn off the setup wizard:\n%s", cfg)
@@ -91,7 +91,7 @@ func TestKimiCodeSeedsATrustedWorkspaceThroughASnippet(t *testing.T) {
 	}
 	cfg, ok := spec.Seeds.AgentSnippets[kimiCodeSmokeSnippet]
 	if !ok {
-		t.Fatalf("kimi-code SeedAgentSnippets missing %s", kimiCodeSmokeSnippet)
+		t.Fatalf("kimi-code Seeds.AgentSnippets missing %s", kimiCodeSmokeSnippet)
 	}
 	if !strings.Contains(cfg, "require_trust = false") {
 		t.Errorf("kimi-code seeded config must skip the workspace-trust prompt:\n%s", cfg)
@@ -116,7 +116,7 @@ func TestGooseSeedsAProviderThroughASnippet(t *testing.T) {
 	}
 	cfg, ok := spec.Seeds.AgentSnippets[gooseSmokeSnippet]
 	if !ok {
-		t.Fatalf("goose SeedAgentSnippets missing %s", gooseSmokeSnippet)
+		t.Fatalf("goose Seeds.AgentSnippets missing %s", gooseSmokeSnippet)
 	}
 	for _, want := range []string{"GOOSE_PROVIDER: ollama", "GOOSE_TELEMETRY_ENABLED: false"} {
 		if !strings.Contains(cfg, want) {
@@ -176,7 +176,7 @@ func TestHermesSeedsAConfiguredHomeAndMarker(t *testing.T) {
 	}
 	cfg, ok := spec.Seeds.HomeFiles[HermesConfigPath]
 	if !ok {
-		t.Fatalf("hermes SeedHomeFiles missing %s", HermesConfigPath)
+		t.Fatalf("hermes Seeds.HomeFiles missing %s", HermesConfigPath)
 	}
 	for _, want := range []string{"model:", "base_url:", "telemetry:", "shared_metrics:", "offer_version:"} {
 		if !strings.Contains(cfg, want) {
@@ -212,7 +212,7 @@ func TestClaudeCodeSeedsItsFirstRunState(t *testing.T) {
 	}
 	cfg, ok := spec.Seeds.HomeManifest[ClaudeCodeConfigPath]
 	if !ok {
-		t.Fatalf("claude-code SeedHomeManifest missing %s", ClaudeCodeConfigPath)
+		t.Fatalf("claude-code Seeds.HomeManifest missing %s", ClaudeCodeConfigPath)
 	}
 	for _, want := range []string{"hasCompletedOnboarding", "/workspace", "hasTrustDialogAccepted"} {
 		if !strings.Contains(cfg, want) {
@@ -220,7 +220,7 @@ func TestClaudeCodeSeedsItsFirstRunState(t *testing.T) {
 		}
 	}
 	if len(spec.Seeds.HomeFiles) != 0 {
-		t.Errorf("claude-code SeedHomeFiles = %v; want the home: manifest", spec.Seeds.HomeFiles)
+		t.Errorf("claude-code Seeds.HomeFiles = %v; want the home: manifest", spec.Seeds.HomeFiles)
 	}
 }
 

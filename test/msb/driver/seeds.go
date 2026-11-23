@@ -4,7 +4,9 @@ import "maps"
 
 // Seeds are the files a harness run on an isolated home starts from, by the
 // route each takes into the VM. The startup smoke seeds a harness's Spec.Seeds;
-// a journey seeds them too, with its adapter's stub seeds on top (Merge).
+// a journey seeds its manifest and snippets, with its adapter's stub seeds on
+// top (Merge), but not its host files, which the first-run menu would read as
+// the journey's host setup.
 type Seeds struct {
 	// HomeFiles maps a home-relative path to its content, written under the
 	// isolated HOME so the launcher provisions it into the VM as host config

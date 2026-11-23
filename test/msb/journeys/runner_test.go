@@ -186,3 +186,20 @@ func TestRunJourneySkipsTheRestOnASkipStep(t *testing.T) {
 		)
 	}
 }
+
+func TestStepRequireOptInSkipsUnlessTheSwitchIsSet(t *testing.T) {
+	const env = "AGENTS_SANDBOX_JOURNEYS_TEST_OPT_IN"
+	t.Setenv(env, "")
+	var skip skipJourneyError
+	if err := StepRequireOptIn(
+		env,
+		"a spike",
+	).Run(&Context{}); !errors.As(err, &skip) ||
+		!strings.Contains(skip.reason, env) {
+		t.Errorf("without the switch: err = %v, want a skip naming %s", err, env)
+	}
+	t.Setenv(env, "1")
+	if err := StepRequireOptIn(env, "a spike").Run(&Context{}); err != nil {
+		t.Errorf("with the switch: err = %v, want nil", err)
+	}
+}

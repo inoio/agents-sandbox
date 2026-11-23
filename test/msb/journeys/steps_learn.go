@@ -266,18 +266,6 @@ func StepAssertSessionCleared() Step {
 	}})
 }
 
-// StepRequireOptIn skips the journey unless env is set: an opt-in journey,
-// such as the proxy spike, runs only when asked for.
-func StepRequireOptIn(env, reason string) Step {
-	return Step{Name: "the run opts in with " + env, Run: func(*Context) error {
-		//testenv:allow an opt-in journey reads its own switch
-		if os.Getenv(env) == "" {
-			return skipJourneyError{reason: "set " + env + "=1 to run it: " + reason}
-		}
-		return nil
-	}}
-}
-
 // StepAssertStubObserved checks that a saved learn artefact under the
 // journey's isolated state names the stub's advertised host, so the turn went
 // through the learn observation proxy. It reads the artefact while the exit
