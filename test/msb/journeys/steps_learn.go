@@ -127,6 +127,8 @@ func StepSeedLearnSession() Step {
 			}},
 		}
 
+		journeyStatePathsLock.Lock()
+		defer journeyStatePathsLock.Unlock()
 		restore := withJourneyStatePaths(c.Home)
 		defer restore()
 

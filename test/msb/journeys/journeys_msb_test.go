@@ -17,8 +17,12 @@ const (
 	harnessSelectionEnv = "AGENTS_SANDBOX_JOURNEYS_HARNESS"
 )
 
-// TestHarnessJourneys drives each journey in the table against a real
-// microsandbox VM, one journey at a time. It requires /dev/kvm, a docker daemon,
+// TestHarnessJourneys drives each journey in the table against real
+// microsandbox VMs: the journeys one after another, and a journey's harnesses
+// in parallel, as many at once as driver.HarnessConcurrency allows (the
+// startup smoke's limit). Each harness has its own project, so parallel cells
+// never share a VM, and the journeys' order keeps a harness's shared project
+// to one journey at a time. It requires /dev/kvm, a docker daemon,
 // and network; the `msb` build tag keeps it out of the default test run, and
 // driver.Preflight skips (never fails) on a host that cannot run it.
 //
@@ -49,10 +53,14 @@ func TestHarnessJourneys(t *testing.T) {
 	}
 	driver.PrebuildImagesFor(t, root, selection)
 
+	slots := make(chan struct{}, driver.HarnessConcurrency())
 	for _, journey := range Journeys {
 		t.Run(journey.Name, func(t *testing.T) {
 			for _, harness := range journey.Harnesses {
 				t.Run(harness, func(t *testing.T) {
+					t.Parallel()
+					slots <- struct{}{}
+					defer func() { <-slots }()
 					runJourney(t, journeyContext(t, root, binary, journey, harness), journey, time.Now)
 				})
 			}
