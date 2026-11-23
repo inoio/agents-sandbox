@@ -45,7 +45,7 @@ fi
 # check-changelog.sh's presence rule; keep the four copies in sync
 # (ci/check-ci-guards.sh).
 code=false
-if grep -vqE '^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/|\.agents-sandbox/)|\.md$|^\.gitignore$' "$changed_files"; then
+if grep -vqE '^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/|\.agents-sandbox/|\.idea/)|\.md$|^\.gitignore$' "$changed_files"; then
   code=true
 fi
 

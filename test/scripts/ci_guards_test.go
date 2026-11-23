@@ -646,6 +646,7 @@ const ciGuardsCodeQLPullRequestBlock = `  pull_request:
       - 'Formula/**'
       - '.github/ISSUE_TEMPLATE/**'
       - '.agents-sandbox/**'
+      - '.idea/**'
       - '.gitignore'
 `
 
@@ -869,7 +870,7 @@ const ciGuardsClassifyContent = `#!/usr/bin/env bash
 set -euo pipefail
 changed_files="$1"
 code=false
-if grep -vqE '^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/|\.agents-sandbox/)|\.md$|^\.gitignore$' "$changed_files"; then
+if grep -vqE '^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/|\.agents-sandbox/|\.idea/)|\.md$|^\.gitignore$' "$changed_files"; then
   code=true
 fi
 exec=false
@@ -890,6 +891,7 @@ const ciGuardsMutationContent = `on:
       - 'Formula/**'
       - '.github/ISSUE_TEMPLATE/**'
       - '.agents-sandbox/**'
+      - '.idea/**'
       - '.gitignore'
   workflow_dispatch:
 `
@@ -905,6 +907,7 @@ const ciGuardsCodeQLContent = `on:
       - 'Formula/**'
       - '.github/ISSUE_TEMPLATE/**'
       - '.agents-sandbox/**'
+      - '.idea/**'
       - '.gitignore'
   pull_request:
     paths-ignore:
@@ -914,6 +917,7 @@ const ciGuardsCodeQLContent = `on:
       - 'Formula/**'
       - '.github/ISSUE_TEMPLATE/**'
       - '.agents-sandbox/**'
+      - '.idea/**'
       - '.gitignore'
 `
 
@@ -927,7 +931,7 @@ set -euo pipefail
 IGNORE='README.md README.rst README .gitignore .gitkeep .keep'
 check_presence() {
   while IFS= read -r line; do
-    if [[ ! "$line" =~ ^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/|\.agents-sandbox/) ]] \
+    if [[ ! "$line" =~ ^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/|\.agents-sandbox/|\.idea/) ]] \
       && [[ ! "$line" =~ \.md$ ]] \
       && [[ ! "$line" =~ _test\.go$ ]] \
       && [[ "$line" != ".gitignore" ]]; then
