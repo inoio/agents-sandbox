@@ -194,7 +194,7 @@ usage() {
 usage: kvm-guest.sh {up|render|ssh|sync|prime|run <cmd...>|agent [cmd]|agent-up [cmd]|agent-provision [name]|sync-back [branch]|pause|firewall|down}
 
   up                bring the shared guest up for this branch (create if absent,
-                    resume a paused one, start a stopped one; refuses a guest
+                    resume a suspended one, start a stopped one; refuses a guest
                     another branch holds). cloud-init provisions a new guest.
   render            write the cloud-init seed and domain XML to ARTIFACT_DIR, no boot
   ssh               open a shell in the guest
@@ -559,7 +559,8 @@ write_guest_owner() {
 clear_guest_owner() { rm -f "$OWNER_PATH"; }
 
 # guest_state prints "absent" when the domain is not defined, else libvirt's
-# state name with whitespace removed ("running", "paused", "shutoff", ...). An
+# state name with whitespace removed ("running", "paused", "pmsuspended",
+# "shutoff", ...). An
 # undefined domain is proven by its absence from `virsh list --all --name`; a
 # failed query dies rather than reading as absent, so a caller acting on
 # "absent" (pause releasing the lock, create) never mistakes an unreachable or
@@ -600,7 +601,9 @@ acquire_guest() {
       fi
       die "guest '$VM_NAME' is running without an owner label (created before the lock). Hand it over with '$0 pause' or '$0 down'."
       ;;
-    paused)
+    paused|pmsuspended)
+      # `pmsuspended` is the state a host suspend/resume leaves a QEMU guest in;
+      # `virsh start` rejects an already-active domain, so both are resumed.
       log "resuming guest '$VM_NAME'"
       virsh_cmd resume "$VM_NAME" >/dev/null
       write_guest_owner "$branch"
@@ -626,7 +629,7 @@ acquire_guest() {
       create
       ;;
     *)
-      die "guest '$VM_NAME' is in state '$state'; expected running, paused, shut off, or absent"
+      die "guest '$VM_NAME' is in state '$state'; expected running, paused, suspended, shut off, or absent"
       ;;
   esac
   # Re-asserted after the readiness wait (idempotent): the label is written the
@@ -646,7 +649,7 @@ suspend_guest() {
       log "pausing guest '$VM_NAME' (disk kept; '$0 up' resumes it)"
       virsh_cmd suspend "$VM_NAME" >/dev/null
       ;;
-    paused) log "guest '$VM_NAME' is already paused" ;;
+    paused|pmsuspended) log "guest '$VM_NAME' is already suspended" ;;
     absent|shutoff) log "guest '$VM_NAME' is not running" ;;
     *) die "guest '$VM_NAME' is in an unexpected state '$state'" ;;
   esac
@@ -1114,7 +1117,7 @@ destroy() {
     absent)
       log "domain '$VM_NAME' is not defined; removing any leftover disk"
       ;;
-    running|paused|shutoff)
+    running|paused|pmsuspended|shutoff)
       log "destroying domain '$VM_NAME'"
       virsh_cmd destroy "$VM_NAME" >/dev/null 2>&1 || true
       virsh_cmd undefine "$VM_NAME" --nvram >/dev/null 2>&1 ||

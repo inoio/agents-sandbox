@@ -1190,6 +1190,30 @@ func TestKvmGuestRunLabelsAPausedGuestBeforeWaitingForItsLease(t *testing.T) {
 	assertOwnerLabeledAtLeaseProbe(t, filepath.Join(dir, "owner-at-lease"))
 }
 
+// TestKvmGuestRunResumesAPMSuspendedGuest pins that a guest libvirt reports as
+// `pmsuspended` — the state a host suspend/resume leaves a QEMU guest in — is
+// resumed, not refused: acquire_guest must treat it as a suspended-but-defined
+// guest rather than an unmodelled unexpected state, so recovery is one resume.
+func TestKvmGuestRunResumesAPMSuspendedGuest(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestEnv(dir)
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "pmsuspended"
+	env["SSH_ARGV"] = filepath.Join(dir, "ssh-argv")
+	env["VIRSH_ARGV"] = filepath.Join(dir, "virsh-argv")
+	env["VIRSH_OWNER_AT_PROBE"] = filepath.Join(dir, "owner-at-lease")
+	env["KVM_BOOT_TIMEOUT"] = "5" // one lease poll, no 300s wait
+	env["PATH"] = kvmGuestPath(t, "virsh", "ssh")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "run", "true")
+	assertStatus(t, result, 0)
+
+	virshArgv := readText(t, filepath.Join(dir, "virsh-argv"))
+	assertContains(t, "virsh argv", virshArgv, "resume asb-kvm-test")
+	assertNotContains(t, "virsh argv", virshArgv, "start")
+	assertOwnerLabeledAtLeaseProbe(t, filepath.Join(dir, "owner-at-lease"))
+}
+
 // TestKvmGuestRunLabelsAStoppedGuestBeforeWaitingForItsLease pins the same
 // ordering on the start arm, which re-ensures the default network first.
 func TestKvmGuestRunLabelsAStoppedGuestBeforeWaitingForItsLease(t *testing.T) {
@@ -1403,6 +1427,27 @@ func TestKvmGuestPauseOnAPausedGuestIsANoOp(t *testing.T) {
 	}
 }
 
+// TestKvmGuestPauseOnAPMSuspendedGuestIsANoOp pins that pause treats a
+// `pmsuspended` guest as already suspended, like `paused`: it must not die as an
+// unexpected state, and it still drops the owner label so another branch can
+// take the guest.
+func TestKvmGuestPauseOnAPMSuspendedGuestIsANoOp(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestEnv(dir)
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "pmsuspended"
+	writeGuestOwnerFile(t, dir, "feat/793-msb-journeys")
+	env["VIRSH_ARGV"] = filepath.Join(dir, "virsh-argv")
+	env["PATH"] = kvmGuestPath(t, "virsh")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "pause")
+	assertStatus(t, result, 0)
+	assertNotContains(t, "virsh argv", readText(t, filepath.Join(dir, "virsh-argv")), "suspend")
+	if _, err := os.Stat(filepath.Join(dir, "asb-kvm-test.owner")); err == nil {
+		t.Error("pause left the owner label behind")
+	}
+}
+
 // TestKvmGuestDownClearsTheLabelWhenTheDomainIsUndefined pins Review Focus item
 // 4: down clears a stale label even when the domain is already gone.
 func TestKvmGuestDownClearsTheLabelWhenTheDomainIsUndefined(t *testing.T) {
@@ -1494,6 +1539,30 @@ func TestKvmGuestDownDestroysTheDomain(t *testing.T) {
 	env["VIRSH_ARGV"] = argvPath
 	env["VIRSH_DOMINFO_OK"] = "1"
 	env["VIRSH_DOMSTATE"] = "running"
+	env["PATH"] = kvmGuestPath(t, "virsh")
+	writeGuestOwnerFile(t, dir, "feat/793-msb-journeys")
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "down")
+	assertStatus(t, result, 0)
+
+	argv := readText(t, argvPath)
+	assertContains(t, "virsh argv", argv, "destroy asb-kvm-test")
+	assertContains(t, "virsh argv", argv, "undefine asb-kvm-test")
+	if _, err := os.Stat(filepath.Join(dir, "asb-kvm-test.owner")); err == nil {
+		t.Error("down left the owner label behind")
+	}
+}
+
+// TestKvmGuestDownDestroysAPMSuspendedGuest pins that down destroys a
+// `pmsuspended` domain like a paused one: it is a defined guest the lock can hand
+// over, not an unexpected state that refuses to remove its disk.
+func TestKvmGuestDownDestroysAPMSuspendedGuest(t *testing.T) {
+	dir := t.TempDir()
+	argvPath := filepath.Join(dir, "virsh-argv")
+	env := kvmGuestEnv(dir)
+	env["VIRSH_ARGV"] = argvPath
+	env["VIRSH_DOMINFO_OK"] = "1"
+	env["VIRSH_DOMSTATE"] = "pmsuspended"
 	env["PATH"] = kvmGuestPath(t, "virsh")
 	writeGuestOwnerFile(t, dir, "feat/793-msb-journeys")
 
