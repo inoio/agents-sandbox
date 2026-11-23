@@ -98,6 +98,14 @@ The launcher types are a curated projection of the SDK, kept honest by three gua
 The drift guard is reflection-based by decision: a `golang.org/x/tools/go/packages` scan of the SDK's
 `With*` constructors would be complete but adds a module dependency, against `AGENTS.md`.
 
+**SDK line pin.** The module stays on the SDK's v0.7 line
+(`github.com/superradcompany/microsandbox/sdk/go`). v0.8 is source-breaking: it removes the SDK's
+`SandboxHandle`/`VolumeHandle`, which `realSandboxHandle`/`realVolumeHandle` wrap, in favour of a
+resource/collection model, and reworks the read-back config shape. A `go get -u ./...` (the release's
+`make upgrade-deps`) that crosses into v0.8 therefore fails to compile; crossing the line is a
+deliberate migration of the adapters above, not a routine bump, so hold the SDK back until that change
+lands.
+
 ## The mock
 
 The mock lives in `internal/sandbox/msb/msbtest` (package `msbtest`), outside the production import

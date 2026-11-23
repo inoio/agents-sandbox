@@ -11,17 +11,17 @@ during [step 9](SKILL.md#9-post-release).
 | Go | `1.27.4` | `.go-version` (source), `.agents-sandbox/Dockerfile` (`ARG GO_VERSION`), `.github/workflows/ci.yml` (`go-version-file: .go-version`) |
 | golangci-lint | `2.15.0` | `Makefile` (`GOLANGCI_LINT_VERSION`), `.agents-sandbox/Dockerfile`, `.github/workflows/ci.yml` (`v2.15`) |
 | gotestsum | `1.13.0` | `Makefile`, `.agents-sandbox/Dockerfile` |
-| govulncheck | `v1.9.0` | `Makefile` (`GOVULNCHECK_VERSION`) |
-| deadcode | `v0.52.0` | `Makefile` (`DEADCODE_VERSION`) |
-| x/tools | `0.52.0` | `.agents-sandbox/Dockerfile` (`ARG XTOOLS_VERSION`) |
+| govulncheck | `v1.10.0` | `Makefile` (`GOVULNCHECK_VERSION`) |
+| deadcode | `v0.53.0` | `Makefile` (`DEADCODE_VERSION`) |
+| x/tools | `0.53.0` | `.agents-sandbox/Dockerfile` (`ARG XTOOLS_VERSION`) |
 | gopls | `0.24.0` | `.agents-sandbox/Dockerfile` (`ARG GOPLS_VERSION`) |
 | gomutants | `v0.7.3` | `Makefile` (`GOMUTANTS_VERSION`) |
 | actionlint | `v1.7.12` | `Makefile` (`ACTIONLINT_VERSION`) |
 | zig | `0.17.1` | `Makefile` (`ZIG_VERSION`), `.agents-sandbox/Dockerfile`, `.github/workflows/ci.yml` |
-| gh | `2.104.0` | `.agents-sandbox/Dockerfile` |
+| gh | `2.105.0` | `.agents-sandbox/Dockerfile` |
 | plantuml | `1.2026.10` | `.agents-sandbox/Dockerfile`, `.github/workflows/pages.yml` |
-| ast-grep-cli | `0.51.2` | `.agents-sandbox/Dockerfile` (`ARG AST_GREP_VERSION`) |
-| operator-helper | `1.12.0` | `.agents-sandbox/Dockerfile` (`ARG OPERATOR_HELPER_VERSION`) |
+| ast-grep-cli | `0.51.3` | `.agents-sandbox/Dockerfile` (`ARG AST_GREP_VERSION`) |
+| operator-helper | `1.13.0` | `.agents-sandbox/Dockerfile` (`ARG OPERATOR_HELPER_VERSION`) |
 | Node | `v24.22.3` | `internal/sandbox/image/dockerfile.go` (`nodeVersion`) — see below |
 
 A tool's version lives in more than one place; update every location in its row. Go is the exception: `ci.yml` reads
