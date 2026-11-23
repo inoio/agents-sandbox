@@ -263,7 +263,7 @@ session. The change type determines the mechanism used to apply the new settings
 | `memory`          | Live Modify / VM recreate | Applied live via SDK Modify (hotplug) up to the sandbox's boot maximum (the host RAM at creation); a higher value is capped there, and recreates the VM only when the host has gained RAM since. The launcher confirms the live limit against the request: a live limit greater than the request is a decrease the runtime never unplugs (whether the launcher lowered the setting or another client holds the larger limit), reported not applied rather than silently keeping the old size, and a lower one is a raise it waits on. A live limit that is unknown (unreadable, or a nil/zero reading) is reported as unconfirmed |
 | `env`             | VM recreate    | microsandbox cannot apply env live or on a daemon restart, so the VM is rebuilt; env is baked in at creation |
 | `secrets`         | VM recreate    | microsandbox cannot apply secrets live or on a daemon restart, so the VM is rebuilt; secrets are baked in at creation |
-| `agent config` | Daemon restart | Files are always copied into the VM (provisioning); the agent daemon is restarted in-place to pick them up   |
+| `agent config` | Daemon restart | Files are always copied into the VM (provisioning); the agent daemon is restarted in-place to pick them up. An agent without a daemon reads them at its next start, so nothing is restarted and no prompt is shown |
 | `tmp-size`        | VM recreate    | VM is stopped, removed, and rebuilt with new tmpfs size; unset, it defaults to `min(2 GiB, memory/2)`. A value larger than the boot memory is clamped to it. Home volume is preserved. |
 | `disk-size`       | Live grow / VM recreate | A larger size grows the root disk live; a smaller one stops, removes, and rebuilds the VM. Home volume is preserved. |
 | `workspace-quota` | VM recreate    | VM is stopped, removed, and rebuilt with new workspace write quota. Home volume is preserved.            |
@@ -296,7 +296,9 @@ A sandbox created by an earlier agents-sandbox version has no record of its prev
 reads `(previous value not recorded)` and lists only the new entries.
 
 Agent/home config files are provisioned into the VM on every startup, so a change is picked up by the next daemon start
-even when the current daemon is kept running. Only the `agent config` change prompts for a daemon restart;
+even when the current daemon is kept running. Only the `agent config` change prompts for a daemon restart, and only for
+an agent that runs one; for an agent without a daemon the change is named in one info line and is written for the
+agent's next start;
 `home:` file changes are applied on the next startup without any prompt, since they do not require the daemon to restart.
 
 #### Parallel Sessions

@@ -1409,3 +1409,74 @@ func planImage() naming.ImageIdentity {
 func planNameImage() naming.ImageIdentity {
 	return naming.ImageIdentity{Slug: planSlug, Agent: "opencode"}
 }
+
+// TestPlanReconfigDaemonlessAgentConfigNeedsNoRestart pins #810: a daemonless
+// agent has no server to restart, and provisioning already writes its config,
+// so an agent-config change applies to new sessions without a restart or a
+// prompt-worthy change.
+func TestPlanReconfigDaemonlessAgentConfigNeedsNoRestart(t *testing.T) {
+	cfg := &msb.SandboxConfig{
+		Image: naming.RunnerImageRef(planSlug, "opencode"), CPUs: 4, MemoryMiB: 4096,
+	}
+	plan := PlanReconfig(
+		cfg,
+		planNameImage(),
+		options.RunOptions{},
+		ChangeFlags{AgentConfig: []string{agentConfigPath}, DaemonlessAgent: true},
+		"",
+	)
+	if plan.RestartDaemons || plan.Recreate || len(plan.Changes) != 0 {
+		t.Errorf("plan = %+v, want no restart, no recreate, and no change to prompt about", plan)
+	}
+	if len(plan.NewSessionAgentConfig) != 1 || plan.NewSessionAgentConfig[0] != agentConfigPath {
+		t.Errorf("NewSessionAgentConfig = %v, want the changed path", plan.NewSessionAgentConfig)
+	}
+}
+
+func TestResolveReconfigReportsADaemonlessAgentConfigChangeWithoutAsking(t *testing.T) {
+	for _, otherClients := range []int{0, 2} {
+		ui := &termiotest.Mock{
+			IsInteractiveResult: true,
+			SelectFn: func(prompt string, _ []termio.Choice, _ string) (string, error) {
+				t.Errorf("%d other clients: prompted %q for a daemonless agent-config change", otherClients, prompt)
+				return "r", nil
+			},
+		}
+		plan := &Plan{NewSessionAgentConfig: []string{agentConfigPath}}
+
+		actions, err := ResolveReconfig(context.Background(), ui, plan, otherClients, plan.Changes)
+
+		if err != nil || actions.Restart || actions.Recreate {
+			t.Errorf("%d other clients: actions = %+v, %v; want nothing to apply", otherClients, actions, err)
+		}
+		info := strings.Join(ui.InfoCalls, "\n")
+		if !strings.Contains(info, agentConfigPath) || !strings.Contains(info, "next start") ||
+			strings.Contains(info, "server") || len(ui.WarnCalls) != 0 {
+			t.Errorf("%d other clients: info %v, warnings %v; want one server-free info line naming the path",
+				otherClients, ui.InfoCalls, ui.WarnCalls)
+		}
+	}
+}
+
+func TestResolveReconfigReportsNothingWithoutChanges(t *testing.T) {
+	ui := &termiotest.Mock{IsInteractiveResult: true}
+	if _, err := ResolveReconfig(context.Background(), ui, &Plan{}, 0, nil); err != nil {
+		t.Fatalf("ResolveReconfig: %v", err)
+	}
+	if len(ui.InfoCalls) != 0 || len(ui.WarnCalls) != 0 {
+		t.Errorf("info %v, warnings %v; want nothing for an empty plan", ui.InfoCalls, ui.WarnCalls)
+	}
+}
+
+// TestPlanReconfigDaemonlessAgentConfigFoldsIntoARecreate: a recreate
+// provisions everything anyway, so no separate notice is recorded.
+func TestPlanReconfigDaemonlessAgentConfigFoldsIntoARecreate(t *testing.T) {
+	cfg := &msb.SandboxConfig{
+		Volumes: map[string]msb.MountConfig{mounts.TmpMountPath: {SizeMiB: 2048}},
+	}
+	plan := PlanReconfig(cfg, planImage(), options.RunOptions{TmpSize: "4G"},
+		ChangeFlags{AgentConfig: []string{agentConfigPath}, DaemonlessAgent: true}, "")
+	if !plan.Recreate || len(plan.NewSessionAgentConfig) != 0 {
+		t.Errorf("plan = %+v, want a recreate and no separate agent-config notice", plan)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/hostfigures"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
@@ -206,6 +207,7 @@ func resolveReconfigDecision(
 				desired.Mount,
 			),
 			AgentConfig:       changedAgentConfig,
+			DaemonlessAgent:   isDaemonless(opts.ResolvedAgent),
 			BootMaxMemoryGrew: bootMaxMemoryGrew(live),
 		},
 		homeVol,
@@ -447,4 +449,11 @@ func detectAndOfferDiskRaise(
 		opts.TmpSize = setting
 	}
 	return opts
+}
+
+// isDaemonless reports whether the resolved agent runs no server, so an
+// agent-config change has nothing to restart. An unresolved agent is not
+// assumed daemonless.
+func isDaemonless(resolved agent.Resolved) bool {
+	return resolved.Profile != nil && resolved.Daemon == nil
 }
