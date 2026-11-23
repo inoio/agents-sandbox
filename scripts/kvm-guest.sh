@@ -42,6 +42,12 @@
 # GitHub issues and PRs. Unset it to skip the sign-in. The guest's git remote is
 # the host repository, not GitHub, so the agent pushes to the host.
 #
+# The guest is shared by every worktree and its artifacts live in one host-global
+# ARTIFACT_DIR (default $KVM_IMAGE_CACHE/guest), not in $PWD. Its domain state is
+# the lock: running means one branch holds it, paused or absent means it is free.
+# The holder is named in $ARTIFACT_DIR/$VM_NAME.owner; a competing branch is
+# refused and hands over with `pause` (keeps the disk) or `down`.
+#
 # Host prerequisites:
 #   qemu-kvm libvirt-daemon-system cloud-image-utils genisoimage
 #   your user in the `libvirt` and `kvm` groups
@@ -180,7 +186,7 @@ require_safe_branch() {
 
 usage() {
   cat <<'EOF'
-usage: kvm-guest.sh {up|render|ssh|sync|prime|run <cmd...>|agent [cmd]|agent-up [cmd]|agent-provision [name]|sync-back [branch]|firewall|down}
+usage: kvm-guest.sh {up|render|ssh|sync|prime|run <cmd...>|agent [cmd]|agent-up [cmd]|agent-provision [name]|sync-back [branch]|pause|firewall|down}
 
   up                create and boot the KVM guest (cloud-init provisions it)
   render            write the cloud-init seed and domain XML to ARTIFACT_DIR, no boot
@@ -196,6 +202,8 @@ usage: kvm-guest.sh {up|render|ssh|sync|prime|run <cmd...>|agent [cmd]|agent-up 
   sync-back [branch]
                     fetch the guest's branches back (all into
                     refs/remotes/kvm-guest/*, or one into a local branch)
+  pause             suspend the shared guest and release it for another branch
+                    (the disk is kept; the next command resumes it)
   firewall          re-apply the host nft rules the guest's egress needs
   down              destroy the guest and its disk
 
@@ -487,6 +495,87 @@ require_guest_ip() {
   printf '%s\n' "$ip"
 }
 
+# The shared guest is locked by its domain state: running means one branch holds
+# it, paused or absent means it is free. The label names the holding branch so a
+# competing branch can be told who has it; it is a record, not the lock.
+guest_owner_branch() {
+  [ -r "$OWNER_PATH" ] || return 0
+  sed -n 's/^branch=//p' "$OWNER_PATH" 2>/dev/null | head -1
+}
+
+write_guest_owner() {
+  mkdir -p "$ARTIFACT_DIR"
+  printf 'branch=%s\npid=%s\ncwd=%s\n' "$REPO_BRANCH" "$$" "$PWD" > "$OWNER_PATH"
+}
+
+clear_guest_owner() { rm -f "$OWNER_PATH"; }
+
+# guest_state prints "absent" when the domain is not defined, else libvirt's
+# state name with whitespace removed ("running", "paused", "shutoff", ...).
+guest_state() {
+  if ! virsh_cmd dominfo "$VM_NAME" >/dev/null 2>&1; then
+    printf 'absent\n'
+    return
+  fi
+  virsh_cmd domstate "$VM_NAME" 2>/dev/null | tr -d '[:space:]' || true
+}
+
+# acquire_guest brings the shared guest up for this branch and records it as the
+# holder. Idempotent for the branch that already holds it; a guest held by
+# another branch (or a pre-lock guest with no label) is refused by name.
+acquire_guest() {
+  local state owner ip
+  state="$(guest_state)"
+  case "$state" in
+    running)
+      owner="$(guest_owner_branch)"
+      [ "$owner" = "$REPO_BRANCH" ] && return 0
+      if [ -n "$owner" ]; then
+        die "guest '$VM_NAME' is in use by branch '$owner'. Hand it over with '$0 pause' (keeps the disk) or '$0 down' (destroys it)."
+      fi
+      die "guest '$VM_NAME' is running without an owner label (created before the lock). Hand it over with '$0 pause' or '$0 down'."
+      ;;
+    paused)
+      log "resuming guest '$VM_NAME'"
+      virsh_cmd resume "$VM_NAME" >/dev/null
+      ;;
+    shutoff)
+      # A host reboot drops the default network and the firewall accepts the
+      # guest egress needs, so re-ensure both, matching `create`.
+      ensure_default_network
+      log "starting the stopped guest '$VM_NAME'"
+      virsh_cmd start "$VM_NAME" >/dev/null
+      ip="$(wait_for_lease)"
+      probe_guest_egress "$ip"
+      ;;
+    absent)
+      create
+      ;;
+    *)
+      die "guest '$VM_NAME' is in state '$state'; expected running, paused, shut off, or absent"
+      ;;
+  esac
+  write_guest_owner
+}
+
+# suspend_guest pauses the guest and releases the lock, keeping the disk so the
+# next branch resumes rather than rebuilds. Hand-off is explicit: a running guest
+# stays held until it is paused or destroyed.
+suspend_guest() {
+  local state
+  state="$(guest_state)"
+  case "$state" in
+    running)
+      log "pausing guest '$VM_NAME' (disk kept; '$0 up' resumes it)"
+      virsh_cmd suspend "$VM_NAME" >/dev/null
+      ;;
+    paused) log "guest '$VM_NAME' is already paused" ;;
+    absent|shutoff) log "guest '$VM_NAME' is not running" ;;
+    *) die "guest '$VM_NAME' is in an unexpected state '$state'" ;;
+  esac
+  clear_guest_owner
+}
+
 ssh_in() {
   exec ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$(require_guest_ip)"
 }
@@ -603,6 +692,7 @@ sync_in() {
   local ip branch
   branch="${REPO_BRANCH:-main}"
   require_safe_branch "$branch"
+  acquire_guest
   ip="$(require_guest_ip)"
   ensure_guest_git_remote "$ip"
   log "pulling $branch from the host into $VM_USER@$ip:~/agents-sandbox"
@@ -644,6 +734,7 @@ sync_back() {
 # prime before a run, never while one is using the home.
 prime() {
   local ip root="${KVM_PRIME_ROOT:-/opt/asb-reuse}" tags home
+  acquire_guest
   ip="$(require_guest_ip)"
   home="$root/smoke/data/agents-sandbox/msb"
 
@@ -676,6 +767,7 @@ prime() {
 
 run_in() {
   [ "$#" -gt 0 ] || { usage >&2; exit 2; }
+  acquire_guest
   # A login shell so /etc/profile.d puts Go and ~/.local/bin (msb) on PATH for
   # the suite the command runs.
   exec ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$(require_guest_ip)" \
@@ -694,6 +786,7 @@ agent_in() {
   session="${KVM_AGENT_SESSION:-agents-sandbox}"
   command="${*:-opencode2}"
   require_safe_agent_command "$command"
+  acquire_guest
   ip="$(require_guest_ip)"
   exec ssh -tt -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
     -- "bash -lc 'cd ~/agents-sandbox && exec tmux new -A -s $session bash -c \"$command\"'"
@@ -711,6 +804,7 @@ agent_in() {
 agent_provision() {
   local ip agent
   agent="${1:-opencode2}"
+  acquire_guest
   ip="$(require_guest_ip)"
   if [ -d "$HOME/.config/agents-sandbox" ]; then
     log "syncing $HOME/.config/agents-sandbox → $VM_USER@$ip"
@@ -753,29 +847,6 @@ gh_auth() {
       -- "bash -lc 'gh auth login --with-token && gh auth setup-git'"; then
     die "gh sign-in failed in '$VM_NAME'; check the token (GITHUB_PAT), or rebuild a guest that predates gh: make kvm-down && make kvm-up"
   fi
-}
-
-# ensure_running brings the guest to a running state without recreating an
-# existing domain: undefined is created, a stopped domain is started (sharing
-# the boot path's lease wait), a running one is left alone. `create`'s
-# check_host refuses an existing domain, so it is never called over one.
-ensure_running() {
-  if ! virsh_cmd dominfo "$VM_NAME" >/dev/null 2>&1; then
-    create
-    return
-  fi
-  if [ "$(virsh_cmd domstate "$VM_NAME" 2>/dev/null | tr -d '[:space:]')" = "running" ]; then
-    log "guest '$VM_NAME' is running"
-    return
-  fi
-  local ip
-  log "starting the stopped guest '$VM_NAME'"
-  # A host reboot drops the default network and the firewall accepts the guest
-  # egress needs, so the start path re-ensures both, matching `create`.
-  ensure_default_network
-  virsh_cmd start "$VM_NAME" >/dev/null
-  ip="$(wait_for_lease)"
-  probe_guest_egress "$ip"
 }
 
 # wait_for_cloud_init gates on the guest being provisioned: it retries the SSH
@@ -822,7 +893,7 @@ guest_agent_session_state() {
 agent_up() {
   local ip session_state
   require_safe_agent_command "${*:-opencode2}"
-  ensure_running
+  acquire_guest
   ip="$(require_guest_ip)"
   wait_for_cloud_init "$ip"
   session_state="$(guest_agent_session_state "$ip" || true)"
@@ -969,11 +1040,12 @@ destroy() {
     log "domain '$VM_NAME' is not defined; removing any leftover disk"
   fi
   rm -f "$DISK_PATH" "$SEED_PATH" "$USERDATA_PATH" "$METADATA_PATH" "$DOMAIN_XML_PATH"
+  clear_guest_owner
   log "removed '$VM_NAME' and its disk (base image kept in cache at $IMAGE_PATH)"
 }
 
 case "${1:-}" in
-  up|create)       create ;;
+  up|create)       acquire_guest ;;
   render)          render ;;
   ssh)             ssh_in ;;
   sync)            sync_in ;;
@@ -983,6 +1055,7 @@ case "${1:-}" in
   agent-up)        shift; agent_up "$@" ;;
   agent-provision) shift; agent_provision "$@" ;;
   sync-back)       shift; sync_back "$@" ;;
+  pause|suspend)   suspend_guest ;;
   firewall|fix-net) fix_firewall ;;
   down|destroy)    destroy ;;
   *) usage >&2; exit 2 ;;

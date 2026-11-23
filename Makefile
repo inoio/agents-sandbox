@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-cold test-msb-journeys test-msb-in-vm test-msb-reuse msb-reuse-root compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic test-hermetic-sentinel envelope-test check check-test verify print-check-targets check-local-changes check-branch-changes check-selected changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test backport-audit-test open-backport-pr-test kvm-guest-test kvm-up kvm-sync kvm-prime kvm-ssh kvm-run kvm-agent kvm-agent-up kvm-agent-provision kvm-sync-back kvm-down event-base-test classify-changes-test brain-check brain-check-test shellcheck docs-serve
+.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-cold test-msb-journeys test-msb-in-vm test-msb-reuse msb-reuse-root compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic test-hermetic-sentinel envelope-test check check-test verify print-check-targets check-local-changes check-branch-changes check-selected changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test backport-audit-test open-backport-pr-test kvm-guest-test kvm-up kvm-sync kvm-prime kvm-ssh kvm-run kvm-agent kvm-agent-up kvm-agent-provision kvm-sync-back kvm-pause kvm-down event-base-test classify-changes-test brain-check brain-check-test shellcheck docs-serve
 
 VERSION ?= dev
 
@@ -367,6 +367,11 @@ kvm-sync-back:
 
 kvm-down:
 	scripts/kvm-guest.sh down
+
+# Pause the shared guest and release it for another branch without destroying the
+# disk; the next `make kvm-up` (or any guarded target) resumes it.
+kvm-pause:
+	scripts/kvm-guest.sh pause
 
 # Compile every test binary including build-tagged files (`//go:build
 # integration`, `//go:build msb`) so a regression that only breaks tagged code

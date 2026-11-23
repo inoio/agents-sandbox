@@ -33,6 +33,7 @@ make kvm-prime              # copy the host's built runner images + msb home int
 make kvm-run                # run KVM_RUN (default: make test-msb-in-vm) in the guest
 make kvm-run KVM_RUN='make test-msb'          # the host variant, unchanged
 make kvm-run KVM_RUN='make test-msb-journeys'
+make kvm-pause              # pause the guest and hand it to another branch (disk kept)
 make kvm-down               # destroy the guest and its disk (the base image stays cached)
 make kvm-agent-up           # one command: ensure up + cloud-init + pull + provision + attach (gh sign-in from GITHUB_PAT)
 ```
@@ -65,6 +66,27 @@ cloud-init also creates `/opt/asb-reuse`, owned by the guest user, for the msb s
 test-msb` caches 10+ GiB of runner images under `MSB_REUSE_ROOT` (default `/opt/asb-reuse`), while the guest's `/tmp`
 is a RAM-backed tmpfs that would exhaust at the largest runner image. See
 `.operator-shared/specs/testing/harness-smoke-tests.md`.
+
+### Sharing the guest across worktrees
+
+Every worktree resolves to the **same** guest: `VM_NAME` is the constant `asb-kvm`, and its disk, seed, and domain XML
+live in one host-global `ARTIFACT_DIR` (default `$KVM_IMAGE_CACHE/guest`), never in `$PWD`. So worktrees no longer each
+grow an 80 GiB overlay, and `make kvm-sync` swaps whichever checkout you are in into the one guest.
+
+Because one guest serves every branch, its **domain state is the lock**: `running` means a branch holds it, `paused` or
+absent means it is free. The holding branch is named in `$ARTIFACT_DIR/$VM_NAME.owner`. `up`, `sync`, `prime`, `run`,
+`agent`, `agent-up`, and `agent-provision` all acquire first — idempotent for the branch that already holds it, and
+refused, by name, for any other:
+
+```console
+$ make kvm-sync                               # on branch B while branch A holds the guest
+error: guest 'asb-kvm' is in use by branch 'A'. Hand it over with '… pause' (keeps the disk) or '… down' (destroys it).
+```
+
+`make kvm-pause` (`virsh suspend`) is the hand-off: it releases the lock but keeps the disk, so the next branch's
+`up`/`sync`/`run` **resumes** rather than rebuilds. `make kvm-down` releases too and destroys the disk. Because the lock
+is the `running` state, a dropped SSH that leaves the tmux agent alive keeps the guest held; and `pause` freezes that
+session, so hand over only once the agent is done.
 
 ### Priming the guest from the host
 
