@@ -3,6 +3,7 @@ package journeys
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -58,5 +59,25 @@ func TestStepAssertScopeExcludesHostLoginStore(t *testing.T) {
 
 	if err := StepAssertScopeExcludesHostLoginStore().Run(&Context{TB: t, Agent: agentName}); err == nil {
 		t.Error("an adapter without a login store: got nil error, want failure")
+	}
+}
+
+func TestScopeWantResolvesAgainstTheHarnesssLearnFacts(t *testing.T) {
+	learn := LearnFacts{CredentialEnvVar: "STUB_API_KEY", ManagedConfigKeys: []string{"baseURL"}}
+
+	bare := ScopeWant{ConfigKeys: false, Placeholder: false}.expectation(learn)
+	if bare.envVar != "STUB_API_KEY" || !slices.Equal(bare.hosts, []string{stubHost}) || bare.configKeys != nil ||
+		bare.placeholder {
+		t.Errorf("bare expectation = %+v, want only the scoped credential", bare)
+	}
+	full := ScopeWant{ConfigKeys: true, Placeholder: true}.expectation(learn)
+	if !slices.Equal(full.configKeys, []string{"baseURL"}) || !full.placeholder {
+		t.Errorf("full expectation = %+v, want the adapter's keys and the placeholder", full)
+	}
+}
+
+func TestLearnStepsNeedTheHarnesssLearnFacts(t *testing.T) {
+	if _, err := learnFacts(&Context{Agent: "codex"}); err == nil || !strings.Contains(err.Error(), "codex") {
+		t.Errorf("learnFacts without facts = %v, want an error naming the harness", err)
 	}
 }

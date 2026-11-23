@@ -21,18 +21,22 @@ const codexStubSnippet = "config-journeys-stub.toml"
 // codex into its embedded mode, so the snippet is the route. auth.json holds a
 // dummy API key, so codex skips its sign-in screen.
 var codexHarness = Harness{
-	StubConfig: func(string) map[string]string {
-		return map[string]string{codexAuthPath: jsonObject(map[string]string{"OPENAI_API_KEY": stubProviderAPIKey})}
+	Stub: StubSetup{
+		HomeFiles: func(string) map[string]string {
+			return map[string]string{codexAuthPath: jsonObject(map[string]string{"OPENAI_API_KEY": stubProviderAPIKey})}
+		},
+		Snippets: func(addr string) map[string]string {
+			return map[string]string{codexStubSnippet: codexStubConfig(addr)}
+		},
 	},
-	StubSnippets: func(addr string) map[string]string {
-		return map[string]string{codexStubSnippet: codexStubConfig(addr)}
+	Drive: Driving{
+		// codex writes through its exec_command tool, a shell command line.
+		WriteFileCall: func(guestPath, content string) ToolCall {
+			command := "printf %s " + shellQuote(content) + " > " + shellQuote(guestPath)
+			return ToolCall{Name: "exec_command", Arguments: jsonObject(map[string]string{"cmd": command})}
+		},
+		ResumeArgs: []string{"resume", "--last"},
 	},
-	// codex writes through its exec_command tool, a shell command line.
-	WriteFileCall: func(guestPath, content string) ToolCall {
-		command := "printf %s " + shellQuote(content) + " > " + shellQuote(guestPath)
-		return ToolCall{Name: "exec_command", Arguments: jsonObject(map[string]string{"cmd": command})}
-	},
-	ResumeArgs: []string{"resume", "--last"},
 }
 
 // codexStubConfig renders the config.toml fragment that selects the stub

@@ -59,7 +59,7 @@ func StepSeedHostConfig(build func(*Context) map[string]string) Step {
 // is closed by StartStubProvider's tb.Cleanup.
 func StepSeedStub() Step {
 	return Step{Name: "the stub provider is provisioned into the VM", Run: func(c *Context) error {
-		if c.Harness.StubConfig == nil {
+		if c.Harness.Stub.HomeFiles == nil {
 			return fmt.Errorf("the %s adapter declares no stub config", c.Agent)
 		}
 		provider, err := StartStubProvider(c.TB)
@@ -67,7 +67,7 @@ func StepSeedStub() Step {
 			return err
 		}
 		c.Stub = provider
-		if err := driver.SeedLauncherConfig(c.Home, c.Harness.StubConfig(provider.Addr())); err != nil {
+		if err := driver.SeedLauncherConfig(c.Home, c.Harness.Stub.HomeFiles(provider.Addr())); err != nil {
 			return fmt.Errorf("provision stub provider config: %w", err)
 		}
 		return nil
@@ -113,7 +113,7 @@ func launchArgv(c *Context, launcherArgs, agentArgs []string) []string {
 	argv = append(argv, "--memory", driver.SmokeMemorySpec(), "--no-rebuild")
 	argv = driver.WithVMCPUs(argv, driver.SmokeVMCPUs())
 	if len(launcherArgs) > 0 && launcherArgs[0] == runCommand {
-		agentArgs = append(append([]string(nil), c.Harness.LaunchArgs...), agentArgs...)
+		agentArgs = append(append([]string(nil), c.Harness.Drive.LaunchArgs...), agentArgs...)
 	}
 	if len(agentArgs) > 0 {
 		argv = append(append(argv, "--"), agentArgs...)

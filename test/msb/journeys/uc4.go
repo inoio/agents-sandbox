@@ -14,13 +14,13 @@ const uc4Prompt = "hello"
 
 // uc4HostConfig builds UC4's host agent config from the journey context: the
 // same provider the stub serves, but as the harness's own host config
-// (Harness.HostConfig). Its baseURL host is the stub's
+// (Harness.Learn.HostConfig). Its baseURL host is the stub's
 // advertised origin, so the static apiKey the seed migrates is scoped to
 // exactly the host uc4Scope asserts. The harness's login store beside it
-// (Harness.HostLoginStore) is a value store the seed must never copy.
+// (Harness.Learn.HostLoginStore) is a value store the seed must never copy.
 func uc4HostConfig(c *Context) map[string]string {
-	files := c.Harness.HostConfig(c.Stub.Addr())
-	maps.Copy(files, c.Harness.HostLoginStore)
+	files := c.Harness.Learn.HostConfig(c.Stub.Addr())
+	maps.Copy(files, c.Harness.Learn.HostLoginStore)
 	return files
 }
 
@@ -29,12 +29,7 @@ func uc4HostConfig(c *Context) map[string]string {
 // copied into the managed config as the ${STUB_API_KEY} placeholder and scoped
 // to the stub host in env.secret.yaml. Unlike UC1, the seed writes the managed
 // config before CaptureBaseline, so UC4 can assert the placeholder.
-var uc4Scope = ScopeWant{
-	EnvVar:      stubCredentialEnvVar,
-	Hosts:       []string{stubHost},
-	ConfigKeys:  []string{"baseURL", "npm"},
-	Placeholder: true,
-}
+var uc4Scope = ScopeWant{ConfigKeys: true, Placeholder: true}
 
 // uc4Journey is UC4: a fresh install with the agent's host config present, whose
 // first-run menu offers "Learn from my host setup" and whose choice seeds the
@@ -47,6 +42,7 @@ var uc4Scope = ScopeWant{
 var uc4Journey = Journey{
 	Name:      "uc4-learn-from-host",
 	Harnesses: []string{opencode2AgentName},
+	LearnMode: true,
 	Steps: []Step{
 		Given(StepFreshHome()),
 		And(StepSeedStub()),

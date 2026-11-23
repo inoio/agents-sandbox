@@ -45,20 +45,20 @@ func StepConfigureLauncherEnv() Step {
 			return errors.New("no stub provider on the context; seed it first")
 		}
 		vars := map[string]string{journeyEnvMarker: "1"}
-		if c.Harness.StubEnv != nil {
-			maps.Copy(vars, c.Harness.StubEnv(c.Stub.Addr()))
+		if c.Harness.Stub.Env != nil {
+			maps.Copy(vars, c.Harness.Stub.Env(c.Stub.Addr()))
 		}
 		if err := driver.SeedLauncherEnv(c.Home, vars); err != nil {
 			return err
 		}
-		if c.Harness.StubSnippets == nil {
+		if c.Harness.Stub.Snippets == nil {
 			return nil
 		}
 		profile, ok := agent.Lookup(c.Agent)
 		if !ok {
 			return fmt.Errorf("unknown agent %q", c.Agent)
 		}
-		return driver.SeedAgentSnippets(c.Home, profile.ConfigDirName(), c.Harness.StubSnippets(c.Stub.Addr()))
+		return driver.SeedAgentSnippets(c.Home, profile.ConfigDirName(), c.Harness.Stub.Snippets(c.Stub.Addr()))
 	}}
 }
 
@@ -70,10 +70,10 @@ func StepScriptWriteFile(name, content string) Step {
 		if c.Stub == nil {
 			return errors.New("no stub provider on the context; seed it first")
 		}
-		if c.Harness.WriteFileCall == nil {
+		if c.Harness.Drive.WriteFileCall == nil {
 			return fmt.Errorf("the %s adapter declares no WriteFileCall", c.Agent)
 		}
-		c.Stub.ScriptToolCall(c.Harness.WriteFileCall(path.Join(guestWorkspace, name), content))
+		c.Stub.ScriptToolCall(c.Harness.Drive.WriteFileCall(path.Join(guestWorkspace, name), content))
 		return nil
 	}}
 }
@@ -254,10 +254,10 @@ func vmRestartProblem(output string) error {
 // (the adapter's ResumeArgs) as the active client.
 func StepRelaunchWithResume() Step {
 	return Step{Name: "the user runs the harness again, resuming the last session", Run: func(c *Context) error {
-		if len(c.Harness.ResumeArgs) == 0 {
+		if len(c.Harness.Drive.ResumeArgs) == 0 {
 			return fmt.Errorf("the %s adapter declares no ResumeArgs", c.Agent)
 		}
-		launchClient(c, []string{runCommand}, c.Harness.ResumeArgs)
+		launchClient(c, []string{runCommand}, c.Harness.Drive.ResumeArgs)
 		return nil
 	}}
 }

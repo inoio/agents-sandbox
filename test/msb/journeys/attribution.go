@@ -20,7 +20,7 @@ const attributionPrompt = "hello"
 // this step (the reverse of the plan's prose order, which the context-derived
 // builder requires).
 func attributionHostConfig(c *Context) map[string]string {
-	return c.Harness.HostConfig(c.Stub.Addr())
+	return c.Harness.Learn.HostConfig(c.Stub.Addr())
 }
 
 // attributionScope is what the attribution journey asserts the run wrote to the
@@ -38,12 +38,7 @@ func attributionHostConfig(c *Context) map[string]string {
 // specs/testing/msb-journeys.md. There is no managed-config assertion: the
 // provisioned provider file precedes CaptureBaseline, so --learn leaves it
 // unchanged, exactly as UC1's live path does.
-var attributionScope = ScopeWant{
-	EnvVar:      stubCredentialEnvVar,
-	Hosts:       []string{stubHost},
-	ConfigKeys:  nil,
-	Placeholder: false,
-}
+var attributionScope = ScopeWant{ConfigKeys: false, Placeholder: false}
 
 // attributionJourney drives `run --learn` against the host-side stub provider and
 // asserts the learned scope keeps the credential scoped to the stub host while
@@ -69,6 +64,7 @@ var attributionScope = ScopeWant{
 var attributionJourney = Journey{
 	Name:      "attribution-observed-pair",
 	Harnesses: []string{opencode2AgentName},
+	LearnMode: true,
 	Network:   driver.PublicNetwork,
 	Steps: []Step{
 		Given(StepFreshHome()),

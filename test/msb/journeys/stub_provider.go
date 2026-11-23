@@ -19,7 +19,7 @@ import (
 
 // StubProvider is a host-side destination a journey's agent sends its turns to,
 // so a journey needs no real model or egress. The config that points a harness at it is the harness
-// adapter's (Harness.StubConfig).
+// adapter's (Harness.Stub.HomeFiles).
 type StubProvider interface {
 	// Addr is the advertised origin the VM should target, scheme://host:port,
 	// carrying the listener's own ephemeral port. The agent's provider baseURL

@@ -109,7 +109,11 @@ func TestNewReplySinceReturnsOnlyAReplySentAfterThePrompt(t *testing.T) {
 }
 
 func TestLaunchArgvPassesTheAdaptersLaunchArgsOnlyToARun(t *testing.T) {
-	ctx := &Context{Binary: "asb", Agent: "claude-code", Harness: Harness{LaunchArgs: []string{"--mode", "x"}}}
+	ctx := &Context{
+		Binary:  "asb",
+		Agent:   "claude-code",
+		Harness: Harness{Drive: Driving{LaunchArgs: []string{"--mode", "x"}}},
+	}
 
 	run := launchArgv(ctx, []string{"run"}, []string{"--continue"})
 	if got := run[slices.Index(run, "--")+1:]; !slices.Equal(got, []string{"--mode", "x", "--continue"}) {

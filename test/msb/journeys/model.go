@@ -147,5 +147,8 @@ type Journey struct {
 	Name      string
 	Harnesses []string
 	Network   string
+	// LearnMode marks a learn-mode journey: every harness it lists must declare
+	// learn facts (Harness.Learn).
+	LearnMode bool
 	Steps     []Step
 }

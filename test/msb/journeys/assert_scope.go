@@ -12,16 +12,48 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 )
 
-// ScopeWant is the semantic effect StepAssertScopeWritten checks in the per-slug
-// user scope: the credential's env-var name, the hosts it is scoped to, the
-// config keys the managed config must carry, and whether the managed config
-// references the credential as the ${ENVVAR} placeholder. It is deliberately
-// semantic, never a full-file golden.
+// ScopeWant is the evidence a journey expects in the per-slug user scope beyond
+// the scoped credential, which every learn journey asserts: the harness's
+// managed-config keys (LearnFacts.ManagedConfigKeys), and the credential as the
+// ${ENVVAR} placeholder in the managed config. What the keys and the env var are
+// is the adapter's; whether the journey's path produces them is the journey's.
 type ScopeWant struct {
-	EnvVar      string
-	Hosts       []string
-	ConfigKeys  []string
+	ConfigKeys  bool
 	Placeholder bool
+}
+
+// scopeExpectation is a ScopeWant resolved against a harness's learn facts: the
+// credential's env-var name, the hosts it is scoped to, the config keys the
+// managed config must carry, and whether it carries the placeholder. It is
+// deliberately semantic, never a full-file golden.
+type scopeExpectation struct {
+	envVar      string
+	hosts       []string
+	configKeys  []string
+	placeholder bool
+}
+
+// expectation resolves want against learn for the stub's advertised host.
+func (want ScopeWant) expectation(learn LearnFacts) scopeExpectation {
+	var configKeys []string
+	if want.ConfigKeys {
+		configKeys = learn.ManagedConfigKeys
+	}
+	return scopeExpectation{
+		envVar:      learn.CredentialEnvVar,
+		hosts:       []string{stubHost},
+		configKeys:  configKeys,
+		placeholder: want.Placeholder,
+	}
+}
+
+// learnFacts returns the harness's learn facts, or an error naming a harness no
+// learn-mode journey can cover yet.
+func learnFacts(c *Context) (LearnFacts, error) {
+	if c.Harness.Learn == nil {
+		return LearnFacts{}, fmt.Errorf("the %s adapter declares no learn facts", c.Agent)
+	}
+	return *c.Harness.Learn, nil
 }
 
 // StepAssertScopeWritten asserts want's semantic effects in the per-slug user
@@ -34,21 +66,30 @@ func StepAssertScopeWritten(want ScopeWant) Step {
 		if err != nil {
 			return err
 		}
-		if err := assertSecretScope(dir, want); err != nil {
+		learn, err := learnFacts(c)
+		if err != nil {
 			return err
 		}
-		return assertManagedConfig(dir, c.Agent, want)
+		expectation := want.expectation(learn)
+		if err := assertSecretScope(dir, expectation); err != nil {
+			return err
+		}
+		return assertManagedConfig(dir, c.Agent, expectation)
 	}})
 }
 
 // StepAssertScopeExcludesHostLoginStore asserts the harness's host login store
-// (Harness.HostLoginStore) is not present in the per-slug scope's managed agent
+// (Harness.Learn.HostLoginStore) is not present in the per-slug scope's managed agent
 // config dir. A login credential store such as opencode's auth.json must never
 // be copied into the scope by the host seed, and its absence is not covered by
 // the key/placeholder checks.
 func StepAssertScopeExcludesHostLoginStore() Step {
 	return AsCheck(Step{Name: "the per-slug scope excludes the host login store", Run: func(c *Context) error {
-		if len(c.Harness.HostLoginStore) == 0 {
+		learn, err := learnFacts(c)
+		if err != nil {
+			return err
+		}
+		if len(learn.HostLoginStore) == 0 {
 			return fmt.Errorf("the %s adapter declares no host login store", c.Agent)
 		}
 		dir, err := journeyScopeDir(c)
@@ -65,7 +106,7 @@ func StepAssertScopeExcludesHostLoginStore() Step {
 		}
 		scope := configpaths.ConfigScope{Kind: configpaths.ScopePerSlugUser, Dir: dir}
 		configDir := scope.AgentConfigDir(configDirNames[0])
-		for relPath := range c.Harness.HostLoginStore {
+		for relPath := range learn.HostLoginStore {
 			path := filepath.Join(configDir, filepath.Base(relPath))
 			_, err := os.Stat(path)
 			if err == nil {
@@ -81,8 +122,8 @@ func StepAssertScopeExcludesHostLoginStore() Step {
 
 // assertSecretScope checks env.secret.yaml in dir for the wanted env-var name
 // and host scoping.
-func assertSecretScope(dir string, want ScopeWant) error {
-	if want.EnvVar == "" && len(want.Hosts) == 0 {
+func assertSecretScope(dir string, want scopeExpectation) error {
+	if want.envVar == "" && len(want.hosts) == 0 {
 		return nil
 	}
 	scope := configpaths.ConfigScope{Kind: configpaths.ScopePerSlugUser, Dir: dir}
@@ -92,12 +133,12 @@ func assertSecretScope(dir string, want ScopeWant) error {
 		return fmt.Errorf("read %s: %w", path, err)
 	}
 	text := string(data)
-	if want.EnvVar != "" && !strings.Contains(text, want.EnvVar) {
-		return fmt.Errorf("env.secret.yaml does not declare %s:\n%s", want.EnvVar, text)
+	if want.envVar != "" && !strings.Contains(text, want.envVar) {
+		return fmt.Errorf("env.secret.yaml does not declare %s:\n%s", want.envVar, text)
 	}
-	for _, host := range want.Hosts {
+	for _, host := range want.hosts {
 		if !strings.Contains(text, host) {
-			return fmt.Errorf("env.secret.yaml does not scope %s to host %q:\n%s", want.EnvVar, host, text)
+			return fmt.Errorf("env.secret.yaml does not scope %s to host %q:\n%s", want.envVar, host, text)
 		}
 	}
 	return nil
@@ -105,8 +146,8 @@ func assertSecretScope(dir string, want ScopeWant) error {
 
 // assertManagedConfig checks the managed agent config in dir for the wanted
 // config keys and the ${ENVVAR} placeholder.
-func assertManagedConfig(dir, agentName string, want ScopeWant) error {
-	if len(want.ConfigKeys) == 0 && !want.Placeholder {
+func assertManagedConfig(dir, agentName string, want scopeExpectation) error {
+	if len(want.configKeys) == 0 && !want.placeholder {
 		return nil
 	}
 	profile, ok := agent.Lookup(agentName)
@@ -123,16 +164,16 @@ func assertManagedConfig(dir, agentName string, want ScopeWant) error {
 	if err != nil {
 		return err
 	}
-	for _, key := range want.ConfigKeys {
+	for _, key := range want.configKeys {
 		if !strings.Contains(text, key) {
 			return fmt.Errorf("the managed agent config in %s does not carry key %q:\n%s", configDir, key, text)
 		}
 	}
-	if want.Placeholder {
-		if want.EnvVar == "" {
+	if want.placeholder {
+		if want.envVar == "" {
 			return errors.New("a placeholder assertion needs the credential's env-var name")
 		}
-		placeholder := "${" + want.EnvVar + "}"
+		placeholder := "${" + want.envVar + "}"
 		if !strings.Contains(text, placeholder) {
 			return fmt.Errorf("the managed agent config in %s does not carry %s:\n%s", configDir, placeholder, text)
 		}

@@ -65,8 +65,8 @@ func journeySpec(spec driver.Spec, journey Journey, adapter Harness) driver.Spec
 	if journey.Network != "" {
 		spec.Network = journey.Network
 	}
-	if adapter.ReadyMarker != "" {
-		spec.ReadyMarker = adapter.ReadyMarker
+	if adapter.Drive.ReadyMarker != "" {
+		spec.ReadyMarker = adapter.Drive.ReadyMarker
 	}
 	return spec
 }

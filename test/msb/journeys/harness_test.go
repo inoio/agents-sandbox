@@ -12,8 +12,11 @@ func TestEveryDrivenHarnessHasAnAdapter(t *testing.T) {
 				t.Errorf("journey %q drives %q, which has no adapter in Harnesses", journey.Name, name)
 				continue
 			}
-			if adapter.StubConfig == nil {
-				t.Errorf("the %s adapter has no StubConfig", name)
+			if adapter.Stub.HomeFiles == nil {
+				t.Errorf("the %s adapter has no Stub.HomeFiles", name)
+			}
+			if journey.LearnMode && adapter.Learn == nil {
+				t.Errorf("learn journey %q drives %q, whose adapter declares no learn facts", journey.Name, name)
 			}
 		}
 	}
