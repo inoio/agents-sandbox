@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-type chatCompletion struct {
+type decodedCompletion struct {
 	Object  string `json:"object"`
 	Choices []struct {
 		Message struct {
@@ -68,7 +68,7 @@ func TestStubAnswersAChatCompletionWithTheReply(t *testing.T) {
 
 	response := postChat(t, provider, `{"model":"stub","messages":[{"role":"user","content":"hello"}]}`)
 
-	var completion chatCompletion
+	var completion decodedCompletion
 	if err := json.NewDecoder(response.Body).Decode(&completion); err != nil {
 		t.Fatalf("decode completion: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestStubStreamsAChatCompletionWhenAsked(t *testing.T) {
 			done = true
 			continue
 		}
-		var chunk chatCompletion
+		var chunk decodedCompletion
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			t.Fatalf("decode chunk %q: %v", data, err)
 		}
@@ -157,7 +157,7 @@ func TestStubAnswersTheTitleModelWithADifferentReply(t *testing.T) {
 
 	response := postChat(t, provider, `{"model":"`+stubTitleModel+`","messages":[]}`)
 
-	var completion chatCompletion
+	var completion decodedCompletion
 	if err := json.NewDecoder(response.Body).Decode(&completion); err != nil {
 		t.Fatalf("decode completion: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestStubAnswersTheNextTurnWithTheScriptedToolCallOnce(t *testing.T) {
 		t.Errorf("finish_reason = %v, want tool_calls", reason)
 	}
 
-	var second chatCompletion
+	var second decodedCompletion
 	if err := json.NewDecoder(postChat(t, provider, `{"model":"stub","messages":[]}`).Body).
 		Decode(&second); err != nil {
 		t.Fatalf("decode: %v", err)

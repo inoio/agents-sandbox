@@ -29,16 +29,19 @@ type ToolCall struct {
 	Arguments string
 }
 
-// jsonString encodes s as a JSON string literal; Go's %q quoting is not JSON
-// for every input.
-func jsonString(s string) string {
-	data, err := json.Marshal(s)
+// mustJSON encodes value, which the stub builds from its own wire types; it
+// never fails for them.
+func mustJSON(value any) string {
+	data, err := json.Marshal(value)
 	if err != nil {
-		// A Go string always marshals, so this is unreachable.
-		return `""`
+		// The stub's wire types always marshal, so this is unreachable.
+		return "null"
 	}
 	return string(data)
 }
+
+// assistantRole is the role of every message the stub answers with.
+const assistantRole = "assistant"
 
 // stubToolCallID is the id of the stub's one tool call per turn.
 const stubToolCallID = "call_stub"
@@ -52,64 +55,109 @@ type chatRequest struct {
 // stubCompletionPath is the request path of an OpenAI chat completion.
 const stubCompletionPath = "/chat/completions"
 
+// The OpenAI chat completion wire types the stub writes.
+type (
+	//exhaustruct:ignore
+	chatCompletion struct {
+		ID      string       `json:"id"`
+		Object  string       `json:"object"`
+		Created int          `json:"created"`
+		Model   string       `json:"model"`
+		Choices []chatChoice `json:"choices"`
+		Usage   *chatUsage   `json:"usage,omitempty"`
+	}
+	//exhaustruct:ignore
+	chatChoice struct {
+		Index        int          `json:"index"`
+		Message      *chatMessage `json:"message,omitempty"`
+		Delta        *chatMessage `json:"delta,omitempty"`
+		FinishReason *string      `json:"finish_reason"`
+	}
+	//exhaustruct:ignore
+	chatMessage struct {
+		Role      string         `json:"role,omitempty"`
+		Content   *string        `json:"content,omitempty"`
+		ToolCalls []chatToolCall `json:"tool_calls,omitempty"`
+	}
+	//exhaustruct:ignore
+	chatToolCall struct {
+		Index    *int         `json:"index,omitempty"`
+		ID       string       `json:"id"`
+		Type     string       `json:"type"`
+		Function chatFunction `json:"function"`
+	}
+	//exhaustruct:ignore
+	chatFunction struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	}
+	//exhaustruct:ignore
+	chatUsage struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+		TotalTokens      int `json:"total_tokens"`
+	}
+)
+
 // serveChatCompletion answers an OpenAI chat completion with call when one is
-// given, else with reply; streamed as server-sent chunks when
-// the request asks for a stream (opencode's AI SDK provider does) and as one
-// JSON completion otherwise.
+// given, else with reply; streamed as server-sent chunks when the request asks
+// for a stream (opencode's AI SDK provider does) and as one JSON completion
+// otherwise.
 func serveChatCompletion(response http.ResponseWriter, request chatRequest, call *ToolCall, reply string) {
-	answer := textAnswer(reply)
+	message, delta, finishReason := textAnswer(reply)
 	if call != nil {
-		answer = toolCallAnswer(*call)
+		message, delta, finishReason = toolCallAnswer(*call)
 	}
 	if request.Stream {
-		streamChatCompletion(response, answer.delta, answer.finishReason)
+		streamChatCompletion(response, delta, finishReason)
 		return
 	}
 	response.Header().Set("Content-Type", "application/json")
-	_, _ = fmt.Fprintf(response,
-		`{"id":"stub","object":"chat.completion","created":0,"model":%q,`+
-			`"choices":[{"index":0,"message":%s,"finish_reason":%q}],`+
-			`"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`,
-		stubProviderModel, answer.message, answer.finishReason)
+	_, _ = response.Write([]byte(mustJSON(chatCompletion{
+		ID: "stub", Object: "chat.completion", Model: stubProviderModel,
+		Choices: []chatChoice{{Message: &message, FinishReason: &finishReason}},
+		Usage:   &chatUsage{PromptTokens: 1, CompletionTokens: 1, TotalTokens: 2},
+	})))
 }
 
-// chatAnswer is one answer in both shapes: the JSON message of a completion and
-// the delta of a streamed chunk, with the finish reason they share.
-type chatAnswer struct {
-	message      string
-	delta        string
-	finishReason string
+// textAnswer is a text reply as a completion message, a stream delta, and its
+// finish reason.
+//
+//nolint:nonamedreturns // the three parts are named for the reader
+func textAnswer(reply string) (message, delta chatMessage, finishReason string) {
+	message = chatMessage{Role: assistantRole, Content: &reply}
+	return message, message, "stop"
 }
 
-// textAnswer is a text reply.
-func textAnswer(reply string) chatAnswer {
-	message := fmt.Sprintf(`{"role":"assistant","content":%s}`, jsonString(reply))
-	return chatAnswer{message: message, delta: message, finishReason: "stop"}
-}
-
-// toolCallAnswer is a tool call.
-func toolCallAnswer(call ToolCall) chatAnswer {
-	function := fmt.Sprintf(`{"name":%s,"arguments":%s}`, jsonString(call.Name), jsonString(call.Arguments))
-	message := fmt.Sprintf(
-		`{"role":"assistant","content":null,"tool_calls":[{"id":%q,"type":"function","function":%s}]}`,
-		stubToolCallID, function)
-	delta := fmt.Sprintf(
-		`{"role":"assistant","tool_calls":[{"index":0,"id":%q,"type":"function","function":%s}]}`,
-		stubToolCallID, function)
-	return chatAnswer{message: message, delta: delta, finishReason: "tool_calls"}
+// toolCallAnswer is a tool call as a completion message (no content), a stream
+// delta (the call carries its index), and its finish reason.
+//
+//nolint:nonamedreturns // the three parts are named for the reader
+func toolCallAnswer(call ToolCall) (message, delta chatMessage, finishReason string) {
+	function := chatFunction(call)
+	index := 0
+	message = chatMessage{
+		Role:      assistantRole,
+		ToolCalls: []chatToolCall{{ID: stubToolCallID, Type: "function", Function: function}},
+	}
+	delta = chatMessage{
+		Role:      assistantRole,
+		ToolCalls: []chatToolCall{{Index: &index, ID: stubToolCallID, Type: "function", Function: function}},
+	}
+	return message, delta, "tool_calls"
 }
 
 // streamChatCompletion writes delta as one chunk, a finish chunk, and the
 // [DONE] sentinel.
-func streamChatCompletion(response http.ResponseWriter, delta, finishReason string) {
+func streamChatCompletion(response http.ResponseWriter, delta chatMessage, finishReason string) {
 	response.Header().Set("Content-Type", "text/event-stream")
-	chunk := func(delta, finishReason string) string {
-		return fmt.Sprintf(
-			`{"id":"stub","object":"chat.completion.chunk","created":0,"model":%q,`+
-				`"choices":[{"index":0,"delta":%s,"finish_reason":%s}]}`,
-			stubProviderModel, delta, finishReason)
+	chunk := func(delta chatMessage, finishReason *string) string {
+		return mustJSON(chatCompletion{
+			ID: "stub", Object: "chat.completion.chunk", Model: stubProviderModel,
+			Choices: []chatChoice{{Delta: &delta, FinishReason: finishReason}},
+		})
 	}
-	events := []string{chunk(delta, "null"), chunk(`{}`, jsonString(finishReason)), "[DONE]"}
+	events := []string{chunk(delta, nil), chunk(chatMessage{}, &finishReason), "[DONE]"}
 	for _, event := range events {
 		_, _ = fmt.Fprintf(response, "data: %s\n\n", event)
 	}
