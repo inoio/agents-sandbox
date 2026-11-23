@@ -456,3 +456,49 @@ func writeHostFile(t *testing.T, root, rel, content string) {
 	}
 	testutil.WriteFile(t, root, rel, content)
 }
+
+// TestBuildFactsManagedConfigIgnoresSeededInstructionFiles pins the decision
+// that instruction files are not a managed config layer: a per-slug dir holding
+// only a seeded CLAUDE.md and skills/ leaves ManagedConfig false (the recorded
+// decision, not the files, keeps a later run quiet), while a config file beside
+// them still counts.
+func TestBuildFactsManagedConfigIgnoresSeededInstructionFiles(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	dir := filepath.Join(configpaths.Get().UserSlugConfigDir("widget-abc"), "claude")
+	writeHostFile(t, dir, "CLAUDE.md", "# rules\n")
+	writeHostFile(t, dir, "skills/deploy/SKILL.md", "# deploy\n")
+
+	f, err := BuildFacts("claude-code", "widget-abc", t.TempDir(), configpaths.Get())
+	if err != nil {
+		t.Fatalf("BuildFacts: %v", err)
+	}
+	if f.ManagedConfig {
+		t.Error("seeded instruction files alone must not count as a managed config layer")
+	}
+
+	writeHostFile(t, dir, "settings.json", "{}")
+	f, err = BuildFacts("claude-code", "widget-abc", t.TempDir(), configpaths.Get())
+	if err != nil {
+		t.Fatalf("BuildFacts: %v", err)
+	}
+	if !f.ManagedConfig {
+		t.Error("a config file beside the instruction files is a managed config layer")
+	}
+}
+
+// TestBuildFactsManagedConfigCountsAnInstructionNameOfAnotherAgent pins that
+// only the agent's own instruction names are ignored: an AGENTS.md is not one of
+// claude-code's instruction files, so it still counts as a managed file.
+func TestBuildFactsManagedConfigCountsAnInstructionNameOfAnotherAgent(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	dir := filepath.Join(configpaths.Get().UserSlugConfigDir("widget-abc"), "claude")
+	writeHostFile(t, dir, "AGENTS.md", "# rules\n")
+
+	f, err := BuildFacts("claude-code", "widget-abc", t.TempDir(), configpaths.Get())
+	if err != nil {
+		t.Fatalf("BuildFacts: %v", err)
+	}
+	if !f.ManagedConfig {
+		t.Error("a file claude-code does not declare as an instruction file still counts")
+	}
+}

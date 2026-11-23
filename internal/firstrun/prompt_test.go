@@ -404,3 +404,35 @@ func TestOutcomeApplyLearningLeavesProvisionHostConfigUntouched(t *testing.T) {
 		t.Error("a learning choice must leave the config-resolved ProvisionHostConfig untouched")
 	}
 }
+
+// TestPromptOffersTheHostSeedForInstructionFilesAlone pins that instruction
+// files alone are a host setup: a claude-code host whose settings.json is
+// withheld still gets "Learn from my host setup", recommended.
+func TestPromptOffersTheHostSeedForInstructionFilesAlone(t *testing.T) {
+	var gotKeys []string
+	var gotDefault string
+	ui := &termiotest.Mock{IsInteractiveResult: true}
+	ui.SelectFn = func(_ string, choices []termio.Choice, defaultKey string) (string, error) {
+		for _, choice := range choices {
+			gotKeys = append(gotKeys, choice.Key)
+		}
+		gotDefault = defaultKey
+		return defaultKey, nil
+	}
+
+	_, offered := Prompt(ui, Facts{
+		Agent:            "claude-code",
+		Slug:             "widget-abc",
+		InstructionFiles: []string{"/home/dev/.claude/CLAUDE.md"},
+	})
+
+	if !offered {
+		t.Fatal("the menu must be offered")
+	}
+	if !slices.Contains(gotKeys, string(ChoiceLearnFromHost)) {
+		t.Errorf("choices = %v, want the host seed offered", gotKeys)
+	}
+	if gotDefault != string(ChoiceLearnFromHost) {
+		t.Errorf("default = %q, want the host seed recommended", gotDefault)
+	}
+}

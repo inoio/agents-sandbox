@@ -1,6 +1,7 @@
 package readback
 
 import (
+	"regexp"
 	"slices"
 	"strings"
 	"unicode"
@@ -28,9 +29,10 @@ type SanitizeParams struct {
 	// as its value; when empty, the value becomes its ${ENVVAR} placeholder.
 	IndirectionKey string
 	// RefuseUndeclaredSecretKeys additionally refuses content that still holds a
-	// non-reference string under a secret-shaped key — a secret the credential
-	// walk did not name. It is the host-seed guard; it is off for the write-back
-	// so the write-back's existing behaviour is unchanged.
+	// secret the credential walk did not name: a non-reference string under a
+	// secret-shaped key, a secret-shaped value under any key, or an env-table
+	// entry not known to be configuration. The host seed and the write-back both
+	// set it.
 	RefuseUndeclaredSecretKeys bool
 }
 
@@ -41,8 +43,7 @@ type SanitizeParams struct {
 // AllCredentials value survives the substitution, so the caller refuses the
 // file rather than copy a raw value or an orphan placeholder. With
 // RefuseUndeclaredSecretKeys set, it is also false when the decoded document
-// still holds a non-reference string — directly or inside a collection — under a
-// secret-shaped key the credential walk did not name.
+// still holds a secret the credential walk did not name (see the field).
 //
 // The substitution is longest-value-first, so a value that is a prefix of
 // another does not corrupt the longer one. The value-remains check is literal
@@ -75,15 +76,68 @@ func SanitizeConfig(content []byte, params SanitizeParams) (string, bool) {
 // true, so a secret cannot hide behind an undecodable document; an unknown
 // format reports false.
 func holdsUndeclaredSecretValue(path, content string) bool {
+	// The raw text is scanned for secret-shaped values too: a comment never
+	// reaches the decoded walk but is copied verbatim.
+	if looksLikeSecretValue(content) {
+		return true
+	}
 	format, ok := configdecode.FormatFor(path)
 	if !ok {
 		return false
+	}
+	// The decoder reads only a YAML stream's first document, so a later one
+	// cannot be checked and the file is refused.
+	if format == configdecode.FormatYAML && holdsLaterYAMLDocument(content) {
+		return true
 	}
 	decoded, err := configdecode.Decode(format, []byte(content))
 	if err != nil {
 		return true
 	}
 	return decodedHoldsUndeclaredSecretValue(decoded)
+}
+
+// yamlDocumentMarker matches a line that opens or closes a YAML document.
+var yamlDocumentMarker = regexp.MustCompile(`^(---|\.\.\.)(\s|$)`)
+
+// isYAMLLineBreak reports whether r terminates a line in a YAML stream. It is
+// the break set go-yaml honours — LF, CR, NEL, LS, PS — so a stream whose lines
+// end in a lone CR (or one of the others) is split the same way the decoder
+// splits it. Splitting on "\n" alone would leave such a stream as one line and
+// hide a later document's marker from the scan.
+func isYAMLLineBreak(r rune) bool {
+	switch r {
+	case '\n', '\r', '\u0085', '\u2028', '\u2029':
+		return true
+	}
+	return false
+}
+
+// holdsLaterYAMLDocument reports whether content holds a YAML document after its
+// first one. A '---' line on its own only opens the first document as long as
+// nothing precedes it but blank lines and comments, and the opening '---' is
+// consumed once: a second one is followed by a document the caller's
+// first-document decode cannot check, as is a '...' after any content. A '---'
+// inside a block scalar is indented or a plain scalar's continuation, so it
+// opens no line of its own. Lines are split on every break the decoder honours
+// (see isYAMLLineBreak), so a CR-delimited stream's markers are seen.
+func holdsLaterYAMLDocument(content string) bool {
+	seenContent := false
+	seenMarker := false
+	for _, line := range strings.FieldsFunc(content, isYAMLLineBreak) {
+		switch {
+		case yamlDocumentMarker.MatchString(line):
+			if seenContent || seenMarker || strings.HasPrefix(line, "...") {
+				return true
+			}
+			seenMarker = true
+		case strings.TrimSpace(line) == "" || strings.HasPrefix(strings.TrimSpace(line), "#"):
+			// A blank line or a comment may precede the first document marker.
+		default:
+			seenContent = true
+		}
+	}
+	return false
 }
 
 // substituteCredentialValues replaces each credential's value in content. The
@@ -331,7 +385,68 @@ func isKeyChar(b byte) bool {
 // secret. Each marker matches both the singular and the plural segment, because
 // a secret list is routinely spelled in the plural (tokens, apiKeys).
 var secretShapedKeyMarkers = []string{
-	"KEY", "TOKEN", "SECRET", "PASSWORD", "AUTHORIZATION", "CREDENTIAL",
+	"KEY", tokenCountMarker, "SECRET", "PASSWORD", "PASS", "PASSWD", "PWD", "AUTHORIZATION", "CREDENTIAL",
+	"APIKEY", "ACCESSKEY", "PRIVATEKEY", "AUTHTOKEN", "PIN",
+}
+
+// tokenCountMarker is the one marker that also names a count (max tokens), so a
+// number under it is not a secret.
+const tokenCountMarker = "TOKEN"
+
+// leafSecretKeyMarkers mark a key as secret only when it holds a string
+// directly: "auth", "cookie" or "session" also name tables of settings (Qwen
+// Code's security.auth.selectedType), whose values are not credentials.
+var leafSecretKeyMarkers = []string{"AUTH", "COOKIE", "SESSION"}
+
+// namesAStoredSecret reports whether key names a secret that can be a number
+// (a token, password, PIN, or key) rather than only a token count: every secret
+// marker except TOKEN, and a TOKEN marker only when it does not name a count.
+// An access_token or apiToken names a stored secret, so a number under it is not
+// cleared; a maxTokens, MAX_THINKING_TOKENS, tokenCount, or max_output_tokens
+// names a count.
+func namesAStoredSecret(key string) bool {
+	segments := keySegments(key)
+	for _, segment := range segments {
+		singular := strings.TrimSuffix(segment, "S")
+		if !slices.Contains(secretShapedKeyMarkers, segment) &&
+			!slices.Contains(secretShapedKeyMarkers, singular) {
+			continue
+		}
+		if singular == tokenCountMarker && tokenSegmentNamesACount(segments, segment) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// tokenSegmentNamesACount reports whether a TOKEN/TOKENS segment names a count
+// rather than a token credential: a plural TOKENS (maxTokens, max_tokens,
+// tokens) names a count, and a singular TOKEN does only when it is the bare key
+// or sits beside a MAX or COUNT word (token, tokenCount). A singular TOKEN with
+// any other qualifier (access_token, apiToken) names a stored secret.
+func tokenSegmentNamesACount(segments []string, segment string) bool {
+	if segment != tokenCountMarker {
+		return true
+	}
+	return len(segments) == 1 || slices.ContainsFunc(segments, isTokenCountWord)
+}
+
+// isTokenCountWord reports whether a key segment names a count of tokens.
+func isTokenCountWord(segment string) bool {
+	return segment == "MAX" || segment == "COUNT"
+}
+
+// leafSecretKeyLeaksValue reports whether a key with a leaf-only marker holds a
+// raw string directly.
+func leafSecretKeyLeaksValue(key string, value any) bool {
+	text, _ := value.(string)
+	if !slices.ContainsFunc(keySegments(key), func(segment string) bool {
+		return slices.Contains(leafSecretKeyMarkers, segment)
+	}) {
+		return false
+	}
+	return isUndeclaredSecretValue(text, false)
 }
 
 // looksLikeSecretShapedKey reports whether key names a secret, matching the
@@ -355,7 +470,8 @@ func looksLikeSecretShapedKey(key string) bool {
 // trailing S folds the plural to its marker; the singular markers carry no
 // trailing S, so a singular segment is unchanged.
 func isSecretShapedSegment(segment string) bool {
-	return slices.Contains(secretShapedKeyMarkers, strings.TrimSuffix(segment, "S"))
+	return slices.Contains(secretShapedKeyMarkers, segment) ||
+		slices.Contains(secretShapedKeyMarkers, strings.TrimSuffix(segment, "S"))
 }
 
 // keySegments splits key into its uppercased word segments on separators and
@@ -395,26 +511,40 @@ func keySegments(key string) []string {
 func decodedHoldsUndeclaredSecretValue(node any) bool {
 	switch typed := node.(type) {
 	case map[string]any:
+		if nameValuePairLeaksValue(typed) {
+			return true
+		}
 		for key, child := range typed {
-			if secretKeyLeaksValue(key, child) || decodedHoldsUndeclaredSecretValue(child) {
+			if entryLeaksValue(key, child) {
 				return true
 			}
 		}
 	case map[any]any:
 		for key, child := range typed {
-			if keyString, ok := key.(string); ok {
-				if secretKeyLeaksValue(keyString, child) {
-					return true
-				}
-			}
-			if decodedHoldsUndeclaredSecretValue(child) {
+			keyString, _ := key.(string)
+			if entryLeaksValue(keyString, child) {
 				return true
 			}
 		}
 	case []any:
-		return slices.ContainsFunc(typed, decodedHoldsUndeclaredSecretValue)
+		return argumentsLeakValue(typed) || slices.ContainsFunc(typed, assignmentLeaksValue) ||
+			slices.ContainsFunc(typed, decodedHoldsUndeclaredSecretValue)
+	case string:
+		return looksLikeSecretValue(typed)
 	}
 	return false
+}
+
+// entryLeaksValue reports whether one mapping entry leaks a raw secret: a
+// secret-shaped key holding one, an env table holding an entry not known to be
+// configuration, or a secret-shaped value anywhere below it.
+func entryLeaksValue(key string, child any) bool {
+	if isSecretTable(key, child) {
+		// An env or header table's entries are judged by its own rule alone.
+		return tableLeaksValue(key, child)
+	}
+	return secretKeyLeaksValue(key, child) || leafSecretKeyLeaksValue(key, child) ||
+		decodedHoldsUndeclaredSecretValue(child)
 }
 
 // secretKeyLeaksValue reports whether a secret-shaped key holds a raw secret
@@ -422,41 +552,104 @@ func decodedHoldsUndeclaredSecretValue(node any) bool {
 // scalar. An array or object under the key leaks when any descendant string is a
 // raw secret, so a list such as {"apiKeys":["sk-raw"]} is refused.
 func secretKeyLeaksValue(key string, value any) bool {
-	return looksLikeSecretShapedKey(key) && holdsRawSecretString(value)
+	return looksLikeSecretShapedKey(key) && holdsRawSecretString(value, !namesAStoredSecret(key))
 }
 
-// holdsRawSecretString reports whether node is, or contains at any depth, a
-// non-empty string that is not a reference. It threads the secret-shaped key's
-// context through its descendants so a collection under the key is inspected,
-// not only a direct string value.
-func holdsRawSecretString(node any) bool {
+// holdsRawSecretString reports whether node is, or contains at any depth, a raw
+// secret rather than a reference: a non-empty string, or any other decoded
+// scalar (a number, or a timestamp the parser resolved from an unquoted date).
+// It threads the secret-shaped key's context through its descendants so a
+// collection under the key is inspected, not only a direct string value. A
+// boolean or a null is never a secret.
+func holdsRawSecretString(node any, allowNumbers bool) bool {
+	return holdsRawSecret(
+		node,
+		allowNumbers,
+		func(value string) bool { return isUndeclaredSecretValue(value, allowNumbers) },
+	)
+}
+
+// holdsBareLiteralSecret reports whether node is, or contains at any depth, a
+// raw secret, judging every string as a bare literal: only an explicit
+// placeholder or reference (`${…}`, `{env:…}`, `{file:…}`, a leading `!`) is
+// cleared, never a bare upper-case word. A nested table or list under an env or
+// header table holds no configuration names, so a bare word there is a value,
+// not a variable name.
+func holdsBareLiteralSecret(node any) bool {
+	return holdsRawSecret(node, false, isBareLiteralSecretValue)
+}
+
+// holdsRawSecret reports whether node is, or contains at any depth, a leaf the
+// predicate judges a raw secret. It recurses through every decoded collection
+// shape; a non-string scalar (a number, or a timestamp the parser resolved from
+// an unquoted date) is a raw value unless allowNumbers, and a boolean or a null
+// never is.
+func holdsRawSecret(node any, allowNumbers bool, leafIsRawSecret func(value string) bool) bool {
 	switch typed := node.(type) {
 	case []any:
-		return slices.ContainsFunc(typed, holdsRawSecretString)
+		return slices.ContainsFunc(
+			typed,
+			func(child any) bool { return holdsRawSecret(child, allowNumbers, leafIsRawSecret) },
+		)
 	case map[string]any:
 		for _, child := range typed {
-			if holdsRawSecretString(child) {
+			if holdsRawSecret(child, allowNumbers, leafIsRawSecret) {
 				return true
 			}
 		}
+		return false
 	case map[any]any:
 		for _, child := range typed {
-			if holdsRawSecretString(child) {
+			if holdsRawSecret(child, allowNumbers, leafIsRawSecret) {
 				return true
 			}
 		}
-	default:
-		return isUndeclaredSecretValue(typed)
+		return false
+	case string:
+		return leafIsRawSecret(typed)
+	case bool, nil:
+		// A switch or a bare key is never a secret.
+		return false
+	}
+	// A non-string scalar that is not a number — a timestamp the parser
+	// resolved from an unquoted date (time.Time, toml.LocalDate and its
+	// siblings) — is always a raw value, so the numeric exemption cannot
+	// swallow it. A numeric scalar is a raw value unless allowNumbers. Every
+	// container shape is handled above, so this recurses into nothing.
+	if !isNumericScalar(node) {
+		return true
+	}
+	return !allowNumbers
+}
+
+// isNumericScalar reports whether node is a decoded number. A decoded document
+// holds numbers as int or float64 (and their sized variants across the decoders),
+// so a scalar that is none of these — a timestamp in particular — is not a number.
+func isNumericScalar(node any) bool {
+	switch node.(type) {
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+		return true
 	}
 	return false
 }
 
-// isUndeclaredSecretValue reports whether node is a non-empty string that is not
-// a reference, so it would be a raw secret under a secret-shaped key.
-func isUndeclaredSecretValue(node any) bool {
-	value, _ := node.(string)
-	if strings.TrimSpace(value) == "" {
+// isUndeclaredSecretValue reports whether value is a non-empty string that is
+// not a reference, so it would be a raw secret under a secret-shaped key. With
+// allowNumbers, a number or boolean word is not one either: under a token count
+// (MAX_THINKING_TOKENS: "31999"), never under a password, PIN, or key.
+func isUndeclaredSecretValue(value string, allowNumbers bool) bool {
+	if strings.TrimSpace(value) == "" || (allowNumbers && isNonSecretScalar(value)) {
 		return false
 	}
 	return !isReferenceValue(value)
+}
+
+// isBareLiteralSecretValue reports whether value is a non-empty string that is
+// not an explicit placeholder or reference: a bare upper-case word counts,
+// because a table that sets variables holds literals, not variable names.
+func isBareLiteralSecretValue(value string) bool {
+	if strings.TrimSpace(value) == "" {
+		return false
+	}
+	return !isExplicitReference(value)
 }

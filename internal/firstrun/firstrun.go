@@ -6,6 +6,7 @@ package firstrun
 import (
 	"fmt"
 	"os"
+	"slices"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
@@ -40,7 +41,12 @@ type Facts struct {
 	// HostSourceHash hashes HostFiles' home-relative paths and contents; empty
 	// when HostFiles is empty.
 	HostSourceHash string
-	Prior          state.FirstRunRecord
+	// InstructionFiles are the agent's host instruction files the seed would
+	// copy (HostInstructionFiles); the seed plans them again from the host. They
+	// count as a host setup for the offer but are not in HostSourceHash, so
+	// editing one does not re-arm the decision.
+	InstructionFiles []string
+	Prior            state.FirstRunRecord
 }
 
 // Offer reports whether the first-run menu should be shown: no managed config,
@@ -58,9 +64,16 @@ func Offer(f Facts) bool {
 	return f.Prior.SourceHash != f.HostSourceHash
 }
 
+// HasHostSetup reports whether the host has anything for the seed to copy: a
+// config file or an instruction file.
+func (f Facts) HasHostSetup() bool {
+	return len(f.HostFiles) > 0 || len(f.InstructionFiles) > 0
+}
+
 // BuildFacts assembles the facts the first-run decision needs for agentName in
 // slug: whether a managed config layer already exists, the agent's host config
-// files and their source hash, and any prior decision. hostHome is the host
+// files and their source hash, its host instruction files, and any prior
+// decision. hostHome is the host
 // user's home the provision rules read from; paths resolves the per-slug user
 // scope. An agent name the registry does not know is an error: the caller
 // resolves the agent before offering anything.
@@ -79,22 +92,25 @@ func BuildFacts(agentName, slug, hostHome string, paths configpaths.ConfigPaths)
 		return Facts{}, fmt.Errorf("firstrun: read prior decision: %w", err)
 	}
 	return Facts{
-		Agent:          agentName,
-		Slug:           slug,
-		ManagedConfig:  managedConfig,
-		HostFiles:      hostFiles,
-		HostSourceHash: hostSourceHash,
-		Prior:          prior,
+		Agent:            agentName,
+		Slug:             slug,
+		ManagedConfig:    managedConfig,
+		HostFiles:        hostFiles,
+		HostSourceHash:   hostSourceHash,
+		InstructionFiles: HostInstructionFiles(a, hostHome),
+		Prior:            prior,
 	}, nil
 }
 
 // managedConfigPresent reports whether a managed config layer already exists for
 // a: at least one regular file directly in one of the agent's launcher config
-// dirs (primary or alias), or a scope's secret file (env.secret.yaml, the legacy
+// dirs (primary or alias) other than one of the agent's instruction files, or a scope's secret file (env.secret.yaml, the legacy
 // env.secret, or env), in any scope the config merge reads (generic user,
 // per-slug user, project). An empty slug has no per-slug scope and no decision
 // key, so it reports false. A missing dir, or one holding only subdirectories, is
-// not a managed config layer.
+// not a managed config layer, and neither is a dir holding only instruction files
+// (a host seed of CLAUDE.md alone configures nothing, so the recorded decision,
+// not those files, keeps a later run quiet).
 func managedConfigPresent(a agent.Agent, slug string, paths configpaths.ConfigPaths) (bool, error) {
 	if slug == "" {
 		return false, nil
@@ -103,9 +119,10 @@ func managedConfigPresent(a agent.Agent, slug string, paths configpaths.ConfigPa
 	if err != nil {
 		return false, fmt.Errorf("firstrun: agent %s config dir names: %w", a.Name(), err)
 	}
+	instructionNames := instructionFileNames(a)
 	for _, scope := range configpaths.ConfigScopes(paths, slug) {
 		for _, dirName := range dirNames {
-			if dirHasRegularFile(scope.AgentConfigDir(dirName)) {
+			if dirHasRegularFile(scope.AgentConfigDir(dirName), instructionNames) {
 				return true, nil
 			}
 		}
@@ -117,15 +134,15 @@ func managedConfigPresent(a agent.Agent, slug string, paths configpaths.ConfigPa
 }
 
 // dirHasRegularFile reports whether dir holds at least one regular file at its
-// top level. A missing or unreadable dir reports false, so an unreadable config
-// dir is honestly not a managed layer.
-func dirHasRegularFile(dir string) bool {
+// top level whose name is not in ignoredNames. A missing or unreadable dir
+// reports false, so an unreadable config dir is honestly not a managed layer.
+func dirHasRegularFile(dir string, ignoredNames []string) bool {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return false
 	}
 	for _, entry := range entries {
-		if entry.Type().IsRegular() {
+		if entry.Type().IsRegular() && !slices.Contains(ignoredNames, entry.Name()) {
 			return true
 		}
 	}

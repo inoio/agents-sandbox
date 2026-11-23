@@ -373,7 +373,6 @@ func TestSanitizeConfigGuardAcceptsAReferenceOnlyPluralKey(t *testing.T) {
 	documents := []string{
 		`{"tokens":["${T}"]}`,
 		`{"maxTokens":4096}`,
-		`{"secrets":[4096]}`,
 		`{"passwords":[""]}`,
 		`{"keys":[true,null]}`,
 		`{"credentials":{"a":"${CRED_A}"}}`,
@@ -410,6 +409,46 @@ func TestSanitizeConfigRefusesACredentialNotAllowed(t *testing.T) {
 	})
 
 	require.False(t, ok)
+}
+
+// TestHoldsLaterYAMLDocument pins the multi-document decision directly: the
+// marker is a document start only when nothing but blank lines and comments
+// precedes it, and lines are split on every break go-yaml honours, not LF alone.
+func TestHoldsLaterYAMLDocument(t *testing.T) {
+	for name, tc := range map[string]struct {
+		content string
+		want    bool
+	}{
+		"one document":                     {"model: x\n", false},
+		"comment then a document start":    {"# agent config\n---\nmodel: x\n", false},
+		"blank lines then a start":         {"\n\n---\nmodel: x\n", false},
+		"a start alone":                    {"---\nmodel: x\n", false},
+		"a document start without content": {"---\n", false},
+		"no content":                       {"", false},
+		"comment only":                     {"# agent config\n", false},
+		"second document":                  {"model: x\n---\nnote: y\n", true},
+		"second start only":                {"model: x\n---\n", true},
+		"document after a comment":         {"model: x\n# note\n---\nnote: y\n", true},
+		"document end marker":              {"model: x\n...\n", true},
+		"second document start":            {"---\n---\nnote: y\n", true},
+		"second document start after header": {
+			"# header\n---\n---\nnote: y\n",
+			true,
+		},
+		// A stream whose lines end in a non-LF break is split the way go-yaml
+		// splits it, so its later document marker is seen.
+		"second document, CR-only breaks":     {"model: x\r---\rnote: y\r", true},
+		"second document, NEL breaks":         {"model: x\u0085---\u0085note: y\u0085", true},
+		"second document, LS breaks":          {"model: x\u2028---\u2028note: y\u2028", true},
+		"second document, PS breaks":          {"model: x\u2029---\u2029note: y\u2029", true},
+		"document end marker, CR-only":        {"model: x\r...\r", true},
+		"start then second document, CR-only": {"---\r---\rnote: y\r", true},
+		"single document, CR-only breaks":     {"model: x\rnote: y\r", false},
+	} {
+		if got := holdsLaterYAMLDocument(tc.content); got != tc.want {
+			t.Errorf("%s: holdsLaterYAMLDocument(%q) = %v, want %v", name, tc.content, got, tc.want)
+		}
+	}
 }
 
 // TestHoldsUndeclaredSecretValueUnknownFormat pins the unknown-format fallback:
@@ -505,8 +544,8 @@ func TestDecodedHoldsUndeclaredSecretValueWalksAnyMap(t *testing.T) {
 // TestHoldsRawSecretStringWalksAnyMap pins the map[any]any branch of the raw
 // secret walk: a non-string key's descendant string is still inspected.
 func TestHoldsRawSecretStringWalksAnyMap(t *testing.T) {
-	require.True(t, holdsRawSecretString(map[any]any{1: "sk-raw"}))
-	require.False(t, holdsRawSecretString(map[any]any{1: map[string]any{"a": "${REF}"}}))
+	require.True(t, holdsRawSecretString(map[any]any{1: "sk-raw"}, false))
+	require.False(t, holdsRawSecretString(map[any]any{1: map[string]any{"a": "${REF}"}}, false))
 }
 
 // TestHoldsUndeclaredSecretValueUnknownFormatIgnoresSecretShapedContent pins
@@ -661,4 +700,558 @@ func TestKeySegments(t *testing.T) {
 // leak even when it holds a raw string.
 func TestDecodedHoldsUndeclaredSecretValueAnyMapIgnoresOrdinaryKeys(t *testing.T) {
 	require.False(t, decodedHoldsUndeclaredSecretValue(map[any]any{"model": "raw"}))
+}
+
+// TestSanitizeConfigRefusesUnmarkedSecretShapes pins the host-seed guard against
+// credentials whose key names no secret: header values, URL userinfo, token
+// prefixes in commands, compound key markers, and env-table entries, which are
+// secret unless their key or value is known to be harmless.
+func TestSanitizeConfigRefusesUnmarkedSecretShapes(t *testing.T) {
+	refused := map[string]struct{ path, content string }{
+		"custom headers":   {"settings.json", `{"env":{"ANTHROPIC_CUSTOM_HEADERS":"x-api-key: abc"}}`},
+		"otel headers":     {"settings.json", `{"env":{"OTEL_EXPORTER_OTLP_HEADERS":"Authorization=Bearer abc"}}`},
+		"opaque env value": {"settings.json", `{"env":{"SOME_SETTING":"opaque-value"}}`},
+		"proxy userinfo":   {"settings.json", `{"env":{"HTTPS_PROXY":"http://alice:pw@proxy:3128"}}`},
+		"hook bearer": {
+			"settings.json",
+			`{"hooks":{"PreToolUse":[{"command":"curl -H 'Authorization: Bearer abcdefgh12345678' x"}]}}`,
+		},
+		"helper command":      {"settings.json", `{"apiKeyHelper":"echo sk-proj-abc123def456ghij"}`},
+		"compound key marker": {"settings.json", `{"OPENAI_APIKEY":"abcdef"}`},
+		"nested mcp env (toml)": {
+			"config.toml",
+			"[mcp_servers.gh.env]\nGITHUB_PERSONAL_ACCESS_TOKEN = \"x\"\nGH_HOST_LABEL = \"opaque\"\n",
+		},
+		"url userinfo anywhere": {"config.toml", "[mcp_servers.git]\nurl = \"https://oauth2:abc@git.example/x\"\n"},
+	}
+	for name, tc := range refused {
+		t.Run("refuses "+name, func(t *testing.T) {
+			if _, ok := SanitizeConfig(
+				[]byte(tc.content),
+				SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+			); ok {
+				t.Errorf("SanitizeConfig accepted %s", tc.content)
+			}
+		})
+	}
+
+	accepted := map[string]struct{ path, content string }{
+		"harmless claude settings": {"settings.json", `{"model":"haiku","permissions":{"allow":["Bash(ls:*)"]},` +
+			`"env":{"MAX_THINKING_TOKENS":"31999","CLAUDE_CODE_MAX_OUTPUT_TOKENS":"8192","ANTHROPIC_BASE_URL":"https://gw.example",` +
+			`"DISABLE_TELEMETRY":"1"}}`},
+		"placeholder in env": {"settings.json", `{"env":{"ANTHROPIC_API_KEY":"${ANTHROPIC_API_KEY}"}}`},
+		"plain codex settings": {
+			"config.toml",
+			"model = \"gpt-5\"\nsandbox_mode = \"workspace-write\"\n[mcp_servers.fs]\ncommand = \"npx\"\nargs = [\"-y\", \"server-filesystem\"]\n",
+		},
+	}
+	for name, tc := range accepted {
+		t.Run("accepts "+name, func(t *testing.T) {
+			if _, ok := SanitizeConfig(
+				[]byte(tc.content),
+				SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+			); !ok {
+				t.Errorf("SanitizeConfig refused %s", tc.content)
+			}
+		})
+	}
+}
+
+// TestSanitizeConfigReviewCases pins the guard's adversarial-review cases: the
+// bypasses it must refuse and the legitimate configs it must still accept.
+func TestSanitizeConfigReviewCases(t *testing.T) {
+	refused := map[string]struct{ path, content string }{
+		"query api key": {
+			"opencode.json",
+			`{"mcp":{"s":{"type":"remote","url":"https://server.example/mcp?api_key=0123abcd-4567&profile=p"}}}`,
+		},
+		"query token in env url": {"settings.json", `{"env":{"MCP_URL":"https://m.example/sse?token=abc123def456"}}`},
+		"jsonc comment": {
+			"opencode.jsonc",
+			"{\n // \"apiKey\": \"sk-ant-api03-abcdefghijkl\",\n \"model\":\"x\"}",
+		},
+		"toml comment":         {"config.toml", "# OPENAI_API_KEY = \"sk-proj-abc123def456ghij\"\nmodel = \"x\"\n"},
+		"second yaml document": {"config.yaml", "model: x\n---\napi_key: plainvalue\n"},
+		"custom header":        {"opencode.json", `{"mcp":{"x":{"headers":{"X-Custom-Auth":"abc123def456"}}}}`},
+		"toml http header": {
+			"config.toml",
+			"[mcp_servers.x]\nhttp_headers = { \"X-Auth\" = \"abc123def456\" }\n",
+		},
+		"cookie header":         {"opencode.json", `{"headers":{"Cookie":"session=abcdef123456"}}`},
+		"auth key":              {"settings.json", `{"auth":"opaque-token-value"}`},
+		"numeric password":      {"opencode.json", `{"mcp":{"x":{"password":"84736251"}}}`},
+		"numeric env password":  {"opencode.json", `{"mcp":{"x":{"environment":{"DB_PASSWORD":"84736251"}}}}`},
+		"upper-case env secret": {"settings.json", `{"env":{"TOTP_SECRET":"JBSWY3DPEHPK3PXP"}}`},
+		"bang env value":        {"settings.json", `{"env":{"password":"!Sup3rS3cret"}}`},
+		"redis empty user":      {"config.toml", "url = \"redis://:hunter2pass@redis:6379\"\n"},
+		"password with slash":   {"settings.json", `{"env":{"DATABASE_URL":"postgres://app:ab/cd@db/x"}}`},
+		"token as username":     {"config.toml", "url = \"https://abc123def456ghi@git.example/x\"\n"},
+		"token flag":            {"config.toml", "[mcp_servers.x]\nargs = [\"--token\", \"abc123def456\"]\n"},
+		"password flag":         {"config.toml", "[mcp_servers.x]\nargs = [\"--password=hunter2pass\"]\n"},
+		"dsn password":          {"config.toml", "dsn = \"host=db user=app password=hunter2pass\"\n"},
+		"passwd key":            {"config.toml", "passwd = \"hunter2pass\"\n"},
+		"xai key":               {"config.toml", "note = \"xai-abcdefghijklmnopqrstuvwxyz\"\n"},
+		"stripe key":            {"config.toml", "note = \"sk_live_abcdefghijklmnop\"\n"},
+		"jwt":                   {"config.toml", "note = \"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcdefghij\"\n"},
+		"pem key": {
+			"config.toml",
+			"pem = \"-----BEGIN PRIVATE KEY-----\\nMIIEv\\n-----END PRIVATE KEY-----\"\n",
+		},
+	}
+	for name, tc := range refused {
+		t.Run("refuses "+name, func(t *testing.T) {
+			if _, ok := SanitizeConfig(
+				[]byte(tc.content),
+				SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+			); ok {
+				t.Errorf("SanitizeConfig accepted %s", tc.content)
+			}
+		})
+	}
+
+	accepted := map[string]struct{ path, content string }{
+		"placeholdered header": {
+			"settings.json",
+			`{"env":{"OTEL_EXPORTER_OTLP_HEADERS":"Authorization=Bearer ${OTEL_TOKEN}"}}`,
+		},
+		"placeholdered api key": {"settings.json", `{"env":{"ANTHROPIC_CUSTOM_HEADERS":"x-api-key: ${X_API_KEY}"}}`},
+		"prose basic":           {"opencode.json", `{"agent":{"x":{"prompt":"Only implement basic functionality"}}}`},
+		"prose bearer": {
+			"opencode.json",
+			`{"agent":{"x":{"prompt":"The API uses bearer authentication and an api-key: header"}}}`,
+		},
+		"permission with $TOKEN": {
+			"settings.json",
+			`{"permissions":{"allow":["Bash(curl -H 'Authorization: Bearer $TOKEN':*)"]}}`,
+		},
+		"ordinary env entries": {
+			"opencode.json",
+			`{"mcp":{"py":{"environment":{"PYTHONPATH":"/opt/lib","PATH":"/usr/bin",` +
+				`"HOME":"/home/dev","NODE_OPTIONS":"--max-old-space-size=4096","AWS_PROFILE":"dev","ANTHROPIC_VERTEX_PROJECT_ID":"proj-1",` +
+				`"OTEL_EXPORTER_OTLP_PROTOCOL":"http/protobuf","OTEL_METRICS_EXPORTER":"otlp","GITHUB_TOOLSETS":"repos,issues",` +
+				`"GIT_AUTHOR_NAME":"Dev","SSH_KEY_PATH":"/home/dev/.ssh/id","GOOGLE_APPLICATION_CREDENTIALS":"/home/dev/gcp.json"}}}}`,
+		},
+		"opencode env reference": {
+			"opencode.json",
+			`{"provider":{"anthropic":{"options":{"apiKey":"{env:ANTHROPIC_API_KEY}"}}}}`,
+		},
+		"opencode file ref": {
+			"opencode.json",
+			`{"provider":{"x":{"options":{"apiKey":"{file:~/.secrets/key}"}}}}`,
+		},
+		"max tokens":        {"settings.json", `{"env":{"MAX_THINKING_TOKENS":"31999"},"maxTokens":4096}`},
+		"url without query": {"opencode.json", `{"mcp":{"s":{"url":"https://server.example/mcp"}}}`},
+		"content type header": {
+			"opencode.json",
+			`{"mcp":{"x":{"headers":{"Content-Type":"application/json","anthropic-beta":"x-2025"}}}}`,
+		},
+		"risk word": {"opencode.json", `{"agent":{"x":{"prompt":"run the risk-assessment-tool"}}}`},
+	}
+	for name, tc := range accepted {
+		t.Run("accepts "+name, func(t *testing.T) {
+			if _, ok := SanitizeConfig(
+				[]byte(tc.content),
+				SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+			); !ok {
+				t.Errorf("SanitizeConfig refused %s", tc.content)
+			}
+		})
+	}
+}
+
+// TestSanitizeConfigSecondReviewCases pins the second review round's bypasses
+// and false positives.
+func TestSanitizeConfigSecondReviewCases(t *testing.T) {
+	refused := map[string]struct{ path, content string }{
+		"numeric password json":   {"opencode.json", `{"mcp":{"x":{"password":84736251}}}`},
+		"numeric password yaml":   {"config.yaml", "db:\n  password: 84736251\n"},
+		"numeric api key":         {"opencode.json", `{"x":{"apiKey":12345678901234}}`},
+		"pass key":                {"opencode.json", `{"x":{"pass":"hunter2pass"}}`},
+		"db_pass key":             {"opencode.json", `{"x":{"db_pass":"hunter2pass"}}`},
+		"pin key":                 {"opencode.json", `{"x":{"pin":"1234"}}`},
+		"nested table in env":     {"opencode.json", `{"env":{"cfg":{"password":"hunter2pass"}}}`},
+		"nested table in env 2":   {"opencode.json", `{"environment":{"prod":{"apiKey":"abc123def456"}}}`},
+		"header list value":       {"opencode.json", `{"headers":{"X-Auth":["abc123def456"]}}`},
+		"env array":               {"opencode.json", `{"x":{"env":["DB_PASSWORD=hunter2pass"]}}`},
+		"env array yaml":          {"config.yaml", "env:\n  - GITHUB_PAT=abc123def456\n"},
+		"numeric name-value pair": {"opencode.json", `{"env":[{"name":"DB_PASSWORD","value":84736251}]}`},
+		"numeric name-value pair yaml": {
+			"config.yaml",
+			"env:\n  - name: DB_PASSWORD\n    value: 84736251\n",
+		},
+		"docker -e arg": {
+			"config.toml",
+			"[mcp_servers.x]\nargs = [\"run\", \"-e\", \"API_KEY=abc123def456\"]\n",
+		},
+		"access token flag":        {"config.toml", "args = [\"--access-token\", \"abcdef\"]\n"},
+		"access token flag joined": {"config.toml", "args = [\"--access-token=abcdef\"]\n"},
+		"client secret flag":       {"config.toml", "args = [\"--client-secret\", \"abcdef\"]\n"},
+		"numeric access token flag": {
+			"config.toml",
+			"[mcp_servers.x]\nargs = [\"--access-token\", 84736251]\n",
+		},
+		"numeric password flag": {
+			"config.toml",
+			"[mcp_servers.x]\nargs = [\"--password\", 1234]\n",
+		},
+		"numeric access token flag yaml": {
+			"config.yaml",
+			"args:\n  - --access-token\n  - 84736251\n",
+		},
+		"path-shaped secret": {"settings.json", `{"env":{"API_SECRET":"/x8Kd93jfLq0aB+zz=="}}`},
+		"literal beside placeholder": {
+			"settings.json",
+			`{"env":{"OTEL_EXPORTER_OTLP_HEADERS":"Authorization=Bearer ${X},X-Other=abcdefghijklmnopqrst"}}`,
+		},
+		"numeric header": {"opencode.json", `{"headers":{"X-Api-Key":"12345678901234"}}`},
+	}
+	for name, tc := range refused {
+		t.Run("refuses "+name, func(t *testing.T) {
+			if _, ok := SanitizeConfig(
+				[]byte(tc.content),
+				SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+			); ok {
+				t.Errorf("SanitizeConfig accepted %s", tc.content)
+			}
+		})
+	}
+
+	accepted := map[string]struct{ path, content string }{
+		"placeholder url password":   {"settings.json", `{"env":{"DATABASE_URL":"postgres://app:${DB_PW}@db/x"}}`},
+		"placeholder url password 2": {"opencode.json", `{"x":{"url":"https://u:${X}@h.example/p"}}`},
+		"permission with url token": {
+			"settings.json",
+			`{"permissions":{"allow":["Bash(git push https://x:${TOKEN}@github.com:*)"]}}`,
+		},
+		"max tokens number":      {"opencode.json", `{"x":{"maxTokens":4096,"max_tokens":8192}}`},
+		"numeric content length": {"opencode.json", `{"headers":{"Content-Length":"42"}}`},
+	}
+	for name, tc := range accepted {
+		t.Run("accepts "+name, func(t *testing.T) {
+			if _, ok := SanitizeConfig(
+				[]byte(tc.content),
+				SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+			); !ok {
+				t.Errorf("SanitizeConfig refused %s", tc.content)
+			}
+		})
+	}
+}
+
+func TestNamesAStoredSecret(t *testing.T) {
+	for key, want := range map[string]bool{
+		"tokens": false, "MAX_TOKENS": false, "token": false, "pass": true, "passwords": true, "dbPass": true,
+		"pin": true, "apiKey": true, "model": false,
+		"access_token": true, "apiToken": true, "refresh_tokens": false, "MAX_THINKING_TOKENS": false,
+		"tokenCount": false, "max_output_tokens": false,
+	} {
+		if got := namesAStoredSecret(key); got != want {
+			t.Errorf("namesAStoredSecret(%q) = %v, want %v", key, got, want)
+		}
+	}
+}
+
+// TestSanitizeConfigGuardRuleBoundaries pins rules the raw-text scan cannot
+// decide: a JSON-escaped token only the decoded walk sees, YAML documents, a
+// boolean under a password flag, a quoted number under a token count, and
+// references under leaf markers.
+// jsonEscapedDigits is "123" written as JSON \u escapes, built from the
+// backslash byte so no editor or formatter can unescape it.
+var jsonEscapedDigits = string(rune(92)) + "u0031" + string(rune(92)) + "u0032" + string(rune(92)) + "u0033"
+
+func TestSanitizeConfigGuardRuleBoundaries(t *testing.T) {
+	refused := map[string]struct{ path, content string }{
+		"escaped token":            {"settings.json", `{"x":"Bearer abc` + jsonEscapedDigits + `def456"}`},
+		"second document":          {"config.yaml", "model: x\n---\nnote: y\n"},
+		"second document, CR-only": {"config.yaml", "model: x\r---\rpassword: hunter2pass\n"},
+		"document after a comment": {
+			"config.yaml",
+			"model: x\n# a note\n---\nnote: y\n",
+		},
+		"second document without content": {"config.yaml", "model: x\n---\n"},
+		"document end marker":             {"config.yaml", "model: x\n...\n"},
+		"empty first document":            {"config.yaml", "---\n---\nnote: y\n"},
+		"empty first document after a comment": {
+			"config.yaml",
+			"# header\n---\n---\nnote: y\n",
+		},
+		"auth literal": {"settings.json", `{"auth":"opaque"}`},
+	}
+	for name, tc := range refused {
+		if _, ok := SanitizeConfig(
+			[]byte(tc.content),
+			SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+		); ok {
+			t.Errorf("%s: SanitizeConfig accepted %s", name, tc.content)
+		}
+	}
+	accepted := map[string]struct{ path, content string }{
+		"single yaml document":          {"config.yaml", "model: x\nnote: y\n"},
+		"single yaml document, CR-only": {"config.yaml", "model: x\rnote: y\r"},
+		"comment then document start": {
+			"config.yaml",
+			"# agent config\n---\nmodel: x\n",
+		},
+		"blank lines then document start": {"config.yaml", "\n\n---\nmodel: x\n"},
+		"document start alone":            {"config.yaml", "---\nmodel: x\n"},
+		"empty document":                  {"config.yaml", "# only a comment\n"},
+		"toml string with ---":            {"config.toml", "prompt = \"\"\"\nintro\n---\nmore\n\"\"\"\n"},
+		"boolean under password":          {"settings.json", `{"passwordRequired":true,"pin":null}`},
+		"quoted token count":              {"settings.json", `{"MAX_TOKENS":"8192"}`},
+		"auth reference":                  {"settings.json", `{"auth":"${AUTH}","session":""}`},
+	}
+	for name, tc := range accepted {
+		if _, ok := SanitizeConfig(
+			[]byte(tc.content),
+			SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+		); !ok {
+			t.Errorf("%s: SanitizeConfig refused %s", name, tc.content)
+		}
+	}
+}
+
+// TestSanitizeConfigRefusesANativeScalarCredential pins that a credential the
+// parser resolved to a non-string scalar is a raw value like any other: an
+// unquoted date under a password, PIN, or key decodes to a timestamp (time.Time
+// for YAML and a toml.LocalDate and its siblings for TOML), and the quoted
+// spelling of the same value is refused, so the native spelling must be too.
+func TestSanitizeConfigRefusesANativeScalarCredential(t *testing.T) {
+	refused := map[string]struct{ path, content string }{
+		"yaml top-level password":  {"config.yaml", "password: 2021-01-01\n"},
+		"yaml nested password":     {"config.yaml", "db:\n  password: 2021-01-01\n"},
+		"yaml client secret":       {"config.yaml", "client_secret: 2021-01-01\n"},
+		"yaml pin":                 {"config.yaml", "pin: 2021-01-01\n"},
+		"yaml datetime":            {"config.yaml", "pin: 2021-01-01T12:30:00Z\n"},
+		"toml password":            {"config.toml", "password = 2021-01-01\n"},
+		"toml time":                {"config.toml", "pin = 12:30:00\n"},
+		"toml datetime":            {"config.toml", "pin = 2021-01-01T12:30:00Z\n"},
+		"name-value pair date":     {"opencode.json", `{"env":[{"name":"DB_PASSWORD","value":20210101}]}`},
+		"name-value pair yaml":     {"config.yaml", "env:\n  - name: DB_PASSWORD\n    value: 20210101.0\n"},
+		"args list date":           {"config.toml", "[mcp_servers.x]\nargs = [\"--access-token\", 2021-01-01]\n"},
+		"args list date joined":    {"config.toml", "args = [\"--access-token=20210101\"]\n"},
+		"yaml access token date":   {"config.yaml", "access_token: 2021-01-01\n"},
+		"json api token number":    {"opencode.json", `{"apiToken":84736251}`},
+		"date under a token count": {"config.yaml", "maxTokens: 2021-01-01\n"},
+	}
+	for name, tc := range refused {
+		if _, ok := SanitizeConfig(
+			[]byte(tc.content),
+			SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+		); ok {
+			t.Errorf("%s: SanitizeConfig accepted %s", name, tc.content)
+		}
+	}
+
+	accepted := map[string]struct{ path, content string }{
+		"numeric token count":        {"config.yaml", "max_output_tokens: 4096\n"},
+		"date under an ordinary key": {"config.yaml", "model: 2021-01-01\n"},
+	}
+	for name, tc := range accepted {
+		if _, ok := SanitizeConfig(
+			[]byte(tc.content),
+			SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+		); !ok {
+			t.Errorf("%s: SanitizeConfig refused %s", name, tc.content)
+		}
+	}
+}
+
+// TestSanitizeConfigRefusesAnUnderscoreFlagInACommandString pins that a
+// credential flag written with an underscore inside a single command string is
+// refused like its hyphenated spelling: the flag and assignment names are
+// judged by the same predicate as the args list form, so the two paths agree.
+func TestSanitizeConfigRefusesAnUnderscoreFlagInACommandString(t *testing.T) {
+	refused := map[string]struct{ path, content string }{
+		"api_key flag": {
+			"opencode.json",
+			`{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"mytool --api_key hunter2pass"}]}]}}`,
+		},
+		"access_token flag": {
+			"opencode.json",
+			`{"hooks":{"type":"command","command":"mytool --access_token abcdef"}}`,
+		},
+		"client_secret flag": {
+			"settings.json",
+			`{"hooks":{"PreToolUse":[{"command":"mytool --client_secret abcdef"}]}}`,
+		},
+		"api_key joined": {"opencode.json", `{"permissions":{"allow":["Bash(mytool --api_key=hunter2pass:*)"]}}`},
+		"env assignment": {
+			"opencode.json",
+			`{"hooks":{"type":"command","command":"docker run -e API_KEY=hunter2pass x"}}`,
+		},
+		"env long flag": {
+			"opencode.json",
+			`{"hooks":{"type":"command","command":"docker run --env DB_PASSWORD=hunter2pass x"}}`,
+		},
+	}
+	for name, tc := range refused {
+		if _, ok := SanitizeConfig(
+			[]byte(tc.content),
+			SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+		); ok {
+			t.Errorf("%s: SanitizeConfig accepted %s", name, tc.content)
+		}
+	}
+
+	accepted := map[string]struct{ path, content string }{
+		"placeholdered flag": {
+			"opencode.json",
+			`{"hooks":{"type":"command","command":"mytool --api_key ${X_API_KEY}"}}`,
+		},
+		"harmless environment": {
+			"opencode.json",
+			`{"hooks":{"type":"command","command":"docker run -e LOG_LEVEL=debug x"}}`,
+		},
+		"plain command": {
+			"opencode.json",
+			`{"hooks":{"type":"command","command":"npx -y @modelcontextprotocol/server-filesystem /workspace"}}`,
+		},
+	}
+	for name, tc := range accepted {
+		if _, ok := SanitizeConfig(
+			[]byte(tc.content),
+			SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+		); !ok {
+			t.Errorf("%s: SanitizeConfig refused %s", name, tc.content)
+		}
+	}
+}
+
+// TestSanitizeConfigRefusesABareWordInANestedEnvTable pins that a nested table
+// or list under an env or header table holds no configuration names, so a bare
+// upper-case word inside it is a literal, not a variable name: the same value
+// directly in the table is refused, so the nested spelling must be too.
+func TestSanitizeConfigRefusesABareWordInANestedEnvTable(t *testing.T) {
+	refused := map[string]struct{ path, content string }{
+		"nested table bare word":  {"opencode.json", `{"env":{"cfg":{"note":"JBSWY3DPEHPK3PXP"}}}`},
+		"nested header list":      {"opencode.json", `{"headers":{"cfg":["ABCDEFGH"]}}`},
+		"nested environment word": {"opencode.json", `{"environment":{"prod":{"HOME_LABEL":"PRODUCTION"}}}`},
+	}
+	for name, tc := range refused {
+		if _, ok := SanitizeConfig(
+			[]byte(tc.content),
+			SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+		); ok {
+			t.Errorf("%s: SanitizeConfig accepted %s", name, tc.content)
+		}
+	}
+
+	accepted := map[string]struct{ path, content string }{
+		"nested placeholder":  {"opencode.json", `{"env":{"cfg":{"note":"${X}"}}}`},
+		"nested env ref":      {"opencode.json", `{"env":{"cfg":{"note":"{env:X}"}}}`},
+		"nested empty string": {"opencode.json", `{"headers":{"cfg":[""]}}`},
+	}
+	for name, tc := range accepted {
+		if _, ok := SanitizeConfig(
+			[]byte(tc.content),
+			SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+		); !ok {
+			t.Errorf("%s: SanitizeConfig refused %s", name, tc.content)
+		}
+	}
+}
+
+// TestSanitizeConfigRefusesAJoinedEnvironmentAssignment pins that the joined
+// spelling of an environment flag leaks like the separate one: the assignment
+// after "--env=" or "-e=" is judged by the env-table rule, so a joined password
+// is refused where the separate token and the args-list forms already are.
+func TestSanitizeConfigRefusesAJoinedEnvironmentAssignment(t *testing.T) {
+	refused := map[string]struct{ path, content string }{
+		"long joined flag": {
+			"opencode.json",
+			`{"hooks":{"type":"command","command":"docker run --env=DB_PASSWORD=hunter2pass img"}}`,
+		},
+		"short joined flag": {
+			"opencode.json",
+			`{"hooks":{"type":"command","command":"docker run -e=DB_PASSWORD=hunter2pass img"}}`,
+		},
+		"long joined args":  {"opencode.json", `{"args":["--env=DB_PASSWORD=hunter2pass"]}`},
+		"short joined args": {"opencode.json", `{"args":["-e=DB_PASSWORD=hunter2pass"]}`},
+	}
+	for name, tc := range refused {
+		if _, ok := SanitizeConfig(
+			[]byte(tc.content),
+			SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+		); ok {
+			t.Errorf("%s: SanitizeConfig accepted %s", name, tc.content)
+		}
+	}
+
+	accepted := map[string]struct{ path, content string }{
+		"long joined harmless": {
+			"opencode.json",
+			`{"hooks":{"type":"command","command":"docker run --env=LOG_LEVEL=debug img"}}`,
+		},
+		"joined harmless args": {"opencode.json", `{"args":["-e=LOG_LEVEL=debug"]}`},
+	}
+	for name, tc := range accepted {
+		if _, ok := SanitizeConfig(
+			[]byte(tc.content),
+			SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+		); !ok {
+			t.Errorf("%s: SanitizeConfig refused %s", name, tc.content)
+		}
+	}
+}
+
+// TestSanitizeConfigAcceptsAQuotedPlaceholderAndAPathValue pins that the
+// command-string path judges a candidate by the same rules as the args list
+// form: a shell-quoted placeholder is a reference, and a flag value that is a
+// filesystem path names where a credential lives, so neither is a literal.
+func TestSanitizeConfigAcceptsAQuotedPlaceholderAndAPathValue(t *testing.T) {
+	accepted := map[string]struct{ path, content string }{
+		"quoted placeholder command": {
+			"opencode.json",
+			`{"hooks":{"type":"command","command":"mytool --api_key \"${X_API_KEY}\""}}`,
+		},
+		"quoted placeholder args": {"opencode.json", `{"args":["--api_key","\"${X_API_KEY}\""]}`},
+		"path flag command": {
+			"opencode.json",
+			`{"hooks":{"type":"command","command":"curl --key /home/dev/.ssh/id_ed25519 https://api.example"}}`,
+		},
+		"path flag args": {"opencode.json", `{"args":["--key","/home/dev/.ssh/id_ed25519"]}`},
+	}
+	for name, tc := range accepted {
+		if _, ok := SanitizeConfig(
+			[]byte(tc.content),
+			SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+		); !ok {
+			t.Errorf("%s: SanitizeConfig refused %s", name, tc.content)
+		}
+	}
+}
+
+// TestSanitizeConfigRefusesACommentCredentialSpelling pins that the raw-text
+// scan sees the same key spellings in a comment the decoded walk sees in a
+// value: a separator-spelled api-key and a spaced password assignment are a
+// credential whether the comment uses the hyphen or the underscore, or spaces
+// around the '='.
+func TestSanitizeConfigRefusesACommentCredentialSpelling(t *testing.T) {
+	refused := map[string]struct{ path, content string }{
+		"underscore api key comment": {"config.yaml", "# api_key: hunter2pass\nmodel: x\n"},
+		"hyphen api key comment":     {"config.yaml", "# api-key: hunter2pass\nmodel: x\n"},
+		"spaced password comment":    {"config.yaml", "# password = hunter2pass\nmodel: x\n"},
+		"joined password comment":    {"config.yaml", "# password=hunter2pass\nmodel: x\n"},
+		"toml api key comment":       {"config.toml", "# api_key: hunter2pass\nmodel = \"x\"\n"},
+	}
+	for name, tc := range refused {
+		if _, ok := SanitizeConfig(
+			[]byte(tc.content),
+			SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+		); ok {
+			t.Errorf("%s: SanitizeConfig accepted %s", name, tc.content)
+		}
+	}
+
+	accepted := map[string]struct{ path, content string }{
+		"harmless comment": {"config.yaml", "# password = ${DB_PW}\nmodel: x\n"},
+	}
+	for name, tc := range accepted {
+		if _, ok := SanitizeConfig(
+			[]byte(tc.content),
+			SanitizeParams{Path: tc.path, RefuseUndeclaredSecretKeys: true},
+		); !ok {
+			t.Errorf("%s: SanitizeConfig refused %s", name, tc.content)
+		}
+	}
 }

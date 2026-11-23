@@ -94,7 +94,7 @@ func (kimiCodeProfile) ConfigFileNames() []string { return []string{kimiCodeConf
 // secrets, and the rest of the data root is runtime state.
 func (kimiCodeProfile) ProvisionRules() []ProvisionRule {
 	return []ProvisionRule{
-		{Dir: kimiCodeDataDir, Patterns: []string{"tui.toml", "AGENTS.md"}},
+		{Dir: kimiCodeDataDir, Patterns: []string{"tui.toml", agentsRulesFileName}},
 	}
 }
 
@@ -127,4 +127,10 @@ func (kimiCodeProfile) AttachCommand(_ string, args []string) string {
 func (kimiCodeProfile) VersionCmd() string { return "kimi --version" }
 func (kimiCodeProfile) ParseVersion(stdout string) (string, error) {
 	return extractSemverFromOutput(stdout)
+}
+
+// InstructionPaths declares the credential-free files the host seed copies:
+// the global agent instructions.
+func (kimiCodeProfile) InstructionPaths() []string {
+	return []string{agentsRulesFileName}
 }

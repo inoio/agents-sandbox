@@ -31,7 +31,7 @@ choices:
 | Choice | What it does |
 | --- | --- |
 | Learn by using it | Start a learning session (the recommended choice when no host config exists) |
-| Learn from my host setup | Seed the sandbox from your host config, then start the same learning session (only offered when host config exists, and recommended in that case) |
+| Learn from my host setup | Seed the sandbox from your host config, then start the same learning session (only offered when host config or instruction files exist, and recommended in that case) |
 | Configure it myself | Configure the sandbox by hand; also offers to copy your host config and credentials into the VM, and warns before it turns that on |
 
 Before the menu, agents-sandbox shows one consent sentence:
@@ -40,7 +40,20 @@ Before the menu, agents-sandbox shows one consent sentence:
 > offers to save what it needed.
 
 Either learning choice runs the session described on this page. "Learn from my host setup" copies your host config as
-placeholders, never raw credentials. "Configure it myself" is the only choice that turns on
+placeholders, never credentials it recognises. A file that still holds something that looks like a credential it
+cannot replace (a header value, a URL with a password, a token in a command or a comment, or an unknown entry in an
+`env` or `headers` table) is left out whole.
+
+It also copies the agent's instruction files, such as `CLAUDE.md`, `AGENTS.md`, and the `skills/`, `commands/`, and
+`prompts/` trees, up to 200 files and 2 MiB. Only Markdown is copied: a skill with scripts or other assets is skipped
+whole (use [drop-in provisioning]({% link configuration/agent.md %}#drop-in-provisioning-opt-in) or copy it yourself),
+and so is a file with a line such as `export OPENAI_API_KEY=...`. A symlink into your home, such as a dotfiles
+checkout, is followed; one pointing outside it is skipped. This is a one-time copy into the per-checkout config
+directory, and later edits on the host do not follow. The copy is mirrored into the sandbox and takes precedence over a
+drop-in copy of the same file, so edit it there, or delete it to fall back to the drop-in. Editing the host files does
+not bring the menu back.
+
+"Configure it myself" is the only choice that turns on
 [drop-in provisioning]({% link configuration/agent.md %}#drop-in-provisioning-opt-in), and it warns first.
 
 The choice is recorded, so later runs start the agent directly. It returns if you change your host agent config.
@@ -82,8 +95,8 @@ so every clone of it shares the same settings. It proposes:
 - a static secret for each credential it can attribute to a destination;
 - a managed copy of each agent config file the session created or changed that the launcher merges, written to the same
   per-slug user config with each static secret value replaced by a placeholder. The value itself goes to
-  `env.secret.yaml`; a file that holds only a sign-in, or a credential the launcher cannot attribute to a destination,
-  stays in the sandbox.
+  `env.secret.yaml`; a file that holds only a sign-in, a credential the launcher cannot attribute to a destination, a
+  value that looks like a credential it cannot replace, or more than one YAML document, stays in the sandbox.
 
 It never removes a setting you wrote and never widens your network policy: the proposed allow set is your current set
 plus only what the session reached, and a denied destination is reported but never allowed. The network policy applies

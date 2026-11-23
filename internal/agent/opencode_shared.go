@@ -91,3 +91,9 @@ func parseWorktreeDirectory(stdout string) (string, bool) {
 	}
 	return resp.Directory, resp.Directory != ""
 }
+
+// InstructionPaths declares the credential-free files the host seed copies:
+// the global AGENTS.md and the agent, command, and skill trees under either their singular or plural name.
+func (opencodeConfig) InstructionPaths() []string {
+	return []string{agentsRulesFileName, "agent/", agentsDirName, "command/", commandsDirName, "skill/", skillsDirName}
+}

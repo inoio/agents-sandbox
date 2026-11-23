@@ -727,10 +727,20 @@ func derivedEnvVarName(provider string) string {
 // value the read-back cannot tell apart from a bound variable name). Only the
 // classification leaves this predicate; the value stays in memory.
 func isReferenceValue(value string) bool {
+	return isExplicitReference(value) || isEnvVarIdentifier(strings.TrimSpace(value))
+}
+
+// isExplicitReference reports whether a value is an explicit reference rather
+// than a literal: a ${...} placeholder, opencode's {env:...}/{file:...} form, or
+// a leading-! command reference. It does not treat a bare upper-case word as a
+// reference, so a caller for whom a bare word is a value (a nested table under
+// an env or header table) can use it directly.
+func isExplicitReference(value string) bool {
 	trimmed := strings.TrimSpace(value)
 	return strings.HasPrefix(trimmed, "${") ||
-		strings.HasPrefix(trimmed, "!") ||
-		isEnvVarIdentifier(trimmed)
+		strings.HasPrefix(trimmed, "{env:") ||
+		strings.HasPrefix(trimmed, "{file:") ||
+		strings.HasPrefix(trimmed, "!")
 }
 
 // isEnvVarIdentifier reports whether value is a bare environment-variable name:

@@ -59,16 +59,54 @@ config-family name such as opencode's `config.json`, or any name outside the pat
 takes no effect. The shared predicate `agent.MergesSnippetName` carries the pattern match; the host seed applies the
 same check, so it never copies a host config file the merge would not read.
 
-**The no-raw-sibling rule is enforced only on the host-seed path so far.** The shared sanitizer
-(`readback.SanitizeConfig`) takes a `RefuseUndeclaredSecretKeys` flag: the UC4 host seed sets it, so any non-reference
-string left under a secret-shaped key the credential walk did not name — directly or inside a nested array or object —
-refuses the whole file. A key is secret-shaped when a camelCase/separator-aware key segment is one of the markers
-`KEY`/`TOKEN`/`SECRET`/`PASSWORD`/`AUTHORIZATION`/`CREDENTIAL`, **or its plural** (so a secret list spelled `tokens`,
-`secrets`, `keys`, `credentials`, or `passwords` is covered); a downstream non-string value (a numeric count) is not a
-raw value, so `maxTokens: 4096` stays allowed while `tokens: ["sk-…"]` refuses. The after-run write-back
-(`analyser.ManagedConfigFindings`) leaves it off — a pre-existing S10 gap — so a secret-shaped value the walk did not
-classify can still be copied verbatim into the managed config. Until that flag is turned on for the write-back, the
-shared sanitizer must not be read as enforcing this rule on both paths.
+**The no-raw-sibling rule holds on both paths.** The shared sanitizer (`readback.SanitizeConfig`) takes a
+`RefuseUndeclaredSecretKeys` flag, and both the UC4 host seed and the after-run write-back
+(`analyser.ManagedConfigFindings`) set it. With it, a file is refused whole when, after substitution, it still holds:
+
+- a non-reference string under a **secret-shaped key** the credential walk did not name, directly or inside a nested
+  array or object. A key is secret-shaped when a camelCase/separator-aware segment is one of `KEY`, `TOKEN`, `SECRET`,
+  `PASSWORD`, `PASS`, `PASSWD`, `PWD`, `PIN`, `AUTHORIZATION`, `CREDENTIAL`, `APIKEY`, `ACCESSKEY`, `PRIVATEKEY`,
+  `AUTHTOKEN`, or a plural of one; `AUTH`, `COOKIE` and `SESSION` count only for a key holding a string directly,
+  since they also name tables of settings. A non-reference string or any native non-string scalar is a raw value under
+  a password, PIN, or key; a number or boolean word is exempt only under a token count
+  (`MAX_THINKING_TOKENS: "31999"`, `maxTokens: 4096`). A native timestamp the parser resolved from an unquoted
+  spelling (YAML's `time.Time`, TOML's `toml.LocalDate` and its siblings) is never exempted, so a date-shaped password
+  is refused like its quoted form;
+- a **secret-shaped value** under any key, in the decoded document or anywhere in the raw text (a comment is copied
+  verbatim): a credential header with a literal token (`authorization:`, `x-api-key:`, `x-auth-token:`, `Bearer …`,
+  `Basic …` with a digit or padding), a URL with userinfo, a credential in a query string or a `password=` connection
+  string, a credential command-line flag (any flag whose name names a secret, also as separate list elements
+  `["--access-token", "…"]` or `["--access-token", 84736251]` — a bare flag value is a literal, so a native number is
+  one too, with no token-count exemption; a flag naming where a secret lives, `--token-file`/`--password-stdin`, is not
+  one; the string and the list form are judged by the same flag-name predicate, so a name spelled with an underscore
+  (`--api_key`) is caught in a single command string, and an assignment after `-e`/`--env` in that string is judged by
+  the `NAME=value` rule), a
+  `NAME=value` list entry (an env array, a docker `-e` argument) or a `{name, value}` entry the env rule does not
+  clear, a JWT, a PEM private
+  key, or a token with a well-known vendor prefix (`sk-`, `sk_live_`, `ghp_`, `github_pat_`, `xox?-`, `AKIA`/`ASIA`,
+  `glpat-`, `AIza`, `xai-`, `hf_`, `gsk_`, `npm_`, `pypi-`);
+- an entry of an **env table** (`env`, `environment`) or a **header table** (`headers`, `http_headers`), at any depth,
+  that is not known to be harmless. Such tables carry credentials under names no rule can enumerate, so their entries
+  are secret by default; a string entry is judged by the table's rule alone, and a nested table or list under it holds
+  no configuration names, so any raw value inside counts. A string entry is cleared when its value is an explicit
+  reference (`${…}`, `{env:…}`, `{file:…}` — a bare word is a literal here), empty, a multi-component filesystem path,
+  a value whose only credential parts are placeholders (no digit-bearing or 16-character literal left beside them), a
+  number or boolean under a key that names no stored secret (env only; a number under an unknown header can be a
+  key), or its name is
+  known configuration (env: `*_URL`, `*_ENDPOINT`, `*_HOST`, `*_PORT`, `*_MODEL`, `*_REGION`, `*_VERSION`,
+  `*_TIMEOUT*`, `*_LEVEL`, `*_MODE`, `*_DIR`, `*PATH`, `*_OPTIONS`, `*_PROFILE`, `*_PROJECT*`, `*_NAME`, `*_PROTOCOL`,
+  `*_EXPORTER`, `DISABLE_*`, `ENABLE_*`, `NO_*`, `USE_*`, `SKIP_*`, the proxy variables; headers: `Content-Type`,
+  `Accept*`, `User-Agent`, `anthropic-beta`, …), and its value is not secret-shaped.
+
+A YAML file with more than one document is refused, because the decoder reads only the first (a single leading `---`
+that opens the first document, after nothing but blank lines and comments, is no second document). The rule is
+deliberately conservative: an unknown entry refuses the file rather than risk a missed credential, so a refused file
+stays in the sandbox. A placeholder as a URL password (`postgres://app:${DB_PW}@db`) is not a credential, so the
+sanitizer's own substituted output passes. It remains a heuristic, and these are not caught: an unshaped raw value
+under an unmarked key outside these tables; a duplicated JSON key whose first occurrence holds the raw value; a value
+that only starts like a reference (`"${X}raw"`, `"!raw"`) or is a bare upper-case word outside env tables; a webhook
+URL under a `*_URL` env key. It also fails closed on some harmless content (a prompt quoting `Authorization: Bearer
+YOUR_TOKEN_HERE`, `?key=value` in a link, `{"auth":"oauth"}`). The refusal does not yet name the key (#790).
 
 A candidate whose path matches a **declared credential-store pattern** is excluded by the pattern alone, independently
 of whether that store is a login for the current agent: `readback.IsCredentialStorePath` tests the pattern

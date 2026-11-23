@@ -85,7 +85,8 @@ func (o Outcome) Apply(opts *options.RunOptions, slug, agentName string) error {
 }
 
 // firstRunChoices builds the menu: the host seed is offered only when the host
-// has agent config (Design decision 8); the manual path is always last.
+// has agent config or instruction files (Design decision 8); the manual path is
+// always last.
 func firstRunChoices(f Facts) []termio.Choice {
 	var choices []termio.Choice
 	choices = append(choices, termio.Choice{
@@ -93,7 +94,7 @@ func firstRunChoices(f Facts) []termio.Choice {
 		Label:       "Learn by using it",
 		Description: "sign in and use the agent; save what it needed when you exit",
 	})
-	if len(f.HostFiles) > 0 {
+	if f.HasHostSetup() {
 		choices = append(choices, termio.Choice{
 			Key:         string(ChoiceLearnFromHost),
 			Label:       "Learn from my host setup",
@@ -108,10 +109,10 @@ func firstRunChoices(f Facts) []termio.Choice {
 	return choices
 }
 
-// firstRunDefault recommends the host seed when the host has config, else the
+// firstRunDefault recommends the host seed when the host has a setup, else the
 // unseeded learning session (the hub's "recommended in that case").
 func firstRunDefault(f Facts) string {
-	if len(f.HostFiles) > 0 {
+	if f.HasHostSetup() {
 		return string(ChoiceLearnFromHost)
 	}
 	return string(ChoiceLearnByUsing)

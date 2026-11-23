@@ -93,3 +93,13 @@ func (piProfile) VersionCmd() string { return "pi --version" }
 func (piProfile) ParseVersion(stdout string) (string, error) {
 	return extractSemverFromOutput(stdout)
 }
+
+// InstructionPaths declares the credential-free files the host seed copies:
+// the instruction and system-prompt files and the prompt and skill trees. The
+// extension tree holds code and is left out.
+func (piProfile) InstructionPaths() []string {
+	return []string{
+		agentsRulesFileName, "AGENTS.MD", "AGENTS.override.md", claudeRulesFileName, "CLAUDE.MD",
+		"SYSTEM.md", "APPEND_SYSTEM.md", promptsDirName, skillsDirName,
+	}
+}

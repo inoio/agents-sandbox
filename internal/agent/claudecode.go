@@ -81,3 +81,9 @@ func (claudeCodeProfile) VersionCmd() string { return "claude --version" }
 func (claudeCodeProfile) ParseVersion(stdout string) (string, error) {
 	return extractSemverFromOutput(stdout)
 }
+
+// InstructionPaths declares the credential-free files the host seed copies:
+// the global CLAUDE.md and the command, subagent, and skill trees.
+func (claudeCodeProfile) InstructionPaths() []string {
+	return []string{claudeRulesFileName, commandsDirName, agentsDirName, skillsDirName}
+}

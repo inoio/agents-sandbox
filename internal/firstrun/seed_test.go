@@ -2,6 +2,7 @@ package firstrun
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -62,7 +63,7 @@ func TestSeedFromHostPlaceholdersStaticSecret(t *testing.T) {
 	migrated, err := SeedFromHost(seedFacts(hostHome), paths, hostHome)
 
 	require.NoError(t, err)
-	require.Equal(t, 1, migrated)
+	require.Equal(t, 1, migrated.Secrets)
 
 	slugDir := paths.UserSlugConfigDir("widget-abc")
 	copied, err := os.ReadFile(filepath.Join(slugDir, "hermes", "config.yaml"))
@@ -98,7 +99,7 @@ func TestSeedFromHostDropsLoginEntry(t *testing.T) {
 	}, paths, hostHome)
 
 	require.NoError(t, err)
-	require.Zero(t, migrated)
+	require.Zero(t, migrated.Secrets)
 
 	slugDir := paths.UserSlugConfigDir("widget-abc")
 	_, copyErr := os.Stat(filepath.Join(slugDir, "codex", "auth.json"))
@@ -165,7 +166,7 @@ func TestSeedFromHostReportsAnUndecodableFile(t *testing.T) {
 		},
 	}, paths, hostHome)
 
-	require.Equal(t, 1, migrated, "the readable sibling is still seeded")
+	require.Equal(t, 1, migrated.Secrets, "the readable sibling is still seeded")
 	require.Error(t, err, "the undecodable file is reported")
 	require.Contains(t, err.Error(), "config-broken.yaml")
 	require.NotContains(t, err.Error(), "merges no snippet",
@@ -194,7 +195,7 @@ func TestSeedFromHostSilentlySkipsANonConfigFile(t *testing.T) {
 	}, paths, hostHome)
 
 	require.NoError(t, err, "a non-config file is an expected skip, not a failure")
-	require.Equal(t, 1, migrated)
+	require.Equal(t, 1, migrated.Secrets)
 	_, copyErr := os.Stat(filepath.Join(paths.UserSlugConfigDir("widget-abc"), "hermes", "notes.txt"))
 	require.True(t, os.IsNotExist(copyErr), "a non-config file is never copied")
 }
@@ -221,7 +222,7 @@ func TestSeedFromHostSkipsANonMergeableConfigFile(t *testing.T) {
 		},
 	}, paths, hostHome)
 
-	require.Equal(t, 1, migrated, "the mergeable snippet is still seeded")
+	require.Equal(t, 1, migrated.Secrets, "the mergeable snippet is still seeded")
 	require.Error(t, err, "the non-mergeable config file is reported")
 	require.Contains(t, err.Error(), "config.json")
 	require.Contains(t, err.Error(), "merges no snippet")
@@ -251,7 +252,7 @@ func TestSeedFromHostRefusesAnMCPAuthorizationHeader(t *testing.T) {
 		HostFiles: []string{filepath.Join(hostHome, ".config/opencode/opencode.jsonc")},
 	}, paths, hostHome)
 
-	require.Zero(t, migrated)
+	require.Zero(t, migrated.Secrets)
 	require.Error(t, err, "a raw Authorization header must refuse the file")
 	slugDir := paths.UserSlugConfigDir("widget-abc")
 	_, copyErr := os.Stat(filepath.Join(slugDir, "opencode", "opencode.jsonc"))
@@ -275,7 +276,7 @@ func TestSeedFromHostRefusesAnUndeclaredAccessToken(t *testing.T) {
 		HostFiles: []string{filepath.Join(hostHome, ".config/opencode/opencode.jsonc")},
 	}, paths, hostHome)
 
-	require.Zero(t, migrated)
+	require.Zero(t, migrated.Secrets)
 	require.Error(t, err)
 	_, copyErr := os.Stat(filepath.Join(paths.UserSlugConfigDir("widget-abc"), "opencode", "opencode.jsonc"))
 	require.True(t, os.IsNotExist(copyErr))
@@ -296,7 +297,7 @@ func TestSeedFromHostRefusesAnUndeclaredSecretArray(t *testing.T) {
 		HostFiles: []string{filepath.Join(hostHome, ".config/opencode/opencode.jsonc")},
 	}, paths, hostHome)
 
-	require.Zero(t, migrated)
+	require.Zero(t, migrated.Secrets)
 	require.Error(t, err, "a raw secret in an array under a secret-shaped key must refuse the file")
 	_, copyErr := os.Stat(filepath.Join(paths.UserSlugConfigDir("widget-abc"), "opencode", "opencode.jsonc"))
 	require.True(t, os.IsNotExist(copyErr), "the file is never copied with a raw array secret")
@@ -317,7 +318,7 @@ func TestSeedFromHostRefusesAPluralSecretFamilyKey(t *testing.T) {
 		HostFiles: []string{filepath.Join(hostHome, ".config/opencode/opencode.jsonc")},
 	}, paths, hostHome)
 
-	require.Zero(t, migrated)
+	require.Zero(t, migrated.Secrets)
 	require.Error(t, err, "a raw secret under a plural secret-list key must refuse the file")
 	_, copyErr := os.Stat(filepath.Join(paths.UserSlugConfigDir("widget-abc"), "opencode", "opencode.jsonc"))
 	require.True(t, os.IsNotExist(copyErr), "the file is never copied with a raw plural-key secret")
@@ -325,7 +326,7 @@ func TestSeedFromHostRefusesAPluralSecretFamilyKey(t *testing.T) {
 
 // TestSeedFromHostAcceptsAPluralKeyOfReferences pins that the widened key match
 // does not over-refuse the seed: a plural key whose values are all non-strings
-// (a token count) is migrated, and a plural key of the credential's own
+// (a token count) is migrated.Secrets, and a plural key of the credential's own
 // reference-shaped value is accepted by the guard.
 func TestSeedFromHostAcceptsAPluralKeyOfReferences(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
@@ -342,11 +343,11 @@ func TestSeedFromHostAcceptsAPluralKeyOfReferences(t *testing.T) {
 	}, paths, hostHome)
 
 	require.NoError(t, err)
-	require.Equal(t, 1, migrated, "a plural key of non-string values is still seeded")
+	require.Equal(t, 1, migrated.Secrets, "a plural key of non-string values is still seeded")
 }
 
 // TestSeedFromHostRefusesOnlyTheLeakingFile pins that a refused file does not
-// stop the seed: a clean sibling is still migrated and copied, while the file
+// stop the seed: a clean sibling is still migrated.Secrets and copied, while the file
 // with an undeclared secret-shaped value is left unseeded and named.
 func TestSeedFromHostRefusesOnlyTheLeakingFile(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
@@ -367,7 +368,7 @@ func TestSeedFromHostRefusesOnlyTheLeakingFile(t *testing.T) {
 		},
 	}, paths, hostHome)
 
-	require.Equal(t, 1, migrated, "the clean sibling is still seeded")
+	require.Equal(t, 1, migrated.Secrets, "the clean sibling is still seeded")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "opencode-bad.jsonc")
 	slugDir := paths.UserSlugConfigDir("widget-abc")
@@ -396,7 +397,7 @@ func TestSeedFromHostLeavesAnUnscopableFileUnseeded(t *testing.T) {
 
 	migrated, err := SeedFromHost(seedFacts(hostHome), paths, hostHome)
 
-	require.Zero(t, migrated)
+	require.Zero(t, migrated.Secrets)
 	require.Error(t, err)
 	slugDir := paths.UserSlugConfigDir("widget-abc")
 	_, copyErr := os.Stat(filepath.Join(slugDir, "hermes", "config.yaml"))
@@ -413,7 +414,7 @@ func TestSeedFromHostRejectsAnEmptySlug(t *testing.T) {
 	migrated, err := SeedFromHost(Facts{Agent: "hermes"}, configpaths.Get(), t.TempDir())
 
 	require.Error(t, err)
-	require.Zero(t, migrated)
+	require.Zero(t, migrated.Secrets)
 }
 
 // TestSeedFromHostRejectsAnUnknownAgent pins that the seed resolves the agent
@@ -428,7 +429,7 @@ func TestSeedFromHostRejectsAnUnknownAgent(t *testing.T) {
 	)
 
 	require.Error(t, err)
-	require.Zero(t, migrated)
+	require.Zero(t, migrated.Secrets)
 }
 
 // TestSeedFromHostRejectsAnInvalidAgentConfigDirName pins that the seed
@@ -445,7 +446,7 @@ func TestSeedFromHostRejectsAnInvalidAgentConfigDirName(t *testing.T) {
 	)
 
 	require.Error(t, err)
-	require.Zero(t, migrated)
+	require.Zero(t, migrated.Secrets)
 	require.Error(t, errors.Unwrap(err), "the config-dir-names error must be wrapped, not flattened")
 }
 
@@ -459,7 +460,7 @@ func TestSeedFromHostReportsAnOverCapFile(t *testing.T) {
 
 	migrated, err := SeedFromHost(seedFacts(hostHome), paths, hostHome)
 
-	require.Zero(t, migrated)
+	require.Zero(t, migrated.Secrets)
 	require.Error(t, err)
 }
 
@@ -480,7 +481,7 @@ func TestSeedFromHostReportsAnUnwritableSecretFile(t *testing.T) {
 
 	migrated, err := SeedFromHost(seedFacts(hostHome), paths, hostHome)
 
-	require.Zero(t, migrated)
+	require.Zero(t, migrated.Secrets)
 	require.Error(t, err)
 }
 
@@ -512,7 +513,7 @@ func TestSeedFromHostReportsAFailedManagedWrite(t *testing.T) {
 
 	migrated, err := SeedFromHost(seedFacts(hostHome), paths, hostHome)
 
-	require.Zero(t, migrated)
+	require.Zero(t, migrated.Secrets)
 	require.Error(t, err)
 }
 
@@ -636,7 +637,7 @@ func TestHostRelativePathFallsBackAboveHome(t *testing.T) {
 
 // TestPlaceholderStaticValuesRefusesAnUnmigratableCredential pins the guard's
 // contract for each missing field: a credential with no value or no host cannot
-// be migrated, so the whole file is refused rather than copied with a raw value
+// be migrated.Secrets, so the whole file is refused rather than copied with a raw value
 // or an orphan placeholder. A credential with no env-var name is refused too,
 // but by the sanitizer downstream rather than this guard. The content holds the
 // value under an ordinary key, so the refuse-undeclared-secret guard does not
@@ -693,7 +694,7 @@ func TestPlaceholderStaticValuesRefusesAnUnmigratableCredential(t *testing.T) {
 }
 
 // TestSeedFromHostSeedsEveryFileInTheList pins the accumulator: every
-// seedable host file is migrated, so the returned count is the sum, not the
+// seedable host file is migrated.Secrets, so the returned count is the sum, not the
 // last file's count.
 func TestSeedFromHostSeedsEveryFileInTheList(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
@@ -713,12 +714,12 @@ func TestSeedFromHostSeedsEveryFileInTheList(t *testing.T) {
 	}, paths, hostHome)
 
 	require.NoError(t, err)
-	require.Equal(t, 2, migrated, "both seedable files must contribute to the count")
+	require.Equal(t, 2, migrated.Secrets, "both seedable files must contribute to the count")
 }
 
 // TestSeedFromHostContinuesPastASkippedFile pins that a skip does not end the
 // loop: a skipped file earlier in the list must not stop a later seedable file
-// from being migrated.
+// from being migrated.Secrets.
 func TestSeedFromHostContinuesPastASkippedFile(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	paths := configpaths.Get()
@@ -740,7 +741,7 @@ func TestSeedFromHostContinuesPastASkippedFile(t *testing.T) {
 		}, paths, hostHome)
 
 		require.NoError(t, err)
-		require.Equal(t, 1, migrated, "a skipped value store must not stop the later seedable file")
+		require.Equal(t, 1, migrated.Secrets, "a skipped value store must not stop the later seedable file")
 	})
 
 	t.Run("a non-config file", func(t *testing.T) {
@@ -758,7 +759,7 @@ func TestSeedFromHostContinuesPastASkippedFile(t *testing.T) {
 		}, paths, hostHome)
 
 		require.NoError(t, err)
-		require.Equal(t, 1, migrated, "a skipped non-config file must not stop the later seedable file")
+		require.Equal(t, 1, migrated.Secrets, "a skipped non-config file must not stop the later seedable file")
 	})
 
 	t.Run("a non-mergeable config file", func(t *testing.T) {
@@ -775,7 +776,25 @@ func TestSeedFromHostContinuesPastASkippedFile(t *testing.T) {
 			},
 		}, paths, hostHome)
 
-		require.Equal(t, 1, migrated, "a skipped non-mergeable file must not stop the later seedable file")
+		require.Equal(t, 1, migrated.Secrets, "a skipped non-mergeable file must not stop the later seedable file")
 		require.Error(t, err, "the non-mergeable file is still reported")
 	})
+}
+
+func TestTruncatedListNamesTheFirstTenPaths(t *testing.T) {
+	paths := make([]string, 12)
+	for i := range paths {
+		paths[i] = fmt.Sprintf("/home/dev/.claude/skills/s%02d.md", i)
+	}
+
+	require.Equal(t, strings.Join(paths[:10], ", "), truncatedList(paths[:10]), "ten paths are all named")
+	require.Equal(t, strings.Join(paths[:10], ", ")+", and 2 more", truncatedList(paths))
+}
+
+func TestSeedSkipsReportsASingleOverCapFile(t *testing.T) {
+	err := seedSkips{overCapInstructions: 1}.err()
+
+	require.EqualError(t, err, fmt.Sprintf(
+		"firstrun: skipped 1 instruction file(s) over the seed cap of %d files and %d bytes",
+		maxSeedInstructionFiles, maxSeedInstructionBytes))
 }

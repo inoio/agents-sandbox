@@ -126,3 +126,17 @@ func (grokBuildProfile) VersionCmd() string { return "grok --version" }
 func (grokBuildProfile) ParseVersion(stdout string) (string, error) {
 	return extractSemverFromOutput(stdout)
 }
+
+// InstructionPaths declares the credential-free files the host seed copies:
+// the global rules files and the skill and workflow trees.
+func (grokBuildProfile) InstructionPaths() []string {
+	return []string{
+		agentsRulesFileName,
+		"Agents.md",
+		"AGENT.md",
+		claudeRulesFileName,
+		"Claude.md",
+		skillsDirName,
+		"workflows/",
+	}
+}
