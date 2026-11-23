@@ -508,10 +508,20 @@ func TestProvisionChownsWhatItCreatedBeforeAFailure(t *testing.T) {
 	}
 }
 
-// removeFailingFS fails every Remove.
-type removeFailingFS struct{ *msbtest.TestFS }
+// removeFailingFS fails the Remove of failPath (every path when it is empty)
+// and records the others.
+type removeFailingFS struct {
+	*msbtest.TestFS
 
-func (removeFailingFS) Remove(context.Context, string) error { return errors.New("remove boom") }
+	failPath string
+}
+
+func (f removeFailingFS) Remove(ctx context.Context, path string) error {
+	if f.failPath == "" || path == f.failPath {
+		return errors.New("remove boom")
+	}
+	return f.TestFS.Remove(ctx, path)
+}
 
 // TestProvisionReportsEachStaleRemoval pins that a removal, and a failed one,
 // is reported rather than silent, and that a failed removal does not stop
@@ -523,7 +533,10 @@ func TestProvisionReportsEachStaleRemoval(t *testing.T) {
 		want string
 	}{
 		"removed": {msbtest.NewTestFS(nil), "removed stale config " + stale},
-		"failed":  {removeFailingFS{msbtest.NewTestFS(nil)}, "remove stale config " + stale + " failed: remove boom"},
+		"failed": {
+			removeFailingFS{TestFS: msbtest.NewTestFS(nil), failPath: ""},
+			"remove stale config " + stale + " failed: remove boom",
+		},
 	} {
 		ui := testLogger(t)
 		sb := &msbtest.MockSandbox{FSValue_: tc.fs, ShellCalls: &[]string{}}
@@ -533,5 +546,26 @@ func TestProvisionReportsEachStaleRemoval(t *testing.T) {
 		if !slices.Contains(ui.VerboseCalls, tc.want) {
 			t.Errorf("%s: verbose = %v, want %q", name, ui.VerboseCalls, tc.want)
 		}
+	}
+}
+
+// TestProvisionKeepsRemovingAfterAFailedRemoval: one stale path that cannot be
+// removed must not leave the later ones behind to shadow the main config.
+func TestProvisionKeepsRemovingAfterAFailedRemoval(t *testing.T) {
+	first := "/home/dev/.config/opencode/config.json"
+	second := "/home/dev/.config/opencode/opencode.json"
+	fs := removeFailingFS{TestFS: msbtest.NewTestFS(nil), failPath: first}
+	sb := &msbtest.MockSandbox{FSValue_: fs, ShellCalls: &[]string{}}
+
+	if err := Provision(
+		context.Background(),
+		sb,
+		&ConfigFiles{Remove: []string{first, second}},
+		testLogger(t),
+	); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if !slices.Equal(fs.Removed, []string{second}) {
+		t.Errorf("removed = %v, want the path after the failed one removed", fs.Removed)
 	}
 }
