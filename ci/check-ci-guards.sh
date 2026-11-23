@@ -82,6 +82,7 @@ canonical="$(
     'Formula/**' \
     '.github/ISSUE_TEMPLATE/**' \
     '.agents-sandbox/**' \
+    '.idea/**' \
     '**.md' \
     '.gitignore' | LC_ALL=C sort
 )"

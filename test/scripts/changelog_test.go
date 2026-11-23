@@ -117,6 +117,13 @@ func TestChangelog(t *testing.T) {
 		assertStatus(t, result, 0)
 	})
 
+	t.Run("idea only", func(t *testing.T) {
+		t.Parallel()
+		dir := newChangelogFixture(t)
+		result := runChangelog(t, dir, changelogChangedPath(t, ".idea/.name")...)
+		assertStatus(t, result, 0)
+	})
+
 	t.Run("release PR, all markdown", func(t *testing.T) {
 		t.Parallel()
 		dir := newChangelogFixture(t)

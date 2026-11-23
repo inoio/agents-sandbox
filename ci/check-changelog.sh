@@ -78,13 +78,14 @@ check_shape
 # A changeset that touches production code must carry a fragment. The exempt
 # prefix set mirrors the `.changes` gate in .github/workflows/ci.yml (docs, the
 # operator brain, the Homebrew formula, issue templates, the dev VM
-# (.agents-sandbox), any *.md, and .gitignore); on top of that a test-only
-# changeset needs no fragment, so `*_test.go` is exempt too.
+# (.agents-sandbox), IDE project config (.idea), any *.md, and .gitignore); on
+# top of that a test-only changeset needs no fragment, so `*_test.go` is exempt
+# too.
 check_presence() {
   local line base code=0 fragment=0
   while IFS= read -r line; do
     [[ -n "$line" ]] || continue
-    if [[ ! "$line" =~ ^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/|\.agents-sandbox/) ]] \
+    if [[ ! "$line" =~ ^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/|\.agents-sandbox/|\.idea/) ]] \
       && [[ ! "$line" =~ \.md$ ]] \
       && [[ ! "$line" =~ _test\.go$ ]] \
       && [[ "$line" != ".gitignore" ]]; then
