@@ -29,10 +29,10 @@ func runJourney(tb journeyTB, ctx *Context, journey Journey, now func() time.Tim
 			continue
 		}
 		if step.Kind == Check {
-			tb.Errorf("journey %q: %s: %v", journey.Name, step.Text(), err)
+			tb.Errorf("journey %q: %s: %v%s", journey.Name, step.Text(), err, sessionTail(ctx))
 			continue
 		}
-		tb.Fatalf("journey %q: %s: %v", journey.Name, step.Text(), err)
+		tb.Fatalf("journey %q: %s: %v%s", journey.Name, step.Text(), err, sessionTail(ctx))
 		return
 	}
 }
@@ -45,4 +45,13 @@ func scenarioText(journey Journey, agentName string) string {
 		text.WriteString("\n  " + step.Text())
 	}
 	return text.String()
+}
+
+// sessionTail is the harness session's recent output for a failure report, or
+// "" before a step started a session.
+func sessionTail(ctx *Context) string {
+	if ctx.Session == nil {
+		return ""
+	}
+	return "\nharness output:\n" + ctx.Session.OutputTail()
 }

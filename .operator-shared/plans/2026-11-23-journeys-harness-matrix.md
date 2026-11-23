@@ -76,7 +76,7 @@ Outcome (host runs, 2026-11-23; the durable part is in the spec's "Stub provider
   `typeUntilEchoed` (retype until echoed); the learn journeys now really send their prompt and still pass.
 - `.invalid` never resolves in the guest, and the runtime enforces the policy before the proxy, so it is never
   observed. The default route is now the host gateway (`http://host.microsandbox.internal`, network profile
-  `host`): `stub-provider-turn-completes` completes a real turn. Host-gateway traffic bypasses the observation
+  `host`): `stub-turn-completes` completes a real turn. Host-gateway traffic bypasses the observation
   proxy, so the proxy spike is opt-in (`AGENTS_SANDBOX_JOURNEYS_PROXY_SPIKE=1`) and stays #793's open question.
 - A later journey attached to the VM an earlier journey left running (its network policy, its still-running
   sessions). `StepOwnProject` gives a journey its own project and VM; Task 5 decides the default.

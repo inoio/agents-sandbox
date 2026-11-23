@@ -145,8 +145,8 @@ opencode uses for side requests such as the session title, and the stub answers 
 on screen cannot pass for the turn's reply, and a title request does not count as the turn.
 
 - **Protocol: plain HTTP.** The stub needs no CA, and the run needs no `network.observe.skip-upstream-verify`.
-- **Provider config.** `StubProvider.ProviderConfig()` returns the VM-home-relative config manifest
-  (`driver.SeedLauncherConfig`'s target→content map): one target, opencode's `.config/opencode/opencode.json`
+- **Provider config.** The harness adapter's `StubConfig(addr)` returns the VM-home-relative config manifest
+  (`driver.SeedLauncherConfig`'s target→content map); for opencode2 it is one target, opencode's `.config/opencode/opencode.json`
   (the file opencode actually reads; `config.json < opencode.json < opencode.jsonc`), holding an
   OpenAI-compatible provider `stub` whose `options.baseURL` is `<advertised>/v1` plus the top-level
   `model: stub/stub`. `StepSeedStub` provisions it through the launcher's `home:` manifest. That path
@@ -158,7 +158,7 @@ on screen cannot pass for the turn's reply, and a title request does not count a
   `http://host.microsandbox.internal` (overridable through `AGENTS_SANDBOX_JOURNEYS_STUB_ORIGIN`; the port is
   always the listener's). A VM reaches it under a network profile that includes `host`, and microsandbox
   delivers the connection to the host's loopback listener. Verified on a KVM host: a plain `run` on opencode2
-  completes a turn against the stub (`TestHarnessJourneys/stub-provider-turn-completes`).
+  completes a turn against the stub (`TestHarnessJourneys/stub-turn-completes`).
 - **The route does not pass the observation proxy.** Host-gateway traffic bypasses the learn-mode terminating
   proxy, and the runtime enforces the egress policy before the proxy is consulted, so a name the policy denies
   or the guest cannot resolve (the former `agents-sandbox-stub.invalid` default) is never observed either. No
@@ -211,8 +211,9 @@ source of truth and its steps are type-checked. It reads as Gherkin anyway:
 - **Harness adapter.** Everything a step needs to know about a harness beyond starting and quitting it
   (`driver.Spec`, shared with the startup smoke) lives in its `Harness` adapter (`Harnesses`): how to point it
   at the stub (`StubConfig`), its own host config (`HostConfig`), and the login store a host seed must drop
-  (`HostLoginStore`). A step never names a harness's path or format, and a journey only lists a harness with
-  an adapter. The adapter grows a field only when a journey needs it.
+  (`HostLoginStore`). A step or journey carries no harness's path or format literal, and a journey only lists a
+  harness with an adapter. One assumption remains in a step: the host seed would store a copied login store under
+  the host file's base name, which holds for opencode's `auth.json`. The adapter grows a field only when a journey needs it.
 
 The learn-mode journeys and the stub turn cover **opencode2 only** so far, the S1-verified profile with its
 SQLite credential probe. Learn mode on claude-code, codex, pi, and oh-my-pi is #852; the rest is #794.
@@ -300,7 +301,7 @@ config-fork warning). The first-turn round-trip half is likewise **not** covered
 a journey's scope assertion is read-back-driven
 (`analyser.SessionFacts.secretFindings` iterates the read-back's static credentials and `credentialHosts`
 falls back to the config entry's hosts, since `channel.Attribution.Credential` is always empty), so
-UC1/UC4/attribution pass even if no request leaves the VM. `TestHarnessJourneys/stub-provider-turn-completes`
+UC1/UC4/attribution pass even if no request leaves the VM. `TestHarnessJourneys/stub-turn-completes`
 asserts a turn reaches the stub and completes, outside learn mode; that a learning session's turn reaches the
 proxy is the opt-in proxy spike's open question (see "Stub provider").
 

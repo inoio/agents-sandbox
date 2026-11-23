@@ -15,10 +15,9 @@ import (
 	"github.com/inoio/agents-sandbox/test/msb/driver"
 )
 
-// StubProvider is a host-side destination a journey's agent sends to, so the
-// learn-mode terminating proxy observes a credential->destination pair without
-// any real egress. It is the opencode2 provider config that points the agent at
-// the listener plus the listener itself.
+// StubProvider is a host-side destination a journey's agent sends its turns to,
+// so a journey needs no real model or egress. The config that points a harness at it is the harness
+// adapter's (Harness.StubConfig).
 type StubProvider interface {
 	// Addr is the advertised origin the VM should target, scheme://host:port,
 	// carrying the listener's own ephemeral port. The agent's provider baseURL

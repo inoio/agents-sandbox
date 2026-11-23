@@ -103,3 +103,15 @@ func TestRunJourneyLogsTheScenarioAndEachStepsDuration(t *testing.T) {
 		t.Errorf("logs = %q, want each step with its duration", logs)
 	}
 }
+
+func TestRunJourneyReportsNoSessionOutputBeforeAHarnessStarted(t *testing.T) {
+	var ran []string
+	tb := &recordingTB{}
+
+	runJourney(tb, &Context{}, Journey{Name: "j", Steps: []Step{Given(recordStep("x", &ran, errors.New("boom")))}},
+		fixedClock())
+
+	if len(tb.fatals) != 1 || strings.Contains(tb.fatals[0], "harness output") {
+		t.Errorf("fatals = %q, want the failure without a harness output section", tb.fatals)
+	}
+}

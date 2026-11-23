@@ -74,6 +74,12 @@ func TestJourneyCoverageProblems(t *testing.T) {
 			},
 		},
 		{
+			name:       "a harness listed twice",
+			journeys:   []Journey{{Name: "core", Harnesses: []string{"opencode2", "opencode2"}}},
+			exemptions: map[string]map[string]string{"core": {"codex": "later"}},
+			want:       []string{`journey "core" lists agent "opencode2" twice`},
+		},
+		{
 			name:       "a journey with no harness",
 			journeys:   []Journey{{Name: "core"}},
 			exemptions: map[string]map[string]string{"core": {"codex": "later", "opencode2": "later"}},
@@ -120,16 +126,19 @@ func journeyCoverageProblems(
 }
 
 // journeyPairProblems returns the problems of one journey's (journey, agent)
-// pairs: an unknown or missing harness, an uncovered and unexempted agent, a
+// pairs: an unknown, duplicated, or missing harness, an uncovered and unexempted agent, a
 // blank reason, and an exemption for a pair the journey drives.
 func journeyPairProblems(journey Journey, reasons map[string]string, registered []string) []string {
 	var problems []string
 	if len(journey.Harnesses) == 0 {
 		problems = append(problems, fmt.Sprintf("journey %q lists no harness", journey.Name))
 	}
-	for _, name := range journey.Harnesses {
+	for index, name := range journey.Harnesses {
 		if !slices.Contains(registered, name) {
 			problems = append(problems, fmt.Sprintf("journey %q names unknown agent %q", journey.Name, name))
+		}
+		if slices.Contains(journey.Harnesses[:index], name) {
+			problems = append(problems, fmt.Sprintf("journey %q lists agent %q twice", journey.Name, name))
 		}
 	}
 	for _, name := range registered {
