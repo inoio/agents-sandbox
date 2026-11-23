@@ -273,7 +273,7 @@ func TestStartStubProviderAppendsTheListenerPort(t *testing.T) {
 func TestStubAnswersAnUnknownPathWithNotFound(t *testing.T) {
 	provider := startTestStub(t)
 
-	response := postChat(t, provider, `{"model":"stub"}`)
+	response := postChat(t, provider, `{"model":"stub","tools":[{}]}`)
 	_ = response.Body.Close()
 	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{Proxy: nil}}
 	request, err := http.NewRequestWithContext(
@@ -295,5 +295,20 @@ func TestStubAnswersAnUnknownPathWithNotFound(t *testing.T) {
 	}
 	if got := provider.Replies(); len(got) != 1 {
 		t.Errorf("replies = %v, want only the chat completion's", got)
+	}
+}
+
+func TestStubAnswersAnUndecodableTurnWithBadRequest(t *testing.T) {
+	provider := startTestStub(t)
+	provider.ScriptToolCall(ToolCall{Name: "write", Arguments: `{}`})
+
+	response := postChat(t, provider, "\x28\xb5\x2f\xfd compressed")
+
+	if response.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", response.StatusCode)
+	}
+	requests := provider.Requests()
+	if len(requests) != 1 || requests[0].DecodeError == "" || servedTurn(requests) {
+		t.Errorf("requests = %+v, want one recorded with its decode error and not a turn", requests)
 	}
 }

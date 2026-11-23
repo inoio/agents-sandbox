@@ -44,7 +44,7 @@ func TestStubAnswersAnthropicMessagesWithTheReply(t *testing.T) {
 	provider := startTestStub(t)
 
 	var message anthropicMessage
-	if err := json.NewDecoder(postMessages(t, provider, "/v1/messages", `{"model":"stub","messages":[]}`).Body).
+	if err := json.NewDecoder(postMessages(t, provider, "/v1/messages", `{"model":"stub","tools":[{}],"messages":[]}`).Body).
 		Decode(&message); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestStubAnswersAnthropicMessagesWithTheScriptedToolUse(t *testing.T) {
 	provider.ScriptToolCall(ToolCall{Name: "Write", Arguments: `{"file_path":"/workspace/a.txt","content":"hi"}`})
 
 	var message anthropicMessage
-	if err := json.NewDecoder(postMessages(t, provider, "/v1/messages", `{"model":"stub","messages":[]}`).Body).
+	if err := json.NewDecoder(postMessages(t, provider, "/v1/messages", `{"model":"stub","tools":[{}],"messages":[]}`).Body).
 		Decode(&message); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -106,7 +106,7 @@ func anthropicStreamEvents(t *testing.T, body io.Reader) (events []string, text,
 func TestStubStreamsAnthropicMessages(t *testing.T) {
 	provider := startTestStub(t)
 
-	response := postMessages(t, provider, "/v1/messages", `{"model":"stub","stream":true,"messages":[]}`)
+	response := postMessages(t, provider, "/v1/messages", `{"model":"stub","stream":true,"tools":[{}],"messages":[]}`)
 
 	if got := response.Header.Get("Content-Type"); !strings.HasPrefix(got, "text/event-stream") {
 		t.Errorf("Content-Type = %q, want text/event-stream", got)
@@ -122,7 +122,7 @@ func TestStubStreamsTheScriptedToolUse(t *testing.T) {
 	provider := startTestStub(t)
 	provider.ScriptToolCall(ToolCall{Name: "Write", Arguments: `{"file_path":"/workspace/a.txt","content":"hi"}`})
 
-	response := postMessages(t, provider, "/v1/messages", `{"model":"stub","stream":true,"messages":[]}`)
+	response := postMessages(t, provider, "/v1/messages", `{"model":"stub","stream":true,"tools":[{}],"messages":[]}`)
 
 	_, _, input, stopReason := anthropicStreamEvents(t, response.Body)
 	if input != `{"file_path":"/workspace/a.txt","content":"hi"}` || stopReason != "tool_use" {
@@ -145,7 +145,7 @@ func TestStubCountsTokensWithoutTakingATurn(t *testing.T) {
 		t.Error("a token count took a turn")
 	}
 	var turn anthropicMessage
-	_ = json.NewDecoder(postMessages(t, provider, "/v1/messages", `{"model":"stub"}`).Body).Decode(&turn)
+	_ = json.NewDecoder(postMessages(t, provider, "/v1/messages", `{"model":"stub","tools":[{}]}`).Body).Decode(&turn)
 	if turn.StopReason != "tool_use" {
 		t.Errorf("the first real turn = %+v, want the still-armed tool call", turn)
 	}

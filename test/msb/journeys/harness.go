@@ -14,6 +14,10 @@ type Harness struct {
 	// at addr, for a harness configured through its environment; they reach the
 	// VM through the launcher's env file (StepConfigureLauncherEnv).
 	StubEnv func(addr string) map[string]string
+	// StubSnippets renders launcher agent-config snippets (file name to
+	// content) that point the harness at the stub at addr; the launcher merges
+	// them into the harness's own config file (StepConfigureLauncherEnv).
+	StubSnippets func(addr string) map[string]string
 	// LaunchArgs are agent arguments every launch of the harness passes, before
 	// any step-specific ones.
 	LaunchArgs []string
@@ -35,4 +39,5 @@ type Harness struct {
 var Harnesses = map[string]Harness{
 	opencode2AgentName:  opencode2Harness,
 	claudeCodeAgentName: claudeCodeHarness,
+	codexAgentName:      codexHarness,
 }
