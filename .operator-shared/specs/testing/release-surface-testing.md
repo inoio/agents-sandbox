@@ -138,9 +138,9 @@ Failure modes the surface implies; each is pinned by a check in the task named.
   ```
 
   Expected: the suite's preflight passes on this KVM host, the launcher builds, the runner images prebuild into
-  `<root>/smoke/data`, every journey in the table passes (v1: UC1, UC4, `config learn`, attribution on opencode2), and
-  `TestHarnessJourneys/stub-provider-turn-completes` passes (a real opencode2 turn against the host-side stub over the
-  host gateway). The proxy spike `stub-provider-turn-reaches-the-proxy` skips unless
+  `<root>/smoke/data`, every journey in the table passes on every harness it lists (UC1, UC4, `config learn`, attribution, and
+  `stub-turn-completes`, a real turn against the host-side stub over the host gateway; all on opencode2 so far). The
+  proxy spike `stub-provider-turn-reaches-the-proxy` skips unless
   `AGENTS_SANDBOX_JOURNEYS_PROXY_SPIKE=1`: no stub route is known yet that the learn-mode proxy observes (see
   `specs/testing/msb-journeys.md`).
   A host without `/dev/kvm` or a reachable docker daemon skips, never fails. Evidence: the `go test` output. The suite

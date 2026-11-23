@@ -4,6 +4,7 @@ package journeys
 
 import (
 	"testing"
+	"time"
 
 	"github.com/inoio/agents-sandbox/test/msb/driver"
 )
@@ -18,12 +19,13 @@ import (
 // start. A step's error aborts its journey and names the failing step, so a
 // scenario reads top-to-bottom and a failure points at one line.
 //
-// Every journey drives driver.ProjectDir(root, Agent), so all v1 journeys share
-// one project slug and hence one microsandbox VM and home volume, and the sweep
-// only runs at suite start and teardown. Per-journey state a step asserts must
-// therefore live in that journey's isolated HOME (a fresh t.TempDir per subtest,
-// via driver.IsolatedEnv), never in the shared volume or project dir; a future
-// journey that depends on a clean shared VM must add its own reset.
+// Each journey runs once per harness it lists, as TestHarnessJourneys/<journey>/
+// <harness>. A journey drives the harness's shared project
+// (driver.ProjectDir(root, harness)) unless it starts with StepOwnProject, so
+// journeys on the shared project share one VM and home volume and the sweep only
+// runs at suite start and teardown. Per-journey state a step asserts must
+// therefore live in that journey's isolated HOME (a fresh t.TempDir per run, via
+// driver.IsolatedEnv), never in the shared volume or project dir.
 func TestHarnessJourneys(t *testing.T) {
 	driver.Preflight(t)
 	root, binary := driver.Prepare(t)
@@ -41,26 +43,10 @@ func TestHarnessJourneys(t *testing.T) {
 
 	for _, journey := range Journeys {
 		t.Run(journey.Name, func(t *testing.T) {
-			spec, ok := driver.Specs[journey.Agent]
-			if !ok {
-				t.Fatalf("journey %q names agent %q with no smoke spec", journey.Name, journey.Agent)
-			}
-			if journey.Network != "" {
-				spec.Network = journey.Network
-			}
-			ctx := &Context{
-				TB:      t,
-				Root:    root,
-				Binary:  binary,
-				Spec:    spec,
-				Agent:   journey.Agent,
-				Home:    t.TempDir(),
-				Session: nil,
-			}
-			for _, step := range journey.Steps {
-				if err := step.Run(ctx); err != nil {
-					t.Fatalf("journey %q step %q: %v", journey.Name, step.Name, err)
-				}
+			for _, harness := range journey.Harnesses {
+				t.Run(harness, func(t *testing.T) {
+					runJourney(t, journeyContext(t, root, binary, journey, harness), journey, time.Now)
+				})
 			}
 		})
 	}
@@ -69,10 +55,28 @@ func TestHarnessJourneys(t *testing.T) {
 	// reuse lock: a separate top-level test would re-enter driver.Prepare, whose
 	// per-caller cleanup tears the shared root down and releases the lock when
 	// the first caller returns.
-	t.Run("stub-provider-turn-completes", func(t *testing.T) {
-		runStubProviderTurnCompletes(t, root, binary)
-	})
 	t.Run("stub-provider-turn-reaches-the-proxy", func(t *testing.T) {
 		runStubProviderTurnReachesTheProxy(t, root, binary)
 	})
+}
+
+// journeyContext builds the context one (journey, harness) run starts from: the
+// harness's smoke spec with the journey's network override, its journey
+// adapter, and a fresh HOME.
+func journeyContext(t *testing.T, root, binary string, journey Journey, harness string) *Context {
+	t.Helper()
+	spec, ok := driver.Specs[harness]
+	if !ok {
+		t.Fatalf("journey %q names harness %q with no smoke spec", journey.Name, harness)
+	}
+	adapter, ok := Harnesses[harness]
+	if !ok {
+		t.Fatalf("journey %q names harness %q with no journey adapter", journey.Name, harness)
+	}
+	if journey.Network != "" {
+		spec.Network = journey.Network
+	}
+	return &Context{
+		TB: t, Root: root, Binary: binary, Spec: spec, Agent: harness, Harness: adapter, Home: t.TempDir(),
+	}
 }

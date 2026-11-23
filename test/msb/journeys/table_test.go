@@ -2,6 +2,7 @@ package journeys
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -9,14 +10,11 @@ import (
 	"github.com/inoio/agents-sandbox/test/msb/driver"
 )
 
-// TestEveryRegisteredAgentIsCoveredOrExempted mirrors the startup-smoke
-// completeness contract for the journeys table: every registered harness is
-// either driven by a journey or carries an exemption with a recorded reason, so
-// a newly registered agent fails the default suite until it is covered or
-// explicitly exempted. A harness that gains a journey must drop its stale
-// exemption. An agent may be driven by more than one journey (v1 drives
-// opencode2 with UC1 and UC4), so a second journey is not itself a problem.
-func TestEveryRegisteredAgentIsCoveredOrExempted(t *testing.T) {
+// TestEveryJourneyHarnessPairIsCoveredOrExempted mirrors the startup-smoke
+// completeness contract per journey: every registered harness is driven by the
+// journey or carries an exemption for it with a recorded reason, so a newly
+// registered agent fails the default suite until it is placed.
+func TestEveryJourneyHarnessPairIsCoveredOrExempted(t *testing.T) {
 	names := agent.Names()
 	if len(names) == 0 {
 		t.Fatal("no agents registered")
@@ -26,66 +24,137 @@ func TestEveryRegisteredAgentIsCoveredOrExempted(t *testing.T) {
 	}
 }
 
-// TestJourneyCoverageAllowsMultipleJourneysPerAgent pins the completeness
-// contract's shape: an agent driven by more than one journey is covered, not a
-// problem. Only an unknown agent, an agent neither covered nor exempted, a blank
-// exemption reason, or an exemption naming no registered agent is reported.
-func TestJourneyCoverageAllowsMultipleJourneysPerAgent(t *testing.T) {
-	journeys := []Journey{
-		{Name: "one", Agent: "opencode2"},
-		{Name: "two", Agent: "opencode2"},
+func TestJourneyCoverageProblems(t *testing.T) {
+	journeys := []Journey{{Name: "core", Harnesses: []string{"opencode2"}}}
+	cases := []struct {
+		name       string
+		journeys   []Journey
+		exemptions map[string]map[string]string
+		want       []string
+	}{
+		{
+			name:       "covered and exempted pairs",
+			journeys:   journeys,
+			exemptions: map[string]map[string]string{"core": {"codex": "later"}},
+			want:       nil,
+		},
+		{
+			name:     "a pair neither covered nor exempted",
+			journeys: journeys,
+			want:     []string{`journey "core" neither drives nor exempts registered agent "codex"`},
+		},
+		{
+			name:       "a blank reason",
+			journeys:   journeys,
+			exemptions: map[string]map[string]string{"core": {"codex": " "}},
+			want:       []string{`journey "core" exempts agent "codex" with no recorded reason`},
+		},
+		{
+			name:       "an exemption for a covered pair",
+			journeys:   journeys,
+			exemptions: map[string]map[string]string{"core": {"codex": "later", "opencode2": "stale"}},
+			want:       []string{`journey "core" drives agent "opencode2" but still exempts it`},
+		},
+		{
+			name:       "an unknown harness",
+			journeys:   []Journey{{Name: "core", Harnesses: []string{"opencode2", "nope"}}},
+			exemptions: map[string]map[string]string{"core": {"codex": "later"}},
+			want:       []string{`journey "core" names unknown agent "nope"`},
+		},
+		{
+			name:     "an exemption for an unknown journey or agent",
+			journeys: journeys,
+			exemptions: map[string]map[string]string{
+				"core":  {"codex": "later", "nope": "x"},
+				"other": {"codex": "x"},
+			},
+			want: []string{
+				`exemption for journey "core" names unknown agent "nope"`,
+				`exemptions name unknown journey "other"`,
+			},
+		},
+		{
+			name:       "a harness listed twice",
+			journeys:   []Journey{{Name: "core", Harnesses: []string{"opencode2", "opencode2"}}},
+			exemptions: map[string]map[string]string{"core": {"codex": "later"}},
+			want:       []string{`journey "core" lists agent "opencode2" twice`},
+		},
+		{
+			name:       "a journey with no harness",
+			journeys:   []Journey{{Name: "core"}},
+			exemptions: map[string]map[string]string{"core": {"codex": "later", "opencode2": "later"}},
+			want:       []string{`journey "core" lists no harness`},
+		},
 	}
-	problems := journeyCoverageProblems(journeys, nil, []string{"opencode2"})
-	if len(problems) != 0 {
-		t.Errorf("coverage problems = %v, want none for one agent with two journeys", problems)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := journeyCoverageProblems(tc.journeys, tc.exemptions, []string{"codex", "opencode2"})
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("problems = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 
-// journeyCoverageProblems returns the table-completeness problems for journeys
-// against exemptions over the registered agent names: a journey naming an
-// unknown agent; a registered agent covered by no journey and carrying no
-// exemption; an exemption with a blank reason; and an exemption naming no
-// registered agent. It takes the table as arguments so the
-// multiple-journeys-per-agent contract is testable without the real table, but
-// it is not pure: it validates journey agents against the live agent.Lookup
-// registry.
-func journeyCoverageProblems(journeys []Journey, exemptions map[string]string, registered []string) []string {
-	covered := make(map[string]bool, len(journeys))
+// journeyCoverageProblems returns the completeness problems of journeys against
+// exemptions over the registered agent names, sorted.
+func journeyCoverageProblems(
+	journeys []Journey,
+	exemptions map[string]map[string]string,
+	registered []string,
+) []string {
 	var problems []string
+	known := make(map[string]bool, len(journeys))
 	for _, journey := range journeys {
-		if _, ok := agent.Lookup(journey.Agent); !ok {
-			problems = append(problems, fmt.Sprintf("journey %q names unknown agent %q", journey.Name, journey.Agent))
+		known[journey.Name] = true
+		problems = append(problems, journeyPairProblems(journey, exemptions[journey.Name], registered)...)
+	}
+	for journeyName, reasons := range exemptions {
+		if !known[journeyName] {
+			problems = append(problems, fmt.Sprintf("exemptions name unknown journey %q", journeyName))
 			continue
 		}
-		covered[journey.Agent] = true
-	}
-
-	for _, name := range registered {
-		if covered[name] {
-			if reason, ok := exemptions[name]; ok {
-				problems = append(
-					problems,
-					fmt.Sprintf("agent %q is covered by a journey but still carries an exemption %q", name, reason),
-				)
+		for name := range reasons {
+			if !slices.Contains(registered, name) {
+				problems = append(problems,
+					fmt.Sprintf("exemption for journey %q names unknown agent %q", journeyName, name))
 			}
-			continue
-		}
-		reason, ok := exemptions[name]
-		if !ok {
-			problems = append(
-				problems,
-				fmt.Sprintf("registered agent %q is neither covered by a journey nor exempted", name),
-			)
-			continue
-		}
-		if strings.TrimSpace(reason) == "" {
-			problems = append(problems, fmt.Sprintf("agent %q has an exemption with no recorded reason", name))
 		}
 	}
+	slices.Sort(problems)
+	return problems
+}
 
-	for name := range exemptions {
-		if _, ok := agent.Lookup(name); !ok {
-			problems = append(problems, fmt.Sprintf("exemption %q matches no registered agent", name))
+// journeyPairProblems returns the problems of one journey's (journey, agent)
+// pairs: an unknown, duplicated, or missing harness, an uncovered and unexempted agent, a
+// blank reason, and an exemption for a pair the journey drives.
+func journeyPairProblems(journey Journey, reasons map[string]string, registered []string) []string {
+	var problems []string
+	if len(journey.Harnesses) == 0 {
+		problems = append(problems, fmt.Sprintf("journey %q lists no harness", journey.Name))
+	}
+	for index, name := range journey.Harnesses {
+		if !slices.Contains(registered, name) {
+			problems = append(problems, fmt.Sprintf("journey %q names unknown agent %q", journey.Name, name))
+		}
+		if slices.Contains(journey.Harnesses[:index], name) {
+			problems = append(problems, fmt.Sprintf("journey %q lists agent %q twice", journey.Name, name))
+		}
+	}
+	for _, name := range registered {
+		reason, exempted := reasons[name]
+		driven := slices.Contains(journey.Harnesses, name)
+		switch {
+		case driven && exempted:
+			problems = append(problems,
+				fmt.Sprintf("journey %q drives agent %q but still exempts it", journey.Name, name))
+		case driven:
+		case !exempted:
+			problems = append(problems,
+				fmt.Sprintf("journey %q neither drives nor exempts registered agent %q", journey.Name, name))
+		case strings.TrimSpace(reason) == "":
+			problems = append(problems,
+				fmt.Sprintf("journey %q exempts agent %q with no recorded reason", journey.Name, name))
 		}
 	}
 	return problems
@@ -98,8 +167,8 @@ func journeyCoverageProblems(journeys []Journey, exemptions map[string]string, r
 func TestAttributionJourneyRegistered(t *testing.T) {
 	for _, journey := range Journeys {
 		if journey.Name == attributionJourney.Name {
-			if journey.Agent != opencode2AgentName {
-				t.Errorf("attribution journey agent = %q, want %q", journey.Agent, opencode2AgentName)
+			if !slices.Equal(journey.Harnesses, []string{opencode2AgentName}) {
+				t.Errorf("attribution journey harnesses = %v, want [%s]", journey.Harnesses, opencode2AgentName)
 			}
 			return
 		}
@@ -118,15 +187,12 @@ func TestAttributionJourneyDrivesABroadBaseline(t *testing.T) {
 }
 
 // TestEveryJourneyStepIsNamedAndRunnable pins the runner's contract: a step
-// failure names the step, so every step carries a non-empty Name and a Run, and
-// a journey is non-empty and names its agent.
+// failure names the step, so every step carries a non-empty Name, a keyword, and
+// a Run, and a journey is non-empty.
 func TestEveryJourneyStepIsNamedAndRunnable(t *testing.T) {
 	for _, journey := range Journeys {
 		if strings.TrimSpace(journey.Name) == "" {
 			t.Errorf("a journey has no name")
-		}
-		if strings.TrimSpace(journey.Agent) == "" {
-			t.Errorf("journey %q names no agent", journey.Name)
 		}
 		if len(journey.Steps) == 0 {
 			t.Errorf("journey %q has no steps", journey.Name)
@@ -137,6 +203,9 @@ func TestEveryJourneyStepIsNamedAndRunnable(t *testing.T) {
 			}
 			if step.Run == nil {
 				t.Errorf("journey %q step %q has no Run", journey.Name, step.Name)
+			}
+			if step.Keyword == "" {
+				t.Errorf("journey %q step %q has no Given/When/Then keyword", journey.Name, step.Name)
 			}
 		}
 	}

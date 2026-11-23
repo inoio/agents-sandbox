@@ -285,10 +285,15 @@ test-msb-cold: msb-reuse-root
 # it does not read AGENTS_SANDBOX_MSB_TEST_HOME, the internal/sandbox/msb
 # runtime's reuse home. Host-only; excluded from test/check via the `msb` build
 # tag. See .operator-shared/specs/testing/msb-journeys.md.
+# JOURNEY and HARNESS narrow test-msb-journeys to TestHarnessJourneys/<journey>/<harness>
+# (each an exact name; either may be left out). The opt-in proxy spike, a subtest outside
+# the table, matches whenever JOURNEY is left out.
+JOURNEYS_RUN = $(if $(JOURNEY)$(HARNESS),-run 'TestHarnessJourneys/^$(or $(JOURNEY),.*)$$/^$(or $(HARNESS),.*)$$')
+
 test-msb-journeys: msb-reuse-root
 	AGENTS_SANDBOX_SMOKE_ROOT=$(MSB_REUSE_ROOT)/smoke \
 	AGENTS_SANDBOX_MSB_PARALLEL=$(MSB_PARALLEL) \
-	CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/msb/journeys/...
+	CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 $(JOURNEYS_RUN) ./test/msb/journeys/...
 
 # The in-guest variant `kvm-run` drives by default: the same caching suite as
 # test-msb, with changes that only matter on a nested guest. The two msb-tagged

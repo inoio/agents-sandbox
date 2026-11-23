@@ -267,17 +267,17 @@ func TestStepSeedHostConfigDerivesFilesFromContext(t *testing.T) {
 	}
 }
 
-// TestStepAssertScopeExcludes pins the host-seed login-store guard: a file the
+// TestStepAssertScopeExcludesHostLoginStore pins the host-seed login-store guard: a file the
 // seed must drop must not appear in the scope's managed agent config dir, so a
 // copied login store fails the step rather than passing the key/placeholder
 // checks.
-func TestStepAssertScopeExcludes(t *testing.T) {
+func TestStepAssertScopeExcludesHostLoginStore(t *testing.T) {
 	const agentName = "opencode2"
 	root := t.TempDir()
 	if err := os.MkdirAll(driver.ProjectDir(root, agentName), 0o750); err != nil {
 		t.Fatalf("create project dir: %v", err)
 	}
-	ctx := &Context{TB: t, Root: root, Agent: agentName, Home: t.TempDir()}
+	ctx := &Context{TB: t, Root: root, Agent: agentName, Harness: opencode2Harness, Home: t.TempDir()}
 
 	scopeDir, err := journeyScopeDir(ctx)
 	if err != nil {
@@ -291,7 +291,7 @@ func TestStepAssertScopeExcludes(t *testing.T) {
 	if err := os.WriteFile(loginStore, []byte("{}"), 0o600); err != nil {
 		t.Fatalf("write %s: %v", loginStore, err)
 	}
-	if err := StepAssertScopeExcludes("auth.json").Run(ctx); err == nil {
+	if err := StepAssertScopeExcludesHostLoginStore().Run(ctx); err == nil {
 		t.Error("a copied login store: got nil error, want failure")
 	} else if !strings.Contains(err.Error(), "must drop") {
 		t.Errorf("error = %v, want the copied-login-store failure", err)
@@ -299,7 +299,7 @@ func TestStepAssertScopeExcludes(t *testing.T) {
 	if err := os.Remove(loginStore); err != nil {
 		t.Fatalf("remove %s: %v", loginStore, err)
 	}
-	if err := StepAssertScopeExcludes("auth.json").Run(ctx); err != nil {
+	if err := StepAssertScopeExcludesHostLoginStore().Run(ctx); err != nil {
 		t.Errorf("an absent login store: %v", err)
 	}
 
@@ -307,11 +307,15 @@ func TestStepAssertScopeExcludes(t *testing.T) {
 	if err := os.MkdirAll(driver.ProjectDir(unknownRoot, "nonexistent"), 0o750); err != nil {
 		t.Fatalf("create the unknown agent's project dir: %v", err)
 	}
-	unknown := &Context{TB: t, Root: unknownRoot, Agent: "nonexistent", Home: t.TempDir()}
-	if err := StepAssertScopeExcludes("auth.json").Run(unknown); err == nil {
+	unknown := &Context{TB: t, Root: unknownRoot, Agent: "nonexistent", Harness: opencode2Harness, Home: t.TempDir()}
+	if err := StepAssertScopeExcludesHostLoginStore().Run(unknown); err == nil {
 		t.Error("an unknown agent: got nil error, want failure")
 	} else if !strings.Contains(err.Error(), "unknown agent") {
 		t.Errorf("error = %v, want the unknown-agent failure", err)
+	}
+
+	if err := StepAssertScopeExcludesHostLoginStore().Run(&Context{TB: t, Agent: agentName}); err == nil {
+		t.Error("an adapter without a login store: got nil error, want failure")
 	}
 }
 
@@ -320,10 +324,9 @@ func TestStepAssertScopeExcludes(t *testing.T) {
 // stubHost rather than the provider.
 type fakeStubProvider struct{}
 
-func (fakeStubProvider) Addr() string                      { return "http://stub.invalid" }
-func (fakeStubProvider) ProviderConfig() map[string]string { return nil }
-func (fakeStubProvider) Requests() []StubRequest           { return nil }
-func (fakeStubProvider) Stop()                             {}
+func (fakeStubProvider) Addr() string            { return "http://stub.invalid" }
+func (fakeStubProvider) Requests() []StubRequest { return nil }
+func (fakeStubProvider) Stop()                   {}
 
 // TestCommandArgvAppendsNoJourneyFlags pins StepLaunchCommand's arg handling:
 // the built binary and the command's own arguments, with none of the run flags

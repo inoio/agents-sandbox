@@ -20,9 +20,7 @@ const attributionPrompt = "hello"
 // this step (the reverse of the plan's prose order, which the context-derived
 // builder requires).
 func attributionHostConfig(c *Context) map[string]string {
-	return map[string]string{
-		opencodeHostConfigRelPath: stubProviderDocument(c.Stub.Addr()),
-	}
+	return c.Harness.HostConfig(c.Stub.Addr())
 }
 
 // attributionScope is what the attribution journey asserts the run wrote to the
@@ -69,19 +67,19 @@ var attributionScope = ScopeWant{
 // is unreachable, so the stub-host assertion holds via the fallback regardless of
 // whether the observation saw the pair (see attributionScope).
 var attributionJourney = Journey{
-	Name:    "attribution-observed-pair",
-	Agent:   opencode2AgentName,
-	Network: driver.PublicNetwork,
+	Name:      "attribution-observed-pair",
+	Harnesses: []string{opencode2AgentName},
+	Network:   driver.PublicNetwork,
 	Steps: []Step{
-		StepFreshHome(),
-		StepSeedStub(),
-		StepSeedHostConfig(attributionHostConfig),
-		StepLaunch("run", "--learn"),
-		StepWaitReady(),
-		StepSendPrompt(attributionPrompt),
-		StepQuit(),
-		StepChooseExit(exitSaveAllKey),
-		StepAssertScopeWritten(attributionScope),
-		StepAssertNetworkNotWidened(runNetworkPolicy, stubHost),
+		Given(StepFreshHome()),
+		And(StepSeedStub()),
+		And(StepSeedHostConfig(attributionHostConfig)),
+		When(StepLaunch("run", "--learn")),
+		Then(StepWaitReady()),
+		When(StepSendPrompt(attributionPrompt)),
+		And(StepQuit()),
+		And(StepChooseExit(exitSaveAllKey)),
+		Then(StepAssertScopeWritten(attributionScope)),
+		And(StepAssertNetworkNotWidened(runNetworkPolicy, stubHost)),
 	},
 }

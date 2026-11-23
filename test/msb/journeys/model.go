@@ -22,6 +22,8 @@ type Context struct {
 	// Project is the journey's own project dir, set by StepOwnProject; empty
 	// means the agent's shared project (see ProjectDir).
 	Project string
+	// Harness is the agent's journey adapter (Harnesses[Agent]).
+	Harness Harness
 	// Session is set by StepLaunch and driven by the later steps.
 	Session *driver.Session
 	// Stub is set by StepSeedStub: the host-side destination the journey's
@@ -38,17 +40,73 @@ func (c *Context) ProjectDir() string {
 	return driver.ProjectDir(c.Root, c.Agent)
 }
 
-// Step is one named action in a journey. A step's Run returns an error; the
-// runner aborts the journey there and reports Name, so a failure names the step.
+// Keyword is a step's Gherkin keyword: it only shapes how the scenario reads.
+type Keyword string
+
+// The Gherkin keywords a journey's steps carry.
+const (
+	KeywordGiven Keyword = "Given"
+	KeywordWhen  Keyword = "When"
+	KeywordThen  Keyword = "Then"
+	KeywordAnd   Keyword = "And"
+)
+
+// StepKind decides what a failing step does to the rest of its journey.
+type StepKind int
+
+const (
+	// Action is a step later steps depend on: its failure ends the journey.
+	Action StepKind = iota
+	// Check is an assertion nothing later depends on: its failure is recorded
+	// and the journey continues, so one run reports every broken check.
+	Check
+)
+
+// Step is one named step in a journey. Name is the sentence after the keyword,
+// so Text reads as a Gherkin line and a failure names the step in that form.
+//
+//exhaustruct:ignore
 type Step struct {
-	Name string
-	Run  func(*Context) error
+	Keyword Keyword
+	Kind    StepKind
+	Name    string
+	Run     func(*Context) error
 }
 
-// Journey is one named scenario driven against one registered agent, composed of
-// steps drawn from the shared vocabulary in steps.go. No journey inlines a step.
+// Text is the step's Gherkin line.
+func (s Step) Text() string {
+	return string(s.Keyword) + " " + s.Name
+}
+
+// Given sets the step's keyword to Given; When, Then, and And are its siblings
+// for the other keywords. A journey literal wraps each step in one of them.
+func Given(step Step) Step { return withKeyword(step, KeywordGiven) }
+
+// When sets the step's keyword to When.
+func When(step Step) Step { return withKeyword(step, KeywordWhen) }
+
+// Then sets the step's keyword to Then.
+func Then(step Step) Step { return withKeyword(step, KeywordThen) }
+
+// And sets the step's keyword to And.
+func And(step Step) Step { return withKeyword(step, KeywordAnd) }
+
+func withKeyword(step Step, keyword Keyword) Step {
+	step.Keyword = keyword
+	return step
+}
+
+// AsCheck marks a step as a non-fatal check.
+func AsCheck(step Step) Step {
+	step.Kind = Check
+	return step
+}
+
+// Journey is one named scenario, composed of steps drawn from the shared
+// vocabulary in steps.go and run once per harness in Harnesses. No journey
+// inlines a step.
 //
-// Network overrides the agent's spec network profile for this journey when set
+// Network overrides the harness's spec network profile for this journey when set
 // (driver.Spec.NetworkOrDefault otherwise). The attribution journey sets it to a
 // profile that admits the stub, so the run's baseline is broad enough for the
 // analyser to actually narrow it and the network-not-widened assertion to have a
@@ -56,8 +114,8 @@ type Step struct {
 //
 //exhaustruct:ignore
 type Journey struct {
-	Name    string
-	Agent   string
-	Network string
-	Steps   []Step
+	Name      string
+	Harnesses []string
+	Network   string
+	Steps     []Step
 }
