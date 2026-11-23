@@ -27,7 +27,7 @@ const hostGatewayNetwork = "host"
 // they continue: opencode2 the last active one, claude-code the last saved one.
 var coreSessionJourney = Journey{
 	Name:      "core-session",
-	Harnesses: []string{opencode2AgentName, claudeCodeAgentName, codexAgentName},
+	Harnesses: []string{opencode2AgentName, claudeCodeAgentName, codexAgentName, piAgentName, ohMyPiAgentName},
 	Network:   hostGatewayNetwork,
 	Steps: []Step{
 		Given(StepOwnProject("core")),

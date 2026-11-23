@@ -32,8 +32,8 @@ var claudeCodeHarness = Harness{
 	WriteFileCall: func(guestPath, content string) ToolCall {
 		return ToolCall{
 			Name:      "Write",
-			Arguments: jsonObject(map[string]string{"file_path": guestPath, "content": content}),
+			Arguments: writeToolArguments("file_path", guestPath, content),
 		}
 	},
-	ResumeArgs: []string{"--continue"},
+	ResumeArgs: []string{continueFlag},
 }

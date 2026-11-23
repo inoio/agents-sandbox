@@ -18,6 +18,10 @@ type Harness struct {
 	// content) that point the harness at the stub at addr; the launcher merges
 	// them into the harness's own config file (StepConfigureLauncherEnv).
 	StubSnippets func(addr string) map[string]string
+	// ReadyMarker, when set, replaces the startup smoke's readiness marker
+	// (driver.Spec.ReadyMarker) for a harness whose start screen differs once
+	// the stub is configured.
+	ReadyMarker string
 	// LaunchArgs are agent arguments every launch of the harness passes, before
 	// any step-specific ones.
 	LaunchArgs []string
@@ -40,4 +44,16 @@ var Harnesses = map[string]Harness{
 	opencode2AgentName:  opencode2Harness,
 	claudeCodeAgentName: claudeCodeHarness,
 	codexAgentName:      codexHarness,
+	piAgentName:         piFamilyHarness(piModelsPath),
+	ohMyPiAgentName:     ohMyPiHarness(),
+}
+
+// continueFlag is the agent flag that continues the last session, shared by
+// opencode2, claude-code, and the pi family.
+const continueFlag = "--continue"
+
+// writeToolArguments renders a file-writing tool's JSON arguments: the guest
+// path under pathKey (the harness's own name for it) and the content.
+func writeToolArguments(pathKey, guestPath, content string) string {
+	return jsonObject(map[string]string{pathKey: guestPath, "content": content})
 }

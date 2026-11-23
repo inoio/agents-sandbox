@@ -76,6 +76,9 @@ func journeyContext(t *testing.T, root, binary string, journey Journey, harness 
 	if journey.Network != "" {
 		spec.Network = journey.Network
 	}
+	if adapter.ReadyMarker != "" {
+		spec.ReadyMarker = adapter.ReadyMarker
+	}
 	return &Context{
 		TB: t, Root: root, Binary: binary, Spec: spec, Agent: harness, Harness: adapter, Home: t.TempDir(),
 	}

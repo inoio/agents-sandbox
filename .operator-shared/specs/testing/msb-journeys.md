@@ -218,8 +218,8 @@ source of truth and its steps are type-checked. It reads as Gherkin anyway:
   the host file's base name, which holds for opencode's `auth.json`. The adapter grows a field only when a journey needs it.
 
 The learn-mode journeys cover **opencode2 only** so far, the S1-verified profile with its SQLite credential
-probe; core-session covers opencode2, claude-code, and codex. Learn mode on claude-code, codex, pi, and oh-my-pi
-(and core-session on pi and oh-my-pi) is #852; the rest is #794.
+probe; core-session covers opencode2, claude-code, codex, pi, and oh-my-pi. Learn mode on claude-code, codex,
+pi, and oh-my-pi is #852; the rest is #794.
 
 ### Checkpoint 1: claude-code (the abstraction held)
 
@@ -264,6 +264,19 @@ field, and one stub rule:
 The adapter now has three ways to point a harness at the stub (`StubConfig` home files, `StubEnv`,
 `StubSnippets`), each used because a harness's natural config file is reserved or ignored, never as a
 harness-name branch. Every field is used by at least one harness, and shared code still names none.
+
+### Similar harnesses are cheap: pi and oh-my-pi (#852)
+
+pi needed only an adapter: a `models.json` declaring an OpenAI-compatible provider at the stub (not a reserved
+`home:` target), `--model stub/stub`, its `write` tool, and `--continue`. oh-my-pi, a pi fork, reuses that
+adapter (`piFamilyHarness`) with its YAML `models.yml` (JSON is YAML) plus its own start:
+
+- **A readiness marker override** (`Harness.ReadyMarker`): the startup smoke waits for oh-my-pi's
+  "No default model selected", which a configured model removes; the journeys wait for its status line.
+- **Its side turns off** (a `config*.yml` snippet): the setup wizard, the forked session title (`title.generator:
+  tiny`), and next-message predictions (`composer.predictions: false`) would otherwise run as tool-carrying
+  requests on the main model and take numbered replies; its `smol` role runs on the stub's small model.
+- Its startup model probe ("What is 17 times 23?") is tool-less, so the stub answers it as a side request.
 
 ### The core-session journey
 
