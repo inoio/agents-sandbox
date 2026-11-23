@@ -1,5 +1,12 @@
 /agents-sandbox*
 /.idea/
+!/.idea/agents-sandbox.iml
+!/.idea/go.imports.xml
+!/.idea/golinter.xml
+!/.idea/inspectionProfiles/
+!/.idea/jsonSchemas.xml
+!/.idea/modules.xml
+!/.idea/vcs.xml
 /.agents-sandbox/env.secret
 /.agents-sandbox/env.secret.yaml
 version.env
