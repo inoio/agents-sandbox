@@ -2,12 +2,12 @@ package journeys
 
 import (
 	"encoding/json"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configmerge"
 )
 
 func TestPiModelsDocumentDeclaresTheStubProvider(t *testing.T) {
@@ -42,21 +42,27 @@ func TestPiFamilyAdaptersProvisionTheirOwnModelsFile(t *testing.T) {
 		if _, ok := config[path]; !ok || len(config) != 1 {
 			t.Errorf("%s StubConfig = %v, want only %s", name, config, path)
 		}
-		if !slices.Equal(Harnesses[name].LaunchArgs[:2], []string{"--model", "stub/stub"}) {
-			t.Errorf("%s LaunchArgs = %v, want --model stub/stub first", name, Harnesses[name].LaunchArgs)
+		args := Harnesses[name].LaunchArgs
+		if model := slices.Index(args, "--model"); model < 0 || model+1 >= len(args) || args[model+1] != "stub/stub" {
+			t.Errorf("%s LaunchArgs = %v, want --model stub/stub", name, args)
 		}
 	}
 }
 
 func TestOhMyPiSettingsSnippetMatchesItsPatternAndTurnsOffSideTurns(t *testing.T) {
-	profile, _ := agent.Lookup(ohMyPiAgentName)
+	profile, ok := agent.Lookup(ohMyPiAgentName)
+	if !ok {
+		t.Fatal("oh-my-pi is not registered")
+	}
 	merger, ok := profile.(agent.ConfigMerger)
 	if !ok {
 		t.Fatal("oh-my-pi does not merge config snippets")
 	}
-	if matched, err := filepath.Match("config*.yml", ohMyPiSetupSnippet); err != nil || !matched ||
-		merger.SnippetPattern() != "config*.{yml,yaml}" {
-		t.Errorf("snippet %q against pattern %q", ohMyPiSetupSnippet, merger.SnippetPattern())
+	if !configmerge.SnippetNameMatches(merger.SnippetPattern(), ohMyPiSetupSnippet) {
+		t.Errorf("snippet %q does not match oh-my-pi's pattern %q", ohMyPiSetupSnippet, merger.SnippetPattern())
+	}
+	if Harnesses[ohMyPiAgentName].ReadyMarker == "" {
+		t.Error("the oh-my-pi adapter overrides no readiness marker; the smoke's needs an unconfigured model")
 	}
 	for _, want := range []string{"setupWizard: false", "generator: tiny", "predictions: false"} {
 		if !strings.Contains(ohMyPiSetupConfig, want) {

@@ -263,7 +263,9 @@ field, and one stub rule:
 
 The adapter now has three ways to point a harness at the stub (`StubConfig` home files, `StubEnv`,
 `StubSnippets`), each used because a harness's natural config file is reserved or ignored, never as a
-harness-name branch. Every field is used by at least one harness, and shared code still names none.
+harness-name branch. Every field is used by at least one harness, and shared code still names none. Since
+#852 the adapter also overrides startup: `ReadyMarker` replaces the smoke's readiness marker where a configured
+stub changes the start screen (oh-my-pi).
 
 ### Similar harnesses are cheap: pi and oh-my-pi (#852)
 

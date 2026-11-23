@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/inoio/agents-sandbox/test/msb/driver"
 )
 
 // recordingTB records what the runner reports. Fatalf only records: the runner
@@ -113,5 +115,18 @@ func TestRunJourneyReportsNoSessionOutputBeforeAHarnessStarted(t *testing.T) {
 
 	if len(tb.fatals) != 1 || strings.Contains(tb.fatals[0], "harness output") {
 		t.Errorf("fatals = %q, want the failure without a harness output section", tb.fatals)
+	}
+}
+
+func TestJourneySpecAppliesTheJourneysAndTheAdaptersOverrides(t *testing.T) {
+	smoke := driver.Spec{Network: "none", ReadyMarker: "smoke marker"}
+
+	unchanged := journeySpec(smoke, Journey{}, Harness{})
+	if unchanged.Network != "none" || unchanged.ReadyMarker != "smoke marker" {
+		t.Errorf("spec without overrides = %+v, want the smoke's", unchanged)
+	}
+	overridden := journeySpec(smoke, Journey{Network: "host"}, Harness{ReadyMarker: "status line"})
+	if overridden.Network != "host" || overridden.ReadyMarker != "status line" {
+		t.Errorf("spec with overrides = %+v, want the journey's network and the adapter's marker", overridden)
 	}
 }

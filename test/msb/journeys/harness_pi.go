@@ -39,7 +39,7 @@ func ohMyPiHarness() Harness {
 	harness.StubSnippets = func(string) map[string]string {
 		return map[string]string{ohMyPiSetupSnippet: ohMyPiSetupConfig}
 	}
-	harness.ReadyMarker = ohMyPiReadyMarker
+	harness.ReadyMarker = ohMyPiStatusLineMarker
 	harness.LaunchArgs = append(harness.LaunchArgs, "--smol", stubProviderID+"/"+stubTitleModel)
 	return harness
 }
@@ -78,6 +78,6 @@ func piModelsDocument(addr string) string {
 	})
 }
 
-// ohMyPiReadyMarker is the workspace segment of oh-my-pi's status line, which it
+// ohMyPiStatusLineMarker is the workspace segment of oh-my-pi's status line, which it
 // draws once its editor is up; the hint beside it rotates, so it is no marker.
-const ohMyPiReadyMarker = "📁 /workspace"
+const ohMyPiStatusLineMarker = "📁 /workspace"
