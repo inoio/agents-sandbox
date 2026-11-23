@@ -633,6 +633,34 @@ func TestKvmGuestSyncReplacesARotatedAuthorizedKey(t *testing.T) {
 	}
 }
 
+// TestKvmGuestSyncPreservesForeignGitShellKeys pins the guard against collateral
+// damage: a foreign git-shell key shares the options prefix this script matches
+// but carries a different comment, so the rewrite must leave it intact rather
+// than silently revoke another admin's (or tool's) git access.
+func TestKvmGuestSyncPreservesForeignGitShellKeys(t *testing.T) {
+	dir := t.TempDir()
+	env := kvmGuestSyncEnv(t, dir)
+	authorizedPath := filepath.Join(dir, "home", ".ssh", "authorized_keys")
+	if err := os.MkdirAll(filepath.Dir(authorizedPath), 0o755); err != nil {
+		t.Fatalf("create .ssh: %v", err)
+	}
+	if err := os.WriteFile(authorizedPath, []byte(
+		`command="git-shell -c \"$SSH_ORIGINAL_COMMAND\"",no-port-forwarding ssh-rsa AAAAFOREIGN other-admin-key`+"\n",
+	), 0o600); err != nil {
+		t.Fatalf("seed authorized_keys: %v", err)
+	}
+
+	result := RunScript(t, dir, env, repositoryScript(t, "kvm-guest.sh"), "sync")
+	assertStatus(t, result, 0)
+
+	authorized := readText(t, authorizedPath)
+	assertContains(t, "authorized_keys", authorized, "AAAAFOREIGN")
+	assertContains(t, "authorized_keys", authorized, "other-admin-key")
+	if n := strings.Count(authorized, "agents-sandbox-kvm-guest"); n != 1 {
+		t.Fatalf("expected exactly one agents-sandbox-kvm-guest line, got %d:\n%s", n, authorized)
+	}
+}
+
 // TestKvmGuestSyncKeepsOneAuthorizedKeyLineOnRerun pins idempotency.
 func TestKvmGuestSyncKeepsOneAuthorizedKeyLineOnRerun(t *testing.T) {
 	dir := t.TempDir()
@@ -739,7 +767,7 @@ func TestKvmGuestSyncRoutesOriginToTheHost(t *testing.T) {
 		t,
 		"ssh argv",
 		argv,
-		`git config url."ssh://kvmhost@192.168.122.1/host/agents-sandbox/.git".insteadOf https://example.test/agents-sandbox.git`,
+		`git config url."ssh://kvmhost@192.168.122.1/host/agents-sandbox/.git".insteadOf "https://example.test/agents-sandbox.git"`,
 	)
 	assertContains(t, "ssh argv", argv, `git config branch."feat/793-msb-journeys".remote origin`)
 	assertContains(t, "ssh argv", argv, "core.sshCommand")
@@ -1165,10 +1193,13 @@ func kvmGuestSSHKeygenHandler(args []string) (string, string, int) {
 }
 
 // kvmGuestGrepHandler serves the `grep` call ensure_host_authorized_key makes,
-// `-v <pattern> <file>`: print the lines that do not match. A leading `^` in the
-// pattern anchors at the line start, the only regex form the script uses.
-// GREP_READ_ERROR makes the rewrite fail with grep's read-error status (2), so a
-// case can pin that a failed rewrite does not clobber the host's authorized_keys.
+// `-v <pattern> <file>`: print the lines that do not match. It models only a
+// leading `^` anchor and a literal substring, not `.*`/`$`: the one case that
+// puts this fake on PATH sets GREP_READ_ERROR and short-circuits before matching,
+// so the partial matcher is never reached. GREP_READ_ERROR makes the rewrite fail
+// with grep's read-error status (2), so a case can pin that a failed rewrite does
+// not clobber the host's authorized_keys. The other authorized_keys cases run the
+// real grep (their PATH has no grep fake), so the real pattern is exercised there.
 func kvmGuestGrepHandler(args []string) (string, string, int) {
 	recordArgv("GREP_ARGV", args)
 	if len(args) != 3 || args[0] != "-v" {

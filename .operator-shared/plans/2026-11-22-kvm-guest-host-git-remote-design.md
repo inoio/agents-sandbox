@@ -114,8 +114,11 @@ talks to GitHub, and the host rewrite replaces them.
   command="git-shell -c \"$SSH_ORIGINAL_COMMAND\"",restrict ssh-ed25519 AAAA… agents-sandbox-kvm-guest
   ```
 
-  Idempotent by **full public-key line**, not by the marker alone: a marker-only check would skip the
-  write after a key rotation and break auth. Verified: git sends `git-upload-pack '<path>'` /
+  Idempotent by its options prefix plus the `agents-sandbox-kvm-guest` comment, not by the marker
+  alone: a marker-only check would skip the write after a key rotation and break auth, while the
+  comment keeps the match rotation-safe without matching another git-shell key that shares the prefix.
+  The prefix is required so a line a pre-fix run merged this options block onto (which does not begin
+  with it) is preserved. Verified: git sends `git-upload-pack '<path>'` /
   `git-receive-pack '<path>'`, which is exactly the form `git-shell` accepts.
 - **Known limitation:** `git-shell` confines the *command* but not the *path* — verified that a
   git-shell session reaches `git-upload-pack` for any path the host user can read. The guest therefore
@@ -155,9 +158,10 @@ branch fails loudly rather than being clobbered. Uncommitted host work is no lon
 
 The agent pushes with plain `git push` (the guest sets `push.autoSetupRemote`, so a new branch's first
 push creates it on the host and sets its upstream). It lands in the host's repository; a branch checked
-out in a host worktree — or the bare repository's own `HEAD` — is refused
-(`! [remote rejected] … (branch is currently checked out)` — verified), so the host's current branches
-stay protected and integration is a host-side merge/checkout, as today.
+out in a host worktree is refused (`! [remote rejected] … (branch is currently checked out)` —
+verified), so the host's current branches stay protected and integration is a host-side
+merge/checkout, as today. A bare repository's own `HEAD` is not protected this way: git allows a push
+to the branch it points at when no worktree has it checked out.
 
 ### `kvm-sync-back`
 

@@ -504,7 +504,7 @@ configure_guest_remote() {
   host_url="ssh://$KVM_HOST_USER@$gateway$repo_path"
   log "routing the guest origin to $host_url"
   ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
-    -- "bash -lc 'set -e && cd ~/agents-sandbox && prev=\$(git config kvmguest.hostUrl 2>/dev/null || true); if [ -n \"\$prev\" ]; then git config --remove-section \"url.\$prev\" || true; fi; git config url.\"$host_url\".insteadOf $REPO_URL && git config kvmguest.hostUrl \"$host_url\" && git config push.autoSetupRemote true && git config branch.\"$branch\".remote origin && git config branch.\"$branch\".merge refs/heads/\"$branch\" && git config core.sshCommand \"ssh -i \$HOME/.ssh/id_kvm_guest -o StrictHostKeyChecking=accept-new\"'"
+    -- "bash -lc 'set -e && cd ~/agents-sandbox && prev=\$(git config kvmguest.hostUrl 2>/dev/null || true); if [ -n \"\$prev\" ]; then git config --remove-section \"url.\$prev\" || true; fi; git config url.\"$host_url\".insteadOf \"$REPO_URL\" && git config kvmguest.hostUrl \"$host_url\" && git config push.autoSetupRemote true && git config branch.\"$branch\".remote origin && git config branch.\"$branch\".merge refs/heads/\"$branch\" && git config core.sshCommand \"ssh -i \$HOME/.ssh/id_kvm_guest -o StrictHostKeyChecking=accept-new\"'"
 }
 
 # ensure_guest_git_key gives the guest a key that authenticates it to the host for
@@ -530,15 +530,19 @@ ensure_guest_git_key() {
 # confined to git-shell (it can run git-upload-pack/receive-pack, not a shell).
 # It drops any previous guest line before appending, so a re-run replaces rather
 # than accumulates. The line is identified by the options prefix it must begin
-# with, not by the key's comment: a line a pre-fix run merged this options block
-# onto (the appended-without-newline bug) does not begin with the prefix, so it
-# is preserved — deleting it would drop the host key it was merged onto.
+# with AND the key's 'agents-sandbox-kvm-guest' comment: the comment makes the
+# match rotation-safe (a rotated key is still this script's line) without
+# matching another git-shell key that shares the prefix. It is not matched by
+# the comment alone, so a line a pre-fix run merged this options block onto (the
+# appended-without-newline bug) — which does not begin with the prefix — is
+# preserved; deleting it would drop the host key it was merged onto.
 ensure_host_authorized_key() {
-  local pubkey line auth="$HOME/.ssh/authorized_keys" prefix='^command="git-shell -c'
+  local pubkey line auth="$HOME/.ssh/authorized_keys" prefix='^command="git-shell -c.*agents-sandbox-kvm-guest$'
   command -v git-shell >/dev/null 2>&1 || die "git-shell not found on the host; install git"
   pubkey="$(cat "$KVM_GUEST_KEY.pub")"
   line="command=\"git-shell -c \\\"\$SSH_ORIGINAL_COMMAND\\\"\",restrict $pubkey"
   mkdir -p "$HOME/.ssh"
+  chmod 700 "$HOME/.ssh"
   touch "$auth"
   chmod 600 "$auth"
   # grep exits 1 when it selects no lines (a fresh or all-removed file), which is
