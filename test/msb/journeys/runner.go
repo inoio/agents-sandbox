@@ -3,6 +3,8 @@ package journeys
 import (
 	"strings"
 	"time"
+
+	"github.com/inoio/agents-sandbox/test/msb/driver"
 )
 
 // journeyTB is the part of a *testing.T the runner reports through.
@@ -54,4 +56,17 @@ func sessionTail(ctx *Context) string {
 		return ""
 	}
 	return "\nharness output:\n" + ctx.Session.OutputTail()
+}
+
+// journeySpec is the startup smoke's spec for a harness as a journey runs it:
+// the journey's network profile and the adapter's readiness marker override
+// the smoke's when set.
+func journeySpec(spec driver.Spec, journey Journey, adapter Harness) driver.Spec {
+	if journey.Network != "" {
+		spec.Network = journey.Network
+	}
+	if adapter.ReadyMarker != "" {
+		spec.ReadyMarker = adapter.ReadyMarker
+	}
+	return spec
 }

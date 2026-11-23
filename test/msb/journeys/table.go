@@ -42,12 +42,9 @@ func learnExemptions() map[string]string {
 }
 
 // coreSessionExemptions records why the core-session journey does not yet run
-// on a harness: pi and oh-my-pi follow in #852, the rest in #794.
+// on a harness: the rest follow in #794.
 func coreSessionExemptions() map[string]string {
 	reasons := map[string]string{}
-	for _, name := range []string{"oh-my-pi", "pi"} {
-		reasons[name] = "core session on this harness lands with #852"
-	}
 	for _, name := range learnRolloutHarnesses {
 		reasons[name] = "core session on this harness lands with the full rollout, #794"
 	}

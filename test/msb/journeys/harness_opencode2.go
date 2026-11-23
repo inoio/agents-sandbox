@@ -41,10 +41,10 @@ var opencode2Harness = Harness{
 	WriteFileCall: func(guestPath, content string) ToolCall {
 		return ToolCall{
 			Name:      "write",
-			Arguments: jsonObject(map[string]string{"path": guestPath, "content": content}),
+			Arguments: writeToolArguments("path", guestPath, content),
 		}
 	},
-	ResumeArgs: []string{"--continue"},
+	ResumeArgs: []string{continueFlag},
 }
 
 // jsonObject renders a string map as a JSON object.

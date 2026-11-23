@@ -61,8 +61,8 @@ func TestHarnessJourneys(t *testing.T) {
 }
 
 // journeyContext builds the context one (journey, harness) run starts from: the
-// harness's smoke spec with the journey's network override, its journey
-// adapter, and a fresh HOME.
+// journey's spec for the harness (journeySpec), its journey adapter, and a
+// fresh HOME.
 func journeyContext(t *testing.T, root, binary string, journey Journey, harness string) *Context {
 	t.Helper()
 	spec, ok := driver.Specs[harness]
@@ -73,10 +73,8 @@ func journeyContext(t *testing.T, root, binary string, journey Journey, harness 
 	if !ok {
 		t.Fatalf("journey %q names harness %q with no journey adapter", journey.Name, harness)
 	}
-	if journey.Network != "" {
-		spec.Network = journey.Network
-	}
 	return &Context{
-		TB: t, Root: root, Binary: binary, Spec: spec, Agent: harness, Harness: adapter, Home: t.TempDir(),
+		TB: t, Root: root, Binary: binary, Spec: journeySpec(spec, journey, adapter), Agent: harness,
+		Harness: adapter, Home: t.TempDir(),
 	}
 }
