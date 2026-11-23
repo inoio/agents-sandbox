@@ -174,12 +174,17 @@ func (w *instructionWalker) resolve(hostPath string) (string, os.FileInfo, resol
 		w.escapingLinks = append(w.escapingLinks, hostPath)
 		return "", nil, linkRejected
 	}
+	return statResolved(resolved)
+}
+
+// statResolved stats a path EvalSymlinks resolved. It fails only when the path
+// was removed in between, which counts as missing.
+func statResolved(resolved string) (string, os.FileInfo, resolution) {
 	info, err := os.Stat(resolved)
-	// gomutants:disable-next-line BRANCH_IF reason="EvalSymlinks just resolved the path, so Stat fails only when it is removed concurrently"
 	if err != nil {
-		// gomutants:disable-next-line RETURN_ZERO reason="unreachable without a concurrent removal, see the branch above"
 		return "", nil, pathMissing
 	}
+	// gomutants:disable-next-line RETURN_ZERO reason="pathResolved is the zero resolution"
 	return resolved, info, pathResolved
 }
 
