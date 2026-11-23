@@ -3,7 +3,6 @@ package journeys
 import (
 	"fmt"
 	"net/http"
-	"strconv"
 )
 
 // Anthropic Messages request paths: a turn, and a token count that is not one.
@@ -28,9 +27,9 @@ type messagesAnswer struct {
 // textMessage is a text reply.
 func textMessage(reply string) messagesAnswer {
 	return messagesAnswer{
-		block:      fmt.Sprintf(`{"type":"text","text":%q}`, reply),
+		block:      fmt.Sprintf(`{"type":"text","text":%s}`, jsonString(reply)),
 		startBlock: `{"type":"text","text":""}`,
-		delta:      fmt.Sprintf(`{"type":"text_delta","text":%q}`, reply),
+		delta:      fmt.Sprintf(`{"type":"text_delta","text":%s}`, jsonString(reply)),
 		stopReason: "end_turn",
 	}
 }
@@ -39,13 +38,17 @@ func textMessage(reply string) messagesAnswer {
 func toolUseMessage(call ToolCall) messagesAnswer {
 	return messagesAnswer{
 		block: fmt.Sprintf(
-			`{"type":"tool_use","id":%q,"name":%q,"input":%s}`,
+			`{"type":"tool_use","id":%q,"name":%s,"input":%s}`,
 			stubToolUseID,
-			call.Name,
+			jsonString(call.Name),
 			call.Arguments,
 		),
-		startBlock: fmt.Sprintf(`{"type":"tool_use","id":%q,"name":%q,"input":{}}`, stubToolUseID, call.Name),
-		delta:      fmt.Sprintf(`{"type":"input_json_delta","partial_json":%q}`, call.Arguments),
+		startBlock: fmt.Sprintf(
+			`{"type":"tool_use","id":%q,"name":%s,"input":{}}`,
+			stubToolUseID,
+			jsonString(call.Name),
+		),
+		delta:      fmt.Sprintf(`{"type":"input_json_delta","partial_json":%s}`, jsonString(call.Arguments)),
 		stopReason: "tool_use",
 	}
 }
@@ -91,7 +94,7 @@ func streamMessages(response http.ResponseWriter, answer messagesAnswer) {
 		{"content_block_stop", `{"type":"content_block_stop","index":0}`},
 		{"message_delta", fmt.Sprintf(
 			`{"type":"message_delta","delta":{"stop_reason":%s,"stop_sequence":null},"usage":{"output_tokens":1}}`,
-			strconv.Quote(answer.stopReason))},
+			jsonString(answer.stopReason))},
 		{"message_stop", `{"type":"message_stop"}`},
 	}
 	for _, event := range events {

@@ -1,6 +1,7 @@
 package journeys
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -26,6 +27,17 @@ const stubTitleReply = "stub-title"
 type ToolCall struct {
 	Name      string
 	Arguments string
+}
+
+// jsonString encodes s as a JSON string literal; Go's %q quoting is not JSON
+// for every input.
+func jsonString(s string) string {
+	data, err := json.Marshal(s)
+	if err != nil {
+		// A Go string always marshals, so this is unreachable.
+		return `""`
+	}
+	return string(data)
 }
 
 // stubToolCallID is the id of the stub's one tool call per turn.
@@ -71,13 +83,13 @@ type chatAnswer struct {
 
 // textAnswer is a text reply.
 func textAnswer(reply string) chatAnswer {
-	message := fmt.Sprintf(`{"role":"assistant","content":%q}`, reply)
+	message := fmt.Sprintf(`{"role":"assistant","content":%s}`, jsonString(reply))
 	return chatAnswer{message: message, delta: message, finishReason: "stop"}
 }
 
 // toolCallAnswer is a tool call.
 func toolCallAnswer(call ToolCall) chatAnswer {
-	function := fmt.Sprintf(`{"name":%q,"arguments":%q}`, call.Name, call.Arguments)
+	function := fmt.Sprintf(`{"name":%s,"arguments":%s}`, jsonString(call.Name), jsonString(call.Arguments))
 	message := fmt.Sprintf(
 		`{"role":"assistant","content":null,"tool_calls":[{"id":%q,"type":"function","function":%s}]}`,
 		stubToolCallID, function)
@@ -97,7 +109,7 @@ func streamChatCompletion(response http.ResponseWriter, delta, finishReason stri
 				`"choices":[{"index":0,"delta":%s,"finish_reason":%s}]}`,
 			stubProviderModel, delta, finishReason)
 	}
-	events := []string{chunk(delta, "null"), chunk(`{}`, strconv.Quote(finishReason)), "[DONE]"}
+	events := []string{chunk(delta, "null"), chunk(`{}`, jsonString(finishReason)), "[DONE]"}
 	for _, event := range events {
 		_, _ = fmt.Fprintf(response, "data: %s\n\n", event)
 	}

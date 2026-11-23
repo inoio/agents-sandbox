@@ -150,9 +150,3 @@ func TestStubCountsTokensWithoutTakingATurn(t *testing.T) {
 		t.Errorf("the first real turn = %+v, want the still-armed tool call", turn)
 	}
 }
-
-func TestStubServedTurnCountsAnthropicMessages(t *testing.T) {
-	if !servedTurn([]StubRequest{{Method: http.MethodPost, Path: "/v1/messages", Model: "stub"}}) {
-		t.Error("servedTurn = false for a Messages turn")
-	}
-}

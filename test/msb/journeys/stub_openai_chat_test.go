@@ -278,3 +278,9 @@ func TestStubNumbersItsRepliesAndRecordsThem(t *testing.T) {
 		t.Errorf("Replies() = %v, want %v (title replies excluded)", got, want)
 	}
 }
+
+func TestStubServedTurnCountsAnthropicMessages(t *testing.T) {
+	if !servedTurn([]StubRequest{{Method: http.MethodPost, Path: "/v1/messages", Model: "stub"}}) {
+		t.Error("servedTurn = false for a Messages turn")
+	}
+}

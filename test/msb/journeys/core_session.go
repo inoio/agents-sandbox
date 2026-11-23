@@ -19,10 +19,12 @@ const hostGatewayNetwork = "host"
 // (C), second client (E), and persistence (D) over one project and two boots:
 // the harness starts on a fresh home whose launcher is already configured (the
 // first-run menu is the learn-mode journeys' concern), a turn writes a file the
-// host sees, a
-// second client works next to the first, and after both quit and the VM is
-// stopped, the harness resumes the session from what the home volume kept. It runs on a project of its own, because it restarts
-// and attaches twice, and under the host profile the stub route needs.
+// host sees, a second client works next to the first, and after both quit and
+// the VM is stopped, the harness resumes the session from what the home volume
+// kept. It runs on a project of its own, because it restarts and attaches
+// twice, and under the host profile the stub route needs. Client 1 both sends
+// the last prompt and quits last, because harnesses differ in which session
+// they continue: opencode2 the last active one, claude-code the last saved one.
 var coreSessionJourney = Journey{
 	Name:      "core-session",
 	Harnesses: []string{opencode2AgentName, claudeCodeAgentName},

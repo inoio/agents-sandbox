@@ -11,7 +11,8 @@ func TestClaudeCodeStubEnvPointsTheMessagesEndpointAtTheStub(t *testing.T) {
 	const addr = "http://stub.test:1234"
 	env := claudeCodeHarness.StubEnv(addr)
 	if env["ANTHROPIC_BASE_URL"] != addr || env["ANTHROPIC_MODEL"] != stubProviderModel ||
-		env["ANTHROPIC_SMALL_FAST_MODEL"] != stubTitleModel || env["ANTHROPIC_AUTH_TOKEN"] == "" {
+		env["ANTHROPIC_SMALL_FAST_MODEL"] != stubTitleModel || env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] != stubTitleModel ||
+		env["ANTHROPIC_AUTH_TOKEN"] == "" {
 		t.Errorf("env = %v, want the stub's base URL, a token, and its main and small models", env)
 	}
 	if !slices.Equal(claudeCodeHarness.LaunchArgs, []string{"--permission-mode", "acceptEdits"}) {

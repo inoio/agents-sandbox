@@ -222,7 +222,9 @@ Learn mode on claude-code, codex, pi, and oh-my-pi is #852; the rest is #794.
 
 Adding claude-code, the harness that differs most from opencode2 (Anthropic Messages instead of OpenAI chat
 completions, environment instead of a provider file, `Write`/`file_path`, Ctrl-C), needed a stub protocol, an
-adapter, and no step or runner change; no shared file names a harness. What changed, and why:
+adapter, one shared launch change (a `run` passes the adapter's `LaunchArgs`), one new step
+(`StepConfigureLauncherEnv`), and a journey reorder; no shared file names or branches on a harness. What changed,
+and why:
 
 - **Protocol by path.** The stub routes by request path (`/chat/completions`, `/messages`,
   `/messages/count_tokens`), so a protocol is a handler, not a harness setting. Numbered replies, the
@@ -231,7 +233,9 @@ adapter, and no step or runner change; no shared file names a harness. What chan
   gained `StubEnv` (written to the launcher's env file) and `LaunchArgs` (`--permission-mode acceptEdits`).
 - **Core-session skips the first-run menu.** The launcher env file counts as configuration, so every
   harness starts core-session configured (`StepConfigureLauncherEnv`); the menu stays the learn-mode journeys'
-  concern.
+  concern. The same fact blocks reusing `StubEnv` there: a learn-mode journey on claude-code (#852) needs the menu
+  and the stub, so it needs another route for the environment (the project-scope env or a process-env
+  passthrough). The env file carries only a dummy token the stub never checks.
 - **Resume picks different sessions.** opencode2 continues the last active session, claude-code the last saved
   one; the journey orders its quits so both are the same session, rather than adding an adapter field.
 - Prompt submission needed no adapter field: both TUIs take the echoed text and `\r`.
@@ -241,9 +245,10 @@ adapter, and no step or runner change; no shared file names a harness. What chan
 `core-session` is the regression spine every harness is meant to pass: it chains the #783 promotion bar's
 first run (A), real turn (C), second client (E), and persistence (D) over one project and two boots.
 
-- **A:** the harness starts on a fresh home through the first-run menu ("Configure it myself", host
-  provisioning declined); the launcher prints the experimental notice exactly when the profile is
-  experimental; the project gets no `.agents-sandbox` scaffolding.
+- **A:** the harness starts on a fresh home whose launcher env file is seeded (`StepConfigureLauncherEnv`), so
+  the launcher counts it as configured and offers no first-run menu; the launcher prints the experimental notice
+  exactly when the profile is experimental; the project gets no `.agents-sandbox` scaffolding. Core-session does
+  **not** cover the first-run menu on any harness; the learn-mode journeys do (opencode2 only so far).
 - **C:** the stub answers the first turn with the harness's own write-file tool call (the adapter's
   `WriteFileCall`, e.g. opencode2's `write` with `path`/`content`), then with its text reply; the file
   appears in the project on the host, owned by the host user, and the reply shows. The stub numbers its

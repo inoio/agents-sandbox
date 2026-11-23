@@ -115,9 +115,9 @@ Tasks 5–7 landed together (durable part: the spec's "The core-session journey"
 ## Phase 3 — Checkpoint 1: claude-code — done
 
 `core-session` passes on claude-code (~8 s) and opencode2. The review outcome is in the spec's "Checkpoint 1":
-the abstraction held (no step or runner change, no harness literal in shared code); the adapter gained `StubEnv`
-and `LaunchArgs`, core-session starts configured instead of through the first-run menu, and the quit order makes
-both harnesses' resume pick the same session.
+the abstraction held (no harness literal or branch in shared code; one shared launch change, one new step, one
+journey reorder); the adapter gained `StubEnv` and `LaunchArgs`, core-session starts configured instead of through
+the first-run menu, and the quit order makes both harnesses' resume pick the same session.
 
 ---
 

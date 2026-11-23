@@ -9,7 +9,9 @@ const claudeCodeAgentName = "claude-code"
 // Messages endpoint, a bearer token (an auth token skips the custom-API-key
 // approval an ANTHROPIC_API_KEY asks for), the stub's main and small models, and
 // no nonessential traffic. Its settings.json is a reserved home target, so the
-// environment is the only route. acceptEdits lets the Write tool run without a
+// environment is the only route. The token is a dummy the stub never checks, so a
+// plain env var is fine for it; a real credential would go through the secret
+// mechanism. acceptEdits lets the Write tool run without a
 // permission prompt. ~/.claude.json skips onboarding and accepts the workspace
 // trust dialog, as the startup smoke does.
 var claudeCodeHarness = Harness{

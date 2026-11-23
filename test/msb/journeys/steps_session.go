@@ -152,7 +152,7 @@ func StepAttachClient() Step {
 		if len(c.Clients) == 0 {
 			return errors.New("no first client to attach next to")
 		}
-		launchClient(c, []string{"run"}, nil)
+		launchClient(c, []string{runCommand}, nil)
 		return nil
 	}}
 }
@@ -246,7 +246,7 @@ func StepRelaunchWithResume() Step {
 		if len(c.Harness.ResumeArgs) == 0 {
 			return fmt.Errorf("the %s adapter declares no ResumeArgs", c.Agent)
 		}
-		launchClient(c, []string{"run"}, c.Harness.ResumeArgs)
+		launchClient(c, []string{runCommand}, c.Harness.ResumeArgs)
 		return nil
 	}}
 }
