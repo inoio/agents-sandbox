@@ -17,6 +17,10 @@ import (
 // not required, only that the agent issues a request to the stub host.
 const stubSpikePrompt = "hello"
 
+// stubTurnPrompt is the message the turn subtest sends: distinctive, so its echo
+// cannot be matched by a repaint.
+const stubTurnPrompt = "journeys stub turn"
+
 // proxySpikeEnv opts into the proxy-observation spike.
 const proxySpikeEnv = "AGENTS_SANDBOX_JOURNEYS_PROXY_SPIKE"
 
@@ -46,7 +50,7 @@ func runStubProviderTurnCompletes(t *testing.T, root, binary string) {
 		StepChooseFirstRun(firstrun.ChoiceManual),
 		StepDeclineHostProvisioning(),
 		StepWaitReady(),
-		StepSendPrompt(stubSpikePrompt),
+		StepSendPrompt(stubTurnPrompt),
 		StepAssertStubServed(),
 		StepAssertReplyShown(),
 		StepQuitToExit(),
@@ -56,6 +60,7 @@ func runStubProviderTurnCompletes(t *testing.T, root, binary string) {
 			t.Fatalf("step %q: %v\n%s", step.Name, err, spikeOutput(ctx))
 		}
 	}
+	t.Logf("the stub served %v", ctx.Stub.Requests())
 }
 
 // runStubProviderTurnReachesTheProxy is the Task 13 host-gated spike, run as a

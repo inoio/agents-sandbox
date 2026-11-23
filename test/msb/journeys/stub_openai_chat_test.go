@@ -132,21 +132,36 @@ func TestStubRecordsTheRequestsItServed(t *testing.T) {
 
 	_, _ = io.Copy(io.Discard, postChat(t, provider, `{"model":"stub","messages":[]}`).Body)
 
-	want := []StubRequest{{Method: http.MethodPost, Path: "/v1/chat/completions"}}
+	want := []StubRequest{{Method: http.MethodPost, Path: "/v1/chat/completions", Model: "stub"}}
 	if got := provider.Requests(); !slices.Equal(got, want) {
 		t.Errorf("Requests() = %v, want %v", got, want)
 	}
 }
 
-func TestStubServedTurnCountsOnlyCompletionRequests(t *testing.T) {
-	requests := []StubRequest{
-		{Method: http.MethodGet, Path: "/v1/models"},
-		{Method: http.MethodPost, Path: "/v1/chat/completions"},
+func TestStubServedTurnCountsOnlyMainModelCompletions(t *testing.T) {
+	models := StubRequest{Method: http.MethodGet, Path: "/v1/models"}
+	title := StubRequest{Method: http.MethodPost, Path: "/v1/chat/completions", Model: stubTitleModel}
+	turn := StubRequest{Method: http.MethodPost, Path: "/v1/chat/completions", Model: stubProviderModel}
+	if !servedTurn([]StubRequest{models, title, turn}) {
+		t.Error("servedTurn = false with a main-model chat completion")
 	}
-	if !servedTurn(requests) {
-		t.Error("servedTurn = false for a chat completion request")
+	if servedTurn([]StubRequest{models, title}) {
+		t.Error("servedTurn = true with only a model list and a title request")
 	}
-	if servedTurn(requests[:1]) {
-		t.Error("servedTurn = true for a model list request only")
+}
+
+// opencode asks its small model for the session title; that answer must not
+// read as the turn's reply.
+func TestStubAnswersTheTitleModelWithADifferentReply(t *testing.T) {
+	provider := startTestStub(t)
+
+	response := postChat(t, provider, `{"model":"`+stubTitleModel+`","messages":[]}`)
+
+	var completion chatCompletion
+	if err := json.NewDecoder(response.Body).Decode(&completion); err != nil {
+		t.Fatalf("decode completion: %v", err)
+	}
+	if got := completion.Choices[0].Message.Content; got == StubReply || !strings.Contains(got, "title") {
+		t.Errorf("title reply = %q, want a reply other than %q", got, StubReply)
 	}
 }

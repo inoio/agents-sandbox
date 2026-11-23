@@ -140,7 +140,9 @@ journeys depend on the spike.
 The stub is a host-side loopback HTTP listener (`test/msb/journeys/stub_provider.go`), started per journey and
 closed by `tb.Cleanup`. It records every request it served (`StubProvider.Requests`) and answers a chat completion
 with a fixed reply (`StubReply`), streamed when the request asks for a stream, so a journey can assert that a turn
-reached the stub and completed.
+reached the stub and completed. The provider config declares a separate `small_model` (`stub/stub-title`), which
+opencode uses for side requests such as the session title, and the stub answers it with a different text: a title
+on screen cannot pass for the turn's reply, and a title request does not count as the turn.
 
 - **Protocol: plain HTTP.** The stub needs no CA, and the run needs no `network.observe.skip-upstream-verify`.
 - **Provider config.** `StubProvider.ProviderConfig()` returns the VM-home-relative config manifest
@@ -166,11 +168,13 @@ reached the stub and completed.
 
 #### Typing into a harness
 
-A TUI can paint before it takes input: opencode answers its terminal-capability queries first and swallows an
-early write whole. `StepSendPrompt` therefore types the prompt, waits for the harness to echo it (only output
-printed after the write counts), and retypes on a missing echo before it presses Enter. Because the lost write
-leaves nothing in the editor, a retype cannot duplicate the text. Before this, the learn-mode journeys' prompts
-were swallowed, which their read-back-driven assertions did not notice.
+A TUI can paint before it takes input: opencode answers its terminal-capability queries first and, on the host,
+swallowed an early write whole. `StepSendPrompt` therefore types the prompt, waits for the harness to echo it (only
+output printed after the write counts), and retypes on a missing echo before it presses Enter. A partly swallowed
+write or a late echo could leave stray characters before the retyped prompt; a journey only needs the turn to be
+sent, so it tolerates that. A prompt must be text a repaint does not print on its own, since the echo is a
+substring match. Before this, the learn-mode journeys' prompts were swallowed, which their read-back-driven
+assertions did not notice; with the prompt sent they still pass on the host.
 
 ### Isolation between journeys
 

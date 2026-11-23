@@ -29,10 +29,14 @@ type echoTerminal interface {
 
 // typeUntilEchoed types text and waits for the harness to echo it, retyping
 // when the echo does not come. A TUI that paints before it takes input (opencode
-// answers its terminal-capability queries first) swallows an early write whole,
-// so a lost attempt leaves nothing in the editor and retyping cannot duplicate
-// the text. Only output printed after the write counts as the echo, matched with
-// driver.MarkerText so escape sequences and cursor-move spacing do not hide it.
+// answers its terminal-capability queries first) swallows an early write; on the
+// host it swallowed the whole write, so the retype is the only text in the
+// editor. A partly swallowed write or an echo later than echoWait would leave
+// stray characters before the retyped prompt; a journey only needs the turn to
+// be sent, so it tolerates that. Only output printed after the write counts as
+// the echo, matched with driver.MarkerText so escape sequences and cursor-move
+// spacing do not hide it; the prompt must therefore be text a repaint does not
+// print on its own.
 func typeUntilEchoed(terminal echoTerminal, text string, attempts int, echoWait time.Duration) error {
 	needle := driver.MarkerText(text)
 	for attempt := 1; attempt <= attempts; attempt++ {
@@ -61,6 +65,7 @@ func waitForEcho(terminal echoTerminal, offset int, needle string, echoWait time
 		if !time.Now().Before(deadline) || terminal.HasExited() {
 			return false
 		}
+		//testenv:allow polling a live harness on a wall-clock interval
 		time.Sleep(echoPollInterval)
 	}
 }

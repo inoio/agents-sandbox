@@ -166,13 +166,24 @@ func StepChooseFirstRun(choice firstrun.Choice) Step {
 	}}
 }
 
+// hostProvisioningQuestion is the start of the question the manual first-run
+// choice asks before it provisions host config.
+const hostProvisioningQuestion = "Provisioning copies your host agent config"
+
 // StepDeclineHostProvisioning answers the manual first-run choice's
 // host-config provisioning question with no, so the run provisions only what the
 // journey seeded.
 func StepDeclineHostProvisioning() Step {
 	return Step{Name: "decline host-config provisioning", Run: func(c *Context) error {
-		if _, err := session(c); err != nil {
+		ses, err := session(c)
+		if err != nil {
 			return err
+		}
+		if err := ses.WaitForMarker(
+			hostProvisioningQuestion,
+			driver.ScaleTimeout(driver.TuiReadyTimeout, driver.SmokeTimeoutFactor()),
+		); err != nil {
+			return fmt.Errorf("the host-config provisioning question was not asked: %w", err)
 		}
 		return writeLine(c, "n")
 	}}
@@ -226,6 +237,9 @@ func StepSendPrompt(prompt string) Step {
 	}}
 }
 
+// stubPollInterval is how often StepAssertStubServed checks the stub's log.
+const stubPollInterval = 100 * time.Millisecond
+
 // stubTurnTimeout bounds how long a turn may take to reach the stub provider
 // after the prompt was sent; it is a ceiling, not the expected wait.
 const stubTurnTimeout = 60 * time.Second
@@ -250,7 +264,8 @@ func stepAssertStubServed(budget time.Duration) Step {
 					c.Stub.Requests(),
 				)
 			}
-			time.Sleep(echoPollInterval)
+			//testenv:allow polling a live harness on a wall-clock interval
+			time.Sleep(stubPollInterval)
 		}
 		return nil
 	}}

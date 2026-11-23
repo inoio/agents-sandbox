@@ -42,6 +42,8 @@ type StubProvider interface {
 type StubRequest struct {
 	Method string
 	Path   string
+	// Model is the request body's model, empty for a request without one.
+	Model string
 }
 
 // stubOriginEnv overrides the advertised destination origin (scheme://host) the
@@ -72,6 +74,10 @@ const stubAgentConfigTarget = ".config/opencode/opencode.json"
 const (
 	stubProviderID    = "stub"
 	stubProviderModel = "stub"
+	// stubTitleModel is the provider's small model, which opencode uses for
+	// side requests such as the session title. Keeping it apart from
+	// stubProviderModel lets a journey tell its turn from those requests.
+	stubTitleModel = "stub-title"
 	// stubProviderNPM is the SDK package opencode loads for an
 	// OpenAI-compatible provider, so the provider is real enough for the agent
 	// to issue a request at the baseURL.
@@ -173,10 +179,11 @@ func stubProviderDocument(addr string) string {
 			stubProviderID: map[string]any{
 				"npm":     stubProviderNPM,
 				"options": map[string]any{"baseURL": addr + "/v1", "apiKey": stubProviderAPIKey},
-				"models":  map[string]any{stubProviderModel: map[string]any{}},
+				"models":  map[string]any{stubProviderModel: map[string]any{}, stubTitleModel: map[string]any{}},
 			},
 		},
-		"model": stubProviderID + "/" + stubProviderModel,
+		"model":       stubProviderID + "/" + stubProviderModel,
+		"small_model": stubProviderID + "/" + stubTitleModel,
 	}
 	data, err := json.Marshal(document)
 	if err != nil {
@@ -242,14 +249,17 @@ func bracketedHost(hostname string) string {
 
 // ServeHTTP records the request and answers it: the model list for a
 // /models request, a chat completion (see serveChatCompletion) for anything else.
+// A body that does not decode is answered as a non-streamed main-model request.
 func (p *stubProvider) ServeHTTP(response http.ResponseWriter, request *http.Request) {
-	p.record(StubRequest{Method: request.Method, Path: request.URL.Path})
+	var completion chatRequest
+	_ = json.NewDecoder(request.Body).Decode(&completion)
+	p.record(StubRequest{Method: request.Method, Path: request.URL.Path, Model: completion.Model})
 	if strings.HasSuffix(request.URL.Path, "/models") {
 		response.Header().Set("Content-Type", "application/json")
 		_, _ = response.Write([]byte(`{"object":"list","data":[{"id":"` + stubProviderModel + `","object":"model"}]}`))
 		return
 	}
-	serveChatCompletion(response, request)
+	serveChatCompletion(response, completion)
 }
 
 func (p *stubProvider) record(request StubRequest) {
