@@ -45,6 +45,9 @@ type Driving struct {
 	// submitted before its startup finished; it keeps the prompt in its editor,
 	// so StepSendPrompt submits it again.
 	StartupBusyMarker string
+	// Diagnostics is a shell command that prints the harness's own view of its
+	// sessions, which a failed turn wait prints (logHarnessDiagnostics).
+	Diagnostics string
 	// ResumeArgs are the agent arguments that continue the last session.
 	ResumeArgs []string
 	// WriteFileCall is the harness's tool call that writes content to the
