@@ -57,17 +57,16 @@ func TestCommandArgvAppendsNoJourneyFlags(t *testing.T) {
 	}
 }
 
-// TestStepLaunchCommandRefusesANonDefaultAgent pins the coupling the step
-// records: the flagless command resolves agent.DefaultAgentName, so a journey
-// driving any other agent must fail rather than replay a record keyed under a
-// different agent.
-func TestStepLaunchCommandRefusesANonDefaultAgent(t *testing.T) {
-	ctx := &Context{TB: t, Agent: "pi", Root: t.TempDir(), Home: t.TempDir()}
-	if err := StepLaunchCommand("config", "learn").Run(ctx); err == nil {
-		t.Error("a non-default agent: got nil error, want the coupling failure")
-	}
-	if ctx.Session != nil {
-		t.Error("the step started a session despite refusing the agent")
+// TestCommandEnvNamesTheJourneysAgent pins how a flagless command such as
+// `config learn` targets the journey's agent: through the launcher's agent
+// variable, last, so it wins over any inherited value.
+func TestCommandEnvNamesTheJourneysAgent(t *testing.T) {
+	ctx := &Context{Agent: "pi", Root: t.TempDir(), Home: t.TempDir()}
+
+	env := commandEnv(ctx, []string{agentEnv + "=opencode2"})
+
+	if got := env[len(env)-1]; got != agentEnv+"=pi" {
+		t.Errorf("last env entry = %q, want %s=pi", got, agentEnv)
 	}
 }
 

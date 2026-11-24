@@ -233,9 +233,11 @@ source of truth and its steps are type-checked. It reads as Gherkin anyway:
   credential env var the read-back derives, the managed-config keys; nil without learn coverage). A learn journey
   (`LearnMode`) says only which evidence its path produces (`ScopeWant`: config keys, placeholder); the values come
   from `Learn`, and the completeness test requires `Learn` for every harness a learn journey lists. A step or
-  journey carries no harness's path or format literal. Two assumptions remain in learn steps, to be lifted when a
-  second harness gets learn coverage (#866): a copied login store keeps its base name, and the managed config sits
-  in the agent's first config dir. The adapter grows a field only when a journey needs it.
+  journey carries no harness's path or format literal: the scope checks read every config dir of the agent,
+  recursively (skipping `node_modules`), and the login-store check fails on the store's file name or its
+  content under any name (so a store fixture holds no static value the host seed would rewrite). A flagless command such as
+  `config learn` gets the journey's agent through `AGENTS_SANDBOX_AGENT`. The adapter grows a field only when a
+  journey needs it.
 
 The learn-mode journeys cover **opencode2 only** so far, the S1-verified profile with its SQLite credential
 probe; core-session covers opencode2, claude-code, codex, pi, and oh-my-pi. Learn mode on claude-code, codex,

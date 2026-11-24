@@ -1,7 +1,5 @@
 package journeys
 
-import "github.com/inoio/agents-sandbox/internal/agent"
-
 // configLearnScope is what the `config learn` replay asserts it wrote to the
 // per-slug user scope: the stub provider's inline apiKey is a static credential,
 // saved to env.secret.yaml scoped to the stub host, and the managed agent config
@@ -29,13 +27,9 @@ var configLearnScope = ScopeWant{ManagedConfig: false, Placeholder: true}
 // persists in the volume for the replay's read-back), writes nothing, and clears
 // its own session record — leaving the home volume in state for
 // StepSeedLearnSession to copy.
-//
-// The command resolves its agent with no --agent flag, so it targets
-// agent.DefaultAgentName; StepLaunchCommand guards that the journey drives the
-// same agent.
 var configLearnJourney = Journey{
 	Name:      "config-learn-replay",
-	Harnesses: []string{agent.DefaultAgentName},
+	Harnesses: []string{opencode2AgentName},
 	LearnMode: true,
 	Steps: []Step{
 		Given(StepFreshHome()),

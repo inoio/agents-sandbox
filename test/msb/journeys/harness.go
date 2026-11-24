@@ -53,7 +53,9 @@ type LearnFacts struct {
 	// stub at addr, for a journey that seeds an existing host setup.
 	HostConfig func(addr string) map[string]string
 	// HostLoginStore is a host login store file (relative path to content) the
-	// host seed must drop rather than copy.
+	// host seed must drop rather than copy. Its content must hold no static
+	// value: the seed would rewrite one, and the exclusion check matches the
+	// content.
 	HostLoginStore map[string]string
 	// CredentialEnvVar is the env-var name the read-back derives for the stub
 	// credential the harness's config carries.

@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/test/msb/driver"
 )
 
@@ -260,27 +259,25 @@ func StepQuitToExit() Step {
 // StepLaunch but appending no journey flags. It drives a subcommand that takes
 // none of the run flags StepLaunch adds (--agent, --network, --memory,
 // --no-rebuild, the CPU cap): `config learn` declares no flags, so a StepLaunch
-// call would fail on an unknown flag.
-//
-// The command resolves its agent from the resolver the root installs (falling
-// back to agent.DefaultAgentName), not from a flag, so the journey's agent must
-// be that default or the record it replays is keyed under a different agent; the
-// step fails rather than drive a command the journey cannot assert.
+// call would fail on an unknown flag. Such a command resolves its agent from the
+// launcher config, so the step names the journey's agent there through
+// AGENTS_SANDBOX_AGENT (commandEnv).
 func StepLaunchCommand(args ...string) Step {
 	return Step{Name: "the user runs `agents-sandbox " + strings.Join(args, " ") + "`", Run: func(c *Context) error {
-		if c.Agent != agent.DefaultAgentName {
-			return fmt.Errorf(
-				"StepLaunchCommand drives a flagless command resolving agent %q, but the journey drives %q",
-				agent.DefaultAgentName,
-				c.Agent,
-			)
-		}
-		argv := commandArgv(c.Binary, args)
 		//testenv:allow the journey launcher runs under the host environment it isolates from
-		env := driver.IsolatedEnv(c.Root, c.Home, os.Environ())
-		c.Session = driver.MustStartUnderPTY(c.TB, c.ProjectDir(), env, argv...)
+		env := commandEnv(c, os.Environ())
+		c.Session = driver.MustStartUnderPTY(c.TB, c.ProjectDir(), env, commandArgv(c.Binary, args)...)
 		return nil
 	}}
+}
+
+// agentEnv is the launcher's environment variable for the `agent` config key.
+const agentEnv = "AGENTS_SANDBOX_AGENT"
+
+// commandEnv is the isolated environment for a flagless command, naming the
+// journey's agent through the launcher's agent variable.
+func commandEnv(c *Context, inherited []string) []string {
+	return append(driver.IsolatedEnv(c.Root, c.Home, inherited), agentEnv+"="+c.Agent)
 }
 
 // commandArgv is the argv StepLaunchCommand builds: the built binary followed by
