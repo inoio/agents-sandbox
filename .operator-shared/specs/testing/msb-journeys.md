@@ -242,8 +242,9 @@ source of truth and its steps are type-checked. It reads as Gherkin anyway:
   `config learn` gets the journey's agent through `AGENTS_SANDBOX_AGENT`. The adapter grows a field only when a
   journey needs it.
 
-The learn-mode journeys cover **opencode2 and oh-my-pi**; core-session covers opencode2, claude-code, codex, pi,
-oh-my-pi, and hermes; the login journey covers codex. The rest of the #852 slice is blocked by the product, not the suite: on claude-code, codex, and pi
+The learn-mode journeys cover **opencode2 and oh-my-pi**; core-session covers opencode2, claude-code, codex,
+pi, oh-my-pi, and hermes; the login journey covers codex. The rest of the #852 slice is blocked by the
+product, not the suite: on claude-code, codex, and pi
 the read-back finds no host-scoped credential to learn (the exemption reasons in `table.go` name each blocker:
 #821, #873, #820/#849). The rollout harnesses are #794.
 
@@ -327,7 +328,8 @@ adapter (`piFamilyHarness`) with its YAML `models.yml` (JSON is YAML) plus its o
 
 ### The heaviest harness: hermes (#878)
 
-hermes (a Python agent with the largest runner image) joined core-session with an adapter alone: a
+hermes (a Python agent with the largest runner image) joined core-session with an adapter and no new
+mechanism in shared code: a
 `config*.yaml` snippet with a `custom` OpenAI-compatible provider at the stub (its `config.yaml` is the
 merged-config target), `write_file` with `path`/`content`, and `--continue`. What it showed:
 
