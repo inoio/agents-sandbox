@@ -464,6 +464,8 @@ func enqueuePrFakeGh(args []string) (handled bool, stdout, stderr string, status
 		stdout, stderr, status = enqueuePrIssueView(args)
 	case args[0] == "api" && strings.Contains(strings.Join(args, " "), "/merge-async"):
 		stdout, stderr, status = enqueuePrMergeAsync(args)
+	case args[0] == "api" && args[1] == "graphql":
+		stdout, stderr, status = enqueuePrQueueState(args)
 	case args[0] == "repo" && args[1] == "view":
 		stdout, stderr, status = serveDocument(args, `{"defaultBranchRef":{"name":"main"}}`)
 	default:
@@ -478,6 +480,9 @@ func enqueuePrFakeGh(args []string) (handled bool, stdout, stderr string, status
 // GH_PR_VIEW_INDEX counter file), so a case can change the PR's state between
 // probes. The --jq/-q query is applied through the real jq.
 func enqueuePrView(args []string) (string, string, int) {
+	if requestsJSONField(args, "isInMergeQueue") {
+		return "", "Unknown JSON field: \"isInMergeQueue\"\n", 1
+	}
 	if dir := envOption("GH_PR_VIEW_DIR"); dir != "" {
 		return enqueuePrStackView(args, dir)
 	}
@@ -501,6 +506,23 @@ func enqueuePrView(args []string) (string, string, int) {
 		}
 	}
 	return serveDocument(args, doc)
+}
+
+// enqueuePrQueueState serves the merge-queue poll (a GraphQL pullRequest query
+// for state and isInMergeQueue) from the stack payload of the PR in its n
+// variable, wrapped the way the API nests it.
+func enqueuePrQueueState(args []string) (string, string, int) {
+	number := ""
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "-F" && strings.HasPrefix(args[i+1], "n=") {
+			number = strings.TrimPrefix(args[i+1], "n=")
+		}
+	}
+	view, stderr, status := enqueuePrStackView([]string{"pr", "view", number}, envOption("GH_PR_VIEW_DIR"))
+	if status != 0 {
+		return "", stderr, status
+	}
+	return serveDocument(args, `{"data":{"repository":{"pullRequest":`+strings.TrimSpace(view)+`}}}`)
 }
 
 // enqueuePrStackView serves `gh pr view <n>` for a stack case from

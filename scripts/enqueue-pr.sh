@@ -226,7 +226,12 @@ wait_merged() {
   local state queued fields outside=0
   printf 'enqueue-pr: PR #%s: waiting for the merge queue\n' "$pr"
   while :; do
-    if ! fields="$(gh pr view "$pr" --json state,isInMergeQueue -q '[.state, .isInMergeQueue] | @tsv')"; then
+    # gh pr view has no isInMergeQueue field, so ask GraphQL; gh fills in the
+    # {owner} and {repo} placeholders from the current repository.
+    # shellcheck disable=SC2016 # the GraphQL variables are literal, not shell expansions
+    if ! fields="$(gh api graphql -F owner='{owner}' -F name='{repo}' -F n="$pr" \
+      -f query='query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){state isInMergeQueue}}}' \
+      --jq '.data.repository.pullRequest | [.state, .isInMergeQueue] | @tsv')"; then
       printf 'enqueue-pr: PR #%s: could not read its state while it waits in the queue\n' "$pr" >&2
       return 1
     fi
