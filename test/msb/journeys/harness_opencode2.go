@@ -92,11 +92,12 @@ func opencodeProviderDocument(addr string) string {
 	return string(data)
 }
 
-// opencode2Diagnostics prints the serve daemon's sessions and the newest
-// session's messages from its API (basic auth with the baked password): what
-// it recorded of the prompt, and whether a model turn started, streamed, or
-// failed. Its log records no session events at its default level.
-const opencode2Diagnostics = `A="-s -u opencode:$OPENCODE_SERVER_PASSWORD"; U=http://127.0.0.1:4096/api; ` +
+// opencode2Diagnostics prints the serve daemon's sessions and the messages of
+// each (up to three) from its API (basic auth with the baked password, each
+// call bounded): what it recorded of the prompt, and whether a model turn
+// started, streamed, or failed. Its log records no session events at its
+// default level.
+const opencode2Diagnostics = `A="-s -m 10 -u opencode:$OPENCODE_SERVER_PASSWORD"; U=http://127.0.0.1:4096/api; ` +
 	`curl $A $U/session | head -c 3000; echo; ` +
-	`S=$(curl $A $U/session | grep -o '"id":"ses_[A-Za-z0-9]*"' | head -1 | cut -d'"' -f4); ` +
-	`curl $A "$U/session/$S/message" | head -c 8000; echo`
+	`for S in $(curl $A $U/session | grep -o '"id":"ses_[A-Za-z0-9]*"' | cut -d'"' -f4 | head -3); do ` +
+	`echo "== $S"; curl $A "$U/session/$S/message" | head -c 6000; echo; done`

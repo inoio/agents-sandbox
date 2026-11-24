@@ -259,9 +259,9 @@ Six harnesses joined with an adapter each and no harness branch in shared code (
 - **A side request is one for the small model or without tools**; it gets `stubTitleReply`, no numbered reply,
   and is not a turn. A non-chat request (a model probe) is never a turn. An undecodable turn is answered 400 and
   recorded. A real tool-less turn would be misread; a journey driving one must refine the rule.
-- **A failed turn wait prints the harness's own view.** `Drive.Diagnostics` is a shell command (opencode2:
-  its sessions and the newest session's messages from its API) whose output a failed turn wait logs from the
-  VM before the sweep removes it; opencode2's own log records no session events at its default level.
+- **A turn that never reaches the stub prints the harness's own view.** `Drive.Diagnostics` is a shell command
+  (opencode2: its sessions and their messages from its API) whose output `StepAssertStubServed` logs from the
+  VM on timeout, before the sweep removes it; opencode2's own log records no session events at its default level.
 - **A readiness marker means the harness takes keys.** A marker printed before the input line reads the
   terminal lets a typed prompt lose its Enter, and the prompt step's echo check cannot notice, because the
   terminal's own echo satisfies it. `Drive.ReadyMarker` overrides the smoke's marker where the two differ.
