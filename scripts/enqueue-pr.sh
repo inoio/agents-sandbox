@@ -1,23 +1,30 @@
 #!/usr/bin/env bash
 #
-# enqueue-pr.sh - put a pull request into the merge queue: wait for its checks,
-# then enqueue it.
+# enqueue-pr.sh - put pull requests into the merge queue: wait for their checks,
+# then enqueue them; with --stack, land a stack of PRs bottom-up.
 #
 # `main` merges only through the merge queue and repo auto-merge is disabled, so
-# `gh pr merge` is refused and the request goes through the GraphQL
-# `enqueuePullRequest` mutation instead. That mutation fails until the required
-# checks have passed, so this collapses the hand-rolled
-# `gh pr checks --watch` + `gh api graphql` watcher into one call.
+# `gh pr merge` is refused. The request goes through the REST async merge
+# (`PUT /repos/{owner}/{repo}/pulls/<n>/merge-async`, `merge_action=merge_queue`,
+# pinned to the PR's head SHA): unlike the GraphQL `enqueuePullRequest`
+# mutation, it also accepts a PR that was stacked on another one. It fails until
+# the required checks have passed, so the script waits for them first.
 #
-# This is a helper, not a gate: it enqueues the PR and returns; it does not wait
-# for the queue to merge it.
+# A single PR is enqueued and the script returns; it does not wait for the queue
+# to merge it. A stack is landed one PR at a time: each PR whose base is the
+# previous PR's branch is retargeted to the default branch once that PR merged,
+# enqueued, and waited for until it merges, so a still-open PR below it is never
+# taken along. The stack stops at the first PR that fails, is closed, or is
+# dropped from the queue.
 #
 # Usage:
 #   enqueue-pr.sh <PR_NUMBER>
+#   enqueue-pr.sh --stack <PR_NUMBER> <PR_NUMBER>...   (bottom first)
 #
-# Exit status: 0 when the PR is already merged or was enqueued, 1 when the PR's
-# checks failed, the PR has merge conflicts, the PR was closed, the enqueue
-# request failed, or the PR was closed while waiting, 2 on a usage error.
+# Exit status: 0 when every PR is merged or was enqueued (with --stack: merged),
+# 1 when a PR's checks failed, a PR has merge conflicts, was closed, has a base
+# outside the stack, was dropped from the queue, or the enqueue request failed,
+# 2 on a usage error.
 
 set -euo pipefail
 
@@ -25,17 +32,35 @@ set -euo pipefail
 # checks; overridable so a test or tight loop does not sleep.
 ENQUEUE_PR_RETRY_SECONDS="${ENQUEUE_PR_RETRY_SECONDS:-10}"
 
-if [[ $# -ne 1 || "$1" == "-h" || "$1" == "--help" ]]; then
-  sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
-  [[ $# -eq 1 ]] && exit 0
-  exit 2
-fi
+# The REST API version the async merge is requested under.
+ENQUEUE_PR_API_VERSION="2026-03-10"
+# Polling interval while a stacked PR waits in the merge queue; overridable so a
+# test does not sleep.
+ENQUEUE_PR_POLL_SECONDS="${ENQUEUE_PR_POLL_SECONDS:-30}"
 
-pr="$1"
-if [[ ! "$pr" =~ ^[1-9][0-9]*$ ]]; then
-  printf 'enqueue-pr: expected a pull request number: %s\n' "$pr" >&2
+usage() {
+  sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+stack=0
+if [[ "${1:-}" == "--stack" ]]; then
+  stack=1
+  shift
+fi
+if [[ $# -eq 1 && ( "$1" == "-h" || "$1" == "--help" ) ]]; then
+  usage
+  exit 0
+fi
+if [[ $# -lt 1 || ( "$stack" == 0 && $# -ne 1 ) ]]; then
+  usage
   exit 2
 fi
+for pr in "$@"; do
+  if [[ ! "$pr" =~ ^[1-9][0-9]*$ ]]; then
+    printf 'enqueue-pr: expected a pull request number: %s\n' "$pr" >&2
+    exit 2
+  fi
+done
 
 # GitHub reports a merge conflict as `mergeable: CONFLICTING` / `mergeStateStatus:
 # DIRTY`. A conflicted PR runs no checks and the merge queue ejects it, so refuse
@@ -93,13 +118,10 @@ watch_checks() {
   esac
 }
 
-# Sets pr_state and pr_node_id. Prints why it cannot proceed and returns 1 for a
-# state the queue will not accept, so a merged or closed PR never reaches the
-# mutation.
+# Sets pr_state. Prints why it cannot proceed and returns 1 for a state the
+# queue will not accept, so a merged or closed PR never reaches the request.
 load_pr() {
-  local fields
-  fields="$(gh pr view "$pr" --json state,id -q '[.state, .id] | @tsv')"
-  IFS=$'\t' read -r pr_state pr_node_id <<<"$fields"
+  pr_state="$(gh pr view "$pr" --json state -q .state)"
 
   case "$pr_state" in
     MERGED)
@@ -153,38 +175,101 @@ carry_backport_marker() {
   done < <(gh pr view "$pr" --json closingIssuesReferences -q '.closingIssuesReferences[].number' 2>/dev/null || true)
 }
 
-printf 'enqueue-pr: PR #%s: resolving\n' "$pr"
-if ! load_pr; then
-  # A merged PR is the goal state, not a failure; a closed one is not.
-  [[ "${pr_state:-}" == "MERGED" ]] && exit 0
-  if [[ "${pr_state:-}" == "CLOSED" ]]; then
-    exit 1
+# enqueue_pr resolves, waits for, and enqueues PR $pr. It returns 0 when the PR
+# was enqueued or is already merged (merged then set to 1), and 1 otherwise.
+enqueue_pr() {
+  merged=0
+  printf 'enqueue-pr: PR #%s: resolving\n' "$pr"
+  if ! load_pr; then
+    # A merged PR is the goal state, not a failure; a closed one is not.
+    if [[ "${pr_state:-}" == "MERGED" ]]; then
+      merged=1
+      return 0
+    fi
+    return 1
   fi
-  exit 1
+
+  printf 'enqueue-pr: PR #%s: waiting for checks\n' "$pr"
+  watch_checks || return 1
+
+  # A conflict can appear while the checks run (another PR merged first); refuse
+  # it before the request rather than enqueueing an entry the queue will eject.
+  refuse_if_conflicted || return 1
+
+  printf 'enqueue-pr: PR #%s: enqueueing\n' "$pr"
+  local head status
+  head="$(gh pr view "$pr" --json headRefOid -q .headRefOid)"
+  if ! status="$(gh api -X PUT "repos/{owner}/{repo}/pulls/$pr/merge-async" \
+    -H "X-GitHub-Api-Version: $ENQUEUE_PR_API_VERSION" \
+    -f merge_action=merge_queue -f sha="$head" --jq .status)"; then
+    printf 'enqueue-pr: PR #%s: enqueue request failed (its required checks must have passed)\n' "$pr" >&2
+    return 1
+  fi
+  printf 'enqueue-pr: PR #%s: enqueued (%s)\n' "$pr" "${status:-queued}"
+
+  # After the enqueue, so its `labeled` event cannot cancel the run the watch
+  # above just observed. The issue label is the audit's durable record either way.
+  carry_backport_marker || true
+}
+
+# wait_merged polls PR $pr until it merges. Three polls in a row outside the
+# queue mean the queue dropped it (a failed merge-group run, a conflict).
+wait_merged() {
+  local state queued outside=0
+  printf 'enqueue-pr: PR #%s: waiting for the merge queue\n' "$pr"
+  while :; do
+    IFS=$'\t' read -r state queued < <(gh pr view "$pr" --json state,isInMergeQueue -q '[.state, .isInMergeQueue] | @tsv')
+    case "$state" in
+      MERGED)
+        printf 'enqueue-pr: PR #%s: merged\n' "$pr"
+        return 0
+        ;;
+      CLOSED)
+        printf 'enqueue-pr: PR #%s was closed while in the merge queue\n' "$pr" >&2
+        return 1
+        ;;
+    esac
+    if [[ "$queued" == "true" ]]; then outside=0; else outside=$((outside + 1)); fi
+    if ((outside >= 3)); then
+      printf 'enqueue-pr: PR #%s was dropped from the merge queue\n' "$pr" >&2
+      return 1
+    fi
+    sleep "$ENQUEUE_PR_POLL_SECONDS"
+  done
+}
+
+# retarget_onto_default points PR $pr at the default branch when its base is
+# the branch of the stack's previous PR ($previous_head), which has merged. A
+# base that is neither is an unmerged PR outside the stack: refuse it, since
+# enqueueing would take that PR along.
+retarget_onto_default() {
+  local base
+  base="$(gh pr view "$pr" --json baseRefName -q .baseRefName)"
+  [[ "$base" == "$default_branch" ]] && return 0
+  if [[ -n "$previous_head" && "$base" == "$previous_head" ]]; then
+    printf 'enqueue-pr: PR #%s: retargeting from %s to %s\n' "$pr" "$base" "$default_branch"
+    gh pr edit "$pr" --base "$default_branch" >/dev/null
+    return 0
+  fi
+  printf 'enqueue-pr: PR #%s is based on %s, which is not the previous PR in the stack; land that first\n' \
+    "$pr" "$base" >&2
+  return 1
+}
+
+if [[ "$stack" == 0 ]]; then
+  enqueue_pr
+  exit $?
 fi
 
-printf 'enqueue-pr: PR #%s: waiting for checks\n' "$pr"
-watch_checks
-
-# A conflict can appear while the checks run (another PR merged first); refuse it
-# before the mutation rather than enqueueing an entry the queue will eject.
-refuse_if_conflicted || exit 1
-
-printf 'enqueue-pr: PR #%s: enqueueing\n' "$pr"
-# shellcheck disable=SC2016 # GraphQL $id is literal, not shell expansion
-mutation='mutation($id:ID!){ enqueuePullRequest(input:{pullRequestId:$id}){ mergeQueueEntry { position } } }'
-if ! enqueue_result="$(gh api graphql -f query="$mutation" -f id="$pr_node_id")"; then
-  printf 'enqueue-pr: PR #%s: enqueue request failed (its required checks must have passed)\n' "$pr" >&2
-  exit 1
-fi
-
-position="$(printf '%s' "$enqueue_result" | jq -r '.data.enqueuePullRequest.mergeQueueEntry.position // empty' 2>/dev/null || true)"
-if [[ -n "$position" ]]; then
-  printf 'enqueue-pr: PR #%s: enqueued at position %s\n' "$pr" "$position"
-else
-  printf 'enqueue-pr: PR #%s: enqueued\n' "$pr"
-fi
-
-# After the enqueue, so its `labeled` event cannot cancel the run the watch above
-# just observed. The issue label is the audit's durable record either way.
-carry_backport_marker || true
+default_branch="$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)"
+previous_head=""
+for pr in "$@"; do
+  retarget_onto_default || exit 1
+  head_branch="$(gh pr view "$pr" --json headRefName -q .headRefName)"
+  enqueue_pr || exit 1
+  if [[ "$merged" == 0 ]]; then
+    wait_merged || exit 1
+  fi
+  previous_head="$head_branch"
+done
+printf 'enqueue-pr: stack landed: %s\n' "$*"
