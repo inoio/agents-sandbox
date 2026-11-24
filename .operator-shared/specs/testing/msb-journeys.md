@@ -242,8 +242,9 @@ source of truth and its steps are type-checked. It reads as Gherkin anyway:
   `config learn` gets the journey's agent through `AGENTS_SANDBOX_AGENT`. The adapter grows a field only when a
   journey needs it.
 
-The learn-mode journeys cover **opencode2 and oh-my-pi**; core-session covers opencode2, claude-code, codex, pi,
-and oh-my-pi. The rest of the #852 slice is blocked by the product, not the suite: on claude-code, codex, and pi
+The learn-mode journeys cover **opencode2 and oh-my-pi**; core-session covers opencode2, claude-code, codex,
+pi, oh-my-pi, and hermes; the login journey covers codex. The rest of the #852 slice is blocked by the
+product, not the suite: on claude-code, codex, and pi
 the read-back finds no host-scoped credential to learn (the exemption reasons in `table.go` name each blocker:
 #821, #873, #820/#849). The rollout harnesses are #794.
 
@@ -324,6 +325,21 @@ adapter (`piFamilyHarness`) with its YAML `models.yml` (JSON is YAML) plus its o
   tiny`), and next-message predictions (`composer.predictions: false`) would otherwise run as tool-carrying
   requests on the main model and take numbered replies; its `smol` role runs on the stub's small model.
 - Its startup model probe ("What is 17 times 23?") is tool-less, so the stub answers it as a side request.
+
+### The heaviest harness: hermes (#878)
+
+hermes (a Python agent with the largest runner image) joined core-session with an adapter and no new
+mechanism in shared code: a
+`config*.yaml` snippet with a `custom` OpenAI-compatible provider at the stub (its `config.yaml` is the
+merged-config target), `write_file` with `path`/`content`, and `--continue`. What it showed:
+
+- **A readiness marker must mean the harness takes keys.** The startup smoke's marker, hermes' banner, is
+  printed before its input line reads the terminal; a prompt typed then is echoed by the pty but its Enter
+  is lost. `Drive.ReadyMarker` names the hint row under the input line instead. The prompt step's echo
+  check cannot catch this, because the terminal's own echo satisfies it.
+- **Model probes are not turns.** Before its first turn hermes asks the endpoint for its models
+  (`GET /v1/models`) and, Ollama-style, `POST /api/show`; the stub answers neither as a turn, and hermes
+  falls back to a default context length. Its session title is a tool-less request on the main model.
 
 ### The core-session journey
 

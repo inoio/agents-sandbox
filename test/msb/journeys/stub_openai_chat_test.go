@@ -334,6 +334,7 @@ func TestSideRequestRuleCoversEachHarnesssRequestKinds(t *testing.T) {
 		codexAgentName:      {side: []string{toolLess}, turns: []string{turn}},
 		piAgentName:         {side: nil, turns: []string{turn}},
 		ohMyPiAgentName:     {side: []string{toolLess, smallModel}, turns: []string{turn}},
+		hermesAgentName:     {side: []string{toolLess}, turns: []string{turn}},
 	}
 	for name, requests := range observed {
 		for _, body := range requests.side {
