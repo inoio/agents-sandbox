@@ -229,8 +229,42 @@ func StepSendPrompt(prompt string) Step {
 		if err := typeUntilEchoed(ses, prompt, promptTypeAttempts, echoWait); err != nil {
 			return err
 		}
-		return ses.Write([]byte("\r"))
+		submitted := len(ses.Output())
+		if err := ses.Write([]byte("\r")); err != nil {
+			return err
+		}
+		if busy := c.Harness.Drive.StartupBusyMarker; busy != "" {
+			return resubmitWhileBusy(ses, busy, submitted, scaled(startupBusyBudget))
+		}
+		return nil
 	}}
+}
+
+// startupBusyBudget bounds how long a harness may keep rejecting a prompt as
+// submitted too early; busyRecheck is how long a submit gets to show the
+// notice before it counts as accepted.
+const (
+	startupBusyBudget = 30 * time.Second
+	busyRecheck       = time.Second
+)
+
+// resubmitWhileBusy presses Enter again while the output since the last
+// submit (from offset on) shows the harness's busy notice.
+func resubmitWhileBusy(ses *driver.Session, busy string, offset int, budget time.Duration) error {
+	waited := false
+	return pollUntil(budget, busyRecheck, func() (bool, error) {
+		if !waited {
+			waited = true
+			return false, nil
+		}
+		if firstShownMarker(string(ses.Output()[offset:]), []string{busy}) < 0 {
+			return true, nil
+		}
+		offset = len(ses.Output())
+		return false, ses.Write([]byte("\r"))
+	}, func() error {
+		return fmt.Errorf("the harness still rejected the prompt as early (%q) after %s", busy, budget)
+	})
 }
 
 // stubPollInterval is how often StepAssertStubServed checks the stub's log.

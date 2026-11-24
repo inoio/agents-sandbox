@@ -61,6 +61,10 @@ func ohMyPiHarness() Harness {
 	return harness
 }
 
+// piStartupBusyMarker is pi's notice for a prompt submitted while its startup
+// (managed tools, extensions, the session) still runs; pi keeps the prompt.
+const piStartupBusyMarker = "Startup is still in progress"
+
 // piFamilyHarness points a pi-family harness at the stub: its models file
 // declares an OpenAI-compatible provider at the stub (provisioned at
 // modelsPath; neither file is a reserved home target), and --model selects it.
@@ -76,7 +80,8 @@ func piFamilyHarness(modelsPath string) Harness {
 			WriteFileCall: func(guestPath, content string) ToolCall {
 				return ToolCall{Name: "write", Arguments: writeToolArguments("path", guestPath, content)}
 			},
-			ResumeArgs: []string{continueFlag},
+			ResumeArgs:        []string{continueFlag},
+			StartupBusyMarker: piStartupBusyMarker,
 		},
 	}
 }

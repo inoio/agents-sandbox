@@ -278,6 +278,8 @@ Six harnesses joined with an adapter each and no harness branch in shared code (
   to embedded mode), a dummy `auth.json` past its sign-in screen; `exec_command` with a quoted shell line;
   `resume --last`; its title is a tool-less main-model request. Its logins are the login journey's (below).
 - **pi:** a `models.json` provider through `home:`, `--model stub/stub`, `write` with `path`, `--continue`.
+  Its screen is up before its startup ends, and a prompt submitted then gets "Startup is still in progress"
+  with the text kept; `Drive.StartupBusyMarker` makes the prompt step press Enter again while that shows.
 - **oh-my-pi:** pi's adapter with `models.yml`, plus a snippet that turns off the setup wizard, forked titles,
   and predictions (they would take numbered replies); `smol` on the stub's small model; its status line as the
   readiness marker. In learn journeys its wizard is left with `Drive.Setup`, and its key lives in `models.yml`,
