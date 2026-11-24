@@ -279,7 +279,8 @@ Six harnesses joined with an adapter each and no harness branch in shared code (
   `resume --last`; its title is a tool-less main-model request. Its logins are the login journey's (below).
 - **pi:** a `models.json` provider through `home:`, `--model stub/stub`, `write` with `path`, `--continue`.
   Its screen is up before its startup ends, and a prompt submitted then gets "Startup is still in progress"
-  with the text kept; `Drive.StartupBusyMarker` makes the prompt step press Enter again while that shows.
+  with the text kept; `Drive.StartupBusyMarker` makes the prompt step press Enter again while the notice
+  shows and no turn arrived, ending on a turn at the stub or a screen quiet for a few scaled rechecks.
 - **oh-my-pi:** pi's adapter with `models.yml`, plus a snippet that turns off the setup wizard, forked titles,
   and predictions (they would take numbered replies); `smol` on the stub's small model; its status line as the
   readiness marker. In learn journeys its wizard is left with `Drive.Setup`, and its key lives in `models.yml`,
@@ -297,7 +298,7 @@ first run (A), real turn (C), second client (E), and persistence (D) over one pr
 - **A:** the harness starts on a fresh home whose launcher env file is seeded (`StepConfigureLauncherEnv`), so
   the launcher counts it as configured and offers no first-run menu; the launcher prints the experimental notice
   exactly when the profile is experimental; the project gets no `.agents-sandbox` scaffolding. Core-session does
-  **not** cover the first-run menu on any harness; the learn-mode journeys do (opencode2 only so far).
+  **not** cover the first-run menu on any harness; the learn-mode journeys do.
 - **C:** the stub answers the first turn with the harness's own write-file tool call (the adapter's
   `WriteFileCall`, e.g. opencode2's `write` with `path`/`content`), then with its text reply; the file
   appears in the project on the host, owned by the host user, and the reply shows. The stub numbers its

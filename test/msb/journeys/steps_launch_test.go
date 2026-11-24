@@ -168,3 +168,43 @@ func TestStepExitHarnessSetupDoesNothingForAHarnessWithoutOne(t *testing.T) {
 		t.Errorf("StepExitHarnessSetup without a setup screen = %v, want nil before touching the session", err)
 	}
 }
+
+// resubmitWhileBusy presses Enter again only while the harness shows its busy
+// notice and no turn arrived, and stops on a turn or a quiet screen.
+func TestResubmitWhileBusyEndsOnATurnOrAQuietScreen(t *testing.T) {
+	const busy = "Startup is still in progress"
+	// Each recheck shows the next screen; accepted runs first in every check,
+	// so it advances the screen once per tick.
+	run := func(screens []string, turnAfter int) (submits int) {
+		output := ""
+		next := 0
+		prompt := busySubmit{
+			busy:   busy,
+			output: func() []byte { return []byte(output) },
+			submit: func() error {
+				submits++
+				return nil
+			},
+			accepted: func() bool {
+				if next < len(screens) {
+					output += screens[next]
+					next++
+				}
+				return turnAfter >= 0 && submits >= turnAfter
+			},
+		}
+		if err := resubmitWhileBusy(prompt, time.Second, time.Millisecond); err != nil {
+			t.Fatal(err)
+		}
+		return submits
+	}
+	if got := run([]string{busy, busy, "working"}, 2); got != 2 {
+		t.Errorf("busy twice, then a turn: %d resubmits, want 2", got)
+	}
+	if got := run(nil, -1); got != 0 {
+		t.Errorf("never busy: %d resubmits, want none", got)
+	}
+	if got := run([]string{busy, busy, busy, busy, busy}, 1); got != 1 {
+		t.Errorf("a notice still drawn after the turn: %d resubmits, want 1 (the turn ends it)", got)
+	}
+}

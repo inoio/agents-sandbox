@@ -167,10 +167,17 @@ func streamChatCompletion(response http.ResponseWriter, delta chatMessage, finis
 // completion or Responses request or an Anthropic Messages request (a side
 // request or a token count is not one).
 func servedTurn(requests []StubRequest) bool {
+	return countTurns(requests) > 0
+}
+
+// countTurns counts the turns among requests: decoded, non-side POSTs to a
+// turn path.
+func countTurns(requests []StubRequest) int {
+	turns := 0
 	for _, request := range requests {
 		if request.Method == http.MethodPost && isTurnPath(request.Path) && !request.Side && request.DecodeError == "" {
-			return true
+			turns++
 		}
 	}
-	return false
+	return turns
 }

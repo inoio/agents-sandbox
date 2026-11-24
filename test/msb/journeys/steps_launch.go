@@ -229,42 +229,66 @@ func StepSendPrompt(prompt string) Step {
 		if err := typeUntilEchoed(ses, prompt, promptTypeAttempts, echoWait); err != nil {
 			return err
 		}
+		busy := c.Harness.Drive.StartupBusyMarker
+		if busy == "" || c.Stub == nil {
+			return ses.Write([]byte("\r"))
+		}
+		turns := countTurns(c.Stub.Requests())
 		submitted := len(ses.Output())
 		if err := ses.Write([]byte("\r")); err != nil {
 			return err
 		}
-		if busy := c.Harness.Drive.StartupBusyMarker; busy != "" {
-			return resubmitWhileBusy(ses, busy, submitted, scaled(startupBusyBudget))
-		}
-		return nil
+		return resubmitWhileBusy(busySubmit{
+			busy:     busy,
+			offset:   submitted,
+			output:   ses.Output,
+			submit:   func() error { return ses.Write([]byte("\r")) },
+			accepted: func() bool { return countTurns(c.Stub.Requests()) > turns },
+		}, scaled(startupBusyBudget), scaled(busyRecheck))
 	}}
 }
 
 // startupBusyBudget bounds how long a harness may keep rejecting a prompt as
-// submitted too early; busyRecheck is how long a submit gets to show the
-// notice before it counts as accepted.
+// submitted too early; busyRecheck is how often the step looks again, and a
+// submit counts as accepted once quietRechecks rechecks in a row showed no
+// busy notice.
 const (
 	startupBusyBudget = 30 * time.Second
 	busyRecheck       = time.Second
+	quietRechecks     = 3
 )
 
-// resubmitWhileBusy presses Enter again while the output since the last
-// submit (from offset on) shows the harness's busy notice.
-func resubmitWhileBusy(ses *driver.Session, busy string, offset int, budget time.Duration) error {
-	waited := false
-	return pollUntil(budget, busyRecheck, func() (bool, error) {
-		if !waited {
-			waited = true
-			return false, nil
-		}
-		if firstShownMarker(string(ses.Output()[offset:]), []string{busy}) < 0 {
+// busySubmit is a prompt submitted to a harness that may reject it as too
+// early (busy) while keeping the text: the session's output from offset on,
+// how to submit again, and the positive evidence that a submit was accepted
+// (a new turn at the stub).
+type busySubmit struct {
+	busy     string
+	offset   int
+	output   func() []byte
+	submit   func() error
+	accepted func() bool
+}
+
+// resubmitWhileBusy presses Enter again whenever the busy notice showed since
+// the last submit and no turn arrived. It ends once a turn arrives, or once
+// quietRechecks rechecks in a row showed no notice (a journey whose turn never
+// reaches the stub); a harness still busy after budget is left to the turn
+// check that follows the prompt.
+func resubmitWhileBusy(prompt busySubmit, budget, recheck time.Duration) error {
+	quiet := -1 // the first check runs at once, before the notice can show
+	return pollUntil(budget, recheck, func() (bool, error) {
+		if prompt.accepted() {
 			return true, nil
 		}
-		offset = len(ses.Output())
-		return false, ses.Write([]byte("\r"))
-	}, func() error {
-		return fmt.Errorf("the harness still rejected the prompt as early (%q) after %s", busy, budget)
-	})
+		if firstShownMarker(string(prompt.output()[prompt.offset:]), []string{prompt.busy}) < 0 {
+			quiet++
+			return quiet >= quietRechecks, nil
+		}
+		quiet = 0
+		prompt.offset = len(prompt.output())
+		return false, prompt.submit()
+	}, func() error { return nil })
 }
 
 // stubPollInterval is how often StepAssertStubServed checks the stub's log.
