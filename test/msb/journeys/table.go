@@ -38,8 +38,8 @@ var (
 var learnBlockedHarnesses = map[string]string{
 	"claude-code": "its read-back reads only the OAuth login store; settings.json, where an endpoint and key live, " +
 		"is neither read back nor seeded until #821",
-	"codex": "its read-back reads only the auth.json login store, whose value is never read, and config.toml " +
-		"names no key, so no host-scoped credential is learned",
+	"codex": "its read-back reads only the auth.json login store, whose value is never read, and not " +
+		"config.toml, so no host-scoped credential is learned (#873)",
 	"pi": "its read-back withholds models.json, where a custom provider's key lives, until provider headers " +
 		"are classified (#820, #849)",
 }

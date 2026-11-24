@@ -10,7 +10,7 @@ Runs on: opencode2, oh-my-pi
 Not yet:
 
 - claude-code: learn mode on this harness waits for the product: its read-back reads only the OAuth login store; settings.json, where an endpoint and key live, is neither read back nor seeded until #821
-- codex: learn mode on this harness waits for the product: its read-back reads only the auth.json login store, whose value is never read, and config.toml names no key, so no host-scoped credential is learned
+- codex: learn mode on this harness waits for the product: its read-back reads only the auth.json login store, whose value is never read, and not config.toml, so no host-scoped credential is learned (#873)
 - goose, grok-build, hermes, kimi-code, mistral-vibe, opencode, qwen-code: learn mode on this harness lands with the full rollout, #794
 - pi: learn mode on this harness waits for the product: its read-back withholds models.json, where a custom provider's key lives, until provider headers are classified (#820, #849)
 
@@ -41,7 +41,7 @@ Runs on: opencode2, oh-my-pi
 Not yet:
 
 - claude-code: learn mode on this harness waits for the product: its read-back reads only the OAuth login store; settings.json, where an endpoint and key live, is neither read back nor seeded until #821
-- codex: learn mode on this harness waits for the product: its read-back reads only the auth.json login store, whose value is never read, and config.toml names no key, so no host-scoped credential is learned
+- codex: learn mode on this harness waits for the product: its read-back reads only the auth.json login store, whose value is never read, and not config.toml, so no host-scoped credential is learned (#873)
 - goose, grok-build, hermes, kimi-code, mistral-vibe, opencode, qwen-code: learn mode on this harness lands with the full rollout, #794
 - pi: learn mode on this harness waits for the product: its read-back withholds models.json, where a custom provider's key lives, until provider headers are classified (#820, #849)
 
@@ -71,7 +71,7 @@ Runs on: opencode2, oh-my-pi
 Not yet:
 
 - claude-code: learn mode on this harness waits for the product: its read-back reads only the OAuth login store; settings.json, where an endpoint and key live, is neither read back nor seeded until #821
-- codex: learn mode on this harness waits for the product: its read-back reads only the auth.json login store, whose value is never read, and config.toml names no key, so no host-scoped credential is learned
+- codex: learn mode on this harness waits for the product: its read-back reads only the auth.json login store, whose value is never read, and not config.toml, so no host-scoped credential is learned (#873)
 - goose, grok-build, hermes, kimi-code, mistral-vibe, opencode, qwen-code: learn mode on this harness lands with the full rollout, #794
 - pi: learn mode on this harness waits for the product: its read-back withholds models.json, where a custom provider's key lives, until provider headers are classified (#820, #849)
 
@@ -104,7 +104,7 @@ Network profile: `public`
 Not yet:
 
 - claude-code: learn mode on this harness waits for the product: its read-back reads only the OAuth login store; settings.json, where an endpoint and key live, is neither read back nor seeded until #821
-- codex: learn mode on this harness waits for the product: its read-back reads only the auth.json login store, whose value is never read, and config.toml names no key, so no host-scoped credential is learned
+- codex: learn mode on this harness waits for the product: its read-back reads only the auth.json login store, whose value is never read, and not config.toml, so no host-scoped credential is learned (#873)
 - goose, grok-build, hermes, kimi-code, mistral-vibe, opencode, qwen-code: learn mode on this harness lands with the full rollout, #794
 - pi: learn mode on this harness waits for the product: its read-back withholds models.json, where a custom provider's key lives, until provider headers are classified (#820, #849)
 

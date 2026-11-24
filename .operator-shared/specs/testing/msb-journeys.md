@@ -244,7 +244,7 @@ source of truth and its steps are type-checked. It reads as Gherkin anyway:
 The learn-mode journeys cover **opencode2 and oh-my-pi**; core-session covers opencode2, claude-code, codex, pi,
 and oh-my-pi. The rest of the #852 slice is blocked by the product, not the suite: on claude-code, codex, and pi
 the read-back finds no host-scoped credential to learn (the exemption reasons in `table.go` name each blocker:
-#821, codex's login-store-only read-back, #820/#849). The rollout harnesses are #794.
+#821, #873, #820/#849). The rollout harnesses are #794.
 
 ### Learn mode beyond opencode2: oh-my-pi (#852)
 
