@@ -267,6 +267,14 @@ var envTableKeys = []string{"env", "environment"}
 // any name, so its entries are secret by default too.
 var headerTableKeys = []string{"headers", "http_headers"}
 
+// queryTableKeys are the keys whose table sets URL query parameters (codex's
+// "query_params"). A query parameter can carry a credential under any name
+// (Azure's "sig"), so its entries are secret by default too.
+var queryTableKeys = []string{"query_params"}
+
+// safeQueryNames are query parameters that carry no credential.
+var safeQueryNames = []string{"api-version", "version", "format"}
+
 // safeHeaderNames are headers that carry no credential.
 var safeHeaderNames = []string{
 	"accept", "accept-encoding", "accept-language", "content-type", "user-agent", "anthropic-beta",
@@ -332,13 +340,26 @@ func envEntryIsSafe(key, value string) bool {
 // a value carried by placeholders only, empty, or a header known to carry none (a number is a
 // credential under any other header: an API key can be numeric).
 func headerEntryIsSafe(name, value string) bool {
+	return namedEntryIsSafe(name, value, safeHeaderNames)
+}
+
+// queryEntryIsSafe reports whether a query-parameter entry carries no
+// credential, by the header rule with the query's own safe names.
+func queryEntryIsSafe(name, value string) bool {
+	return namedEntryIsSafe(name, value, safeQueryNames)
+}
+
+// namedEntryIsSafe reports whether an entry of a secret-by-default table is
+// safe: no secret-shaped value, and an empty value, one whose secrets are all
+// placeholders, or a name the table knows to carry configuration.
+func namedEntryIsSafe(name, value string, safeNames []string) bool {
 	if looksLikeSecretValue(value) {
 		return false
 	}
 	if strings.TrimSpace(value) == "" || onlyPlaceholdersCarrySecrets(value) {
 		return true
 	}
-	return keyIsOneOf(name, safeHeaderNames)
+	return keyIsOneOf(name, safeNames)
 }
 
 // placeholder matches an explicit reference inside a longer value.
@@ -369,10 +390,11 @@ func onlyPlaceholdersCarrySecrets(value string) bool {
 	return true
 }
 
-// isSecretTable reports whether key names an env or header table holding a
-// mapping, which its own rule judges.
+// isSecretTable reports whether key names an env, header, or query table holding
+// a mapping, which its own rule judges.
 func isSecretTable(key string, value any) bool {
-	return (keyIsOneOf(key, envTableKeys) || keyIsOneOf(key, headerTableKeys)) && stringKeyedEntries(value) != nil
+	return (keyIsOneOf(key, envTableKeys) || keyIsOneOf(key, headerTableKeys) || keyIsOneOf(key, queryTableKeys)) &&
+		stringKeyedEntries(value) != nil
 }
 
 // isFilesystemPath reports whether value is an absolute or home-relative path:
@@ -404,7 +426,7 @@ func isNonSecretScalar(value string) bool {
 	return false
 }
 
-// tableLeaksValue reports whether key names an env or header table that holds
+// tableLeaksValue reports whether key names an env, header, or query table that holds
 // an entry its rule does not clear. A nested table or list under it holds no
 // configuration names, so any raw value inside it is a credential.
 func tableLeaksValue(key string, value any) bool {
@@ -414,6 +436,8 @@ func tableLeaksValue(key string, value any) bool {
 		entryIsSafe = envEntryIsSafe
 	case keyIsOneOf(key, headerTableKeys):
 		entryIsSafe = headerEntryIsSafe
+	case keyIsOneOf(key, queryTableKeys):
+		entryIsSafe = queryEntryIsSafe
 	default:
 		return false
 	}
