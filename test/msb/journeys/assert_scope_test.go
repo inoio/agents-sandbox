@@ -11,9 +11,9 @@ import (
 )
 
 // TestStepAssertScopeExcludesHostLoginStore pins the host-seed login-store guard: a file the
-// seed must drop must not appear in the scope's managed agent config dir, so a
-// copied login store fails the step rather than passing the key/placeholder
-// checks.
+// seed must drop must not appear anywhere in the scope's managed agent config,
+// under whatever name, so a copied login store fails the step rather than
+// passing the key/placeholder checks.
 func TestStepAssertScopeExcludesHostLoginStore(t *testing.T) {
 	const agentName = "opencode2"
 	root := t.TempDir()
@@ -30,8 +30,13 @@ func TestStepAssertScopeExcludesHostLoginStore(t *testing.T) {
 	if err := os.MkdirAll(configDir, 0o750); err != nil {
 		t.Fatalf("create scope config dir: %v", err)
 	}
-	loginStore := filepath.Join(configDir, "auth.json")
-	if err := os.WriteFile(loginStore, []byte("{}"), 0o600); err != nil {
+	// A copy under another name, in a nested dir, is still the login store.
+	loginStore := filepath.Join(configDir, "nested", "copied-store.json")
+	if err := os.MkdirAll(filepath.Dir(loginStore), 0o750); err != nil {
+		t.Fatalf("create nested dir: %v", err)
+	}
+	content := opencode2Harness.Learn.HostLoginStore[opencodeLoginStoreRelPath]
+	if err := os.WriteFile(loginStore, []byte(content), 0o600); err != nil {
 		t.Fatalf("write %s: %v", loginStore, err)
 	}
 	if err := StepAssertScopeExcludesHostLoginStore().Run(ctx); err == nil {

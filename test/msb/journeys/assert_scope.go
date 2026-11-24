@@ -78,9 +78,9 @@ func StepAssertScopeWritten(want ScopeWant) Step {
 	}})
 }
 
-// StepAssertScopeExcludesHostLoginStore asserts the harness's host login store
-// (Harness.Learn.HostLoginStore) is not present in the per-slug scope's managed agent
-// config dir. A login credential store such as opencode's auth.json must never
+// StepAssertScopeExcludesHostLoginStore asserts no file in the per-slug scope's
+// managed agent config holds the harness's host login store
+// (Harness.Learn.HostLoginStore), under whatever name a copy would take. A login credential store such as opencode's auth.json must never
 // be copied into the scope by the host seed, and its absence is not covered by
 // the key/placeholder checks.
 func StepAssertScopeExcludesHostLoginStore() Step {
@@ -96,24 +96,16 @@ func StepAssertScopeExcludesHostLoginStore() Step {
 		if err != nil {
 			return err
 		}
-		profile, ok := agent.Lookup(c.Agent)
-		if !ok {
-			return fmt.Errorf("unknown agent %q", c.Agent)
-		}
-		configDirNames, err := agent.ConfigDirNames(profile)
+		text, err := managedConfigText(dir, c.Agent)
 		if err != nil {
-			return fmt.Errorf("agent %s config-dir names: %w", c.Agent, err)
+			return err
 		}
-		scope := configpaths.ConfigScope{Kind: configpaths.ScopePerSlugUser, Dir: dir}
-		configDir := scope.AgentConfigDir(configDirNames[0])
-		for relPath := range learn.HostLoginStore {
-			path := filepath.Join(configDir, filepath.Base(relPath))
-			_, err := os.Stat(path)
-			if err == nil {
-				return fmt.Errorf("the per-slug scope copied %s, which the host seed must drop", path)
-			}
-			if !errors.Is(err, fs.ErrNotExist) {
-				return fmt.Errorf("stat %s: %w", path, err)
+		for relPath, content := range learn.HostLoginStore {
+			if strings.Contains(text, content) {
+				return fmt.Errorf(
+					"the per-slug scope copied the host login store %s, which the host seed must drop",
+					relPath,
+				)
 			}
 		}
 		return nil
@@ -150,23 +142,13 @@ func assertManagedConfig(dir, agentName string, want scopeExpectation) error {
 	if len(want.configKeys) == 0 && !want.placeholder {
 		return nil
 	}
-	profile, ok := agent.Lookup(agentName)
-	if !ok {
-		return fmt.Errorf("unknown agent %q", agentName)
-	}
-	names, err := agent.ConfigDirNames(profile)
-	if err != nil {
-		return fmt.Errorf("agent %s config-dir names: %w", agentName, err)
-	}
-	scope := configpaths.ConfigScope{Kind: configpaths.ScopePerSlugUser, Dir: dir}
-	configDir := scope.AgentConfigDir(names[0])
-	text, err := readRegularFiles(configDir)
+	text, err := managedConfigText(dir, agentName)
 	if err != nil {
 		return err
 	}
 	for _, key := range want.configKeys {
 		if !strings.Contains(text, key) {
-			return fmt.Errorf("the managed agent config in %s does not carry key %q:\n%s", configDir, key, text)
+			return fmt.Errorf("the managed agent config in %s does not carry key %q:\n%s", dir, key, text)
 		}
 	}
 	if want.placeholder {
@@ -175,33 +157,60 @@ func assertManagedConfig(dir, agentName string, want scopeExpectation) error {
 		}
 		placeholder := "${" + want.envVar + "}"
 		if !strings.Contains(text, placeholder) {
-			return fmt.Errorf("the managed agent config in %s does not carry %s:\n%s", configDir, placeholder, text)
+			return fmt.Errorf("the managed agent config in %s does not carry %s:\n%s", dir, placeholder, text)
 		}
 	}
 	return nil
 }
 
-// readRegularFiles concatenates every regular file directly under dir. A
+// readRegularFiles concatenates every regular file under dir, recursively. A
 // missing directory reports the empty string, so absence of a managed config is
 // reported by the key/placeholder assertions rather than as an I/O error.
 func readRegularFiles(dir string) (string, error) {
-	entries, err := os.ReadDir(dir)
+	var builder strings.Builder
+	err := filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.Type().IsRegular() {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", path, err)
+		}
+		builder.Write(data)
+		return nil
+	})
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", nil
 	}
 	if err != nil {
 		return "", fmt.Errorf("read %s: %w", dir, err)
 	}
-	var builder strings.Builder
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
-		if err != nil {
-			return "", fmt.Errorf("read %s: %w", entry.Name(), err)
-		}
-		builder.Write(data)
-	}
 	return builder.String(), nil
+}
+
+// managedConfigText is every regular file under each of the agent's config dirs
+// in the per-slug scope at dir, so an assertion does not depend on which config
+// dir the read-back or the host seed writes to.
+func managedConfigText(dir, agentName string) (string, error) {
+	profile, ok := agent.Lookup(agentName)
+	if !ok {
+		return "", fmt.Errorf("unknown agent %q", agentName)
+	}
+	names, err := agent.ConfigDirNames(profile)
+	if err != nil {
+		return "", fmt.Errorf("agent %s config-dir names: %w", agentName, err)
+	}
+	scope := configpaths.ConfigScope{Kind: configpaths.ScopePerSlugUser, Dir: dir}
+	var text strings.Builder
+	for _, name := range names {
+		files, err := readRegularFiles(scope.AgentConfigDir(name))
+		if err != nil {
+			return "", err
+		}
+		text.WriteString(files)
+	}
+	return text.String(), nil
 }
