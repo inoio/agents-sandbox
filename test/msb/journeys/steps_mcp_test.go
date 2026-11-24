@@ -30,7 +30,12 @@ func TestDeclareMCPServerWritesProjectFilesAndSnippets(t *testing.T) {
 // A TLS stub must start before the home is seeded, or its CA never reaches
 // the VM; the step refuses the wrong order.
 func TestStepStartStubOAuthServerRefusesToRunAfterSeeding(t *testing.T) {
-	c := &Context{TB: t, Agent: claudeCodeAgentName, Harness: claudeCodeHarness, Stub: &stubProvider{}}
+	// A temp home and project keep a mutant that skips the refusal from
+	// writing its declaration into the package dir.
+	c := &Context{
+		TB: t, Agent: claudeCodeAgentName, Harness: claudeCodeHarness, Stub: &stubProvider{},
+		Home: t.TempDir(), Project: t.TempDir(),
+	}
 	if err := StepStartStubOAuthServer().Run(c); err == nil || !strings.Contains(err.Error(), "before seeding") {
 		t.Errorf("after seeding: err = %v, want the ordering refusal", err)
 	}
