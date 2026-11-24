@@ -69,9 +69,11 @@ func declareMCPServer(c *Context, mcp MCPFacts, url string) error {
 // writeProjectFile writes content to rel under the project dir.
 func writeProjectFile(project, rel, content string) error {
 	path := filepath.Join(project, rel)
+	// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT reason="the mode of a test project's file is no contract; the harness only reads it"
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return fmt.Errorf("create the dir for %s: %w", path, err)
 	}
+	// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT reason="the mode of a test project's file is no contract; the harness only reads it"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
@@ -113,6 +115,7 @@ func StepLaunchMCPLogin() Step {
 
 // shellPromptTimeout bounds the wait for the shell prompt, which includes a
 // boot of the stopped or new project VM.
+// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT,ARITHMETIC_BASE reason="a ceiling on a VM boot, not a contract; no unit test can wait it out"
 const shellPromptTimeout = 2 * time.Minute
 
 // shellPromptMarker is part of the VM shell's prompt (dev@<vm>), which shows

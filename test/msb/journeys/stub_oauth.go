@@ -85,6 +85,7 @@ func StartStubOAuthServer(tb driver.TB, useTLS bool) (*StubOAuthServer, error) {
 		return stub, nil
 	}
 	certs, err := newStubTLS()
+	// gomutants:disable-next-line BRANCH_IF reason="newStubTLS fails only on a broken system random source, which a test cannot provoke"
 	if err != nil {
 		_ = listener.Close()
 		return nil, err

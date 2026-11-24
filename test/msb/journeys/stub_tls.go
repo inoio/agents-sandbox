@@ -10,7 +10,6 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math/big"
-	"net"
 	"time"
 )
 
@@ -28,8 +27,8 @@ const (
 // therefore runs under `host`, where no traffic is intercepted.
 const stubCAEnv = "NODE_EXTRA_CA_CERTS"
 
-// stubTLS is a test CA and a server certificate it issued for the names the
-// stub is reached under: the VM's name for the host and the host loopback.
+// stubTLS is a test CA and a server certificate it issued for the VM's name
+// for the host, which the VM and the fake browser both reach the stub under.
 type stubTLS struct {
 	caPEM  []byte
 	pool   *x509.CertPool
@@ -39,42 +38,50 @@ type stubTLS struct {
 // newStubTLS issues a fresh, short-lived test CA and server certificate.
 func newStubTLS() (*stubTLS, error) {
 	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	// gomutants:disable-next-line BRANCH_IF reason="key generation fails only on a broken system random source, which a test cannot provoke"
 	if err != nil {
 		return nil, fmt.Errorf("generate the test CA key: %w", err)
 	}
 	now := time.Now()
 	caTemplate := &x509.Certificate{
-		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "agents-sandbox journeys test CA"},
-		NotBefore:             now.Add(-time.Hour),
+		// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT reason="a test CA's serial is no contract; any value the certificate parser accepts serves"
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "agents-sandbox journeys test CA"},
+		NotBefore:    now.Add(-time.Hour),
+		// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT reason="the validity only has to outlast a suite run; its exact length is no contract"
 		NotAfter:              now.Add(24 * time.Hour),
 		IsCA:                  true,
 		KeyUsage:              x509.KeyUsageCertSign,
 		BasicConstraintsValid: true,
 	}
 	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
+	// gomutants:disable-next-line BRANCH_IF reason="the constant template always issues; only a broken random source fails here"
 	if err != nil {
 		return nil, fmt.Errorf("issue the test CA: %w", err)
 	}
 	ca, err := x509.ParseCertificate(caDER)
+	// gomutants:disable-next-line BRANCH_IF reason="parsing the certificate CreateCertificate just produced cannot fail"
 	if err != nil {
 		return nil, fmt.Errorf("parse the test CA: %w", err)
 	}
 	serverKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	// gomutants:disable-next-line BRANCH_IF reason="key generation fails only on a broken system random source, which a test cannot provoke"
 	if err != nil {
 		return nil, fmt.Errorf("generate the server key: %w", err)
 	}
 	serverTemplate := &x509.Certificate{
+		// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT reason="a test certificate's serial is no contract; any value the parser accepts serves"
 		SerialNumber: big.NewInt(2),
 		Subject:      pkix.Name{CommonName: stubGatewayHost},
 		DNSNames:     []string{stubGatewayHost},
-		IPAddresses:  []net.IP{net.IPv4(127, 0, 0, 1)},
 		NotBefore:    now.Add(-time.Hour),
-		NotAfter:     now.Add(24 * time.Hour),
-		KeyUsage:     x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT reason="the validity only has to outlast a suite run; its exact length is no contract"
+		NotAfter:    now.Add(24 * time.Hour),
+		KeyUsage:    x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	}
 	serverDER, err := x509.CreateCertificate(rand.Reader, serverTemplate, ca, &serverKey.PublicKey, caKey)
+	// gomutants:disable-next-line BRANCH_IF reason="the constant template always issues; only a broken random source fails here"
 	if err != nil {
 		return nil, fmt.Errorf("issue the server certificate: %w", err)
 	}
