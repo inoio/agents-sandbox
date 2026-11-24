@@ -183,7 +183,7 @@ Scenario: core-session
 
 Runs on: codex
 
-Network profile: `none`
+Network profile: `host`
 
 Not yet:
 
@@ -195,6 +195,7 @@ Scenario: harness-login
   And a fresh isolated home
   And the launcher is configured
   And the host's browser is a recorder
+  And an MCP server behind an OAuth authorization server is in the harness's config
   When the user starts the harness's browser login
   Then the host's browser opens the login link, which names a callback in the VM
   When the browser returns to the callback after the sign-in
@@ -202,13 +203,19 @@ Scenario: harness-login
   Then the callback reaches the harness in the VM, behind the host boundary
   And the login command ends
   When the user signs the harness in with an API key from the shell
-  And the user stops the project VM
+  And the user signs the harness in to the MCP server
+  Then the host's browser opens the login link, which names a callback in the VM
+  When the user signs in at the authorization server in the browser
+  Then the MCP sign-in completes with a token exchange in the VM
+  When the user stops the project VM
   # check
   Then the harness reports the stored login from the shell
   When the user runs `agents-sandbox run`
   Then the harness TUI comes up
   # check
   And the harness starts signed in
+  # check
+  And the harness calls the MCP server with the sign-in's token
   When the user quits the harness and the launcher exits 0
 ```
 

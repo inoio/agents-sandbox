@@ -36,19 +36,29 @@ var codexHarness = Harness{
 			return ToolCall{Name: "exec_command", Arguments: jsonObject(map[string]string{"cmd": command})}
 		},
 		ResumeArgs: []string{"resume", "--last"},
+	},
+	Login: &LoginFacts{
 		// `codex login` starts the ChatGPT browser login: a callback server on
-		// port 1455 in the VM and no paste fallback.
-		LoginArgs: []string{"login"},
+		// port 1455 in the VM and no paste fallback. codex answers a callback
+		// it cannot complete with its error page.
+		BrowserArgs:    []string{"login"},
+		CallbackMarker: "Codex Sign-in",
 		// codex takes the key only from a pipe, not a terminal.
-		APIKeyLogin: func(key string) string {
+		APIKey: func(key string) string {
 			return "printf %s " + shellQuote(key) + " | codex login --with-api-key"
 		},
+		Status:       "codex login status",
 		SignInMarker: "Choose how you want to use Codex",
-		// codex answers a callback it cannot complete with its error page.
-		LoginCallbackMarker: "Codex Sign-in",
-		LoginStatus:         "codex login status",
+		MCPServer: func(name, url string) map[string]string {
+			return map[string]string{codexMCPSnippet: fmt.Sprintf("[mcp_servers.%s]\nurl = %q\n", name, url)}
+		},
+		MCPLoginArgs: func(name string) []string { return []string{"mcp", "login", name} },
 	},
 }
+
+// codexMCPSnippet is the launcher snippet that declares the login journey's
+// MCP server in codex's config.toml.
+const codexMCPSnippet = "config-journeys-mcp.toml"
 
 // codexStubConfig renders the config.toml fragment that selects the stub
 // provider at addr. Go's %q stands in for TOML string escaping, which holds for
