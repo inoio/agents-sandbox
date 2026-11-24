@@ -167,8 +167,12 @@ func journeyPairProblems(journey Journey, reasons map[string]string, registered 
 func TestAttributionJourneyRegistered(t *testing.T) {
 	for _, journey := range Journeys {
 		if journey.Name == attributionJourney.Name {
-			if !slices.Equal(journey.Harnesses, []string{opencode2AgentName}) {
-				t.Errorf("attribution journey harnesses = %v, want [%s]", journey.Harnesses, opencode2AgentName)
+			if !slices.Contains(journey.Harnesses, opencode2AgentName) {
+				t.Errorf(
+					"attribution journey harnesses = %v, want them to include %s",
+					journey.Harnesses,
+					opencode2AgentName,
+				)
 			}
 			return
 		}

@@ -40,7 +40,7 @@ var uc1Scope = ScopeWant{ManagedConfig: false, Placeholder: false}
 // choice turns learn mode on for the session through Outcome.Apply.
 var uc1Journey = Journey{
 	Name:      "uc1-learn-by-using",
-	Harnesses: []string{opencode2AgentName},
+	Harnesses: []string{opencode2AgentName, ohMyPiAgentName},
 	LearnMode: true,
 	Steps: []Step{
 		Given(StepFreshHome()),
@@ -48,6 +48,7 @@ var uc1Journey = Journey{
 		When(StepLaunch("run")),
 		Then(StepAssertFirstRunOffered(firstrun.ChoiceLearnByUsing)),
 		When(StepChooseFirstRun(firstrun.ChoiceLearnByUsing)),
+		And(StepExitHarnessSetup()),
 		Then(StepWaitReady()),
 		When(StepSendPrompt(uc1Prompt)),
 		And(StepQuit()),

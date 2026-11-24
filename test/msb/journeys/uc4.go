@@ -45,7 +45,7 @@ var uc4Scope = ScopeWant{ManagedConfig: true, Placeholder: true}
 // config's provider baseURL can carry the stub's runtime address.
 var uc4Journey = Journey{
 	Name:      "uc4-learn-from-host",
-	Harnesses: []string{opencode2AgentName},
+	Harnesses: []string{opencode2AgentName, ohMyPiAgentName},
 	LearnMode: true,
 	Steps: []Step{
 		Given(StepFreshHome()),
@@ -54,6 +54,7 @@ var uc4Journey = Journey{
 		When(StepLaunch("run")),
 		Then(StepAssertFirstRunOffered(firstrun.ChoiceLearnFromHost)),
 		When(StepChooseFirstRun(firstrun.ChoiceLearnFromHost)),
+		And(StepExitHarnessSetup()),
 		Then(StepWaitReady()),
 		When(StepSendPrompt(uc4Prompt)),
 		And(StepQuit()),

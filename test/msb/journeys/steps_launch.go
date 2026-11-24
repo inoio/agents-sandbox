@@ -138,6 +138,62 @@ func StepWaitReady() Step {
 	}}
 }
 
+// StepExitHarnessSetup leaves the harness's own first-start setup screen
+// (Driving.Setup), as a user on a fresh install would. It waits for that screen
+// or the harness's readiness marker, whichever comes first, so it does nothing
+// for a harness that skips its setup (the seeded host config turns it off) or
+// declares none.
+func StepExitHarnessSetup() Step {
+	return Step{Name: "the user leaves the harness's own setup, if it shows one", Run: func(c *Context) error {
+		setup := c.Harness.Drive.Setup
+		if setup == nil {
+			return nil
+		}
+		ses, err := session(c)
+		if err != nil {
+			return err
+		}
+		markers := []string{setup.Marker, c.Spec.ReadyMarker}
+		first, err := waitForFirstMarker(ses, markers, c.Spec.ReadyTimeout())
+		if err != nil || first != 0 {
+			return err
+		}
+		return ses.Write(setup.ExitKeys)
+	}}
+}
+
+// waitForFirstMarker waits until the session's output shows one of markers and
+// returns the index of the first one listed that it shows.
+func waitForFirstMarker(ses *driver.Session, markers []string, timeout time.Duration) (int, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		if index := firstShownMarker(string(ses.Output()), markers); index >= 0 {
+			return index, nil
+		}
+		if ses.HasExited() {
+			return -1, fmt.Errorf("the session exited before any of %q appeared (%s); output: %s",
+				markers, ses.ExitStatus(), ses.OutputTail())
+		}
+		if !time.Now().Before(deadline) {
+			return -1, fmt.Errorf("none of %q appeared within %s; output: %s", markers, timeout, ses.OutputTail())
+		}
+		//testenv:allow polling the harness output for its first screen
+		time.Sleep(stubPollInterval)
+	}
+}
+
+// firstShownMarker returns the index of the first of markers that output shows
+// (compared as driver.MarkerText), or -1. An empty marker never matches.
+func firstShownMarker(output string, markers []string) int {
+	text := driver.MarkerText(output)
+	for index, marker := range markers {
+		if needle := driver.MarkerText(marker); needle != "" && strings.Contains(text, needle) {
+			return index
+		}
+	}
+	return -1
+}
+
 // StepSendPrompt types prompt into the harness's editor, retyping it until the
 // harness echoes it (see typeUntilEchoed), and presses Enter.
 func StepSendPrompt(prompt string) Step {

@@ -67,7 +67,7 @@ var attributionScope = ScopeWant{ManagedConfig: false, Placeholder: false}
 // whether the observation saw the pair (see attributionScope).
 var attributionJourney = Journey{
 	Name:      "attribution-observed-pair",
-	Harnesses: []string{opencode2AgentName},
+	Harnesses: []string{opencode2AgentName, ohMyPiAgentName},
 	LearnMode: true,
 	Network:   driver.PublicNetwork,
 	Steps: []Step{
@@ -75,6 +75,7 @@ var attributionJourney = Journey{
 		And(StepSeedStub()),
 		And(StepSeedHostConfig(attributionHostConfig)),
 		When(StepLaunch("run", "--learn")),
+		And(StepExitHarnessSetup()),
 		Then(StepWaitReady()),
 		When(StepSendPrompt(attributionPrompt)),
 		And(StepQuit()),

@@ -5,12 +5,14 @@ Run `go test -tags microsandbox_ffi_path ./test/msb/journeys/ -run TestJourneyCa
 
 ## uc1-learn-by-using
 
-Runs on: opencode2
+Runs on: opencode2, oh-my-pi
 
 Not yet:
 
-- claude-code, codex, oh-my-pi, pi: learn mode on this harness lands with #852
+- claude-code: learn mode on this harness waits for the product: its read-back reads only the OAuth login store; settings.json, where an endpoint and key live, is neither read back nor seeded until #821
+- codex: learn mode on this harness waits for the product: its read-back reads only the auth.json login store, whose value is never read, and config.toml names no key, so no host-scoped credential is learned
 - goose, grok-build, hermes, kimi-code, mistral-vibe, opencode, qwen-code: learn mode on this harness lands with the full rollout, #794
+- pi: learn mode on this harness waits for the product: its read-back withholds models.json, where a custom provider's key lives, until provider headers are classified (#820, #849)
 
 ```gherkin
 Scenario: uc1-learn-by-using
@@ -19,6 +21,7 @@ Scenario: uc1-learn-by-using
   When the user runs `agents-sandbox run`
   Then the first-run menu offers learn-by-using
   When the user chooses learn-by-using in the first-run menu
+  And the user leaves the harness's own setup, if it shows one
   Then the harness TUI comes up
   When the user sends the prompt "hello"
   And the user quits the harness and the learn exit prompt appears
@@ -33,12 +36,14 @@ Scenario: uc1-learn-by-using
 
 ## uc4-learn-from-host
 
-Runs on: opencode2
+Runs on: opencode2, oh-my-pi
 
 Not yet:
 
-- claude-code, codex, oh-my-pi, pi: learn mode on this harness lands with #852
+- claude-code: learn mode on this harness waits for the product: its read-back reads only the OAuth login store; settings.json, where an endpoint and key live, is neither read back nor seeded until #821
+- codex: learn mode on this harness waits for the product: its read-back reads only the auth.json login store, whose value is never read, and config.toml names no key, so no host-scoped credential is learned
 - goose, grok-build, hermes, kimi-code, mistral-vibe, opencode, qwen-code: learn mode on this harness lands with the full rollout, #794
+- pi: learn mode on this harness waits for the product: its read-back withholds models.json, where a custom provider's key lives, until provider headers are classified (#820, #849)
 
 ```gherkin
 Scenario: uc4-learn-from-host
@@ -48,6 +53,7 @@ Scenario: uc4-learn-from-host
   When the user runs `agents-sandbox run`
   Then the first-run menu offers learn-from-host
   When the user chooses learn-from-host in the first-run menu
+  And the user leaves the harness's own setup, if it shows one
   Then the harness TUI comes up
   When the user sends the prompt "hello"
   And the user quits the harness and the learn exit prompt appears
@@ -60,18 +66,21 @@ Scenario: uc4-learn-from-host
 
 ## config-learn-replay
 
-Runs on: opencode2
+Runs on: opencode2, oh-my-pi
 
 Not yet:
 
-- claude-code, codex, oh-my-pi, pi: learn mode on this harness lands with #852
+- claude-code: learn mode on this harness waits for the product: its read-back reads only the OAuth login store; settings.json, where an endpoint and key live, is neither read back nor seeded until #821
+- codex: learn mode on this harness waits for the product: its read-back reads only the auth.json login store, whose value is never read, and config.toml names no key, so no host-scoped credential is learned
 - goose, grok-build, hermes, kimi-code, mistral-vibe, opencode, qwen-code: learn mode on this harness lands with the full rollout, #794
+- pi: learn mode on this harness waits for the product: its read-back withholds models.json, where a custom provider's key lives, until provider headers are classified (#820, #849)
 
 ```gherkin
 Scenario: config-learn-replay
   Given a fresh isolated home
   And the stub provider is provisioned into the VM
   And the user runs `agents-sandbox run --learn`
+  And the user leaves the harness's own setup, if it shows one
   And the harness TUI comes up
   And the user quits the harness and the learn exit prompt appears
   And the user answers the exit prompt with Not now
@@ -88,14 +97,16 @@ Scenario: config-learn-replay
 
 ## attribution-observed-pair
 
-Runs on: opencode2
+Runs on: opencode2, oh-my-pi
 
 Network profile: `public`
 
 Not yet:
 
-- claude-code, codex, oh-my-pi, pi: learn mode on this harness lands with #852
+- claude-code: learn mode on this harness waits for the product: its read-back reads only the OAuth login store; settings.json, where an endpoint and key live, is neither read back nor seeded until #821
+- codex: learn mode on this harness waits for the product: its read-back reads only the auth.json login store, whose value is never read, and config.toml names no key, so no host-scoped credential is learned
 - goose, grok-build, hermes, kimi-code, mistral-vibe, opencode, qwen-code: learn mode on this harness lands with the full rollout, #794
+- pi: learn mode on this harness waits for the product: its read-back withholds models.json, where a custom provider's key lives, until provider headers are classified (#820, #849)
 
 ```gherkin
 Scenario: attribution-observed-pair
@@ -103,6 +114,7 @@ Scenario: attribution-observed-pair
   And the stub provider is provisioned into the VM
   And the harness's own host config points at the stub
   When the user runs `agents-sandbox run --learn`
+  And the user leaves the harness's own setup, if it shows one
   Then the harness TUI comes up
   When the user sends the prompt "hello"
   And the user quits the harness and the learn exit prompt appears

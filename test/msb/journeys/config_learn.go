@@ -29,12 +29,13 @@ var configLearnScope = ScopeWant{ManagedConfig: false, Placeholder: true}
 // StepSeedLearnSession to copy.
 var configLearnJourney = Journey{
 	Name:      "config-learn-replay",
-	Harnesses: []string{opencode2AgentName},
+	Harnesses: []string{opencode2AgentName, ohMyPiAgentName},
 	LearnMode: true,
 	Steps: []Step{
 		Given(StepFreshHome()),
 		And(StepSeedStub()),
 		And(StepLaunch("run", "--learn")),
+		And(StepExitHarnessSetup()),
 		And(StepWaitReady()),
 		And(StepQuit()),
 		And(StepChooseExit(exitNotNowKey)),

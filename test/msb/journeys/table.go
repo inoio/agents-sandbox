@@ -14,10 +14,10 @@ var Journeys = []Journey{
 	proxySpikeJourney,
 }
 
-// learnSliceHarnesses are the harnesses the learn-mode journeys extend to in
-// the next slice (#852); learnRolloutHarnesses follow in the full rollout
-// (#794). The lists are explicit, so a newly registered agent is in neither and
-// fails the completeness contract until it is placed.
+// learnSliceHarnesses are the harnesses of the #852 slice; learnRolloutHarnesses
+// follow in the full rollout (#794). The lists are explicit, so a newly
+// registered agent is in neither and fails the completeness contract until it
+// is placed.
 var (
 	learnSliceHarnesses   = []string{"claude-code", "codex", "oh-my-pi", "pi"}
 	learnRolloutHarnesses = []string{
@@ -31,12 +31,27 @@ var (
 	}
 )
 
-// learnExemptions records why a learn-mode journey does not yet run on a
-// harness: the slice that will cover it.
+// learnBlockedHarnesses records why a slice harness is not driven by the
+// learn-mode journeys yet: in each, the read-back finds no host-scoped
+// credential to learn, so every learn journey's credential assertion would
+// fail on what the product does.
+var learnBlockedHarnesses = map[string]string{
+	"claude-code": "its read-back reads only the OAuth login store; settings.json, where an endpoint and key live, " +
+		"is neither read back nor seeded until #821",
+	"codex": "its read-back reads only the auth.json login store, whose value is never read, and config.toml " +
+		"names no key, so no host-scoped credential is learned",
+	"pi": "its read-back withholds models.json, where a custom provider's key lives, until provider headers " +
+		"are classified (#820, #849)",
+}
+
+// learnExemptions records why a learn-mode journey does not run on a harness:
+// the blocker for a slice harness, or the rollout that will cover it.
 func learnExemptions() map[string]string {
 	reasons := map[string]string{}
 	for _, name := range learnSliceHarnesses {
-		reasons[name] = "learn mode on this harness lands with #852"
+		if blocker, blocked := learnBlockedHarnesses[name]; blocked {
+			reasons[name] = "learn mode on this harness waits for the product: " + blocker
+		}
 	}
 	for _, name := range learnRolloutHarnesses {
 		reasons[name] = "learn mode on this harness lands with the full rollout, #794"
