@@ -84,12 +84,41 @@ func TestStubOAuthServerRunsTheAuthorizationCodeFlowWithPKCE(t *testing.T) {
 		"Bearer "+stub.Issued()[0])
 	body, _ := io.ReadAll(authorized.Body)
 	if authorized.StatusCode != http.StatusOK || !strings.Contains(string(body), `"protocolVersion":"2025-06-18"`) ||
-		stub.AuthorizedMCPCalls() != 1 {
-		t.Errorf("an authorized initialize = %d %s (%d authorized calls), want the server's answer",
+		len(stub.AuthorizedMCPCalls()) != 1 {
+		t.Errorf("an authorized initialize = %d %s (authorized calls %v), want the server's answer",
 			authorized.StatusCode, body, stub.AuthorizedMCPCalls())
 	}
-	if before := stub.ResetAuthorizedMCPCalls(); before != 1 || stub.AuthorizedMCPCalls() != 0 {
-		t.Errorf("reset returned %d and left %d, want 1 and 0", before, stub.AuthorizedMCPCalls())
+	if before := stub.ResetAuthorizedMCPCalls(); before != 1 || len(stub.AuthorizedMCPCalls()) != 0 {
+		t.Errorf("reset returned %d and left %v, want 1 and none", before, stub.AuthorizedMCPCalls())
+	}
+}
+
+func TestStubOAuthServerRefusesTokensItDidNotIssue(t *testing.T) {
+	stub, client := startTestOAuthServer(t)
+	unknown := mustPost(t, client, stub.MCPURL(), "application/json", strings.NewReader(`{}`), "Bearer forged")
+	if unknown.StatusCode != http.StatusUnauthorized || len(stub.AuthorizedMCPCalls()) != 0 {
+		t.Errorf("an unissued token got %d, want 401", unknown.StatusCode)
+	}
+	refresh := mustPost(t, client, stub.Origin()+"/token", "application/x-www-form-urlencoded",
+		strings.NewReader(url.Values{"grant_type": {"refresh_token"}, "refresh_token": {"forged"}}.Encode()))
+	if refresh.StatusCode != http.StatusBadRequest || len(stub.Issued()) != 0 {
+		t.Errorf("an unissued refresh token got %d and tokens %v, want a refusal", refresh.StatusCode, stub.Issued())
+	}
+}
+
+func TestLinkOriginProblemAcceptsOnlyTheStubsOrigin(t *testing.T) {
+	const origin = "http://host.microsandbox.internal:4242"
+	if problem := linkOriginProblem(origin+"/authorize?x=1", origin); problem != nil {
+		t.Errorf("the stub's link: %v", problem)
+	}
+	for _, link := range []string{
+		"https://auth.openai.com/oauth/authorize",
+		"http://host.microsandbox.internal:4243/authorize",
+		"https://host.microsandbox.internal:4242/authorize",
+	} {
+		if linkOriginProblem(link, origin) == nil {
+			t.Errorf("linkOriginProblem(%q) = nil, want a refusal", link)
+		}
 	}
 }
 

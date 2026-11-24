@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -259,6 +260,9 @@ func StepBrowserSignsIn() Step {
 		if c.Login == nil || c.OAuth == nil {
 			return errors.New("no login link or stub authorization server on the context")
 		}
+		if problem := linkOriginProblem(c.Login.Link, c.OAuth.Origin()); problem != nil {
+			return problem
+		}
 		timeout := driver.ScaleTimeout(loginCallbackTimeout, driver.SmokeTimeoutFactor())
 		back, err := authorizeRedirect(c.Login.Link, c.OAuth.LoopbackAddr(), timeout)
 		if err != nil {
@@ -299,6 +303,19 @@ func authorizeRedirect(link, loopback string, timeout time.Duration) (*url.URL, 
 		return nil, fmt.Errorf("the authorization server answered %d without a redirect: %w", response.StatusCode, err)
 	}
 	return location, nil
+}
+
+// linkOriginProblem reports a link whose origin is not origin, the stub
+// authorization server's, or nil: the browser signs in only there.
+func linkOriginProblem(link, origin string) error {
+	parsed, err := url.Parse(link)
+	if err != nil {
+		return fmt.Errorf("the opened link %q is not a URL: %w", link, err)
+	}
+	if got := parsed.Scheme + "://" + parsed.Host; got != origin {
+		return fmt.Errorf("the opened link %q is on %s, not the stub authorization server's %s", link, got, origin)
+	}
+	return nil
 }
 
 // loopbackDialer dials loopback whatever address a request names: the
@@ -555,6 +572,9 @@ func StepLaunchMCPLogin() Step {
 // only for a code whose PKCE verifier matches.
 func StepAssertMCPLoginCompleted() Step {
 	return Step{Name: "the MCP sign-in completes with a token exchange in the VM", Run: func(c *Context) error {
+		if c.OAuth == nil {
+			return errors.New("no stub authorization server on the context")
+		}
 		ses, err := session(c)
 		if err != nil {
 			return err
@@ -569,9 +589,10 @@ func StepAssertMCPLoginCompleted() Step {
 		if len(c.OAuth.Issued()) == 0 {
 			return fmt.Errorf("the stub issued no token (requests: %+v)", c.OAuth.Requests())
 		}
-		// Count only the calls after the sign-in, so a later check sees the
-		// stored login in use, not the sign-in's own call.
-		c.TB.Logf("authorized MCP calls during the sign-in: %d", c.OAuth.ResetAuthorizedMCPCalls())
+		// Keep the sign-in's tokens and record only the calls after it, so a
+		// later check sees the stored login in use, not the sign-in's own call.
+		c.SignInTokens = c.OAuth.Issued()
+		c.OAuth.ResetAuthorizedMCPCalls()
 		return nil
 	}}
 }
@@ -580,15 +601,25 @@ func StepAssertMCPLoginCompleted() Step {
 // after it started.
 const mcpCallTimeout = 30 * time.Second
 
-// StepAssertMCPCalledWithToken checks the harness called the stub's MCP server
-// with a token the stub issued since the sign-in completed: the stored MCP
-// login is in use.
+// StepAssertMCPCalledWithToken checks that, after the sign-in completed, the
+// harness called the stub's MCP server with a token the sign-in issued: the
+// stored MCP login is in use, not a later login or refresh.
 func StepAssertMCPCalledWithToken() Step {
-	return AsCheck(Step{Name: "the harness calls the MCP server with the issued token", Run: func(c *Context) error {
+	return AsCheck(Step{Name: "the harness calls the MCP server with the sign-in's token", Run: func(c *Context) error {
+		if c.OAuth == nil || len(c.SignInTokens) == 0 {
+			return errors.New("no completed MCP sign-in on the context")
+		}
 		deadline := time.Now().Add(driver.ScaleTimeout(mcpCallTimeout, driver.SmokeTimeoutFactor()))
-		for c.OAuth.AuthorizedMCPCalls() == 0 {
+		for !slices.ContainsFunc(c.OAuth.AuthorizedMCPCalls(), func(token string) bool {
+			return slices.Contains(c.SignInTokens, token)
+		}) {
 			if !time.Now().Before(deadline) {
-				return fmt.Errorf("no MCP call carried an issued token (requests: %+v)", c.OAuth.Requests())
+				return fmt.Errorf(
+					"no MCP call carried the sign-in's token %v (calls with issued tokens: %v; requests: %+v)",
+					c.SignInTokens,
+					c.OAuth.AuthorizedMCPCalls(),
+					c.OAuth.Requests(),
+				)
 			}
 			//testenv:allow polling the stub for the harness's MCP call
 			time.Sleep(stubPollInterval)

@@ -215,7 +215,7 @@ Scenario: harness-login
   # check
   And the harness starts signed in
   # check
-  And the harness calls the MCP server with the issued token
+  And the harness calls the MCP server with the sign-in's token
   When the user quits the harness and the launcher exits 0
 ```
 

@@ -45,9 +45,11 @@ type StubOAuthServer struct {
 
 	mu         sync.Mutex
 	requests   []StubOAuthRequest
+	codes      int
 	challenges map[string]string // authorization code -> PKCE S256 challenge
 	issued     []string
-	authorized int
+	refreshes  map[string]bool // refresh tokens issued and not yet used
+	authorized []string        // the tokens authorized MCP calls carried
 }
 
 // StartStubOAuthServer starts the stub on the host loopback; the VM reaches it
@@ -69,6 +71,7 @@ func StartStubOAuthServer(tb driver.TB) (*StubOAuthServer, error) {
 		port:       port,
 		vmOrigin:   stubOrigin() + ":" + port,
 		challenges: map[string]string{},
+		refreshes:  map[string]bool{},
 	}
 	stub.server = &http.Server{Handler: stub, ReadHeaderTimeout: stubReadHeaderTimeout}
 	tb.Cleanup(func() { _ = stub.server.Close() })
@@ -99,23 +102,27 @@ func (s *StubOAuthServer) Issued() []string {
 	return append([]string(nil), s.issued...)
 }
 
-// AuthorizedMCPCalls counts MCP requests that carried an issued token since
-// the last ResetAuthorizedMCPCalls.
-func (s *StubOAuthServer) AuthorizedMCPCalls() int {
+// AuthorizedMCPCalls returns the token each MCP request carried that the stub
+// had issued, since the last ResetAuthorizedMCPCalls.
+func (s *StubOAuthServer) AuthorizedMCPCalls() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.authorized
+	return append([]string(nil), s.authorized...)
 }
 
-// ResetAuthorizedMCPCalls starts the count of authorized MCP calls afresh and
-// returns the count so far, so a check counts only the calls after a point.
+// ResetAuthorizedMCPCalls starts the record of authorized MCP calls afresh and
+// returns how many there were, so a check sees only the calls after a point.
 func (s *StubOAuthServer) ResetAuthorizedMCPCalls() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	before := s.authorized
-	s.authorized = 0
+	before := len(s.authorized)
+	s.authorized = nil
 	return before
 }
+
+// Origin is the origin every endpoint is advertised under, as the VM reaches
+// it.
+func (s *StubOAuthServer) Origin() string { return s.vmOrigin }
 
 func (s *StubOAuthServer) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	s.mu.Lock()
@@ -184,8 +191,9 @@ func (s *StubOAuthServer) authorize(writer http.ResponseWriter, request *http.Re
 		http.Error(writer, "the authorize request needs a redirect_uri and a PKCE challenge", http.StatusBadRequest)
 		return
 	}
-	code := fmt.Sprintf("journeys-code-%d", len(s.Requests()))
 	s.mu.Lock()
+	s.codes++
+	code := fmt.Sprintf("journeys-code-%d", s.codes)
 	s.challenges[code] = query.Get("code_challenge")
 	s.mu.Unlock()
 	back := redirect.Query()
@@ -198,7 +206,7 @@ func (s *StubOAuthServer) authorize(writer http.ResponseWriter, request *http.Re
 }
 
 // token exchanges an authorization code whose PKCE verifier matches, or a
-// refresh token, for an access token.
+// refresh token it issued (once), for an access token.
 func (s *StubOAuthServer) token(writer http.ResponseWriter, request *http.Request) {
 	if err := request.ParseForm(); err != nil {
 		writeJSON(writer, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
@@ -215,12 +223,18 @@ func (s *StubOAuthServer) token(writer http.ResponseWriter, request *http.Reques
 		}
 		delete(s.challenges, request.PostForm.Get("code"))
 	case "refresh_token":
+		if !s.refreshes[request.PostForm.Get("refresh_token")] {
+			writeJSON(writer, http.StatusBadRequest, map[string]string{"error": "invalid_grant"})
+			return
+		}
+		delete(s.refreshes, request.PostForm.Get("refresh_token"))
 	default:
 		writeJSON(writer, http.StatusBadRequest, map[string]string{"error": "unsupported_grant_type"})
 		return
 	}
 	token := fmt.Sprintf("journeys-token-%d", len(s.issued)+1)
 	s.issued = append(s.issued, token)
+	s.refreshes[token+"-refresh"] = true
 	writeJSON(writer, http.StatusOK, map[string]any{
 		"access_token":  token,
 		"token_type":    "Bearer",
@@ -243,7 +257,7 @@ func (s *StubOAuthServer) mcp(writer http.ResponseWriter, request *http.Request)
 	s.mu.Lock()
 	known := token != "" && slices.Contains(s.issued, token)
 	if known {
-		s.authorized++
+		s.authorized = append(s.authorized, token)
 	}
 	s.mu.Unlock()
 	if !known {

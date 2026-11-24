@@ -41,6 +41,9 @@ type Context struct {
 	// OAuth is set by StepStartStubOAuthServer: the authorization server and
 	// MCP server the journey's harness signs in to.
 	OAuth *StubOAuthServer
+	// SignInTokens are the access tokens the stub issued by the time the MCP
+	// sign-in completed (StepAssertMCPLoginCompleted).
+	SignInTokens []string
 	// Callback is set by StepBrowserReturnsToCallback or StepBrowserSignsIn: the host forwarder's
 	// answer to the browser's return to the callback.
 	Callback *CallbackAnswer

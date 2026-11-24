@@ -358,7 +358,7 @@ in seconds on the shared project and assert only state in their own HOME.
 `harness-login` covers a harness's own logins through the sandbox without a real account; a real provider
 login stays in the exploratory tier. It runs on its own project, so the logins it stores stay out of the
 shared home volume, and under `host`, which admits only the host gateway (disjoint from `public`), so no
-step reaches a real provider. On codex (its browser login has no paste fallback, so the forward is its
+connection reaches a real provider (DNS queries still resolve upstream). On codex (its browser login has no paste fallback, so the forward is its
 only way back):
 
 - **Link to the host.** The journey's launcher finds a fake host opener first on `PATH` (named like the
@@ -373,7 +373,8 @@ only way back):
   whole flow: the MCP endpoint's 401 names the protected-resource metadata, the harness registers a client,
   the opener hands the authorize link to the fake browser, which follows the server's redirect to the
   callback on the host loopback, the forwarder replays it into the VM, and the harness exchanges the code
-  with its PKCE verifier (the stub issues a token only for a matching one). Every endpoint is on the host
+  with its PKCE verifier (the stub issues a token only for a matching one, and refreshes only a refresh
+  token it issued). The fake browser follows only a link on the stub's origin. Every endpoint is on the host
   gateway's origin (codex refuses an authorize endpoint on another origin); the opener takes that name for
   a remote host, and only the fake browser resolves it to the host loopback.
 - **Both logins persist.** An API-key login typed into `agents-sandbox shell` (codex takes the key only
@@ -381,7 +382,7 @@ only way back):
   re-provision them and mask a loss. After `agents-sandbox stop`, the harness reports the login from the
   shell (`Login.Status`, exit 0), the next run starts without the sign-in screen (`Login.SignInMarker`;
   the composer is painted behind it, so readiness says nothing), and the harness calls the MCP server with
-  the issued token. Only calls after the sign-in count; codex makes none during it. Without the API-key
+  a token the sign-in issued; only calls after the sign-in count. Without the API-key
   login, both of its checks fail, which is how they were validated.
 
 The harness facts are the adapter's `Login` group; a harness without it is exempted.
