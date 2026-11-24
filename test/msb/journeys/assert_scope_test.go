@@ -68,7 +68,11 @@ func TestStepAssertScopeExcludesHostLoginStore(t *testing.T) {
 }
 
 func TestScopeWantResolvesAgainstTheHarnesssLearnFacts(t *testing.T) {
-	learn := LearnFacts{CredentialEnvVar: "STUB_API_KEY", ManagedConfigKeys: []string{"baseURL"}}
+	learn := LearnFacts{
+		CredentialEnvVar:             "STUB_API_KEY",
+		ManagedConfigKeys:            []string{"baseURL"},
+		ManagedConfigHoldsCredential: true,
+	}
 
 	bare := ScopeWant{ManagedConfig: false, Placeholder: false}.expectation(learn)
 	if bare.envVar != "STUB_API_KEY" || !slices.Equal(bare.hosts, []string{stubHost}) || bare.configKeys != nil ||
@@ -78,6 +82,13 @@ func TestScopeWantResolvesAgainstTheHarnesssLearnFacts(t *testing.T) {
 	full := ScopeWant{ManagedConfig: true, Placeholder: true}.expectation(learn)
 	if !slices.Equal(full.configKeys, []string{"baseURL"}) || !full.placeholder {
 		t.Errorf("full expectation = %+v, want the adapter's keys and the placeholder", full)
+	}
+	learn.ManagedConfigHoldsCredential = false
+	if keyless := (ScopeWant{ManagedConfig: true, Placeholder: true}).expectation(learn); keyless.placeholder {
+		t.Errorf(
+			"expectation for a harness whose managed config holds no credential = %+v, want no placeholder",
+			keyless,
+		)
 	}
 }
 

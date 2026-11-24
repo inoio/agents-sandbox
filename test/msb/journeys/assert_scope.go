@@ -35,7 +35,8 @@ type scopeExpectation struct {
 	placeholder bool
 }
 
-// expectation resolves want against learn for the stub's advertised host.
+// expectation resolves want against learn for the stub's advertised host: the
+// placeholder only where the harness's managed config can hold the credential.
 func (want ScopeWant) expectation(learn LearnFacts) scopeExpectation {
 	var configKeys []string
 	if want.ManagedConfig {
@@ -45,7 +46,7 @@ func (want ScopeWant) expectation(learn LearnFacts) scopeExpectation {
 		envVar:      learn.CredentialEnvVar,
 		hosts:       []string{stubHost},
 		configKeys:  configKeys,
-		placeholder: want.Placeholder,
+		placeholder: want.Placeholder && learn.ManagedConfigHoldsCredential,
 	}
 }
 

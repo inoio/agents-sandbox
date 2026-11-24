@@ -50,8 +50,9 @@ var opencode2Harness = Harness{
 		// The read-back derives <PROVIDERID>_API_KEY from a literal
 		// provider.<id>.options.apiKey, and a copied provider block keeps its
 		// baseURL and npm keys.
-		CredentialEnvVar:  stubCredentialEnvVar,
-		ManagedConfigKeys: []string{"baseURL", "npm"},
+		CredentialEnvVar:             stubCredentialEnvVar,
+		ManagedConfigKeys:            []string{"baseURL", "npm"},
+		ManagedConfigHoldsCredential: true,
 	},
 }
 

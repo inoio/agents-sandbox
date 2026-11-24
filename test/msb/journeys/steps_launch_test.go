@@ -137,3 +137,34 @@ func TestStepSeedHostConfigReportsTheBuildersError(t *testing.T) {
 		t.Errorf("error = %v, want the missing learn facts named", err)
 	}
 }
+
+// The setup step decides by whichever screen shows first: the setup marker
+// (then it leaves the setup) or the readiness marker (then it does nothing).
+func TestFirstShownMarkerPicksTheFirstListedMarkerTheOutputShows(t *testing.T) {
+	markers := []string{"Ctrl+C exit setup", "📁 /workspace"}
+	cases := map[string]struct {
+		output string
+		want   int
+	}{
+		"the setup screen":         {output: "↑/↓ select · \x1b[1mCtrl+C\x1b[0m exit setup", want: 0},
+		"the editor":               {output: "status 📁  /workspace", want: 1},
+		"neither yet":              {output: "booting", want: -1},
+		"both, setup listed first": {output: "Ctrl+C exit setup … 📁 /workspace", want: 0},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := firstShownMarker(tc.output, markers); got != tc.want {
+				t.Errorf("firstShownMarker(%q) = %d, want %d", tc.output, got, tc.want)
+			}
+		})
+	}
+	if got := firstShownMarker("anything", []string{""}); got != -1 {
+		t.Errorf("an empty marker matched (%d); it must never match", got)
+	}
+}
+
+func TestStepExitHarnessSetupDoesNothingForAHarnessWithoutOne(t *testing.T) {
+	if err := StepExitHarnessSetup().Run(&Context{TB: t, Agent: opencode2AgentName, Harness: opencode2Harness}); err != nil {
+		t.Errorf("StepExitHarnessSetup without a setup screen = %v, want nil before touching the session", err)
+	}
+}

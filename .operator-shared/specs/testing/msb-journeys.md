@@ -229,19 +229,41 @@ source of truth and its steps are type-checked. It reads as Gherkin anyway:
   (`driver.Spec`, shared with the startup smoke) lives in its `Harness` adapter (`Harnesses`), in three parts:
   `Stub` (how it reaches the stub: `HomeFiles` through the `home:` manifest, `Env` through the launcher env file,
   `Snippets` merged into its own config), `Drive` (how a journey drives its TUI: `ReadyMarker`, `LaunchArgs`,
-  `ResumeArgs`, `WriteFileCall`), and `Learn` (what learn mode finds: its host config and login store, the
-  credential env var the read-back derives, the managed-config keys; nil without learn coverage). A learn journey
+  `ResumeArgs`, `WriteFileCall`, and `Setup`, the harness's own first-start screen), and `Learn` (what learn mode
+  finds: its host config and credential store, the credential env var the read-back derives, the managed-config
+  keys, whether the managed config can hold the credential; nil without learn coverage). A learn journey
   (`LearnMode`) says only which evidence its path produces (`ScopeWant`: config keys, placeholder); the values come
-  from `Learn`, and the completeness test requires `Learn` for every harness a learn journey lists. A step or
+  from `Learn`, and a placeholder is expected only where `ManagedConfigHoldsCredential` says the harness's managed
+  config can hold one, and the completeness test requires `Learn` for every harness a learn journey lists. A step or
   journey carries no harness's path or format literal: the scope checks read every config dir of the agent,
   recursively (skipping `node_modules`), and the login-store check fails on the store's file name or its
   content under any name (so a store fixture holds no static value the host seed would rewrite). A flagless command such as
   `config learn` gets the journey's agent through `AGENTS_SANDBOX_AGENT`. The adapter grows a field only when a
   journey needs it.
 
-The learn-mode journeys cover **opencode2 only** so far, the S1-verified profile with its SQLite credential
-probe; core-session covers opencode2, claude-code, codex, pi, and oh-my-pi. Learn mode on claude-code, codex,
-pi, and oh-my-pi is #852; the rest is #794.
+The learn-mode journeys cover **opencode2 and oh-my-pi**; core-session covers opencode2, claude-code, codex, pi,
+and oh-my-pi. The rest of the #852 slice is blocked by the product, not the suite: on claude-code, codex, and pi
+the read-back finds no host-scoped credential to learn (the exemption reasons in `table.go` name each blocker:
+#821, #873, #820/#849). The rollout harnesses are #794.
+
+### Learn mode beyond opencode2: oh-my-pi (#852)
+
+A learn journey keeps the launcher unconfigured so the first-run menu appears, so it cannot use a harness's
+journey snippet (`Stub.Snippets` is a managed layer). Two adapter facts followed, no harness branch:
+
+- **`Drive.Setup`.** Without its snippet, oh-my-pi opens its setup wizard; `StepExitHarnessSetup` waits for
+  the setup marker or the readiness marker, whichever shows first, and leaves the wizard with its exit key, as a
+  user on a fresh install would. It does nothing where the seeded host config turns the wizard off (UC4) or the
+  harness declares no setup.
+- **`Learn.ManagedConfigHoldsCredential`.** oh-my-pi's provider and key live in `models.yml`, which the read-back
+  reads but neither the host seed nor the write-back copies; its seedable host config is the settings file.
+  So the credential is learned into `env.secret.yaml` while the managed config never carries the placeholder,
+  and its UC4 covers the seed's copy of a credential-free settings file (the credential comes from the
+  session's read-back, as in UC1). Its credential store fixture is the dotenv, which the seed never selects; the
+  exclusion check guards that.
+- **The setup step distrusts a stale marker.** The output buffer keeps everything, so when the readiness marker
+  shows first the step lets the output settle before deciding there is no setup, and after the exit keys it
+  waits for the readiness marker in the output written since.
 
 ### Checkpoint 1: claude-code (the abstraction held)
 

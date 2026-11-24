@@ -1,5 +1,7 @@
 package journeys
 
+import "github.com/inoio/agents-sandbox/test/msb/driver"
+
 // The pi family's agent names: pi and its fork oh-my-pi.
 const (
 	piAgentName     = "pi"
@@ -40,7 +42,22 @@ func ohMyPiHarness() Harness {
 		return map[string]string{ohMyPiSetupSnippet: ohMyPiSetupConfig}
 	}
 	harness.Drive.ReadyMarker = ohMyPiStatusLineMarker
+	harness.Drive.Setup = &SetupScreen{Marker: ohMyPiSetupExitHint, ExitKeys: []byte{driver.CtrlC}}
 	harness.Drive.LaunchArgs = append(harness.Drive.LaunchArgs, "--smol", stubProviderID+"/"+stubTitleModel)
+	harness.Learn = &LearnFacts{
+		// The seedable host config is the settings file. The provider and its
+		// key stay in models.yml, which neither the seed nor the write-back
+		// copies (so the managed config never holds the credential); the
+		// read-back reads it from the stub's provisioned file.
+		HostConfig: func(string) map[string]string {
+			return map[string]string{ohMyPiConfigPath: ohMyPiSetupConfig}
+		},
+		HostLoginStore: map[string]string{ohMyPiDotenvPath: ohMyPiDotenvContent},
+		// The read-back derives <PROVIDERID>_API_KEY from the stub provider's
+		// literal apiKey in models.yml.
+		CredentialEnvVar:  stubCredentialEnvVar,
+		ManagedConfigKeys: []string{"setupWizard", "predictions"},
+	}
 	return harness
 }
 
@@ -78,6 +95,20 @@ func piModelsDocument(addr string) string {
 		},
 	})
 }
+
+// oh-my-pi's settings file and its dotenv, home-relative. The host seed never
+// selects the dotenv (its provision rules name only the settings file), so the
+// exclusion check guards that choice against regression; the journey's dotenv
+// holds no value, so the check can match its content.
+const (
+	ohMyPiConfigPath    = ".omp/agent/config.yml"
+	ohMyPiDotenvPath    = ".omp/agent/.env"
+	ohMyPiDotenvContent = "# oh-my-pi journeys dotenv\n"
+)
+
+// ohMyPiSetupExitHint is the key hint oh-my-pi's setup wizard shows on every
+// scene; Ctrl+C leaves the whole wizard.
+const ohMyPiSetupExitHint = "Ctrl+C exit setup"
 
 // ohMyPiStatusLineMarker is the workspace segment of oh-my-pi's status line, which it
 // draws once its editor is up; the hint beside it rotates, so it is no marker.
