@@ -49,6 +49,9 @@ func StepConfigureLauncherEnv() Step {
 		if c.Harness.Stub.Env != nil {
 			maps.Copy(vars, c.Harness.Stub.Env(c.Stub.Addr()))
 		}
+		if stubCA(c) != nil {
+			vars[stubCAEnv] = stubCAGuestPath
+		}
 		if err := driver.SeedLauncherEnv(c.Home, vars); err != nil {
 			return err
 		}

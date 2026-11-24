@@ -1,6 +1,7 @@
 package journeys
 
 import (
+	"crypto/x509"
 	"io"
 	"net/http"
 	"net/url"
@@ -13,7 +14,7 @@ import (
 // on its loopback listener, as the VM reaches the host gateway.
 func startTestOAuthServer(t *testing.T) (*StubOAuthServer, *http.Client) {
 	t.Helper()
-	stub, err := StartStubOAuthServer(t)
+	stub, err := StartStubOAuthServer(t, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +46,7 @@ func TestStubOAuthServerRunsTheAuthorizationCodeFlowWithPKCE(t *testing.T) {
 		"code_challenge":        {pkceChallenge(verifier)},
 		"code_challenge_method": {"S256"},
 	}.Encode()
-	back, err := authorizeRedirect(authorize, stub.LoopbackAddr(), 5*time.Second)
+	back, err := authorizeRedirect(authorize, stub.LoopbackAddr(), nil, 5*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,4 +129,31 @@ func mustPost(t *testing.T, client *http.Client, target, contentType string, bod
 	}
 	t.Cleanup(func() { _ = response.Body.Close() })
 	return response
+}
+
+// An HTTPS stub serves on the VM's name for the host with a certificate its
+// own test CA issued, which a client trusting that CA accepts.
+func TestStubOAuthServerServesHTTPSUnderItsTestCA(t *testing.T) {
+	stub, err := StartStubOAuthServer(t, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(stub.Origin(), "https://"+stubGatewayHost+":") || len(stub.CAPEM()) == 0 {
+		t.Fatalf(
+			"origin %q, CA %d bytes; want https on %s with a CA",
+			stub.Origin(),
+			len(stub.CAPEM()),
+			stubGatewayHost,
+		)
+	}
+	authorize := stub.Origin() + "/authorize?" + url.Values{
+		"redirect_uri":   {"http://127.0.0.1:4242/callback"},
+		"code_challenge": {pkceChallenge("verifier")},
+	}.Encode()
+	if _, err := authorizeRedirect(authorize, stub.LoopbackAddr(), stub.rootCAs(), 5*time.Second); err != nil {
+		t.Errorf("a client trusting the test CA: %v", err)
+	}
+	if _, err := authorizeRedirect(authorize, stub.LoopbackAddr(), x509.NewCertPool(), 5*time.Second); err == nil {
+		t.Error("a client trusting nothing reached the HTTPS stub")
+	}
 }

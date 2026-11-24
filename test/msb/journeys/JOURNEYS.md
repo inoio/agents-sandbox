@@ -183,7 +183,7 @@ Scenario: core-session
 
 Runs on: codex
 
-Network profile: `host`
+Network profile: `none`
 
 Not yet:
 
@@ -195,7 +195,6 @@ Scenario: harness-login
   And a fresh isolated home
   And the launcher is configured
   And the host's browser is a recorder
-  And an MCP server behind an OAuth authorization server is in the harness's config
   When the user starts the harness's browser login
   Then the host's browser opens the login link, which names a callback in the VM
   When the browser returns to the callback after the sign-in
@@ -203,17 +202,41 @@ Scenario: harness-login
   Then the callback reaches the harness in the VM, behind the host boundary
   And the login command ends
   When the user signs the harness in with an API key from the shell
-  And the user signs the harness in to the MCP server
-  Then the host's browser opens the login link, which names a callback in the VM
-  When the user signs in at the authorization server in the browser
-  Then the MCP sign-in completes with a token exchange in the VM
-  When the user stops the project VM
+  And the user stops the project VM
   # check
   Then the harness reports the stored login from the shell
   When the user runs `agents-sandbox run`
   Then the harness TUI comes up
   # check
   And the harness starts signed in
+  When the user quits the harness and the launcher exits 0
+```
+
+## mcp-oauth-login
+
+Runs on: codex, claude-code, opencode2
+
+Network profile: `host`
+
+Not yet:
+
+- goose, grok-build, hermes, kimi-code, mistral-vibe, oh-my-pi, opencode, pi, qwen-code: the MCP sign-in journey covers this harness once its MCP facts are recorded (#875)
+
+```gherkin
+Scenario: mcp-oauth-login
+  Given the journey runs on a project of its own (mcp)
+  And a fresh isolated home
+  And the host's browser is a recorder
+  And an MCP server behind an OAuth authorization server is declared for the harness
+  And the stub provider is provisioned into the VM
+  And the launcher is configured with the harness's stub settings
+  When the user signs the harness in to the MCP server
+  Then the host's browser opens the login link, which names a callback in the VM
+  When the user signs in at the authorization server in the browser
+  Then the MCP sign-in completes with a token exchange in the VM
+  When the user stops the project VM
+  And the user runs `agents-sandbox run`
+  Then the harness TUI comes up
   # check
   And the harness calls the MCP server with the sign-in's token
   When the user quits the harness and the launcher exits 0

@@ -3,6 +3,8 @@ package journeys
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -141,13 +143,18 @@ type CallbackAnswer struct {
 }
 
 // authorizeRedirect opens link with the browser's request, dialing loopback for
-// every host (the stub's authorize endpoint is the link's only host), and
-// returns where the authorization server sends the browser back.
-func authorizeRedirect(link, loopback string, timeout time.Duration) (*url.URL, error) {
+// every host (the stub's authorize endpoint is the link's only host) and
+// trusting roots for an HTTPS stub (nil: the system's), and returns where the
+// authorization server sends the browser back.
+func authorizeRedirect(link, loopback string, roots *x509.CertPool, timeout time.Duration) (*url.URL, error) {
 	client := &http.Client{
 		Timeout:       timeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-		Transport:     &http.Transport{Proxy: nil, DialContext: loopbackDialer(loopback)},
+		Transport: &http.Transport{
+			Proxy:           nil,
+			DialContext:     loopbackDialer(loopback),
+			TLSClientConfig: &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12},
+		},
 	}
 	//nolint:noctx // the client's timeout bounds the request
 	response, err := client.Get(link)

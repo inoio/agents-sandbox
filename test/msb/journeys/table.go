@@ -12,6 +12,7 @@ var Journeys = []Journey{
 	attributionJourney,
 	coreSessionJourney,
 	loginJourney,
+	mcpLoginJourney,
 	proxySpikeJourney,
 }
 
@@ -69,6 +70,7 @@ const (
 	rolloutLearnReason     = "learn mode on this harness lands with the full rollout, #794"
 	rolloutCoreReason      = "core session on this harness lands with the full rollout, #794"
 	loginReason            = "the login journey starts with codex; other harnesses follow (#875)"
+	mcpLoginReason         = "the MCP sign-in journey covers this harness once its MCP facts are recorded (#875)"
 	proxySpikeExemptReason = "the proxy spike asks whether a stub route passes the learn proxy, which one harness answers (#793)"
 )
 
@@ -83,5 +85,6 @@ var Exemptions = map[string]map[string]string{
 	attributionJourney.Name: exemptionsFor(attributionJourney, rolloutLearnReason, learnBlockers),
 	coreSessionJourney.Name: exemptionsFor(coreSessionJourney, rolloutCoreReason, nil),
 	loginJourney.Name:       exemptionsFor(loginJourney, loginReason, nil),
+	mcpLoginJourney.Name:    exemptionsFor(mcpLoginJourney, mcpLoginReason, nil),
 	proxySpikeJourney.Name:  exemptionsFor(proxySpikeJourney, proxySpikeExemptReason, nil),
 }

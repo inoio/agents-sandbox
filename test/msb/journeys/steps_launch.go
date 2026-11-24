@@ -73,6 +73,9 @@ func StepSeedStub() Step {
 		if c.Harness.Stub.HomeFiles != nil {
 			seeds = seeds.Merge(driver.Seeds{HomeManifest: c.Harness.Stub.HomeFiles(provider.Addr())})
 		}
+		if ca := stubCA(c); ca != nil {
+			seeds = seeds.Merge(driver.Seeds{HomeManifest: map[string]string{stubCAHomePath: string(ca)}})
+		}
 		if err := seeds.Apply(c.Home, ""); err != nil {
 			return fmt.Errorf("seed the home: %w", err)
 		}

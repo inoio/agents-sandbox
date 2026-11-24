@@ -239,7 +239,7 @@ source of truth and its steps are type-checked. It reads as Gherkin anyway:
   journey needs it.
 
 The learn-mode journeys cover **opencode2 and oh-my-pi**; core-session covers opencode2, claude-code, codex,
-pi, oh-my-pi, and hermes; the login journey covers codex. The rest of the #852 slice is blocked by the
+pi, oh-my-pi, and hermes; the login journeys cover codex, and the MCP sign-in also claude-code and opencode2. The rest of the #852 slice is blocked by the
 product, not the suite: on claude-code, codex, and pi
 the read-back finds no host-scoped credential to learn (the exemption reasons in `table.go` name each blocker:
 #821, #873, #820/#849). The rollout harnesses are #794.
@@ -335,39 +335,46 @@ harness's tool schema names (read from a recorded request). The journey runs on 
 under the `host` profile the stub route needs. Per-journey projects stay opt-in: the learn-mode journeys run
 in seconds on the shared project and assert only state in their own HOME.
 
-### The login journey (#875)
+### The login journeys (#875)
 
-`harness-login` covers a harness's own logins through the sandbox without a real account; a real provider
-login stays in the exploratory tier. It runs on its own project, so the logins it stores stay out of the
-shared home volume, and under `host`, which admits only the host gateway (disjoint from `public`), so no
-connection reaches a real provider (DNS queries still resolve upstream). On codex (its browser login has no paste fallback, so the forward is its
-only way back):
+Two journeys cover a harness's own logins through the sandbox without a real account; a real provider login
+stays in the exploratory tier. Each runs on its own project, so the logins it stores stay out of the shared
+home volume. The journey's launcher finds a fake host opener first on `PATH` (named like the opener's command:
+`xdg-open`, `open` on macOS) that records links instead of opening them, so no run opens a real browser; each
+login link must reach it unchanged and name a loopback `redirect_uri`.
 
-- **Link to the host.** The journey's launcher finds a fake host opener first on `PATH` (named like the
-  opener's command: `xdg-open`, `open` on macOS). It records the links instead of opening them, so no run
-  opens a real browser. Each login link must reach it unchanged and name a loopback `redirect_uri`.
-- **Return leg.** For the provider login, the journey requests that callback on the host's loopback with
-  the link's `state` and a dummy code. The answer must be the harness's own page (`Login.CallbackMarker`,
-  which the forwarder's own answers lack) behind the host boundary: a sandboxing CSP and no `Set-Cookie`.
-  The harness's token exchange then fails; that is expected.
-- **A full OAuth login.** A stub authorization server on the host (`StubOAuthServer`) guards a stub MCP
-  server the harness's config declares (`Login.MCPServer`). The MCP sign-in (`Login.MCPLoginArgs`) runs the
-  whole flow: the MCP endpoint's 401 names the protected-resource metadata, the harness registers a client,
-  the opener hands the authorize link to the fake browser, which follows the server's redirect to the
-  callback on the host loopback, the forwarder replays it into the VM, and the harness exchanges the code
-  with its PKCE verifier (the stub issues a token only for a matching one, and refreshes only a refresh
-  token it issued). The fake browser follows only a link on the stub's origin. Every endpoint is on the host
-  gateway's origin (codex refuses an authorize endpoint on another origin); the opener takes that name for
-  a remote host, and only the fake browser resolves it to the host loopback.
-- **Both logins persist.** An API-key login typed into `agents-sandbox shell` (codex takes the key only
-  from a pipe) and the MCP token live in the VM's home, outside the `home:` manifest, which would
-  re-provision them and mask a loss. After `agents-sandbox stop`, the harness reports the login from the
-  shell (`Login.Status`, exit 0), the next run starts without the sign-in screen (`Login.SignInMarker`;
-  the composer is painted behind it, so readiness says nothing), and the harness calls the MCP server with
-  a token the sign-in issued; only calls after the sign-in count. Without the API-key
-  login, both of its checks fail, which is how they were validated.
+**`harness-login`** (codex; `Login` facts) runs without egress:
 
-The harness facts are the adapter's `Login` group; a harness without it is exempted.
+- **Return leg.** The journey requests the provider login's callback on the host's loopback with the link's
+  `state` and a dummy code. The answer must be the harness's own page (`Login.CallbackMarker`, which the
+  forwarder's own answers lack) behind the host boundary: a sandboxing CSP and no `Set-Cookie`. The harness's
+  token exchange then fails; that is expected.
+- **Login persistence.** An API-key login typed into `agents-sandbox shell` writes the login store in the VM's
+  home, outside the `home:` manifest, which would re-provision it and mask a loss. After `agents-sandbox stop`,
+  the harness reports the login (`Login.Status`, exit 0) and starts without its sign-in screen
+  (`Login.SignInMarker`). Without the login both checks fail, which is how they were validated.
+
+**`mcp-oauth-login`** (codex, claude-code, opencode2; `MCP` facts) runs under `host`, which admits only the host
+gateway (disjoint from `public`), so no connection reaches a real provider (DNS queries still resolve upstream):
+
+- **A full OAuth login.** A stub authorization server on the host (`StubOAuthServer`) guards a stub MCP server
+  the harness's way declares (`MCP.Snippets`, `MCP.ProjectFiles`; claude-code reads its servers from the
+  project's `.mcp.json`). The harness's sign-in runs the whole flow: the MCP endpoint's 401 names the
+  protected-resource metadata, the harness registers a client, the opener hands the authorize link to the fake
+  browser, which follows the server's redirect to the callback on the host loopback, the forwarder replays it
+  into the VM, and the harness exchanges the code with its PKCE verifier (the stub issues a token only for a
+  matching one, and refreshes only a refresh token it issued). The fake browser follows only a link on the
+  stub's origin.
+- **Every endpoint is on the host gateway's origin** (codex refuses an authorize endpoint on another origin); the
+  opener takes that name for a remote host, and only the fake browser resolves it to the host loopback.
+- **TLS where the harness insists.** claude-code and opencode2 send OAuth credentials only over HTTPS (loopback
+  exempt), so for them (`MCP.TLS`) the stub serves HTTPS with a fresh test CA: the journey provisions the CA
+  through the `home:` manifest and points `NODE_EXTRA_CA_CERTS` (Node and Bun) at it through the env file, and
+  the fake browser trusts it too. codex accepts the plain-HTTP stub.
+- **Sign-in in the shell where `run` cannot pass a subcommand** (`MCP.LoginCommand`): opencode2's attach command
+  puts the working directory before any argument, and claude-code's `LaunchArgs` precede it.
+- **The token persists.** After `agents-sandbox stop` the next run calls the MCP server with a token the
+  sign-in issued; only calls after the sign-in count.
 
 ### Production-closure gate
 

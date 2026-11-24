@@ -129,7 +129,7 @@ func StepBrowserSignsIn() Step {
 			return problem
 		}
 		timeout := scaled(loginCallbackTimeout)
-		back, err := authorizeRedirect(c.Login.Link, c.OAuth.LoopbackAddr(), timeout)
+		back, err := authorizeRedirect(c.Login.Link, c.OAuth.LoopbackAddr(), c.OAuth.rootCAs(), timeout)
 		if err != nil {
 			return err
 		}
