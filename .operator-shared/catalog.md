@@ -48,8 +48,8 @@
   - Description: Verdict, with primary sources: GitHub ignores `.gitattributes` merge drivers server-side, so `CHANGELOG.md merge=union` does not resolve a conflict.
   - Read If: Considering `merge=union`, a custom merge driver, or any `.gitattributes` merge attribute to auto-resolve conflicts on GitHub; or explaining why a server-side conflict persists when the CLI git merges cleanly.
 - `guides/github-pr-workflow.md`
-  - Description: The PR mechanics `guides/github-issue-workflow.md` does not cover: landing through the `main` merge queue, the `GITHUB_TOKEN` bot-PR approval, and naming a changelog fragment's slug.
-  - Read If: Opening, merging, or troubleshooting a PR; enqueueing one into the merge queue; a bot PR that reports no checks; or naming a `changelog.d/` fragment before the PR number is known.
+  - Description: The PR mechanics `guides/github-issue-workflow.md` does not cover: landing through the `main` merge queue (also a stack of PRs, bottom-up), the `GITHUB_TOKEN` bot-PR approval, and naming a changelog fragment's slug.
+  - Read If: Opening, merging, or troubleshooting a PR; enqueueing one into the merge queue or landing stacked PRs; a bot PR that reports no checks; or naming a `changelog.d/` fragment before the PR number is known.
 - `guides/go-version-support.md`
   - Description: The module's minimum Go version and why it cannot be lower, with the evidence and primary sources.
   - Read If: Changing the `go` directive, `.go-version`, or a Go pin; asking whether a lower Go version can be advertised; or diagnosing a dependency/promoted-field/GOTOOLCHAIN "requires a newer Go" error.

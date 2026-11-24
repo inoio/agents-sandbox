@@ -16,6 +16,114 @@ import (
 // in the canned gh responses.
 func TestEnqueuePr(t *testing.T) {
 	t.Parallel()
+	t.Run("usage errors", func(t *testing.T) {
+		t.Parallel()
+		h := newEnqueuePrHarness(t)
+		for name, args := range map[string][]string{
+			"no PR":                 {},
+			"two PRs without stack": {"41", "42"},
+			"stack without PRs":     {"--stack"},
+			"not a number":          {"--stack", "41", "x"},
+		} {
+			if result := h.run(`{}`, nil, nil, args...); result.Status != 2 {
+				t.Errorf("%s: exit %d, want 2", name, result.Status)
+			}
+		}
+	})
+
+	t.Run("stack lands bottom-up, retargeting the upper PR", func(t *testing.T) {
+		t.Parallel()
+		h := newEnqueuePrHarness(t)
+
+		result := h.runStack(map[string]string{
+			"41": `{"state":"OPEN","id":"PR_41","baseRefName":"main","headRefName":"feat-a","headRefOid":"a41"}`,
+			"42": `{"state":"OPEN","id":"PR_42","baseRefName":"feat-a","headRefName":"feat-b","headRefOid":"b42"}`,
+		}, map[string]string{"GH_STACK_MERGE": "1"}, "41", "42")
+
+		assertStatus(t, result, 0)
+		assertContains(t, "stdout", result.Stdout, "stack landed: 41 42")
+		assertContains(t, "argv", h.argv(), "pr edit 42 --base main")
+		assertNotContains(t, "argv", h.argv(), "pr edit 41 --base")
+		assertEnqueuePrCallOrder(t, h.argv(), "pulls/41/merge-async", "pr edit 42 --base main")
+		assertEnqueuePrCallOrder(t, h.argv(), "pr edit 42 --base main", "pulls/42/merge-async")
+		assertContains(t, "argv", h.argv(), "sha=b42")
+	})
+
+	t.Run("stack stops when the retarget fails", func(t *testing.T) {
+		t.Parallel()
+		h := newEnqueuePrHarness(t)
+
+		result := h.runStack(map[string]string{
+			"41": `{"state":"OPEN","id":"PR_41","baseRefName":"main","headRefName":"feat-a","headRefOid":"a41"}`,
+			"42": `{"state":"OPEN","id":"PR_42","baseRefName":"feat-a","headRefName":"feat-b","headRefOid":"b42"}`,
+		}, map[string]string{"GH_STACK_MERGE": "1", "GH_PR_EDIT_EXIT": "1"}, "41", "42")
+
+		assertStatus(t, result, 1)
+		assertContains(t, "stderr", result.Stderr, "retargeting to main failed")
+		assertNotContains(t, "argv", h.argv(), "pulls/42/merge-async")
+	})
+
+	t.Run("stack stops on a conflict found while waiting for checks", func(t *testing.T) {
+		t.Parallel()
+		h := newEnqueuePrHarness(t)
+
+		result := h.runStack(map[string]string{
+			"41": `{"state":"OPEN","id":"PR_41","baseRefName":"main","headRefName":"feat-a","headRefOid":"a41",` +
+				`"mergeable":"CONFLICTING","mergeStateStatus":"DIRTY"}`,
+		}, map[string]string{"GH_STACK_MERGE": "1"}, "41")
+
+		assertStatus(t, result, 1)
+		assertContains(t, "stderr", result.Stderr, "has merge conflicts")
+		assertNotContains(t, "argv", h.argv(), "pr checks 41 --watch")
+		assertNotContains(t, "argv", h.argv(), "merge-async")
+	})
+
+	t.Run("a conflict that appears while checks register is fatal", func(t *testing.T) {
+		t.Parallel()
+		h := newEnqueuePrHarness(t)
+
+		// load_pr, then watch_checks' first conflict probe see a clean PR; the
+		// probe inside wait_for_checks' loop sees the conflict.
+		result := h.run(`[`+
+			`{"state":"OPEN","id":"PR_14"},`+
+			`{"state":"OPEN","id":"PR_14"},`+
+			`{"state":"OPEN","id":"PR_14","mergeable":"CONFLICTING","mergeStateStatus":"DIRTY"}]`,
+			nil, map[string]string{"GH_CHECKS_NOREPORT": "5"}, "42")
+
+		assertStatus(t, result, 1)
+		assertContains(t, "stderr", result.Stderr, "has merge conflicts")
+		assertNotContains(t, "argv", h.argv(), "pr checks 42 --watch")
+		assertNotContains(t, "argv", h.argv(), "merge-async")
+	})
+
+	t.Run("stack refuses a base outside the stack", func(t *testing.T) {
+		t.Parallel()
+		h := newEnqueuePrHarness(t)
+
+		result := h.runStack(map[string]string{
+			"42": `{"state":"OPEN","id":"PR_42","baseRefName":"feat-a","headRefName":"feat-b","headRefOid":"b42"}`,
+		}, map[string]string{"GH_STACK_MERGE": "1"}, "42")
+
+		assertStatus(t, result, 1)
+		assertContains(t, "stderr", result.Stderr, "is based on feat-a, which is not the previous PR in the stack")
+		assertNotContains(t, "argv", h.argv(), "merge-async")
+		assertNotContains(t, "argv", h.argv(), "pr edit 42 --base")
+	})
+
+	t.Run("stack stops when the queue drops a PR", func(t *testing.T) {
+		t.Parallel()
+		h := newEnqueuePrHarness(t)
+
+		result := h.runStack(map[string]string{
+			"41": `{"state":"OPEN","id":"PR_41","baseRefName":"main","headRefName":"feat-a","headRefOid":"a41","isInMergeQueue":false}`,
+			"42": `{"state":"OPEN","id":"PR_42","baseRefName":"feat-a","headRefName":"feat-b","headRefOid":"b42"}`,
+		}, nil, "41", "42")
+
+		assertStatus(t, result, 1)
+		assertContains(t, "stderr", result.Stderr, "PR #41 was dropped from the merge queue")
+		assertNotContains(t, "argv", h.argv(), "pulls/42/merge-async")
+	})
+
 	t.Run("already merged", func(t *testing.T) {
 		t.Parallel()
 		h := newEnqueuePrHarness(t)
@@ -24,21 +132,22 @@ func TestEnqueuePr(t *testing.T) {
 
 		assertStatus(t, result, 0)
 		assertContains(t, "stdout", result.Stdout, "already merged")
-		assertNotContains(t, "argv", h.argv(), "api graphql")
+		assertNotContains(t, "argv", h.argv(), "merge-async")
 	})
 
 	t.Run("checks pass", func(t *testing.T) {
 		t.Parallel()
 		h := newEnqueuePrHarness(t)
 
-		result := h.run(`{"state":"OPEN","id":"PR_2"}`, nil, nil, "42")
+		result := h.run(`{"state":"OPEN","id":"PR_2","headRefOid":"abc123"}`, nil, nil, "42")
 
 		assertStatus(t, result, 0)
-		assertContains(t, "argv", h.argv(), "pr view 42 --json state,id -q [.state, .id] | @tsv")
+		assertContains(t, "argv", h.argv(), "pr view 42 --json state -q .state")
 		assertContains(t, "argv", h.argv(), "pr checks 42 --watch --fail-fast")
-		assertContains(t, "argv", h.argv(), "enqueuePullRequest(input:{pullRequestId:$id})")
-		assertContains(t, "argv", h.argv(), "id=PR_2")
-		assertContains(t, "stdout", result.Stdout, "enqueued at position 3")
+		assertContains(t, "argv", h.argv(), "api -X PUT repos/{owner}/{repo}/pulls/42/merge-async")
+		assertContains(t, "argv", h.argv(), "merge_action=merge_queue")
+		assertContains(t, "argv", h.argv(), "sha=abc123")
+		assertContains(t, "stdout", result.Stdout, "enqueued (pending)")
 		assertNotContains(t, "stdout", result.Stdout, "fake-tests")
 	})
 
@@ -68,8 +177,8 @@ func TestEnqueuePr(t *testing.T) {
 			result.Stdout,
 			"marked needs-backport (a backport PR will be opened by the backport audit)",
 		)
-		assertContains(t, "argv", h.argv(), "api graphql")
-		assertEnqueuePrCallOrder(t, h.argv(), "api graphql", "pr edit 42 --add-label needs-backport")
+		assertContains(t, "argv", h.argv(), "merge-async")
+		assertEnqueuePrCallOrder(t, h.argv(), "merge-async", "pr edit 42 --add-label needs-backport")
 	})
 
 	t.Run("marker copy is refused", func(t *testing.T) {
@@ -85,8 +194,8 @@ func TestEnqueuePr(t *testing.T) {
 
 		assertStatus(t, result, 0)
 		assertContains(t, "stderr", result.Stderr, "could not copy the marker; the issue label still governs the audit")
-		assertContains(t, "argv", h.argv(), "api graphql")
-		assertEnqueuePrCallOrder(t, h.argv(), "api graphql", "pr edit 42 --add-label needs-backport")
+		assertContains(t, "argv", h.argv(), "merge-async")
+		assertEnqueuePrCallOrder(t, h.argv(), "merge-async", "pr edit 42 --add-label needs-backport")
 		assertNotContains(t, "stdout", result.Stdout, "marked needs-backport")
 	})
 
@@ -124,7 +233,7 @@ func TestEnqueuePr(t *testing.T) {
 		result := h.run(`{"state":"OPEN","id":"PR_8"}`, nil, map[string]string{"GH_CHECKS_NOREPORT": "2"}, "42")
 
 		assertStatus(t, result, 0)
-		assertContains(t, "stdout", result.Stdout, "enqueued at position 3")
+		assertContains(t, "stdout", result.Stdout, "enqueued (pending)")
 	})
 
 	t.Run("checks fail", func(t *testing.T) {
@@ -135,7 +244,7 @@ func TestEnqueuePr(t *testing.T) {
 
 		assertStatus(t, result, 1)
 		assertContains(t, "stderr", result.Stderr, "checks did not pass")
-		assertNotContains(t, "argv", h.argv(), "api graphql")
+		assertNotContains(t, "argv", h.argv(), "merge-async")
 	})
 
 	t.Run("checks pending", func(t *testing.T) {
@@ -146,7 +255,7 @@ func TestEnqueuePr(t *testing.T) {
 
 		assertStatus(t, result, 1)
 		assertContains(t, "stderr", result.Stderr, "checks are still pending")
-		assertNotContains(t, "argv", h.argv(), "api graphql")
+		assertNotContains(t, "argv", h.argv(), "merge-async")
 	})
 
 	t.Run("closed while waiting", func(t *testing.T) {
@@ -164,7 +273,7 @@ func TestEnqueuePr(t *testing.T) {
 
 		assertStatus(t, result, 1)
 		assertContains(t, "stderr", result.Stderr, "closed while waiting")
-		assertNotContains(t, "argv", h.argv(), "api graphql")
+		assertNotContains(t, "argv", h.argv(), "merge-async")
 	})
 
 	t.Run("closed", func(t *testing.T) {
@@ -191,7 +300,7 @@ func TestEnqueuePr(t *testing.T) {
 
 		assertStatus(t, result, 1)
 		assertContains(t, "stderr", result.Stderr, "merge conflicts")
-		assertNotContains(t, "argv", h.argv(), "api graphql")
+		assertNotContains(t, "argv", h.argv(), "merge-async")
 		assertNotContains(t, "argv", h.argv(), "pr checks")
 	})
 
@@ -203,7 +312,7 @@ func TestEnqueuePr(t *testing.T) {
 
 		assertStatus(t, result, 1)
 		assertContains(t, "stderr", result.Stderr, "enqueue request failed")
-		assertContains(t, "argv", h.argv(), "api graphql")
+		assertContains(t, "argv", h.argv(), "merge-async")
 	})
 
 	t.Run("usage", func(t *testing.T) {
@@ -283,6 +392,30 @@ func (h *enqueuePrHarness) run(
 	return RunScript(h.t, h.workDir, env, repositoryScript(h.t, "enqueue-pr.sh"), args...)
 }
 
+// runStack seeds one pr view payload per PR (number to JSON) and executes the
+// script in stack mode with the PR numbers in order. extra overlays the base
+// environment (GH_STACK_MERGE makes an enqueued PR merge).
+func (h *enqueuePrHarness) runStack(docs map[string]string, extra map[string]string, prs ...string) ScriptResult {
+	h.t.Helper()
+	viewDir := filepath.Join(h.workDir, "views")
+	enqueuedDir := filepath.Join(h.workDir, "enqueued")
+	for _, dir := range []string{viewDir, enqueuedDir} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			h.t.Fatal(err)
+		}
+	}
+	for number, doc := range docs {
+		writeDoc(h.t, filepath.Join(viewDir, number+".json"), doc)
+	}
+	stackEnv := map[string]string{
+		"GH_PR_VIEW_DIR":          viewDir,
+		"GH_ENQUEUED_DIR":         enqueuedDir,
+		"ENQUEUE_PR_POLL_SECONDS": "0",
+	}
+	maps.Copy(stackEnv, extra)
+	return h.run(`{}`, nil, stackEnv, append([]string{"--stack"}, prs...)...)
+}
+
 // argv returns the recorded gh argv log, one call per line.
 func (h *enqueuePrHarness) argv() string {
 	return readText(h.t, h.argvPath)
@@ -329,8 +462,12 @@ func enqueuePrFakeGh(args []string) (handled bool, stdout, stderr string, status
 		status = enqueuePrEnvInt("GH_PR_EDIT_EXIT")
 	case args[0] == "issue" && args[1] == "view":
 		stdout, stderr, status = enqueuePrIssueView(args)
+	case args[0] == "api" && strings.Contains(strings.Join(args, " "), "/merge-async"):
+		stdout, stderr, status = enqueuePrMergeAsync(args)
 	case args[0] == "api" && args[1] == "graphql":
-		stdout, stderr, status = enqueuePrGraphql()
+		stdout, stderr, status = enqueuePrQueueState(args)
+	case args[0] == "repo" && args[1] == "view":
+		stdout, stderr, status = serveDocument(args, `{"defaultBranchRef":{"name":"main"}}`)
 	default:
 		stderr = "fake gh: unexpected call: " + strings.Join(args, " ") + "\n"
 		status = 1
@@ -343,6 +480,12 @@ func enqueuePrFakeGh(args []string) (handled bool, stdout, stderr string, status
 // GH_PR_VIEW_INDEX counter file), so a case can change the PR's state between
 // probes. The --jq/-q query is applied through the real jq.
 func enqueuePrView(args []string) (string, string, int) {
+	if requestsJSONField(args, "isInMergeQueue") {
+		return "", "Unknown JSON field: \"isInMergeQueue\"\n", 1
+	}
+	if dir := envOption("GH_PR_VIEW_DIR"); dir != "" {
+		return enqueuePrStackView(args, dir)
+	}
 	data, err := os.ReadFile(envOption("GH_PR_VIEW"))
 	if err != nil {
 		return "", "fake gh: read pr view payload: " + err.Error() + "\n", 1
@@ -363,6 +506,54 @@ func enqueuePrView(args []string) (string, string, int) {
 		}
 	}
 	return serveDocument(args, doc)
+}
+
+// enqueuePrQueueState serves the merge-queue poll (a GraphQL pullRequest query
+// for state and isInMergeQueue) from the stack payload of the PR in its n
+// variable, wrapped the way the API nests it.
+func enqueuePrQueueState(args []string) (string, string, int) {
+	number := ""
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "-F" && strings.HasPrefix(args[i+1], "n=") {
+			number = strings.TrimPrefix(args[i+1], "n=")
+		}
+	}
+	view, stderr, status := enqueuePrStackView([]string{"pr", "view", number}, envOption("GH_PR_VIEW_DIR"))
+	if status != 0 {
+		return "", stderr, status
+	}
+	return serveDocument(args, `{"data":{"repository":{"pullRequest":`+strings.TrimSpace(view)+`}}}`)
+}
+
+// enqueuePrStackView serves `gh pr view <n>` for a stack case from
+// GH_PR_VIEW_DIR/<n>.json. Once the PR was enqueued and GH_STACK_MERGE is set,
+// it reports the PR merged, as the queue would; without GH_STACK_MERGE an
+// enqueued PR stays open and outside the queue, as if the queue dropped it.
+func enqueuePrStackView(args []string, dir string) (string, string, int) {
+	number := ""
+	for _, arg := range args[2:] {
+		if _, err := strconv.Atoi(arg); err == nil {
+			number = arg
+			break
+		}
+	}
+	data, err := os.ReadFile(filepath.Join(dir, number+".json"))
+	if err != nil {
+		return "", "fake gh: no stack payload for PR " + number + ": " + err.Error() + "\n", 1
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return "", "fake gh: parse stack payload: " + err.Error() + "\n", 1
+	}
+	if _, err := os.Stat(filepath.Join(envOption("GH_ENQUEUED_DIR"), number)); err == nil &&
+		envOption("GH_STACK_MERGE") != "" {
+		doc["state"] = "MERGED"
+	}
+	encoded, err := json.Marshal(doc)
+	if err != nil {
+		return "", "fake gh: marshal stack payload: " + err.Error() + "\n", 1
+	}
+	return serveDocument(args, string(encoded))
 }
 
 // enqueuePrChecks serves `gh pr checks`: while GH_CHECKS_NOREPORT is greater than
@@ -413,13 +604,30 @@ func enqueuePrIssueView(args []string) (string, string, int) {
 	return serveDocument(args, string(doc))
 }
 
-// enqueuePrGraphql serves the enqueue mutation: a failure prints gh's GraphQL
-// diagnostic when GH_ENQUEUE_EXIT is set, otherwise it returns a queue position.
-func enqueuePrGraphql() (string, string, int) {
+// enqueuePrMergeAsync serves the REST async merge: a failure prints gh's
+// diagnostic when GH_ENQUEUE_EXIT is set; otherwise it records the PR as
+// enqueued (a marker file under GH_ENQUEUED_DIR, which a stack case's pr view
+// reads) and answers the queue status.
+func enqueuePrMergeAsync(args []string) (string, string, int) {
 	if enqueuePrEnvInt("GH_ENQUEUE_EXIT") != 0 {
-		return "", "GraphQL: Pull request is not mergeable\n", 1
+		return "", "gh: Pull request is not mergeable (HTTP 422)\n", 1
 	}
-	return `{"data":{"enqueuePullRequest":{"mergeQueueEntry":{"position":3}}}}` + "\n", "", 0
+	if dir := envOption("GH_ENQUEUED_DIR"); dir != "" {
+		if number := enqueuePrNumberIn(strings.Join(args, " ")); number != "" {
+			_ = os.WriteFile(filepath.Join(dir, number), nil, 0o600)
+		}
+	}
+	return serveDocument(args, `{"status":"pending"}`)
+}
+
+// enqueuePrNumberIn extracts the PR number from a pulls/<n>/merge-async path.
+func enqueuePrNumberIn(call string) string {
+	_, rest, ok := strings.Cut(call, "/pulls/")
+	if !ok {
+		return ""
+	}
+	number, _, _ := strings.Cut(rest, "/")
+	return number
 }
 
 // enqueuePrEnvInt reads an integer environment knob, treating an unset or
