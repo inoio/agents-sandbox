@@ -44,7 +44,7 @@ func StepFreshHome() Step {
 // points at the stub's runtime address, which only StepSeedStub knows. A later
 // journey needing the same shape (Task 17's attribution journey) reuses it.
 func StepSeedHostConfig(build func(*Context) (map[string]string, error)) Step {
-	return Step{Name: "the harness's own host config points at the stub", Run: func(c *Context) error {
+	return Step{Name: "the host holds the harness's own config", Run: func(c *Context) error {
 		files, err := build(c)
 		if err != nil {
 			return err
@@ -138,11 +138,19 @@ func StepWaitReady() Step {
 	}}
 }
 
+// setupScreenSettle is how long StepExitHarnessSetup lets the output settle
+// after the readiness marker showed first, in case the setup screen is painted
+// just after the editor behind it.
+const setupScreenSettle = time.Second
+
 // StepExitHarnessSetup leaves the harness's own first-start setup screen
 // (Driving.Setup), as a user on a fresh install would. It waits for that screen
-// or the harness's readiness marker, whichever comes first, so it does nothing
-// for a harness that skips its setup (the seeded host config turns it off) or
-// declares none.
+// or the harness's readiness marker; when the readiness marker shows first, it
+// lets the output settle and leaves the setup only if the screen came up after
+// all, so it does nothing for a harness that skips its setup (the seeded host
+// config turns it off) or declares none. After the exit keys it waits for the
+// readiness marker in the output written since, so a status line painted
+// behind the setup screen does not count.
 func StepExitHarnessSetup() Step {
 	return Step{Name: "the user leaves the harness's own setup, if it shows one", Run: func(c *Context) error {
 		setup := c.Harness.Drive.Setup
@@ -153,21 +161,33 @@ func StepExitHarnessSetup() Step {
 		if err != nil {
 			return err
 		}
-		markers := []string{setup.Marker, c.Spec.ReadyMarker}
-		first, err := waitForFirstMarker(ses, markers, c.Spec.ReadyTimeout())
-		if err != nil || first != 0 {
+		timeout := driver.ScaleTimeout(c.Spec.ReadyTimeout(), driver.SmokeTimeoutFactor())
+		first, err := waitForFirstMarker(ses, []string{setup.Marker, c.Spec.ReadyMarker}, 0, timeout)
+		if err != nil {
 			return err
 		}
-		return ses.Write(setup.ExitKeys)
+		if first != 0 {
+			//testenv:allow letting a setup screen painted after the editor show up
+			time.Sleep(setupScreenSettle)
+			if firstShownMarker(string(ses.Output()), []string{setup.Marker}) < 0 {
+				return nil
+			}
+		}
+		sent := len(ses.Output())
+		if err = ses.Write(setup.ExitKeys); err != nil {
+			return err
+		}
+		_, err = waitForFirstMarker(ses, []string{c.Spec.ReadyMarker}, sent, timeout)
+		return err
 	}}
 }
 
-// waitForFirstMarker waits until the session's output shows one of markers and
-// returns the index of the first one listed that it shows.
-func waitForFirstMarker(ses *driver.Session, markers []string, timeout time.Duration) (int, error) {
+// waitForFirstMarker waits until the session's output from offset on shows one
+// of markers and returns the index of the first one listed that it shows.
+func waitForFirstMarker(ses *driver.Session, markers []string, offset int, timeout time.Duration) (int, error) {
 	deadline := time.Now().Add(timeout)
 	for {
-		if index := firstShownMarker(string(ses.Output()), markers); index >= 0 {
+		if index := firstShownMarker(string(ses.Output()[offset:]), markers); index >= 0 {
 			return index, nil
 		}
 		if ses.HasExited() {

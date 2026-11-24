@@ -62,8 +62,10 @@ type SetupScreen struct {
 // LearnFacts is what learn mode finds in a harness pointed at the stub: what
 // the learn-mode journeys seed as host setup and expect in the per-slug scope.
 type LearnFacts struct {
-	// HostConfig renders the harness's own host config files pointing at the
-	// stub at addr, for a journey that seeds an existing host setup.
+	// HostConfig renders the harness's own seedable host config files, for a
+	// journey that seeds an existing host setup. Where the harness keeps its
+	// provider in a seedable file, they point at the stub at addr and carry its
+	// key (ManagedConfigHoldsCredential); otherwise they hold only settings.
 	HostConfig func(addr string) map[string]string
 	// HostLoginStore is a host credential store file (relative path to
 	// content), a login store or a dotenv, that the host seed must drop rather

@@ -13,10 +13,12 @@ import (
 const uc4Prompt = "hello"
 
 // uc4HostConfig builds UC4's host agent config from the journey context: the
-// same provider the stub serves, but as the harness's own host config
-// (Harness.Learn.HostConfig). Its baseURL host is the stub's
-// advertised origin, so the static apiKey the seed migrates is scoped to
-// exactly the host uc4Scope asserts. The harness's login store beside it
+// harness's own seedable host config (Harness.Learn.HostConfig). Where that
+// config holds the provider (opencode2), it is the provider the stub serves,
+// with the stub's advertised origin as its baseURL host, so the static apiKey
+// the seed migrates is scoped to exactly the host uc4Scope asserts. Where it
+// holds only settings (oh-my-pi), the seed copies those and the credential
+// comes from the session's read-back, as in UC1. The harness's login store beside it
 // (Harness.Learn.HostLoginStore) is a value store the seed must never copy.
 func uc4HostConfig(c *Context) (map[string]string, error) {
 	learn, err := learnFacts(c)
@@ -28,11 +30,11 @@ func uc4HostConfig(c *Context) (map[string]string, error) {
 	return files, nil
 }
 
-// uc4Scope is what UC4 asserts the host seed wrote to the per-slug user scope
-// before the session: the stub provider's inline apiKey is a static credential,
-// copied into the managed config as the ${STUB_API_KEY} placeholder and scoped
-// to the stub host in env.secret.yaml. Unlike UC1, the seed writes the managed
-// config before CaptureBaseline, so UC4 can assert the placeholder.
+// uc4Scope is what UC4 asserts in the per-slug user scope: the managed config
+// the host seed wrote (the adapter's keys), the ${STUB_API_KEY} placeholder in
+// it where the harness's managed config can hold the credential, and the
+// credential scoped to the stub host in env.secret.yaml. Unlike UC1, the seed
+// writes the managed config before CaptureBaseline, so UC4 can assert it.
 var uc4Scope = ScopeWant{ManagedConfig: true, Placeholder: true}
 
 // uc4Journey is UC4: a fresh install with the agent's host config present, whose

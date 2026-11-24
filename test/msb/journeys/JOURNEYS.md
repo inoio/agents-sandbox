@@ -10,7 +10,7 @@ Runs on: opencode2, oh-my-pi
 Not yet:
 
 - claude-code: learn mode on this harness waits for the product: its read-back reads only the OAuth login store; settings.json, where an endpoint and key live, is neither read back nor seeded until #821
-- codex: learn mode on this harness waits for the product: its read-back reads only the auth.json login store, whose value is never read, and not config.toml, so no host-scoped credential is learned (#873)
+- codex: learn mode on this harness waits for the product: its read-back reads only the auth.json login store, whose value is never read, and not config.toml, whose providers hold no key value, so no host-scoped credential is learned (#873)
 - goose, grok-build, hermes, kimi-code, mistral-vibe, opencode, qwen-code: learn mode on this harness lands with the full rollout, #794
 - pi: learn mode on this harness waits for the product: its read-back withholds models.json, where a custom provider's key lives, until provider headers are classified (#820, #849)
 
@@ -41,7 +41,7 @@ Runs on: opencode2, oh-my-pi
 Not yet:
 
 - claude-code: learn mode on this harness waits for the product: its read-back reads only the OAuth login store; settings.json, where an endpoint and key live, is neither read back nor seeded until #821
-- codex: learn mode on this harness waits for the product: its read-back reads only the auth.json login store, whose value is never read, and not config.toml, so no host-scoped credential is learned (#873)
+- codex: learn mode on this harness waits for the product: its read-back reads only the auth.json login store, whose value is never read, and not config.toml, whose providers hold no key value, so no host-scoped credential is learned (#873)
 - goose, grok-build, hermes, kimi-code, mistral-vibe, opencode, qwen-code: learn mode on this harness lands with the full rollout, #794
 - pi: learn mode on this harness waits for the product: its read-back withholds models.json, where a custom provider's key lives, until provider headers are classified (#820, #849)
 
@@ -49,7 +49,7 @@ Not yet:
 Scenario: uc4-learn-from-host
   Given a fresh isolated home
   And the stub provider is provisioned into the VM
-  And the harness's own host config points at the stub
+  And the host holds the harness's own config
   When the user runs `agents-sandbox run`
   Then the first-run menu offers learn-from-host
   When the user chooses learn-from-host in the first-run menu
@@ -71,7 +71,7 @@ Runs on: opencode2, oh-my-pi
 Not yet:
 
 - claude-code: learn mode on this harness waits for the product: its read-back reads only the OAuth login store; settings.json, where an endpoint and key live, is neither read back nor seeded until #821
-- codex: learn mode on this harness waits for the product: its read-back reads only the auth.json login store, whose value is never read, and not config.toml, so no host-scoped credential is learned (#873)
+- codex: learn mode on this harness waits for the product: its read-back reads only the auth.json login store, whose value is never read, and not config.toml, whose providers hold no key value, so no host-scoped credential is learned (#873)
 - goose, grok-build, hermes, kimi-code, mistral-vibe, opencode, qwen-code: learn mode on this harness lands with the full rollout, #794
 - pi: learn mode on this harness waits for the product: its read-back withholds models.json, where a custom provider's key lives, until provider headers are classified (#820, #849)
 
@@ -104,7 +104,7 @@ Network profile: `public`
 Not yet:
 
 - claude-code: learn mode on this harness waits for the product: its read-back reads only the OAuth login store; settings.json, where an endpoint and key live, is neither read back nor seeded until #821
-- codex: learn mode on this harness waits for the product: its read-back reads only the auth.json login store, whose value is never read, and not config.toml, so no host-scoped credential is learned (#873)
+- codex: learn mode on this harness waits for the product: its read-back reads only the auth.json login store, whose value is never read, and not config.toml, whose providers hold no key value, so no host-scoped credential is learned (#873)
 - goose, grok-build, hermes, kimi-code, mistral-vibe, opencode, qwen-code: learn mode on this harness lands with the full rollout, #794
 - pi: learn mode on this harness waits for the product: its read-back withholds models.json, where a custom provider's key lives, until provider headers are classified (#820, #849)
 
@@ -112,7 +112,7 @@ Not yet:
 Scenario: attribution-observed-pair
   Given a fresh isolated home
   And the stub provider is provisioned into the VM
-  And the harness's own host config points at the stub
+  And the host holds the harness's own config
   When the user runs `agents-sandbox run --learn`
   And the user leaves the harness's own setup, if it shows one
   Then the harness TUI comes up

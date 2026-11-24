@@ -11,10 +11,12 @@ import "github.com/inoio/agents-sandbox/test/msb/driver"
 // (see attributionScope).
 const attributionPrompt = "hello"
 
-// attributionHostConfig builds the journey's host agent config from the context:
-// the same OpenAI-compatible provider the stub serves, so the credential has a
-// config-entry source and the agent sends to the stub. Its baseURL host is the
-// stub's advertised origin, the host attributionScope asserts.
+// attributionHostConfig builds the journey's host agent config from the context
+// (Harness.Learn.HostConfig). Where it holds the provider (opencode2), it is the
+// OpenAI-compatible provider the stub serves, so the credential has a
+// config-entry source whose baseURL host is the stub's advertised origin, the
+// host attributionScope asserts; elsewhere the credential's source is the
+// stub's provisioned provider file.
 //
 // The builder reads the stub's runtime address, so StepSeedStub must run before
 // this step (the reverse of the plan's prose order, which the context-derived

@@ -96,9 +96,10 @@ func piModelsDocument(addr string) string {
 	})
 }
 
-// oh-my-pi's settings file and its dotenv, home-relative. The dotenv is a value
-// store the host seed drops; the journey's holds no value, so the exclusion
-// check can match its content.
+// oh-my-pi's settings file and its dotenv, home-relative. The host seed never
+// selects the dotenv (its provision rules name only the settings file), so the
+// exclusion check guards that choice against regression; the journey's dotenv
+// holds no value, so the check can match its content.
 const (
 	ohMyPiConfigPath    = ".omp/agent/config.yml"
 	ohMyPiDotenvPath    = ".omp/agent/.env"

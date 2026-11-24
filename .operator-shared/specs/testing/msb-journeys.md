@@ -257,8 +257,13 @@ journey snippet (`Stub.Snippets` is a managed layer). Two adapter facts followed
   harness declares no setup.
 - **`Learn.ManagedConfigHoldsCredential`.** oh-my-pi's provider and key live in `models.yml`, which the read-back
   reads but neither the host seed nor the write-back copies; its seedable host config is the settings file.
-  So the credential is learned into `env.secret.yaml` while the managed config never carries the placeholder.
-  Its credential store fixture is the dotenv, the value store the seed drops.
+  So the credential is learned into `env.secret.yaml` while the managed config never carries the placeholder,
+  and its UC4 covers the seed's copy of a credential-free settings file (the credential comes from the
+  session's read-back, as in UC1). Its credential store fixture is the dotenv, which the seed never selects; the
+  exclusion check guards that.
+- **The setup step distrusts a stale marker.** The output buffer keeps everything, so when the readiness marker
+  shows first the step lets the output settle before deciding there is no setup, and after the exit keys it
+  waits for the readiness marker in the output written since.
 
 ### Checkpoint 1: claude-code (the abstraction held)
 
