@@ -41,6 +41,15 @@ type Driving struct {
 	LaunchArgs []string
 	// ResumeArgs are the agent arguments that continue the last session.
 	ResumeArgs []string
+	// LoginArgs are the agent arguments that start its browser login, which
+	// opens an authorization link naming a loopback callback in the VM.
+	LoginArgs []string
+	// APIKeyLogin is the shell command that signs the harness in with an API
+	// key piped to it and stores the login in the harness's home.
+	APIKeyLogin func(key string) string
+	// SignInMarker is text the harness's start screen shows while no login is
+	// stored.
+	SignInMarker string
 	// WriteFileCall is the harness's tool call that writes content to the
 	// guest's absolute path, which the stub answers a turn with.
 	WriteFileCall func(guestPath, content string) ToolCall

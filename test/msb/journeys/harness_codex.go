@@ -36,6 +36,14 @@ var codexHarness = Harness{
 			return ToolCall{Name: "exec_command", Arguments: jsonObject(map[string]string{"cmd": command})}
 		},
 		ResumeArgs: []string{"resume", "--last"},
+		// `codex login` starts the ChatGPT browser login: a callback server on
+		// port 1455 in the VM and no paste fallback.
+		LoginArgs: []string{"login"},
+		// codex takes the key only from a pipe, not a terminal.
+		APIKeyLogin: func(key string) string {
+			return "printf %s " + shellQuote(key) + " | codex login --with-api-key"
+		},
+		SignInMarker: "Choose how you want to use Codex",
 	},
 }
 

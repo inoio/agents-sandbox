@@ -11,6 +11,7 @@ var Journeys = []Journey{
 	configLearnJourney,
 	attributionJourney,
 	coreSessionJourney,
+	loginJourney,
 	proxySpikeJourney,
 }
 
@@ -69,6 +70,19 @@ func coreSessionExemptions() map[string]string {
 	return reasons
 }
 
+// loginExemptions records why the login journey does not yet run on a
+// harness: it starts with codex, whose browser login has no paste fallback, so
+// the forward is its only way back (#875).
+func loginExemptions() map[string]string {
+	reasons := map[string]string{}
+	for _, name := range slices.Concat(learnSliceHarnesses, learnRolloutHarnesses, []string{opencode2AgentName}) {
+		if name != codexAgentName {
+			reasons[name] = "the login journey starts with codex; other harnesses follow (#875)"
+		}
+	}
+	return reasons
+}
+
 // proxySpikeExemptions records why the proxy spike probes opencode2 only: it is
 // a route question, not a harness one.
 func proxySpikeExemptions() map[string]string {
@@ -89,5 +103,6 @@ var Exemptions = map[string]map[string]string{
 	configLearnJourney.Name: learnExemptions(),
 	attributionJourney.Name: learnExemptions(),
 	coreSessionJourney.Name: coreSessionExemptions(),
+	loginJourney.Name:       loginExemptions(),
 	proxySpikeJourney.Name:  proxySpikeExemptions(),
 }
