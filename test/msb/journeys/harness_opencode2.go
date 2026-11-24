@@ -70,8 +70,8 @@ func jsonObject(fields map[string]string) string {
 // opencodeProviderDocument renders the opencode provider config that points the
 // agent at addr: an OpenAI-compatible provider whose options.baseURL is
 // addr+"/v1", an inline API key for the read-back to classify, the main model
-// that selects it, and a separate small model for side requests such as the
-// session title.
+// that selects it, a separate small model for side requests such as the
+// session title, and the stub as the only enabled provider.
 func opencodeProviderDocument(addr string) string {
 	document := map[string]any{
 		"provider": map[string]any{
@@ -83,6 +83,11 @@ func opencodeProviderDocument(addr string) string {
 		},
 		"model":       stubProviderID + "/" + stubProviderModel,
 		"small_model": stubProviderID + "/" + stubTitleModel,
+		// Only the stub provider: opencode2 can give a new session its
+		// built-in default model before the configured one is known; with
+		// that provider disabled, such a turn fails at once and names the
+		// model instead of retrying an unreachable provider for a minute (#881).
+		"enabled_providers": []string{stubProviderID},
 	}
 	data, err := json.Marshal(document)
 	if err != nil {

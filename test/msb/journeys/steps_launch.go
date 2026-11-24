@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -229,24 +230,99 @@ func StepSendPrompt(prompt string) Step {
 		if err := typeUntilEchoed(ses, prompt, promptTypeAttempts, echoWait); err != nil {
 			return err
 		}
-		busy := c.Harness.Drive.StartupBusyMarker
-		if busy == "" || c.Stub == nil {
+		if !stubReachable(c) {
 			return ses.Write([]byte("\r"))
 		}
+		requests := len(c.Stub.Requests())
 		turns := countTurns(c.Stub.Requests())
 		submitted := len(ses.Output())
-		if err := ses.Write([]byte("\r")); err != nil {
+		enter := func() error { return ses.Write([]byte("\r")) }
+		if err := enter(); err != nil {
 			return err
 		}
-		return resubmitWhileBusy(busySubmit{
-			busy:     busy,
-			offset:   submitted,
-			output:   ses.Output,
-			submit:   func() error { return ses.Write([]byte("\r")) },
-			accepted: func() bool { return countTurns(c.Stub.Requests()) > turns },
-		}, scaled(startupBusyBudget), scaled(busyRecheck))
+		if busy := c.Harness.Drive.StartupBusyMarker; busy != "" {
+			err := resubmitWhileBusy(busySubmit{
+				busy:     busy,
+				offset:   submitted,
+				output:   ses.Output,
+				submit:   enter,
+				accepted: func() bool { return countTurns(c.Stub.Requests()) > turns },
+			}, scaled(startupBusyBudget), scaled(busyRecheck))
+			if err != nil {
+				return err
+			}
+		}
+		return confirmSubmit(unconfirmedSubmit{
+			seen:  func() bool { return len(c.Stub.Requests()) > requests },
+			logf:  c.TB.Logf,
+			enter: enter,
+			retype: func() error {
+				if err := typeUntilEchoed(ses, prompt, promptTypeAttempts, echoWait); err != nil {
+					return err
+				}
+				return enter()
+			},
+		}, scaled(submitConfirmWait))
 	}}
 }
+
+// stubReachable reports whether the journey's harness can reach the stub: a
+// stub is seeded and the run's network admits the host gateway its default
+// route names. Only then does a submit show at the stub.
+func stubReachable(c *Context) bool {
+	return c.Stub != nil && slices.Contains(strings.Split(c.Spec.NetworkOrDefault(), ","), hostGatewayNetwork)
+}
+
+// submitConfirmWait is how long a submit gets to show at the stub before the
+// step presses Enter again; submitEnters is how many more Enters it presses
+// before it types the prompt again, once.
+const (
+	submitConfirmWait = 5 * time.Second
+	submitEnters      = 2
+)
+
+// unconfirmedSubmit is a prompt the harness may not have received: the
+// evidence that it did (any new stub request: a turn, a title, a model probe),
+// and the two ways to send it again.
+type unconfirmedSubmit struct {
+	seen   func() bool
+	enter  func() error
+	retype func() error
+	// logf records each resend, so a run shows when a submit was lost.
+	logf func(format string, args ...any)
+}
+
+// confirmSubmit waits for evidence that the harness received the submit. With
+// none, the harness is not working on it (a turn would have shown), so pressing
+// Enter again cannot interrupt one: it presses Enter submitEnters times, for a
+// prompt whose Enter was lost, then types the prompt again once, for one whose
+// text was lost too. Without evidence after that, it leaves the failure to the
+// turn check that follows the prompt.
+func confirmSubmit(prompt unconfirmedSubmit, wait time.Duration) error {
+	for attempt := 0; ; attempt++ {
+		if pollUntil(wait, stubPollInterval, func() (bool, error) { return prompt.seen(), nil },
+			func() error { return errSubmitUnseen }) == nil {
+			return nil
+		}
+		switch {
+		case attempt < submitEnters:
+			prompt.logf("the submit did not show at the stub within %s; pressing Enter again", wait)
+			if err := prompt.enter(); err != nil {
+				return err
+			}
+		case attempt == submitEnters:
+			prompt.logf("the submit still did not show at the stub; typing the prompt again")
+			if err := prompt.retype(); err != nil {
+				return err
+			}
+		default:
+			return nil
+		}
+	}
+}
+
+// errSubmitUnseen marks a confirm wait that saw no evidence.
+var errSubmitUnseen = errors.New("the submit did not show at the stub")
 
 // startupBusyBudget bounds how long a harness may keep rejecting a prompt as
 // submitted too early; busyRecheck is how often the step looks again, and a

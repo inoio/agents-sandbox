@@ -265,6 +265,10 @@ Six harnesses joined with an adapter each and no harness branch in shared code (
 - **A readiness marker means the harness takes keys.** A marker printed before the input line reads the
   terminal lets a typed prompt lose its Enter, and the prompt step's echo check cannot notice, because the
   terminal's own echo satisfies it. `Drive.ReadyMarker` overrides the smoke's marker where the two differ.
+- **A submit is confirmed at the stub.** Where the stub is reachable, every harness sends some request once it
+  received a prompt (a turn, a title, a model probe). With none after a scaled wait, the prompt step presses
+  Enter again (an Enter lost before the input read keys) and then types the prompt again once (text lost
+  too). It resends only while no request arrived, so it never interrupts a turn (hermes stops one on Enter).
 - **A timing-based negative check needs a positive counterpart.** "No sign-in screen after a settle", "no setup
   screen after a settle" can pass on a slow host; each is paired with positive evidence (a login status, the
   readiness marker in output written after the exit keys).
@@ -277,7 +281,11 @@ Six harnesses joined with an adapter each and no harness branch in shared code (
 ### Adapter facts per harness
 
 - **opencode2:** a provider file through `home:` (`opencode.json`), `write` with `path`, `--continue`; a
-  `small_model` for side requests; the S1-verified learn profile (SQLite credential probe).
+  `small_model` for side requests; the S1-verified learn profile (SQLite credential probe). A new session can
+  get opencode2's built-in default model (`opencode/big-pickle`) instead of the configured one, in roughly one
+  of ten core-session runs; the title still reaches the stub (its small model), the turn does not. Disabling
+  its models.dev fetch did not prevent it. The journeys enable only the stub provider, so such a turn fails at
+  once with "Model unavailable" in the diagnostics instead of retrying an unreachable provider (#881).
 - **claude-code:** the environment (`ANTHROPIC_BASE_URL`, a dummy auth token) through the env file, since
   `settings.json` is reserved; `--permission-mode acceptEdits`; `Write` with `file_path`; resumes the last saved
   session.
