@@ -49,10 +49,12 @@ var codexHarness = Harness{
 		},
 		Status:       "codex login status",
 		SignInMarker: "Choose how you want to use Codex",
-		MCPServer: func(name, url string) map[string]string {
+	},
+	MCP: &MCPFacts{
+		Snippets: func(name, url string) map[string]string {
 			return map[string]string{codexMCPSnippet: fmt.Sprintf("[mcp_servers.%s]\nurl = %q\n", name, url)}
 		},
-		MCPLoginArgs: func(name string) []string { return []string{"mcp", "login", name} },
+		LoginArgs: func(name string) []string { return []string{"mcp", "login", name} },
 	},
 }
 

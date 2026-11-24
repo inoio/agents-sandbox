@@ -25,6 +25,23 @@ var claudeCodeHarness = Harness{
 			}
 		},
 	},
+	MCP: &MCPFacts{
+		// claude-code reads its servers from the project's .mcp.json, and a
+		// settings snippet approves them without the per-project prompt.
+		ProjectFiles: func(name, url string) map[string]string {
+			return map[string]string{".mcp.json": mustJSON(map[string]any{
+				"mcpServers": map[string]any{name: map[string]any{"type": "http", "url": url}},
+			})}
+		},
+		Snippets: func(string, string) map[string]string {
+			return map[string]string{claudeCodeMCPSnippet: `{"enableAllProjectMcpServers": true}`}
+		},
+		// run passes LaunchArgs before any subcommand, so the sign-in runs in
+		// the shell.
+		LoginCommand: func(name string) string { return "claude mcp login " + shellQuote(name) },
+		// claude-code sends OAuth credentials only over TLS (loopback exempt).
+		TLS: true,
+	},
 	Drive: Driving{
 		LaunchArgs: []string{"--permission-mode", "acceptEdits"},
 		WriteFileCall: func(guestPath, content string) ToolCall {
@@ -33,3 +50,7 @@ var claudeCodeHarness = Harness{
 		ResumeArgs: []string{continueFlag},
 	},
 }
+
+// claudeCodeMCPSnippet is the launcher settings snippet that approves the
+// project's MCP servers.
+const claudeCodeMCPSnippet = "settings-journeys-mcp.json"

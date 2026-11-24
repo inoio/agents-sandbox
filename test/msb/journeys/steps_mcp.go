@@ -3,6 +3,8 @@ package journeys
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"time"
 
@@ -15,42 +17,96 @@ import (
 // adapter's Login.MCPServer snippets.
 func StepStartStubOAuthServer() Step {
 	return Step{
-		Name: "an MCP server behind an OAuth authorization server is in the harness's config",
+		Name: "an MCP server behind an OAuth authorization server is declared for the harness",
 		Run: func(c *Context) error {
-			login, err := loginFacts(c)
+			mcp, err := mcpFacts(c)
 			if err != nil {
 				return err
 			}
-			stub, err := StartStubOAuthServer(c.TB)
+			stub, err := StartStubOAuthServer(c.TB, mcp.TLS)
 			if err != nil {
 				return err
 			}
 			c.OAuth = stub
-			profile, ok := agent.Lookup(c.Agent)
-			if !ok {
-				return fmt.Errorf("unknown agent %q", c.Agent)
-			}
-			return driver.SeedAgentSnippets(
-				c.Home,
-				profile.ConfigDirName(),
-				login.MCPServer(stubMCPServerName, stub.MCPURL()),
-			)
+			return declareMCPServer(c, mcp, stub.MCPURL())
 		},
 	}
 }
 
+// declareMCPServer declares the stub MCP server at url the harness's way: its
+// launcher snippets and its project files (the adapter's MCP facts).
+func declareMCPServer(c *Context, mcp MCPFacts, url string) error {
+	if mcp.Snippets != nil {
+		profile, ok := agent.Lookup(c.Agent)
+		if !ok {
+			return fmt.Errorf("unknown agent %q", c.Agent)
+		}
+		if err := driver.SeedAgentSnippets(
+			c.Home,
+			profile.ConfigDirName(),
+			mcp.Snippets(stubMCPServerName, url),
+		); err != nil {
+			return err
+		}
+	}
+	if mcp.ProjectFiles == nil {
+		return nil
+	}
+	for rel, content := range mcp.ProjectFiles(stubMCPServerName, url) {
+		if err := writeProjectFile(c.ProjectDir(), rel, content); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// writeProjectFile writes content to rel under the project dir.
+func writeProjectFile(project, rel, content string) error {
+	path := filepath.Join(project, rel)
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return fmt.Errorf("create the dir for %s: %w", path, err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
+}
+
+// mcpFacts returns the harness's MCP facts, or an error naming a harness the
+// MCP sign-in journey cannot cover yet.
+func mcpFacts(c *Context) (MCPFacts, error) {
+	if c.Harness.MCP == nil {
+		return MCPFacts{}, fmt.Errorf("the %s adapter declares no MCP facts", c.Agent)
+	}
+	return *c.Harness.MCP, nil
+}
+
 // StepLaunchMCPLogin starts the harness's sign-in to the stub's MCP server (the
-// adapter's Login.MCPLoginArgs) under `agents-sandbox run`.
+// adapter's MCP.LoginArgs) under `agents-sandbox run`.
 func StepLaunchMCPLogin() Step {
 	return Step{Name: "the user signs the harness in to the MCP server", Run: func(c *Context) error {
-		login, err := loginFacts(c)
+		mcp, err := mcpFacts(c)
 		if err != nil {
 			return err
 		}
-		launchClient(c, []string{runCommand}, login.MCPLoginArgs(stubMCPServerName))
-		return nil
+		if mcp.LoginCommand == nil {
+			launchClient(c, []string{runCommand}, mcp.LoginArgs(stubMCPServerName))
+			return nil
+		}
+		launchClient(c, []string{"shell"}, nil)
+		ses := c.Session
+		if err := ses.WaitForMarker(shellPromptMarker, scaled(loginLinkTimeout)); err != nil {
+			return err
+		}
+		// One write: the command must run once, and the shell exits with its
+		// status, which StepAssertMCPLoginCompleted reads.
+		return ses.Write([]byte(mcp.LoginCommand(stubMCPServerName) + "; exit\r"))
 	}}
 }
+
+// shellPromptMarker is part of the VM shell's prompt (dev@<vm>), which shows
+// once the shell reads input.
+const shellPromptMarker = "dev@"
 
 // StepAssertMCPLoginCompleted checks the MCP sign-in finished: the login
 // command exited 0 and the stub's token endpoint issued a token, which it does

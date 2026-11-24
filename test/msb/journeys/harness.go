@@ -12,6 +12,8 @@ type Harness struct {
 	Learn *LearnFacts
 	// Login is nil for a harness the login journey does not cover yet.
 	Login *LoginFacts
+	// MCP is nil for a harness the MCP sign-in journey does not cover yet.
+	MCP *MCPFacts
 }
 
 // StubSetup is how a harness is pointed at the stub provider at addr. A
@@ -116,12 +118,27 @@ type LoginFacts struct {
 	// SignInMarker is text the harness's start screen shows while no login is
 	// stored.
 	SignInMarker string
-	// MCPServer renders the launcher snippets (file name to content) that
-	// declare a remote MCP server name at url in the harness's config.
-	MCPServer func(name, url string) map[string]string
-	// MCPLoginArgs are the agent arguments that sign in to the MCP server name
+}
+
+// MCPFacts is how a harness uses a remote MCP server behind OAuth: how the
+// server is declared, and how the harness signs in to it.
+type MCPFacts struct {
+	// Snippets renders the launcher snippets (file name to content) that
+	// declare the remote MCP server name at url in the harness's config.
+	Snippets func(name, url string) map[string]string
+	// ProjectFiles renders project files (relative path to content) that
+	// declare the server, for a harness that reads its servers from the project.
+	ProjectFiles func(name, url string) map[string]string
+	// LoginArgs are the agent arguments that sign in to the MCP server name
 	// through its OAuth authorization server, in the browser.
-	MCPLoginArgs func(name string) []string
+	LoginArgs func(name string) []string
+	// TLS marks a harness that sends OAuth credentials only over HTTPS, so
+	// the stub serves HTTPS with a test CA the VM is told to trust.
+	TLS bool
+	// LoginCommand, for a harness whose CLI subcommands `run` cannot pass,
+	// is the shell command that signs in to the MCP server name, typed into
+	// `agents-sandbox shell` instead.
+	LoginCommand func(name string) string
 }
 
 // Harnesses maps an agent name to its adapter. Every harness a journey drives

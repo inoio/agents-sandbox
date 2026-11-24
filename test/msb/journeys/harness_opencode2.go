@@ -43,6 +43,19 @@ var opencode2Harness = Harness{
 		ResumeArgs:  []string{continueFlag},
 		Diagnostics: opencode2Diagnostics,
 	},
+	MCP: &MCPFacts{
+		// A launcher snippet merged into opencode's config declares the
+		// remote server; `run` cannot pass a subcommand to the attach client,
+		// so the sign-in runs in the shell.
+		Snippets: func(name, url string) map[string]string {
+			return map[string]string{opencodeMCPSnippet: mustJSON(map[string]any{
+				"mcp": map[string]any{name: map[string]any{"type": "remote", "url": url}},
+			})}
+		},
+		LoginCommand: func(name string) string { return "opencode2 mcp auth " + shellQuote(name) },
+		// opencode2 sends OAuth credentials only over TLS.
+		TLS: true,
+	},
 	Learn: &LearnFacts{
 		HostConfig: func(addr string) map[string]string {
 			return map[string]string{opencodeHostConfigRelPath: opencodeProviderDocument(addr)}
@@ -56,6 +69,10 @@ var opencode2Harness = Harness{
 		ManagedConfigHoldsCredential: true,
 	},
 }
+
+// opencodeMCPSnippet is the launcher snippet that declares the MCP sign-in
+// journey's server in opencode's config.
+const opencodeMCPSnippet = "opencode-journeys-mcp.json"
 
 // jsonObject renders a string map as a JSON object.
 func jsonObject(fields map[string]string) string {

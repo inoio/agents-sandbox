@@ -3,6 +3,8 @@ package journeys
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -42,6 +44,9 @@ type StubOAuthServer struct {
 	listener net.Listener
 	port     string
 	vmOrigin string
+	// tls is the test CA and certificate when the stub serves HTTPS, which an
+	// MCP client that sends credentials only over TLS needs.
+	tls *stubTLS
 
 	mu         sync.Mutex
 	requests   []StubOAuthRequest
@@ -54,7 +59,7 @@ type StubOAuthServer struct {
 
 // StartStubOAuthServer starts the stub on the host loopback; the VM reaches it
 // through the host gateway (the `host` network profile).
-func StartStubOAuthServer(tb driver.TB) (*StubOAuthServer, error) {
+func StartStubOAuthServer(tb driver.TB, useTLS bool) (*StubOAuthServer, error) {
 	tb.Helper()
 	//testenv:allow the stub authorization server is a real host-side listener
 	listener, err := new(net.ListenConfig).Listen(context.Background(), "tcp", "127.0.0.1:0")
@@ -75,7 +80,19 @@ func StartStubOAuthServer(tb driver.TB) (*StubOAuthServer, error) {
 	}
 	stub.server = &http.Server{Handler: stub, ReadHeaderTimeout: stubReadHeaderTimeout}
 	tb.Cleanup(func() { _ = stub.server.Close() })
-	go func() { _ = stub.server.Serve(listener) }()
+	if !useTLS {
+		go func() { _ = stub.server.Serve(listener) }()
+		return stub, nil
+	}
+	certs, err := newStubTLS()
+	if err != nil {
+		_ = listener.Close()
+		return nil, err
+	}
+	stub.tls = certs
+	stub.vmOrigin = "https://" + stubGatewayHost + ":" + port
+	stub.server.TLSConfig = &tls.Config{Certificates: []tls.Certificate{certs.server}, MinVersion: tls.VersionTLS12}
+	go func() { _ = stub.server.ServeTLS(listener, "", "") }()
 	return stub, nil
 }
 
@@ -118,6 +135,23 @@ func (s *StubOAuthServer) ResetAuthorizedMCPCalls() int {
 	before := len(s.authorized)
 	s.authorized = nil
 	return before
+}
+
+// CAPEM is the test CA a client must trust to reach the stub over HTTPS, or
+// nil for a plain-HTTP stub.
+func (s *StubOAuthServer) CAPEM() []byte {
+	if s.tls == nil {
+		return nil
+	}
+	return s.tls.caPEM
+}
+
+// rootCAs is the pool a host-side client trusts the stub with, or nil.
+func (s *StubOAuthServer) rootCAs() *x509.CertPool {
+	if s.tls == nil {
+		return nil
+	}
+	return s.tls.pool
 }
 
 // Origin is the origin every endpoint is advertised under, as the VM reaches
