@@ -26,9 +26,11 @@ const hostGatewayNetwork = "host"
 // the last prompt and quits last, because harnesses differ in which session
 // they continue: opencode2 the last active one, claude-code the last saved one.
 var coreSessionJourney = Journey{
-	Name:      "core-session",
-	Harnesses: []string{opencode2AgentName, claudeCodeAgentName, codexAgentName, piAgentName, ohMyPiAgentName},
-	Network:   hostGatewayNetwork,
+	Name: "core-session",
+	Harnesses: []string{
+		opencode2AgentName, claudeCodeAgentName, codexAgentName, piAgentName, ohMyPiAgentName, hermesAgentName,
+	},
+	Network: hostGatewayNetwork,
 	Steps: []Step{
 		Given(StepOwnProject("core")),
 		And(StepFreshHome()),

@@ -65,7 +65,9 @@ func learnExemptions() map[string]string {
 func coreSessionExemptions() map[string]string {
 	reasons := map[string]string{}
 	for _, name := range learnRolloutHarnesses {
-		reasons[name] = "core session on this harness lands with the full rollout, #794"
+		if !slices.Contains(coreSessionJourney.Harnesses, name) {
+			reasons[name] = "core session on this harness lands with the full rollout, #794"
+		}
 	}
 	return reasons
 }

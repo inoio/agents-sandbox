@@ -122,6 +122,7 @@ var Harnesses = map[string]Harness{
 	codexAgentName:      codexHarness,
 	piAgentName:         piFamilyHarness(piModelsPath),
 	ohMyPiAgentName:     ohMyPiHarness(),
+	hermesAgentName:     hermesHarness,
 }
 
 // continueFlag is the agent flag that continues the last session, shared by
