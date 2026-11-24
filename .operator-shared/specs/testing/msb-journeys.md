@@ -265,10 +265,12 @@ Six harnesses joined with an adapter each and no harness branch in shared code (
 - **A readiness marker means the harness takes keys.** A marker printed before the input line reads the
   terminal lets a typed prompt lose its Enter, and the prompt step's echo check cannot notice, because the
   terminal's own echo satisfies it. `Drive.ReadyMarker` overrides the smoke's marker where the two differ.
-- **A submit is confirmed at the stub.** Where the stub is reachable, every harness sends some request once it
-  received a prompt (a turn, a title, a model probe). With none after a scaled wait, the prompt step presses
-  Enter again (an Enter lost before the input read keys) and then types the prompt again once (text lost
-  too). It resends only while no request arrived, so it never interrupts a turn (hermes stops one on Enter).
+- **A submit is confirmed at the stub.** Where the stub is reachable (core-session), each harness sends some
+  request once it received a prompt (a turn, a title, a model probe). With none after a generous scaled wait,
+  the prompt step presses Enter again (an Enter lost before the input read keys) and then types the prompt
+  again once (text lost too). It never resends after a request arrived; a harness whose Enter stops a turn
+  (`Drive.EnterInterrupts`, hermes) gets no resend at all, since a slow first request after an accepted prompt
+  would otherwise turn the resend into an interrupt or a duplicate prompt.
 - **A timing-based negative check needs a positive counterpart.** "No sign-in screen after a settle", "no setup
   screen after a settle" can pass on a slow host; each is paired with positive evidence (a login status, the
   readiness marker in output written after the exit keys).

@@ -230,7 +230,7 @@ func StepSendPrompt(prompt string) Step {
 		if err := typeUntilEchoed(ses, prompt, promptTypeAttempts, echoWait); err != nil {
 			return err
 		}
-		if !stubReachable(c) {
+		if !stubReachable(c) || c.Harness.Drive.EnterInterrupts {
 			return ses.Write([]byte("\r"))
 		}
 		requests := len(c.Stub.Requests())
@@ -277,7 +277,7 @@ func stubReachable(c *Context) bool {
 // step presses Enter again; submitEnters is how many more Enters it presses
 // before it types the prompt again, once.
 const (
-	submitConfirmWait = 5 * time.Second
+	submitConfirmWait = 10 * time.Second
 	submitEnters      = 2
 )
 
@@ -293,8 +293,7 @@ type unconfirmedSubmit struct {
 }
 
 // confirmSubmit waits for evidence that the harness received the submit. With
-// none, the harness is not working on it (a turn would have shown), so pressing
-// Enter again cannot interrupt one: it presses Enter submitEnters times, for a
+// none after a generous wait, the harness most likely never got it, so: it presses Enter submitEnters times, for a
 // prompt whose Enter was lost, then types the prompt again once, for one whose
 // text was lost too. Without evidence after that, it leaves the failure to the
 // turn check that follows the prompt.

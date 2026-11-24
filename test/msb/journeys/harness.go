@@ -41,6 +41,9 @@ type Driving struct {
 	// LaunchArgs are agent arguments every run of the harness passes, before
 	// any step-specific ones.
 	LaunchArgs []string
+	// EnterInterrupts marks a harness whose Enter stops a running turn, so the
+	// prompt step never presses Enter again after a submit (confirmSubmit).
+	EnterInterrupts bool
 	// StartupBusyMarker, when set, is the notice the harness shows for a prompt
 	// submitted before its startup finished; it keeps the prompt in its editor,
 	// so StepSendPrompt submits it again.
