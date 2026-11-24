@@ -356,23 +356,28 @@ in seconds on the shared project and assert only state in their own HOME.
 
 `harness-login` covers the sandbox's part of a harness's own login, the part no provider owns; a real
 provider login needs a real account and stays in the exploratory tier. It runs under `none`, so no
-step reaches a provider, and on its own project, so the login it stores stays out of the shared home volume. On codex (the browser login has no paste fallback, so the forward is its only way
+step reaches a provider, and on its own project, so the login it stores stays out of the shared home
+volume. On codex (the browser login has no paste fallback, so the forward is its only way
 back):
 
-- **Link to the host.** The journey's launcher finds a fake `xdg-open` first on `PATH` (the host opener's
-  command on Linux), which records the links instead of opening them. The harness's login link must reach
+- **Link to the host.** The journey's launcher finds a fake host opener first on `PATH` (named like the
+  opener's command: `xdg-open`, `open` on macOS), which records the links instead of opening them, so no run
+  opens a real browser. The harness's login link must reach
   it unchanged and name a loopback `redirect_uri` with a port.
 - **Return leg.** The journey requests that callback on the host's loopback with the link's `state` and a
-  dummy code, as a browser after sign-in would. The answer must be the harness's own (the forwarder's 404 or
-  502 means it never got there) and carry the host boundary: a sandboxing CSP and no `Set-Cookie`. The
+  dummy code, as a browser after sign-in would. The answer must be the harness's own page
+  (`Drive.LoginCallbackMarker`, which the forwarder's own answers lack) and carry the host boundary: a
+  sandboxing CSP and no `Set-Cookie`. The
   harness's token exchange then fails; that is expected.
 - **Login persistence.** An API-key login typed into `agents-sandbox shell` (codex takes the key only from a
   pipe) writes the login store in the VM's home, outside the `home:` manifest, which would re-provision it
-  and mask a loss. After `agents-sandbox stop`, the next run must start without the sign-in screen
+  and mask a loss. After `agents-sandbox stop`, the harness must report the login from the shell
+  (`Drive.LoginStatus`, exit 0), and the next run must start without the sign-in screen
   (`Drive.SignInMarker`; the composer is painted behind it, so it is no readiness signal). Without the
-  login the check fails, which is how it was validated.
+  login the sign-in check fails, which is how it was validated.
 
-The adapter's `LoginArgs`, `APIKeyLogin`, and `SignInMarker` carry the harness facts. A full login
+The adapter's `LoginArgs`, `LoginCallbackMarker`, `APIKeyLogin`, `LoginStatus`, and `SignInMarker` carry
+the harness facts. A full login
 without accounts (an MCP server's OAuth against a stub authorization server) is a later stage.
 
 ### Production-closure gate

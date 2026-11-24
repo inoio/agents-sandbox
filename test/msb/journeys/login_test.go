@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -51,22 +52,34 @@ func TestCallbackURLReturnsToTheHostLoopbackWithTheState(t *testing.T) {
 }
 
 func TestCallbackAnswerProblemTellsTheHarnesssAnswerFromTheForwarders(t *testing.T) {
+	const marker = "Codex Sign-in"
 	relayed := http.Header{"Content-Security-Policy": {"sandbox; default-src 'none'"}}
-	if problem := callbackAnswerProblem(&CallbackAnswer{Status: 200, Header: relayed}); problem != nil {
-		t.Errorf("a relayed answer: %v", problem)
+	page := "<title>Codex Sign-in Error</title>"
+	if problem := callbackAnswerProblem(
+		&CallbackAnswer{Status: 200, Header: relayed, Body: page},
+		marker,
+	); problem != nil {
+		t.Errorf("the harness's relayed page: %v", problem)
 	}
 	for name, answer := range map[string]*CallbackAnswer{
-		"the forwarder's failed replay": {Status: http.StatusBadGateway, Header: relayed},
-		"an unknown path":               {Status: http.StatusNotFound, Header: relayed},
-		"no sandboxing policy":          {Status: 200, Header: http.Header{}},
-		"a cookie": {Status: 200, Header: http.Header{
+		"the forwarder's failed replay": {Status: http.StatusBadGateway, Body: "agents-sandbox could not pass the login back"},
+		"an unknown path":               {Status: http.StatusNotFound, Body: "404 page not found"},
+		"a blocked redirect": {
+			Status: 200, Header: relayed,
+			Body: "agents-sandbox blocked a redirect to a local address on your computer.",
+		},
+		"no sandboxing policy": {Status: 200, Header: http.Header{}, Body: page},
+		"a cookie": {Status: 200, Body: page, Header: http.Header{
 			"Content-Security-Policy": {"sandbox"},
 			"Set-Cookie":              {"session=1"},
 		}},
 	} {
-		if callbackAnswerProblem(answer) == nil {
+		if callbackAnswerProblem(answer, marker) == nil {
 			t.Errorf("%s: got no problem", name)
 		}
+	}
+	if callbackAnswerProblem(&CallbackAnswer{Status: 200, Header: relayed, Body: page}, "") == nil {
+		t.Error("an adapter without a callback marker: got no problem")
 	}
 }
 
@@ -83,11 +96,16 @@ func TestHostBrowserRecordsTheLinksItIsAskedToOpen(t *testing.T) {
 	if !slices.Contains(env, "PATH="+browser.dir+string(os.PathListSeparator)+"/usr/bin:/bin") {
 		t.Fatalf("env = %v, want the browser's dir first on PATH", env)
 	}
+	command := hostOpenCommand(runtime.GOOS)
+	resolved, err := lookPathIn(command, env)
+	if err != nil || resolved != filepath.Join(browser.dir, command) {
+		t.Fatalf("%s on the journey PATH resolves to %q (%v), want the fake browser", command, resolved, err)
+	}
 	for _, link := range links {
 		//testenv:allow running the fake handler the launcher would run
-		command := exec.CommandContext(t.Context(), filepath.Join(browser.dir, hostOpenCommand), link)
+		command := exec.CommandContext(t.Context(), resolved, link)
 		if out, err := command.CombinedOutput(); err != nil {
-			t.Fatalf("%s %q: %v\n%s", hostOpenCommand, link, err, out)
+			t.Fatalf("%s %q: %v\n%s", resolved, link, err, out)
 		}
 	}
 	opened, err := browser.Opened()
@@ -97,4 +115,27 @@ func TestHostBrowserRecordsTheLinksItIsAskedToOpen(t *testing.T) {
 	if env := browser.FirstOnPath([]string{"HOME=/nowhere"}); !strings.HasPrefix(env[len(env)-1], "PATH="+browser.dir) {
 		t.Errorf("without a PATH: env = %v, want one naming the browser's dir", env)
 	}
+}
+
+func TestHostOpenCommandFollowsTheLaunchersOpener(t *testing.T) {
+	if hostOpenCommand("darwin") != "open" || hostOpenCommand("linux") != "xdg-open" {
+		t.Errorf("hostOpenCommand = %q (darwin), %q (linux); want open and xdg-open",
+			hostOpenCommand("darwin"), hostOpenCommand("linux"))
+	}
+}
+
+// lookPathIn resolves command against the PATH in env, as the launcher's
+// exec.Command does with its own environment.
+func lookPathIn(command string, env []string) (string, error) {
+	for _, entry := range env {
+		if path, ok := strings.CutPrefix(entry, "PATH="); ok {
+			for _, dir := range filepath.SplitList(path) {
+				candidate := filepath.Join(dir, command)
+				if info, err := os.Stat(candidate); err == nil && info.Mode()&0o111 != 0 {
+					return candidate, nil
+				}
+			}
+		}
+	}
+	return "", os.ErrNotExist
 }

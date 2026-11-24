@@ -50,6 +50,12 @@ type Driving struct {
 	// SignInMarker is text the harness's start screen shows while no login is
 	// stored.
 	SignInMarker string
+	// LoginCallbackMarker is text the page the harness answers its login
+	// callback with shows, which the forwarder's own answers lack.
+	LoginCallbackMarker string
+	// LoginStatus is the shell command that exits 0 only while a login is
+	// stored.
+	LoginStatus string
 	// WriteFileCall is the harness's tool call that writes content to the
 	// guest's absolute path, which the stub answers a turn with.
 	WriteFileCall func(guestPath, content string) ToolCall

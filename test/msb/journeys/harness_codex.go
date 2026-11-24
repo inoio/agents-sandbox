@@ -44,6 +44,9 @@ var codexHarness = Harness{
 			return "printf %s " + shellQuote(key) + " | codex login --with-api-key"
 		},
 		SignInMarker: "Choose how you want to use Codex",
+		// codex answers a callback it cannot complete with its error page.
+		LoginCallbackMarker: "Codex Sign-in",
+		LoginStatus:         "codex login status",
 	},
 }
 

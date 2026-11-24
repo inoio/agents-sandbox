@@ -10,15 +10,22 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/inoio/agents-sandbox/test/msb/driver"
 )
 
-// hostOpenCommand is the command the launcher's host opener runs on Linux;
-// the fake browser takes its place on PATH.
-const hostOpenCommand = "xdg-open"
+// hostOpenCommand is the command the launcher's host opener runs on goos
+// (open on macOS, xdg-open elsewhere); the fake browser takes its place on
+// PATH, so the journey never opens a real browser.
+func hostOpenCommand(goos string) string {
+	if goos == "darwin" {
+		return "open"
+	}
+	return "xdg-open"
+}
 
 // loginCallbackCode is the authorization code the fake browser returns with.
 // No provider issued it, so the harness's token exchange fails; the journey
@@ -46,7 +53,7 @@ type HostBrowser struct {
 func newHostBrowser(dir string) (*HostBrowser, error) {
 	browser := &HostBrowser{dir: dir, log: filepath.Join(dir, "opened.log")}
 	script := "#!/bin/sh\nprintf '%s\\n' \"$1\" >> " + shellQuote(browser.log) + "\n"
-	if err := os.WriteFile(filepath.Join(dir, hostOpenCommand), []byte(script), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, hostOpenCommand(runtime.GOOS)), []byte(script), 0o755); err != nil {
 		return nil, fmt.Errorf("write the fake host browser: %w", err)
 	}
 	return browser, nil
@@ -268,29 +275,36 @@ func returnToCallback(target string, timeout time.Duration) (*CallbackAnswer, er
 	}
 }
 
-// forwarderFailureStatuses are the answers the host forwarder gives itself
-// when it cannot pass the callback on: an unknown path, or a failed replay.
-var forwarderFailureStatuses = map[int]bool{http.StatusNotFound: true, http.StatusBadGateway: true}
-
 // StepAssertCallbackReachedHarness checks the forwarder passed the browser's
-// callback to the harness in the VM and relayed its answer under the host
-// boundary: a sandboxing Content-Security-Policy and no cookies.
+// callback to the harness in the VM and relayed the harness's own page (the
+// adapter's LoginCallbackMarker) under the host boundary: a sandboxing
+// Content-Security-Policy and no cookies.
 func StepAssertCallbackReachedHarness() Step {
 	return AsCheck(
 		Step{Name: "the callback reaches the harness in the VM, behind the host boundary", Run: func(c *Context) error {
 			if c.Callback == nil {
 				return errors.New("no callback answer on the context")
 			}
-			return callbackAnswerProblem(c.Callback)
+			return callbackAnswerProblem(c.Callback, c.Harness.Drive.LoginCallbackMarker)
 		}},
 	)
 }
 
-// callbackAnswerProblem reports why answer is not the harness's own answer
-// relayed under the host boundary, or nil.
-func callbackAnswerProblem(answer *CallbackAnswer) error {
-	if forwarderFailureStatuses[answer.Status] {
-		return fmt.Errorf("the forwarder answered %d itself, not the harness: %q", answer.Status, answer.Body)
+// callbackAnswerProblem reports why answer is not the harness's own page
+// (showing marker) relayed under the host boundary, or nil. An answer the
+// forwarder writes itself (a 404, a failed replay, a blocked redirect) lacks
+// the harness's marker.
+func callbackAnswerProblem(answer *CallbackAnswer, marker string) error {
+	if marker == "" {
+		return errors.New("the adapter declares no LoginCallbackMarker")
+	}
+	if !strings.Contains(answer.Body, marker) {
+		return fmt.Errorf(
+			"the forwarder answered %d without the harness's page (%q): %.300q",
+			answer.Status,
+			marker,
+			answer.Body,
+		)
 	}
 	if policy := answer.Header.Get("Content-Security-Policy"); !strings.Contains(policy, "sandbox") {
 		return fmt.Errorf("the relayed answer carries no sandboxing Content-Security-Policy (%q)", policy)
@@ -331,14 +345,7 @@ func StepSignInWithAPIKey() Step {
 		if c.Harness.Drive.APIKeyLogin == nil {
 			return fmt.Errorf("the %s adapter declares no APIKeyLogin", c.Agent)
 		}
-		launchClient(c, []string{"shell"}, nil)
-		ses := c.Session
-		budget := driver.ScaleTimeout(loginExitTimeout, driver.SmokeTimeoutFactor())
-		line := c.Harness.Drive.APIKeyLogin(stubProviderAPIKey) + "; exit\r"
-		if err := typeUntilExit(ses, []byte(line), budget); err != nil {
-			return err
-		}
-		code, err := ses.WaitExit(budget)
+		code, ses, err := runInShell(c, c.Harness.Drive.APIKeyLogin(stubProviderAPIKey))
 		if err != nil {
 			return err
 		}
@@ -372,6 +379,43 @@ func typeUntilExit(ses *driver.Session, input []byte, budget time.Duration) erro
 	return nil
 }
 
+// StepAssertLoginStored asks the harness, from `agents-sandbox shell`, whether
+// a login is stored (the adapter's LoginStatus command, which exits 0 only
+// then): the positive evidence beside the start screen's absent sign-in.
+func StepAssertLoginStored() Step {
+	return AsCheck(Step{Name: "the harness reports the stored login from the shell", Run: func(c *Context) error {
+		if c.Harness.Drive.LoginStatus == "" {
+			return fmt.Errorf("the %s adapter declares no LoginStatus", c.Agent)
+		}
+		code, ses, err := runInShell(c, c.Harness.Drive.LoginStatus)
+		if err != nil {
+			return err
+		}
+		if code != 0 {
+			return fmt.Errorf(
+				"%s exited %d: no login is stored; output: %s",
+				c.Harness.Drive.LoginStatus,
+				code,
+				ses.OutputTail(),
+			)
+		}
+		return nil
+	}})
+}
+
+// runInShell types command into a new `agents-sandbox shell` client, ending
+// the shell with the command's status, and returns that status.
+func runInShell(c *Context, command string) (int, *driver.Session, error) {
+	launchClient(c, []string{"shell"}, nil)
+	ses := c.Session
+	budget := driver.ScaleTimeout(loginExitTimeout, driver.SmokeTimeoutFactor())
+	if err := typeUntilExit(ses, []byte(command+"; exit\r"), budget); err != nil {
+		return 0, ses, err
+	}
+	code, err := ses.WaitExit(budget)
+	return code, ses, err
+}
+
 // StepAssertNoSignIn checks the active client's harness started without its
 // sign-in screen (the adapter's SignInMarker): a login is stored.
 func StepAssertNoSignIn() Step {
@@ -399,7 +443,8 @@ func StepAssertNoSignIn() Step {
 // exchange fails; what the journey asserts is the sandbox's part of the login.
 // Then an API-key login from the shell stores a login in the VM's home, and it
 // must survive a VM stop. It runs on its own project, so the stored login
-// stays out of the harness's shared home volume. The journey runs without egress, so the dummy code
+// stays out of the harness's shared home volume. The journey runs without
+// egress, so the dummy code
 // never reaches the real provider; none of its steps needs any.
 var loginJourney = Journey{
 	Name:      "harness-login",
@@ -417,7 +462,8 @@ var loginJourney = Journey{
 		And(StepWaitLoginEnds()),
 		When(StepSignInWithAPIKey()),
 		And(StepStopVM()),
-		And(StepLaunch(runCommand)),
+		Then(StepAssertLoginStored()),
+		When(StepLaunch(runCommand)),
 		Then(StepWaitReady()),
 		And(StepAssertNoSignIn()),
 		When(StepQuitToExit()),

@@ -203,7 +203,9 @@ Scenario: harness-login
   And the login command ends
   When the user signs the harness in with an API key from the shell
   And the user stops the project VM
-  And the user runs `agents-sandbox run`
+  # check
+  Then the harness reports the stored login from the shell
+  When the user runs `agents-sandbox run`
   Then the harness TUI comes up
   # check
   And the harness starts signed in
