@@ -13,8 +13,10 @@ import (
 )
 
 // StepStartStubOAuthServer starts the stub authorization server with its MCP
-// server, and declares that MCP server in the harness's config through the
-// adapter's Login.MCPServer snippets.
+// server and declares that server the harness's way (the adapter's MCP
+// facts). For a harness that needs TLS it must run before StepSeedStub and
+// StepConfigureLauncherEnv, which provision the stub's test CA and point the
+// harness at it; it refuses to run after them.
 func StepStartStubOAuthServer() Step {
 	return Step{
 		Name: "an MCP server behind an OAuth authorization server is declared for the harness",
@@ -22,6 +24,10 @@ func StepStartStubOAuthServer() Step {
 			mcp, err := mcpFacts(c)
 			if err != nil {
 				return err
+			}
+			if mcp.TLS && c.Stub != nil {
+				return errors.New("start the stub OAuth server before seeding the home and the launcher env, " +
+					"so they provision its test CA")
 			}
 			stub, err := StartStubOAuthServer(c.TB, mcp.TLS)
 			if err != nil {
@@ -81,8 +87,9 @@ func mcpFacts(c *Context) (MCPFacts, error) {
 	return *c.Harness.MCP, nil
 }
 
-// StepLaunchMCPLogin starts the harness's sign-in to the stub's MCP server (the
-// adapter's MCP.LoginArgs) under `agents-sandbox run`.
+// StepLaunchMCPLogin starts the harness's sign-in to the stub's MCP server:
+// the adapter's MCP.LoginArgs under `agents-sandbox run`, or its
+// MCP.LoginCommand typed into `agents-sandbox shell`.
 func StepLaunchMCPLogin() Step {
 	return Step{Name: "the user signs the harness in to the MCP server", Run: func(c *Context) error {
 		mcp, err := mcpFacts(c)
@@ -95,7 +102,7 @@ func StepLaunchMCPLogin() Step {
 		}
 		launchClient(c, []string{"shell"}, nil)
 		ses := c.Session
-		if err := ses.WaitForMarker(shellPromptMarker, scaled(loginLinkTimeout)); err != nil {
+		if err := ses.WaitForMarker(shellPromptMarker, scaled(shellPromptTimeout)); err != nil {
 			return err
 		}
 		// One write: the command must run once, and the shell exits with its
@@ -103,6 +110,10 @@ func StepLaunchMCPLogin() Step {
 		return ses.Write([]byte(mcp.LoginCommand(stubMCPServerName) + "; exit\r"))
 	}}
 }
+
+// shellPromptTimeout bounds the wait for the shell prompt, which includes a
+// boot of the stopped or new project VM.
+const shellPromptTimeout = 2 * time.Minute
 
 // shellPromptMarker is part of the VM shell's prompt (dev@<vm>), which shows
 // once the shell reads input.

@@ -23,7 +23,9 @@ const (
 )
 
 // stubCAEnv names the variable Node and Bun read extra trusted CAs from, so a
-// harness built on either trusts the stub's test CA.
+// harness built on either trusts the stub's test CA. It replaces any other
+// value, such as the CA msb's TLS interception sets; a journey with a TLS stub
+// therefore runs under `host`, where no traffic is intercepted.
 const stubCAEnv = "NODE_EXTRA_CA_CERTS"
 
 // stubTLS is a test CA and a server certificate it issued for the names the
