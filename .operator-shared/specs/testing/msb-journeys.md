@@ -194,11 +194,15 @@ source of truth and its steps are type-checked. It reads as Gherkin anyway:
   *check* (`AsCheck`: its failure is recorded with `t.Errorf` and the journey goes on). The kind is about
   dependency, not the keyword: "Then the harness TUI comes up" is an action. Final assertions are checks, so
   one run reports every broken check that does not block the chain.
-- **Parallel harnesses.** The journeys run one after another; a journey's harnesses run in parallel, as many
-  at once as `driver.HarnessConcurrency` allows (the startup smoke's memory-sized limit). Parallel cells never
-  share a VM (each harness has its own project), and the journey order keeps a harness's shared project to one
-  journey at a time. The one in-process global, the state-path swap of `StepSeedLearnSession`, is serialized by
-  a lock.
+- **Parallel harnesses, serial journeys.** The journeys run one after another; a journey's harnesses run in
+  parallel, as many at once as `driver.HarnessConcurrency` allows (the startup smoke's memory-sized limit).
+  Parallel cells never share a VM (each harness has its own project). The journeys on a harness's shared
+  project share its VM and its **home volume**, which outlives a journey (a host config one provisions is still
+  there for the next), so their table order is part of what they assert. Running journeys in parallel was
+  measured and rejected for now: it cut the suite from about 100 s to about 75 s, but the extra VMs starting at
+  once made opencode2 take a typed prompt before its input read keys, failing its turns in most runs (see the
+  readiness rule below). The one in-process global, the state-path swap of `StepSeedLearnSession`, is
+  serialized by a lock.
 - **Few, long journeys.** A harness boot dominates a journey's runtime, so a new check extends an existing
   journey when it can run on the state that journey already reached; a new journey is for a different
   starting state (another first-run choice, network profile, or a clean VM).
@@ -255,6 +259,9 @@ Six harnesses joined with an adapter each and no harness branch in shared code (
 - **A side request is one for the small model or without tools**; it gets `stubTitleReply`, no numbered reply,
   and is not a turn. A non-chat request (a model probe) is never a turn. An undecodable turn is answered 400 and
   recorded. A real tool-less turn would be misread; a journey driving one must refine the rule.
+- **A failed turn wait prints the harness's own view.** `Drive.Diagnostics` is a shell command (opencode2:
+  its sessions and the newest session's messages from its API) whose output a failed turn wait logs from the
+  VM before the sweep removes it; opencode2's own log records no session events at its default level.
 - **A readiness marker means the harness takes keys.** A marker printed before the input line reads the
   terminal lets a typed prompt lose its Enter, and the prompt step's echo check cannot notice, because the
   terminal's own echo satisfies it. `Drive.ReadyMarker` overrides the smoke's marker where the two differ.

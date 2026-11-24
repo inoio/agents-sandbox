@@ -41,3 +41,18 @@ func runInShell(c *Context, command string) (int, *driver.Session, error) {
 	code, err := ses.WaitExit(budget)
 	return code, ses, err
 }
+
+// logHarnessDiagnostics prints the harness's own view of its sessions
+// (Driving.Diagnostics) from the journey's VM, read through a shell client, so
+// a failure the launcher's output does not explain carries the harness's view
+// before the sweep removes the VM. The journey's active client is kept.
+func logHarnessDiagnostics(c *Context) {
+	command := c.Harness.Drive.Diagnostics
+	if command == "" {
+		return
+	}
+	active, clients := c.Session, c.Clients
+	defer func() { c.Session, c.Clients = active, clients }()
+	code, ses, err := runInShell(c, command)
+	c.TB.Logf("%s diagnostics (exit %d, %v):\n%s", c.Agent, code, err, driver.StripANSI(ses.Output()))
+}

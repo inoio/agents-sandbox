@@ -312,6 +312,7 @@ func stepAssertStubServed(budget time.Duration) Step {
 		err := pollUntil(budget, stubPollInterval, func() (bool, error) {
 			return servedTurn(c.Stub.Requests()), nil
 		}, func() error {
+			logHarnessDiagnostics(c)
 			return fmt.Errorf("the stub provider served no turn within %s (requests: %v)", budget, c.Stub.Requests())
 		})
 		if err != nil {
