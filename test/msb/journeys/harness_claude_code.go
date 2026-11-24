@@ -1,7 +1,5 @@
 package journeys
 
-import "github.com/inoio/agents-sandbox/test/msb/driver"
-
 // claudeCodeAgentName is claude-code's registered agent name.
 const claudeCodeAgentName = "claude-code"
 
@@ -12,13 +10,10 @@ const claudeCodeAgentName = "claude-code"
 // environment is the only route. The token is a dummy the stub never checks, so a
 // plain env var is fine for it; a real credential would go through the secret
 // mechanism. acceptEdits lets the Write tool run without a
-// permission prompt. ~/.claude.json skips onboarding and accepts the workspace
-// trust dialog, as the startup smoke does.
+// permission prompt. Its onboarding and workspace-trust state come from the
+// startup smoke's seeds (driver.Spec.Seeds).
 var claudeCodeHarness = Harness{
 	Stub: StubSetup{
-		HomeFiles: func(string) map[string]string {
-			return map[string]string{driver.ClaudeCodeConfigPath: driver.ClaudeCodeSmokeConfig}
-		},
 		Env: func(addr string) map[string]string {
 			return map[string]string{
 				"ANTHROPIC_BASE_URL":                       addr,

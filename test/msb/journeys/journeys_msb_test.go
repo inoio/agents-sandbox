@@ -17,8 +17,12 @@ const (
 	harnessSelectionEnv = "AGENTS_SANDBOX_JOURNEYS_HARNESS"
 )
 
-// TestHarnessJourneys drives each journey in the table against a real
-// microsandbox VM, one journey at a time. It requires /dev/kvm, a docker daemon,
+// TestHarnessJourneys drives each journey in the table against real
+// microsandbox VMs: the journeys one after another, and a journey's harnesses
+// in parallel, as many at once as driver.HarnessConcurrency allows (the
+// startup smoke's limit). Each harness has its own project, so parallel cells
+// never share a VM, and the journeys' order keeps a harness's shared project
+// to one journey at a time. It requires /dev/kvm, a docker daemon,
 // and network; the `msb` build tag keeps it out of the default test run, and
 // driver.Preflight skips (never fails) on a host that cannot run it.
 //
@@ -49,23 +53,19 @@ func TestHarnessJourneys(t *testing.T) {
 	}
 	driver.PrebuildImagesFor(t, root, selection)
 
+	slots := make(chan struct{}, driver.HarnessConcurrency())
 	for _, journey := range Journeys {
 		t.Run(journey.Name, func(t *testing.T) {
 			for _, harness := range journey.Harnesses {
 				t.Run(harness, func(t *testing.T) {
+					t.Parallel()
+					slots <- struct{}{}
+					defer func() { <-slots }()
 					runJourney(t, journeyContext(t, root, binary, journey, harness), journey, time.Now)
 				})
 			}
 		})
 	}
-
-	// The host-gated stub spike runs last, sharing this test's prepared root and
-	// reuse lock: a separate top-level test would re-enter driver.Prepare, whose
-	// per-caller cleanup tears the shared root down and releases the lock when
-	// the first caller returns.
-	t.Run("stub-provider-turn-reaches-the-proxy", func(t *testing.T) {
-		runStubProviderTurnReachesTheProxy(t, root, binary)
-	})
 }
 
 // journeyContext builds the context one (journey, harness) run starts from: the
@@ -88,17 +88,13 @@ func journeyContext(t *testing.T, root, binary string, journey Journey, harness 
 }
 
 // journeySelection is the images the make target's JOURNEY/HARNESS selection
-// drives, the opt-in proxy spike's harness included when it runs. A selection
+// drives. A selection
 // that names no cell fails, so a typo cannot pass as an empty green run.
 func journeySelection(t *testing.T) []driver.ProjectAgent {
 	t.Helper()
 	//testenv:allow the make target passes the JOURNEY/HARNESS selection through the environment
-	journey, harness, spike := os.Getenv(journeySelectionEnv), os.Getenv(harnessSelectionEnv), os.Getenv(proxySpikeEnv)
-	var outsideTable []string
-	if spike != "" {
-		outsideTable = append(outsideTable, opencode2AgentName)
-	}
-	selection := selectedProjectAgents(Journeys, journey, harness, outsideTable...)
+	journey, harness := os.Getenv(journeySelectionEnv), os.Getenv(harnessSelectionEnv)
+	selection := selectedProjectAgents(Journeys, journey, harness)
 	if len(selection) == 0 && (journey != "" || harness != "") {
 		t.Fatalf("JOURNEY=%q HARNESS=%q selects no journey cell", journey, harness)
 	}

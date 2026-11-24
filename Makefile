@@ -286,8 +286,7 @@ test-msb-cold: msb-reuse-root
 # runtime's reuse home. Host-only; excluded from test/check via the `msb` build
 # tag. See .operator-shared/specs/testing/msb-journeys.md.
 # JOURNEY and HARNESS narrow test-msb-journeys to TestHarnessJourneys/<journey>/<harness>
-# (each an exact name; either may be left out). The opt-in proxy spike, a subtest outside
-# the table, matches whenever JOURNEY is left out.
+# (each an exact name; either may be left out); the suite prebuilds only those cells' images.
 JOURNEYS_RUN = $(if $(JOURNEY)$(HARNESS),-run 'TestHarnessJourneys/^$(or $(JOURNEY),.*)$$/^$(or $(HARNESS),.*)$$')
 
 test-msb-journeys: msb-reuse-root

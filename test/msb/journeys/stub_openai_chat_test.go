@@ -314,3 +314,46 @@ func TestStubTreatsAToolLessRequestAsASideRequest(t *testing.T) {
 		t.Error("a tool-less request counted as a turn")
 	}
 }
+
+// TestSideRequestRuleCoversEachHarnesssRequestKinds pins, per harness, which of
+// the rule's three request shapes (a turn with tools, a small-model request, a
+// tool-less main-model request) its side requests and turns took on a KVM host,
+// and that every driven harness is listed. The shapes are the rule's, not
+// captured bodies: a harness whose side request carries tools on the main
+// model, or whose turn carries none, breaks the rule and must be configured
+// around it (as oh-my-pi's adapter is) before the rule changes.
+func TestSideRequestRuleCoversEachHarnesssRequestKinds(t *testing.T) {
+	const (
+		turn       = `{"model":"stub","stream":true,"tools":[{"type":"function"}]}`
+		smallModel = `{"model":"stub-title","stream":true,"messages":[]}`
+		toolLess   = `{"model":"stub","stream":true,"messages":[]}`
+	)
+	observed := map[string]struct{ side, turns []string }{
+		opencode2AgentName:  {side: []string{smallModel}, turns: []string{turn}},
+		claudeCodeAgentName: {side: []string{smallModel}, turns: []string{turn}},
+		codexAgentName:      {side: []string{toolLess}, turns: []string{turn}},
+		piAgentName:         {side: nil, turns: []string{turn}},
+		ohMyPiAgentName:     {side: []string{toolLess, smallModel}, turns: []string{turn}},
+	}
+	for name, requests := range observed {
+		for _, body := range requests.side {
+			var request chatRequest
+			if err := json.Unmarshal([]byte(body), &request); err != nil || !request.side() {
+				t.Errorf("%s side request %s: side() = false (%v)", name, body, err)
+			}
+		}
+		for _, body := range requests.turns {
+			var request chatRequest
+			if err := json.Unmarshal([]byte(body), &request); err != nil || request.side() {
+				t.Errorf("%s turn %s: side() = true (%v)", name, body, err)
+			}
+		}
+	}
+	for _, journey := range Journeys {
+		for _, name := range journey.Harnesses {
+			if _, ok := observed[name]; !ok {
+				t.Errorf("journey %q drives %s, whose side and turn requests are not pinned here", journey.Name, name)
+			}
+		}
+	}
+}

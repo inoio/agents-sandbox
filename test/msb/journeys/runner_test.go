@@ -17,6 +17,7 @@ type recordingTB struct {
 	logs   []string
 	errors []string
 	fatals []string
+	skips  []string
 }
 
 func (r *recordingTB) Helper() {}
@@ -31,6 +32,10 @@ func (r *recordingTB) Errorf(format string, args ...any) {
 
 func (r *recordingTB) Fatalf(format string, args ...any) {
 	r.fatals = append(r.fatals, fmt.Sprintf(format, args...))
+}
+
+func (r *recordingTB) Skipf(format string, args ...any) {
+	r.skips = append(r.skips, fmt.Sprintf(format, args...))
 }
 
 // fixedClock advances one second per call, so step durations are predictable.
@@ -160,18 +165,41 @@ func TestSelectedProjectAgentsFollowTheSelection(t *testing.T) {
 			t.Errorf("selection (%q, %q) = %v, want %v", tc.journey, tc.harness, got, tc.want)
 		}
 	}
-	// A subtest outside the table runs whenever no journey is named, whatever
-	// the harness filter, so its harness is built then and only then.
-	for _, tc := range []struct {
-		journey, harness string
-		want             []string
-	}{
-		{"", "pi", []string{"pi", "opencode2"}},
-		{"b", "pi", []string{"pi"}},
-	} {
-		got := names(selectedProjectAgents(journeys, tc.journey, tc.harness, "opencode2"))
-		if !slices.Equal(got, tc.want) {
-			t.Errorf("selection (%q, %q) = %v, want %v", tc.journey, tc.harness, got, tc.want)
-		}
+}
+
+func TestRunJourneySkipsTheRestOnASkipStep(t *testing.T) {
+	var ran []string
+	journey := Journey{Name: "opt-in", Steps: []Step{
+		Given(Step{Name: "opted in", Run: func(*Context) error { return skipJourneyError{reason: "not opted in"} }}),
+		When(recordStep("the harness starts", &ran, nil)),
+	}}
+	tb := &recordingTB{}
+
+	runJourney(tb, &Context{}, journey, fixedClock())
+
+	if len(ran) != 0 || len(tb.skips) != 1 || len(tb.fatals) != 0 || !strings.Contains(tb.skips[0], "not opted in") {
+		t.Errorf(
+			"ran %q, skips %q, fatals %q; want one skip naming the reason and nothing run",
+			ran,
+			tb.skips,
+			tb.fatals,
+		)
+	}
+}
+
+func TestStepRequireOptInSkipsUnlessTheSwitchIsSet(t *testing.T) {
+	const env = "AGENTS_SANDBOX_JOURNEYS_TEST_OPT_IN"
+	t.Setenv(env, "")
+	var skip skipJourneyError
+	if err := StepRequireOptIn(
+		env,
+		"a spike",
+	).Run(&Context{}); !errors.As(err, &skip) ||
+		!strings.Contains(skip.reason, env) {
+		t.Errorf("without the switch: err = %v, want a skip naming %s", err, env)
+	}
+	t.Setenv(env, "1")
+	if err := StepRequireOptIn(env, "a spike").Run(&Context{}); err != nil {
+		t.Errorf("with the switch: err = %v, want nil", err)
 	}
 }

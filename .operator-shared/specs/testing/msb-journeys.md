@@ -165,9 +165,9 @@ on screen cannot pass for the turn's reply, and a title request does not count a
 - **The route does not pass the observation proxy.** Host-gateway traffic bypasses the learn-mode terminating
   proxy, and the runtime enforces the egress policy before the proxy is consulted, so a name the policy denies
   or the guest cannot resolve (the former `agents-sandbox-stub.invalid` default) is never observed either. No
-  route is known yet that both completes a turn and is observed; the proxy spike
-  (`TestHarnessJourneys/stub-provider-turn-reaches-the-proxy`) therefore runs only with
-  `AGENTS_SANDBOX_JOURNEYS_PROXY_SPIKE=1` and stays the open question of the attribution half.
+  route is known yet that both completes a turn and is observed; the proxy spike, the table journey
+  `proxy-observes-the-stub` (opencode2), therefore opts in through `StepRequireOptIn`: it is skipped unless
+  `AGENTS_SANDBOX_JOURNEYS_PROXY_SPIKE=1`, and stays the open question of the attribution half.
 
 #### Typing into a harness
 
@@ -203,6 +203,11 @@ source of truth and its steps are type-checked. It reads as Gherkin anyway:
   *check* (`AsCheck`: its failure is recorded with `t.Errorf` and the journey goes on). The kind is about
   dependency, not the keyword: "Then the harness TUI comes up" is an action. Final assertions are checks, so
   one run reports every broken check that does not block the chain.
+- **Parallel harnesses.** The journeys run one after another; a journey's harnesses run in parallel, as many
+  at once as `driver.HarnessConcurrency` allows (the startup smoke's memory-sized limit). Parallel cells never
+  share a VM (each harness has its own project), and the journey order keeps a harness's shared project to one
+  journey at a time. The one in-process global, the state-path swap of `StepSeedLearnSession`, is serialized by
+  a lock.
 - **Few, long journeys.** A harness boot dominates a journey's runtime, so a new check extends an existing
   journey when it can run on the state that journey already reached; a new journey is for a different
   starting state (another first-run choice, network profile, or a clean VM).
@@ -214,6 +219,12 @@ source of truth and its steps are type-checked. It reads as Gherkin anyway:
   completeness contract is per pair: every (journey, registered agent) pair is driven or exempted with a
   recorded reason (`Exemptions`), so a newly registered agent fails the default suite until it is placed, and a
   stale exemption for a driven pair fails too.
+- **Seeds.** A journey starts from the startup smoke's seeds for the harness (`driver.Spec.Seeds`), so
+  first-run state the smoke already settles (claude-code's `.claude.json`) is not restated per adapter:
+  `StepSeedStub` applies the smoke's `home:` manifest with the adapter's `Stub.HomeFiles` added, and
+  `StepConfigureLauncherEnv` the smoke's agent snippets with the adapter's on top (a snippet is a managed layer,
+  and a learn journey needs the first-run menu). The smoke's host files are not seeded: the first-run menu reads
+  host files as host setup, and a journey's host setup is its own (`StepSeedHostConfig`).
 - **Harness adapter.** Everything a step needs to know about a harness beyond starting and quitting it
   (`driver.Spec`, shared with the startup smoke) lives in its `Harness` adapter (`Harnesses`), in three parts:
   `Stub` (how it reaches the stub: `HomeFiles` through the `home:` manifest, `Env` through the launcher env file,

@@ -51,24 +51,8 @@ type Spec struct {
 	// or the settle. It is ignored for an alternate-screen harness, whose
 	// readiness is the alternate-screen marker rather than a wall clock.
 	ReadyTimeoutOverride time.Duration
-	// SeedHomeFiles maps a home-relative path to its content, written under the
-	// isolated HOME (<root>/home) before the run so the launcher provisions it
-	// into the VM. It is how a harness that needs host-side configuration (a
-	// provider block, a settled opt-in) starts headful without credentials.
-	SeedHomeFiles map[string]string
-	// SeedHomeManifest maps a VM-home-relative target path to its content,
-	// provisioned through the launcher config's `home:` key rather than the
-	// agent's ProvisionRules. Use it for a harness whose first-run state lives
-	// outside the paths its ProvisionRules copy (claude-code's ~/.claude.json,
-	// beside the ~/.claude/settings.json the rules carry); a file the rules
-	// already copy belongs in SeedHomeFiles.
-	SeedHomeManifest map[string]string
-	// SeedAgentSnippets maps a snippet file name to its content, written into
-	// the agent's launcher config dir (XDG_CONFIG_HOME/agents-sandbox/<config
-	// dir>) so the launcher merges it into the agent's config. Use it for a
-	// harness whose settings live in its merged-config file, which neither the
-	// ProvisionRules nor the home: manifest may write.
-	SeedAgentSnippets map[string]string
+	// Seeds are the files a run of the harness starts from (see Seeds).
+	Seeds Seeds
 }
 
 // Specs maps every registered harness to how the smoke test drives it.
@@ -81,13 +65,13 @@ var Specs = map[string]Spec{
 	// prints the product name, which readies the subtest. Its first run stops at
 	// onboarding (a theme picker and a workspace-trust dialog) whose only quit
 	// key aborts with exit 1, so the subtest seeds its first-run state through
-	// the launcher's home: manifest (SeedHomeManifest) and lands on the prompt.
+	// the launcher's home: manifest (Seeds.HomeManifest) and lands on the prompt.
 	"claude-code": {
 		QuitKey:           []byte{CtrlC},
 		Network:           PublicNetwork,
 		KeepsNormalBuffer: true,
 		ReadyMarker:       claudeCodeReadyMarker,
-		SeedHomeManifest:  map[string]string{ClaudeCodeConfigPath: ClaudeCodeSmokeConfig},
+		Seeds:             Seeds{HomeManifest: map[string]string{ClaudeCodeConfigPath: ClaudeCodeSmokeConfig}},
 	},
 	// codex quits on Ctrl-C and may reach its API at startup, so it gets
 	// egress like claude-code; its TUI uses the alternate screen.
@@ -106,7 +90,7 @@ var Specs = map[string]Spec{
 		KeepsNormalBuffer:    true,
 		ReadyMarker:          hermesReadyMarker,
 		ReadyTimeoutOverride: heavyweightReadyTimeout,
-		SeedHomeFiles:        map[string]string{HermesConfigPath: hermesSmokeConfig},
+		Seeds:                Seeds{HomeFiles: map[string]string{HermesConfigPath: hermesSmokeConfig}},
 	},
 	// oh-my-pi reaches its TUI without credentials, like pi, which it forks.
 	// Its renderer keeps the terminal's normal buffer (it borrows the alternate
@@ -120,7 +104,7 @@ var Specs = map[string]Spec{
 		QuitKey:           []byte{CtrlD},
 		KeepsNormalBuffer: true,
 		ReadyMarker:       ohMyPiReadyMarker,
-		SeedHomeFiles:     map[string]string{ohMyPiConfigPath: ohMyPiSmokeConfig},
+		Seeds:             Seeds{HomeFiles: map[string]string{ohMyPiConfigPath: ohMyPiSmokeConfig}},
 	},
 	// kimi-code's regular TUI mode renders into the terminal's normal buffer, so
 	// its welcome banner is the readiness marker. With no provider it starts
@@ -133,7 +117,7 @@ var Specs = map[string]Spec{
 		QuitKey:           []byte{CtrlD},
 		KeepsNormalBuffer: true,
 		ReadyMarker:       kimiCodeReadyMarker,
-		SeedAgentSnippets: map[string]string{kimiCodeSmokeSnippet: kimiCodeSmokeConfig},
+		Seeds:             Seeds{AgentSnippets: map[string]string{kimiCodeSmokeSnippet: kimiCodeSmokeConfig}},
 	},
 	// qwen-code draws its TUI on the alternate screen and, with no provider
 	// configured, starts at its auth dialog, so it needs no seed and no egress.
@@ -150,7 +134,7 @@ var Specs = map[string]Spec{
 		QuitKey:           []byte{CtrlD},
 		KeepsNormalBuffer: true,
 		ReadyMarker:       gooseReadyMarker,
-		SeedAgentSnippets: map[string]string{gooseSmokeSnippet: gooseSmokeConfig},
+		Seeds:             Seeds{AgentSnippets: map[string]string{gooseSmokeSnippet: gooseSmokeConfig}},
 	},
 	// grok-build's fullscreen TUI (its default screen mode) uses the alternate
 	// screen. With no credential it comes up on its device-code sign-in screen
@@ -194,7 +178,7 @@ const claudeCodeReadyMarker = "Claude Code"
 // ClaudeCodeConfigPath is the file claude-code keeps its first-run state in,
 // home-relative. It sits beside .claude/settings.json, which the launcher's
 // claude-code ProvisionRules copy, so the smoke test seeds it through the
-// launcher config's home: manifest (SeedHomeManifest) instead.
+// launcher config's home: manifest (Seeds.HomeManifest) instead.
 const ClaudeCodeConfigPath = ".claude.json"
 
 // ClaudeCodeSmokeConfig skips claude-code's first-run flow so the subtest lands

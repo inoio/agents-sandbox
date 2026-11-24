@@ -3,6 +3,7 @@ package journeys
 import (
 	"fmt"
 	"path/filepath"
+	"sync"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
@@ -36,9 +37,13 @@ type journeyStatePaths struct {
 // UserStateDir returns the journey's isolated state root.
 func (p journeyStatePaths) UserStateDir() string { return p.stateDir }
 
+// journeyStatePathsLock serializes the steps that swap the process-global
+// resolver (withJourneyStatePaths): a journey's harnesses run in parallel.
+var journeyStatePathsLock sync.Mutex
+
 // withJourneyStatePaths installs the isolated resolver rooted at home and
-// returns the restore. The journeys run one at a time, so the process-global
-// swap cannot race another journey.
+// returns the restore. A step that calls it holds journeyStatePathsLock for
+// the swap's lifetime; nothing else in the suite resolves state in-process.
 func withJourneyStatePaths(home string) func() {
 	previous := configpaths.Get
 	configpaths.Get = func() configpaths.ConfigPaths {
