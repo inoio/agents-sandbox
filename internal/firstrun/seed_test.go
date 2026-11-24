@@ -680,7 +680,7 @@ func TestPlaceholderStaticValuesRefusesAnUnmigratableCredential(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got, ok := placeholderStaticValues(test.path, content, []readback.Credential{test.credential})
+			got, ok := placeholderStaticValues(test.path, content, []readback.Credential{test.credential}, "")
 			if test.wantRefused {
 				require.False(t, ok, "a credential missing a field must refuse the file")
 				require.Empty(t, got)
@@ -797,4 +797,62 @@ func TestSeedSkipsReportsASingleOverCapFile(t *testing.T) {
 	require.EqualError(t, err, fmt.Sprintf(
 		"firstrun: skipped 1 instruction file(s) over the seed cap of %d files and %d bytes",
 		maxSeedInstructionFiles, maxSeedInstructionBytes))
+}
+
+// TestSeedFromHostWritesCodexsNativeIndirection pins that the seed writes a
+// harness's native env indirection where it does not expand ${VAR} in its
+// config: codex's inline experimental_bearer_token becomes env_key naming the
+// secret's variable, which msb fills with the placeholder.
+func TestSeedFromHostWritesCodexsNativeIndirection(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	hostHome := t.TempDir()
+	writeHostFile(t, hostHome, ".codex/config.toml", `model_provider = "corp"
+
+[model_providers.corp]
+name = "corp"
+base_url = "https://llm.corp.example/v1"
+experimental_bearer_token = "sk-corp-inline"
+`)
+	facts := Facts{
+		Agent:     "codex",
+		Slug:      "widget-abc",
+		HostFiles: []string{filepath.Join(hostHome, ".codex/config.toml")},
+	}
+
+	migrated, err := SeedFromHost(facts, paths, hostHome)
+
+	require.NoError(t, err)
+	require.Equal(t, 1, migrated.Secrets)
+	slugDir := paths.UserSlugConfigDir("widget-abc")
+	copied, err := os.ReadFile(filepath.Join(slugDir, "codex", "config.toml"))
+	require.NoError(t, err)
+	require.Contains(t, string(copied), `env_key = "CORP_API_KEY"`)
+	require.NotContains(t, string(copied), "experimental_bearer_token")
+	require.NotContains(t, string(copied), "sk-corp-inline", "the raw value never reaches the copy")
+	require.Equal(t, []string{"llm.corp.example"}, readSeedSecrets(t, slugDir)["CORP_API_KEY"].Hosts)
+}
+
+// TestSeedFromHostRefusesACodexHeaderToken pins that a token in a codex
+// provider's http_headers, which the read-back does not classify, keeps the
+// file out of the managed scope rather than reaching it verbatim.
+func TestSeedFromHostRefusesACodexHeaderToken(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	hostHome := t.TempDir()
+	writeHostFile(t, hostHome, ".codex/config.toml", `[model_providers.corp]
+base_url = "https://llm.corp.example/v1"
+http_headers = { "X-Corp-Auth" = "corp-secret-value-123" }
+`)
+	facts := Facts{
+		Agent:     "codex",
+		Slug:      "widget-abc",
+		HostFiles: []string{filepath.Join(hostHome, ".codex/config.toml")},
+	}
+
+	_, err := SeedFromHost(facts, paths, hostHome)
+
+	require.Error(t, err)
+	_, statErr := os.Stat(filepath.Join(paths.UserSlugConfigDir("widget-abc"), "codex", "config.toml"))
+	require.ErrorIs(t, statErr, os.ErrNotExist, "the file is not seeded")
 }

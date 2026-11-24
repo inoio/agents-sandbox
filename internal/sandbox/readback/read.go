@@ -277,10 +277,11 @@ func providerNamedByEntry(entry map[string]any, entryKey string) (string, bool) 
 
 // providerContainers are the config keys whose value is keyed by provider id, so
 // a child entry names its provider through its container-relative key
-// (opencode's "provider.<id>" shape, and the "models.providers.<id>" wrapper).
-// A bare "models" map is a model catalog, not a container: only the
-// "models.providers.<id>" wrapper is one (see isModelCatalog).
-var providerContainers = []string{"provider", "providers", "models"}
+// (opencode's "provider.<id>" shape, codex's "model_providers.<id>", and the
+// "models.providers.<id>" wrapper). A bare "models" map is a model catalog, not
+// a container: only the "models.providers.<id>" wrapper is one (see
+// isModelCatalog).
+var providerContainers = []string{"provider", "providers", "modelproviders", "models"}
 
 // isProviderContainer reports whether a config key holds provider-keyed entries.
 func isProviderContainer(key string) bool {
@@ -531,8 +532,9 @@ func isSecretKeySeparator(r rune) bool {
 }
 
 // inlineCredentialKeys are the normalized keys whose value inside a provider
-// entry is that provider's own static credential.
-var inlineCredentialKeys = []string{"apikey", "key", "token"}
+// entry is that provider's own static credential (codex's provider entry keeps
+// it as experimental_bearer_token).
+var inlineCredentialKeys = []string{"apikey", "key", "token", "experimentalbearertoken"}
 
 // ClassifyConfigContent splits path's credential-bearing entries into static
 // (provider/host/env-var) and login classifications. No credential value is

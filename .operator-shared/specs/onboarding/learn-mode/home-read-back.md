@@ -20,8 +20,9 @@ only channel that works when the launcher-owned proxy
    - A **dotenv** key names a secret when one of its `_`/`-`-separated segments is `KEY`, `TOKEN`, `SECRET`, or
      `PASSWORD`; the markers are matched as whole singular segments (`MAX_TOKENS` is configuration, not a secret,
      because `TOKENS` is a distinct segment from `TOKEN`).
-   - An **inline** credential key (`api_key`/`apiKey`/`key`/`token`) inside a provider entry of a declared config
-     file is a static secret too. Its provider and host come from that same entry (the endpoint walk below); the
+   - An **inline** credential key (`api_key`/`apiKey`/`key`/`token`, and codex's `experimental_bearer_token`) inside
+     a provider entry of a declared config file is a static secret too. A provider entry sits under a container keyed
+     by provider id: `provider.<id>`, `providers.<id>`, codex's `model_providers.<id>`, or `models.providers.<id>`. Its provider and host come from that same entry (the endpoint walk below); the
      entry the walk reads includes its nested `options` object, where opencode keeps a provider's `apiKey` beside its
      `baseURL`. A value
      that is a reference rather than a literal — a `${…}` placeholder, a leading-`!` command reference, or a bare
@@ -43,7 +44,10 @@ A profile declares a config file as a read-back path only when the reader classi
 can hold. An inline key the walk does not recognise would otherwise reach the managed-config write-back verbatim
 (its content is sanitized only against the *classified* static set), so an as-yet-unclassified file is withheld until
 its shape is covered: `grok-build` declares `~/.grok/auth.json` only, withholding `~/.grok/config.toml` because its
-`[model.<id>] api_key` is not classified yet (the `codex` precedent, which omits its own `config.toml`). `claude-code`
+`[model.<id>] api_key` is not classified yet. `codex` declares its `config.toml` since its provider entries'
+`experimental_bearer_token` is classified; a token in its `http_headers` is not, so the host seed and the write-back
+(`RefuseUndeclaredSecretKeys`) refuse such a file rather than copy it. Its `auth.json` stays a login store, never
+read, in either `auth_mode` (#873 tracks learning an API-key-mode key and `env_key` references). `claude-code`
 withholds `~/.claude/settings.json` for the same reason, and more strictly: it is also excluded from the inline walk
 and the first-run host seed (`readback.SkipsInlineCredentials`), because it carries credentials in values whose key
 names no secret (custom auth headers, a proxy URL with userinfo, hook commands, `apiKeyHelper`).
