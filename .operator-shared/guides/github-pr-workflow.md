@@ -29,8 +29,8 @@ through the merge queue, and the two side effects that commonly stall one.
 
 **Stacked PRs** land bottom-up, one at a time: `scripts/enqueue-pr.sh --stack <bottom> … <top>` retargets
 each PR whose base is the previous PR's branch onto `main` once that one merged, enqueues it, and waits
-until it merges. The async merge takes still-open PRs below along, which is why it never enqueues one
-before the PR under it merged. It refuses a PR based on an unmerged branch outside the list, and stops
+until it merges, so a PR never enters the queue while the PR under it is still open. The list starts at
+the stack's bottom PR. It refuses a PR based on an unmerged branch outside the list, and stops
 when the queue drops a PR (three polls outside the queue). The repo does not delete merged branches,
 so GitHub does not retarget a stacked PR by itself.
 

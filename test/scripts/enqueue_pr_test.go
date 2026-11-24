@@ -49,6 +49,53 @@ func TestEnqueuePr(t *testing.T) {
 		assertContains(t, "argv", h.argv(), "sha=b42")
 	})
 
+	t.Run("stack stops when the retarget fails", func(t *testing.T) {
+		t.Parallel()
+		h := newEnqueuePrHarness(t)
+
+		result := h.runStack(map[string]string{
+			"41": `{"state":"OPEN","id":"PR_41","baseRefName":"main","headRefName":"feat-a","headRefOid":"a41"}`,
+			"42": `{"state":"OPEN","id":"PR_42","baseRefName":"feat-a","headRefName":"feat-b","headRefOid":"b42"}`,
+		}, map[string]string{"GH_STACK_MERGE": "1", "GH_PR_EDIT_EXIT": "1"}, "41", "42")
+
+		assertStatus(t, result, 1)
+		assertContains(t, "stderr", result.Stderr, "retargeting to main failed")
+		assertNotContains(t, "argv", h.argv(), "pulls/42/merge-async")
+	})
+
+	t.Run("stack stops on a conflict found while waiting for checks", func(t *testing.T) {
+		t.Parallel()
+		h := newEnqueuePrHarness(t)
+
+		result := h.runStack(map[string]string{
+			"41": `{"state":"OPEN","id":"PR_41","baseRefName":"main","headRefName":"feat-a","headRefOid":"a41",` +
+				`"mergeable":"CONFLICTING","mergeStateStatus":"DIRTY"}`,
+		}, map[string]string{"GH_STACK_MERGE": "1"}, "41")
+
+		assertStatus(t, result, 1)
+		assertContains(t, "stderr", result.Stderr, "has merge conflicts")
+		assertNotContains(t, "argv", h.argv(), "pr checks 41 --watch")
+		assertNotContains(t, "argv", h.argv(), "merge-async")
+	})
+
+	t.Run("a conflict that appears while checks register is fatal", func(t *testing.T) {
+		t.Parallel()
+		h := newEnqueuePrHarness(t)
+
+		// load_pr, then watch_checks' first conflict probe see a clean PR; the
+		// probe inside wait_for_checks' loop sees the conflict.
+		result := h.run(`[`+
+			`{"state":"OPEN","id":"PR_14"},`+
+			`{"state":"OPEN","id":"PR_14"},`+
+			`{"state":"OPEN","id":"PR_14","mergeable":"CONFLICTING","mergeStateStatus":"DIRTY"}]`,
+			nil, map[string]string{"GH_CHECKS_NOREPORT": "5"}, "42")
+
+		assertStatus(t, result, 1)
+		assertContains(t, "stderr", result.Stderr, "has merge conflicts")
+		assertNotContains(t, "argv", h.argv(), "pr checks 42 --watch")
+		assertNotContains(t, "argv", h.argv(), "merge-async")
+	})
+
 	t.Run("stack refuses a base outside the stack", func(t *testing.T) {
 		t.Parallel()
 		h := newEnqueuePrHarness(t)

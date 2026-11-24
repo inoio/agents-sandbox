@@ -21,6 +21,9 @@
 #   enqueue-pr.sh <PR_NUMBER>
 #   enqueue-pr.sh --stack <PR_NUMBER> <PR_NUMBER>...   (bottom first)
 #
+# A stack's list starts at its bottom PR, the one based on the default branch;
+# the script cannot tell which PR a merged base branch belonged to.
+#
 # Exit status: 0 when every PR is merged or was enqueued (with --stack: merged),
 # 1 when a PR's checks failed, a PR has merge conflicts, was closed, has a base
 # outside the stack, was dropped from the queue, or the enqueue request failed,
@@ -98,7 +101,7 @@ wait_for_checks() {
 # non-zero exit by the PR's state: a merged or closed PR will never report again.
 watch_checks() {
   refuse_if_conflicted || return 1
-  wait_for_checks
+  wait_for_checks || return 1
   local status=0
   gh pr checks "$pr" --watch --fail-fast >/dev/null 2>&1 || status=$?
   case "$status" in
@@ -198,7 +201,12 @@ enqueue_pr() {
 
   printf 'enqueue-pr: PR #%s: enqueueing\n' "$pr"
   local head status
-  head="$(gh pr view "$pr" --json headRefOid -q .headRefOid)"
+  # Called under `||`, so set -e does not apply here: every step checks itself.
+  head="$(gh pr view "$pr" --json headRefOid -q .headRefOid)" || head=""
+  if [[ -z "$head" ]]; then
+    printf 'enqueue-pr: PR #%s: could not read its head commit\n' "$pr" >&2
+    return 1
+  fi
   if ! status="$(gh api -X PUT "repos/{owner}/{repo}/pulls/$pr/merge-async" \
     -H "X-GitHub-Api-Version: $ENQUEUE_PR_API_VERSION" \
     -f merge_action=merge_queue -f sha="$head" --jq .status)"; then
@@ -215,10 +223,14 @@ enqueue_pr() {
 # wait_merged polls PR $pr until it merges. Three polls in a row outside the
 # queue mean the queue dropped it (a failed merge-group run, a conflict).
 wait_merged() {
-  local state queued outside=0
+  local state queued fields outside=0
   printf 'enqueue-pr: PR #%s: waiting for the merge queue\n' "$pr"
   while :; do
-    IFS=$'\t' read -r state queued < <(gh pr view "$pr" --json state,isInMergeQueue -q '[.state, .isInMergeQueue] | @tsv')
+    if ! fields="$(gh pr view "$pr" --json state,isInMergeQueue -q '[.state, .isInMergeQueue] | @tsv')"; then
+      printf 'enqueue-pr: PR #%s: could not read its state while it waits in the queue\n' "$pr" >&2
+      return 1
+    fi
+    IFS=$'\t' read -r state queued <<<"$fields"
     case "$state" in
       MERGED)
         printf 'enqueue-pr: PR #%s: merged\n' "$pr"
@@ -244,11 +256,18 @@ wait_merged() {
 # enqueueing would take that PR along.
 retarget_onto_default() {
   local base
-  base="$(gh pr view "$pr" --json baseRefName -q .baseRefName)"
+  if ! base="$(gh pr view "$pr" --json baseRefName -q .baseRefName)" || [[ -z "$base" ]]; then
+    printf 'enqueue-pr: PR #%s: could not read its base branch\n' "$pr" >&2
+    return 1
+  fi
   [[ "$base" == "$default_branch" ]] && return 0
   if [[ -n "$previous_head" && "$base" == "$previous_head" ]]; then
     printf 'enqueue-pr: PR #%s: retargeting from %s to %s\n' "$pr" "$base" "$default_branch"
-    gh pr edit "$pr" --base "$default_branch" >/dev/null
+    if ! gh pr edit "$pr" --base "$default_branch" >/dev/null; then
+      printf 'enqueue-pr: PR #%s: retargeting to %s failed; not enqueueing it on %s\n' \
+        "$pr" "$default_branch" "$base" >&2
+      return 1
+    fi
     return 0
   fi
   printf 'enqueue-pr: PR #%s is based on %s, which is not the previous PR in the stack; land that first\n' \
@@ -265,7 +284,7 @@ default_branch="$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name
 previous_head=""
 for pr in "$@"; do
   retarget_onto_default || exit 1
-  head_branch="$(gh pr view "$pr" --json headRefName -q .headRefName)"
+  head_branch="$(gh pr view "$pr" --json headRefName -q .headRefName)" || exit 1
   enqueue_pr || exit 1
   if [[ "$merged" == 0 ]]; then
     wait_merged || exit 1
