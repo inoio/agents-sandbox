@@ -2,6 +2,7 @@ package journeys
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/test/msb/driver"
 )
 
@@ -47,6 +49,8 @@ const (
 type HostBrowser struct {
 	dir string
 	log string
+	// taken is how many recorded links a step has already taken.
+	taken int
 }
 
 // newHostBrowser writes the fake handler into dir.
@@ -97,6 +101,15 @@ func (b *HostBrowser) Opened() ([]string, error) {
 	return links, scanner.Err()
 }
 
+// loginFacts returns the harness's login facts, or an error naming a harness
+// the login journey cannot cover yet.
+func loginFacts(c *Context) (LoginFacts, error) {
+	if c.Harness.Login == nil {
+		return LoginFacts{}, fmt.Errorf("the %s adapter declares no login facts", c.Agent)
+	}
+	return *c.Harness.Login, nil
+}
+
 // LoginLink is a harness's authorization link and the loopback callback in
 // the VM it names.
 type LoginLink struct {
@@ -105,15 +118,15 @@ type LoginLink struct {
 	State    string
 }
 
-// parseLoginLink reads link as an authorization URL whose redirect_uri is a
-// loopback http callback with a port.
+// parseLoginLink reads link as an http(s) authorization URL whose redirect_uri
+// is a loopback http callback with a port.
 func parseLoginLink(link string) (*LoginLink, error) {
 	parsed, err := url.Parse(link)
 	if err != nil {
 		return nil, fmt.Errorf("the opened link %q is not a URL: %w", link, err)
 	}
-	if parsed.Scheme != "https" {
-		return nil, fmt.Errorf("the opened link %q is not an https authorization URL", link)
+	if parsed.Scheme != "https" && parsed.Scheme != "http" {
+		return nil, fmt.Errorf("the opened link %q is not a web authorization URL", link)
 	}
 	query := parsed.Query()
 	callback, err := url.Parse(query.Get("redirect_uri"))
@@ -161,16 +174,18 @@ func StepFakeHostBrowser() Step {
 // LoginArgs) under `agents-sandbox run`.
 func StepLaunchLogin() Step {
 	return Step{Name: "the user starts the harness's browser login", Run: func(c *Context) error {
-		if len(c.Harness.Drive.LoginArgs) == 0 {
-			return fmt.Errorf("the %s adapter declares no LoginArgs", c.Agent)
+		login, err := loginFacts(c)
+		if err != nil {
+			return err
 		}
-		launchClient(c, []string{runCommand}, c.Harness.Drive.LoginArgs)
+		launchClient(c, []string{runCommand}, login.BrowserArgs)
 		return nil
 	}}
 }
 
-// StepAssertLoginLinkOpened waits until the host browser was asked to open the
-// harness's authorization link, and checks it names a loopback callback.
+// StepAssertLoginLinkOpened waits until the host browser was asked to open a
+// new link (one no earlier step took) and checks it is an authorization link
+// naming a loopback callback.
 func StepAssertLoginLinkOpened() Step {
 	return Step{
 		Name: "the host's browser opens the login link, which names a callback in the VM",
@@ -188,11 +203,12 @@ func StepAssertLoginLinkOpened() Step {
 				if err != nil {
 					return err
 				}
-				if len(links) > 0 {
-					login, err := parseLoginLink(links[0])
+				if len(links) > c.Browser.taken {
+					login, err := parseLoginLink(links[c.Browser.taken])
 					if err != nil {
 						return err
 					}
+					c.Browser.taken++
 					c.Login = login
 					return nil
 				}
@@ -230,6 +246,76 @@ func StepBrowserReturnsToCallback() Step {
 		)
 		return nil
 	}}
+}
+
+// StepBrowserSignsIn does what the browser does with the opened link when the
+// user signs in at an authorization server the journey runs: it opens the link
+// (resolving the VM's name for the host, under which the stub's authorize
+// endpoint is advertised, to the host loopback), takes the server's redirect,
+// and follows it to the callback on the host's loopback, keeping the host
+// forwarder's answer.
+func StepBrowserSignsIn() Step {
+	return Step{Name: "the user signs in at the authorization server in the browser", Run: func(c *Context) error {
+		if c.Login == nil || c.OAuth == nil {
+			return errors.New("no login link or stub authorization server on the context")
+		}
+		timeout := driver.ScaleTimeout(loginCallbackTimeout, driver.SmokeTimeoutFactor())
+		back, err := authorizeRedirect(c.Login.Link, c.OAuth.LoopbackAddr(), timeout)
+		if err != nil {
+			return err
+		}
+		answer, err := returnToCallback(onHostLoopback(back), timeout)
+		if err != nil {
+			return err
+		}
+		c.Callback = answer
+		c.TB.Logf(
+			"the forwarder answered %d (%s): %.300q",
+			answer.Status,
+			answer.Header.Get("Content-Type"),
+			answer.Body,
+		)
+		return nil
+	}}
+}
+
+// authorizeRedirect opens link with the browser's request, dialing loopback for
+// every host (the stub's authorize endpoint is the link's only host), and
+// returns where the authorization server sends the browser back.
+func authorizeRedirect(link, loopback string, timeout time.Duration) (*url.URL, error) {
+	client := &http.Client{
+		Timeout:       timeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		Transport:     &http.Transport{Proxy: nil, DialContext: loopbackDialer(loopback)},
+	}
+	//nolint:noctx // the client's timeout bounds the request
+	response, err := client.Get(link)
+	if err != nil {
+		return nil, fmt.Errorf("open the authorization link: %w", err)
+	}
+	defer response.Body.Close()
+	location, err := response.Location()
+	if err != nil {
+		return nil, fmt.Errorf("the authorization server answered %d without a redirect: %w", response.StatusCode, err)
+	}
+	return location, nil
+}
+
+// loopbackDialer dials loopback whatever address a request names: the
+// browser's resolution of the VM's name for the host to the host itself.
+func loopbackDialer(loopback string) func(ctx context.Context, network, address string) (net.Conn, error) {
+	return func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return new(net.Dialer).DialContext(ctx, network, loopback)
+	}
+}
+
+// onHostLoopback is target with its host replaced by the host's IPv4 loopback,
+// keeping the port, path, and query: where a browser lands for a localhost
+// callback.
+func onHostLoopback(target *url.URL) string {
+	landed := *target
+	landed.Host = net.JoinHostPort("127.0.0.1", target.Port())
+	return landed.String()
 }
 
 // callbackURL is the browser's return address for login: the callback on the
@@ -277,7 +363,7 @@ func returnToCallback(target string, timeout time.Duration) (*CallbackAnswer, er
 
 // StepAssertCallbackReachedHarness checks the forwarder passed the browser's
 // callback to the harness in the VM and relayed the harness's own page (the
-// adapter's LoginCallbackMarker) under the host boundary: a sandboxing
+// adapter's Login.CallbackMarker) under the host boundary: a sandboxing
 // Content-Security-Policy and no cookies.
 func StepAssertCallbackReachedHarness() Step {
 	return AsCheck(
@@ -285,7 +371,11 @@ func StepAssertCallbackReachedHarness() Step {
 			if c.Callback == nil {
 				return errors.New("no callback answer on the context")
 			}
-			return callbackAnswerProblem(c.Callback, c.Harness.Drive.LoginCallbackMarker)
+			login, err := loginFacts(c)
+			if err != nil {
+				return err
+			}
+			return callbackAnswerProblem(c.Callback, login.CallbackMarker)
 		}},
 	)
 }
@@ -337,15 +427,16 @@ func StepWaitLoginEnds() Step {
 }
 
 // StepSignInWithAPIKey signs the harness in from `agents-sandbox shell` with
-// its own API-key login (the adapter's APIKeyLogin), so the harness writes its
+// its own API-key login (the adapter's Login.APIKey), so the harness writes its
 // login store in the VM's home. The store is not provisioned, so only the home
 // volume keeps it.
 func StepSignInWithAPIKey() Step {
 	return Step{Name: "the user signs the harness in with an API key from the shell", Run: func(c *Context) error {
-		if c.Harness.Drive.APIKeyLogin == nil {
-			return fmt.Errorf("the %s adapter declares no APIKeyLogin", c.Agent)
+		login, err := loginFacts(c)
+		if err != nil {
+			return err
 		}
-		code, ses, err := runInShell(c, c.Harness.Drive.APIKeyLogin(stubProviderAPIKey))
+		code, ses, err := runInShell(c, login.APIKey(stubProviderAPIKey))
 		if err != nil {
 			return err
 		}
@@ -380,21 +471,22 @@ func typeUntilExit(ses *driver.Session, input []byte, budget time.Duration) erro
 }
 
 // StepAssertLoginStored asks the harness, from `agents-sandbox shell`, whether
-// a login is stored (the adapter's LoginStatus command, which exits 0 only
+// a login is stored (the adapter's Login.Status command, which exits 0 only
 // then): the positive evidence beside the start screen's absent sign-in.
 func StepAssertLoginStored() Step {
 	return AsCheck(Step{Name: "the harness reports the stored login from the shell", Run: func(c *Context) error {
-		if c.Harness.Drive.LoginStatus == "" {
-			return fmt.Errorf("the %s adapter declares no LoginStatus", c.Agent)
+		login, err := loginFacts(c)
+		if err != nil {
+			return err
 		}
-		code, ses, err := runInShell(c, c.Harness.Drive.LoginStatus)
+		code, ses, err := runInShell(c, login.Status)
 		if err != nil {
 			return err
 		}
 		if code != 0 {
 			return fmt.Errorf(
 				"%s exited %d: no login is stored; output: %s",
-				c.Harness.Drive.LoginStatus,
+				login.Status,
 				code,
 				ses.OutputTail(),
 			)
@@ -416,12 +508,102 @@ func runInShell(c *Context, command string) (int, *driver.Session, error) {
 	return code, ses, err
 }
 
+// StepStartStubOAuthServer starts the stub authorization server with its MCP
+// server, and declares that MCP server in the harness's config through the
+// adapter's Login.MCPServer snippets.
+func StepStartStubOAuthServer() Step {
+	return Step{
+		Name: "an MCP server behind an OAuth authorization server is in the harness's config",
+		Run: func(c *Context) error {
+			login, err := loginFacts(c)
+			if err != nil {
+				return err
+			}
+			stub, err := StartStubOAuthServer(c.TB)
+			if err != nil {
+				return err
+			}
+			c.OAuth = stub
+			profile, ok := agent.Lookup(c.Agent)
+			if !ok {
+				return fmt.Errorf("unknown agent %q", c.Agent)
+			}
+			return driver.SeedAgentSnippets(
+				c.Home,
+				profile.ConfigDirName(),
+				login.MCPServer(stubMCPServerName, stub.MCPURL()),
+			)
+		},
+	}
+}
+
+// StepLaunchMCPLogin starts the harness's sign-in to the stub's MCP server (the
+// adapter's Login.MCPLoginArgs) under `agents-sandbox run`.
+func StepLaunchMCPLogin() Step {
+	return Step{Name: "the user signs the harness in to the MCP server", Run: func(c *Context) error {
+		login, err := loginFacts(c)
+		if err != nil {
+			return err
+		}
+		launchClient(c, []string{runCommand}, login.MCPLoginArgs(stubMCPServerName))
+		return nil
+	}}
+}
+
+// StepAssertMCPLoginCompleted checks the MCP sign-in finished: the login
+// command exited 0 and the stub's token endpoint issued a token, which it does
+// only for a code whose PKCE verifier matches.
+func StepAssertMCPLoginCompleted() Step {
+	return Step{Name: "the MCP sign-in completes with a token exchange in the VM", Run: func(c *Context) error {
+		ses, err := session(c)
+		if err != nil {
+			return err
+		}
+		code, err := ses.WaitExit(driver.ScaleTimeout(loginExitTimeout, driver.SmokeTimeoutFactor()))
+		if err != nil {
+			return err
+		}
+		if code != 0 {
+			return fmt.Errorf("the MCP sign-in exited %d; output: %s", code, ses.OutputTail())
+		}
+		if len(c.OAuth.Issued()) == 0 {
+			return fmt.Errorf("the stub issued no token (requests: %+v)", c.OAuth.Requests())
+		}
+		// Count only the calls after the sign-in, so a later check sees the
+		// stored login in use, not the sign-in's own call.
+		c.TB.Logf("authorized MCP calls during the sign-in: %d", c.OAuth.ResetAuthorizedMCPCalls())
+		return nil
+	}}
+}
+
+// mcpCallTimeout bounds how long the harness may take to call its MCP server
+// after it started.
+const mcpCallTimeout = 30 * time.Second
+
+// StepAssertMCPCalledWithToken checks the harness called the stub's MCP server
+// with a token the stub issued since the sign-in completed: the stored MCP
+// login is in use.
+func StepAssertMCPCalledWithToken() Step {
+	return AsCheck(Step{Name: "the harness calls the MCP server with the issued token", Run: func(c *Context) error {
+		deadline := time.Now().Add(driver.ScaleTimeout(mcpCallTimeout, driver.SmokeTimeoutFactor()))
+		for c.OAuth.AuthorizedMCPCalls() == 0 {
+			if !time.Now().Before(deadline) {
+				return fmt.Errorf("no MCP call carried an issued token (requests: %+v)", c.OAuth.Requests())
+			}
+			//testenv:allow polling the stub for the harness's MCP call
+			time.Sleep(stubPollInterval)
+		}
+		return nil
+	}})
+}
+
 // StepAssertNoSignIn checks the active client's harness started without its
-// sign-in screen (the adapter's SignInMarker): a login is stored.
+// sign-in screen (the adapter's Login.SignInMarker): a login is stored.
 func StepAssertNoSignIn() Step {
 	return AsCheck(Step{Name: "the harness starts signed in", Run: func(c *Context) error {
-		if c.Harness.Drive.SignInMarker == "" {
-			return fmt.Errorf("the %s adapter declares no SignInMarker", c.Agent)
+		login, err := loginFacts(c)
+		if err != nil {
+			return err
 		}
 		ses, err := session(c)
 		if err != nil {
@@ -429,43 +611,58 @@ func StepAssertNoSignIn() Step {
 		}
 		//testenv:allow letting a sign-in screen paint over the composer
 		time.Sleep(signInSettle)
-		if firstShownMarker(string(ses.Output()), []string{c.Harness.Drive.SignInMarker}) >= 0 {
+		if firstShownMarker(string(ses.Output()), []string{login.SignInMarker}) >= 0 {
 			return errors.New("the harness shows its sign-in screen; the stored login was lost")
 		}
 		return nil
 	}})
 }
 
-// loginJourney drives a harness's logins through the sandbox. The browser
-// login goes up to the provider: the link reaches the host's browser, and the
-// browser's return to the loopback callback reaches the harness in the VM
-// through the host forwarder. No provider is involved, so the harness's token
-// exchange fails; what the journey asserts is the sandbox's part of the login.
-// Then an API-key login from the shell stores a login in the VM's home, and it
-// must survive a VM stop. It runs on its own project, so the stored login
-// stays out of the harness's shared home volume. The journey runs without
-// egress, so the dummy code
-// never reaches the real provider; none of its steps needs any.
+// loginJourney drives a harness's logins through the sandbox, with no real
+// account:
+//
+//   - The browser login goes up to the provider: the link reaches the host's
+//     browser, and the browser's return to the loopback callback reaches the
+//     harness in the VM through the host forwarder. No provider is involved,
+//     so the harness's token exchange fails; the journey asserts the sandbox's
+//     part.
+//   - An API-key login from the shell stores a login in the VM's home.
+//   - The MCP sign-in runs a full OAuth login against the stub authorization
+//     server on the host: discovery, client registration, the browser's
+//     authorize and callback through the opener and the forwarder, and the
+//     token exchange with PKCE from the VM.
+//   - Both stored logins must survive a VM stop: the harness starts signed in
+//     and calls the MCP server with the issued token.
+//
+// It runs on its own project, so the stored logins stay out of the harness's
+// shared home volume, and under the `host` profile, which admits only the host
+// gateway the stub listens behind: no step reaches a real provider.
 var loginJourney = Journey{
 	Name:      "harness-login",
 	Harnesses: []string{codexAgentName},
-	Network:   driver.NetworkNone,
+	Network:   hostGatewayNetwork,
 	Steps: []Step{
 		Given(StepOwnProject("login")),
 		And(StepFreshHome()),
 		And(StepConfigureLauncher()),
 		And(StepFakeHostBrowser()),
+		And(StepStartStubOAuthServer()),
 		When(StepLaunchLogin()),
 		Then(StepAssertLoginLinkOpened()),
 		When(StepBrowserReturnsToCallback()),
 		Then(StepAssertCallbackReachedHarness()),
 		And(StepWaitLoginEnds()),
 		When(StepSignInWithAPIKey()),
-		And(StepStopVM()),
+		And(StepLaunchMCPLogin()),
+		Then(StepAssertLoginLinkOpened()),
+		When(StepBrowserSignsIn()),
+		Then(StepAssertMCPLoginCompleted()),
+		When(StepStopVM()),
 		Then(StepAssertLoginStored()),
 		When(StepLaunch(runCommand)),
 		Then(StepWaitReady()),
 		And(StepAssertNoSignIn()),
+		And(StepAssertMCPCalledWithToken()),
 		When(StepQuitToExit()),
 	},
 }

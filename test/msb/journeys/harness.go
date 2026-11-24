@@ -10,6 +10,8 @@ type Harness struct {
 	Drive Driving
 	// Learn is nil for a harness no learn-mode journey covers yet.
 	Learn *LearnFacts
+	// Login is nil for a harness the login journey does not cover yet.
+	Login *LoginFacts
 }
 
 // StubSetup is how a harness is pointed at the stub provider at addr. A
@@ -41,21 +43,6 @@ type Driving struct {
 	LaunchArgs []string
 	// ResumeArgs are the agent arguments that continue the last session.
 	ResumeArgs []string
-	// LoginArgs are the agent arguments that start its browser login, which
-	// opens an authorization link naming a loopback callback in the VM.
-	LoginArgs []string
-	// APIKeyLogin is the shell command that signs the harness in with an API
-	// key piped to it and stores the login in the harness's home.
-	APIKeyLogin func(key string) string
-	// SignInMarker is text the harness's start screen shows while no login is
-	// stored.
-	SignInMarker string
-	// LoginCallbackMarker is text the page the harness answers its login
-	// callback with shows, which the forwarder's own answers lack.
-	LoginCallbackMarker string
-	// LoginStatus is the shell command that exits 0 only while a login is
-	// stored.
-	LoginStatus string
 	// WriteFileCall is the harness's tool call that writes content to the
 	// guest's absolute path, which the stub answers a turn with.
 	WriteFileCall func(guestPath, content string) ToolCall
@@ -100,6 +87,31 @@ type LearnFacts struct {
 	// key live in a file neither copies (the pi family's models file) never
 	// carries it.
 	ManagedConfigHoldsCredential bool
+}
+
+// LoginFacts is how a harness signs in: its own logins, which the login journey
+// drives through the sandbox, and how it shows a stored login.
+type LoginFacts struct {
+	// BrowserArgs are the agent arguments that start its browser login, which
+	// opens an authorization link naming a loopback callback in the VM.
+	BrowserArgs []string
+	// CallbackMarker is text the page the harness answers a login callback
+	// with shows, which the host forwarder's own answers lack.
+	CallbackMarker string
+	// APIKey is the shell command that signs the harness in with key and
+	// stores the login in the harness's home.
+	APIKey func(key string) string
+	// Status is the shell command that exits 0 only while a login is stored.
+	Status string
+	// SignInMarker is text the harness's start screen shows while no login is
+	// stored.
+	SignInMarker string
+	// MCPServer renders the launcher snippets (file name to content) that
+	// declare a remote MCP server name at url in the harness's config.
+	MCPServer func(name, url string) map[string]string
+	// MCPLoginArgs are the agent arguments that sign in to the MCP server name
+	// through its OAuth authorization server, in the browser.
+	MCPLoginArgs func(name string) []string
 }
 
 // Harnesses maps an agent name to its adapter. Every harness a journey drives

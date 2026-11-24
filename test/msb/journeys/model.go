@@ -38,7 +38,10 @@ type Context struct {
 	// Login is set by StepAssertLoginLinkOpened: the harness's authorization
 	// link and the callback it names.
 	Login *LoginLink
-	// Callback is set by StepBrowserReturnsToCallback: the host forwarder's
+	// OAuth is set by StepStartStubOAuthServer: the authorization server and
+	// MCP server the journey's harness signs in to.
+	OAuth *StubOAuthServer
+	// Callback is set by StepBrowserReturnsToCallback or StepBrowserSignsIn: the host forwarder's
 	// answer to the browser's return to the callback.
 	Callback *CallbackAnswer
 }

@@ -27,7 +27,7 @@ func TestParseLoginLinkNeedsALoopbackCallback(t *testing.T) {
 	}
 
 	for name, bad := range map[string]string{
-		"not https":             "http://auth.example.test/?redirect_uri=" + url.QueryEscape(callback),
+		"not a web link":        "mailto:someone@example.test?redirect_uri=" + url.QueryEscape(callback),
 		"no redirect_uri":       "https://auth.example.test/oauth/authorize",
 		"a remote callback":     "https://auth.example.test/?redirect_uri=" + url.QueryEscape("http://example.test:1455/cb"),
 		"a callback on no port": "https://auth.example.test/?redirect_uri=" + url.QueryEscape("http://127.0.0.1/cb"),

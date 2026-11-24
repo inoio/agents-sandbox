@@ -229,7 +229,8 @@ source of truth and its steps are type-checked. It reads as Gherkin anyway:
   (`driver.Spec`, shared with the startup smoke) lives in its `Harness` adapter (`Harnesses`), in three parts:
   `Stub` (how it reaches the stub: `HomeFiles` through the `home:` manifest, `Env` through the launcher env file,
   `Snippets` merged into its own config), `Drive` (how a journey drives its TUI: `ReadyMarker`, `LaunchArgs`,
-  `ResumeArgs`, `WriteFileCall`, and `Setup`, the harness's own first-start screen), and `Learn` (what learn mode
+  `ResumeArgs`, `WriteFileCall`, and `Setup`, the harness's own first-start screen), `Login` (how it signs in,
+  for the login journey), and `Learn` (what learn mode
   finds: its host config and credential store, the credential env var the read-back derives, the managed-config
   keys, whether the managed config can hold the credential; nil without learn coverage). A learn journey
   (`LearnMode`) says only which evidence its path produces (`ScopeWant`: config keys, placeholder); the values come
@@ -354,31 +355,36 @@ in seconds on the shared project and assert only state in their own HOME.
 
 ### The login journey (#875)
 
-`harness-login` covers the sandbox's part of a harness's own login, the part no provider owns; a real
-provider login needs a real account and stays in the exploratory tier. It runs under `none`, so no
-step reaches a provider, and on its own project, so the login it stores stays out of the shared home
-volume. On codex (the browser login has no paste fallback, so the forward is its only way
-back):
+`harness-login` covers a harness's own logins through the sandbox without a real account; a real provider
+login stays in the exploratory tier. It runs on its own project, so the logins it stores stay out of the
+shared home volume, and under `host`, which admits only the host gateway (disjoint from `public`), so no
+step reaches a real provider. On codex (its browser login has no paste fallback, so the forward is its
+only way back):
 
 - **Link to the host.** The journey's launcher finds a fake host opener first on `PATH` (named like the
-  opener's command: `xdg-open`, `open` on macOS), which records the links instead of opening them, so no run
-  opens a real browser. The harness's login link must reach
-  it unchanged and name a loopback `redirect_uri` with a port.
-- **Return leg.** The journey requests that callback on the host's loopback with the link's `state` and a
-  dummy code, as a browser after sign-in would. The answer must be the harness's own page
-  (`Drive.LoginCallbackMarker`, which the forwarder's own answers lack) and carry the host boundary: a
-  sandboxing CSP and no `Set-Cookie`. The
-  harness's token exchange then fails; that is expected.
-- **Login persistence.** An API-key login typed into `agents-sandbox shell` (codex takes the key only from a
-  pipe) writes the login store in the VM's home, outside the `home:` manifest, which would re-provision it
-  and mask a loss. After `agents-sandbox stop`, the harness must report the login from the shell
-  (`Drive.LoginStatus`, exit 0), and the next run must start without the sign-in screen
-  (`Drive.SignInMarker`; the composer is painted behind it, so it is no readiness signal). Without the
-  login the sign-in check fails, which is how it was validated.
+  opener's command: `xdg-open`, `open` on macOS). It records the links instead of opening them, so no run
+  opens a real browser. Each login link must reach it unchanged and name a loopback `redirect_uri`.
+- **Return leg.** For the provider login, the journey requests that callback on the host's loopback with
+  the link's `state` and a dummy code. The answer must be the harness's own page (`Login.CallbackMarker`,
+  which the forwarder's own answers lack) behind the host boundary: a sandboxing CSP and no `Set-Cookie`.
+  The harness's token exchange then fails; that is expected.
+- **A full OAuth login.** A stub authorization server on the host (`StubOAuthServer`) guards a stub MCP
+  server the harness's config declares (`Login.MCPServer`). The MCP sign-in (`Login.MCPLoginArgs`) runs the
+  whole flow: the MCP endpoint's 401 names the protected-resource metadata, the harness registers a client,
+  the opener hands the authorize link to the fake browser, which follows the server's redirect to the
+  callback on the host loopback, the forwarder replays it into the VM, and the harness exchanges the code
+  with its PKCE verifier (the stub issues a token only for a matching one). Every endpoint is on the host
+  gateway's origin (codex refuses an authorize endpoint on another origin); the opener takes that name for
+  a remote host, and only the fake browser resolves it to the host loopback.
+- **Both logins persist.** An API-key login typed into `agents-sandbox shell` (codex takes the key only
+  from a pipe) and the MCP token live in the VM's home, outside the `home:` manifest, which would
+  re-provision them and mask a loss. After `agents-sandbox stop`, the harness reports the login from the
+  shell (`Login.Status`, exit 0), the next run starts without the sign-in screen (`Login.SignInMarker`;
+  the composer is painted behind it, so readiness says nothing), and the harness calls the MCP server with
+  the issued token. Only calls after the sign-in count; codex makes none during it. Without the API-key
+  login, both of its checks fail, which is how they were validated.
 
-The adapter's `LoginArgs`, `LoginCallbackMarker`, `APIKeyLogin`, `LoginStatus`, and `SignInMarker` carry
-the harness facts. A full login
-without accounts (an MCP server's OAuth against a stub authorization server) is a later stage.
+The harness facts are the adapter's `Login` group; a harness without it is exempted.
 
 ### Production-closure gate
 
