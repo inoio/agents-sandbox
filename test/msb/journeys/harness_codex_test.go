@@ -14,7 +14,7 @@ import (
 // write exactly the content, apostrophes included.
 func TestCodexWriteFileCallWritesTheContentThroughTheShell(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "it's.txt")
-	call := codexHarness.WriteFileCall(path, "the stub's tool call")
+	call := codexHarness.Drive.WriteFileCall(path, "the stub's tool call")
 	var arguments map[string]string
 	if err := json.Unmarshal([]byte(call.Arguments), &arguments); err != nil {
 		t.Fatalf("arguments %q: %v", call.Arguments, err)
@@ -33,7 +33,7 @@ func TestCodexWriteFileCallWritesTheContentThroughTheShell(t *testing.T) {
 }
 
 func TestCodexStubConfigSelectsAResponsesProviderAtTheStub(t *testing.T) {
-	snippets := codexHarness.StubSnippets("http://stub.test:1234")
+	snippets := codexHarness.Stub.Snippets("http://stub.test:1234")
 	content := snippets[codexStubSnippet]
 	profile, _ := agent.Lookup(codexAgentName)
 	merger, ok := profile.(agent.ConfigMerger)

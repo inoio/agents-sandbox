@@ -11,8 +11,8 @@ import (
 
 func TestOpencode2AdapterSeedsTheSameProviderAsHostConfig(t *testing.T) {
 	const addr = "http://stub.test:1234"
-	provisioned := opencode2Harness.StubConfig(addr)[opencodeStubConfigTarget]
-	host := opencode2Harness.HostConfig(addr)[opencodeHostConfigRelPath]
+	provisioned := opencode2Harness.Stub.HomeFiles(addr)[opencodeStubConfigTarget]
+	host := opencode2Harness.Learn.HostConfig(addr)[opencodeHostConfigRelPath]
 	if provisioned == "" || provisioned != host {
 		t.Errorf("provisioned = %q, host = %q; want the same provider document in both", provisioned, host)
 	}
@@ -33,7 +33,7 @@ func TestOpencodeProviderDocumentCarriesAnInlineCredential(t *testing.T) {
 	}
 	t.Cleanup(provider.Stop)
 
-	content := opencode2Harness.StubConfig(provider.Addr())[opencodeStubConfigTarget]
+	content := opencode2Harness.Stub.HomeFiles(provider.Addr())[opencodeStubConfigTarget]
 	var document struct {
 		Provider map[string]struct {
 			Options struct {
@@ -52,7 +52,7 @@ func TestOpencodeProviderDocumentCarriesAnInlineCredential(t *testing.T) {
 // TestOpencodeProviderDocumentClassifiesAsTheAssertedCredential pins the journey's
 // premise without a VM: the read-back classifies the stub provider document's
 // inline apiKey as a static credential named exactly what UC1 asserts
-// (uc1Scope), scoped to the advertised host. It ties the stub's document to the
+// (LearnFacts.CredentialEnvVar), scoped to the advertised host. It ties the stub's document to the
 // assertion, so a change to the provider id or the options shape fails here
 // rather than only on a host accept.
 func TestOpencodeProviderDocumentClassifiesAsTheAssertedCredential(t *testing.T) {
@@ -62,27 +62,32 @@ func TestOpencodeProviderDocumentClassifiesAsTheAssertedCredential(t *testing.T)
 	}
 	t.Cleanup(provider.Stop)
 
-	content := opencode2Harness.StubConfig(provider.Addr())[opencodeStubConfigTarget]
+	content := opencode2Harness.Stub.HomeFiles(provider.Addr())[opencodeStubConfigTarget]
 	credentials := readback.InlineCredentialsIn(opencodeStubConfigTarget, []byte(content))
 	var found bool
 	for _, credential := range credentials {
-		if credential.Kind != readback.CredentialStatic || credential.EnvVar != uc1Scope.EnvVar {
+		if credential.Kind != readback.CredentialStatic ||
+			credential.EnvVar != opencode2Harness.Learn.CredentialEnvVar {
 			continue
 		}
 		found = true
-		if !slices.Equal(credential.Hosts, uc1Scope.Hosts) {
-			t.Errorf("credential hosts = %v, want %v", credential.Hosts, uc1Scope.Hosts)
+		if !slices.Equal(credential.Hosts, []string{stubHost}) {
+			t.Errorf("credential hosts = %v, want %v", credential.Hosts, []string{stubHost})
 		}
 	}
 	if !found {
-		t.Fatalf("InlineCredentialsIn found no static credential %q in %q", uc1Scope.EnvVar, content)
+		t.Fatalf(
+			"InlineCredentialsIn found no static credential %q in %q",
+			opencode2Harness.Learn.CredentialEnvVar,
+			content,
+		)
 	}
 }
 
 // opencode2's write tool requires `path`; any other key is a tool error the
 // turn survives silently.
 func TestOpencode2WriteFileCallMatchesTheWriteToolSchema(t *testing.T) {
-	call := opencode2Harness.WriteFileCall("/workspace/a.txt", "hi")
+	call := opencode2Harness.Drive.WriteFileCall("/workspace/a.txt", "hi")
 	var arguments map[string]string
 	if err := json.Unmarshal([]byte(call.Arguments), &arguments); err != nil {
 		t.Fatalf("arguments %q: %v", call.Arguments, err)

@@ -36,11 +36,11 @@ composer:
 // marker, its status line as the readiness marker.
 func ohMyPiHarness() Harness {
 	harness := piFamilyHarness(ohMyPiModelsPath)
-	harness.StubSnippets = func(string) map[string]string {
+	harness.Stub.Snippets = func(string) map[string]string {
 		return map[string]string{ohMyPiSetupSnippet: ohMyPiSetupConfig}
 	}
-	harness.ReadyMarker = ohMyPiStatusLineMarker
-	harness.LaunchArgs = append(harness.LaunchArgs, "--smol", stubProviderID+"/"+stubTitleModel)
+	harness.Drive.ReadyMarker = ohMyPiStatusLineMarker
+	harness.Drive.LaunchArgs = append(harness.Drive.LaunchArgs, "--smol", stubProviderID+"/"+stubTitleModel)
 	return harness
 }
 
@@ -49,17 +49,18 @@ func ohMyPiHarness() Harness {
 // modelsPath; neither file is a reserved home target), and --model selects it.
 func piFamilyHarness(modelsPath string) Harness {
 	return Harness{
-		StubConfig: func(addr string) map[string]string {
-			return map[string]string{modelsPath: piModelsDocument(addr)}
+		Stub: StubSetup{
+			HomeFiles: func(addr string) map[string]string {
+				return map[string]string{modelsPath: piModelsDocument(addr)}
+			},
 		},
-		LaunchArgs: []string{"--model", stubProviderID + "/" + stubProviderModel},
-		WriteFileCall: func(guestPath, content string) ToolCall {
-			return ToolCall{
-				Name:      "write",
-				Arguments: writeToolArguments("path", guestPath, content),
-			}
+		Drive: Driving{
+			LaunchArgs: []string{"--model", stubProviderID + "/" + stubProviderModel},
+			WriteFileCall: func(guestPath, content string) ToolCall {
+				return ToolCall{Name: "write", Arguments: writeToolArguments("path", guestPath, content)}
+			},
+			ResumeArgs: []string{continueFlag},
 		},
-		ResumeArgs: []string{continueFlag},
 	}
 }
 

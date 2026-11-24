@@ -117,8 +117,12 @@ func TestVMRestartProblem(t *testing.T) {
 
 func TestStepConfigureLauncherEnvWritesTheMarkerAndTheAdaptersEnv(t *testing.T) {
 	ctx := &Context{
-		TB: t, Home: t.TempDir(), Stub: fakeStubProvider{},
-		Harness: Harness{StubEnv: func(addr string) map[string]string { return map[string]string{"BASE": addr} }},
+		TB:   t,
+		Home: t.TempDir(),
+		Stub: fakeStubProvider{},
+		Harness: Harness{
+			Stub: StubSetup{Env: func(addr string) map[string]string { return map[string]string{"BASE": addr} }},
+		},
 	}
 
 	if err := StepConfigureLauncherEnv().Run(ctx); err != nil {

@@ -15,25 +15,26 @@ const claudeCodeAgentName = "claude-code"
 // permission prompt. ~/.claude.json skips onboarding and accepts the workspace
 // trust dialog, as the startup smoke does.
 var claudeCodeHarness = Harness{
-	StubConfig: func(string) map[string]string {
-		return map[string]string{driver.ClaudeCodeConfigPath: driver.ClaudeCodeSmokeConfig}
+	Stub: StubSetup{
+		HomeFiles: func(string) map[string]string {
+			return map[string]string{driver.ClaudeCodeConfigPath: driver.ClaudeCodeSmokeConfig}
+		},
+		Env: func(addr string) map[string]string {
+			return map[string]string{
+				"ANTHROPIC_BASE_URL":                       addr,
+				"ANTHROPIC_AUTH_TOKEN":                     stubProviderAPIKey,
+				"ANTHROPIC_MODEL":                          stubProviderModel,
+				"ANTHROPIC_SMALL_FAST_MODEL":               stubTitleModel,
+				"ANTHROPIC_DEFAULT_HAIKU_MODEL":            stubTitleModel,
+				"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+			}
+		},
 	},
-	StubEnv: func(addr string) map[string]string {
-		return map[string]string{
-			"ANTHROPIC_BASE_URL":                       addr,
-			"ANTHROPIC_AUTH_TOKEN":                     stubProviderAPIKey,
-			"ANTHROPIC_MODEL":                          stubProviderModel,
-			"ANTHROPIC_SMALL_FAST_MODEL":               stubTitleModel,
-			"ANTHROPIC_DEFAULT_HAIKU_MODEL":            stubTitleModel,
-			"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-		}
+	Drive: Driving{
+		LaunchArgs: []string{"--permission-mode", "acceptEdits"},
+		WriteFileCall: func(guestPath, content string) ToolCall {
+			return ToolCall{Name: "Write", Arguments: writeToolArguments("file_path", guestPath, content)}
+		},
+		ResumeArgs: []string{continueFlag},
 	},
-	LaunchArgs: []string{"--permission-mode", "acceptEdits"},
-	WriteFileCall: func(guestPath, content string) ToolCall {
-		return ToolCall{
-			Name:      "Write",
-			Arguments: writeToolArguments("file_path", guestPath, content),
-		}
-	},
-	ResumeArgs: []string{continueFlag},
 }

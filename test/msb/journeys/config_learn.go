@@ -15,12 +15,7 @@ import "github.com/inoio/agents-sandbox/internal/agent"
 // so the provisioned stub config reaches ManagedConfigFindings and is written
 // back sanitized. That is the same placeholder effect UC4 asserts for its host
 // seed, produced through the replay's changed-config path instead.
-var configLearnScope = ScopeWant{
-	EnvVar:      stubCredentialEnvVar,
-	Hosts:       []string{stubHost},
-	ConfigKeys:  nil,
-	Placeholder: true,
-}
+var configLearnScope = ScopeWant{ManagedConfig: false, Placeholder: true}
 
 // configLearnJourney is the `config learn` journey: it replays a recorded
 // learning session whose owning process is gone.
@@ -41,6 +36,7 @@ var configLearnScope = ScopeWant{
 var configLearnJourney = Journey{
 	Name:      "config-learn-replay",
 	Harnesses: []string{agent.DefaultAgentName},
+	LearnMode: true,
 	Steps: []Step{
 		Given(StepFreshHome()),
 		And(StepSeedStub()),

@@ -145,7 +145,7 @@ opencode uses for side requests such as the session title, and the stub answers 
 on screen cannot pass for the turn's reply, and a title request does not count as the turn.
 
 - **Protocol: plain HTTP.** The stub needs no CA, and the run needs no `network.observe.skip-upstream-verify`.
-- **Provider config.** The harness adapter's `StubConfig(addr)` returns the VM-home-relative config manifest
+- **Provider config.** The harness adapter's `Stub.HomeFiles(addr)` returns the VM-home-relative config manifest
   (`driver.SeedLauncherConfig`'s target→content map); for opencode2 it is one target, opencode's `.config/opencode/opencode.json`
   (the file opencode actually reads; `config.json < opencode.json < opencode.jsonc`), holding an
   OpenAI-compatible provider `stub` whose `options.baseURL` is `<advertised>/v1` plus the top-level
@@ -211,11 +211,16 @@ source of truth and its steps are type-checked. It reads as Gherkin anyway:
   recorded reason (`Exemptions`), so a newly registered agent fails the default suite until it is placed, and a
   stale exemption for a driven pair fails too.
 - **Harness adapter.** Everything a step needs to know about a harness beyond starting and quitting it
-  (`driver.Spec`, shared with the startup smoke) lives in its `Harness` adapter (`Harnesses`): how to point it
-  at the stub (`StubConfig`), its own host config (`HostConfig`), and the login store a host seed must drop
-  (`HostLoginStore`). A step or journey carries no harness's path or format literal, and a journey only lists a
-  harness with an adapter. One assumption remains in a step: the host seed would store a copied login store under
-  the host file's base name, which holds for opencode's `auth.json`. The adapter grows a field only when a journey needs it.
+  (`driver.Spec`, shared with the startup smoke) lives in its `Harness` adapter (`Harnesses`), in three parts:
+  `Stub` (how it reaches the stub: `HomeFiles` through the `home:` manifest, `Env` through the launcher env file,
+  `Snippets` merged into its own config), `Drive` (how a journey drives its TUI: `ReadyMarker`, `LaunchArgs`,
+  `ResumeArgs`, `WriteFileCall`), and `Learn` (what learn mode finds: its host config and login store, the
+  credential env var the read-back derives, the managed-config keys; nil without learn coverage). A learn journey
+  (`LearnMode`) says only which evidence its path produces (`ScopeWant`: config keys, placeholder); the values come
+  from `Learn`, and the completeness test requires `Learn` for every harness a learn journey lists. A step or
+  journey carries no harness's path or format literal. Two assumptions remain in learn steps, to be lifted when a
+  second harness gets learn coverage (#866): a copied login store keeps its base name, and the managed config sits
+  in the agent's first config dir. The adapter grows a field only when a journey needs it.
 
 The learn-mode journeys cover **opencode2 only** so far, the S1-verified profile with its SQLite credential
 probe; core-session covers opencode2, claude-code, codex, pi, and oh-my-pi. Learn mode on claude-code, codex,
@@ -233,10 +238,10 @@ and why:
   `/messages/count_tokens`), so a protocol is a handler, not a harness setting. Numbered replies, the
   one-shot tool call, and the small-model title split work the same for both.
 - **Environment, not files.** claude-code's `.claude/settings.json` is a reserved `home:` target, so the adapter
-  gained `StubEnv` (written to the launcher's env file) and `LaunchArgs` (`--permission-mode acceptEdits`).
+  gained `Stub.Env` (written to the launcher's env file) and `Drive.LaunchArgs` (`--permission-mode acceptEdits`).
 - **Core-session skips the first-run menu.** The launcher env file counts as configuration, so every
   harness starts core-session configured (`StepConfigureLauncherEnv`); the menu stays the learn-mode journeys'
-  concern. The same fact blocks reusing `StubEnv` there: a learn-mode journey on claude-code (#852) needs the menu
+  concern. The same fact blocks reusing `Stub.Env` there: a learn-mode journey on claude-code (#852) needs the menu
   and the stub, so it needs another route for the environment (the project-scope env or a process-env
   passthrough). The env file carries only a dummy token the stub never checks.
 - **Resume picks different sessions.** opencode2 continues the last active session, claude-code the last saved
@@ -250,7 +255,7 @@ field, and one stub rule:
 
 - **Responses protocol** (`/responses`): the event stream codex reads (`response.created`, text delta,
   `response.output_item.done` with a message or `function_call` item, `response.completed`).
-- **`StubSnippets`.** codex ignores `OPENAI_BASE_URL`, its `config.toml` is a reserved `home:` target, and `-c`
+- **`Stub.Snippets`.** codex ignores `OPENAI_BASE_URL`, its `config.toml` is a reserved `home:` target, and `-c`
   switches it into embedded mode, so its adapter writes a launcher snippet (`config*.toml`, the only names the
   launcher merges) that adds a Responses provider at the stub. `StepConfigureLauncherEnv` seeds it with the env
   file. A dummy `~/.codex/auth.json` skips codex's sign-in screen.
@@ -261,10 +266,10 @@ field, and one stub rule:
   error rather than taken for a side request.
 - codex writes through `exec_command` with a shell command line; the adapter quotes the content for the shell.
 
-The adapter now has three ways to point a harness at the stub (`StubConfig` home files, `StubEnv`,
-`StubSnippets`), each used because a harness's natural config file is reserved or ignored, never as a
+The adapter now has three ways to point a harness at the stub (`Stub.HomeFiles`, `Stub.Env`,
+`Stub.Snippets`), each used because a harness's natural config file is reserved or ignored, never as a
 harness-name branch. Every field is used by at least one harness, and shared code still names none. Since
-#852 the adapter also overrides startup: `ReadyMarker` replaces the smoke's readiness marker where a configured
+#852 the adapter also overrides startup: `Drive.ReadyMarker` replaces the smoke's readiness marker where a configured
 stub changes the start screen (oh-my-pi).
 
 ### Similar harnesses are cheap: pi and oh-my-pi (#852)
@@ -273,7 +278,7 @@ pi needed only an adapter: a `models.json` declaring an OpenAI-compatible provid
 `home:` target), `--model stub/stub`, its `write` tool, and `--continue`. oh-my-pi, a pi fork, reuses that
 adapter (`piFamilyHarness`) with its YAML `models.yml` (JSON is YAML) plus its own start:
 
-- **A readiness marker override** (`Harness.ReadyMarker`): the startup smoke waits for oh-my-pi's
+- **A readiness marker override** (`Drive.ReadyMarker`): the startup smoke waits for oh-my-pi's
   "No default model selected", which a configured model removes; the journeys wait for its status line.
 - **Its side turns off** (a `config*.yml` snippet): the setup wizard, the forked session title (`title.generator:
   tiny`), and next-message predictions (`composer.predictions: false`) would otherwise run as tool-carrying

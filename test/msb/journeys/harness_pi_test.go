@@ -38,11 +38,11 @@ func TestPiModelsDocumentDeclaresTheStubProvider(t *testing.T) {
 // pi and oh-my-pi share the adapter but read different models files.
 func TestPiFamilyAdaptersProvisionTheirOwnModelsFile(t *testing.T) {
 	for name, path := range map[string]string{piAgentName: piModelsPath, ohMyPiAgentName: ohMyPiModelsPath} {
-		config := Harnesses[name].StubConfig("http://stub.test:1")
+		config := Harnesses[name].Stub.HomeFiles("http://stub.test:1")
 		if _, ok := config[path]; !ok || len(config) != 1 {
-			t.Errorf("%s StubConfig = %v, want only %s", name, config, path)
+			t.Errorf("%s Stub.HomeFiles = %v, want only %s", name, config, path)
 		}
-		args := Harnesses[name].LaunchArgs
+		args := Harnesses[name].Drive.LaunchArgs
 		if model := slices.Index(args, "--model"); model < 0 || model+1 >= len(args) || args[model+1] != "stub/stub" {
 			t.Errorf("%s LaunchArgs = %v, want --model stub/stub", name, args)
 		}
@@ -61,7 +61,7 @@ func TestOhMyPiSettingsSnippetMatchesItsPatternAndTurnsOffSideTurns(t *testing.T
 	if !configmerge.SnippetNameMatches(merger.SnippetPattern(), ohMyPiSetupSnippet) {
 		t.Errorf("snippet %q does not match oh-my-pi's pattern %q", ohMyPiSetupSnippet, merger.SnippetPattern())
 	}
-	if Harnesses[ohMyPiAgentName].ReadyMarker == "" {
+	if Harnesses[ohMyPiAgentName].Drive.ReadyMarker == "" {
 		t.Error("the oh-my-pi adapter overrides no readiness marker; the smoke's needs an unconfigured model")
 	}
 	for _, want := range []string{"setupWizard: false", "generator: tiny", "predictions: false"} {
@@ -69,7 +69,7 @@ func TestOhMyPiSettingsSnippetMatchesItsPatternAndTurnsOffSideTurns(t *testing.T
 			t.Errorf("config = %q, want %s", ohMyPiSetupConfig, want)
 		}
 	}
-	if !slices.Contains(Harnesses[ohMyPiAgentName].LaunchArgs, "--smol") {
-		t.Errorf("LaunchArgs = %v, want the smol role on the small model", Harnesses[ohMyPiAgentName].LaunchArgs)
+	if !slices.Contains(Harnesses[ohMyPiAgentName].Drive.LaunchArgs, "--smol") {
+		t.Errorf("LaunchArgs = %v, want the smol role on the small model", Harnesses[ohMyPiAgentName].Drive.LaunchArgs)
 	}
 }

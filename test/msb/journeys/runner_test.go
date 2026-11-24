@@ -125,7 +125,7 @@ func TestJourneySpecAppliesTheJourneysAndTheAdaptersOverrides(t *testing.T) {
 	if unchanged.Network != "none" || unchanged.ReadyMarker != "smoke marker" {
 		t.Errorf("spec without overrides = %+v, want the smoke's", unchanged)
 	}
-	overridden := journeySpec(smoke, Journey{Network: "host"}, Harness{ReadyMarker: "status line"})
+	overridden := journeySpec(smoke, Journey{Network: "host"}, Harness{Drive: Driving{ReadyMarker: "status line"}})
 	if overridden.Network != "host" || overridden.ReadyMarker != "status line" {
 		t.Errorf("spec with overrides = %+v, want the journey's network and the adapter's marker", overridden)
 	}

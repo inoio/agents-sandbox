@@ -86,7 +86,7 @@ func TestStartStubProviderBindsAndAdvertises(t *testing.T) {
 		t.Errorf("Addr %q carries no ephemeral port", provider.Addr())
 	}
 
-	config := opencode2Harness.StubConfig(provider.Addr())
+	config := opencode2Harness.Stub.HomeFiles(provider.Addr())
 	if len(config) != 1 {
 		t.Fatalf("StubConfig has %d entries, want 1: %v", len(config), config)
 	}

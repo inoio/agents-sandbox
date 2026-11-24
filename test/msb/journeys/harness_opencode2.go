@@ -28,23 +28,31 @@ const (
 
 // opencode2Harness points opencode2 at the stub through its provider config.
 var opencode2Harness = Harness{
-	StubConfig: func(addr string) map[string]string {
-		return map[string]string{opencodeStubConfigTarget: opencodeProviderDocument(addr)}
+	Stub: StubSetup{
+		HomeFiles: func(addr string) map[string]string {
+			return map[string]string{opencodeStubConfigTarget: opencodeProviderDocument(addr)}
+		},
 	},
-	HostConfig: func(addr string) map[string]string {
-		return map[string]string{opencodeHostConfigRelPath: opencodeProviderDocument(addr)}
+	Drive: Driving{
+		// opencode2's write tool takes the file as `path` (opencode 1.x named
+		// it `filePath`); a wrong key is a tool error the turn survives, so only
+		// the file check notices.
+		WriteFileCall: func(guestPath, content string) ToolCall {
+			return ToolCall{Name: "write", Arguments: writeToolArguments("path", guestPath, content)}
+		},
+		ResumeArgs: []string{continueFlag},
 	},
-	HostLoginStore: map[string]string{opencodeLoginStoreRelPath: `{"openai":{"type":"api"}}`},
-	// opencode2's write tool takes the file as `path` (opencode 1.x named it
-	// `filePath`); a wrong key is a tool error the turn survives, so only the
-	// file check notices.
-	WriteFileCall: func(guestPath, content string) ToolCall {
-		return ToolCall{
-			Name:      "write",
-			Arguments: writeToolArguments("path", guestPath, content),
-		}
+	Learn: &LearnFacts{
+		HostConfig: func(addr string) map[string]string {
+			return map[string]string{opencodeHostConfigRelPath: opencodeProviderDocument(addr)}
+		},
+		HostLoginStore: map[string]string{opencodeLoginStoreRelPath: `{"openai":{"type":"api"}}`},
+		// The read-back derives <PROVIDERID>_API_KEY from a literal
+		// provider.<id>.options.apiKey, and a copied provider block keeps its
+		// baseURL and npm keys.
+		CredentialEnvVar:  stubCredentialEnvVar,
+		ManagedConfigKeys: []string{"baseURL", "npm"},
 	},
-	ResumeArgs: []string{continueFlag},
 }
 
 // jsonObject renders a string map as a JSON object.
