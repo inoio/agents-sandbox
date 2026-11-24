@@ -161,3 +161,7 @@ type Journey struct {
 	LearnMode bool
 	Steps     []Step
 }
+
+// hostGatewayNetwork is the network profile that admits the host gateway the
+// stub's default route names.
+const hostGatewayNetwork = "host"

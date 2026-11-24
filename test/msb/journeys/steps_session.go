@@ -95,7 +95,7 @@ func StepScriptWriteFile(name, content string) Step {
 // StepAssertProjectFile waits until the harness wrote name in the project on
 // the host with content (trailing whitespace ignored), owned by the host user.
 func StepAssertProjectFile(name, content string) Step {
-	return stepAssertProjectFile(name, content, driver.ScaleTimeout(stubTurnTimeout, driver.SmokeTimeoutFactor()))
+	return stepAssertProjectFile(name, content, scaled(stubTurnTimeout))
 }
 
 func stepAssertProjectFile(name, content string, budget time.Duration) Step {
@@ -103,15 +103,11 @@ func stepAssertProjectFile(name, content string, budget time.Duration) Step {
 		Name: strconv.Quote(name) + " is in the project on the host, owned by the host user",
 		Run: func(c *Context) error {
 			filePath := filepath.Join(c.ProjectDir(), name)
-			deadline := time.Now().Add(budget)
-			for {
-				problem := projectFileProblem(filePath, content)
-				if problem == nil || !time.Now().Before(deadline) {
-					return problem
-				}
-				//testenv:allow polling the host project for a file the VM writes
-				time.Sleep(stubPollInterval)
-			}
+			return pollUntil(budget, stubPollInterval, func() (bool, error) {
+				return projectFileProblem(filePath, content) == nil, nil
+			}, func() error {
+				return projectFileProblem(filePath, content)
+			})
 		},
 	})
 }
@@ -229,7 +225,7 @@ func StepStopVM() Step {
 	return Step{Name: "the user stops the project VM", Run: func(c *Context) error {
 		ctx, cancel := context.WithTimeout(
 			context.Background(),
-			driver.ScaleTimeout(vmStopTimeout, driver.SmokeTimeoutFactor()),
+			scaled(vmStopTimeout),
 		)
 		defer cancel()
 		stop := exec.CommandContext(ctx, c.Binary, "stop", "--agent", c.Agent)
@@ -285,6 +281,6 @@ func StepAssertSessionRestored(prompt string) Step {
 		if err != nil {
 			return err
 		}
-		return ses.WaitForMarker(prompt, driver.ScaleTimeout(stubTurnTimeout, driver.SmokeTimeoutFactor()))
+		return ses.WaitForMarker(prompt, scaled(stubTurnTimeout))
 	}})
 }

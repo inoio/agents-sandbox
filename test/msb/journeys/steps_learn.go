@@ -58,7 +58,7 @@ func StepQuit() Step {
 		if len(c.Spec.QuitKey) == 0 {
 			return errors.New("the harness has no quit key")
 		}
-		budget := driver.ScaleTimeout(driver.QuitTimeout, driver.SmokeTimeoutFactor())
+		budget := scaled(driver.QuitTimeout)
 		return driver.TapUntilMarker(ses, c.Spec.QuitKey, learnExitPromptMarker, budget)
 	}}
 }
@@ -87,7 +87,7 @@ func StepChooseExit(key string) Step {
 		if err = writeLine(c, key); err != nil {
 			return err
 		}
-		code, err := ses.WaitExit(driver.ScaleTimeout(driver.ExitSaveTimeout, driver.SmokeTimeoutFactor()))
+		code, err := ses.WaitExit(scaled(driver.ExitSaveTimeout))
 		if err != nil {
 			return fmt.Errorf("the launcher did not exit after the exit prompt: %w", err)
 		}
@@ -174,7 +174,7 @@ func StepAnswerApplyPrompts() Step {
 		if err != nil {
 			return err
 		}
-		budget := driver.ScaleTimeout(driver.ExitSaveTimeout, driver.SmokeTimeoutFactor())
+		budget := scaled(driver.ExitSaveTimeout)
 		return answerApplyPrompts(ses, budget)
 	}}
 }

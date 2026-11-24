@@ -164,7 +164,7 @@ func StepExitHarnessSetup() Step {
 		if err != nil {
 			return err
 		}
-		timeout := driver.ScaleTimeout(c.Spec.ReadyTimeout(), driver.SmokeTimeoutFactor())
+		timeout := scaled(c.Spec.ReadyTimeout())
 		first, err := waitForFirstMarker(ses, []string{setup.Marker, c.Spec.ReadyMarker}, 0, timeout)
 		if err != nil {
 			return err
@@ -188,21 +188,20 @@ func StepExitHarnessSetup() Step {
 // waitForFirstMarker waits until the session's output from offset on shows one
 // of markers and returns the index of the first one listed that it shows.
 func waitForFirstMarker(ses *driver.Session, markers []string, offset int, timeout time.Duration) (int, error) {
-	deadline := time.Now().Add(timeout)
-	for {
-		if index := firstShownMarker(string(ses.Output()[offset:]), markers); index >= 0 {
-			return index, nil
+	index := -1
+	err := pollUntil(timeout, stubPollInterval, func() (bool, error) {
+		if index = firstShownMarker(string(ses.Output()[offset:]), markers); index >= 0 {
+			return true, nil
 		}
 		if ses.HasExited() {
-			return -1, fmt.Errorf("the session exited before any of %q appeared (%s); output: %s",
+			return false, fmt.Errorf("the session exited before any of %q appeared (%s); output: %s",
 				markers, ses.ExitStatus(), ses.OutputTail())
 		}
-		if !time.Now().Before(deadline) {
-			return -1, fmt.Errorf("none of %q appeared within %s; output: %s", markers, timeout, ses.OutputTail())
-		}
-		//testenv:allow polling the harness output for its first screen
-		time.Sleep(stubPollInterval)
-	}
+		return false, nil
+	}, func() error {
+		return fmt.Errorf("none of %q appeared within %s; output: %s", markers, timeout, ses.OutputTail())
+	})
+	return index, err
 }
 
 // firstShownMarker returns the index of the first of markers that output shows
@@ -226,7 +225,7 @@ func StepSendPrompt(prompt string) Step {
 			return err
 		}
 		c.markPrompt(ses)
-		echoWait := driver.ScaleTimeout(promptEchoWait, driver.SmokeTimeoutFactor())
+		echoWait := scaled(promptEchoWait)
 		if err := typeUntilEchoed(ses, prompt, promptTypeAttempts, echoWait); err != nil {
 			return err
 		}
@@ -244,7 +243,7 @@ const stubTurnTimeout = 60 * time.Second
 // StepAssertStubServed waits until the stub provider served a chat completion,
 // proving the harness's turn reached the host-side stub.
 func StepAssertStubServed() Step {
-	return stepAssertStubServed(driver.ScaleTimeout(stubTurnTimeout, driver.SmokeTimeoutFactor()))
+	return stepAssertStubServed(scaled(stubTurnTimeout))
 }
 
 func stepAssertStubServed(budget time.Duration) Step {
@@ -252,17 +251,13 @@ func stepAssertStubServed(budget time.Duration) Step {
 		if c.Stub == nil {
 			return errors.New("no stub provider on the context; seed it first")
 		}
-		deadline := time.Now().Add(budget)
-		for !servedTurn(c.Stub.Requests()) {
-			if !time.Now().Before(deadline) {
-				return fmt.Errorf(
-					"the stub provider served no turn within %s (requests: %v)",
-					budget,
-					c.Stub.Requests(),
-				)
-			}
-			//testenv:allow polling a live harness on a wall-clock interval
-			time.Sleep(stubPollInterval)
+		err := pollUntil(budget, stubPollInterval, func() (bool, error) {
+			return servedTurn(c.Stub.Requests()), nil
+		}, func() error {
+			return fmt.Errorf("the stub provider served no turn within %s (requests: %v)", budget, c.Stub.Requests())
+		})
+		if err != nil {
+			return err
 		}
 		c.TB.Logf("the stub served %v", c.Stub.Requests())
 		return nil
@@ -282,7 +277,7 @@ func StepAssertReplyShown() Step {
 		if c.Stub == nil {
 			return errors.New("no stub provider on the context; seed it first")
 		}
-		budget := driver.ScaleTimeout(stubTurnTimeout, driver.SmokeTimeoutFactor())
+		budget := scaled(stubTurnTimeout)
 		reply, err := newReplySince(c.Stub, c.lastPrompt(ses).replies, budget)
 		if err != nil {
 			return err
@@ -297,21 +292,18 @@ func StepAssertReplyShown() Step {
 // newReplySince waits until stub has sent more than seen replies and returns
 // the newest one.
 func newReplySince(stub StubProvider, seen int, budget time.Duration) (string, error) {
-	deadline := time.Now().Add(budget)
-	for {
-		if replies := stub.Replies(); len(replies) > seen {
-			return replies[len(replies)-1], nil
+	var reply string
+	err := pollUntil(budget, stubPollInterval, func() (bool, error) {
+		replies := stub.Replies()
+		if len(replies) <= seen {
+			return false, nil
 		}
-		if !time.Now().Before(deadline) {
-			return "", fmt.Errorf(
-				"the stub sent no reply for the prompt within %s (requests: %v)",
-				budget,
-				stub.Requests(),
-			)
-		}
-		//testenv:allow polling a live harness on a wall-clock interval
-		time.Sleep(stubPollInterval)
-	}
+		reply = replies[len(replies)-1]
+		return true, nil
+	}, func() error {
+		return fmt.Errorf("the stub sent no reply for the prompt within %s (requests: %v)", budget, stub.Requests())
+	})
+	return reply, err
 }
 
 // StepQuitToExit leaves the harness with its quit key and waits for the
