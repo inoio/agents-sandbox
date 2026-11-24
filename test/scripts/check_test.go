@@ -29,25 +29,24 @@ fi
 if [[ "${STUB_CPU:-0}" == 1 ]]; then
   # Burn until this shell's own CPU time (user+system, from the times builtin,
   # printed as 0m1.234s with the locale's decimal separator) reaches 1.5 s, so
-  # the runner's whole-second figure rounds to at least 1 however loaded the
-  # host is; a wall-clock bound keeps a stalled host from hanging.
-  # Each measurement runs in this shell, never in $(...), whose subshell would
-  # report its own, freshly zeroed times.
-  to_ms() { local m=${1%%m*} r=${1#*m}; r=${r%s}; r=${r/,/.}; burned=$((burned + 10#$m * 60000 + 10#${r%.*} * 1000 + 10#${r#*.})); }
-  measure() {
-    local user sys
-    times >"$STUB_DIR/times.$target"
-    read -r user sys <"$STUB_DIR/times.$target"
-    burned=0
-    to_ms "$user"
-    to_ms "$sys"
+  # the runner's whole-second figure reads at least 1 however loaded the host
+  # is: 1.5 s leaves headroom over its rounding and over a comma-separated
+  # figure that awk truncates. A wall-clock bound keeps a stalled host from
+  # hanging. Each measurement runs in this shell, never in $(...), whose
+  # subshell would report its own, freshly zeroed times.
+  burn_cpu() {
+    local burned=0 limit=$((SECONDS + 60)) i user sys
+    add_ms() { local m=${1%%m*} r=${1#*m}; r=${r%s}; r=${r/,/.}; burned=$((burned + 10#$m * 60000 + 10#${r%.*} * 1000 + 10#${r#*.})); }
+    while ((burned < 1500 && SECONDS < limit)); do
+      for ((i = 0; i < 200000; i++)); do :; done
+      times >"$STUB_DIR/times.$target"
+      read -r user sys <"$STUB_DIR/times.$target"
+      burned=0
+      add_ms "$user"
+      add_ms "$sys"
+    done
   }
-  burned=0
-  limit=$((SECONDS + 60))
-  while ((burned < 1500 && SECONDS < limit)); do
-    for ((i = 0; i < 200000; i++)); do :; done
-    measure
-  done
+  burn_cpu
 fi
 printf 'stdout %s\n' "$target"
 printf 'stderr %s\n' "$target" >&2
