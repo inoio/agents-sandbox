@@ -97,3 +97,17 @@ func TestOpencode2WriteFileCallMatchesTheWriteToolSchema(t *testing.T) {
 		t.Errorf("call = %s(%v), want write(%v)", call.Name, arguments, want)
 	}
 }
+
+// The stub is the only enabled provider, so opencode2 cannot fall back to its
+// built-in default model, whose provider the VM cannot reach (#881).
+func TestOpencodeProviderDocumentEnablesOnlyTheStub(t *testing.T) {
+	var document struct {
+		EnabledProviders []string `json:"enabled_providers"`
+	}
+	if err := json.Unmarshal([]byte(opencodeProviderDocument("http://stub.test:1")), &document); err != nil {
+		t.Fatal(err)
+	}
+	if len(document.EnabledProviders) != 1 || document.EnabledProviders[0] != stubProviderID {
+		t.Errorf("enabled_providers = %v, want only %q", document.EnabledProviders, stubProviderID)
+	}
+}

@@ -208,3 +208,41 @@ func TestResubmitWhileBusyEndsOnATurnOrAQuietScreen(t *testing.T) {
 		t.Errorf("a notice still drawn after the turn: %d resubmits, want 1 (the turn ends it)", got)
 	}
 }
+
+// confirmSubmit sends again only while no evidence of the submit arrived: Enter
+// first, then a retype once, then it leaves the failure to the turn check.
+func TestConfirmSubmitResendsOnlyWithoutEvidence(t *testing.T) {
+	run := func(seenAfter int) (enters, retypes int) {
+		sends := 0
+		prompt := unconfirmedSubmit{
+			logf: t.Logf,
+			seen: func() bool { return seenAfter >= 0 && sends >= seenAfter },
+			enter: func() error {
+				enters++
+				sends++
+				return nil
+			},
+			retype: func() error {
+				retypes++
+				sends++
+				return nil
+			},
+		}
+		if err := confirmSubmit(prompt, 5*time.Millisecond); err != nil {
+			t.Fatal(err)
+		}
+		return enters, retypes
+	}
+	if enters, retypes := run(0); enters != 0 || retypes != 0 {
+		t.Errorf("seen at once: %d enters, %d retypes; want none", enters, retypes)
+	}
+	if enters, retypes := run(1); enters != 1 || retypes != 0 {
+		t.Errorf("seen after one Enter: %d enters, %d retypes; want 1, 0", enters, retypes)
+	}
+	if enters, retypes := run(3); enters != submitEnters || retypes != 1 {
+		t.Errorf("seen after the retype: %d enters, %d retypes; want %d, 1", enters, retypes, submitEnters)
+	}
+	if enters, retypes := run(-1); enters != submitEnters || retypes != 1 {
+		t.Errorf("never seen: %d enters, %d retypes; want %d, 1, then give up", enters, retypes, submitEnters)
+	}
+}

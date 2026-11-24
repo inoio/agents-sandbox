@@ -30,6 +30,8 @@ var hermesHarness = Harness{
 			return ToolCall{Name: "write_file", Arguments: writeToolArguments("path", guestPath, content)}
 		},
 		ResumeArgs: []string{continueFlag},
+		// Enter while hermes works stops the turn ("enter interrupt").
+		EnterInterrupts: true,
 	},
 }
 
