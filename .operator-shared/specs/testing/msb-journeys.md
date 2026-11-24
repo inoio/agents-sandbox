@@ -234,7 +234,8 @@ source of truth and its steps are type-checked. It reads as Gherkin anyway:
   (`LearnMode`) says only which evidence its path produces (`ScopeWant`: config keys, placeholder); the values come
   from `Learn`, and the completeness test requires `Learn` for every harness a learn journey lists. A step or
   journey carries no harness's path or format literal: the scope checks read every config dir of the agent,
-  recursively, and the login-store check looks for the store's content under any name. A flagless command such as
+  recursively (skipping `node_modules`), and the login-store check fails on the store's file name or its
+  content under any name (so a store fixture holds no static value the host seed would rewrite). A flagless command such as
   `config learn` gets the journey's agent through `AGENTS_SANDBOX_AGENT`. The adapter grows a field only when a
   journey needs it.
 

@@ -27,7 +27,6 @@ var configLearnScope = ScopeWant{ManagedConfig: false, Placeholder: true}
 // persists in the volume for the replay's read-back), writes nothing, and clears
 // its own session record — leaving the home volume in state for
 // StepSeedLearnSession to copy.
-
 var configLearnJourney = Journey{
 	Name:      "config-learn-replay",
 	Harnesses: []string{opencode2AgentName},
