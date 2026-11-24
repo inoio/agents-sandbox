@@ -11,10 +11,6 @@ const (
 	coreFileContent  = "written by the stub's tool call"
 )
 
-// hostGatewayNetwork is the network profile that admits the host gateway the
-// stub's default route names.
-const hostGatewayNetwork = "host"
-
 // coreSessionJourney chains the #783 promotion bar's first run (A), real turn
 // (C), second client (E), and persistence (D) over one project and two boots:
 // the harness starts on a fresh home whose launcher is already configured (the

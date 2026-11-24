@@ -41,6 +41,10 @@ type Driving struct {
 	// LaunchArgs are agent arguments every run of the harness passes, before
 	// any step-specific ones.
 	LaunchArgs []string
+	// StartupBusyMarker, when set, is the notice the harness shows for a prompt
+	// submitted before its startup finished; it keeps the prompt in its editor,
+	// so StepSendPrompt submits it again.
+	StartupBusyMarker string
 	// ResumeArgs are the agent arguments that continue the last session.
 	ResumeArgs []string
 	// WriteFileCall is the harness's tool call that writes content to the

@@ -41,7 +41,7 @@ func StepDeclineHostProvisioning() Step {
 		}
 		if err := ses.WaitForMarker(
 			hostProvisioningQuestion,
-			driver.ScaleTimeout(driver.TuiReadyTimeout, driver.SmokeTimeoutFactor()),
+			scaled(driver.TuiReadyTimeout),
 		); err != nil {
 			return fmt.Errorf("the host-config provisioning question was not asked: %w", err)
 		}
@@ -61,7 +61,7 @@ func StepAssertFirstRunOffered(choice firstrun.Choice) Step {
 		}
 		if err := ses.WaitForMarker(
 			string(choice),
-			driver.ScaleTimeout(driver.TuiReadyTimeout, driver.SmokeTimeoutFactor()),
+			scaled(driver.TuiReadyTimeout),
 		); err != nil {
 			return fmt.Errorf("first-run menu did not offer %q: %w", choice, err)
 		}

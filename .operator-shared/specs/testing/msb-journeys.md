@@ -124,19 +124,10 @@ the built binary, not the SDK).
 
 ### Provider for a journey
 
-A learn-mode journey must make the harness **send** an outbound request so the terminating proxy sees
-the credential→destination pair. **Correction (builder check):** a *guest-loopback* stub never
-traverses the host-owned terminating proxy, so it cannot produce attribution — the earlier "loopback
-stub" wording was wrong for the attribution half. The destination must be a **host-side stub** the VM
-reaches through the proxy, with the same dummy-provider seed pattern `hermes`/`goose` use. That keeps
-the turn egress-free (no public destination) while the proxy still terminates TLS and observes the
-credential→destination pair.
-
-**Decision:** proving the real agent turn through the proxy is a **prerequisite**, not a deferrable
-unknown. The plan includes a spike that lands the host-side stub destination and a real turn the
-proxy carries, before the attribution journeys are written. The read-back journeys (config changes,
-static secrets, managed-config write-back) are independent and can land in parallel; the attribution
-journeys depend on the spike.
+A journey's model turns go to a **host-side stub** with a dummy provider seed, so no turn needs public egress.
+The VM reaches it through the host gateway, which completes turns but bypasses the learn-mode observation proxy;
+whether any route both completes a turn and is observed is #793's open question (see "Route" below). The
+read-back journeys (config changes, static secrets, managed-config write-back) do not depend on it.
 
 #### Stub provider
 
@@ -176,8 +167,8 @@ swallowed an early write whole. `StepSendPrompt` therefore types the prompt, wai
 output printed after the write counts), and retypes on a missing echo before it presses Enter. A partly swallowed
 write or a late echo could leave stray characters before the retyped prompt; a journey only needs the turn to be
 sent, so it tolerates that. A prompt must be text a repaint does not print on its own, since the echo is a
-substring match. Before this, the learn-mode journeys' prompts were swallowed, which their read-back-driven
-assertions did not notice; with the prompt sent they still pass on the host.
+substring match. The echo also comes from the terminal itself while no harness reads it, so the step is only
+sound after a readiness marker that means the harness takes keys (see "Rules the harnesses taught").
 
 ### Isolation between journeys
 
@@ -217,7 +208,8 @@ source of truth and its steps are type-checked. It reads as Gherkin anyway:
   the startup smoke's whole set). `test/msb/journeys/JOURNEYS.md` is the generated scenario catalogue
   (`TestJourneyCatalogueIsCurrent` fails when it is stale; `-update-catalogue` regenerates it). The
   completeness contract is per pair: every (journey, registered agent) pair is driven or exempted with a
-  recorded reason (`Exemptions`), so a newly registered agent fails the default suite until it is placed, and a
+  recorded reason (`Exemptions`, derived per journey from one explicit `placedHarnesses` list, a fallback
+  reason, and per-harness reasons), so a newly registered agent fails the default suite until it is placed, and a
   stale exemption for a driven pair fails too.
 - **Seeds.** A journey starts from the startup smoke's seeds for the harness (`driver.Spec.Seeds`), so
   first-run state the smoke already settles (claude-code's `.claude.json`) is not restated per adapter:
@@ -248,98 +240,55 @@ product, not the suite: on claude-code, codex, and pi
 the read-back finds no host-scoped credential to learn (the exemption reasons in `table.go` name each blocker:
 #821, #873, #820/#849). The rollout harnesses are #794.
 
-### Learn mode beyond opencode2: oh-my-pi (#852)
+### Rules the harnesses taught
 
-A learn journey keeps the launcher unconfigured so the first-run menu appears, so it cannot use a harness's
-journey snippet (`Stub.Snippets` is a managed layer). Two adapter facts followed, no harness branch:
+Six harnesses joined with an adapter each and no harness branch in shared code (the refactor hypothesis of
+#851 held at every step). What they taught is now the rule:
 
-- **`Drive.Setup`.** Without its snippet, oh-my-pi opens its setup wizard; `StepExitHarnessSetup` waits for
-  the setup marker or the readiness marker, whichever shows first, and leaves the wizard with its exit key, as a
-  user on a fresh install would. It does nothing where the seeded host config turns the wizard off (UC4) or the
-  harness declares no setup.
-- **`Learn.ManagedConfigHoldsCredential`.** oh-my-pi's provider and key live in `models.yml`, which the read-back
-  reads but neither the host seed nor the write-back copies; its seedable host config is the settings file.
-  So the credential is learned into `env.secret.yaml` while the managed config never carries the placeholder,
-  and its UC4 covers the seed's copy of a credential-free settings file (the credential comes from the
-  session's read-back, as in UC1). Its credential store fixture is the dotenv, which the seed never selects; the
-  exclusion check guards that.
-- **The setup step distrusts a stale marker.** The output buffer keeps everything, so when the readiness marker
-  shows first the step lets the output settle before deciding there is no setup, and after the exit keys it
-  waits for the readiness marker in the output written since.
+- **A harness's natural config is often closed to the journey.** Its own config file is frequently the
+  launcher's merged-config target or a reserved `home:` target, so the adapter has three routes to the stub:
+  `Stub.HomeFiles` (the `home:` manifest), `Stub.Env` (the launcher env file), and `Stub.Snippets` (merged into
+  its config). The env file and snippets are managed layers: they make core-session start configured, and they
+  are unavailable to a learn journey, which needs the first-run menu.
+- **A protocol is a stub handler, routed by path** (`/chat/completions`, `/messages`, `/responses`), not a
+  harness setting. Numbered replies, the one-shot tool call, and the side-request split work for all.
+- **A side request is one for the small model or without tools**; it gets `stubTitleReply`, no numbered reply,
+  and is not a turn. A non-chat request (a model probe) is never a turn. An undecodable turn is answered 400 and
+  recorded. A real tool-less turn would be misread; a journey driving one must refine the rule.
+- **A readiness marker means the harness takes keys.** A marker printed before the input line reads the
+  terminal lets a typed prompt lose its Enter, and the prompt step's echo check cannot notice, because the
+  terminal's own echo satisfies it. `Drive.ReadyMarker` overrides the smoke's marker where the two differ.
+- **A timing-based negative check needs a positive counterpart.** "No sign-in screen after a settle", "no setup
+  screen after a settle" can pass on a slow host; each is paired with positive evidence (a login status, the
+  readiness marker in output written after the exit keys).
+- **Resume semantics differ per harness** (last active vs. last saved session); a journey orders its steps so
+  every harness resumes the same session, rather than adding an adapter field.
+- **A learn journey leaves the launcher unconfigured,** so a harness's journey snippet cannot silence its own
+  first-start screen there: `Drive.Setup` names the screen, and `StepExitHarnessSetup` leaves it as a user
+  would, waiting for it or the readiness marker and distrusting a marker that was already in the buffer.
 
-### Checkpoint 1: claude-code (the abstraction held)
+### Adapter facts per harness
 
-Adding claude-code, the harness that differs most from opencode2 (Anthropic Messages instead of OpenAI chat
-completions, environment instead of a provider file, `Write`/`file_path`, Ctrl-C), needed a stub protocol, an
-adapter, one shared launch change (a `run` passes the adapter's `LaunchArgs`), one new step
-(`StepConfigureLauncherEnv`), and a journey reorder; no shared file names or branches on a harness. What changed,
-and why:
-
-- **Protocol by path.** The stub routes by request path (`/chat/completions`, `/messages`,
-  `/messages/count_tokens`), so a protocol is a handler, not a harness setting. Numbered replies, the
-  one-shot tool call, and the small-model title split work the same for both.
-- **Environment, not files.** claude-code's `.claude/settings.json` is a reserved `home:` target, so the adapter
-  gained `Stub.Env` (written to the launcher's env file) and `Drive.LaunchArgs` (`--permission-mode acceptEdits`).
-- **Core-session skips the first-run menu.** The launcher env file counts as configuration, so every
-  harness starts core-session configured (`StepConfigureLauncherEnv`); the menu stays the learn-mode journeys'
-  concern. The same fact blocks reusing `Stub.Env` there: a learn-mode journey on claude-code (#852) needs the menu
-  and the stub, so it needs another route for the environment (the project-scope env or a process-env
-  passthrough). The env file carries only a dummy token the stub never checks.
-- **Resume picks different sessions.** opencode2 continues the last active session, claude-code the last saved
-  one; the journey orders its quits so both are the same session, rather than adding an adapter field.
-- Prompt submission needed no adapter field: both TUIs take the echoed text and `\r`.
-
-### Checkpoint 2: codex (a third harness needed no new mechanism)
-
-codex (OpenAI Responses, `exec_command`, a merged `config.toml`) needed a stub protocol, an adapter, one adapter
-field, and one stub rule:
-
-- **Responses protocol** (`/responses`): the event stream codex reads (`response.created`, text delta,
-  `response.output_item.done` with a message or `function_call` item, `response.completed`).
-- **`Stub.Snippets`.** codex ignores `OPENAI_BASE_URL`, its `config.toml` is a reserved `home:` target, and `-c`
-  switches it into embedded mode, so its adapter writes a launcher snippet (`config*.toml`, the only names the
-  launcher merges) that adds a Responses provider at the stub. `StepConfigureLauncherEnv` seeds it with the env
-  file. A dummy `~/.codex/auth.json` skips codex's sign-in screen.
-- **A tool-less request is a side request.** codex asks its main model for the session title without tools, so
-  the stub treats a request for the small model *or* without tools as a side request (`stubTitleReply`, no
-  numbered reply, not a turn). A real tool-less turn (opencode's compaction agent) would be misread; a journey
-  that drives one must refine the rule. A turn whose body does not decode is answered 400 and recorded with its
-  error rather than taken for a side request.
-- codex writes through `exec_command` with a shell command line; the adapter quotes the content for the shell.
-
-The adapter now has three ways to point a harness at the stub (`Stub.HomeFiles`, `Stub.Env`,
-`Stub.Snippets`), each used because a harness's natural config file is reserved or ignored, never as a
-harness-name branch. Every field is used by at least one harness, and shared code still names none. Since
-#852 the adapter also overrides startup: `Drive.ReadyMarker` replaces the smoke's readiness marker where a configured
-stub changes the start screen (oh-my-pi).
-
-### Similar harnesses are cheap: pi and oh-my-pi (#852)
-
-pi needed only an adapter: a `models.json` declaring an OpenAI-compatible provider at the stub (not a reserved
-`home:` target), `--model stub/stub`, its `write` tool, and `--continue`. oh-my-pi, a pi fork, reuses that
-adapter (`piFamilyHarness`) with its YAML `models.yml` (JSON is YAML) plus its own start:
-
-- **A readiness marker override** (`Drive.ReadyMarker`): the startup smoke waits for oh-my-pi's
-  "No default model selected", which a configured model removes; the journeys wait for its status line.
-- **Its side turns off** (a `config*.yml` snippet): the setup wizard, the forked session title (`title.generator:
-  tiny`), and next-message predictions (`composer.predictions: false`) would otherwise run as tool-carrying
-  requests on the main model and take numbered replies; its `smol` role runs on the stub's small model.
-- Its startup model probe ("What is 17 times 23?") is tool-less, so the stub answers it as a side request.
-
-### The heaviest harness: hermes (#878)
-
-hermes (a Python agent with the largest runner image) joined core-session with an adapter and no new
-mechanism in shared code: a
-`config*.yaml` snippet with a `custom` OpenAI-compatible provider at the stub (its `config.yaml` is the
-merged-config target), `write_file` with `path`/`content`, and `--continue`. What it showed:
-
-- **A readiness marker must mean the harness takes keys.** The startup smoke's marker, hermes' banner, is
-  printed before its input line reads the terminal; a prompt typed then is echoed by the pty but its Enter
-  is lost. `Drive.ReadyMarker` names the hint row under the input line instead. The prompt step's echo
-  check cannot catch this, because the terminal's own echo satisfies it.
-- **Model probes are not turns.** Before its first turn hermes asks the endpoint for its models
-  (`GET /v1/models`) and, Ollama-style, `POST /api/show`; the stub answers neither as a turn, and hermes
-  falls back to a default context length. Its session title is a tool-less request on the main model.
+- **opencode2:** a provider file through `home:` (`opencode.json`), `write` with `path`, `--continue`; a
+  `small_model` for side requests; the S1-verified learn profile (SQLite credential probe).
+- **claude-code:** the environment (`ANTHROPIC_BASE_URL`, a dummy auth token) through the env file, since
+  `settings.json` is reserved; `--permission-mode acceptEdits`; `Write` with `file_path`; resumes the last saved
+  session.
+- **codex:** a Responses provider in a `config*.toml` snippet (it ignores `OPENAI_BASE_URL`, and `-c` switches it
+  to embedded mode), a dummy `auth.json` past its sign-in screen; `exec_command` with a quoted shell line;
+  `resume --last`; its title is a tool-less main-model request. Its logins are the login journey's (below).
+- **pi:** a `models.json` provider through `home:`, `--model stub/stub`, `write` with `path`, `--continue`.
+  Its screen is up before its startup ends, and a prompt submitted then gets "Startup is still in progress"
+  with the text kept; `Drive.StartupBusyMarker` makes the prompt step press Enter again while the notice
+  shows and no turn arrived, ending on a turn at the stub or a screen quiet for a few scaled rechecks.
+- **oh-my-pi:** pi's adapter with `models.yml`, plus a snippet that turns off the setup wizard, forked titles,
+  and predictions (they would take numbered replies); `smol` on the stub's small model; its status line as the
+  readiness marker. In learn journeys its wizard is left with `Drive.Setup`, and its key lives in `models.yml`,
+  which the read-back reads but neither seed nor write-back copies (`Learn.ManagedConfigHoldsCredential` false,
+  so UC4 covers the copy of a credential-free settings file and its dotenv fixture guards the store exclusion).
+- **hermes:** a `custom` OpenAI-compatible provider in a `config*.yaml` snippet, `write_file` with `path`,
+  `--continue`; the hint row under its input line as the readiness marker (its banner precedes input); it probes
+  `GET /v1/models` and `POST /api/show` before its first turn. It dominates core-session's wall time.
 
 ### The core-session journey
 
@@ -349,7 +298,7 @@ first run (A), real turn (C), second client (E), and persistence (D) over one pr
 - **A:** the harness starts on a fresh home whose launcher env file is seeded (`StepConfigureLauncherEnv`), so
   the launcher counts it as configured and offers no first-run menu; the launcher prints the experimental notice
   exactly when the profile is experimental; the project gets no `.agents-sandbox` scaffolding. Core-session does
-  **not** cover the first-run menu on any harness; the learn-mode journeys do (opencode2 only so far).
+  **not** cover the first-run menu on any harness; the learn-mode journeys do.
 - **C:** the stub answers the first turn with the harness's own write-file tool call (the adapter's
   `WriteFileCall`, e.g. opencode2's `write` with `path`/`content`), then with its text reply; the file
   appears in the project on the host, owned by the host user, and the reply shows. The stub numbers its
@@ -521,23 +470,3 @@ against any other carry-over run. The `test-msb-journeys` target derives the var
 - The driver's own `TestMain` must install its acyclic fail-fast mocks, like every test package.
 - A journey under load must not become a host-dependent flake (no fixed wall-clock against a real
   VM; reuse the readiness/quit-tap pattern).
-
-## Resolved in review
-
-- **Proxy turn is a prerequisite.** The plan includes the spike that proves a real agent turn through
-  the host-owned terminating proxy (host-side stub destination), ahead of the attribution journeys.
-- **v1 scope is opencode2 only.** The journey spec is a table field; the other harnesses are recorded
-  exemptions, with their coverage tracked by a follow-up issue.
-
-## Calls recorded for the user to check
-
-- Package/target: `test/msb/{driver,startup,journeys}`, tag stays `msb`, `make test-msb-journeys`.
-- Harness table in `driver`; `driver` untagged.
-- Keep `AGENTS_SANDBOX_SMOKE_ROOT`.
-- Gate scope: option A (all of `test/` is test code).
-- Provider: **host-side** stub reached through the proxy; proving the proxy turn is a prerequisite.
-- v1 harness scope: opencode2 only; the journey spec is a table field with recorded exemptions.
-- `config learn` journey: seed the session record + a real home volume, no abnormal kill.
-- Assertions: semantic (env-var name, host scoping, placeholder, keys), not byte-for-byte goldens.
-- Shared root: the spine sets `AGENTS_SANDBOX_SMOKE_ROOT` into the sweep root; no new interface.
-- #252's first-turn assertion moves into the journeys suite; other areas tracked separately.

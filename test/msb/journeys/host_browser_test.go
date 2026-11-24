@@ -139,3 +139,26 @@ func lookPathIn(command string, env []string) (string, error) {
 	}
 	return "", os.ErrNotExist
 }
+
+func TestLinkOriginProblemAcceptsOnlyTheStubsOrigin(t *testing.T) {
+	const origin = "http://host.microsandbox.internal:4242"
+	if problem := linkOriginProblem(origin+"/authorize?x=1", origin); problem != nil {
+		t.Errorf("the stub's link: %v", problem)
+	}
+	for _, link := range []string{
+		"https://auth.openai.com/oauth/authorize",
+		"http://host.microsandbox.internal:4243/authorize",
+		"https://host.microsandbox.internal:4242/authorize",
+	} {
+		if linkOriginProblem(link, origin) == nil {
+			t.Errorf("linkOriginProblem(%q) = nil, want a refusal", link)
+		}
+	}
+}
+
+func TestOnHostLoopbackKeepsTheCallback(t *testing.T) {
+	target, _ := url.Parse("http://localhost:34219/callback/x?code=c&state=s")
+	if got := onHostLoopback(target); got != "http://127.0.0.1:34219/callback/x?code=c&state=s" {
+		t.Errorf("onHostLoopback = %s", got)
+	}
+}

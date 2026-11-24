@@ -24,6 +24,17 @@ func TestEveryJourneyHarnessPairIsCoveredOrExempted(t *testing.T) {
 	}
 }
 
+// TestPlacedHarnessesAreRegistered pins that placedHarnesses names only
+// registered agents, so a typo there cannot hide an unplaced agent.
+func TestPlacedHarnessesAreRegistered(t *testing.T) {
+	registered := agent.Names()
+	for _, name := range placedHarnesses {
+		if !slices.Contains(registered, name) {
+			t.Errorf("placedHarnesses names %q, which is not a registered agent", name)
+		}
+	}
+}
+
 func TestJourneyCoverageProblems(t *testing.T) {
 	journeys := []Journey{{Name: "core", Harnesses: []string{"opencode2"}}}
 	cases := []struct {

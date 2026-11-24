@@ -15,96 +15,73 @@ var Journeys = []Journey{
 	proxySpikeJourney,
 }
 
-// learnSliceHarnesses are the harnesses of the #852 slice; learnRolloutHarnesses
-// follow in the full rollout (#794). The lists are explicit, so a newly
-// registered agent is in neither and fails the completeness contract until it
-// is placed.
-var (
-	learnSliceHarnesses   = []string{"claude-code", "codex", "oh-my-pi", "pi"}
-	learnRolloutHarnesses = []string{
-		"goose",
-		"grok-build",
-		"hermes",
-		"kimi-code",
-		"mistral-vibe",
-		"opencode",
-		"qwen-code",
+// placedHarnesses lists every registered agent the journey table has placed.
+// It is explicit, so a newly registered agent is in no journey's exemptions
+// and fails the completeness contract until it is listed here.
+var placedHarnesses = []string{
+	"claude-code",
+	"codex",
+	"goose",
+	"grok-build",
+	"hermes",
+	"kimi-code",
+	"mistral-vibe",
+	"oh-my-pi",
+	"opencode",
+	"opencode2",
+	"pi",
+	"qwen-code",
+}
+
+// exemptionsFor records why journey does not drive each placed harness it
+// leaves out: the harness's own reason where one is given, else fallback.
+func exemptionsFor(journey Journey, fallback string, reasons map[string]string) map[string]string {
+	exemptions := map[string]string{}
+	for _, name := range placedHarnesses {
+		if slices.Contains(journey.Harnesses, name) {
+			continue
+		}
+		if reason, ok := reasons[name]; ok {
+			exemptions[name] = reason
+			continue
+		}
+		exemptions[name] = fallback
 	}
+	return exemptions
+}
+
+// learnBlockers records why a harness is not driven by the learn-mode
+// journeys although the slice (#852) covered it: in each, the read-back finds
+// no host-scoped credential to learn, so every learn journey's credential
+// assertion would fail on what the product does.
+var learnBlockers = map[string]string{
+	"claude-code": "learn mode on this harness waits for the product: its read-back reads only the OAuth login " +
+		"store; settings.json, where an endpoint and key live, is neither read back nor seeded until #821",
+	"codex": "learn mode on this harness waits for the product: its read-back reads only the auth.json login " +
+		"store, whose value is never read, and not config.toml, whose providers hold no key value, so no " +
+		"host-scoped credential is learned (#873)",
+	"pi": "learn mode on this harness waits for the product: its read-back withholds models.json, where a " +
+		"custom provider's key lives, until provider headers are classified (#820, #849)",
+}
+
+// The fallback reasons per journey family.
+const (
+	rolloutLearnReason     = "learn mode on this harness lands with the full rollout, #794"
+	rolloutCoreReason      = "core session on this harness lands with the full rollout, #794"
+	loginReason            = "the login journey starts with codex; other harnesses follow (#875)"
+	proxySpikeExemptReason = "the proxy spike asks whether a stub route passes the learn proxy, which one harness answers (#793)"
 )
-
-// learnBlockedHarnesses records why a slice harness is not driven by the
-// learn-mode journeys yet: in each, the read-back finds no host-scoped
-// credential to learn, so every learn journey's credential assertion would
-// fail on what the product does.
-var learnBlockedHarnesses = map[string]string{
-	"claude-code": "its read-back reads only the OAuth login store; settings.json, where an endpoint and key live, " +
-		"is neither read back nor seeded until #821",
-	"codex": "its read-back reads only the auth.json login store, whose value is never read, and not " +
-		"config.toml, whose providers hold no key value, so no host-scoped credential is learned (#873)",
-	"pi": "its read-back withholds models.json, where a custom provider's key lives, until provider headers " +
-		"are classified (#820, #849)",
-}
-
-// learnExemptions records why a learn-mode journey does not run on a harness:
-// the blocker for a slice harness, or the rollout that will cover it.
-func learnExemptions() map[string]string {
-	reasons := map[string]string{}
-	for _, name := range learnSliceHarnesses {
-		if blocker, blocked := learnBlockedHarnesses[name]; blocked {
-			reasons[name] = "learn mode on this harness waits for the product: " + blocker
-		}
-	}
-	for _, name := range learnRolloutHarnesses {
-		reasons[name] = "learn mode on this harness lands with the full rollout, #794"
-	}
-	return reasons
-}
-
-// coreSessionExemptions records why the core-session journey does not yet run
-// on a harness: the rest follow in #794.
-func coreSessionExemptions() map[string]string {
-	reasons := map[string]string{}
-	for _, name := range learnRolloutHarnesses {
-		if !slices.Contains(coreSessionJourney.Harnesses, name) {
-			reasons[name] = "core session on this harness lands with the full rollout, #794"
-		}
-	}
-	return reasons
-}
-
-// loginExemptions records why the login journey does not yet run on a
-// harness: it starts with codex, whose browser login has no paste fallback, so
-// the forward is its only way back (#875).
-func loginExemptions() map[string]string {
-	reasons := map[string]string{}
-	for _, name := range slices.Concat(learnSliceHarnesses, learnRolloutHarnesses, []string{opencode2AgentName}) {
-		if name != codexAgentName {
-			reasons[name] = "the login journey starts with codex; other harnesses follow (#875)"
-		}
-	}
-	return reasons
-}
-
-// proxySpikeExemptions records why the proxy spike probes opencode2 only: it is
-// a route question, not a harness one.
-func proxySpikeExemptions() map[string]string {
-	reasons := map[string]string{}
-	for _, name := range slices.Concat(learnSliceHarnesses, learnRolloutHarnesses) {
-		reasons[name] = "the proxy spike asks whether a stub route passes the learn proxy, which one harness answers (#793)"
-	}
-	return reasons
-}
 
 // Exemptions records, per journey, why a registered harness is not driven by
 // it. The completeness contract requires every (journey, registered agent) pair
 // to be covered or exempted with a non-empty reason, so a newly registered
 // harness fails the default suite until it is placed.
 var Exemptions = map[string]map[string]string{
-	uc1Journey.Name:         learnExemptions(),
-	uc4Journey.Name:         learnExemptions(),
-	configLearnJourney.Name: learnExemptions(),
-	attributionJourney.Name: learnExemptions(),
-	coreSessionJourney.Name: coreSessionExemptions(),
-	loginJourney.Name:       loginExemptions(),
-	proxySpikeJourney.Name:  proxySpikeExemptions(),
+	uc1Journey.Name:         exemptionsFor(uc1Journey, rolloutLearnReason, learnBlockers),
+	uc4Journey.Name:         exemptionsFor(uc4Journey, rolloutLearnReason, learnBlockers),
+	configLearnJourney.Name: exemptionsFor(configLearnJourney, rolloutLearnReason, learnBlockers),
+	attributionJourney.Name: exemptionsFor(attributionJourney, rolloutLearnReason, learnBlockers),
+	coreSessionJourney.Name: exemptionsFor(coreSessionJourney, rolloutCoreReason, nil),
+	loginJourney.Name:       exemptionsFor(loginJourney, loginReason, nil),
+	proxySpikeJourney.Name:  exemptionsFor(proxySpikeJourney, proxySpikeExemptReason, nil),
 }
