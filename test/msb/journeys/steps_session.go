@@ -67,6 +67,15 @@ func StepConfigureLauncherEnv() Step {
 	}}
 }
 
+// StepConfigureLauncher writes the launcher env file with only the journey
+// marker, so the home counts as configured and the launcher skips the
+// first-run menu, for a journey that needs no stub.
+func StepConfigureLauncher() Step {
+	return Step{Name: "the launcher is configured", Run: func(c *Context) error {
+		return driver.SeedLauncherEnv(c.Home, map[string]string{journeyEnvMarker: "1"})
+	}}
+}
+
 // StepScriptWriteFile makes the stub answer the next turn with the harness's
 // tool call that writes content to name in the project, through the adapter's
 // WriteFileCall.

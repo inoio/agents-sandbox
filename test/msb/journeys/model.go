@@ -32,6 +32,15 @@ type Context struct {
 	// Stub is set by StepSeedStub: the host-side destination the journey's
 	// agent sends to, kept so a later step or a host accept can inspect it.
 	Stub StubProvider
+	// Browser is set by StepFakeHostBrowser: the host's link handler the
+	// journey's launcher runs, standing in for the user's browser.
+	Browser *HostBrowser
+	// Login is set by StepAssertLoginLinkOpened: the harness's authorization
+	// link and the callback it names.
+	Login *LoginLink
+	// Callback is set by StepBrowserReturnsToCallback: the host forwarder's
+	// answer to the browser's return to the callback.
+	Callback *CallbackAnswer
 }
 
 // ProjectDir is the project dir the journey runs in: its own project when

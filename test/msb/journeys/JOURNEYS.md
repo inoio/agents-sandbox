@@ -179,6 +179,39 @@ Scenario: core-session
   When the user quits the harness and the launcher exits 0
 ```
 
+## harness-login
+
+Runs on: codex
+
+Network profile: `none`
+
+Not yet:
+
+- claude-code, goose, grok-build, hermes, kimi-code, mistral-vibe, oh-my-pi, opencode, opencode2, pi, qwen-code: the login journey starts with codex; other harnesses follow (#875)
+
+```gherkin
+Scenario: harness-login
+  Given the journey runs on a project of its own (login)
+  And a fresh isolated home
+  And the launcher is configured
+  And the host's browser is a recorder
+  When the user starts the harness's browser login
+  Then the host's browser opens the login link, which names a callback in the VM
+  When the browser returns to the callback after the sign-in
+  # check
+  Then the callback reaches the harness in the VM, behind the host boundary
+  And the login command ends
+  When the user signs the harness in with an API key from the shell
+  And the user stops the project VM
+  # check
+  Then the harness reports the stored login from the shell
+  When the user runs `agents-sandbox run`
+  Then the harness TUI comes up
+  # check
+  And the harness starts signed in
+  When the user quits the harness and the launcher exits 0
+```
+
 ## proxy-observes-the-stub
 
 Runs on: opencode2

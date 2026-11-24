@@ -98,6 +98,9 @@ func launchClient(c *Context, launcherArgs, agentArgs []string) {
 	argv := launchArgv(c, launcherArgs, agentArgs)
 	//testenv:allow the journey launcher runs under the host environment it isolates from
 	env := driver.IsolatedEnv(c.Root, c.Home, os.Environ())
+	if c.Browser != nil {
+		env = c.Browser.FirstOnPath(env)
+	}
 	c.Session = driver.MustStartUnderPTY(c.TB, c.ProjectDir(), env, argv...)
 	c.Clients = append(c.Clients, c.Session)
 }
