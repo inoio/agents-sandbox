@@ -113,7 +113,10 @@ the built binary, not the SDK).
   and ambient-tool contract tests to scan **non-test `.go` files under `test/`** as well as `_test.go`.
   No `//deadcode:ignore` on `driver`; its host calls keep the `//testenv:allow` markers they carry
   today. The widening reaches the shared untagged driver's non-test files (they live under `test/`),
-  which would otherwise escape the ambient scan because they are not `_test.go` files.
+  which would otherwise escape the ambient scan because they are not `_test.go` files. The linter follows
+  the same scope: a `^test/` path rule in `.golangci.yml` relaxes `exhaustruct`, `goconst`, `gosec`,
+  `nonamedreturns`, and `reassign` there (the test-only subset of the `_test.go` rule), so non-test files
+  under `test/` carry no `//exhaustruct:ignore` or `//nolint` markers for them.
 - **B — marker-driven:** add the file-scope marker to `driver` and key the ambient scans on it.
   Rejected as fiddlier for no extra reach.
 - **C — keep host-touching calls in `_test.go`, extract only pure helpers.** Rejected: it defeats
@@ -205,7 +208,8 @@ source of truth and its steps are type-checked. It reads as Gherkin anyway:
   starting state (another first-run choice, network profile, or a clean VM).
 - **Journey × harness.** A journey lists the harnesses it runs on and runs once per harness as
   `TestHarnessJourneys/<journey>/<harness>`; `make test-msb-journeys JOURNEY=<name> HARNESS=<agent>` selects
-  one cell (either may be left out). `test/msb/journeys/JOURNEYS.md` is the generated scenario catalogue
+  one cell (either may be left out), and the suite then prebuilds only the images the selected cells drive (never
+  the startup smoke's whole set). `test/msb/journeys/JOURNEYS.md` is the generated scenario catalogue
   (`TestJourneyCatalogueIsCurrent` fails when it is stale; `-update-catalogue` regenerates it). The
   completeness contract is per pair: every (journey, registered agent) pair is driven or exempted with a
   recorded reason (`Exemptions`), so a newly registered agent fails the default suite until it is placed, and a

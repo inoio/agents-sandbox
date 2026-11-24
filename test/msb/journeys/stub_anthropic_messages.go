@@ -27,7 +27,6 @@ const stubToolUseID = "toolu_stub"
 
 // The Anthropic Messages wire types the stub writes.
 type (
-	//exhaustruct:ignore
 	messagesMessage struct {
 		ID           string          `json:"id"`
 		Type         string          `json:"type"`
@@ -38,7 +37,6 @@ type (
 		StopSequence *string         `json:"stop_sequence"`
 		Usage        messagesUsage   `json:"usage"`
 	}
-	//exhaustruct:ignore
 	messagesBlock struct {
 		Type  string          `json:"type"`
 		Text  *string         `json:"text,omitempty"`
@@ -46,18 +44,15 @@ type (
 		Name  string          `json:"name,omitempty"`
 		Input json.RawMessage `json:"input,omitempty"`
 	}
-	//exhaustruct:ignore
 	messagesDelta struct {
 		Type        string `json:"type"`
 		Text        string `json:"text,omitempty"`
 		PartialJSON string `json:"partial_json,omitempty"`
 	}
-	//exhaustruct:ignore
 	messagesUsage struct {
 		InputTokens  int `json:"input_tokens"`
 		OutputTokens int `json:"output_tokens"`
 	}
-	//exhaustruct:ignore
 	messagesEvent struct {
 		Type         string           `json:"type"`
 		Message      *messagesMessage `json:"message,omitempty"`
@@ -66,7 +61,6 @@ type (
 		Delta        any              `json:"delta,omitempty"`
 		Usage        *messagesUsage   `json:"usage,omitempty"`
 	}
-	//exhaustruct:ignore
 	messagesStop struct {
 		StopReason   string  `json:"stop_reason"`
 		StopSequence *string `json:"stop_sequence"`

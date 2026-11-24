@@ -80,12 +80,12 @@ const (
 	// env-var name as derivedEnvVarName(stubProviderID); a journey asserts the
 	// saved env.secret.yaml scopes that name to the provider's baseURL host. It
 	// is a dummy value: the stub never checks it.
-	stubProviderAPIKey = "sk-stub-not-a-real-key" //nolint:gosec // a dummy stub credential, never a real secret
+	stubProviderAPIKey = "sk-stub-not-a-real-key"
 	// stubCredentialEnvVar is the env-var name the read-back derives for
 	// stubProviderAPIKey: <PROVIDERID>_API_KEY, i.e. derivedEnvVarName("stub").
 	// Kept here beside the provider so a lifecycle change to the id cannot leave
 	// a journey asserting a name the read-back no longer derives.
-	stubCredentialEnvVar = "STUB_API_KEY" //nolint:gosec // an env-var name, not a secret value
+	stubCredentialEnvVar = "STUB_API_KEY"
 )
 
 // stubReadHeaderTimeout is a defensive ceiling on reading a request's headers;
@@ -133,8 +133,6 @@ func StartStubProvider(tb driver.TB) (StubProvider, error) {
 }
 
 // stubProvider is the StubProvider a StartStubProvider call returns.
-//
-//exhaustruct:ignore
 type stubProvider struct {
 	server   *http.Server
 	listener net.Listener

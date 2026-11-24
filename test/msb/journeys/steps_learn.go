@@ -117,7 +117,6 @@ func StepSeedLearnSession() Step {
 			return err
 		}
 		key := state.Key{Slug: identity.CheckoutSlug, Agent: c.Agent}
-		//exhaustruct:ignore // an observation names only the destination the secret finding rests on
 		observation := channel.Observation{
 			Destinations: []channel.Destination{{
 				Host:     stubHost,

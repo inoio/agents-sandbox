@@ -292,6 +292,7 @@ JOURNEYS_RUN = $(if $(JOURNEY)$(HARNESS),-run 'TestHarnessJourneys/^$(or $(JOURN
 
 test-msb-journeys: msb-reuse-root
 	AGENTS_SANDBOX_SMOKE_ROOT=$(MSB_REUSE_ROOT)/smoke \
+	AGENTS_SANDBOX_JOURNEYS_JOURNEY=$(JOURNEY) AGENTS_SANDBOX_JOURNEYS_HARNESS=$(HARNESS) \
 	AGENTS_SANDBOX_MSB_PARALLEL=$(MSB_PARALLEL) \
 	CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 $(JOURNEYS_RUN) ./test/msb/journeys/...
 

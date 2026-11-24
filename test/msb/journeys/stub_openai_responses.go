@@ -16,7 +16,6 @@ const stubFunctionCallID = "call_stub"
 
 // The OpenAI Responses wire types the stub writes.
 type (
-	//exhaustruct:ignore
 	responsesEvent struct {
 		Type         string           `json:"type"`
 		Response     *responsesStatus `json:"response,omitempty"`
@@ -26,19 +25,16 @@ type (
 		Delta        string           `json:"delta,omitempty"`
 		Item         *responsesItem   `json:"item,omitempty"`
 	}
-	//exhaustruct:ignore
 	responsesStatus struct {
 		ID     string          `json:"id"`
 		Status string          `json:"status"`
 		Usage  *responsesUsage `json:"usage,omitempty"`
 	}
-	//exhaustruct:ignore
 	responsesUsage struct {
 		InputTokens  int `json:"input_tokens"`
 		OutputTokens int `json:"output_tokens"`
 		TotalTokens  int `json:"total_tokens"`
 	}
-	//exhaustruct:ignore
 	responsesItem struct {
 		Type      string             `json:"type"`
 		ID        string             `json:"id"`
@@ -49,7 +45,6 @@ type (
 		Name      string             `json:"name,omitempty"`
 		Arguments string             `json:"arguments,omitempty"`
 	}
-	//exhaustruct:ignore
 	responsesContent struct {
 		Type        string `json:"type"`
 		Text        string `json:"text"`

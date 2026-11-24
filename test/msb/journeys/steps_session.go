@@ -218,7 +218,6 @@ func StepStopVM() Step {
 			driver.ScaleTimeout(vmStopTimeout, driver.SmokeTimeoutFactor()),
 		)
 		defer cancel()
-		//nolint:gosec // G204: the suite-built launcher and a registered agent name
 		stop := exec.CommandContext(ctx, c.Binary, "stop", "--agent", c.Agent)
 		stop.Dir = c.ProjectDir()
 		//testenv:allow the journey launcher runs under the host environment it isolates from

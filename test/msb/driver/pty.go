@@ -86,7 +86,7 @@ type Session struct {
 // this in MustStartUnderPTY, which fails the test on error.
 func StartUnderPTY(dir string, env []string, argv []string) (*Session, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // G204: the caller passes the argv to drive
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	if dir != "" {
 		cmd.Dir = dir
 	}
@@ -244,7 +244,7 @@ func (s *Session) Write(data []byte) error {
 // write's timeout lets the caller fail with its own budget instead of hanging.
 func waitWritable(fd int, deadline time.Time) error {
 	pollFds := []unix.PollFd{{
-		Fd:     int32(fd), //nolint:gosec // G115: a valid file descriptor fits int32
+		Fd:     int32(fd),
 		Events: unix.POLLOUT,
 		// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT reason="Revents is an output field the poll overwrites, so its seed value is unobservable"
 		Revents: 0,

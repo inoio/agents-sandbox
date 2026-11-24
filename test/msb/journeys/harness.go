@@ -5,8 +5,6 @@ package journeys
 // parts: how it reaches the stub, how a journey drives it, and what learn mode
 // finds in it. A journey never names a harness's paths or formats itself; it
 // asks the adapter.
-//
-//exhaustruct:ignore
 type Harness struct {
 	Stub  StubSetup
 	Drive Driving
@@ -17,8 +15,6 @@ type Harness struct {
 // StubSetup is how a harness is pointed at the stub provider at addr. A
 // harness uses whichever of the three routes its own config allows; its
 // natural config file is often a reserved home target.
-//
-//exhaustruct:ignore
 type StubSetup struct {
 	// HomeFiles renders VM-home files (relative path to content), provisioned
 	// through the launcher's `home:` manifest by StepSeedStub: provider files,
@@ -35,8 +31,6 @@ type StubSetup struct {
 }
 
 // Driving is how a journey drives a harness's TUI once it starts.
-//
-//exhaustruct:ignore
 type Driving struct {
 	// ReadyMarker, when set, replaces the startup smoke's readiness marker
 	// (driver.Spec.ReadyMarker) for a harness whose start screen differs once
@@ -54,8 +48,6 @@ type Driving struct {
 
 // LearnFacts is what learn mode finds in a harness pointed at the stub: what
 // the learn-mode journeys seed as host setup and expect in the per-slug scope.
-//
-//exhaustruct:ignore
 type LearnFacts struct {
 	// HostConfig renders the harness's own host config files pointing at the
 	// stub at addr, for a journey that seeds an existing host setup.

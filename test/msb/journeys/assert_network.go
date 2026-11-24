@@ -21,7 +21,6 @@ func runNetworkPolicy(c *Context) network.Policy {
 	if err != nil {
 		return network.Policy{}
 	}
-	//exhaustruct:ignore // only the profile is the baseline; every other policy field is zero
 	return network.Policy{Profiles: profiles}
 }
 

@@ -67,7 +67,6 @@ const stubCompletionPath = "/chat/completions"
 
 // The OpenAI chat completion wire types the stub writes.
 type (
-	//exhaustruct:ignore
 	chatCompletion struct {
 		ID      string       `json:"id"`
 		Object  string       `json:"object"`
@@ -76,32 +75,27 @@ type (
 		Choices []chatChoice `json:"choices"`
 		Usage   *chatUsage   `json:"usage,omitempty"`
 	}
-	//exhaustruct:ignore
 	chatChoice struct {
 		Index        int          `json:"index"`
 		Message      *chatMessage `json:"message,omitempty"`
 		Delta        *chatMessage `json:"delta,omitempty"`
 		FinishReason *string      `json:"finish_reason"`
 	}
-	//exhaustruct:ignore
 	chatMessage struct {
 		Role      string         `json:"role,omitempty"`
 		Content   *string        `json:"content,omitempty"`
 		ToolCalls []chatToolCall `json:"tool_calls,omitempty"`
 	}
-	//exhaustruct:ignore
 	chatToolCall struct {
 		Index    *int         `json:"index,omitempty"`
 		ID       string       `json:"id"`
 		Type     string       `json:"type"`
 		Function chatFunction `json:"function"`
 	}
-	//exhaustruct:ignore
 	chatFunction struct {
 		Name      string `json:"name"`
 		Arguments string `json:"arguments"`
 	}
-	//exhaustruct:ignore
 	chatUsage struct {
 		PromptTokens     int `json:"prompt_tokens"`
 		CompletionTokens int `json:"completion_tokens"`
@@ -132,8 +126,6 @@ func serveChatCompletion(response http.ResponseWriter, request chatRequest, call
 
 // textAnswer is a text reply as a completion message, a stream delta, and its
 // finish reason.
-//
-//nolint:nonamedreturns // the three parts are named for the reader
 func textAnswer(reply string) (message, delta chatMessage, finishReason string) {
 	message = chatMessage{Role: assistantRole, Content: &reply}
 	return message, message, "stop"
@@ -141,8 +133,6 @@ func textAnswer(reply string) (message, delta chatMessage, finishReason string) 
 
 // toolCallAnswer is a tool call as a completion message (no content), a stream
 // delta (the call carries its index), and its finish reason.
-//
-//nolint:nonamedreturns // the three parts are named for the reader
 func toolCallAnswer(call ToolCall) (message, delta chatMessage, finishReason string) {
 	function := chatFunction(call)
 	index := 0
