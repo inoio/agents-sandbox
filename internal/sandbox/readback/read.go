@@ -732,14 +732,20 @@ func isReferenceValue(value string) bool {
 	return isExplicitReference(value) || isEnvVarIdentifier(strings.TrimSpace(value))
 }
 
+// msbDefaultPlaceholderPrefix starts the guest value microsandbox gives a secret
+// that configures no placeholder of its own: $MSB_<SECRET_NAME>.
+const msbDefaultPlaceholderPrefix = "$MSB_"
+
 // isExplicitReference reports whether a value is an explicit reference rather
-// than a literal: a ${...} placeholder, opencode's {env:...}/{file:...} form, or
+// than a literal: a ${...} placeholder, microsandbox's default $MSB_<NAME>
+// guest value, opencode's {env:...}/{file:...} form, or
 // a leading-! command reference. It does not treat a bare upper-case word as a
 // reference, so a caller for whom a bare word is a value (a nested table under
 // an env or header table) can use it directly.
 func isExplicitReference(value string) bool {
 	trimmed := strings.TrimSpace(value)
 	return strings.HasPrefix(trimmed, "${") ||
+		strings.HasPrefix(trimmed, msbDefaultPlaceholderPrefix) ||
 		strings.HasPrefix(trimmed, "{env:") ||
 		strings.HasPrefix(trimmed, "{file:") ||
 		strings.HasPrefix(trimmed, "!")

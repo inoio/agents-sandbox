@@ -1,0 +1,226 @@
+package readback
+
+import (
+	"net/url"
+	"slices"
+	"sort"
+	"strconv"
+	"strings"
+)
+
+// unprovenLeafPath returns the key path of the first decoded leaf the guard
+// cannot prove is not a secret, or "" when every leaf is proven safe. It is the
+// fail-closed half of the undeclared-secret guard: a leaf is refused unless a
+// rule clears it, so a credential in a spelling no rule anticipated is refused
+// rather than copied. The shape rules (decodedHoldsUndeclaredSecretValue) still
+// refuse a value that looks like a secret under a cleared key.
+func unprovenLeafPath(node any) string {
+	return firstUnprovenLeaf(node, nil)
+}
+
+// firstUnprovenLeaf walks node in a stable key order, carrying the key path.
+func firstUnprovenLeaf(node any, path []string) string {
+	switch typed := node.(type) {
+	case map[string]any:
+		for _, key := range sortedKeys(typed) {
+			if found := firstUnprovenLeaf(typed[key], append(path, key)); found != "" {
+				return found
+			}
+		}
+		return ""
+	case map[any]any:
+		return firstUnprovenLeaf(stringKeyedEntries(typed), path)
+	case []any:
+		for index, child := range typed {
+			if found := firstUnprovenLeaf(child, append(path, "["+strconv.Itoa(index)+"]")); found != "" {
+				return found
+			}
+		}
+		return ""
+	}
+	if leafIsProvablySafe(nearestKey(path), node) {
+		return ""
+	}
+	return strings.Join(path, ".")
+}
+
+// sortedKeys returns a mapping's keys sorted, so the reported path is stable.
+func sortedKeys(entries map[string]any) []string {
+	keys := make([]string, 0, len(entries))
+	for key := range entries {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// nearestKey is the last named key on path: a list element is judged by the key
+// that holds the list.
+func nearestKey(path []string) string {
+	for _, element := range slices.Backward(path) {
+		if !strings.HasPrefix(element, "[") {
+			return element
+		}
+	}
+	return ""
+}
+
+// leafIsProvablySafe reports whether one decoded leaf under key is proven not to
+// be a secret. A null or boolean never is one. A number or a timestamp is safe
+// unless the key names a stored secret. A string is safe when it is empty, a
+// reference or a template whose only secret is a reference, a filesystem path —
+// these hold under any key — or, under a key that names no secret, a number or
+// boolean word, a URL without credentials or a query, or any value under a key
+// the safe vocabulary clears.
+func leafIsProvablySafe(key string, leaf any) bool {
+	switch typed := leaf.(type) {
+	case nil, bool:
+		return true
+	case string:
+		return stringLeafIsProvablySafe(key, typed)
+	}
+	// A number under a count key (maxTokens) is configuration; under a key that
+	// names a stored secret (pin, access_token) it is the secret.
+	return !keyNamesAStoredSecret(key)
+}
+
+// stringLeafIsProvablySafe is leafIsProvablySafe for a string leaf. A bare
+// environment-variable name is a reference under a secret-shaped key (an
+// apiKeys list of names, codex's env_key, kimi's api_key_env), as the shape
+// rules already hold.
+func stringLeafIsProvablySafe(key, value string) bool {
+	if strings.TrimSpace(value) == "" || isSecretReference(value) || isFilesystemPath(value) {
+		return true
+	}
+	if isNonSecretScalar(value) && !keyNamesAStoredSecret(key) {
+		return true
+	}
+	if keyNamesASecret(key) {
+		return isEnvVarIdentifier(strings.TrimSpace(value))
+	}
+	if isPlainURL(value) {
+		return true
+	}
+	return keyIsSafeVocabulary(key) && embeddedPairsAreProvablySafe(value)
+}
+
+// embeddedPairsAreProvablySafe reports whether every key-value pair written
+// inside a cleared string — a NAME=value assignment or a --flag=value — is
+// itself provably safe, judged like a decoded entry. A command line, a
+// permission rule, or prose cleared by its key can still set a secret
+// ("DB_PASSWORD=… mytool", "export TOKEN=…", "-e \"API_KEY=…\""), so its
+// pairs are not cleared with it.
+func embeddedPairsAreProvablySafe(value string) bool {
+	for token := range strings.FieldsSeq(value) {
+		name, pairValue, isPair := embeddedPair(token)
+		// An environment flag carries its own assignment (--env=NAME=value),
+		// which is the pair to judge.
+		for isPair {
+			innerName, innerValue, innerIsPair := embeddedPair(pairValue)
+			if !innerIsPair {
+				break
+			}
+			name, pairValue = innerName, innerValue
+		}
+		if isPair && !stringLeafIsProvablySafe(name, pairValue) {
+			return false
+		}
+	}
+	return true
+}
+
+// embeddedPair splits one whitespace-separated token into a key-value pair: a
+// NAME=value assignment or a --flag=value, with surrounding quotes removed. A
+// token without a name before its '=' is not a pair.
+func embeddedPair(token string) (string, string, bool) {
+	unquoted := strings.Trim(token, `"'`)
+	name, value, found := strings.Cut(strings.TrimLeft(unquoted, "-"), "=")
+	if !found || name == "" || !isPairName(name) {
+		return "", "", false
+	}
+	return name, strings.Trim(value, `"'`), true
+}
+
+// isPairName reports whether name can be the key of an embedded pair: letters,
+// digits, '_', '-', and '.', starting with a letter or '_'.
+func isPairName(name string) bool {
+	for index, character := range name {
+		isLetter := (character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z') || character == '_'
+		isDigitOrSeparator := (character >= '0' && character <= '9') || character == '-' || character == '.'
+		if !isLetter && (index == 0 || !isDigitOrSeparator) {
+			return false
+		}
+	}
+	return true
+}
+
+// isSecretReference reports whether value refers to a secret held elsewhere
+// rather than holding it: an explicit reference, microsandbox's default guest
+// placeholder, or a template whose only credential is a placeholder.
+func isSecretReference(value string) bool {
+	return isExplicitReference(value) || onlyPlaceholdersCarrySecrets(value)
+}
+
+// keyNamesASecret reports whether key names a secret by a marker segment, a
+// plural one included (tokens), or a leaf-only marker (auth, cookie, session).
+func keyNamesASecret(key string) bool {
+	return looksLikeSecretShapedKey(key) || keyHasLeafSecretMarker(key)
+}
+
+// keyNamesAStoredSecret reports whether key names a secret a number can hold
+// (a pin, password, or access_token) rather than a token count, or carries a
+// leaf-only marker.
+func keyNamesAStoredSecret(key string) bool {
+	return namesAStoredSecret(key) || keyHasLeafSecretMarker(key)
+}
+
+// keyHasLeafSecretMarker reports whether one of key's segments is a leaf-only
+// secret marker.
+func keyHasLeafSecretMarker(key string) bool {
+	return slices.ContainsFunc(keySegments(key), func(segment string) bool {
+		return slices.Contains(leafSecretKeyMarkers, segment)
+	})
+}
+
+// isPlainURL reports whether value is an http(s) or ws(s) URL that carries no
+// credential: no userinfo, no query, and no fragment.
+func isPlainURL(value string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || parsed.Host == "" {
+		return false
+	}
+	switch parsed.Scheme {
+	case "http", "https", "ws", "wss":
+	default:
+		return false
+	}
+	return parsed.User == nil && parsed.RawQuery == "" && parsed.Fragment == "" && !parsed.ForceQuery
+}
+
+// safeKeyWords are the final key segments that name configuration, never a
+// credential: a model, a name, a location, prose, a command line, or a mode.
+// A key is cleared by its last segment, so OTEL_METRICS_EXPORTER and
+// ANTHROPIC_MODEL are configuration while DB_PASSWORD is not. A key that also
+// carries a secret marker is never cleared by this list.
+var safeKeyWords = []string{
+	// What runs and how it is presented.
+	"MODEL", "MODELS", "PROVIDER", "PROVIDERS", "AGENT", "VARIANT", "EFFORT",
+	"NAME", "TITLE", "DESCRIPTION", "THEME", "STYLE", "LAYOUT", "ICON", "COLOR",
+	"MODE", "ENV", "TYPE", "KIND", "LEVEL", "FORMAT", "LANGUAGE", "LOCALE", "VERSION", "BETA", "SCHEMA",
+	// Prose the user wrote for the agent.
+	"PROMPT", "INSTRUCTION", "INSTRUCTIONS",
+	// Where things are.
+	pathKeyWord, "PATHS", "DIR", "DIRS", "DIRECTORY", "FILE", "FILES", "URL", "URLS", "ENDPOINT", "HOST", "PORT",
+	"REGION", "PROFILE", "PROTOCOL", "EXPORTER", "ID",
+	// Command lines and permission rules; the shape rules still judge them.
+	"COMMAND", "ARGS", "OPTIONS", "ALLOW", "DENY", "ASK", "TOOLSETS", "SHELL", "EDITOR",
+}
+
+// pathKeyWord is the key segment that names a location (PATH, SSH_KEY_PATH).
+const pathKeyWord = "PATH"
+
+// keyIsSafeVocabulary reports whether key's last segment is a safe key word.
+func keyIsSafeVocabulary(key string) bool {
+	segments := keySegments(key)
+	return len(segments) > 0 && slices.Contains(safeKeyWords, segments[len(segments)-1])
+}

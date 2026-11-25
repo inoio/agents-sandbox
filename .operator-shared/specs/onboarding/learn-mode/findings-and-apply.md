@@ -98,6 +98,18 @@ same check, so it never copies a host config file the merge would not read.
   `*_EXPORTER`, `DISABLE_*`, `ENABLE_*`, `NO_*`, `USE_*`, `SKIP_*`, the proxy variables; headers: `Content-Type`,
   `Accept*`, `User-Agent`, `anthropic-beta`, …), and its value is not secret-shaped.
 
+**A fail-closed pass runs beside those rules** (`unprovenLeafPath`, #849). Every decoded leaf is refused unless a rule
+proves it safe: a null or boolean; a number or timestamp under a key that names no stored secret; or a string that is
+empty, an explicit reference (`${…}`, `$MSB_<NAME>`, `{env:…}`, `{file:…}`), a template whose only credential is a
+placeholder, or a multi-component filesystem path (under any key), or — under a key that names no secret — a number
+or boolean word, an http(s)/ws(s) URL without userinfo, query, or fragment, or a value under a key whose last segment
+is in the safe vocabulary (`safeKeyWords`: model, name, prompt, path, url, command, mode, …). A string cleared only by
+its key still has every `NAME=value` and `--flag=value` pair inside it judged as an entry, so a command line or prose
+cannot set a secret. Under a secret-named key, only a bare environment-variable name (an `env_key`-style reference)
+clears. Its known residuals: a comment (raw text, judged only by the
+shape rules), a positional command-line word, and a number under a key that reads as a token count (`token`,
+`refreshTokens`).
+
 A YAML file with more than one document is refused, because the decoder reads only the first (a single leading `---`
 that opens the first document, after nothing but blank lines and comments, is no second document). The rule is
 deliberately conservative: an unknown entry refuses the file rather than risk a missed credential, so a refused file

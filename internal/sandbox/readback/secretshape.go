@@ -147,7 +147,10 @@ func flagNamesASecret(name string) bool {
 	}
 	segments := keySegments(name)
 	last := segments[len(segments)-1]
-	return !slices.Contains([]string{"FILE", "PATH", "ENV", "STDIN", "DIR", "NAME", "HELPER", "COMMAND", "CMD"}, last)
+	return !slices.Contains(
+		[]string{"FILE", pathKeyWord, "ENV", "STDIN", "DIR", "NAME", "HELPER", "COMMAND", "CMD"},
+		last,
+	)
 }
 
 func leafMarkerName(name string) bool {
@@ -292,7 +295,7 @@ func keyIsOneOf(key string, names []string) bool {
 var (
 	safeEnvKeySuffixes = []string{
 		"_URL", "_ENDPOINT", "_HOST", "_PORT", "_MODEL", "_REGION", "_VERSION", "_TIMEOUT", "_TIMEOUT_MS",
-		"_LEVEL", "_MODE", "_DIR", "PATH", "_HOME", "_LOCALE", "_FORMAT", "_ENABLED", "_DISABLED",
+		"_LEVEL", "_MODE", "_DIR", pathKeyWord, "_HOME", "_LOCALE", "_FORMAT", "_ENABLED", "_DISABLED",
 		"_OPTIONS", "_PROFILE", "_PROJECT", "_PROJECT_ID", "_NAME", "_PROTOCOL", "_EXPORTER", "_TOOLSETS",
 	}
 	safeEnvKeyPrefixes = []string{"DISABLE_", "ENABLE_", "NO_", "USE_", "SKIP_"}
