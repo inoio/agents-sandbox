@@ -105,6 +105,12 @@ when the sandbox is created, so a proposed change to it takes effect at the next
 If agents-sandbox cannot attribute a secret to a destination, it leaves the secret in the sandbox home rather than
 guessing where it is safe to send.
 
+If an agent's own login stored an API key in plain text in the sandbox home, for example `codex login --with-api-key`
+with a real key, learn mode warns about it when you review or save the session's proposal, and shows how to keep the
+key on the host instead. It
+does not change the agent's login itself. The [Codex login]({% link configuration/agent.md %}#codex-login) section
+describes the route that keeps only a placeholder in the sandbox.
+
 ## Review a session later
 
 If the process that started the learning session is gone — you closed the terminal, or the launcher was killed —

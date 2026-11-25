@@ -60,6 +60,8 @@ type ReadBack struct {
 	// whose read failed this run. A non-empty entry means the absence of that
 	// source's credentials is undetermined, not a confirmed "no credentials".
 	Unreadable []string
+	// Exposed names the login stores holding a plain-text API key.
+	Exposed []ExposedKey
 }
 
 // Read inspects the agent's declared config and credential paths under home and
@@ -85,6 +87,7 @@ func Read(home, agentName string, baseline Manifest) (ReadBack, error) {
 		Login:       nil,
 		Changed:     collection.manifest.Changed(baseline),
 		Unreadable:  nil,
+		Exposed:     exposedKeys(home, agentName),
 	}
 	for _, entry := range collection.manifest.Entries {
 		if isProbe(entry) {
@@ -389,7 +392,7 @@ func (s loginCredentialStore) appliesTo(agentName string) bool {
 // would be a false positive.
 var loginCredentialStores = []loginCredentialStore{
 	{pattern: ".claude/.credentials.json", provider: "claude-code"},
-	{pattern: ".codex/auth.json", provider: "codex"},
+	{pattern: codexAuthPath, provider: "codex"},
 	{pattern: ".local/share/opencode/auth.json", provider: "opencode", agents: []string{"opencode"}},
 	{pattern: ".pi/agent/auth.json", provider: "pi"},
 	{pattern: ".kimi-code/credentials/*.json", provider: "kimi-code"},

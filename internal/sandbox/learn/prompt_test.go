@@ -484,5 +484,33 @@ func TestChosenExitDiscardsTypeAheadBeforeAsking(t *testing.T) {
 	}
 	if !discardedBeforeAsking {
 		t.Error("the exit prompt asked before dropping the type-ahead")
+
+// TestPrintSummaryWarnsWithAReportedFinding pins that a report-only finding,
+// which the applier never asks about, shows its evidence and guidance as a
+// warning after the summary line, while an applied finding stays quiet.
+func TestPrintSummaryWarnsWithAReportedFinding(t *testing.T) {
+	ui := &termiotest.Mock{}
+	//exhaustruct:ignore // only the outcome and the rendered text matter
+	reported := analyser.ApplyResult{
+		Outcome: analyser.OutcomeNotApplicable,
+		Finding: analyser.Finding{
+			Evidence: analyser.Evidence{Summary: "An API key is stored in plain text."},
+			Writes:   []analyser.Write{{Text: "Declare it as an env secret."}, {Text: ""}},
+		},
+	}
+	//exhaustruct:ignore // only the outcome matters
+	applied := analyser.ApplyResult{
+		Outcome: analyser.OutcomeApplied,
+		Finding: analyser.Finding{Evidence: analyser.Evidence{Summary: "applied"}},
+	}
+
+	printSummary(ui, Summary{Results: []analyser.ApplyResult{applied, reported}})
+
+	if len(ui.InfoCalls) != 1 {
+		t.Fatalf("InfoCalls = %v, want the summary line only", ui.InfoCalls)
+	}
+	want := []string{"An API key is stored in plain text. Declare it as an env secret."}
+	if strings.Join(ui.WarnCalls, "|") != strings.Join(want, "|") {
+		t.Errorf("WarnCalls = %q, want %q", ui.WarnCalls, want)
 	}
 }

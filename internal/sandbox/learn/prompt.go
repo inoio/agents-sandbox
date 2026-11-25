@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/analyser"
 	"github.com/inoio/agents-sandbox/internal/sandbox/channel"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -142,7 +143,8 @@ func (r *Run) Finish(ctx context.Context, in FinishInput) error {
 }
 
 // printSummary reports what the after-run learned, with the denied destinations
-// as a separate note.
+// as a separate note, and warns with each report-only finding's guidance: the
+// applier asks nothing for such a finding, so the summary is where it shows.
 func printSummary(ui termio.UI, summary Summary) {
 	ui.Infof(
 		"agents-sandbox learned: %d services reached, %d keys used.",
@@ -152,4 +154,22 @@ func printSummary(ui termio.UI, summary Summary) {
 	if len(summary.Denied) > 0 {
 		ui.Infof("Denied destinations (never auto-allowed): %s", strings.Join(summary.Denied, ", "))
 	}
+	for _, result := range summary.Results {
+		if result.Outcome != analyser.OutcomeNotApplicable {
+			continue
+		}
+		ui.Warnf("%s", reportedFindingText(result.Finding))
+	}
+}
+
+// reportedFindingText joins a report-only finding's evidence summary and its
+// writes' guidance into one warning.
+func reportedFindingText(finding analyser.Finding) string {
+	lines := []string{finding.Evidence.Summary}
+	for _, write := range finding.Writes {
+		if write.Text != "" {
+			lines = append(lines, write.Text)
+		}
+	}
+	return strings.Join(lines, " ")
 }
