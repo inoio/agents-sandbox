@@ -18,6 +18,7 @@ func (p *prompterOnly) Confirm(string, bool) (bool, error) {
 	return true, nil
 }
 func (p *prompterOnly) Acknowledge(string) error { return nil }
+func (p *prompterOnly) DiscardTypeAhead()        {}
 
 func TestConfirmActionAcceptsPrompterOnly(t *testing.T) {
 	p := &prompterOnly{}

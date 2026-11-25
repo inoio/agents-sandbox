@@ -41,11 +41,14 @@ func exitChoices() []termio.Choice {
 func interactive(ui termio.UI) bool { return ui != nil && ui.IsInteractive() }
 
 // chosenExit returns the user's choice, or Not now on a non-interactive terminal
-// (which then lets the applier print its one-line notice).
+// (which then lets the applier print its one-line notice). The prompt follows
+// the agent's full-screen session, so input typed for it and not consumed — a
+// second Ctrl-D that quit it, read as end of input — is dropped first.
 func chosenExit(ui termio.UI) (string, error) {
 	if !interactive(ui) {
 		return exitNotNow, nil
 	}
+	ui.DiscardTypeAhead()
 	return ui.Select(exitPrompt, exitChoices(), exitNotNow)
 }
 

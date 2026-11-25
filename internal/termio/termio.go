@@ -126,6 +126,10 @@ type Prompter interface {
 	// non-interactive it prints and returns immediately. The caller decides
 	// whether to record the acknowledgment.
 	Acknowledge(message string) error
+	// DiscardTypeAhead drops input typed before the next prompt that no reader
+	// has consumed, so keys meant for a program that already quit cannot
+	// answer it. It does nothing when stdin is not a terminal.
+	DiscardTypeAhead()
 }
 
 // SpinnerFactory constructs progress spinners.
