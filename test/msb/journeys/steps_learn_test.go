@@ -220,3 +220,22 @@ func TestObservedHostProblemFindsTheStubsHost(t *testing.T) {
 		t.Errorf("the stub's host observed: err = %v", err)
 	}
 }
+
+func TestExposedLoginKeyWarnedNeedsTheEvidenceAndTheGuidance(t *testing.T) {
+	store := exposedLoginKeys[codexAgentName]
+	evidence := "An API key is stored in plain text in ~/.codex/auth.json on the home volume."
+	guidance := "Keep it on the host: declare OPENAI_API_KEY as an env secret for api.openai.com."
+
+	if err := exposedLoginKeyWarned([]byte("summary\n"+evidence+"\n"+guidance), store); err != nil {
+		t.Errorf("the full warning: %v", err)
+	}
+	for name, output := range map[string]string{
+		"evidence only": evidence,
+		"guidance only": guidance,
+		"another store": strings.Replace(evidence, ".codex/auth.json", ".claude.json", 1) + guidance,
+	} {
+		if exposedLoginKeyWarned([]byte(output), store) == nil {
+			t.Errorf("%s: want a missing-warning error", name)
+		}
+	}
+}

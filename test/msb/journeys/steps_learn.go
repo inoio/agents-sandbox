@@ -345,16 +345,21 @@ func StepAssertExposedLoginKeyWarned() Step {
 		if err != nil {
 			return err
 		}
-		store := exposedLoginKeys[c.Agent]
-		output := driver.MarkerText(string(ses.Output()))
-		for _, want := range []string{
-			"An API key is stored in plain text in ~/" + store.path + " on the home volume.",
-			"Keep it on the host: declare",
-		} {
-			if !strings.Contains(output, driver.MarkerText(want)) {
-				return fmt.Errorf("the launcher output does not warn %q", want)
-			}
-		}
-		return nil
+		return exposedLoginKeyWarned(ses.Output(), exposedLoginKeys[c.Agent])
 	}})
+}
+
+// exposedLoginKeyWarned checks the launcher output for the warning about store:
+// its evidence line and the guidance that names the env secret.
+func exposedLoginKeyWarned(output []byte, store exposedLoginKey) error {
+	text := driver.MarkerText(string(output))
+	for _, want := range []string{
+		"An API key is stored in plain text in ~/" + store.path + " on the home volume.",
+		"Keep it on the host: declare",
+	} {
+		if !strings.Contains(text, driver.MarkerText(want)) {
+			return fmt.Errorf("the launcher output does not warn %q", want)
+		}
+	}
+	return nil
 }
