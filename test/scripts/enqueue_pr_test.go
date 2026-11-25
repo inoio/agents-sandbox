@@ -33,18 +33,65 @@ func TestEnqueuePr(t *testing.T) {
 		assertContains(t, "argv", h.argv(), "sha=new-head")
 	})
 
-	t.Run("a failure on an unchanged head stands", func(t *testing.T) {
+	t.Run("a pass on a head that moved is watched again before the enqueue", func(t *testing.T) {
 		t.Parallel()
 		h := newEnqueuePrHarness(t)
 
-		result := h.run(`{"state":"OPEN","id":"PR_16","headRefOid":"same-head"}`, nil, map[string]string{
+		// The watch passes on the old head; by the time it ends, the head moved.
+		result := h.run(`{"state":"OPEN","id":"PR_17"}`, nil, map[string]string{
+			"GH_HEAD_MOVES_AFTER":    "1",
+			"GH_HEAD_READS_FILE":     filepath.Join(h.workDir, "head_reads"),
+			"GH_CHECKS_FAIL_WATCHES": "0",
+		}, "42")
+
+		assertStatus(t, result, 0)
+		assertContains(t, "stdout", result.Stdout, "its head moved to new-head")
+		assertContains(t, "argv", h.argv(), "sha=new-head")
+		if watches := strings.Count(h.argv(), "pr checks 42 --watch"); watches != 2 {
+			t.Errorf("watched %d times, want 2 (the old head, then the new one)", watches)
+		}
+	})
+
+	t.Run("a failure on an unchanged head stands after one watch", func(t *testing.T) {
+		t.Parallel()
+		h := newEnqueuePrHarness(t)
+
+		result := h.run(`{"state":"OPEN","id":"PR_16","headRefOid":"same-head"}`, nil,
+			map[string]string{"GH_CHECKS_EXIT": "1"}, "42")
+
+		assertStatus(t, result, 1)
+		assertContains(t, "stderr", result.Stderr, "checks did not pass")
+		assertNotContains(t, "argv", h.argv(), "merge-async")
+		if watches := strings.Count(h.argv(), "pr checks 42 --watch"); watches != 1 {
+			t.Errorf("watched %d times, want 1", watches)
+		}
+	})
+
+	t.Run("a watch failure the plain check does not confirm is watched again", func(t *testing.T) {
+		t.Parallel()
+		h := newEnqueuePrHarness(t)
+
+		result := h.run(`{"state":"OPEN","id":"PR_18","headRefOid":"same-head"}`, nil, map[string]string{
 			"GH_CHECKS_FAIL_WATCHES": "1",
 			"GH_CHECKS_WATCHES_FILE": filepath.Join(h.workDir, "watches"),
 		}, "42")
 
+		assertStatus(t, result, 0)
+		assertContains(t, "stdout", result.Stdout, "its checks changed after the watch; watching again")
+		assertContains(t, "argv", h.argv(), "sha=same-head")
+	})
+
+	t.Run("gives up after three watches", func(t *testing.T) {
+		t.Parallel()
+		h := newEnqueuePrHarness(t)
+
+		result := h.run(`{"state":"OPEN","id":"PR_19","headRefOid":"same-head"}`, nil, map[string]string{
+			"GH_CHECKS_FAIL_WATCHES": "9",
+			"GH_CHECKS_WATCHES_FILE": filepath.Join(h.workDir, "watches"),
+		}, "42")
+
 		assertStatus(t, result, 1)
-		assertContains(t, "stderr", result.Stderr, "checks did not pass")
-		assertNotContains(t, "stdout", result.Stdout, "head moved")
+		assertContains(t, "stderr", result.Stderr, "gave up after 3 watches")
 		assertNotContains(t, "argv", h.argv(), "merge-async")
 	})
 
@@ -293,18 +340,14 @@ func TestEnqueuePr(t *testing.T) {
 	t.Run("closed while waiting", func(t *testing.T) {
 		t.Parallel()
 		h := newEnqueuePrHarness(t)
-		// The watch reaches pr_state on the sixth view probe: the state, two
-		// conflict probes, and the head read before and after the failed watch
-		// (same head, so the failure stands) come first.
-		views := `[` +
-			`{"state":"OPEN","id":"PR_5"},` +
-			`{"state":"OPEN","id":"PR_5"},` +
-			`{"state":"OPEN","id":"PR_5"},` +
-			`{"state":"OPEN","id":"PR_5","headRefOid":"h5"},` +
-			`{"state":"OPEN","id":"PR_5","headRefOid":"h5"},` +
-			`{"state":"CLOSED","id":"PR_5"}]`
 
-		result := h.run(views, nil, map[string]string{"GH_CHECKS_EXIT": "1"}, "42")
+		// The first state read (resolving) sees the PR open, the next (after the
+		// failed watch) closed.
+		result := h.run(`{"state":"OPEN","id":"PR_5"}`, nil, map[string]string{
+			"GH_CHECKS_EXIT":        "1",
+			"GH_STATE_CLOSED_AFTER": "1",
+			"GH_STATE_READS_FILE":   filepath.Join(h.workDir, "state_reads"),
+		}, "42")
 
 		assertStatus(t, result, 1)
 		assertContains(t, "stderr", result.Stderr, "closed while waiting")
@@ -516,6 +559,16 @@ func enqueuePrFakeGh(args []string) (handled bool, stdout, stderr string, status
 // GH_PR_VIEW_INDEX counter file), so a case can change the PR's state between
 // probes. The --jq/-q query is applied through the real jq.
 func enqueuePrView(args []string) (string, string, int) {
+	if after := enqueuePrEnvInt("GH_STATE_CLOSED_AFTER"); after > 0 && requestsJSONField(args, "state") {
+		path := envOption("GH_STATE_READS_FILE")
+		reads := enqueuePrReadCount(path)
+		_ = enqueuePrWriteCount(path, reads+1)
+		state := "OPEN"
+		if reads >= after {
+			state = "CLOSED"
+		}
+		return serveDocument(args, `{"state":"`+state+`","id":"PR_5"}`)
+	}
 	if moves := enqueuePrEnvInt("GH_HEAD_MOVES_AFTER"); moves > 0 && requestsJSONField(args, "headRefOid") {
 		return enqueuePrMovingHead(args, moves)
 	}

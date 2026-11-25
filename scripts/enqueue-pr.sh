@@ -109,38 +109,51 @@ head_commit() {
 # non-zero exit by the PR's state: a merged or closed PR will never report again.
 #
 # Right after a push, GitHub can still report the previous head commit's
-# checks. A failed watch therefore settles and re-reads the head; when it moved,
-# the failure belonged to an old commit, and the new commit's checks are
-# watched instead (a bounded number of times). A failure on an unchanged head
-# stands.
+# checks, green or red. So a watch counts only for the head it started on:
+# after a pass the head is read again, and a moved head is watched anew; after
+# a failure the script settles, watches anew when the head moved, and otherwise
+# confirms the failure with a plain `gh pr checks` (exit 1 = a failed check)
+# before it stands. It sets watched_head to the commit whose checks passed, which
+# the enqueue pins.
 watch_checks() {
   refuse_if_conflicted || return 1
   wait_for_checks || return 1
   local status attempt head_before head_after
+  watched_head=""
   for ((attempt = 0; attempt < 3; attempt++)); do
     head_before="$(head_commit)"
     status=0
     gh pr checks "$pr" --watch --fail-fast >/dev/null 2>&1 || status=$?
-    case "$status" in
-      0) return 0 ;;
-      8)
-        printf 'enqueue-pr: PR #%s is not ready: its checks are still pending\n' "$pr" >&2
-        return 1
-        ;;
-    esac
-    sleep "$ENQUEUE_PR_SETTLE_SECONDS"
-    head_after="$(head_commit)"
-    if [[ -z "$head_after" || "$head_after" == "$head_before" ]]; then
-      break
+    if [[ "$status" == 8 ]]; then
+      printf 'enqueue-pr: PR #%s is not ready: its checks are still pending\n' "$pr" >&2
+      return 1
     fi
-    printf 'enqueue-pr: PR #%s: its head moved to %s; watching the new commit\n' "$pr" "$head_after"
+    if [[ "$status" != 0 ]]; then
+      if [[ "$(pr_state)" == "CLOSED" ]]; then
+        printf 'enqueue-pr: PR #%s was closed while waiting for its checks\n' "$pr" >&2
+        return 1
+      fi
+      sleep "$ENQUEUE_PR_SETTLE_SECONDS"
+    fi
+    head_after="$(head_commit)"
+    if [[ -n "$head_before" && "$head_after" == "$head_before" ]]; then
+      if [[ "$status" == 0 ]]; then
+        watched_head="$head_before"
+        return 0
+      fi
+      status=0
+      gh pr checks "$pr" >/dev/null 2>&1 || status=$?
+      if [[ "$status" == 1 ]]; then
+        printf 'enqueue-pr: PR #%s checks did not pass\n' "$pr" >&2
+        return 1
+      fi
+      printf 'enqueue-pr: PR #%s: its checks changed after the watch; watching again\n' "$pr"
+    else
+      printf 'enqueue-pr: PR #%s: its head moved to %s; watching the new commit\n' "$pr" "${head_after:-?}"
+    fi
     wait_for_checks || return 1
   done
-  if [[ "$(pr_state)" == "CLOSED" ]]; then
-    printf 'enqueue-pr: PR #%s was closed while waiting for its checks\n' "$pr" >&2
-  else
-    printf 'enqueue-pr: PR #%s checks did not pass\n' "$pr" >&2
-  fi
+  printf 'enqueue-pr: PR #%s: gave up after %s watches; its head or checks kept changing\n' "$pr" "$attempt" >&2
   return 1
 }
 
@@ -223,9 +236,9 @@ enqueue_pr() {
   refuse_if_conflicted || return 1
 
   printf 'enqueue-pr: PR #%s: enqueueing\n' "$pr"
-  local head status
+  local head="$watched_head" status
   # Called under `||`, so set -e does not apply here: every step checks itself.
-  head="$(gh pr view "$pr" --json headRefOid -q .headRefOid)" || head=""
+  # The enqueue pins the head whose checks the watch saw pass.
   if [[ -z "$head" ]]; then
     printf 'enqueue-pr: PR #%s: could not read its head commit\n' "$pr" >&2
     return 1
