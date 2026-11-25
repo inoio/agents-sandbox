@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -732,9 +733,9 @@ func isReferenceValue(value string) bool {
 	return isExplicitReference(value) || isEnvVarIdentifier(strings.TrimSpace(value))
 }
 
-// msbDefaultPlaceholderPrefix starts the guest value microsandbox gives a secret
-// that configures no placeholder of its own: $MSB_<SECRET_NAME>.
-const msbDefaultPlaceholderPrefix = "$MSB_"
+// msbDefaultPlaceholder matches the whole guest value microsandbox gives a
+// secret that configures no placeholder of its own: $MSB_<SECRET_NAME>.
+var msbDefaultPlaceholder = regexp.MustCompile(`^\$MSB_[A-Z][A-Z0-9_]*$`)
 
 // isExplicitReference reports whether a value is an explicit reference rather
 // than a literal: a ${...} placeholder, microsandbox's default $MSB_<NAME>
@@ -745,7 +746,7 @@ const msbDefaultPlaceholderPrefix = "$MSB_"
 func isExplicitReference(value string) bool {
 	trimmed := strings.TrimSpace(value)
 	return strings.HasPrefix(trimmed, "${") ||
-		strings.HasPrefix(trimmed, msbDefaultPlaceholderPrefix) ||
+		msbDefaultPlaceholder.MatchString(trimmed) ||
 		strings.HasPrefix(trimmed, "{env:") ||
 		strings.HasPrefix(trimmed, "{file:") ||
 		strings.HasPrefix(trimmed, "!")

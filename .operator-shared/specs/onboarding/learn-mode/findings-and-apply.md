@@ -100,15 +100,18 @@ same check, so it never copies a host config file the merge would not read.
 
 **A fail-closed pass runs beside those rules** (`unprovenLeafPath`, #849). Every decoded leaf is refused unless a rule
 proves it safe: a null or boolean; a number or timestamp under a key that names no stored secret; or a string that is
-empty, an explicit reference (`${…}`, `$MSB_<NAME>`, `{env:…}`, `{file:…}`), a template whose only credential is a
-placeholder, or a multi-component filesystem path (under any key), or — under a key that names no secret — a number
-or boolean word, an http(s)/ws(s) URL without userinfo, query, or fragment, or a value under a key whose last segment
-is in the safe vocabulary (`safeKeyWords`: model, name, prompt, path, url, command, mode, …). A string cleared only by
-its key still has every `NAME=value` and `--flag=value` pair inside it judged as an entry, so a command line or prose
-cannot set a secret. Under a secret-named key, only a bare environment-variable name (an `env_key`-style reference)
-clears. Its known residuals: a comment (raw text, judged only by the
-shape rules), a positional command-line word, and a number under a key that reads as a token count (`token`,
-`refreshTokens`).
+empty, a whole reference (`${VAR}`, `$MSB_<NAME>`, `{env:…}`, `{file:…}`, a leading-`!` command), a template whose
+only credential is a placeholder, or a multi-component filesystem path (under any key). Under a key that names no
+secret, a number or boolean word also clears, and a value that is a URL clears only when it carries no userinfo,
+query, fragment, or token-like path segment (a webhook). Any other value clears only under a key whose last segment
+is in the safe vocabulary (`safeKeyWords`: model, name, prompt, path, url, command, mode, …), and only when it holds
+no `user:pw@` prefix, every URL inside it is plain, and every `NAME=value` or `--flag=value` pair inside it — also
+quoted or glued to shell punctuation — is itself provably safe (a pair whose value is a pair is judged as the inner
+pair, its outer name naming no secret). Under a secret-named key, only an environment-variable name with an
+underscore (an `env_key`-style reference) clears. Its known residuals: a comment (raw text, judged only by the shape
+rules); a positional command-line word; a number, or a numeric string, under a key that names no secret (`otp: 493021`)
+or reads as a token count (`token`, `refreshTokens`); a value under a vocabulary key that no shape rule catches (a
+`profile`, `name`, or `id` holding a secret); and a filesystem path whose components hold a token.
 
 A YAML file with more than one document is refused, because the decoder reads only the first (a single leading `---`
 that opens the first document, after nothing but blank lines and comments, is no second document). The rule is

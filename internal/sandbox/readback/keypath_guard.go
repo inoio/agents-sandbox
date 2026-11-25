@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // unprovenLeafPath returns the key path of the first decoded leaf the guard
@@ -92,70 +93,94 @@ func leafIsProvablySafe(key string, leaf any) bool {
 	return !keyNamesAStoredSecret(key)
 }
 
-// stringLeafIsProvablySafe is leafIsProvablySafe for a string leaf. A bare
-// environment-variable name is a reference under a secret-shaped key (an
-// apiKeys list of names, codex's env_key, kimi's api_key_env), as the shape
-// rules already hold.
+// stringLeafIsProvablySafe is leafIsProvablySafe for a string leaf. Under a
+// secret-shaped key, only a whole reference, a placeholder template, a path, or
+// an environment-variable name with an underscore (an apiKeys list of names,
+// codex's env_key, kimi's api_key_env) clears.
 func stringLeafIsProvablySafe(key, value string) bool {
-	if strings.TrimSpace(value) == "" || isSecretReference(value) || isFilesystemPath(value) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" || isWholeReference(trimmed) || onlyPlaceholdersCarrySecrets(trimmed) ||
+		isFilesystemPath(trimmed) {
 		return true
 	}
-	if isNonSecretScalar(value) && !keyNamesAStoredSecret(key) {
+	if isNonSecretScalar(trimmed) && !keyNamesAStoredSecret(key) {
 		return true
 	}
 	if keyNamesASecret(key) {
-		return isEnvVarIdentifier(strings.TrimSpace(value))
+		return isEnvVarIdentifier(trimmed) && strings.Contains(trimmed, "_")
 	}
-	if isPlainURL(value) {
-		return true
+	if embeddedURL.FindString(trimmed) == trimmed {
+		// A URL is judged as one, under any key: a credential can sit in its
+		// userinfo, query, or a token-like path segment (a webhook).
+		return isPlainURL(trimmed)
 	}
-	return keyIsSafeVocabulary(key) && embeddedPairsAreProvablySafe(value)
+	return keyIsSafeVocabulary(key) && !holdsUserinfo(trimmed) && embeddedURLsArePlain(trimmed) &&
+		embeddedPairsAreProvablySafe(trimmed)
+}
+
+// embeddedURL matches a URL inside a string, up to whitespace or a quote.
+var embeddedURL = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*://[^\s"'<>]+`)
+
+// embeddedURLsArePlain reports whether every URL written inside a cleared
+// string (a command line, prose) carries no credential.
+func embeddedURLsArePlain(value string) bool {
+	// gomutants:disable-next-line INTEGER_INCREMENT reason="FindAll* treats any negative limit as all matches, and the increment turns the literal 1 into 2, so -1 becomes -2"
+	return !slices.ContainsFunc(embeddedURL.FindAllString(value, -1), func(found string) bool {
+		return !isPlainURL(found)
+	})
 }
 
 // embeddedPairsAreProvablySafe reports whether every key-value pair written
-// inside a cleared string — a NAME=value assignment or a --flag=value — is
-// itself provably safe, judged like a decoded entry. A command line, a
-// permission rule, or prose cleared by its key can still set a secret
-// ("DB_PASSWORD=… mytool", "export TOKEN=…", "-e \"API_KEY=…\""), so its
-// pairs are not cleared with it. A token that is no pair yields an empty name
-// and value, which are safe.
+// inside a cleared string — a NAME=value assignment or a --flag=value, also
+// when glued to shell punctuation or quoted — is itself provably safe, judged
+// like a decoded entry. A command line, a permission rule, or prose cleared by
+// its key can still set a secret ("DB_PASSWORD=… mytool", "export TOKEN=…",
+// "true;API_KEY=…"), so its pairs are not cleared with it.
 func embeddedPairsAreProvablySafe(value string) bool {
-	for token := range strings.FieldsSeq(value) {
-		name, pairValue := embeddedPair(token)
-		// An environment flag carries its own assignment (--env=NAME=value),
-		// which is the pair to judge.
-		for innerName, innerValue := embeddedPair(pairValue); innerName != ""; innerName, innerValue = embeddedPair(pairValue) {
-			name, pairValue = innerName, innerValue
-		}
-		if !stringLeafIsProvablySafe(name, pairValue) {
+	unquoted := strings.NewReplacer(`"`, "", "'", "", "`", "").Replace(value)
+	// gomutants:disable-next-line INTEGER_INCREMENT reason="FindAll* treats any negative limit as all matches, and the increment turns the literal 1 into 2, so -1 becomes -2"
+	for _, match := range embeddedPairPattern.FindAllStringSubmatch(unquoted, -1) {
+		if !pairIsProvablySafe(match[1], match[2]) {
 			return false
 		}
 	}
 	return true
 }
 
-// embeddedPair splits one whitespace-separated token into a key-value pair: a
-// NAME=value assignment or a --flag=value, with surrounding quotes removed. A
-// token whose text before the '=' is not a name is no pair, and yields two
-// empty strings.
-func embeddedPair(token string) (string, string) {
-	unquoted := strings.Trim(token, `"'`)
-	name, value, found := strings.Cut(strings.TrimLeft(unquoted, "-"), "=")
-	if !found || !pairName.MatchString(name) {
-		return "", ""
+// embeddedPairPattern matches NAME=value inside a string: a name that starts a
+// word or follows shell punctuation, and a value up to whitespace or the next
+// shell operator.
+var embeddedPairPattern = regexp.MustCompile(`(?:^|[\s;&|()-])([A-Za-z_][A-Za-z0-9_.-]*)=([^\s;&|()]*)`)
+
+// pairIsProvablySafe judges one embedded pair. A value that is itself an
+// environment assignment (--env=NAME=value) is judged as that inner pair, and
+// the outer name must not name a secret, so a secret-named outer key is never
+// lost. Only a variable name counts as the inner name, so a value such as
+// "hunter2-x=1" is not read as a pair named after the secret.
+func pairIsProvablySafe(name, value string) bool {
+	if innerName, innerValue, isPair := strings.Cut(value, "="); isPair && environmentName.MatchString(innerName) {
+		return !keyNamesASecret(name) && pairIsProvablySafe(innerName, innerValue)
 	}
-	return name, strings.Trim(value, `"'`)
+	return stringLeafIsProvablySafe(name, value)
 }
 
-// pairName matches the key of an embedded pair: an identifier that may carry
-// '.' and '-' after its first character.
-var pairName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]*$`)
+// environmentName matches an environment-variable name.
+var environmentName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// isSecretReference reports whether value refers to a secret held elsewhere
-// rather than holding it: an explicit reference, microsandbox's default guest
-// placeholder, or a template whose only credential is a placeholder.
-func isSecretReference(value string) bool {
-	return isExplicitReference(value) || onlyPlaceholdersCarrySecrets(value)
+// holdsUserinfo reports whether value starts with a user:password@ part, a
+// credential a cleared key (a host) can carry without a scheme.
+func holdsUserinfo(value string) bool {
+	return userinfoPrefix.MatchString(value)
+}
+
+var userinfoPrefix = regexp.MustCompile(`^[^\s/@:]*:[^\s/@]+@`)
+
+// isWholeReference reports whether value is, as a whole, a reference the
+// template rule does not cover: microsandbox's $MSB_<NAME>, or a leading-!
+// command reference. A ${VAR}, {env:VAR}, or {file:path} placeholder, alone or
+// beside other text, goes through the template rule.
+func isWholeReference(value string) bool {
+	return msbDefaultPlaceholder.MatchString(value) || strings.HasPrefix(value, "!")
 }
 
 // keyNamesASecret reports whether key names a secret by a marker segment, a
@@ -180,7 +205,8 @@ func keyHasLeafSecretMarker(key string) bool {
 }
 
 // isPlainURL reports whether value is an http(s) or ws(s) URL that carries no
-// credential: no userinfo, no query, and no fragment.
+// credential: no userinfo, no query, no fragment, and no token-like path
+// segment.
 func isPlainURL(value string) bool {
 	parsed, err := url.Parse(strings.TrimSpace(value))
 	if err != nil || parsed.Host == "" {
@@ -191,7 +217,22 @@ func isPlainURL(value string) bool {
 	default:
 		return false
 	}
-	return parsed.User == nil && parsed.RawQuery == "" && parsed.Fragment == "" && !parsed.ForceQuery
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.ForceQuery {
+		return false
+	}
+	return !slices.ContainsFunc(strings.Split(parsed.Path, "/"), isTokenLikeSegment)
+}
+
+// isTokenLikeSegment reports whether a URL path segment can be a credential: a
+// long run of token characters, or a shorter one mixing letters and digits (a
+// webhook's T0123ABCD/B0456EFGH/… or a bot token). A version (v1), a word, or a
+// short id passes.
+func isTokenLikeSegment(segment string) bool {
+	if len(segment) >= literalSecretLength {
+		return true
+	}
+	return len(segment) >= 8 && strings.ContainsAny(segment, "0123456789") &&
+		strings.ContainsFunc(segment, unicode.IsLetter)
 }
 
 // safeKeyWords are the final key segments that name configuration, never a
