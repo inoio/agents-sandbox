@@ -465,3 +465,24 @@ func warnContains(ui *termiotest.Mock, want string) bool {
 	}
 	return false
 }
+
+// TestChosenExitDiscardsTypeAheadBeforeAsking pins that input typed for the
+// agent's session and not consumed (a second Ctrl-D that quit it) cannot
+// answer the exit prompt: the prompt drops it before asking.
+func TestChosenExitDiscardsTypeAheadBeforeAsking(t *testing.T) {
+	ui := &termiotest.Mock{IsInteractiveResult: true}
+	discardedBeforeAsking := false
+	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		discardedBeforeAsking = ui.DiscardTypeAheadCalls == 1
+		return exitSaveAll, nil
+	}
+
+	choice, err := chosenExit(ui)
+
+	if err != nil || choice != exitSaveAll {
+		t.Fatalf("chosenExit = %q, %v; want Save all", choice, err)
+	}
+	if !discardedBeforeAsking {
+		t.Error("the exit prompt asked before dropping the type-ahead")
+	}
+}

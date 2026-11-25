@@ -39,8 +39,11 @@ type Mock struct {
 	SpinnerStopErrors []error
 	ConfirmCalls      []string
 	AcknowledgeCalls  []string
-	StdOutBuffer      bytes.Buffer
-	StdErrBuffer      bytes.Buffer
+	// DiscardTypeAheadCalls counts DiscardTypeAhead calls, so a test can
+	// check (from SelectFn) that a prompt dropped stale input first.
+	DiscardTypeAheadCalls int
+	StdOutBuffer          bytes.Buffer
+	StdErrBuffer          bytes.Buffer
 
 	level               termio.Level
 	assumeYes           bool
@@ -262,6 +265,13 @@ func (m *Mock) Acknowledge(message string) error {
 	defer m.mu.Unlock()
 	m.AcknowledgeCalls = append(m.AcknowledgeCalls, message)
 	return m.AcknowledgeErr
+}
+
+// DiscardTypeAhead records the call; the mock has no input queue.
+func (m *Mock) DiscardTypeAhead() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.DiscardTypeAheadCalls++
 }
 
 func (m *Mock) StdOut() io.Writer {

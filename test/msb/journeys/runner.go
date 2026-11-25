@@ -2,7 +2,9 @@ package journeys
 
 import (
 	"errors"
+	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -65,13 +67,24 @@ func scenarioText(journey Journey, agentName string) string {
 	return text.String()
 }
 
-// sessionTail is the harness session's recent output for a failure report, or
-// "" before a step started a session.
+// sessionTail is the recent output of every launcher session the journey
+// started, for a failure report, or "" before a step started one. A check often
+// fails on what an earlier session did (a preliminary run's after-run warning),
+// so each client is reported, the active one marked.
 func sessionTail(ctx *Context) string {
-	if ctx.Session == nil {
-		return ""
+	sessions := ctx.Clients
+	if ctx.Session != nil && !slices.Contains(sessions, ctx.Session) {
+		sessions = append(slices.Clone(sessions), ctx.Session)
 	}
-	return "\nharness output:\n" + ctx.Session.OutputTail()
+	var report strings.Builder
+	for index, session := range sessions {
+		label := fmt.Sprintf("launcher session %d of %d", index+1, len(sessions))
+		if session == ctx.Session {
+			label += " (active)"
+		}
+		report.WriteString("\n" + label + " output:\n" + session.OutputTail())
+	}
+	return report.String()
 }
 
 // journeySpec is the startup smoke's spec for a harness as a journey runs it:

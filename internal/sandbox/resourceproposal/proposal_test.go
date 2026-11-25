@@ -184,6 +184,29 @@ func TestAskDeclineReturnsNotOk(t *testing.T) {
 	}
 }
 
+// TestAskDiscardsTypeAheadBeforeOffering pins that keys typed for the agent's
+// session (a frozen TUI the user tried to quit) cannot answer the raise offer:
+// the offer drops them before asking.
+func TestAskDiscardsTypeAheadBeforeOffering(t *testing.T) {
+	ui := &termiotest.Mock{IsInteractiveResult: true}
+	discardedBeforeAsking := false
+	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
+		discardedBeforeAsking = ui.DiscardTypeAheadCalls == 1
+		return "keep", nil
+	}
+
+	if _, _, err := Ask(
+		ui,
+		pressure.Signal{Kind: pressure.KindMemory, Evidence: pressure.EvidenceHeadroom},
+		Suggestion{CurrentMiB: 4096, ProposedMiB: 5120},
+	); err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if !discardedBeforeAsking {
+		t.Error("the raise offer asked before dropping the type-ahead")
+	}
+}
+
 // TestAskRepromptsUntilAValidRaise pins the input validation: an answer that is
 // not a size, does not raise the current limit, or exceeds the boot maximum is
 // rejected with the reason in the next prompt, and the first valid answer wins.

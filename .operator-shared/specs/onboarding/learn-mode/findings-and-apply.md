@@ -180,7 +180,9 @@ finding.
 
 - A learning session presents its whole proposal behind one prompt: **Review and save**, **Save all**, or **Not now**.
   Review and save drives the per-finding prompt below; Save all applies every finding without asking (an explicit
-  top-level accept-all, never `--yes`); Not now writes nothing and records nothing.
+  top-level accept-all, never `--yes`); Not now writes nothing and records nothing. The prompt first drops terminal input
+  typed for the agent's session and not consumed (`DiscardTypeAhead`): a surplus Ctrl-D after the one that quit
+  the TUI would otherwise read as end of input, fail the after-run, and leave the session unsaved.
 - Applying is interactive and per finding, and a finding's writes each name their own scope and are applied together
   (a move applies both writes or neither). A decline is remembered, keyed on a hash of the evidence, and re-armed
   when the evidence changes. The hash is canonical — list fields are sorted — so it is stable across runs for the
