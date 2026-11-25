@@ -205,13 +205,8 @@ func TestStepRequireOptInSkipsUnlessTheSwitchIsSet(t *testing.T) {
 }
 
 func TestRunJourneyReportsEveryLauncherSessionsOutput(t *testing.T) {
-	earlier := driver.MustStartUnderPTY(t, t.TempDir(), nil, "sh", "-c", "printf 'the after-run failed'")
-	active := driver.MustStartUnderPTY(t, t.TempDir(), nil, "sh", "-c", "printf 'replay output'")
-	for _, session := range []*driver.Session{earlier, active} {
-		if _, err := session.WaitExit(10 * time.Second); err != nil {
-			t.Fatal(err)
-		}
-	}
+	earlier := sessionPrinting(t, "the after-run failed")
+	active := sessionPrinting(t, "replay output")
 	tb := &recordingTB{}
 	check := AsCheck(Step{Name: "x", Run: func(*Context) error { return errors.New("boom") }})
 
@@ -233,10 +228,7 @@ func TestRunJourneyReportsEveryLauncherSessionsOutput(t *testing.T) {
 }
 
 func TestSessionTailReportsAnActiveSessionOutsideTheClients(t *testing.T) {
-	shell := driver.MustStartUnderPTY(t, t.TempDir(), nil, "sh", "-c", "printf 'shell output'")
-	if _, err := shell.WaitExit(10 * time.Second); err != nil {
-		t.Fatal(err)
-	}
+	shell := sessionPrinting(t, "shell output")
 
 	report := sessionTail(&Context{Session: shell})
 
@@ -244,4 +236,19 @@ func TestSessionTailReportsAnActiveSessionOutsideTheClients(t *testing.T) {
 		!strings.Contains(report, "shell output") {
 		t.Errorf("report = %q, want the active session", report)
 	}
+}
+
+// sessionPrinting starts a pty session that prints text and returns once its
+// output holds it. The process exiting does not mean the pty reader has caught
+// up, so the wait is on the output, not on the exit.
+func sessionPrinting(t *testing.T, text string) *driver.Session {
+	t.Helper()
+	session := driver.MustStartUnderPTY(t, t.TempDir(), nil, "sh", "-c", "printf '"+text+"'")
+	printed := func() (bool, error) { return strings.Contains(string(session.Output()), text), nil }
+	if err := pollUntil(10*time.Second, 10*time.Millisecond, printed, func() error {
+		return fmt.Errorf("the session never printed %q", text)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return session
 }
