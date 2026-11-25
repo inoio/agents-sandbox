@@ -1,9 +1,12 @@
 package session
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	mocks "github.com/inoio/agents-sandbox/internal/testutil/mocks"
 )
 
@@ -16,5 +19,10 @@ func TestMain(m *testing.M) {
 	// the suite. A test that needs a different host pins its own value.
 	bootMaxMemoryMiB = func() uint32 { return 64 << 10 }
 	hostAvailableMemoryMiB = func() (uint32, bool) { return 32 << 10, true }
+	// A failed attach looks the project VM up to tell a stopped VM from a lost
+	// connection; the suite's VM is running unless a test says otherwise.
+	projectVMStatus = func(context.Context, state.Key) (msb.SandboxStatus, bool, error) {
+		return msb.SandboxStatusRunning, true, nil
+	}
 	mocks.InitFailFastMocks(m)
 }
