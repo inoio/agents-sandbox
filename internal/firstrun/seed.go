@@ -208,10 +208,8 @@ func seedOneHostFile(
 // config value through verbatim. The seed writes the same reference form the
 // after-run write-back does.
 func nativeEnvIndirectionKey(agentName string) string {
-	profile, ok := agent.Lookup(agentName)
-	if !ok {
-		return ""
-	}
+	// An unknown agent looks up as nil, which declares no indirection either.
+	profile, _ := agent.Lookup(agentName)
 	describer, ok := agent.AsEnvIndirectionDescriber(profile)
 	if !ok {
 		return ""
