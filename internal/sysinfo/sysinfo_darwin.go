@@ -2,24 +2,16 @@
 
 package sysinfo
 
-import (
-	"strconv"
-	"strings"
-	"syscall"
-)
+import "golang.org/x/sys/unix"
 
 // TotalMemoryGiB returns the installed memory in GiB on macOS.
-// Uses syscall.Sysctl("hw.memsize") because syscall.SysctlUint64 is not
-// available when cross-compiling from non-darwin hosts (Go toolchain limitation).
 func TotalMemoryGiB() int {
-	result, err := syscall.Sysctl("hw.memsize")
+	size, err := unix.SysctlUint64("hw.memsize")
 	if err != nil {
 		return 0
 	}
-	size, err := strconv.ParseUint(strings.TrimSpace(result), 10, 64)
-	if err != nil {
-		return 0
-	}
+
+	//nolint:gosec // G115: the GiB value fits in an int on macOS.
 	return int(size / (kiB * kiB * kiB))
 }
 
