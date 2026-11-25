@@ -33,7 +33,9 @@ const codexAuthPath = ".codex/auth.json"
 
 // exposedKeyStores lists the login stores that can hold a plain-text API key.
 // codex's API-key login writes OPENAI_API_KEY into auth.json; its ChatGPT login
-// leaves that field null.
+// leaves that field null. claude-code's /login with a Console key writes
+// primaryApiKey into ~/.claude.json, its global config, and /logout clears it;
+// its subscription login lives in .credentials.json instead.
 var exposedKeyStores = []exposedKeyStore{
 	{
 		agent: "codex",
@@ -45,6 +47,18 @@ var exposedKeyStores = []exposedKeyStore{
 			Hosts:    []string{"api.openai.com"},
 			Remedy: "then run `printenv OPENAI_API_KEY | codex login --with-api-key` in " +
 				"`agents-sandbox shell --agent codex`, so auth.json stores the secret's placeholder instead",
+		},
+	},
+	{
+		agent: "claude-code",
+		field: "primaryApiKey",
+		key: ExposedKey{
+			Source:   ".claude.json",
+			Provider: "anthropic",
+			EnvVar:   "ANTHROPIC_API_KEY",
+			Hosts:    []string{"api.anthropic.com"},
+			Remedy: "then run `/logout` in claude-code, so it uses the key from its environment instead " +
+				"(it asks once to approve the key)",
 		},
 	},
 }

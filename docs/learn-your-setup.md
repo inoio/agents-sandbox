@@ -106,10 +106,11 @@ If agents-sandbox cannot attribute a secret to a destination, it leaves the secr
 guessing where it is safe to send.
 
 If an agent's own login stored an API key in plain text in the sandbox home, for example `codex login --with-api-key`
-with a real key, learn mode warns about it when you review or save the session's proposal, and shows how to keep the
+with a real key or a Console key pasted into claude-code's `/login`, learn mode warns about it when you review or save the session's proposal, and shows how to keep the
 key on the host instead. It
-does not change the agent's login itself. The [Codex login]({% link configuration/agent.md %}#codex-login) section
-describes the route that keeps only a placeholder in the sandbox.
+does not change the agent's login itself. [Codex login]({% link configuration/agent.md %}#codex-login) and
+[Authentication]({% link configuration/agent.md %}#authentication-file-copy-vs-env-secret) describe the routes that keep
+the key on the host.
 
 ## Review a session later
 

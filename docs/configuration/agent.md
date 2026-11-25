@@ -318,7 +318,10 @@ codex logs in inside the VM, and kimi-code, qwen-code, grok-build, and mistral-v
 - **pi** — per-provider env vars, e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` (see pi's docs for the
   full list). Put them in an `env.secret` / `env.secret.yaml` file.
 - **claude-code** — `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY`, or `CLAUDE_CODE_OAUTH_TOKEN`. Claude's
-  `.credentials.json` is machine-managed and not hand-provisioned, so env vars are the supported channel here.
+  `.credentials.json` is machine-managed and not hand-provisioned, so env vars are the supported channel here. Don't
+  paste a Console API key into `/login` inside the VM: claude-code stores it in plain text in `~/.claude.json` on the
+  home volume. Declare it as an `ANTHROPIC_API_KEY` env secret for `api.anthropic.com` instead; `/logout` removes a key
+  `/login` stored.
 - **codex** — the interactive Codex CLI reads its login from `~/.codex/auth.json`, not from an env var, so you log in
   once inside the VM (see [Codex login](#codex-login)). The host `auth.json` is not copied because a ChatGPT login
   rotates its refresh token, and a second copy using it would sign the host out.

@@ -111,3 +111,41 @@ func TestReadReportsAKeyAtTheStoreSizeBound(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, readBack.Exposed, 1)
 }
+
+func TestReadReportsAPlainTextKeyInClaudeCodesGlobalConfig(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	writeFile(t, home, ".claude.json", `{"hasCompletedOnboarding":true,"primaryApiKey":"sk-ant-real","projects":{}}`)
+
+	readBack, err := Read(home, "claude-code", Manifest{})
+
+	require.NoError(t, err)
+	require.Equal(t, []ExposedKey{{
+		Source:   ".claude.json",
+		Provider: "anthropic",
+		EnvVar:   "ANTHROPIC_API_KEY",
+		Hosts:    []string{"api.anthropic.com"},
+		Remedy: "then run `/logout` in claude-code, so it uses the key from its environment instead " +
+			"(it asks once to approve the key)",
+	}}, readBack.Exposed)
+	require.NotContains(t, readBack.ConfigPaths, ".claude.json", "the global config is never a write-back candidate")
+}
+
+func TestReadReportsNoExposedKeyInClaudeCodesConfigWithoutOne(t *testing.T) {
+	t.Parallel()
+	for name, content := range map[string]string{
+		"subscription login": `{"hasCompletedOnboarding":true,"oauthAccount":{"emailAddress":"x"}}`,
+		"placeholder":        `{"primaryApiKey":"$MSB_ANTHROPIC_API_KEY"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			home := t.TempDir()
+			writeFile(t, home, ".claude.json", content)
+
+			readBack, err := Read(home, "claude-code", Manifest{})
+
+			require.NoError(t, err)
+			require.Empty(t, readBack.Exposed)
+		})
+	}
+}
