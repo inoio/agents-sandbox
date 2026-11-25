@@ -112,7 +112,7 @@ agents-sandbox build --agent-version 0.5.0  # pin a specific agent version
 |----------------------|-------|----------|-----------------------------------------------------------------|
 | `--rebuild`          | `-r`  | `false`  | Force a clean rebuild that pulls the latest base image          |
 | `--dry-run`          | `-n`  | `false`  | Dry run without building or installing the microsandbox runtime |
-| `--agent`            | —     | `opencode2` | Coding-agent profile to build: `opencode`, `opencode2` (default), `pi`, `claude-code`, `codex`, `hermes`, or `oh-my-pi`. |
+| `--agent`            | —     | `opencode2` | Coding-agent profile to build: `opencode`, `opencode2` (default), `pi`, `claude-code`, `codex`, `hermes`, or `oh-my-pi`. Without it, the configured `agent` (or `AGENTS_SANDBOX_AGENT`). |
 | `--agent-version`    | —     | `""`     | Pin the version agents-sandbox installs into the image (default: latest). Ignored for a user-provided agent |
 | `--docker`           | —     | `false`  | Bake the Docker engine into the runner image; overrides the project Dockerfile's declaration in both directions (`--dind` is a deprecated alias) |
 
@@ -134,7 +134,7 @@ agents-sandbox build dockerfile --agent claude-code
 
 | Flag              | Short | Default    | Purpose                                                     |
 |-------------------|-------|------------|-------------------------------------------------------------|
-| `--agent`         | —     | `opencode2` | Coding-agent profile to build: `opencode`, `opencode2`, `pi`, `claude-code`, `codex`, `hermes`, or `oh-my-pi`. |
+| `--agent`         | —     | `opencode2` | Coding-agent profile to build: `opencode`, `opencode2`, `pi`, `claude-code`, `codex`, `hermes`, or `oh-my-pi`. Without it, the configured `agent` (or `AGENTS_SANDBOX_AGENT`). |
 | `--agent-version` | —     | `""`       | Pin the agent version rendered into the preview (default: no pinned default) |
 | `--docker`        | —     | `false`    | Bake the Docker engine into the runner image; overrides the project Dockerfile's declaration in both directions (`--dind` is a deprecated alias) |
 
@@ -162,7 +162,7 @@ agents-sandbox stop -f     # stop and remove VM state (also a stopped or never-s
 |-------------|-------|-------------|---------------------------------------------|
 | `--force`   | `-f`  | `false`     | Remove VM's persisted state, also for a stopped or never-started VM |
 | `--dry-run` | `-n`  | `false`     | Show what would be stopped without stopping |
-| `--agent`   | —     | `opencode2`  | Coding-agent profile to stop                |
+| `--agent`   | —     | `opencode2`  | Coding-agent profile to stop; without it, the configured `agent` (or `AGENTS_SANDBOX_AGENT`) |
 
 ---
 
@@ -186,7 +186,7 @@ agents-sandbox kill -f     # kill and remove VM state (also a stopped or never-s
 |-------------|-------|-------------|-------------------------------------------|
 | `--force`   | `-f`  | `false`     | Remove VM's persisted state, also for a stopped or never-started VM |
 | `--dry-run` | `-n`  | `false`     | Show what would be killed without killing |
-| `--agent`   | —     | `opencode2`  | Coding-agent profile to kill              |
+| `--agent`   | —     | `opencode2`  | Coding-agent profile to kill; without it, the configured `agent` (or `AGENTS_SANDBOX_AGENT`) |
 
 ---
 

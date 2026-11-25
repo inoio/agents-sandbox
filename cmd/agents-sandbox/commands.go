@@ -92,10 +92,16 @@ func bindAgentFlag(cmd *cobra.Command) {
 	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile to run")
 }
 
-// resolveAgentFlag reads the --agent flag (defaulting to opencode) and returns
-// the matching agent, rejecting unknown names.
+// resolveAgentFlag resolves the agent a command acts on, as run does: an
+// explicit --agent, else the launcher config's agent (the agent key or
+// AGENTS_SANDBOX_AGENT), else the flag's default. It rejects unknown names.
 func resolveAgentFlag(cmd *cobra.Command) (agent.Agent, error) {
 	name, _ := cmd.Flags().GetString(flagAgent)
+	// The resolver binds --agent, so it already ranks an explicit flag over the
+	// config and the environment, and an unset one as the last resort.
+	if r := resolverFromContext(cmd.Context()); r != nil {
+		name = r.Agent()
+	}
 	return resolveAgent(name)
 }
 
