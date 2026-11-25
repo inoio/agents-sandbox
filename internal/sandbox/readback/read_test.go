@@ -1465,3 +1465,33 @@ func TestReadClassifiesMistralVibeDotenv(t *testing.T) {
 	require.Equal(t, ".vibe/.env", rb.Static[0].Source)
 	require.Equal(t, "MISTRAL_API_KEY", rb.Static[0].EnvVar)
 }
+
+// codex keeps its providers under model_providers.<id>, with an inline
+// experimental_bearer_token beside its base_url: a static credential scoped to
+// that endpoint, named from the provider id. A provider that names its key
+// indirectly (env_key) holds none.
+func TestInlineCredentialsInReadsCodexModelProviders(t *testing.T) {
+	const config = `model = "stub"
+model_provider = "corp"
+
+[model_providers.corp]
+name = "corp"
+base_url = "https://llm.corp.example/v1"
+experimental_bearer_token = "sk-corp-inline"
+
+[model_providers.other]
+name = "other"
+base_url = "https://other.example/v1"
+env_key = "OTHER_API_KEY"
+`
+	credentials := InlineCredentialsIn(".codex/config.toml", []byte(config))
+	require.Len(t, credentials, 1)
+	require.Equal(t, Credential{
+		Kind:     CredentialStatic,
+		Source:   ".codex/config.toml",
+		Provider: "corp",
+		EnvVar:   "CORP_API_KEY",
+		Hosts:    []string{"llm.corp.example"},
+		Value:    "sk-corp-inline",
+	}, credentials[0])
+}

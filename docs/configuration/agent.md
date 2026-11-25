@@ -382,6 +382,13 @@ secret's placeholder, so `auth.json` stores the placeholder and the network prox
 
 The login is stored in `~/.codex/auth.json` on the home volume, so you sign in once per project and agent.
 
+**A custom provider:** point a `[model_providers.<id>]` entry at its endpoint with `env_key` naming the variable, and
+declare that variable as an [env secret]({% link configuration/secrets.md %}) for the endpoint's host. Codex reads the
+key from the variable, and the VM only sees its placeholder. Codex does not expand `${VAR}` in `config.toml`, so a
+literal `experimental_bearer_token` cannot take a placeholder. When the first-run "Learn from my host setup" or learn
+mode finds one, it moves the key into `env.secret.yaml` and rewrites the entry to `env_key` naming a variable derived
+from the provider id (`corp` becomes `CORP_API_KEY`).
+
 ### Kimi Code login
 
 **API key:** declare the key as an [env secret]({% link configuration/secrets.md %}) for the provider's API host, and

@@ -1255,3 +1255,23 @@ func TestSanitizeConfigRefusesACommentCredentialSpelling(t *testing.T) {
 		}
 	}
 }
+
+// TestSanitizeConfigJudgesQueryParamsAsSecretByDefault pins the guard for a
+// query table (codex's query_params): a parameter under a name no secret rule
+// knows (Azure's sig) refuses the file, a known configuration name does not.
+func TestSanitizeConfigJudgesQueryParamsAsSecretByDefault(t *testing.T) {
+	for name, test := range map[string]struct {
+		params string
+		ok     bool
+	}{
+		"a signature":      {params: `{ "api-version" = "2025-04-01", sig = "abcdEFGH1234zzzz" }`, ok: false},
+		"only the version": {params: `{ "api-version" = "2025-04-01" }`, ok: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			content := []byte("[model_providers.az]\nbase_url = \"https://az.example/openai\"\nquery_params = " +
+				test.params + "\n")
+			_, ok := SanitizeConfig(content, SanitizeParams{Path: "config.toml", RefuseUndeclaredSecretKeys: true})
+			require.Equal(t, test.ok, ok)
+		})
+	}
+}

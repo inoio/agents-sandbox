@@ -680,7 +680,7 @@ func TestPlaceholderStaticValuesRefusesAnUnmigratableCredential(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got, ok := placeholderStaticValues(test.path, content, []readback.Credential{test.credential})
+			got, ok := placeholderStaticValues(test.path, content, []readback.Credential{test.credential}, "")
 			if test.wantRefused {
 				require.False(t, ok, "a credential missing a field must refuse the file")
 				require.Empty(t, got)
@@ -797,4 +797,159 @@ func TestSeedSkipsReportsASingleOverCapFile(t *testing.T) {
 	require.EqualError(t, err, fmt.Sprintf(
 		"firstrun: skipped 1 instruction file(s) over the seed cap of %d files and %d bytes",
 		maxSeedInstructionFiles, maxSeedInstructionBytes))
+}
+
+// TestSeedFromHostWritesCodexsNativeIndirection pins that the seed writes a
+// harness's native env indirection where it does not expand ${VAR} in its
+// config: codex's inline experimental_bearer_token becomes env_key naming the
+// secret's variable, which msb fills with the placeholder.
+func TestSeedFromHostWritesCodexsNativeIndirection(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	hostHome := t.TempDir()
+	writeHostFile(t, hostHome, ".codex/config.toml", `model_provider = "corp"
+
+[model_providers.corp]
+name = "corp"
+base_url = "https://llm.corp.example/v1"
+experimental_bearer_token = "sk-corp-inline"
+`)
+	facts := Facts{
+		Agent:     "codex",
+		Slug:      "widget-abc",
+		HostFiles: []string{filepath.Join(hostHome, ".codex/config.toml")},
+	}
+
+	migrated, err := SeedFromHost(facts, paths, hostHome)
+
+	require.NoError(t, err)
+	require.Equal(t, 1, migrated.Secrets)
+	slugDir := paths.UserSlugConfigDir("widget-abc")
+	copied, err := os.ReadFile(filepath.Join(slugDir, "codex", "config.toml"))
+	require.NoError(t, err)
+	require.Contains(t, string(copied), `env_key = "CORP_API_KEY"`)
+	require.NotContains(t, string(copied), "experimental_bearer_token")
+	require.NotContains(t, string(copied), "sk-corp-inline", "the raw value never reaches the copy")
+	require.Equal(t, []string{"llm.corp.example"}, readSeedSecrets(t, slugDir)["CORP_API_KEY"].Hosts)
+}
+
+// TestSeedFromHostRefusesACodexHeaderToken pins that a token in a codex
+// provider's http_headers, which the read-back does not classify, keeps the
+// file out of the managed scope rather than reaching it verbatim.
+func TestSeedFromHostRefusesACodexHeaderToken(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	hostHome := t.TempDir()
+	writeHostFile(t, hostHome, ".codex/config.toml", `[model_providers.corp]
+base_url = "https://llm.corp.example/v1"
+http_headers = { "X-Corp-Auth" = "corp-secret-value-123" }
+`)
+	facts := Facts{
+		Agent:     "codex",
+		Slug:      "widget-abc",
+		HostFiles: []string{filepath.Join(hostHome, ".codex/config.toml")},
+	}
+
+	_, err := SeedFromHost(facts, paths, hostHome)
+
+	require.Error(t, err)
+	_, statErr := os.Stat(filepath.Join(paths.UserSlugConfigDir("widget-abc"), "codex", "config.toml"))
+	require.ErrorIs(t, statErr, os.ErrNotExist, "the file is not seeded")
+}
+
+// TestSeedFromHostRefusesACodexQueryParamSecret pins that a credential in a
+// codex provider's query_params, under a name no secret rule knows (Azure's
+// sig), keeps the file out of the managed scope; a version parameter does not.
+func TestSeedFromHostRefusesACodexQueryParamSecret(t *testing.T) {
+	for name, test := range map[string]struct {
+		params string
+		seeded bool
+	}{
+		"a signature":      {params: `{ "api-version" = "2025-04-01", sig = "abcdEFGH1234zzzz" }`, seeded: false},
+		"only the version": {params: `{ "api-version" = "2025-04-01" }`, seeded: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			configpathstest.WithMockConfigPaths(t)
+			paths := configpaths.Get()
+			hostHome := t.TempDir()
+			writeHostFile(t, hostHome, ".codex/config.toml", `[model_providers.az]
+base_url = "https://az.example/openai"
+experimental_bearer_token = "sk-az-inline"
+query_params = `+test.params+"\n")
+			facts := Facts{
+				Agent:     "codex",
+				Slug:      "widget-abc",
+				HostFiles: []string{filepath.Join(hostHome, ".codex/config.toml")},
+			}
+			_, err := SeedFromHost(facts, paths, hostHome)
+			_, statErr := os.Stat(filepath.Join(paths.UserSlugConfigDir("widget-abc"), "codex", "config.toml"))
+			if test.seeded {
+				require.NoError(t, err)
+				require.NoError(t, statErr)
+				return
+			}
+			require.Error(t, err)
+			require.ErrorIs(t, statErr, os.ErrNotExist, "the file is not seeded")
+		})
+	}
+}
+
+// TestSeedFromHostRefusesADuplicateCodexEnvKey pins that a provider entry which
+// already names an env_key beside an inline token is refused: the rewrite would
+// leave two env_key keys, which TOML rejects.
+func TestSeedFromHostRefusesADuplicateCodexEnvKey(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	hostHome := t.TempDir()
+	writeHostFile(t, hostHome, ".codex/config.toml", `[model_providers.corp]
+base_url = "https://llm.corp.example/v1"
+env_key = "OLD_KEY"
+experimental_bearer_token = "sk-corp-inline"
+`)
+	facts := Facts{
+		Agent:     "codex",
+		Slug:      "widget-abc",
+		HostFiles: []string{filepath.Join(hostHome, ".codex/config.toml")},
+	}
+
+	_, err := SeedFromHost(facts, paths, hostHome)
+
+	require.Error(t, err)
+}
+
+// TestSeedFromHostWritesKimisNativeIndirection pins that the seed rewrites
+// kimi's inline api_key to its api_key_env form, which kimi reads, rather than a
+// ${VAR} it would send literally.
+func TestSeedFromHostWritesKimisNativeIndirection(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	hostHome := t.TempDir()
+	writeHostFile(t, hostHome, ".kimi-code/config.toml", `[providers.moonshot]
+type = "kimi"
+base_url = "https://api.moonshot.ai/v1"
+api_key = "sk-moon-inline"
+`)
+	facts := Facts{
+		Agent:     "kimi-code",
+		Slug:      "widget-abc",
+		HostFiles: []string{filepath.Join(hostHome, ".kimi-code/config.toml")},
+	}
+
+	migrated, err := SeedFromHost(facts, paths, hostHome)
+
+	require.NoError(t, err)
+	require.Equal(t, 1, migrated.Secrets)
+	copied, err := os.ReadFile(filepath.Join(paths.UserSlugConfigDir("widget-abc"), "kimi-code", "config.toml"))
+	require.NoError(t, err)
+	require.Contains(t, string(copied), `api_key_env = "MOONSHOT_API_KEY"`)
+	require.NotContains(t, string(copied), "${MOONSHOT_API_KEY}")
+	require.NotContains(t, string(copied), "sk-moon-inline")
+}
+
+// TestNativeEnvIndirectionKeyIsEmptyWithoutADeclaration pins the default form: an
+// unknown agent, and one without a native indirection, get the ${VAR} placeholder.
+func TestNativeEnvIndirectionKeyIsEmptyWithoutADeclaration(t *testing.T) {
+	require.Empty(t, nativeEnvIndirectionKey("no-such-agent"))
+	require.Empty(t, nativeEnvIndirectionKey("hermes"))
+	require.Equal(t, "env_key", nativeEnvIndirectionKey("codex"))
 }

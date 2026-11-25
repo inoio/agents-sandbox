@@ -84,9 +84,20 @@ func (codexProfile) ProvisionRules() []ProvisionRule {
 	}
 }
 
-// ReadBackPaths declares codex's login file only: config.toml is covered by the
-// config merger and carries no credential.
-func (codexProfile) ReadBackPaths() []string { return []string{".codex/auth.json"} }
+// ReadBackPaths declares codex's login file and its config.toml, whose provider
+// entries (model_providers.<id>) can hold an inline experimental_bearer_token
+// the read-back classifies. A provider's or MCP server's http_headers can carry
+// a token under any name; the host seed and the write-back refuse such a file
+// rather than copy it.
+func (codexProfile) ReadBackPaths() []string {
+	return []string{".codex/auth.json", ".codex/config.toml"}
+}
+
+// EnvIndirectionKey is codex's native env indirection: its config.toml does not
+// expand ${VAR}, and a provider reads its key from the environment variable its
+// env_key names. The write-back and the host seed therefore rewrite an inline
+// experimental_bearer_token to env_key = "<ENVVAR>".
+func (codexProfile) EnvIndirectionKey() string { return "env_key" }
 
 func (codexProfile) CredentialProbes() []string { return nil }
 

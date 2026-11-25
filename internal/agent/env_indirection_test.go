@@ -6,21 +6,29 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 )
 
-// TestEnvIndirectionKey pins which harness declares a native env indirection and
-// the key it reads an environment-variable name from: kimi reads no key from the
-// process environment, so the write-back must emit its "api_key_env" form rather
-// than a ${VAR} placeholder (#749).
+// nativeIndirections are the harnesses that declare a native env indirection and
+// the key each reads an environment-variable name from: neither expands ${VAR}
+// in its config, so the write-back and the host seed emit that form instead
+// (kimi: #749; codex: #873).
+var nativeIndirections = map[string]string{
+	"kimi-code": "api_key_env",
+	"codex":     "env_key",
+}
+
+// TestEnvIndirectionKey pins each declared native env indirection.
 func TestEnvIndirectionKey(t *testing.T) {
-	a, ok := agent.Lookup("kimi-code")
-	if !ok {
-		t.Fatal("Lookup(\"kimi-code\") not ok")
-	}
-	describer, ok := agent.AsEnvIndirectionDescriber(a)
-	if !ok {
-		t.Fatal("kimi-code must implement EnvIndirectionDescriber")
-	}
-	if got := describer.EnvIndirectionKey(); got != "api_key_env" {
-		t.Errorf("EnvIndirectionKey() = %q, want %q", got, "api_key_env")
+	for name, want := range nativeIndirections {
+		a, ok := agent.Lookup(name)
+		if !ok {
+			t.Fatalf("Lookup(%q) not ok", name)
+		}
+		describer, ok := agent.AsEnvIndirectionDescriber(a)
+		if !ok {
+			t.Fatalf("%s must implement EnvIndirectionDescriber", name)
+		}
+		if got := describer.EnvIndirectionKey(); got != want {
+			t.Errorf("%s: EnvIndirectionKey() = %q, want %q", name, got, want)
+		}
 	}
 }
 
@@ -32,12 +40,12 @@ func (envIndirectionlessProfile) ConfigDirName() string      { return "indirecti
 func (envIndirectionlessProfile) Experimental() bool         { return false }
 func (envIndirectionlessProfile) ImageSpec() agent.ImageSpec { return agent.ImageSpec{} }
 
-// TestEnvIndirectionIsKimiOnly pins that no built-in profile except kimi-code
-// implements EnvIndirectionDescriber, so the write-back keeps the default ${VAR}
-// form for every other harness.
-func TestEnvIndirectionIsKimiOnly(t *testing.T) {
+// TestEnvIndirectionIsDeclaredOnlyWhereNeeded pins that no other built-in
+// profile implements EnvIndirectionDescriber, so the write-back keeps the
+// default ${VAR} form for every other harness.
+func TestEnvIndirectionIsDeclaredOnlyWhereNeeded(t *testing.T) {
 	for _, name := range agent.Names() {
-		if name == "kimi-code" {
+		if _, declared := nativeIndirections[name]; declared {
 			continue
 		}
 		t.Run(name, func(t *testing.T) {
@@ -46,7 +54,7 @@ func TestEnvIndirectionIsKimiOnly(t *testing.T) {
 				t.Fatalf("Lookup(%q) not ok", name)
 			}
 			if _, ok := agent.AsEnvIndirectionDescriber(a); ok {
-				t.Errorf("%s implements EnvIndirectionDescriber; only kimi-code declares one", name)
+				t.Errorf("%s implements EnvIndirectionDescriber; only %v declare one", name, nativeIndirections)
 			}
 		})
 	}

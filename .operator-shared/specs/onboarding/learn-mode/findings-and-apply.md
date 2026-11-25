@@ -125,8 +125,10 @@ never targets that scope. An unknown agent resolves to no target directory and i
 The placeholder convention is `${<ENVVAR>}` **where the harness passes a config value through verbatim**: a literal
 config string is not shell-expanded, so the placeholder reaches the request. A harness that does not expand `${VAR}`
 in its config needs its **native env indirection** instead — kimi reads no key from the process environment and only
-accepts `api_key_env = "<ENVVAR>"`, so the write-back emits that form, and msb puts the placeholder into the named
-env var. An assignment whose key is already the env-var name — an env-table entry such as `KIMI_API_KEY = "…"` —
+accepts `api_key_env = "<ENVVAR>"`, and codex reads a provider's key from the variable its `env_key` names, so the
+write-back emits that form (`api_key_env`, `env_key`; `agent.EnvIndirectionDescriber`), and msb puts the placeholder
+into the named env var. The first-run host seed writes the same form, so a seeded and a written-back config agree.
+An assignment whose key is already the env-var name — an env-table entry such as `KIMI_API_KEY = "…"` —
 keeps its key and takes `${ENVVAR}` instead: that name is what the harness reads. Which form a harness needs is a
 per-harness property of the write-back, not of the finding. The placeholder is explicit (`envsecret.PlaceholderFor`)
 because the runtime's default placeholder is generated and cannot be referenced from a config file, so the launcher

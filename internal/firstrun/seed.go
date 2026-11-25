@@ -185,7 +185,7 @@ func seedOneHostFile(
 	// The classification carries no value, so re-read the credentials to
 	// substitute them in memory.
 	credentials := readback.InlineCredentialsIn(path, content)
-	placeholdered, ok := placeholderStaticValues(path, content, credentials)
+	placeholdered, ok := placeholderStaticValues(path, content, credentials, nativeEnvIndirectionKey(agentName))
 	if !ok {
 		return 0, errors.New("a credential could not be replaced by a placeholder")
 	}
@@ -200,6 +200,21 @@ func seedOneHostFile(
 		return 0, fmt.Errorf("write managed config %s: %w", path, err)
 	}
 	return len(credentials), nil
+}
+
+// nativeEnvIndirectionKey returns the config key the agent's harness reads an
+// environment variable's name from, for a harness that does not expand ${VAR} in
+// its config (kimi's api_key_env, codex's env_key), or "" for one that passes a
+// config value through verbatim. The seed writes the same reference form the
+// after-run write-back does.
+func nativeEnvIndirectionKey(agentName string) string {
+	// An unknown agent looks up as nil, which declares no indirection either.
+	profile, _ := agent.Lookup(agentName)
+	describer, ok := agent.AsEnvIndirectionDescriber(profile)
+	if !ok {
+		return ""
+	}
+	return describer.EnvIndirectionKey()
 }
 
 // hostRelativePath returns hostPath's path relative to hostHome, or its base
@@ -243,6 +258,7 @@ func placeholderStaticValues(
 	path string,
 	content []byte,
 	credentials []readback.Credential,
+	indirectionKey string,
 ) (string, bool) {
 	for _, credential := range credentials {
 		if credential.Value == "" || len(credential.Hosts) == 0 {
@@ -254,7 +270,7 @@ func placeholderStaticValues(
 		Credentials:                credentials,
 		AllCredentials:             credentials,
 		AllowedEnvVars:             nil,
-		IndirectionKey:             "",
+		IndirectionKey:             indirectionKey,
 		RefuseUndeclaredSecretKeys: true,
 	})
 }
