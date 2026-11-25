@@ -257,6 +257,25 @@ func TestAppendDeclaredPathDedupesOverlappingPaths(t *testing.T) {
 	require.Len(t, manifest.Entries, 1, "a file selected by two declared paths is recorded once")
 }
 
+// TestAppendDeclaredPathRecordsTheUnseenFilesAfterASeenOne: a glob over a
+// directory whose first file an earlier declared path already recorded still
+// records the rest.
+func TestAppendDeclaredPathRecordsTheUnseenFilesAfterASeenOne(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".config/opencode/a.json", "a")
+	writeFile(t, home, ".config/opencode/b.json", "b")
+	var manifest Manifest
+	seen := map[string]bool{}
+	root, err := os.OpenRoot(home)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = root.Close() })
+
+	appendDeclaredPath(&manifest, seen, root, ".config/opencode/a.json")
+	appendDeclaredPath(&manifest, seen, root, ".config/opencode/*")
+
+	require.Len(t, manifest.Entries, 2)
+}
+
 // TestChangedReportsAKeyPresentInOneManifestOnly: a key present in the current
 // manifest and absent from the baseline is a change, even when its entry is the
 // zero value.

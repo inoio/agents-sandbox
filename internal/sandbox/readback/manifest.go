@@ -164,12 +164,11 @@ func probeSource(agentName, probe string) string {
 // recorded opaque (size and mtime, no hash).
 func appendDeclaredPath(manifest *Manifest, seen map[string]bool, root *os.Root, declaredPath string) {
 	directory, pattern := filepath.Dir(declaredPath), filepath.Base(declaredPath)
-	entries, err := fs.ReadDir(root.FS(), filepath.ToSlash(directory))
-	if err != nil {
-		return
-	}
+	// A missing or unreadable directory lists no entries; a matching
+	// subdirectory is refused below as not a regular file.
+	entries, _ := fs.ReadDir(root.FS(), filepath.ToSlash(directory))
 	for _, entry := range entries {
-		if matched, _ := filepath.Match(pattern, entry.Name()); !matched || entry.IsDir() {
+		if matched, _ := filepath.Match(pattern, entry.Name()); !matched {
 			continue
 		}
 		key := filepath.Join(directory, entry.Name())
