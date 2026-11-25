@@ -66,7 +66,7 @@ triages and adapts the test rather than treating the failure as a product regres
 
 ### Suite placement
 
-- **A — ride the existing tiers:** extend `test/harness` toward a first turn and add a learn-mode
+- **A — ride the existing tiers:** extend the startup smoke (`test/msb/startup`) toward a first turn and add a learn-mode
   journey to the surface sweep. Rejected: it violates "keep `test-msb` minimal".
 - **B — a second `msb` suite + the surface sweep as the exploratory tier** (chosen). The automated
   half is a new suite; the exploratory half is the existing sweep.
