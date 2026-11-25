@@ -102,6 +102,10 @@ func resolveAgentFlag(cmd *cobra.Command) (agent.Agent, error) {
 	if r := resolverFromContext(cmd.Context()); r != nil {
 		name = r.Agent()
 	}
+	// An empty agent (an `agent: ""` config entry) means the default, as for run.
+	if name == "" {
+		name = defaultAgentName
+	}
 	return resolveAgent(name)
 }
 

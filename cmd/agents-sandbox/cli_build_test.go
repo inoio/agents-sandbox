@@ -781,3 +781,39 @@ type errStdOutUI struct {
 }
 
 func (e *errStdOutUI) StdOut() io.Writer { return errWriter{e.err} }
+
+// TestBuildDockerfileRendersTheConfiguredAgent pins that build dockerfile, like
+// run, renders the agent the launcher config or AGENTS_SANDBOX_AGENT names, and
+// that an explicit --agent wins.
+func TestBuildDockerfileRendersTheConfiguredAgent(t *testing.T) {
+	for name, tc := range map[string]struct {
+		config, env string
+		flagArgs    []string
+		want        string
+	}{
+		"config key":           {config: "agent: pi\n", want: "pi"},
+		"environment variable": {env: "pi", want: "pi"},
+		"empty config key":     {config: "agent: \"\"\n", want: "opencode2"},
+		"flag over both":       {config: "agent: pi\n", env: "pi", flagArgs: []string{"--agent", "codex"}, want: "codex"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if tc.env != "" {
+				t.Setenv("AGENTS_SANDBOX_AGENT", tc.env)
+			}
+			cmd, ui := setupCommandFixtures(t, append([]string{cmdBuild, cmdDockerfile}, tc.flagArgs...)...)
+			if tc.config != "" {
+				testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml", tc.config)
+			}
+
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("build dockerfile: %v", err)
+			}
+			if label := "LABEL org.agents-sandbox.agent=" + tc.want; !strings.Contains(
+				ui.StdOutBuffer.String(),
+				label,
+			) {
+				t.Errorf("dockerfile output missing %q", label)
+			}
+		})
+	}
+}

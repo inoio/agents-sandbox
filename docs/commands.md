@@ -888,7 +888,7 @@ Create a new home volume and copy files from the old volume on top of it.
 - **Flags:**
   - `--rm` — remove old volume after successful migration
   - `--dry-run` — show what would be done
-  - `--agent` — coding-agent profile to provision (`opencode2` default)
+  - `--agent` — coding-agent profile to provision; without it, the configured `agent` (or `AGENTS_SANDBOX_AGENT`), else `opencode2`
 
 #### `agents-sandbox volume reset [volume-name]`
 
@@ -899,7 +899,7 @@ Create a new home volume from the image contents only (fresh, no copy).
 - **Flags:**
   - `--rm` — remove old volume after reset
   - `--dry-run` — show what would be done
-  - `--agent` — coding-agent profile to provision (`opencode2` default)
+  - `--agent` — coding-agent profile to provision; without it, the configured `agent` (or `AGENTS_SANDBOX_AGENT`), else `opencode2`
 
 #### `agents-sandbox volume edit [volume-name]`
 
@@ -910,6 +910,7 @@ Create a new volume alongside the old one, for manual data transfer.
 - **Flags:**
   - `--rm` — remove old volume after you exit (you are responsible for confirming)
   - `--dry-run` — show what would be done
+  - `--agent` — coding-agent profile to provision; without it, the configured `agent` (or `AGENTS_SANDBOX_AGENT`), else `opencode2`
 
 #### `agents-sandbox volume remove <name>...`
 
