@@ -22,8 +22,7 @@ type homeFile struct {
 
 // readHomeFile opens rel under root and reads it when it is a regular file of
 // at most maxBytes; a larger regular file reports its size and mtime with nil
-// data. It reports false for a missing, escaping, non-regular, or unreadable
-// file.
+// data. It reports false for a missing, escaping, or non-regular file.
 func readHomeFile(root *os.Root, rel string, maxBytes int64) (homeFile, bool) {
 	// gomutants:disable-next-line INTEGER_INCREMENT reason="the permission is used only with O_CREATE, which this read-only open never passes"
 	file, err := root.OpenFile(rel, os.O_RDONLY|syscall.O_NONBLOCK, 0)
@@ -37,17 +36,10 @@ func readHomeFile(root *os.Root, rel string, maxBytes int64) (homeFile, bool) {
 	if err != nil || !info.Mode().IsRegular() {
 		return homeFile{}, false
 	}
-	read := homeFile{size: info.Size(), modTime: info.ModTime(), data: nil}
-	if info.Size() > maxBytes {
-		return read, true
-	}
-	data, ok := readCapped(file, maxBytes)
-	// gomutants:disable-next-line BRANCH_IF,RETURN_TRUE reason="the size check above already sends an over-cap file down the opaque path; readCapped fails only when the file grows past the cap between fstat and the read, a race a test cannot stage"
-	if !ok {
-		return homeFile{}, false
-	}
-	read.data = data
-	return read, true
+	// readCapped reads at most one byte past the cap, so an over-cap file, or
+	// one that fails to read, stays opaque: size and mtime, nil data.
+	data, _ := readCapped(file, maxBytes)
+	return homeFile{size: info.Size(), modTime: info.ModTime(), data: data}, true
 }
 
 // ReadHomeFile reads the home-relative rel under home within the read-back's
