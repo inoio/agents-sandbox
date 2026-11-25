@@ -5,6 +5,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -16,6 +17,37 @@ import (
 // in the canned gh responses.
 func TestEnqueuePr(t *testing.T) {
 	t.Parallel()
+	t.Run("a failure on a head that moved is watched again", func(t *testing.T) {
+		t.Parallel()
+		h := newEnqueuePrHarness(t)
+
+		result := h.run(`{"state":"OPEN","id":"PR_15"}`, nil, map[string]string{
+			"GH_HEAD_MOVES_AFTER":    "1",
+			"GH_HEAD_READS_FILE":     filepath.Join(h.workDir, "head_reads"),
+			"GH_CHECKS_FAIL_WATCHES": "1",
+			"GH_CHECKS_WATCHES_FILE": filepath.Join(h.workDir, "watches"),
+		}, "42")
+
+		assertStatus(t, result, 0)
+		assertContains(t, "stdout", result.Stdout, "its head moved to new-head; watching the new commit")
+		assertContains(t, "argv", h.argv(), "sha=new-head")
+	})
+
+	t.Run("a failure on an unchanged head stands", func(t *testing.T) {
+		t.Parallel()
+		h := newEnqueuePrHarness(t)
+
+		result := h.run(`{"state":"OPEN","id":"PR_16","headRefOid":"same-head"}`, nil, map[string]string{
+			"GH_CHECKS_FAIL_WATCHES": "1",
+			"GH_CHECKS_WATCHES_FILE": filepath.Join(h.workDir, "watches"),
+		}, "42")
+
+		assertStatus(t, result, 1)
+		assertContains(t, "stderr", result.Stderr, "checks did not pass")
+		assertNotContains(t, "stdout", result.Stdout, "head moved")
+		assertNotContains(t, "argv", h.argv(), "merge-async")
+	})
+
 	t.Run("usage errors", func(t *testing.T) {
 		t.Parallel()
 		h := newEnqueuePrHarness(t)
@@ -261,12 +293,15 @@ func TestEnqueuePr(t *testing.T) {
 	t.Run("closed while waiting", func(t *testing.T) {
 		t.Parallel()
 		h := newEnqueuePrHarness(t)
-		// The watch reaches pr_state on the fourth view probe; the marker copy no
-		// longer consumes one, because it runs after the enqueue.
+		// The watch reaches pr_state on the sixth view probe: the state, two
+		// conflict probes, and the head read before and after the failed watch
+		// (same head, so the failure stands) come first.
 		views := `[` +
 			`{"state":"OPEN","id":"PR_5"},` +
 			`{"state":"OPEN","id":"PR_5"},` +
 			`{"state":"OPEN","id":"PR_5"},` +
+			`{"state":"OPEN","id":"PR_5","headRefOid":"h5"},` +
+			`{"state":"OPEN","id":"PR_5","headRefOid":"h5"},` +
 			`{"state":"CLOSED","id":"PR_5"}]`
 
 		result := h.run(views, nil, map[string]string{"GH_CHECKS_EXIT": "1"}, "42")
@@ -379,14 +414,15 @@ func (h *enqueuePrHarness) run(
 	_ = os.Remove(h.prViewIndexPath)
 	_ = os.Remove(h.noReportPath)
 	env := map[string]string{
-		"ENQUEUE_PR_FAKE_GH":       "1",
-		"ENQUEUE_PR_RETRY_SECONDS": "0",
-		"GH_ARGV":                  h.argvPath,
-		"GH_PR_VIEW":               h.prViewPath,
-		"GH_PR_VIEW_INDEX":         h.prViewIndexPath,
-		"GH_ISSUE_LABELS":          h.issueLabelsPath,
-		"GH_CHECKS_NOREPORT_FILE":  h.noReportPath,
-		"PATH":                     h.binDir + string(os.PathListSeparator) + envOption("PATH"),
+		"ENQUEUE_PR_FAKE_GH":        "1",
+		"ENQUEUE_PR_RETRY_SECONDS":  "0",
+		"ENQUEUE_PR_SETTLE_SECONDS": "0",
+		"GH_ARGV":                   h.argvPath,
+		"GH_PR_VIEW":                h.prViewPath,
+		"GH_PR_VIEW_INDEX":          h.prViewIndexPath,
+		"GH_ISSUE_LABELS":           h.issueLabelsPath,
+		"GH_CHECKS_NOREPORT_FILE":   h.noReportPath,
+		"PATH":                      h.binDir + string(os.PathListSeparator) + envOption("PATH"),
 	}
 	maps.Copy(env, extra)
 	return RunScript(h.t, h.workDir, env, repositoryScript(h.t, "enqueue-pr.sh"), args...)
@@ -457,7 +493,7 @@ func enqueuePrFakeGh(args []string) (handled bool, stdout, stderr string, status
 	case args[0] == "pr" && args[1] == "view":
 		stdout, stderr, status = enqueuePrView(args)
 	case args[0] == "pr" && args[1] == "checks":
-		stdout, stderr, status = enqueuePrChecks()
+		stdout, stderr, status = enqueuePrChecks(args)
 	case args[0] == "pr" && args[1] == "edit":
 		status = enqueuePrEnvInt("GH_PR_EDIT_EXIT")
 	case args[0] == "issue" && args[1] == "view":
@@ -480,6 +516,9 @@ func enqueuePrFakeGh(args []string) (handled bool, stdout, stderr string, status
 // GH_PR_VIEW_INDEX counter file), so a case can change the PR's state between
 // probes. The --jq/-q query is applied through the real jq.
 func enqueuePrView(args []string) (string, string, int) {
+	if moves := enqueuePrEnvInt("GH_HEAD_MOVES_AFTER"); moves > 0 && requestsJSONField(args, "headRefOid") {
+		return enqueuePrMovingHead(args, moves)
+	}
 	if requestsJSONField(args, "isInMergeQueue") {
 		return "", "Unknown JSON field: \"isInMergeQueue\"\n", 1
 	}
@@ -556,11 +595,25 @@ func enqueuePrStackView(args []string, dir string) (string, string, int) {
 	return serveDocument(args, string(encoded))
 }
 
+// enqueuePrMovingHead serves a head-commit read for a PR whose head moves: the
+// first moves reads see the old commit, later ones the new (counted in
+// GH_HEAD_READS_FILE), as GitHub reports right after a push.
+func enqueuePrMovingHead(args []string, moves int) (string, string, int) {
+	path := envOption("GH_HEAD_READS_FILE")
+	reads := enqueuePrReadCount(path)
+	_ = enqueuePrWriteCount(path, reads+1)
+	head := "new-head"
+	if reads < moves {
+		head = "old-head"
+	}
+	return serveDocument(args, `{"headRefOid":"`+head+`"}`)
+}
+
 // enqueuePrChecks serves `gh pr checks`: while GH_CHECKS_NOREPORT is greater than
 // the calls already served (counted in GH_CHECKS_NOREPORT_FILE), it reports "no
 // checks reported" and exits 1; otherwise it prints a passing check line and
 // exits GH_CHECKS_EXIT.
-func enqueuePrChecks() (string, string, int) {
+func enqueuePrChecks(args []string) (string, string, int) {
 	if threshold := enqueuePrEnvInt("GH_CHECKS_NOREPORT"); threshold > 0 {
 		path := envOption("GH_CHECKS_NOREPORT_FILE")
 		count := enqueuePrReadCount(path)
@@ -568,6 +621,15 @@ func enqueuePrChecks() (string, string, int) {
 			_ = enqueuePrWriteCount(path, count+1)
 			return "", "no checks reported on the 'x' branch\n", 1
 		}
+	}
+	if enqueuePrEnvInt("GH_CHECKS_FAIL_WATCHES") > 0 && slices.Contains(args, "--watch") {
+		path := envOption("GH_CHECKS_WATCHES_FILE")
+		watches := enqueuePrReadCount(path)
+		_ = enqueuePrWriteCount(path, watches+1)
+		if watches < enqueuePrEnvInt("GH_CHECKS_FAIL_WATCHES") {
+			return "fake-tests\tfail\tfail\t1m\thttps://example.test/checks\n", "", 1
+		}
+		return "fake-tests\tpass\tpass\t1m\thttps://example.test/checks\n", "", 0
 	}
 	return "fake-tests\tpass\tpass\t1m\thttps://example.test/checks\n", "", enqueuePrEnvInt("GH_CHECKS_EXIT")
 }

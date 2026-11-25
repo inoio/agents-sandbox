@@ -40,6 +40,9 @@ ENQUEUE_PR_API_VERSION="2026-03-10"
 # Polling interval while a stacked PR waits in the merge queue; overridable so a
 # test does not sleep.
 ENQUEUE_PR_POLL_SECONDS="${ENQUEUE_PR_POLL_SECONDS:-30}"
+# How long a failed check watch waits before it re-reads the PR's head, so a
+# push GitHub has not registered yet shows; overridable so a test does not sleep.
+ENQUEUE_PR_SETTLE_SECONDS="${ENQUEUE_PR_SETTLE_SECONDS:-20}"
 
 usage() {
   sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
@@ -95,30 +98,50 @@ wait_for_checks() {
   done
 }
 
+# head_commit prints the PR's head commit, or nothing when it cannot be read.
+head_commit() {
+  gh pr view "$pr" --json headRefOid -q .headRefOid 2>/dev/null || true
+}
+
 # `gh pr checks --watch` redraws the whole check table every few seconds and
 # exits 8 while checks are still pending rather than 0. Keep that redraw out of
 # the helper's output — it is meant to be read as a few lines — and classify the
 # non-zero exit by the PR's state: a merged or closed PR will never report again.
+#
+# Right after a push, GitHub can still report the previous head commit's
+# checks. A failed watch therefore settles and re-reads the head; when it moved,
+# the failure belonged to an old commit, and the new commit's checks are
+# watched instead (a bounded number of times). A failure on an unchanged head
+# stands.
 watch_checks() {
   refuse_if_conflicted || return 1
   wait_for_checks || return 1
-  local status=0
-  gh pr checks "$pr" --watch --fail-fast >/dev/null 2>&1 || status=$?
-  case "$status" in
-    0) return 0 ;;
-    8)
-      printf 'enqueue-pr: PR #%s is not ready: its checks are still pending\n' "$pr" >&2
-      return 1
-      ;;
-    *)
-      if [[ "$(pr_state)" == "CLOSED" ]]; then
-        printf 'enqueue-pr: PR #%s was closed while waiting for its checks\n' "$pr" >&2
-      else
-        printf 'enqueue-pr: PR #%s checks did not pass\n' "$pr" >&2
-      fi
-      return 1
-      ;;
-  esac
+  local status attempt head_before head_after
+  for ((attempt = 0; attempt < 3; attempt++)); do
+    head_before="$(head_commit)"
+    status=0
+    gh pr checks "$pr" --watch --fail-fast >/dev/null 2>&1 || status=$?
+    case "$status" in
+      0) return 0 ;;
+      8)
+        printf 'enqueue-pr: PR #%s is not ready: its checks are still pending\n' "$pr" >&2
+        return 1
+        ;;
+    esac
+    sleep "$ENQUEUE_PR_SETTLE_SECONDS"
+    head_after="$(head_commit)"
+    if [[ -z "$head_after" || "$head_after" == "$head_before" ]]; then
+      break
+    fi
+    printf 'enqueue-pr: PR #%s: its head moved to %s; watching the new commit\n' "$pr" "$head_after"
+    wait_for_checks || return 1
+  done
+  if [[ "$(pr_state)" == "CLOSED" ]]; then
+    printf 'enqueue-pr: PR #%s was closed while waiting for its checks\n' "$pr" >&2
+  else
+    printf 'enqueue-pr: PR #%s checks did not pass\n' "$pr" >&2
+  fi
+  return 1
 }
 
 # Sets pr_state. Prints why it cannot proceed and returns 1 for a state the
