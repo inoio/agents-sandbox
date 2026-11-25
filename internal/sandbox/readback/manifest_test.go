@@ -9,8 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
-	"github.com/inoio/agents-sandbox/internal/filewalk"
-	"github.com/inoio/agents-sandbox/internal/projectguard"
 )
 
 // writeFile writes content to rel under home, creating parent directories.
@@ -242,47 +240,21 @@ func TestManifestHashCapBoundary(t *testing.T) {
 	}
 }
 
-// TestTakeManifestPropagatesAWalkRefusal: a declared path the projectguard
-// refuses to list aborts the walk and surfaces as an error, never as an empty
-// manifest.
-func TestTakeManifestPropagatesAWalkRefusal(t *testing.T) {
-	home := t.TempDir()
-	dir := filepath.Join(home, ".config/opencode")
-	require.NoError(t, os.MkdirAll(dir, 0o750))
-	gone := filepath.Join(dir, "gone.jsonc")
-	t.Cleanup(projectguard.Install(
-		[]string{dir},
-		map[string]projectguard.Approval{gone: projectguard.ApprovalOf([]byte("x"))},
-	))
-
-	_, err := TakeManifest(home, "opencode")
-
-	require.ErrorIs(t, err, projectguard.ErrNotApproved)
-}
-
 // TestAppendDeclaredPathDedupesOverlappingPaths: a file two declared paths both
-// select is recorded once, because the first walk marks it seen.
+// select is recorded once, because the first marks it seen.
 func TestAppendDeclaredPathDedupesOverlappingPaths(t *testing.T) {
 	home := t.TempDir()
 	writeFile(t, home, ".config/opencode/opencode.jsonc", "a")
 	var manifest Manifest
 	seen := map[string]bool{}
+	root, err := os.OpenRoot(home)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = root.Close() })
 
-	require.NoError(t, appendDeclaredPath(&manifest, seen, home, ".config/opencode/*"))
-	require.NoError(t, appendDeclaredPath(&manifest, seen, home, ".config/opencode/opencode.jsonc"))
+	appendDeclaredPath(&manifest, seen, root, ".config/opencode/*")
+	appendDeclaredPath(&manifest, seen, root, ".config/opencode/opencode.jsonc")
 
 	require.Len(t, manifest.Entries, 1, "a file selected by two declared paths is recorded once")
-}
-
-// TestDescribeFileFallsBackToWalkRelativeKey: a walked path that cannot be made
-// home-relative keeps the walk's own relative name rather than dropping the
-// entry.
-func TestDescribeFileFallsBackToWalkRelativeKey(t *testing.T) {
-	entry := filewalk.Entry{Path: "/absolute/path.txt", Rel: "path.txt", Size: 1}
-
-	got := describeFile("relative-home", entry)
-
-	require.Equal(t, "path.txt", got.Key)
 }
 
 // TestChangedReportsAKeyPresentInOneManifestOnly: a key present in the current

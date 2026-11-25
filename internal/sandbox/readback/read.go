@@ -76,10 +76,7 @@ func Read(home, agentName string, baseline Manifest) (ReadBack, error) {
 		return ReadBack{}, nil
 	}
 
-	collection, err := collectReadBack(home, agentName)
-	if err != nil {
-		return ReadBack{}, err
-	}
+	collection := collectReadBack(home, agentName)
 
 	readBack := ReadBack{
 		ConfigPaths: nil,
@@ -106,7 +103,7 @@ func Read(home, agentName string, baseline Manifest) (ReadBack, error) {
 			})
 		}
 		if filepath.Base(entry.Key) == dotenvFileName {
-			if content, ok := ReadCappedFile(filepath.Join(home, entry.Key), MaxHashedBytes); ok {
+			if content, ok := ReadHomeFile(home, entry.Key, MaxHashedBytes); ok {
 				readBack.Static = append(readBack.Static, staticCredentials(entry.Key, content)...)
 			}
 			continue
@@ -181,7 +178,7 @@ func configEndpointHosts(home string, manifest Manifest) map[string][]string {
 		}
 		// A failed read yields nil content, which decodes to no hosts, so it
 		// needs no separate skip.
-		content, _ := ReadCappedFile(filepath.Join(home, entry.Key), MaxHashedBytes)
+		content, _ := ReadHomeFile(home, entry.Key, MaxHashedBytes)
 		document, err := configdecode.Decode(format, content)
 		if err != nil {
 			continue
@@ -624,7 +621,7 @@ func configInlineCredentials(home string, manifest Manifest) []Credential {
 		}
 		// A failed read yields nil content, which decodes to an empty
 		// document, so it needs no separate skip.
-		content, _ := ReadCappedFile(filepath.Join(home, entry.Key), MaxHashedBytes)
+		content, _ := ReadHomeFile(home, entry.Key, MaxHashedBytes)
 		credentials = append(credentials, InlineCredentialsIn(entry.Key, content)...)
 	}
 	return credentials

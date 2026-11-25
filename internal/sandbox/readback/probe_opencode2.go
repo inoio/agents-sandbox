@@ -44,7 +44,10 @@ var openDatabase = func(dsn string) (*sql.DB, error) {
 	return sql.Open("sqlite", dsn)
 }
 
-// opencode2Probe reads opencode2's credential table only. The database is
+// opencode2Probe reads opencode2's credential table only. SQLite opens the
+// database by path, so the probe first requires a regular file inside the home
+// (lstatInHome) and records anything else unreadable; a swap between that check
+// and SQLite's open remains possible. The database is
 // ~13 MB and mostly a churny model catalog, so its file is never hashed: the
 // digest covers the credential rows, which is what a credential change moves.
 //
@@ -57,8 +60,12 @@ var openDatabase = func(dsn string) (*sql.DB, error) {
 // undetermined rather than silently dropping the row.
 func opencode2Probe(agentName, home string) (probeResult, error) {
 	databasePath := filepath.Join(home, opencode2DatabasePath)
-	if _, err := os.Stat(databasePath); errors.Is(err, os.ErrNotExist) {
+	info, err := lstatInHome(home, opencode2DatabasePath)
+	if errors.Is(err, os.ErrNotExist) {
 		return probeResult{Credentials: nil, RowHash: hashCredentialRows(nil)}, nil
+	}
+	if err != nil || !info.Mode().IsRegular() {
+		return probeResult{}, fmt.Errorf("opencode2 database %s is not a regular file in the home", databasePath)
 	}
 
 	db, err := openDatabase("file:" + databasePath + "?mode=ro")
