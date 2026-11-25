@@ -21,8 +21,8 @@ func TestMain(m *testing.M) {
 	hostAvailableMemoryMiB = func() (uint32, bool) { return 32 << 10, true }
 	// A failed attach looks the project VM up to tell a stopped VM from a lost
 	// connection; the suite's VM is running unless a test says otherwise.
-	projectVMStatus = func(context.Context, state.Key) (msb.SandboxStatus, bool, error) {
-		return msb.SandboxStatusRunning, true, nil
+	projectVMStatus = func(context.Context, state.Key) (msb.SandboxStatus, error) {
+		return msb.SandboxStatusRunning, nil
 	}
 	mocks.InitFailFastMocks(m)
 }

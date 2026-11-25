@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -21,24 +22,34 @@ var errVMStoppedDuringAttach = errors.New(
 // state.
 var projectVMStatus = defaultProjectVMStatus
 
-// defaultProjectVMStatus looks the project VM up and reports its status, or
-// found false when it no longer exists.
-func defaultProjectVMStatus(ctx context.Context, k state.Key) (msb.SandboxStatus, bool, error) {
-	handle, found, err := sandbox.FindProjectVM(ctx, msb.Get(), k)
-	if err != nil || !found {
-		return "", found, err
+// defaultProjectVMStatus reports the project VM's status, or the empty status
+// when it no longer exists.
+func defaultProjectVMStatus(ctx context.Context, k state.Key) (msb.SandboxStatus, error) {
+	lookupCtx, cancel := context.WithTimeout(ctx, vmStatusLookupTimeout)
+	defer cancel()
+	// A failed lookup reports found false too, so one branch carries both.
+	handle, found, err := sandbox.FindProjectVM(lookupCtx, msb.Get(), k)
+	if !found {
+		return "", err
 	}
-	return handle.Status(), true, nil
+	return handle.Status(), nil
 }
 
+// vmStatusLookupTimeout bounds the lookup, so a hung runtime cannot hang the
+// exit of a session that already ended.
+//
+// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT,ARITHMETIC_BASE reason="the bound only has to outlast a responsive runtime's lookup; its exact length is no contract"
+const vmStatusLookupTimeout = 5 * time.Second
+
 // vmStoppedDuringAttach reports whether a failed attach ended because the
-// project VM is no longer running: it is gone, stopped, crashed, or shutting
-// down. A VM still running, or a lookup that fails, keeps the attach's own
-// error.
+// project VM is no longer running: it is gone (no status), inactive (stopped,
+// crashed, or never started), or shutting down. A running, paused, or starting
+// VM, or a lookup that fails, keeps the attach's own error: "run again" would
+// not help there.
 func vmStoppedDuringAttach(ctx context.Context, k state.Key) bool {
-	status, found, err := projectVMStatus(ctx, k)
+	status, err := projectVMStatus(ctx, k)
 	if err != nil {
 		return false
 	}
-	return !found || status != msb.SandboxStatusRunning
+	return status == "" || msb.IsSandboxInactive(status) || status == msb.SandboxStatusDraining
 }
