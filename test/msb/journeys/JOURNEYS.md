@@ -263,3 +263,24 @@ Scenario: proxy-observes-the-stub
   Then the learn proxy observed the stub's host
   When the user answers the exit prompt with Save all
 ```
+
+## learn-exposed-login-key
+
+Runs on: codex, claude-code
+
+Not yet:
+
+- goose, grok-build, hermes, kimi-code, mistral-vibe, oh-my-pi, opencode, opencode2, pi, qwen-code: learn mode inspects only codex's and claude-code's login stores for a plain-text API key (#873, #892)
+
+```gherkin
+Scenario: learn-exposed-login-key
+  Given a fresh isolated home
+  And the stub provider is provisioned into the VM
+  And the harness's login store holds a plain-text API key
+  When the user runs `agents-sandbox run --learn`
+  Then the harness TUI comes up
+  When the user quits the harness and the learn exit prompt appears
+  And the user answers the exit prompt with Save all
+  # check
+  Then the launcher warns about the plain-text key
+```

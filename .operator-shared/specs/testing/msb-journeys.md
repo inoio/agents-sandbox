@@ -408,6 +408,12 @@ convention into an enforced gate. Reuses `internal/testutil`'s existing `TestMai
   journey then seeds the record and a scrubbed observation through `state.RecordLearnSession` and
   `channel.Save` under an isolated state root.
 
+- **`learn-exposed-login-key`** (codex, claude-code) — a harness's own login left an API key in plain
+  text in its store (`~/.codex/auth.json`, `~/.claude.json`). The journey overlays the key on the stub seeds
+  through the `home:` manifest (claude-code's `.claude.json` keeps its onboarding state), runs `run --learn`
+  to the TUI, quits with "Save all", and asserts the after-run warns about the store and names the env
+  secret. It needs no turn and no `Learn` facts: the report is read-back-only and writes nothing.
+
 **Assertion granularity (call).** A journey asserts the *semantic* effect, not a byte-for-byte
 golden: the credential's env-var name appears in `env.secret.yaml` with its host scoping, the managed
 config file contains the `${ENVVAR}` placeholder, and the expected config keys are present. This

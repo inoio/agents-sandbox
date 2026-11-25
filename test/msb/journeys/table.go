@@ -14,6 +14,7 @@ var Journeys = []Journey{
 	loginJourney,
 	mcpLoginJourney,
 	proxySpikeJourney,
+	exposedLoginKeyJourney,
 }
 
 // placedHarnesses lists every registered agent the journey table has placed.
@@ -71,6 +72,7 @@ const (
 	rolloutCoreReason      = "core session on this harness lands with the full rollout, #794"
 	loginReason            = "the login journey starts with codex; other harnesses follow (#875)"
 	mcpLoginReason         = "the MCP sign-in journey covers this harness once its MCP facts are recorded (#875)"
+	exposedLoginKeyReason  = "learn mode inspects only codex's and claude-code's login stores for a plain-text API key (#873, #892)"
 	proxySpikeExemptReason = "the proxy spike asks whether a stub route passes the learn proxy, which one harness answers (#793)"
 )
 
@@ -87,4 +89,7 @@ var Exemptions = map[string]map[string]string{
 	loginJourney.Name:       exemptionsFor(loginJourney, loginReason, nil),
 	mcpLoginJourney.Name:    exemptionsFor(mcpLoginJourney, mcpLoginReason, nil),
 	proxySpikeJourney.Name:  exemptionsFor(proxySpikeJourney, proxySpikeExemptReason, nil),
+	exposedLoginKeyJourney.Name: exemptionsFor(
+		exposedLoginKeyJourney, exposedLoginKeyReason, nil,
+	),
 }

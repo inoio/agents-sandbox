@@ -1,6 +1,7 @@
 package journeys
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"go.yaml.in/yaml/v4"
@@ -311,4 +313,48 @@ func observedHostProblem(learnDir, host string) error {
 		}
 	}
 	return fmt.Errorf("the saved observation names no destination for %q (saw %v)", host, observed)
+}
+
+// StepSeedExposedLoginKey stores a plain-text key in the harness's login store,
+// over the stub seeds: it adds the key field to the seeded file (claude-code's
+// ~/.claude.json carries its onboarding state) or starts the file with it.
+func StepSeedExposedLoginKey() Step {
+	return Step{Name: "the harness's login store holds a plain-text API key", Run: func(c *Context) error {
+		store, ok := exposedLoginKeys[c.Agent]
+		if !ok {
+			return fmt.Errorf("no exposed login key store is recorded for %s", c.Agent)
+		}
+		seeds := stubSeeds(c)
+		document := map[string]any{}
+		if seeded, ok := seeds.HomeManifest[store.path]; ok {
+			if err := json.Unmarshal([]byte(seeded), &document); err != nil {
+				return fmt.Errorf("parse the seeded %s: %w", store.path, err)
+			}
+		}
+		document[store.field] = exposedLoginKeyValue
+		seeds = seeds.Merge(driver.Seeds{HomeManifest: map[string]string{store.path: mustJSON(document)}})
+		return seeds.Apply(c.Home, "")
+	}}
+}
+
+// StepAssertExposedLoginKeyWarned checks that the after-run warned about the
+// store and named the env secret that keeps the key on the host.
+func StepAssertExposedLoginKeyWarned() Step {
+	return AsCheck(Step{Name: "the launcher warns about the plain-text key", Run: func(c *Context) error {
+		ses, err := session(c)
+		if err != nil {
+			return err
+		}
+		store := exposedLoginKeys[c.Agent]
+		output := driver.MarkerText(string(ses.Output()))
+		for _, want := range []string{
+			"An API key is stored in plain text in ~/" + store.path + " on the home volume.",
+			"Keep it on the host: declare",
+		} {
+			if !strings.Contains(output, driver.MarkerText(want)) {
+				return fmt.Errorf("the launcher output does not warn %q", want)
+			}
+		}
+		return nil
+	}})
 }
