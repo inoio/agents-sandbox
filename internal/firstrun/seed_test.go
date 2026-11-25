@@ -945,3 +945,11 @@ api_key = "sk-moon-inline"
 	require.NotContains(t, string(copied), "${MOONSHOT_API_KEY}")
 	require.NotContains(t, string(copied), "sk-moon-inline")
 }
+
+// TestNativeEnvIndirectionKeyIsEmptyWithoutADeclaration pins the default form: an
+// unknown agent, and one without a native indirection, get the ${VAR} placeholder.
+func TestNativeEnvIndirectionKeyIsEmptyWithoutADeclaration(t *testing.T) {
+	require.Empty(t, nativeEnvIndirectionKey("no-such-agent"))
+	require.Empty(t, nativeEnvIndirectionKey("hermes"))
+	require.Equal(t, "env_key", nativeEnvIndirectionKey("codex"))
+}
