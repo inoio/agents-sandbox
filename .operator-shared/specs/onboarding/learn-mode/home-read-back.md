@@ -90,17 +90,23 @@ sentinel digest.
 ## Exposed login keys
 
 A harness's own API-key login can store the key in plain text in the home volume, where it bypasses the secret
-mechanism: codex's `codex login --with-api-key` writes `OPENAI_API_KEY` into `~/.codex/auth.json` (its ChatGPT login
-leaves that field null), and claude-code's `/login` with a Console key writes `primaryApiKey` into `~/.claude.json`,
-its global config (its subscription login lives in `.credentials.json`; `/logout` clears the key). The read-back reports such a store as **exposed**, naming the store, the env secret that
-replaces the key, and that secret's API hosts — never the key. It reads the file only to decide that; the key is not
-kept, not learned, and not proposed as a secret, so the store stays a login store. A key that is a secret's guest value
-(microsandbox's default `$MSB_<NAME>`, or an explicit `${…}` reference), as the documented route leaves it, is not
-exposed. The store is read directly, not through the manifest, so declaring an exposed-key store adds nothing to the
-config write-back — `~/.claude.json` also holds onboarding and per-project state that must never be copied; the read refuses anything but a regular file (a symlink the agent planted could point at a host
-file) and anything over its size bound. An exposed key yields a report-only finding (see
-[findings and apply](findings-and-apply.md#applying)); learn mode never rewrites the store, because it writes only
-config scopes, never an agent's home volume.
+mechanism. codex's `codex login --with-api-key` writes `OPENAI_API_KEY` into `~/.codex/auth.json` (its ChatGPT login
+leaves that field null). claude-code's `/login` with a Console key writes `primaryApiKey` into `~/.claude.json`, its
+global config; its subscription login lives in `.credentials.json`, and `/logout` clears the key (both read from the
+claude-code 2.1.331 binary, not from a real Console login).
+
+The read-back reports such a store as **exposed**, naming the store, the env secret that replaces the key, and that
+secret's API hosts — never the key. It reads the file only to decide that; the key is not kept, not learned, and not
+proposed as a secret, so the store stays a login store. A key that is a secret's guest value (microsandbox's default
+`$MSB_<NAME>`, or an explicit `${…}` reference), as the documented route leaves it, is not exposed; a custom
+`placeholder:` is not recognised and reads as a plain-text key.
+
+The store is read directly, not through the manifest, so declaring an exposed-key store adds nothing to the config
+write-back (`~/.claude.json` also holds onboarding and per-project state that must never be copied). The sandboxed
+agent controls the home, so the read stays inside it (`os.Root`: a symlinked file or parent leading out is refused),
+opens non-blocking (a FIFO cannot hang the after-run), takes only a regular file as checked on the opened file, and is
+bounded. An exposed key yields a report-only finding (see [findings and apply](findings-and-apply.md#applying)); learn
+mode never rewrites the store, because it writes only config scopes, never an agent's home volume.
 
 ## Baseline manifest
 

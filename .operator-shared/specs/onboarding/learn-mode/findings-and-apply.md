@@ -189,7 +189,8 @@ finding.
   same observation and changes with any evidence change. The record lives in the user state dir, keyed by repo slug,
   so it survives a config-dir reset and is shared by clones.
 - A **report-only** finding (a write that carries only text) makes no machine change: the applier asks nothing and
-  records no decline, and the after-run summary prints its evidence and guidance as a warning. An exposed login key
+  records no decline, and every caller that applies findings (the after-run summary and the `config learn` replay)
+  prints its evidence and guidance as a warning. An exposed login key
   is one: it guides the user to declare the env secret and log in again with its placeholder.
 - A non-interactive run writes no proposal and prints one line naming the command that produces it. `--learn` is
   refused together with `--serve-only` at option resolution (a learning session attaches a TUI). A `--dry-run` returns

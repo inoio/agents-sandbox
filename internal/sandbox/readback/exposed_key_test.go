@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -125,8 +126,7 @@ func TestReadReportsAPlainTextKeyInClaudeCodesGlobalConfig(t *testing.T) {
 		Provider: "anthropic",
 		EnvVar:   "ANTHROPIC_API_KEY",
 		Hosts:    []string{"api.anthropic.com"},
-		Remedy: "then run `/logout` in claude-code, so it uses the key from its environment instead " +
-			"(it asks once to approve the key)",
+		Remedy:   "then run `/logout` in claude-code, so it uses the key from its environment instead",
 	}}, readBack.Exposed)
 	require.NotContains(t, readBack.ConfigPaths, ".claude.json", "the global config is never a write-back candidate")
 }
@@ -148,4 +148,37 @@ func TestReadReportsNoExposedKeyInClaudeCodesConfigWithoutOne(t *testing.T) {
 			require.Empty(t, readBack.Exposed)
 		})
 	}
+}
+
+func TestReadDoesNotFollowASymlinkedStoreDirectory(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	outside := t.TempDir()
+	require.NoError(
+		t,
+		os.WriteFile(filepath.Join(outside, "auth.json"), []byte(`{"OPENAI_API_KEY":"sk-proj-real"}`), 0o600),
+	)
+	require.NoError(t, os.Symlink(outside, filepath.Join(home, ".codex")))
+
+	readBack, err := Read(home, "codex", Manifest{})
+
+	require.NoError(t, err)
+	require.Empty(t, readBack.Exposed, "a symlinked parent directory never leads the read out of the home")
+}
+
+func TestExposedKeysDoNotBlockOnAStoreFIFO(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".codex"), 0o755))
+	require.NoError(t, syscall.Mkfifo(filepath.Join(home, ".codex", "auth.json"), 0o600))
+
+	// exposedKeys alone: the manifest's own hashing of the declared path is a
+	// separate read.
+	require.Empty(t, exposedKeys(home, "codex"))
+}
+
+func TestExposedKeysReportNothingForAMissingHome(t *testing.T) {
+	t.Parallel()
+
+	require.Empty(t, exposedKeys(filepath.Join(t.TempDir(), "gone"), "codex"))
 }

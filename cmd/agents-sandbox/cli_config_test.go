@@ -833,10 +833,12 @@ func stubLearnHomeVolume(t *testing.T, path string) {
 	t.Cleanup(func() { learnHomeVolume = orig })
 }
 
-// analyseCapture records whether config learn ran the analysis and with what.
+// analyseCapture records whether config learn ran the analysis and with what,
+// and holds the summary the stubbed analysis returns.
 type analyseCapture struct {
 	analysis learn.Analysis
 	called   bool
+	summary  learn.Summary
 }
 
 // stubLearnAnalyse replaces the analysis seam, so the command's wiring can be
@@ -854,7 +856,7 @@ func stubLearnAnalyse(t *testing.T) *analyseCapture {
 	) (learn.Summary, error) {
 		captured.analysis = a
 		captured.called = true
-		return learn.Summary{}, nil
+		return captured.summary, nil
 	}
 	t.Cleanup(func() { learnAnalyse = orig })
 	return captured
@@ -938,6 +940,35 @@ func TestConfigLearnReplaysTheRecordedSession(t *testing.T) {
 	if len(captured.analysis.Observation.Destinations) != 1 ||
 		captured.analysis.Observation.Destinations[0].Host != "api.example.com" {
 		t.Errorf("analysis.Observation = %+v, want the loaded artefact", captured.analysis.Observation)
+	}
+}
+
+// TestConfigLearnWarnsWithAReportedFinding pins that the replay prints a
+// report-only finding (a plain-text login key), which the applier asks nothing
+// about: config learn is where a non-interactive or "Not now" session is sent.
+func TestConfigLearnWarnsWithAReportedFinding(t *testing.T) {
+	initTestProjectDir(t)
+	cmd, ui := setupCommandFixtures(t, cmdConfig, cmdLearn)
+	stubPrepareMSBRuntime(t)
+	key := learnTestKey(t)
+	seedLearnState(t, key, state.LearnSession{HomeVolume: "vol-1"})
+	stubLearnHomeVolume(t, "/home/vol")
+	captured := stubLearnAnalyse(t)
+	//exhaustruct:ignore // only the outcome and the rendered text matter
+	captured.summary.Results = []analyser.ApplyResult{{
+		Outcome: analyser.OutcomeNotApplicable,
+		Finding: analyser.Finding{
+			Evidence: analyser.Evidence{Summary: "An API key is stored in plain text in ~/.codex/auth.json."},
+			Writes:   []analyser.Write{{Text: "Keep it on the host."}},
+		},
+	}}
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config learn: %v", err)
+	}
+	want := "An API key is stored in plain text in ~/.codex/auth.json. Keep it on the host."
+	if !slices.Contains(ui.WarnCalls, want) {
+		t.Errorf("WarnCalls = %v, want %q", ui.WarnCalls, want)
 	}
 }
 

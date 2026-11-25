@@ -143,8 +143,7 @@ func (r *Run) Finish(ctx context.Context, in FinishInput) error {
 }
 
 // printSummary reports what the after-run learned, with the denied destinations
-// as a separate note, and warns with each report-only finding's guidance: the
-// applier asks nothing for such a finding, so the summary is where it shows.
+// as a separate note, and the report-only findings (PrintReported).
 func printSummary(ui termio.UI, summary Summary) {
 	ui.Infof(
 		"agents-sandbox learned: %d services reached, %d keys used.",
@@ -154,7 +153,14 @@ func printSummary(ui termio.UI, summary Summary) {
 	if len(summary.Denied) > 0 {
 		ui.Infof("Denied destinations (never auto-allowed): %s", strings.Join(summary.Denied, ", "))
 	}
-	for _, result := range summary.Results {
+	PrintReported(ui, summary.Results)
+}
+
+// PrintReported warns with each report-only finding's evidence and guidance.
+// The applier asks nothing for such a finding, so every caller that applies
+// findings prints them: the live after-run and the config learn replay.
+func PrintReported(ui termio.Logger, results []analyser.ApplyResult) {
+	for _, result := range results {
 		if result.Outcome != analyser.OutcomeNotApplicable {
 			continue
 		}

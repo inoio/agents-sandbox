@@ -839,8 +839,14 @@ func ReadCappedFile(path string, maxBytes int64) ([]byte, bool) {
 		return nil, false
 	}
 	defer func() { _ = file.Close() }()
+	return readCapped(file, maxBytes)
+}
+
+// readCapped reads reader whole when it holds at most maxBytes, and reports
+// false for a longer or failing read.
+func readCapped(reader io.Reader, maxBytes int64) ([]byte, bool) {
 	// gomutants:disable-next-line INTEGER_INCREMENT reason="io.LimitReader with maxBytes+2 returns the same bytes as maxBytes+1 for any file at or below maxBytes+1, and a longer file is rejected by the cap check below either way"
-	data, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
+	data, err := io.ReadAll(io.LimitReader(reader, maxBytes+1))
 	if err != nil {
 		return nil, false
 	}
