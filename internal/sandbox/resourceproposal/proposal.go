@@ -96,6 +96,9 @@ func askRaise(ui termio.Prompter, o raiseOffer) (uint32, bool, error) {
 		return 0, false, nil
 	}
 	s := o.suggestion
+	// The offer follows the agent's session, often a frozen one the user tried
+	// to quit; keys typed for it must not answer the offer.
+	ui.DiscardTypeAhead()
 	decision, err := ui.Select(o.question, []termio.Choice{
 		{Key: "raise", Label: "Raise", Description: "Set the " + o.limitName + " to " + formatMiB(s.ProposedMiB)},
 		{Key: "keep", Label: "Keep", Description: "Leave the " + o.limitName + " unchanged"},
