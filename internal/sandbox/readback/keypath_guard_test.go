@@ -72,3 +72,91 @@ func TestUnprovenLeafPathNamesTheBlockingLeaf(t *testing.T) {
 	require.Equal(t, "servers.[1].note", unprovenLeafPath(document))
 	require.Empty(t, unprovenLeafPath(map[string]any{"model": "x"}))
 }
+
+func TestUnprovenLeafPathReportsTheFirstKeyInSortedOrder(t *testing.T) {
+	t.Parallel()
+	document := map[string]any{}
+	for _, key := range []string{"k", "c", "j", "b", "i", "a", "h", "e", "g", "f", "d"} {
+		document[key] = "opaque"
+	}
+
+	require.Equal(t, "a", unprovenLeafPath(document))
+}
+
+func TestUnprovenLeafPathWalksANonStringKeyedMapping(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "outer.note", unprovenLeafPath(map[string]any{"outer": map[any]any{"note": "opaque", 1: "x"}}))
+}
+
+func TestUnprovenLeafPathNamesAnUnprovenDocumentRoot(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, documentRootPath, unprovenLeafPath("opaque"))
+	require.Empty(t, unprovenLeafPath("https://api.example.com"))
+}
+
+func TestLeafIsProvablySafe(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		key  string
+		leaf any
+		safe bool
+	}{
+		"number under a count":          {"maxTokens", 4096, true},
+		"number under a pin":            {"pin", 1234, false},
+		"number under a session":        {"session", 1234, false},
+		"number under an ordinary key":  {"retries", 3, true},
+		"count as a string":             {"MAX_TOKENS", "8192", true},
+		"number string under a pin":     {"pin", "1234", false},
+		"number string under a session": {"session", "1234", false},
+		"word under auth":               {"auth", "opaque", false},
+		"env-var name under auth":       {"auth", "AUTH_TOKEN", true},
+		"env-var name under a key":      {"apiKey", "OPENAI_API_KEY", true},
+		"literal under a key":           {"apiKey", "opaque-value", false},
+		"word under no key":             {"", "opaque", false},
+		"word under a vocabulary key":   {"model", "opaque", true},
+		"word under an unknown key":     {"note", "opaque", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.safe, leafIsProvablySafe(tc.key, tc.leaf))
+		})
+	}
+}
+
+func TestIsPlainURL(t *testing.T) {
+	t.Parallel()
+	for value, plain := range map[string]bool{
+		"https://api.example.com/v1":       true,
+		"wss://stream.example.com":         true,
+		"https://user:pw@api.example.com":  false,
+		"https://api.example.com/v1?k=v":   false,
+		"https://api.example.com/v1?":      false,
+		"https://api.example.com/v1#frag":  false,
+		"ftp://files.example.com/x":        false,
+		"https:///no-host":                 false,
+		"not a url":                        false,
+		"https://bad host.example.com\x7f": false,
+	} {
+		require.Equal(t, plain, isPlainURL(value), value)
+	}
+}
+
+func TestEmbeddedPairsAreProvablySafe(t *testing.T) {
+	t.Parallel()
+	for value, safe := range map[string]bool{
+		"plain words only":                  true,
+		"--flag without a value":            true,
+		"=opaque has no name":               true,
+		"a/b=opaque is no pair":             true,
+		"mode=fast and LOG_LEVEL=debug":     true,
+		"x=opaque":                          false,
+		"--env=DB_PASSWORD=opaque":          false,
+		"--env=LOG_LEVEL=debug":             true,
+		"run \"API_KEY=opaque\"":            false,
+		"set.dotted-thing=opaque is a pair": false,
+	} {
+		require.Equal(t, safe, embeddedPairsAreProvablySafe(value), value)
+	}
+}

@@ -2,6 +2,7 @@ package readback
 
 import (
 	"net/url"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -41,8 +42,15 @@ func firstUnprovenLeaf(node any, path []string) string {
 	if leafIsProvablySafe(nearestKey(path), node) {
 		return ""
 	}
+	if len(path) == 0 {
+		return documentRootPath
+	}
 	return strings.Join(path, ".")
 }
+
+// documentRootPath names a document that is itself one unproven scalar, so the
+// refusal is never the empty "nothing found" path.
+const documentRootPath = "(document)"
 
 // sortedKeys returns a mapping's keys sorted, so the reported path is stable.
 func sortedKeys(entries map[string]any) []string {
@@ -109,20 +117,17 @@ func stringLeafIsProvablySafe(key, value string) bool {
 // itself provably safe, judged like a decoded entry. A command line, a
 // permission rule, or prose cleared by its key can still set a secret
 // ("DB_PASSWORD=… mytool", "export TOKEN=…", "-e \"API_KEY=…\""), so its
-// pairs are not cleared with it.
+// pairs are not cleared with it. A token that is no pair yields an empty name
+// and value, which are safe.
 func embeddedPairsAreProvablySafe(value string) bool {
 	for token := range strings.FieldsSeq(value) {
-		name, pairValue, isPair := embeddedPair(token)
+		name, pairValue := embeddedPair(token)
 		// An environment flag carries its own assignment (--env=NAME=value),
 		// which is the pair to judge.
-		for isPair {
-			innerName, innerValue, innerIsPair := embeddedPair(pairValue)
-			if !innerIsPair {
-				break
-			}
+		for innerName, innerValue := embeddedPair(pairValue); innerName != ""; innerName, innerValue = embeddedPair(pairValue) {
 			name, pairValue = innerName, innerValue
 		}
-		if isPair && !stringLeafIsProvablySafe(name, pairValue) {
+		if !stringLeafIsProvablySafe(name, pairValue) {
 			return false
 		}
 	}
@@ -131,28 +136,20 @@ func embeddedPairsAreProvablySafe(value string) bool {
 
 // embeddedPair splits one whitespace-separated token into a key-value pair: a
 // NAME=value assignment or a --flag=value, with surrounding quotes removed. A
-// token without a name before its '=' is not a pair.
-func embeddedPair(token string) (string, string, bool) {
+// token whose text before the '=' is not a name is no pair, and yields two
+// empty strings.
+func embeddedPair(token string) (string, string) {
 	unquoted := strings.Trim(token, `"'`)
 	name, value, found := strings.Cut(strings.TrimLeft(unquoted, "-"), "=")
-	if !found || name == "" || !isPairName(name) {
-		return "", "", false
+	if !found || !pairName.MatchString(name) {
+		return "", ""
 	}
-	return name, strings.Trim(value, `"'`), true
+	return name, strings.Trim(value, `"'`)
 }
 
-// isPairName reports whether name can be the key of an embedded pair: letters,
-// digits, '_', '-', and '.', starting with a letter or '_'.
-func isPairName(name string) bool {
-	for index, character := range name {
-		isLetter := (character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z') || character == '_'
-		isDigitOrSeparator := (character >= '0' && character <= '9') || character == '-' || character == '.'
-		if !isLetter && (index == 0 || !isDigitOrSeparator) {
-			return false
-		}
-	}
-	return true
-}
+// pairName matches the key of an embedded pair: an identifier that may carry
+// '.' and '-' after its first character.
+var pairName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]*$`)
 
 // isSecretReference reports whether value refers to a secret held elsewhere
 // rather than holding it: an explicit reference, microsandbox's default guest
