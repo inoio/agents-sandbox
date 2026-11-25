@@ -119,7 +119,7 @@ func TestRunJourneyReportsNoSessionOutputBeforeAHarnessStarted(t *testing.T) {
 	runJourney(tb, &Context{}, Journey{Name: "j", Steps: []Step{Given(recordStep("x", &ran, errors.New("boom")))}},
 		fixedClock())
 
-	if len(tb.fatals) != 1 || strings.Contains(tb.fatals[0], "harness output") {
+	if len(tb.fatals) != 1 || strings.Contains(tb.fatals[0], "session") {
 		t.Errorf("fatals = %q, want the failure without a harness output section", tb.fatals)
 	}
 }
@@ -201,5 +201,47 @@ func TestStepRequireOptInSkipsUnlessTheSwitchIsSet(t *testing.T) {
 	t.Setenv(env, "1")
 	if err := StepRequireOptIn(env, "a spike").Run(&Context{}); err != nil {
 		t.Errorf("with the switch: err = %v, want nil", err)
+	}
+}
+
+func TestRunJourneyReportsEveryLauncherSessionsOutput(t *testing.T) {
+	earlier := driver.MustStartUnderPTY(t, t.TempDir(), nil, "sh", "-c", "printf 'the after-run failed'")
+	active := driver.MustStartUnderPTY(t, t.TempDir(), nil, "sh", "-c", "printf 'replay output'")
+	for _, session := range []*driver.Session{earlier, active} {
+		if _, err := session.WaitExit(10 * time.Second); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tb := &recordingTB{}
+	check := AsCheck(Step{Name: "x", Run: func(*Context) error { return errors.New("boom") }})
+
+	runJourney(tb, &Context{Session: active, Clients: []*driver.Session{earlier, active}},
+		Journey{Name: "j", Steps: []Step{Then(check)}}, fixedClock())
+
+	if len(tb.errors) != 1 {
+		t.Fatalf("errors = %q, want one", tb.errors)
+	}
+	report := tb.errors[0]
+	for _, want := range []string{
+		"launcher session 1 of 2 output:", "the after-run failed",
+		"launcher session 2 of 2 (active) output:", "replay output",
+	} {
+		if !strings.Contains(report, want) {
+			t.Errorf("report = %q, want %q", report, want)
+		}
+	}
+}
+
+func TestSessionTailReportsAnActiveSessionOutsideTheClients(t *testing.T) {
+	shell := driver.MustStartUnderPTY(t, t.TempDir(), nil, "sh", "-c", "printf 'shell output'")
+	if _, err := shell.WaitExit(10 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+
+	report := sessionTail(&Context{Session: shell})
+
+	if !strings.Contains(report, "launcher session 1 of 1 (active) output:") ||
+		!strings.Contains(report, "shell output") {
+		t.Errorf("report = %q, want the active session", report)
 	}
 }
