@@ -187,19 +187,22 @@ func StepAnswerApplyPrompts() Step {
 // is still answered. An answer written after the process has exited is not an
 // error; one written while it is alive and fails is.
 func answerApplyPrompts(ses *driver.Session, budget time.Duration) error {
-	deadline := time.Now().Add(budget)
 	answer := []byte(applyFindingKey + "\n")
-	for !ses.HasExited() {
-		if !time.Now().Before(deadline) {
-			return fmt.Errorf("the replay did not exit within %s while answering the apply prompts", budget)
+	answerUntilExit := func() (bool, error) {
+		if ses.HasExited() {
+			return true, nil
 		}
-		if err := ses.Write(answer); err != nil {
-			if ses.HasExited() {
-				break
-			}
-			return fmt.Errorf("write an apply answer: %w", err)
+		// gomutants:disable-next-line EXPRESSION_REMOVE,REMOVE_LOGICAL_NOT,BRANCH_IF reason="a write to a live child pty does not fail, and one racing the exit cannot be staged; both cases need a failing write"
+		if err := ses.Write(answer); err != nil && !ses.HasExited() {
+			return false, fmt.Errorf("write an apply answer: %w", err)
 		}
-		time.Sleep(driver.QuitPressInterval) //testenv:allow taps a child pty's prompts, which have no in-process signal
+		// The next poll sees the exit.
+		return false, nil
+	}
+	if err := pollUntil(budget, driver.QuitPressInterval, answerUntilExit, func() error {
+		return fmt.Errorf("the replay did not exit within %s while answering the apply prompts", budget)
+	}); err != nil {
+		return err
 	}
 	code, err := ses.WaitExit(time.Second)
 	if err != nil {

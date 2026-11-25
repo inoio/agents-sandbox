@@ -1,6 +1,6 @@
 ---
-description: Design for harness journeys - a second `msb`-tagged suite (`test/msb/journeys`) that drives full user journeys through real harnesses (v1: learn mode on opencode2), the shared untagged `test/msb/driver` package, the `test/harness`→`test/msb/startup` rename, the "everything under test/ is test code" gate scope with the production-closure contract test, and the surface-sweep promotion flow.
-read_if: Working on the msb journeys suite (`test/msb/journeys`, `make test-msb-journeys`), the shared `test/msb/driver` package, the `test/harness`→`test/msb/startup` rename, the dead-code/ambient "test/ is test code" gate scope, the production-closure contract test, or wiring the release surface sweep to the journeys suite.
+description: Design for harness journeys - a second `msb`-tagged suite (`test/msb/journeys`) that drives full user journeys through real harnesses (v1: learn mode on opencode2), the shared untagged `test/msb/driver` package, the startup smoke `test/msb/startup`, the "everything under test/ is test code" gate scope with the production-closure contract test, and the surface-sweep promotion flow.
+read_if: Working on the msb journeys suite (`test/msb/journeys`, `make test-msb-journeys`), the shared `test/msb/driver` package, the startup smoke (`test/msb/startup`), the dead-code/ambient "test/ is test code" gate scope, the production-closure contract test, or wiring the release surface sweep to the journeys suite.
 ---
 
 # Harness journeys (msb) — design
@@ -83,17 +83,16 @@ test/
   scripts/           # unchanged — drives shell tools, no VM
   msb/
     driver/          # shared driving support (untagged)
-    startup/         # was test/harness — the minimal startup smoke (msb-tagged)
-    journeys/        # the new full-journey suite (msb-tagged)
+    startup/         # the minimal startup smoke (msb-tagged)
+    journeys/        # the full-journey suite (msb-tagged)
 ```
 
-`test/harness` → `test/msb/startup`. "startup" pairs cleanly with "journeys" (harness lifecycle
-phase); "smoke" names a depth, not a phase. Targets: `make test-msb` (startup, unchanged intent) and
-`make test-msb-journeys`. The `AGENTS_SANDBOX_SMOKE_ROOT` env var is **kept by name** (documented,
-CI-facing); only the package path changes.
+The startup smoke lives in `test/msb/startup`: "startup" pairs with "journeys" (a harness lifecycle
+phase), where "smoke" would name a depth. Targets: `make test-msb` (startup) and `make test-msb-journeys`.
+The `AGENTS_SANDBOX_SMOKE_ROOT` env var keeps its name (documented, CI-facing).
 
 `driver` is **untagged** so its unit tests run in the default `make test` and never start a VM. The
-**harness table** (`driver.Specs`, quit keys, seeds, readiness markers) moves into `driver` — both
+**harness table** (`driver.Specs`, quit keys, seeds, readiness markers) lives in `driver` — both
 suites need "how to start and quit harness X", and keeping the table untagged keeps its
 completeness test running in the default suite (the tagged-only-package trap).
 
@@ -454,7 +453,7 @@ come from the read-back config entry. The plan's "config-entry source but no hos
 unachievable: the credential must name the stub baseURL for the agent to reach the stub, and that
 baseURL host is exactly the fallback host the assertion checks. The journey therefore discriminates
 that a `run --learn` session writes a stub-host-scoped credential and narrows a broad network posture,
-not — as was intended — that observation attribution supersedes the config-entry fallback; proving the
+not that observation attribution supersedes the config-entry fallback; proving the
 latter needs the product gap closed first (a follow-up, not #793). The journey runs under `public`
 rather than the agent spec's default `none`: under `none` the stub dial is denied, so the analyser
 records no used destination and writes no network posture, leaving `StepAssertNetworkNotWidened`
@@ -500,8 +499,7 @@ against any other carry-over run. The `test-msb-journeys` target derives the var
 
 - A tagged-only package is dropped by `go test ./...` — the table and completeness test must stay
   untagged (in `driver`).
-- The rename touches specs/brain/docs; the doc-link gate must stay green (relative links updated).
-- `make test-msb`'s explicit package list must be updated so startup stays the quick gate.
+- `make test-msb`'s explicit package list names `test/msb/startup`, so startup stays the quick gate.
 - The driver's own `TestMain` must install its acyclic fail-fast mocks, like every test package.
 - A journey under load must not become a host-dependent flake (no fixed wall-clock against a real
   VM; reuse the readiness/quit-tap pattern).
