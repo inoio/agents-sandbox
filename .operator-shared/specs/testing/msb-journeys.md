@@ -411,8 +411,11 @@ convention into an enforced gate. Reuses `internal/testutil`'s existing `TestMai
 - **`learn-exposed-login-key`** (codex, claude-code) — a harness's own login left an API key in plain
   text in its store (`~/.codex/auth.json`, `~/.claude.json`). The journey overlays the key on the stub seeds
   through the `home:` manifest (claude-code's `.claude.json` keeps its onboarding state), runs `run --learn`
-  to the TUI, quits with "Save all", and asserts the after-run warns about the store and names the env
-  secret. It needs no turn and no `Learn` facts: the report is read-back-only and writes nothing.
+  to the TUI, quits with "Save all", and asserts the per-slug scope holds the key as an env secret for the
+  provider's host. For codex it also asserts the keep-login `home:` entry and its placeholdered copy, and,
+  through a shell client (which provisions the home on connecting), that the VM's `auth.json` now holds the
+  `${OPENAI_API_KEY}` placeholder instead of the key: the learned per-slug entry outranks the journey's own
+  generic seed per target. It needs no turn and no `Learn` facts.
 
 **Assertion granularity (call).** A journey asserts the *semantic* effect, not a byte-for-byte
 golden: the credential's env-var name appears in `env.secret.yaml` with its host scoping, the managed

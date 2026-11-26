@@ -221,21 +221,46 @@ func TestObservedHostProblemFindsTheStubsHost(t *testing.T) {
 	}
 }
 
-func TestExposedLoginKeyWarnedNeedsTheEvidenceAndTheGuidance(t *testing.T) {
+func TestPlaceholderNotKey(t *testing.T) {
 	store := exposedLoginKeys[codexAgentName]
-	evidence := "An API key is stored in plain text in ~/.codex/auth.json on the home volume."
-	guidance := "Keep it on the host: declare OPENAI_API_KEY as an env secret for api.openai.com."
-
-	if err := exposedLoginKeyWarned([]byte("summary\n"+evidence+"\n"+guidance), store); err != nil {
-		t.Errorf("the full warning: %v", err)
+	if err := placeholderNotKey(`{"OPENAI_API_KEY":"${OPENAI_API_KEY}"}`, store); err != nil {
+		t.Errorf("the placeholdered store: %v", err)
 	}
-	for name, output := range map[string]string{
-		"evidence only": evidence,
-		"guidance only": guidance,
-		"another store": strings.Replace(evidence, ".codex/auth.json", ".claude.json", 1) + guidance,
+	for name, text := range map[string]string{
+		"the key":                 `{"OPENAI_API_KEY":"` + exposedLoginKeyValue + `"}`,
+		"the key and placeholder": `{"a":"${OPENAI_API_KEY}","b":"` + exposedLoginKeyValue + `"}`,
+		"no placeholder":          `{"OPENAI_API_KEY":"$MSB_OPENAI_API_KEY"}`,
 	} {
-		if exposedLoginKeyWarned([]byte(output), store) == nil {
-			t.Errorf("%s: want a missing-warning error", name)
+		if placeholderNotKey(text, store) == nil {
+			t.Errorf("%s: want an error", name)
 		}
+	}
+}
+
+func TestProvisionedStoreDeclared(t *testing.T) {
+	store := exposedLoginKeys[codexAgentName]
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "config.yaml"),
+		"home:\n  .codex/auth.json:\n    source: home/codex-auth.json\n    keep-login: true\n")
+	writeTestFile(t, filepath.Join(dir, "home", "codex-auth.json"), `{"OPENAI_API_KEY":"${OPENAI_API_KEY}"}`)
+
+	if err := provisionedStoreDeclared(dir, store); err != nil {
+		t.Errorf("a declared store: %v", err)
+	}
+
+	writeTestFile(t, filepath.Join(dir, "config.yaml"), "home:\n  .codex/auth.json: home/codex-auth.json\n")
+	if provisionedStoreDeclared(dir, store) == nil {
+		t.Error("an entry without keep-login: want an error")
+	}
+}
+
+// writeTestFile writes content to path, creating its directory.
+func writeTestFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }

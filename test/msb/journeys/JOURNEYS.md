@@ -282,5 +282,7 @@ Scenario: learn-exposed-login-key
   When the user quits the harness and the learn exit prompt appears
   And the user answers the exit prompt with Save all
   # check
-  Then the launcher warns about the plain-text key
+  Then the per-slug scope holds the key as a secret
+  # check
+  And the VM's login store holds the placeholder, not the key
 ```

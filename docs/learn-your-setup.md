@@ -106,11 +106,10 @@ If agents-sandbox cannot attribute a secret to a destination, it leaves the secr
 guessing where it is safe to send.
 
 If an agent's own login stored an API key in plain text in the sandbox home, for example `codex login --with-api-key`
-with a real key or a Console key pasted into claude-code's `/login`, learn mode warns about it when you review or save the session's proposal, or replay it with
-`agents-sandbox config learn`, and shows how to keep the key on the host instead. It
-does not change the agent's login itself. [Codex login]({% link configuration/agent.md %}#codex-login) and
-[Authentication]({% link configuration/agent.md %}#authentication-file-copy-vs-env-secret) describe the routes that keep
-the key on the host.
+with a real key or a Console key pasted into claude-code's `/login`, learn mode proposes to move it out: the key becomes
+an env secret in your per-slug config, and codex's `~/.codex/auth.json` is provisioned from the host with the
+secret's placeholder, replacing the plain-text key at the next start. A ChatGPT sign-in you make in the VM later is
+left alone. claude-code reads the key from the secret; run `/logout` in it once so it drops the stored key.
 
 ## Review a session later
 
