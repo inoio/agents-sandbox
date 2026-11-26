@@ -1301,3 +1301,19 @@ func TestBootMemoryMiB(t *testing.T) {
 		})
 	}
 }
+
+// TestBootMemoryMiBKeepsTheConfiguredMemoryOnAnUnknownHost pins that a host
+// whose installed RAM cannot be read (0, as macOS reported before its sysctl
+// was read correctly) sets no boot maximum: the configured memory boots as is,
+// rather than being clamped to 0 MiB and leaving the VM at the runtime's floor.
+func TestBootMemoryMiBKeepsTheConfiguredMemoryOnAnUnknownHost(t *testing.T) {
+	t.Cleanup(hostfigures.OverrideTotalMemoryGiBForTest(func() int { return 0 }))
+	ui := &termiotest.Mock{}
+
+	if got := bootMemoryMiB("4G", ui); got != 4096 {
+		t.Errorf("bootMemoryMiB(4G) on an unknown host = %d, want 4096", got)
+	}
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("warnings %q, want none for an unknown host maximum", ui.WarnCalls)
+	}
+}
