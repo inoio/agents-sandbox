@@ -11,14 +11,14 @@ import (
 )
 
 // codexExposedKey is what the read-back reports for a plain-text key in codex's
-// auth.json.
+// auth.json: the key in memory, and the API-key store provisioned in its place.
 var codexExposedKey = ExposedKey{
-	Source:   ".codex/auth.json",
-	Provider: "openai",
-	EnvVar:   "OPENAI_API_KEY",
-	Hosts:    []string{"api.openai.com"},
-	Remedy: "then run `printenv OPENAI_API_KEY | codex login --with-api-key` in " +
-		"`agents-sandbox shell --agent codex`, so auth.json stores the secret's placeholder instead",
+	Source:           ".codex/auth.json",
+	Provider:         "openai",
+	EnvVar:           "OPENAI_API_KEY",
+	Hosts:            []string{"api.openai.com"},
+	Value:            "sk-proj-real",
+	ProvisionedStore: `{"auth_mode":"apikey","OPENAI_API_KEY":%q}` + "\n",
 }
 
 func TestReadReportsAPlainTextKeyInCodexsAuthJSON(t *testing.T) {
@@ -36,7 +36,7 @@ func TestReadReportsAPlainTextKeyInCodexsAuthJSON(t *testing.T) {
 
 			require.NoError(t, err)
 			require.Equal(t, []ExposedKey{codexExposedKey}, readBack.Exposed)
-			require.Empty(t, readBack.Static, "the key is reported, never read as a static credential")
+			require.Empty(t, readBack.Static, "the key is reported with its store, not as a static credential")
 		})
 	}
 }
@@ -126,7 +126,8 @@ func TestReadReportsAPlainTextKeyInClaudeCodesGlobalConfig(t *testing.T) {
 		Provider: "anthropic",
 		EnvVar:   "ANTHROPIC_API_KEY",
 		Hosts:    []string{"api.anthropic.com"},
-		Remedy:   "then run `/logout` in claude-code, so it uses the key from its environment instead",
+		Value:    "sk-ant-real",
+		FollowUp: "Run /logout once in claude-code, so it drops the stored key and uses the secret.",
 	}}, readBack.Exposed)
 	require.NotContains(t, readBack.ConfigPaths, ".claude.json", "the global config is never a write-back candidate")
 }

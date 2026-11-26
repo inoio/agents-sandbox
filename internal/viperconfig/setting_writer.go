@@ -110,8 +110,15 @@ func lookupKeyFold(mapping map[string]any, key string) (any, bool) {
 // (writing nothing) when dir holds a non-YAML config file, so a JSON5/JSON/JSONC
 // file is never corrupted. A YAML file is edited through its document tree, so
 // unrelated keys and the user's comments, spacing and styles survive. An edited
-// file keeps its permissions; a created one is private (0600).
+// file keeps its permissions; a created one is private (0600). key is a dotted
+// path (network.egress-allow).
 func WriteSetting(dir, key string, value any) error {
+	return WriteSettingAt(dir, strings.Split(key, "."), value)
+}
+
+// WriteSettingAt is WriteSetting for a key path given as segments, for a key
+// whose own name holds a dot: a home: target such as .codex/auth.json.
+func WriteSettingAt(dir string, keyPath []string, value any) error {
 	if dir == "" {
 		return fmt.Errorf("config dir is empty; the config path did not resolve")
 	}
@@ -121,7 +128,7 @@ func WriteSetting(dir, key string, value any) error {
 	}
 	if !found {
 		path = filepath.Join(dir, "config.yaml")
-		_, err = writeYAMLSetting(path, nil, 0o600, key, value)
+		_, err = writeYAMLSetting(path, nil, 0o600, keyPath, value)
 		return err
 	}
 	if ext != extYAML && ext != extYML {
@@ -140,7 +147,7 @@ func WriteSetting(dir, key string, value any) error {
 	if joined := errors.Join(statErr, readErr); joined != nil {
 		return fmt.Errorf("read config file %s: %w", path, joined)
 	}
-	edited, err := writeYAMLSetting(target, data, info.Mode().Perm(), key, value)
+	edited, err := writeYAMLSetting(target, data, info.Mode().Perm(), keyPath, value)
 	if err != nil {
 		return err
 	}
@@ -241,15 +248,15 @@ func removeDocumentValue(document *oneyaml.Document, keyPath []string) ([]byte, 
 	return document.Bytes(), nil
 }
 
-// writeYAMLSetting applies key=value to the YAML document in data, writes the
-// result atomically to path with mode perm, and returns the written bytes. An
-// empty data set starts a new document.
-func writeYAMLSetting(path string, data []byte, perm os.FileMode, key string, value any) ([]byte, error) {
+// writeYAMLSetting sets the key path to value in the YAML document in data,
+// writes the result atomically to path with mode perm, and returns the written
+// bytes. An empty data set starts a new document.
+func writeYAMLSetting(path string, data []byte, perm os.FileMode, keyPath []string, value any) ([]byte, error) {
 	document, err := oneyaml.Parse(data, oneyaml.Untrusted())
 	if err != nil {
 		return nil, yamlfmt.WrapErr(path, err)
 	}
-	edited, err := setDocumentValue(document, strings.Split(key, "."), value)
+	edited, err := setDocumentValue(document, keyPath, value)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}

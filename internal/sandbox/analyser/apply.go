@@ -221,7 +221,7 @@ func planWrites(finding Finding, opts ApplyOptions) ([]plannedWrite, *refusal) {
 			plans = append(plans, plannedWrite{write: write, dir: dir, secretValue: ""})
 			continue
 		}
-		if write.ManagedConfig != nil {
+		if write.ManagedConfig != nil || write.HomeFile != nil {
 			plans = append(plans, plannedWrite{write: write, dir: dir, secretValue: ""})
 			continue
 		}
@@ -237,7 +237,8 @@ func planWrites(finding Finding, opts ApplyOptions) ([]plannedWrite, *refusal) {
 // config key, secret, file mode, or managed config, so it makes no machine
 // change and only its Text is meaningful.
 func writeOnlyRendersText(write Write) bool {
-	return write.ConfigKey == "" && write.Secret == nil && write.FileMode == nil && write.ManagedConfig == nil
+	return write.ConfigKey == "" && write.Secret == nil && write.FileMode == nil && write.ManagedConfig == nil &&
+		write.HomeFile == nil
 }
 
 // planTarget resolves a write's directory and refuses a per-slug config write
@@ -261,6 +262,18 @@ func planTarget(write Write, opts ApplyOptions) (string, *refusal) {
 			return "", refusal
 		}
 		return dir, nil
+	}
+	if write.HomeFile != nil {
+		if write.Scope == ScopeProject {
+			return "", &refusal{
+				note: "a provisioned home file is not written to the project scope; only the per-slug user scope owns it",
+				err:  "",
+			}
+		}
+		if refusal := validateManagedConfigName(write.HomeFile.Name); refusal != nil {
+			return "", refusal
+		}
+		return opts.Paths.UserSlugConfigDir(opts.Slug), nil
 	}
 	if write.Scope == ScopeProject {
 		if opts.CheckoutSlug == "" {
@@ -546,6 +559,9 @@ func executeWrite(plan plannedWrite, opts ApplyOptions) (string, error) {
 	if write.ManagedConfig != nil {
 		return plan.dir, executeManagedConfig(plan)
 	}
+	if write.HomeFile != nil {
+		return plan.dir, executeHomeFile(plan)
+	}
 	if write.Scope == ScopeProject {
 		return plan.dir, executeProjectSetting(plan, opts)
 	}
@@ -572,6 +588,24 @@ func secretFilePath(dir string) string {
 // executeManagedConfig writes one managed agent config file atomically, creating
 // the agent config directory. The file is world-readable (0o644) because it is
 // configuration, not a credential: the secret values in it are placeholders.
+// homeFileDir is the directory under a scope that holds its provisioned home
+// files, so the home: source stays relative to the scope's config file.
+const homeFileDir = "home"
+
+// executeHomeFile writes the home file under the scope's home/ directory and
+// maps its target to it with keep-login in the scope's config.
+func executeHomeFile(plan plannedWrite) error {
+	home := plan.write.HomeFile
+	source := filepath.Join(homeFileDir, home.Name)
+	if err := atomicwrite.WriteFileMode(filepath.Join(plan.dir, source), home.Content, 0o600); err != nil {
+		return fmt.Errorf("write home file %s: %w", source, err)
+	}
+	return viperconfig.WriteSettingAt(plan.dir, []string{"home", home.Target}, map[string]any{
+		"source":     filepath.ToSlash(source),
+		"keep-login": true,
+	})
+}
+
 func executeManagedConfig(plan plannedWrite) error {
 	managed := plan.write.ManagedConfig
 	return atomicwrite.WriteFileMode(filepath.Join(plan.dir, managed.Name), managed.Content, 0o644)
