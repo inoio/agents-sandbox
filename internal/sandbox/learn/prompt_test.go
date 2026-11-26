@@ -484,6 +484,8 @@ func TestChosenExitDiscardsTypeAheadBeforeAsking(t *testing.T) {
 	}
 	if !discardedBeforeAsking {
 		t.Error("the exit prompt asked before dropping the type-ahead")
+	}
+}
 
 // TestPrintSummaryWarnsWithAReportedFinding pins that a report-only finding,
 // which the applier never asks about, shows its evidence and guidance as a
