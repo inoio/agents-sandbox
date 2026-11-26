@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -467,5 +468,47 @@ func TestStopKillAdoptionFailureFailsClosed(t *testing.T) {
 
 			assertErrContains(t, cmd.Execute(), "check for a pending legacy identity")
 		})
+	}
+}
+
+// TestStopKillUseTheConfiguredAgent pins that stop and kill act on the agent the
+// launcher config or AGENTS_SANDBOX_AGENT names, as run does, and that an
+// explicit --agent still wins over both.
+func TestStopKillUseTheConfiguredAgent(t *testing.T) {
+	for _, command := range []string{cmdStop, cmdKill} {
+		for name, tc := range map[string]struct {
+			config, env string
+			flagArgs    []string
+			want        string
+		}{
+			"config key":           {config: "agent: pi\n", want: "pi"},
+			"environment variable": {env: "pi", want: "pi"},
+			"flag over both":       {config: "agent: pi\n", env: "pi", flagArgs: []string{"--agent", "codex"}, want: "codex"},
+		} {
+			t.Run(command+" "+name, func(t *testing.T) {
+				initTestProjectDir(t)
+				if tc.env != "" {
+					t.Setenv("AGENTS_SANDBOX_AGENT", tc.env)
+				}
+				var looked []string
+				cmd, _ := setupStopKillConfig(t, append([]string{command}, tc.flagArgs...),
+					func(m *msbtest.MockMsbClient) {
+						m.GetSandboxFn = func(_ context.Context, name string) (sandboxmsb.SandboxHandle, error) {
+							looked = append(looked, name)
+							return &msbtest.MockSandboxHandle{Status_: sandboxmsb.SandboxStatusRunning}, nil
+						}
+					})
+				if tc.config != "" {
+					testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml", tc.config)
+				}
+
+				if err := cmd.Execute(); err != nil {
+					t.Fatalf("%s: %v", command, err)
+				}
+				if len(looked) == 0 || !strings.HasSuffix(looked[0], "-"+tc.want) {
+					t.Errorf("looked up %v, want the %s project VM", looked, tc.want)
+				}
+			})
+		}
 	}
 }
