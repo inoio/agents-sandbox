@@ -498,12 +498,18 @@ func joinKey(prefix, key string) string {
 }
 
 // manifestEntries renders the parsed home: manifest, one sorted entry per
-// target with the source, hook, and root flag provisioning acts on.
+// target with the source, hook, root, and keep-login flags provisioning acts on.
 func manifestEntries(manifest homeconfig.Manifest) []string {
 	var entries []string
 	for _, target := range slices.Sorted(maps.Keys(manifest)) {
 		entry := manifest[target]
-		entries = append(entries, fmt.Sprintf("%s ← %q hook=%q root=%t", target, entry.Source, entry.Hook, entry.Root))
+		rendered := fmt.Sprintf("%s ← %q hook=%q root=%t", target, entry.Source, entry.Hook, entry.Root)
+		// keep-login is appended only when set, so an existing approval of a
+		// manifest without it stays valid.
+		if entry.KeepLogin {
+			rendered += " keep-login"
+		}
+		entries = append(entries, rendered)
 	}
 	return entries
 }

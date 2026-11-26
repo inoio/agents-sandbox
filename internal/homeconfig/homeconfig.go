@@ -113,6 +113,9 @@ type Entry struct {
 	Source string // host source path, resolved like the plain string form
 	Hook   string // optional; only "startup" is supported
 	Root   bool   // optional; run the hook as root (default: the sandbox user, dev)
+	// KeepLogin leaves the target in place when it holds a login the agent
+	// renews (a refresh token), instead of overwriting it on every start.
+	KeepLogin bool
 }
 
 // Manifest maps a VM-home-relative target path to its Entry.
@@ -123,37 +126,50 @@ func parseEntry(v any) (Entry, error) {
 	case nil:
 		return Entry{}, nil
 	case string:
-		return Entry{Source: val, Hook: "", Root: false}, nil
+		return Entry{Source: val, Hook: "", Root: false, KeepLogin: false}, nil
 	case map[string]any:
-		var e Entry
-		if s, ok := val["source"]; ok {
-			src, ok := s.(string)
-			if !ok {
-				return Entry{}, errors.New("source must be a string")
-			}
-			e.Source = src
-		}
-		if h, ok := val["hook"]; ok {
-			hook, ok := h.(string)
-			if !ok {
-				return Entry{}, errors.New("hook must be a string")
-			}
-			e.Hook = hook
-		}
-		if e.Hook != "" && e.Hook != startupHook {
-			return Entry{}, fmt.Errorf("hook must be %q, got %q", startupHook, e.Hook)
-		}
-		if r, ok := val["root"]; ok {
-			root, ok := r.(bool)
-			if !ok {
-				return Entry{}, errors.New("root must be a boolean")
-			}
-			e.Root = root
-		}
-		return e, nil
+		return parseEntryMapping(val)
 	default:
 		return Entry{}, fmt.Errorf("unsupported value type %T", v)
 	}
+}
+
+// parseEntryMapping decodes the mapping form of a home value: its source and
+// the optional hook, root, and keep-login settings.
+func parseEntryMapping(val map[string]any) (Entry, error) {
+	var e Entry
+	var err error
+	if e.Source, err = optionalField[string](val, "source", "a string"); err != nil {
+		return Entry{}, err
+	}
+	if e.Hook, err = optionalField[string](val, "hook", "a string"); err != nil {
+		return Entry{}, err
+	}
+	if e.Hook != "" && e.Hook != startupHook {
+		return Entry{}, fmt.Errorf("hook must be %q, got %q", startupHook, e.Hook)
+	}
+	if e.Root, err = optionalField[bool](val, "root", "a boolean"); err != nil {
+		return Entry{}, err
+	}
+	if e.KeepLogin, err = optionalField[bool](val, "keep-login", "a boolean"); err != nil {
+		return Entry{}, err
+	}
+	return e, nil
+}
+
+// optionalField reads key from a mapping as a T, or T's zero value when it is
+// absent; a present value of another type is an error naming kind.
+func optionalField[T any](val map[string]any, key, kind string) (T, error) {
+	var zero T
+	raw, ok := val[key]
+	if !ok {
+		return zero, nil
+	}
+	typed, ok := raw.(T)
+	if !ok {
+		return zero, fmt.Errorf("%s must be %s", key, kind)
+	}
+	return typed, nil
 }
 
 // Layer pairs a home manifest with the config dir its relative sources resolve
@@ -262,6 +278,9 @@ func ResolveVMTarget(homeBase, relTarget string, reserved []string) (string, err
 type HomeFile struct {
 	Data []byte
 	Mode os.FileMode
+	// KeepLogin is the entry's keep-login flag: provisioning leaves a target
+	// that holds a renewing login in place.
+	KeepLogin bool
 }
 
 // BuildHomeFilesWithModes loads the home manifests from dirs in order, merges
@@ -316,7 +335,7 @@ func BuildHomeFilesWithModes(
 			missing = append(missing, e.Source)
 			continue
 		}
-		files[vmPath] = HomeFile{Data: data, Mode: info.Mode().Perm()}
+		files[vmPath] = HomeFile{Data: data, Mode: info.Mode().Perm(), KeepLogin: e.KeepLogin}
 	}
 	// Reaching here means merged has at least one entry, which requires a layer
 	// that declared a home key, so has is always true here.

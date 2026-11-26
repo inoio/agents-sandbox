@@ -238,11 +238,14 @@ type ConfigFiles struct {
 	Skipped        []config.SkippedSnippet // matching snippets skipped on read or parse
 	Source         ConfigSource            // resolved launcher config-dir pair (with legacy fallback marker)
 	HomeFiles      map[string][]byte       // VM absolute path -> content (from the home: key)
-	Provisioned    map[string][]byte       // VM absolute path -> content (drop-in copy)
-	Mirror         map[string][]byte       // VM absolute path -> content (verbatim <agent> mirror)
-	Modes          map[string]os.FileMode  // VM absolute path -> ordinary file permission bits
-	Remove         []string                // VM absolute paths to delete before writing
-	Hooks          []homeconfig.HookSpec   // startup hooks to run at vm.SetUpSandbox
+	// KeepLogin marks the home files written only while their target holds no
+	// renewing login (the home: entry's keep-login).
+	KeepLogin   map[string]bool
+	Provisioned map[string][]byte      // VM absolute path -> content (drop-in copy)
+	Mirror      map[string][]byte      // VM absolute path -> content (verbatim <agent> mirror)
+	Modes       map[string]os.FileMode // VM absolute path -> ordinary file permission bits
+	Remove      []string               // VM absolute paths to delete before writing
+	Hooks       []homeconfig.HookSpec  // startup hooks to run at vm.SetUpSandbox
 	// StateDefaults are keys merged into the agent's own state files.
 	StateDefaults []StateDefault
 	// SuggestedSnippetDir is the generic user config dir for the agent, shown
@@ -345,7 +348,7 @@ func LoadConfigFilesForHost(
 	if err != nil {
 		return nil, err
 	}
-	homeFiles, homeModes, err := loadHomeFiles(scopeDirs, vmHome, reserved, ui)
+	homeFiles, homeModes, keepLogin, err := loadHomeFiles(scopeDirs, vmHome, reserved, ui)
 	if err != nil {
 		return nil, err
 	}
@@ -390,6 +393,7 @@ func LoadConfigFilesForHost(
 		Skipped:             merged.skipped,
 		Source:              src,
 		HomeFiles:           homeFiles,
+		KeepLogin:           keepLogin,
 		Provisioned:         provisioned,
 		Mirror:              mirror,
 		Modes:               modes,
@@ -421,25 +425,29 @@ func loadHomeFiles(
 	vmHome string,
 	reserved []string,
 	ui termio.Logger,
-) (map[string][]byte, map[string]os.FileMode, error) {
+) (map[string][]byte, map[string]os.FileMode, map[string]bool, error) {
 	homeSources, missing, _, err := homeconfig.BuildHomeFilesWithModes(
 		dirs,
 		vmHome,
 		reserved,
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("build home files: %w", err)
+		return nil, nil, nil, fmt.Errorf("build home files: %w", err)
 	}
 	for _, src := range missing {
 		ui.Warnf("home source %q does not exist on the host; skipping", src)
 	}
 	homeFiles := make(map[string][]byte, len(homeSources))
 	homeModes := make(map[string]os.FileMode, len(homeSources))
+	keepLogin := map[string]bool{}
 	for path, source := range homeSources {
 		homeFiles[path] = source.Data
 		homeModes[path] = source.Mode
+		if source.KeepLogin {
+			keepLogin[path] = true
+		}
 	}
-	return homeFiles, homeModes, nil
+	return homeFiles, homeModes, keepLogin, nil
 }
 
 // loadHooks builds the merged startup hooks from the ordered config scope dirs.

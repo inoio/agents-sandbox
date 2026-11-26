@@ -343,6 +343,38 @@ func TestParseEntrySuccessPaths(t *testing.T) {
 		e != (Entry{Source: "x", Hook: "startup", Root: true}) {
 		t.Errorf("full entry: e=%+v err=%v", e, err)
 	}
+	if e, err := parseEntry(map[string]any{"source": "x", "keep-login": true}); err != nil ||
+		e != (Entry{Source: "x", KeepLogin: true}) {
+		t.Errorf("keep-login entry: e=%+v err=%v", e, err)
+	}
+}
+
+func TestParseEntryRejectsAMistypedField(t *testing.T) {
+	for field, value := range map[string]any{"source": 1, "hook": true, "root": "yes", "keep-login": "yes"} {
+		_, err := parseEntry(map[string]any{field: value})
+		if err == nil || !strings.Contains(err.Error(), field+" must be") {
+			t.Errorf("%s: err = %v, want a type error naming the field", field, err)
+		}
+	}
+}
+
+func TestBuildHomeFilesWithModesCarriesKeepLogin(t *testing.T) {
+	user := t.TempDir()
+	proj := t.TempDir()
+	testutil.WritePath(t, filepath.Join(proj, "auth.json"), "{}")
+	testutil.WritePath(t, filepath.Join(proj, "rc"), "x")
+	writeHomeConfig(t, proj, ".codex/auth.json:\n  source: auth.json\n  keep-login: true\n.rc: rc\n")
+
+	files, _, _, err := BuildHomeFilesWithModes([]string{user, proj}, vmHome, nil)
+	if err != nil {
+		t.Fatalf("BuildHomeFilesWithModes: %v", err)
+	}
+	if !files["/home/dev/.codex/auth.json"].KeepLogin {
+		t.Error("the keep-login entry lost its flag")
+	}
+	if files["/home/dev/.rc"].KeepLogin {
+		t.Error("a plain entry gained keep-login")
+	}
 }
 
 func TestLoadLayersErrorKeepsHasFalse(t *testing.T) {
