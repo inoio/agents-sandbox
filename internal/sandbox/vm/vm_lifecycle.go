@@ -297,10 +297,13 @@ func BootMaxMemoryMiB() uint32 {
 }
 
 // bootMemoryMiB is the memory a new project VM boots with: the configured
-// memory, clamped to the boot maximum with a warning.
+// memory, clamped to the boot maximum with a warning. A host whose RAM cannot
+// be read reports a maximum of 0, which means unknown, not none: the configured
+// memory boots as is, as the raise proposal also treats 0.
 func bootMemoryMiB(memory string, ui termio.Logger) uint32 {
 	memoryMiB := options.ParseMemory(memory)
-	if maxMiB := BootMaxMemoryMiB(); memoryMiB > maxMiB {
+	// gomutants:disable-next-line INTEGER_INCREMENT reason="the boot maximum is whole GiB (a multiple of 1024 MiB), so > 0 and > 1 agree on every value it takes"
+	if maxMiB := BootMaxMemoryMiB(); maxMiB > 0 && memoryMiB > maxMiB {
 		ui.Warnf("memory limited to %d MiB (host maximum); requested %d MiB", maxMiB, memoryMiB)
 		return maxMiB
 	}
