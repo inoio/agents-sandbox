@@ -150,7 +150,11 @@ holds the VM until EOF/SIGINT/SIGTERM (`runServeOnlySession`); both flows hold t
 connect URL until the next recreate; when it does hand out a URL, its stop hint names the key that can actually cancel
 the run — Ctrl-D for a watched terminal stdin, else Ctrl-C. A deferred keep takes no client lease and runs no reaper —
 the last-client quiescence wait would start its own keeper and hold the VM — and returns cleanly, so its own remedy
-(stop the attached clients and re-run to recreate) stays reachable. Under `--dry-run-vm` it prints the would-start line and returns.
+(stop the attached clients and re-run to recreate) stays reachable. Under `--dry-run-vm` it prints the would-start line and returns. An attach that
+fails without a signal looks the project VM up once, bounded, as a best effort: when the VM is gone, inactive
+(stopped, crashed, created), or draining, the run reports that the VM stopped during the attach and to run again (the
+runtime's own error moves to `-v`); a running, paused, or starting VM, or a failed lookup, keeps the attach's error. A
+runtime that still reports a just-killed VM as running keeps the old message too. The memory/disk raise offers run before this and are unchanged.
 
 ## Cross-stage authorities
 
