@@ -28,7 +28,7 @@ One finding shape serves both a learning session and config-only analysis (`conf
   user-set project entry. When the project layer owns a proposed key, the applier reports the finding and skips
   the write.
 - **A per-slug write is YAML-only.** The applier edits a config file format-preservingly by rewriting its document
-  tree, so a per-slug config in JSON, JSONC, JSON5, or TOML is reported and skipped rather than converted to YAML.
+  tree, so a per-slug config in JSON, JSONC, or JSON5 is reported and skipped rather than converted to YAML.
 - **A harden move writes two scopes.** A static secret wrongly committed in the project scope is removed from the
   project config and added at the per-slug user scope; the removal is harden's "reduce" contract, which the
   proposal never invokes. Both writes are trust-gated and applied together (or neither).
@@ -200,6 +200,12 @@ finding.
   provisioned with the secret's `${ENVVAR}` placeholder. Both writes apply together, since a placeholder without its
   secret breaks the harness. A harness that reads the key from its environment (claude-code) gets the secret and a
   one-time follow-up (`/logout`) for the key its existing home volume still holds.
+- Before any write of an exposed-key finding, the applier validates the proposed `home:` document edit and refuses
+  an existing mapping to the same target in the per-slug or project scope (including an equivalent relative spelling).
+  Literal guest-path segments match case-sensitively. A refusal leaves the secret and provisioned source untouched;
+  unexpected filesystem failures during execution are reported as failures, not guaranteed to roll back.
+- `keep-login` has the same semantics for VM provisioning and `config provision --target`: a JSON store with a
+  non-empty refresh token is preserved. An absent, unreadable, or unrecognised store is provisioned from the source.
 - A non-interactive run writes no proposal and prints one line naming the command that produces it. `--learn` is
   refused together with `--serve-only` at option resolution (a learning session attaches a TUI). A `--dry-run` returns
   before the channel starts, and a `--dry-run-vm` prepares but skips the VM, so neither writes a session record or runs

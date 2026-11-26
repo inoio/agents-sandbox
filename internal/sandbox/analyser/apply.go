@@ -11,6 +11,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/atomicwrite"
 	"github.com/inoio/agents-sandbox/internal/configdecode"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/projecttrust"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -221,19 +222,22 @@ func planWrites(finding Finding, opts ApplyOptions) ([]plannedWrite, *refusal) {
 			plans = append(plans, plannedWrite{write: write, dir: dir, secretValue: ""})
 			continue
 		}
-		// A managed-config or home-file write names no config key, so the key
-		// check below would pass it unrefused too; the branch states that.
-		// gomutants:disable-next-line EXPRESSION_REMOVE,INVERT_LOGICAL,BRANCH_IF reason="planConfigKey refuses nothing for an empty config key, so these writes reach the same plan through the fall-through"
-		if write.ManagedConfig != nil || write.HomeFile != nil {
-			plans = append(plans, plannedWrite{write: write, dir: dir, secretValue: ""})
-			continue
-		}
-		if refusal := planConfigKey(write, dir, opts); refusal != nil {
+		if refusal := planConfigWrite(write, dir, opts); refusal != nil {
 			return nil, refusal
 		}
 		plans = append(plans, plannedWrite{write: write, dir: dir, secretValue: ""})
 	}
 	return plans, nil
+}
+
+func planConfigWrite(write Write, dir string, opts ApplyOptions) *refusal {
+	if write.HomeFile != nil {
+		return planHomeFile(write.HomeFile, dir, opts)
+	}
+	if write.ManagedConfig != nil {
+		return nil
+	}
+	return planConfigKey(write, dir, opts)
 }
 
 // writeOnlyRendersText reports whether a write is declarative: it names no
@@ -436,9 +440,34 @@ func planConfigKey(write Write, dir string, opts ApplyOptions) *refusal {
 	return nil
 }
 
+func planHomeFile(home *HomeFileWrite, dir string, opts ApplyOptions) *refusal {
+	for _, scopeDir := range []string{dir, opts.Paths.ProjectConfigDir()} {
+		manifest, _, err := homeconfig.ReadHomeFromConfigDir(scopeDir)
+		if err != nil {
+			return &refusal{note: fmt.Sprintf("%s cannot be read for editing: %v", scopeDir, err), err: err.Error()}
+		}
+		for target := range manifest {
+			if filepath.Clean(target) == filepath.Clean(home.Target) {
+				return &refusal{
+					note: fmt.Sprintf(
+						"home target %s is already configured in %s; it is not replaced",
+						home.Target,
+						scopeDir,
+					),
+					err: "",
+				}
+			}
+		}
+	}
+	if err := viperconfig.ValidateSettingAt(dir, []string{"home", home.Target}, homeFileSetting(home)); err != nil {
+		return &refusal{note: fmt.Sprintf("%s cannot be edited: %v", dir, err), err: err.Error()}
+	}
+	return nil
+}
+
 // configDirEditable reports whether the config file a write would edit in dir
 // can be edited format-preservingly: a directory with no config file (a new YAML
-// file may be created) or one holding a YAML file. A JSON, JSONC, JSON5, or TOML
+// file may be created) or one holding a YAML file. A JSON, JSONC, or JSON5
 // file is not editable, so the caller skips rather than corrupt the document.
 func configDirEditable(dir string) (bool, error) {
 	// A directory with no config file reports no path, whose empty extension
@@ -588,9 +617,6 @@ func secretFilePath(dir string) string {
 	return filepath.Join(dir, configpaths.EnvSecretFileName+".yaml")
 }
 
-// executeManagedConfig writes one managed agent config file atomically, creating
-// the agent config directory. The file is world-readable (0o644) because it is
-// configuration, not a credential: the secret values in it are placeholders.
 // homeFileDir is the directory under a scope that holds its provisioned home
 // files, so the home: source stays relative to the scope's config file.
 const homeFileDir = "home"
@@ -604,12 +630,19 @@ func executeHomeFile(plan plannedWrite) error {
 		// gomutants:disable-next-line ERRORF_WRAP reason="the applier reports the error only as ApplyResult.Err text, where %w and %v render the same"
 		return fmt.Errorf("write home file %s: %w", source, err)
 	}
-	return viperconfig.WriteSettingAt(plan.dir, []string{"home", home.Target}, map[string]any{
-		"source":     filepath.ToSlash(source),
-		"keep-login": true,
-	})
+	return viperconfig.WriteSettingAt(plan.dir, []string{"home", home.Target}, homeFileSetting(home))
 }
 
+func homeFileSetting(home *HomeFileWrite) map[string]any {
+	return map[string]any{
+		"source":     filepath.ToSlash(filepath.Join(homeFileDir, home.Name)),
+		"keep-login": true,
+	}
+}
+
+// executeManagedConfig writes one managed agent config file atomically, creating
+// the agent config directory. The file is world-readable (0o644) because it is
+// configuration, not a credential: the secret values in it are placeholders.
 func executeManagedConfig(plan plannedWrite) error {
 	managed := plan.write.ManagedConfig
 	return atomicwrite.WriteFileMode(filepath.Join(plan.dir, managed.Name), managed.Content, 0o644)

@@ -155,6 +155,69 @@ func TestApplyRefusesAProjectScopeHomeFile(t *testing.T) {
 	require.Contains(t, results[0].Note, "per-slug user scope")
 }
 
+func TestApplyRefusesAnUneditableHomeConfigBeforeWriting(t *testing.T) {
+	for _, entry := range []struct {
+		name, config string
+	}{
+		{"config.json", `{}`},
+		{"config.jsonc", `{/* config */}`},
+		{"config.json5", `{}`},
+		{"config.yaml", "home: [\n"},
+		{"config.yml", "- not a mapping\n"},
+		{"config.yaml", "home: scalar\n"},
+	} {
+		t.Run(entry.name+entry.config, func(t *testing.T) {
+			configpathstest.WithMockConfigPaths(t)
+			paths := configpaths.Get()
+			dir := paths.UserSlugConfigDir(testSlug)
+			require.NoError(t, os.MkdirAll(dir, 0o700))
+			path := filepath.Join(dir, entry.name)
+			require.NoError(t, os.WriteFile(path, []byte(entry.config), 0o600))
+			ui, _ := interactiveUI()
+			results := Apply([]Finding{exposedKeyFindingFor(t, exposedCodexKey)}, ApplyOptions{
+				Paths: paths, Slug: testSlug, Agent: "codex", UI: ui, Mode: options.ModeRun,
+				SecretValue: func(SecretWrite) (string, bool) { return exposedCodexKey.Value, true },
+			})
+			require.Equal(t, OutcomeSkipped, results[0].Outcome, "%+v", results[0])
+			content, err := os.ReadFile(path)
+			require.NoError(t, err)
+			require.Equal(t, entry.config, string(content))
+			require.NoFileExists(t, filepath.Join(dir, "env.secret.yaml"))
+			require.NoDirExists(t, filepath.Join(dir, "home"))
+		})
+	}
+}
+
+func TestApplyRefusesAnExistingHomeTargetBeforeWriting(t *testing.T) {
+	for _, project := range []bool{false, true} {
+		t.Run(map[bool]string{false: "per-slug", true: "project"}[project], func(t *testing.T) {
+			configpathstest.WithMockConfigPaths(t)
+			paths := configpaths.Get()
+			slugDir := paths.UserSlugConfigDir(testSlug)
+			dir := slugDir
+			if project {
+				dir = paths.ProjectConfigDir()
+			}
+			require.NoError(t, os.MkdirAll(dir, 0o700))
+			path := filepath.Join(dir, "config.yaml")
+			original := "home:\n  ./.codex/auth.json: mine.json\n"
+			require.NoError(t, os.WriteFile(path, []byte(original), 0o600))
+			ui, _ := interactiveUI()
+			results := Apply([]Finding{exposedKeyFindingFor(t, exposedCodexKey)}, ApplyOptions{
+				Paths: paths, Slug: testSlug, Agent: "codex", UI: ui, Mode: options.ModeRun,
+				SecretValue: func(SecretWrite) (string, bool) { return exposedCodexKey.Value, true },
+			})
+			require.Equal(t, OutcomeSkipped, results[0].Outcome)
+			require.Contains(t, results[0].Note, "already")
+			content, err := os.ReadFile(path)
+			require.NoError(t, err)
+			require.Equal(t, original, string(content))
+			require.NoFileExists(t, filepath.Join(slugDir, "env.secret.yaml"))
+			require.NoDirExists(t, filepath.Join(slugDir, "home"))
+		})
+	}
+}
+
 func TestApplyRefusesAHomeFileNameThatLeavesItsDirectory(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	ui, _ := interactiveUI()

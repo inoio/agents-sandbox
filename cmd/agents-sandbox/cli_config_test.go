@@ -479,6 +479,28 @@ func TestConfigProvisionRequiresTarget(t *testing.T) {
 	}
 }
 
+func TestConfigProvisionKeepsARenewingLogin(t *testing.T) {
+	target := t.TempDir()
+	cmd, _ := setupCommandFixtures(t, cmdConfig, cmdProvision, "--"+flagTarget, target, "codex")
+	dir := configpaths.Get().UserConfigDir()
+	testutil.WriteFile(
+		t,
+		dir,
+		"config.yaml",
+		"home:\n  .codex/auth.json:\n    source: auth.json\n    keep-login: true\n",
+	)
+	testutil.WriteFile(t, dir, "auth.json", `{"auth_mode":"apikey","OPENAI_API_KEY":"placeholder"}`)
+	current := `{"tokens":{"refresh_token":"renew-me"}}`
+	testutil.WriteFile(t, configpathstest.CreateDir(filepath.Join(target, ".codex")), "auth.json", current)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(target, ".codex", "auth.json"))
+	if err != nil || string(got) != current {
+		t.Fatalf("config provision replaced the renewing login: %q, %v", got, err)
+	}
+}
+
 // TestConfigProvisionRejectsUnknownAgent pins that config provision propagates
 // an unresolvable agent rather than materializing a default's config.
 func TestConfigProvisionRejectsUnknownAgent(t *testing.T) {

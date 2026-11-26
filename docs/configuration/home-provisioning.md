@@ -76,7 +76,8 @@ Rules:
 - `keep-login: true` provisions the file on every start like any home file, except while the file in the VM holds a
   login the agent renews itself (a non-empty refresh token, such as a ChatGPT or OAuth sign-in made in the VM). That
   file is left in place, so the sign-in is not overwritten. Learn mode writes such an entry when it moves a
-  plain-text API key into a secret.
+  plain-text API key into a secret. `config provision --target` applies the same rule to the file in the target
+  directory.
 - The hook runs only when the VM is **started** — freshly created, recreated, or booted from a stopped/crashed state. It
   is **not** re-run when you attach to an already-running VM.
 - The hook's interactivity follows the launcher's terminal: when both the launcher's stdin and stdout are terminals the

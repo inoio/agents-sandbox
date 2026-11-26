@@ -121,7 +121,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 ### `reprovision/` — Reconfig and reprovision planning
 
-- `config_files.go`, `config_slug.go`, `dependency_warning.go`, `reprovision.go` — materializes the agent config-merge subject and provisions the worktree's config files
+- `config_files.go`, `config_slug.go`, `dependency_warning.go`, `reprovision.go` — materializes the agent config-merge subject and provisions the worktree's config files; `materialize.go` — host-target provisioning; `keep_login.go` — shared preservation of renewing logins for conditional home files.
 
 ### `resourceproposal/` — Raise-limit proposal and persistence
 

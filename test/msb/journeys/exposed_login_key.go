@@ -47,5 +47,8 @@ var exposedLoginKeyJourney = Journey{
 		And(StepChooseExit(exitSaveAllKey)),
 		Then(StepAssertExposedLoginKeyMoved()),
 		And(StepAssertProvisionedLoginStore()),
+		And(StepAssertRenewingLoginPreserved()),
+		When(StepResetProvisionedLoginHome()),
+		Then(StepAssertProvisionedLoginStore()),
 	},
 }

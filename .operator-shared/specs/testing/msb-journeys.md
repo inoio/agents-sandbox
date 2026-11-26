@@ -415,7 +415,9 @@ convention into an enforced gate. Reuses `internal/testutil`'s existing `TestMai
   provider's host. For codex it also asserts the keep-login `home:` entry and its placeholdered copy, and,
   through a shell client (which provisions the home on connecting), that the VM's `auth.json` now holds the
   `${OPENAI_API_KEY}` placeholder instead of the key: the learned per-slug entry outranks the journey's own
-  generic seed per target. It needs no turn and no `Learn` facts.
+  generic seed per target. A synthetic renewing login must survive the next shell's provisioning. After
+  `stop` and `volume reset --rm`, another shell must recover the placeholdered store from the same host scope.
+  These lifecycle checks apply only to codex, which has a provisioned store. The journey needs no turn and no `Learn` facts.
 
 **Assertion granularity (call).** A journey asserts the *semantic* effect, not a byte-for-byte
 golden: the credential's env-var name appears in `env.secret.yaml` with its host scoping, the managed

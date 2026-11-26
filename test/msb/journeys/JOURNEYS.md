@@ -285,4 +285,9 @@ Scenario: learn-exposed-login-key
   Then the per-slug scope holds the key as a secret
   # check
   And the VM's login store holds the placeholder, not the key
+  # check
+  And a later renewing login survives provisioning
+  When the user resets the provisioned login's home volume
+  # check
+  Then the VM's login store holds the placeholder, not the key
 ```

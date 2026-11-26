@@ -1,13 +1,10 @@
 package reprovision
 
 import (
-	"context"
 	"encoding/json"
 	"maps"
 	"slices"
 	"strings"
-
-	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
 // homeFilesToWrite returns the home files to write this start: every one,
@@ -16,15 +13,14 @@ import (
 // start; a target that is absent, unreadable, or holds no renewing login is
 // written.
 func homeFilesToWrite(
-	ctx context.Context,
-	fs msb.SandboxFS,
+	read func(string) ([]byte, bool),
 	files map[string][]byte,
 	keepLogin map[string]bool,
 ) map[string][]byte {
 	toWrite := maps.Clone(files)
 	for path := range keepLogin {
 		// An absent or unreadable target reads as no content, which holds no login.
-		current, _ := fs.Read(ctx, path)
+		current, _ := read(path)
 		if holdsRenewingLogin(current) {
 			delete(toWrite, path)
 		}

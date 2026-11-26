@@ -59,7 +59,7 @@ func Provision(ctx context.Context, sb msb.SandboxExecutor, cf *ConfigFiles) (re
 		files map[string][]byte
 		kind  string
 	}{
-		{homeFilesToWrite(ctx, fs, cf.HomeFiles, cf.KeepLogin), "home file"},
+		{homeFilesToWrite(store.read, cf.HomeFiles, cf.KeepLogin), "home file"},
 		{cf.filesBesideMainConfig(cf.Provisioned), "provisioned file"},
 		{cf.Mirror, "mirror file"},
 	}
