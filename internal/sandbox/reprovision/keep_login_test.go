@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
+	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 // apiKeyAuth is the provisioned API-key-mode store a keep-login entry writes.
@@ -69,5 +71,27 @@ func TestProvisionOverwritesAPlainHomeFileRegardlessOfItsContent(t *testing.T) {
 	}
 	if fs.Writes[authPath] == nil {
 		t.Error("a home file without keep-login was not written")
+	}
+}
+
+func TestProvisionWritesAKeepLoginTargetWhoseListHoldsNoRefreshToken(t *testing.T) {
+	if !provisionAuth(t, map[string][]byte{authPath: []byte(`{"accounts":[{"name":"a"}]}`)}) {
+		t.Error("a list without a refresh token was taken for a login")
+	}
+}
+
+func TestLoadHomeFilesMarksTheKeepLoginTargets(t *testing.T) {
+	dir := t.TempDir()
+	testutil.WriteFile(t, dir, "auth.json", "{}")
+	testutil.WriteFile(t, dir, "rc", "x")
+	testutil.WriteFile(t, dir, "config.yaml",
+		"home:\n  .codex/auth.json:\n    source: auth.json\n    keep-login: true\n  .rc: rc\n")
+
+	_, _, keepLogin, err := loadHomeFiles([]string{dir}, "/home/dev", nil, &termiotest.Mock{})
+	if err != nil {
+		t.Fatalf("loadHomeFiles: %v", err)
+	}
+	if !keepLogin["/home/dev/.codex/auth.json"] || keepLogin["/home/dev/.rc"] {
+		t.Errorf("keepLogin = %v, want only the keep-login target", keepLogin)
 	}
 }

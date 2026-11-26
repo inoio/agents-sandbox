@@ -23,8 +23,9 @@ func homeFilesToWrite(
 ) map[string][]byte {
 	toWrite := maps.Clone(files)
 	for path := range keepLogin {
-		current, err := fs.Read(ctx, path)
-		if err == nil && holdsRenewingLogin(current) {
+		// An absent or unreadable target reads as no content, which holds no login.
+		current, _ := fs.Read(ctx, path)
+		if holdsRenewingLogin(current) {
 			delete(toWrite, path)
 		}
 	}
@@ -38,9 +39,8 @@ func homeFilesToWrite(
 // recognize.
 func holdsRenewingLogin(data []byte) bool {
 	var document any
-	if json.Unmarshal(data, &document) != nil {
-		return false
-	}
+	// A failed decode leaves document nil, which holds no refresh token.
+	_ = json.Unmarshal(data, &document)
 	return containsRefreshToken(document)
 }
 
@@ -49,7 +49,8 @@ func containsRefreshToken(node any) bool {
 	switch typed := node.(type) {
 	case map[string]any:
 		for key, child := range typed {
-			if token, isString := child.(string); isString && token != "" && isRefreshTokenKey(key) {
+			// A refresh token that is not a string reads as empty: no login.
+			if token, _ := child.(string); token != "" && isRefreshTokenKey(key) {
 				return true
 			}
 			if containsRefreshToken(child) {

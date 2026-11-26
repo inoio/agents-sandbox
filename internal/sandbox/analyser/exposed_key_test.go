@@ -1,6 +1,7 @@
 package analyser
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -120,6 +121,10 @@ func TestApplySavesAnExposedCodexKeyAsASecretAndAKeepLoginHomeEntry(t *testing.T
 	require.Equal(t, OutcomeApplied, results[0].Outcome, results[0].Err)
 	require.Equal(t, 1, *answered, "the secret and the store are accepted together")
 	slugDir := cp.UserSlugConfigDir(testSlug)
+	require.Equal(t, []string{slugDir, slugDir}, results[0].WroteDirs)
+	info, statErr := os.Stat(filepath.Join(slugDir, "home", "codex-auth.json"))
+	require.NoError(t, statErr)
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "the provisioned store is private")
 	specs := envsecret.ParseSecretSpecYAML(filepath.Join(slugDir, "env.secret.yaml"), &termiotest.Mock{})
 	require.Equal(t, "sk-proj-real", specs["OPENAI_API_KEY"].Value)
 	require.Equal(t, "${OPENAI_API_KEY}", specs["OPENAI_API_KEY"].Placeholder)
@@ -164,4 +169,24 @@ func TestApplyRefusesAHomeFileNameThatLeavesItsDirectory(t *testing.T) {
 	})
 
 	require.Equal(t, OutcomeSkipped, results[0].Outcome)
+}
+
+func TestApplyFailsAHomeFileItCannotWrite(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	slugDir := cp.UserSlugConfigDir(testSlug)
+	// A file where the home/ directory belongs makes the write fail.
+	require.NoError(t, os.MkdirAll(slugDir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(slugDir, "home"), nil, 0o600))
+	ui, _ := interactiveUI()
+	//exhaustruct:ignore // only the home file matters
+	finding := Finding{Writes: []Write{{
+		Scope:    ScopePerSlugUser,
+		HomeFile: &HomeFileWrite{Target: ".codex/auth.json", Name: "codex-auth.json", Content: []byte("{}")},
+	}}}
+
+	results := Apply([]Finding{finding}, ApplyOptions{Paths: cp, Slug: testSlug, UI: ui, Mode: options.ModeRun})
+
+	require.Equal(t, OutcomeFailed, results[0].Outcome)
+	require.Contains(t, results[0].Err, "write home file home/codex-auth.json")
 }

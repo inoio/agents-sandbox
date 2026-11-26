@@ -221,6 +221,9 @@ func planWrites(finding Finding, opts ApplyOptions) ([]plannedWrite, *refusal) {
 			plans = append(plans, plannedWrite{write: write, dir: dir, secretValue: ""})
 			continue
 		}
+		// A managed-config or home-file write names no config key, so the key
+		// check below would pass it unrefused too; the branch states that.
+		// gomutants:disable-next-line EXPRESSION_REMOVE,INVERT_LOGICAL,BRANCH_IF reason="planConfigKey refuses nothing for an empty config key, so these writes reach the same plan through the fall-through"
 		if write.ManagedConfig != nil || write.HomeFile != nil {
 			plans = append(plans, plannedWrite{write: write, dir: dir, secretValue: ""})
 			continue
@@ -598,6 +601,7 @@ func executeHomeFile(plan plannedWrite) error {
 	home := plan.write.HomeFile
 	source := filepath.Join(homeFileDir, home.Name)
 	if err := atomicwrite.WriteFileMode(filepath.Join(plan.dir, source), home.Content, 0o600); err != nil {
+		// gomutants:disable-next-line ERRORF_WRAP reason="the applier reports the error only as ApplyResult.Err text, where %w and %v render the same"
 		return fmt.Errorf("write home file %s: %w", source, err)
 	}
 	return viperconfig.WriteSettingAt(plan.dir, []string{"home", home.Target}, map[string]any{

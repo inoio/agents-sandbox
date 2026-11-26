@@ -163,10 +163,12 @@ func optionalField[T any](val map[string]any, key, kind string) (T, error) {
 	var zero T
 	raw, ok := val[key]
 	if !ok {
+		// gomutants:disable-next-line RETURN_ZERO reason="zero is T's zero value, which *new(T) is too"
 		return zero, nil
 	}
 	typed, ok := raw.(T)
 	if !ok {
+		// gomutants:disable-next-line RETURN_ZERO reason="zero is T's zero value, which *new(T) is too"
 		return zero, fmt.Errorf("%s must be %s", key, kind)
 	}
 	return typed, nil
