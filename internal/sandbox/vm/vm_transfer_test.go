@@ -13,10 +13,12 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
+	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
+	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 // runningCopyHandle returns a running project VM whose sandbox exposes fs.
@@ -222,6 +224,153 @@ func TestCopyProjectFilePropagatesCopyError(t *testing.T) {
 		CopyHostToVM, "/host/patch.diff", "/workspace/patch.diff", &ui, "opencode")
 	if !errors.Is(err, cause) {
 		t.Fatalf("error = %v, want the copy failure %v", err, cause)
+	}
+}
+
+// TestCopyProjectFileRejectsAnUnknownAgent pins that copy refuses an agent name
+// that is not registered, before it resolves any identity.
+func TestCopyProjectFileRejectsAnUnknownAgent(t *testing.T) {
+	ui := termiotest.NewTestMock(t)
+	_, err := CopyProjectFile(context.Background(), configpaths.Get(), &msbtest.MockMsbClient{},
+		CopyHostToVM, "/host/a", "/workspace/a", &ui, "no-such-agent")
+	if err == nil || !strings.Contains(err.Error(), `unknown agent "no-such-agent"`) {
+		t.Fatalf("error = %v, want the unknown agent refused", err)
+	}
+}
+
+// TestCopyProjectFileErrorsWhenIdentityUnresolvable pins that a cwd whose git dir
+// cannot be resolved aborts before the legacy identity adoption could act on it.
+func TestCopyProjectFileErrorsWhenIdentityUnresolvable(t *testing.T) {
+	t.Chdir(unresolvableIdentityDir(t))
+	ui := termiotest.NewTestMock(t)
+	_, err := CopyProjectFile(context.Background(), configpaths.Get(), &msbtest.MockMsbClient{},
+		CopyHostToVM, "/host/a", "/workspace/a", &ui, "opencode")
+	if err == nil {
+		t.Fatal("succeeded with an unresolvable identity, want an error")
+	}
+}
+
+// TestCopyProjectFileAdoptionFailureFailsClosed pins the fail-closed adoption
+// wiring on copy: an unreadable legacy state aborts before the VM lookup, so a
+// first post-upgrade copy cannot act on a half-understood identity.
+func TestCopyProjectFileAdoptionFailureFailsClosed(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	t.Chdir(newOriginClone(t))
+	identity, resolveErr := git.ResolveIdentity(".")
+	if resolveErr != nil {
+		t.Fatalf("resolve identity: %v", resolveErr)
+	}
+	if identity.RepoSlug == identity.CheckoutSlug {
+		t.Fatalf("fixture must have distinct repo and checkout slugs")
+	}
+
+	legacyDir := state.KeyDir(state.Key{Slug: identity.RepoSlug, Agent: "opencode"})
+	if err := os.MkdirAll(legacyDir, 0o700); err != nil {
+		t.Fatalf("create legacy state dir: %v", err)
+	}
+	testutil.WriteFile(t, legacyDir, "state.yaml", `": [`)
+
+	ui := termiotest.NewTestMock(t)
+	_, err := CopyProjectFile(context.Background(), configpaths.Get(), &msbtest.MockMsbClient{},
+		CopyHostToVM, "/host/a", "/workspace/a", &ui, "opencode")
+	if err == nil || !strings.Contains(err.Error(), "check for a pending legacy identity") {
+		t.Fatalf("error = %v, want the fail-closed predicate error", err)
+	}
+}
+
+// TestCopyProjectFilePropagatesVMLookupError pins that a non-not-found lookup
+// failure surfaces rather than being read as an absent VM.
+func TestCopyProjectFilePropagatesVMLookupError(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	t.Chdir(t.TempDir())
+	cause := errors.New("lookup boom")
+	client := &msbtest.MockMsbClient{}
+	client.GetSandboxFn = func(context.Context, string) (msb.SandboxHandle, error) {
+		return nil, cause
+	}
+	ui := termiotest.NewTestMock(t)
+
+	_, err := CopyProjectFile(context.Background(), configpaths.Get(), client,
+		CopyHostToVM, "/host/a", "/workspace/a", &ui, "opencode")
+	if !errors.Is(err, cause) {
+		t.Fatalf("error = %v, want the lookup failure %v", err, cause)
+	}
+}
+
+// TestCopyProjectFilePropagatesConnectError pins that a connect failure surfaces.
+func TestCopyProjectFilePropagatesConnectError(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	t.Chdir(t.TempDir())
+	cause := errors.New("connect boom")
+	handle := runningCopyHandle(msbtest.NewTestFS(nil))
+	handle.ConnectErr = cause
+	client := &msbtest.MockMsbClient{}
+	client.SetGotSandbox(handle)
+	ui := termiotest.NewTestMock(t)
+
+	_, err := CopyProjectFile(context.Background(), configpaths.Get(), client,
+		CopyHostToVM, "/host/a", "/workspace/a", &ui, "opencode")
+	if !errors.Is(err, cause) {
+		t.Fatalf("error = %v, want the connect failure %v", err, cause)
+	}
+}
+
+// TestCopyProjectFileVMToHostPropagatesCopyError pins the vm-to-host copy
+// failure path (distinct from the host-to-vm one).
+func TestCopyProjectFileVMToHostPropagatesCopyError(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	t.Chdir(t.TempDir())
+	cause := errors.New("copy out boom")
+	fs := msbtest.NewTestFS(nil)
+	fs.CopyErr = cause
+	client := &msbtest.MockMsbClient{}
+	client.SetGotSandbox(runningCopyHandle(fs))
+	ui := termiotest.NewTestMock(t)
+
+	_, err := CopyProjectFile(context.Background(), configpaths.Get(), client,
+		CopyVMToHost, "/host/out.diff", "/workspace/out.diff", &ui, "opencode")
+	if !errors.Is(err, cause) {
+		t.Fatalf("error = %v, want the copy failure %v", err, cause)
+	}
+}
+
+// TestCopyProjectFileHostToVMPropagatesMkdirError pins that a failed nested
+// guest-parent creation surfaces before the copy.
+func TestCopyProjectFileHostToVMPropagatesMkdirError(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	t.Chdir(t.TempDir())
+	cause := errors.New("mkdir boom")
+	fs := msbtest.NewTestFS(nil)
+	fs.MkdirErr = cause
+	client := &msbtest.MockMsbClient{}
+	client.SetGotSandbox(runningCopyHandle(fs))
+	ui := termiotest.NewTestMock(t)
+
+	_, err := CopyProjectFile(context.Background(), configpaths.Get(), client,
+		CopyHostToVM, "/host/a", "/workspace/sub/a", &ui, "opencode")
+	if !errors.Is(err, cause) {
+		t.Fatalf("error = %v, want the mkdir failure %v", err, cause)
+	}
+}
+
+// TestCopyProjectFileHostToVMCopiesOutsideTheWorkspaceBind pins that the
+// self-copy guard only covers the /workspace bind: a guest destination outside
+// it proceeds to the transfer.
+func TestCopyProjectFileHostToVMCopiesOutsideTheWorkspaceBind(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	t.Chdir(t.TempDir())
+	fs := msbtest.NewTestFS(nil)
+	client := &msbtest.MockMsbClient{}
+	client.SetGotSandbox(runningCopyHandle(fs))
+	ui := termiotest.NewTestMock(t)
+
+	if _, err := CopyProjectFile(context.Background(), configpaths.Get(), client,
+		CopyHostToVM, "/host/patch.diff", "/tmp/out.diff", &ui, "opencode"); err != nil {
+		t.Fatalf("CopyProjectFile() error = %v", err)
+	}
+	want := msbtest.MockCopyCall{Source: "/host/patch.diff", Destination: "/tmp/out.diff"}
+	if got := fs.CopiedFromHost; len(got) != 1 || got[0] != want {
+		t.Errorf("CopiedFromHost = %+v, want [%+v]", got, want)
 	}
 }
 

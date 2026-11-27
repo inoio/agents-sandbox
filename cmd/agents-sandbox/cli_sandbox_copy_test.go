@@ -215,6 +215,14 @@ func TestCopyCommandHasAgentFlag(t *testing.T) {
 	}
 }
 
+// TestSandboxCopyUnknownAgent asserts copy rejects an unknown --agent before it
+// reaches the transfer.
+func TestSandboxCopyUnknownAgent(t *testing.T) {
+	initTestProjectDir(t)
+	cmd, _ := setupCopyConfig(t, []string{"sandbox", "copy", "--agent", "bogus", "./a", "vm:/b"}, nil)
+	assertErrContains(t, cmd.Execute(), `unknown agent "bogus"`)
+}
+
 // TestCopyUseTheConfiguredAgent pins that copy acts on the agent the launcher
 // config or AGENTS_SANDBOX_AGENT names, as stop/kill do, and that an explicit
 // --agent still wins over both.

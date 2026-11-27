@@ -109,10 +109,9 @@ func renderCopy(ui termio.UI, mode cliout.Mode, result sandbox.CopyResult, sourc
 			Destination: destination,
 		})
 	case cliout.ModeIdentifiers:
-		return nil
+		// A copy has no identifier to print.
 	case cliout.ModeTable:
 		ui.Infof("Copied %s -> %s", source, destination)
-		return nil
 	}
 	return nil
 }
