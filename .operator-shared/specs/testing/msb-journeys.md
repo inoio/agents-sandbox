@@ -363,7 +363,8 @@ gateway (disjoint from `public`), so no connection reaches a real provider (DNS 
   browser, which follows the server's redirect to the callback on the host loopback, the forwarder replays it
   into the VM, and the harness exchanges the code with its PKCE verifier (the stub issues a token only for a
   matching one, and refreshes only a refresh token it issued). The fake browser follows only a link on the
-  stub's origin.
+  stub's origin. The stub accepts only HTTP callback URIs with a loopback host and explicit port, rejecting
+  other redirect targets before returning a code.
 - **Every endpoint is on the host gateway's origin** (codex refuses an authorize endpoint on another origin); the
   opener takes that name for a remote host, and only the fake browser resolves it to the host loopback.
 - **TLS where the harness insists.** claude-code and opencode2 send OAuth credentials only over HTTPS (loopback

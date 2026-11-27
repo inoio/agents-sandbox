@@ -221,9 +221,14 @@ func (s *StubOAuthServer) register(writer http.ResponseWriter, request *http.Req
 // browser to the client's redirect_uri with a code bound to the PKCE challenge.
 func (s *StubOAuthServer) authorize(writer http.ResponseWriter, request *http.Request) {
 	query := request.URL.Query()
-	redirect, err := url.Parse(query.Get("redirect_uri"))
-	if err != nil || redirect.Scheme == "" || query.Get("code_challenge") == "" {
-		http.Error(writer, "the authorize request needs a redirect_uri and a PKCE challenge", http.StatusBadRequest)
+	redirectURI := query.Get("redirect_uri")
+	redirect, err := url.Parse(redirectURI)
+	if err != nil || query.Get("code_challenge") == "" || !isValidRedirectURI(redirectURI, redirect) {
+		http.Error(
+			writer,
+			"the authorize request needs an HTTP loopback redirect_uri with a port and a PKCE challenge",
+			http.StatusBadRequest,
+		)
 		return
 	}
 	s.mu.Lock()
@@ -238,6 +243,15 @@ func (s *StubOAuthServer) authorize(writer http.ResponseWriter, request *http.Re
 	}
 	redirect.RawQuery = back.Encode()
 	http.Redirect(writer, request, redirect.String(), http.StatusFound)
+}
+
+func isValidRedirectURI(value string, redirect *url.URL) bool {
+	// Browsers treat backslashes as URL separators, so reject them before parsing.
+	if strings.Contains(value, "\\") {
+		return false
+	}
+	return redirect.Scheme == "http" && isLoopbackHost(redirect.Hostname()) && redirect.Port() != "" &&
+		redirect.User == nil && redirect.Fragment == ""
 }
 
 // token exchanges an authorization code whose PKCE verifier matches, or a
