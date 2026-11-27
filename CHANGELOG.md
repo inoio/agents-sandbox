@@ -12,6 +12,24 @@ emptied at the next release.
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-11-27
+
+### Fixed
+
+- A host whose installed memory cannot be read no longer limits the sandbox to 0 MiB (the runtime's
+  minimum); the configured `memory` is used instead (#904).
+- Physical host memory is now detected correctly on macOS, so a sandbox is no longer limited to 512 MiB
+  regardless of the configured memory allocation (#896).
+- `stop`, `kill`, `build`, and the `volume` commands now act on the configured agent (the `agent` key or
+  `AGENTS_SANDBOX_AGENT`) when `--agent` is not passed, as `run` does, instead of always using
+  `opencode2` (#902).
+- The `pi` drop-in copy no longer copies credentials into the sandbox. It copies only the credential-free
+  files in `~/.pi/agent` (settings, keybindings, instruction files, system prompts, and the `extensions/`,
+  `skills/`, `prompts/`, and `themes/` trees); `auth.json`, `models.json`, `mcp.json`, `mcp-auth.json`, and
+  sessions stay on the host. If you relied on the copied login, log in inside the sandbox or move the key
+  to `env.secret.yaml`; copies made by earlier versions stay in an existing home volume until you delete
+  them (`rm ~/.pi/agent/auth.json ~/.pi/agent/models.json` inside the sandbox) or remove the volume (#750).
+
 ## [0.7.3] - 2026-11-18
 
 ### Added
