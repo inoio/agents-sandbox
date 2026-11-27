@@ -24,7 +24,7 @@ func provisionAuth(t *testing.T, current map[string][]byte) bool {
 		HomeFiles: map[string][]byte{authPath: []byte(apiKeyAuth)},
 		KeepLogin: map[string]bool{authPath: true},
 	}
-	if err := Provision(context.Background(), sb, cf); err != nil {
+	if err := Provision(context.Background(), sb, cf, testLogger(t)); err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
 	return fs.Writes[authPath] != nil
@@ -66,7 +66,7 @@ func TestProvisionOverwritesAPlainHomeFileRegardlessOfItsContent(t *testing.T) {
 	sb := &msbtest.MockSandbox{FSValue_: fs}
 	cf := &ConfigFiles{HomeFiles: map[string][]byte{authPath: []byte(apiKeyAuth)}}
 
-	if err := Provision(context.Background(), sb, cf); err != nil {
+	if err := Provision(context.Background(), sb, cf, testLogger(t)); err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
 	if fs.Writes[authPath] == nil {
