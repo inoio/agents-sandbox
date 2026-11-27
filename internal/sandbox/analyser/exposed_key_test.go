@@ -220,7 +220,8 @@ func TestApplyRefusesAnExistingHomeTargetBeforeWriting(t *testing.T) {
 
 func TestApplyRefusesAHomeFileNameThatLeavesItsDirectory(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	ui, _ := interactiveUI()
+	paths := configpaths.Get()
+	ui, answered := interactiveUI()
 	//exhaustruct:ignore // only the home file matters
 	finding := Finding{Writes: []Write{{
 		Scope:    ScopePerSlugUser,
@@ -228,10 +229,15 @@ func TestApplyRefusesAHomeFileNameThatLeavesItsDirectory(t *testing.T) {
 	}}}
 
 	results := Apply([]Finding{finding}, ApplyOptions{
-		Paths: configpaths.Get(), Slug: testSlug, UI: ui, Mode: options.ModeRun,
+		Paths: paths, Slug: testSlug, UI: ui, Mode: options.ModeRun,
 	})
 
 	require.Equal(t, OutcomeSkipped, results[0].Outcome)
+	require.Contains(t, results[0].Note, "not a single file name")
+	require.Contains(t, results[0].Note, "../escape.json")
+	require.Empty(t, results[0].WroteDirs)
+	require.Zero(t, *answered)
+	require.NoFileExists(t, filepath.Join(paths.UserSlugConfigDir(testSlug), "config.yaml"))
 }
 
 func TestApplyFailsAHomeFileItCannotWrite(t *testing.T) {

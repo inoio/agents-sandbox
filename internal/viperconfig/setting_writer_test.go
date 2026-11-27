@@ -58,6 +58,41 @@ func TestValidateSettingAtDoesNotWrite(t *testing.T) {
 	}
 }
 
+func TestValidateSettingAtRefusesAnEmptyDirectory(t *testing.T) {
+	t.Chdir(t.TempDir())
+	err := ValidateSettingAt("", []string{"home", ".codex/auth.json"}, "auth.json")
+	if err == nil || !strings.Contains(err.Error(), "config dir is empty") {
+		t.Fatalf("unresolved config directory: got %v, want an explicit refusal", err)
+	}
+	if _, statErr := os.Stat("config.yaml"); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("validation touched the working directory: %v", statErr)
+	}
+}
+
+func TestValidateSettingAtReportsDocumentEditErrors(t *testing.T) {
+	for _, entry := range []struct {
+		name, content, message string
+	}{
+		{"config.json", `{}`, "unsupported config file format"},
+		{"config.yaml", "home: [\n", "invalid YAML"},
+		{"config.yml", "home: scalar\n", "below a scalar"},
+	} {
+		t.Run(entry.name+entry.content, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, entry.name)
+			testutil.WritePath(t, path, entry.content)
+			err := ValidateSettingAt(dir, []string{"home", ".codex/auth.json"}, "auth.json")
+			if err == nil || !strings.Contains(err.Error(), entry.message) {
+				t.Fatalf("ValidateSettingAt: got %v, want %q", err, entry.message)
+			}
+			got, readErr := os.ReadFile(path)
+			if readErr != nil || string(got) != entry.content {
+				t.Fatalf("validation changed the config: %q, %v", got, readErr)
+			}
+		})
+	}
+}
+
 func TestWriteSettingAtReportsAWriteFailure(t *testing.T) {
 	blocker := filepath.Join(t.TempDir(), "not-a-directory")
 	testutil.WritePath(t, blocker, "unchanged")
