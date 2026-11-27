@@ -79,16 +79,11 @@ as a clean, complete prune. This design surfaces that detail; the SDK's storage 
 ### A richer `PruneReport`
 
 ```go
-// PruneEntry is one runtime-memory backing's prune outcome. Error is set when the
-// backing could not be pruned; State explains eligibility or retention.
-type PruneEntry struct {
-    Path           string
-    Kind           string
-    LogicalBytes   *uint64
-    AllocatedBytes *uint64
-    State          string
-    Error          *string
-}
+// PruneEntry mirrors msbSdk.MemoryCacheEntry field for field, renames nothing,
+// narrows nothing, and has no enum field or method, so it is the seam's
+// pure-data alias rather than a launcher struct (msb-seam.md, "Observation
+// aliases") - no projector and no register entry.
+type PruneEntry = msbSdk.MemoryCacheEntry
 
 type PruneReport struct {
     FilesRemoved           uint64
@@ -101,7 +96,8 @@ type PruneReport struct {
 
 - `translate.go` projects `Entries`/`Truncated`; the register drops those two from the
   not-modeled set (`DryRun` stays unmodeled - the caller already knows it from the request and
-  echoes it in the report's `DryRun` field).
+  echoes it in the report's `DryRun` field). `MemoryCacheEntry` needs no register: the alias
+  makes the compiler the sole field-drift guard.
 - `pruning.StorageReport` gains `Entries []PruneEntry` and `Truncated bool`; the runtime-RAM phase
   copies them through.
 - Render: the human output lists entries whose `Error != nil` as warnings and notes `Truncated`;

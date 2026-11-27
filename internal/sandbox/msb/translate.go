@@ -104,19 +104,6 @@ var (
 		"DryRun": "the caller issued the prune, so the dry-run echo adds nothing",
 	}
 
-	// pruneEntryProjected names every field of msbSdk.MemoryCacheEntry the
-	// launcher projects onto PruneEntry; pruneEntryNotModeled is empty because
-	// every field is projected.
-	pruneEntryProjected = map[string]struct{}{
-		"Path":           {},
-		"Kind":           {},
-		"LogicalBytes":   {},
-		"AllocatedBytes": {},
-		"State":          {},
-		"Error":          {},
-	}
-	pruneEntryNotModeled = map[string]string{}
-
 	// jobInfoProjected names every field of msbSdk.JobInfo the launcher
 	// projects onto JobInfo; jobInfoNotModeled is empty because every field
 	// is projected.
@@ -448,29 +435,9 @@ func pruneReportFrom(report *msbSdk.StoragePruneReport) *PruneReport {
 		FilesRemoved:           report.FilesRemoved,
 		LogicalBytesRemoved:    report.LogicalBytesRemoved,
 		PhysicalBytesReclaimed: report.PhysicalBytesReclaimed,
-		Entries:                pruneEntriesFrom(report.Entries),
+		Entries:                report.Entries,
 		Truncated:              report.Truncated,
 	}
-}
-
-// pruneEntriesFrom translates the SDK's per-backing outcomes, preserving nil as
-// nil and each optional byte count as nil when the runtime could not measure it.
-func pruneEntriesFrom(entries []msbSdk.MemoryCacheEntry) []PruneEntry {
-	if entries == nil {
-		return nil
-	}
-	out := make([]PruneEntry, len(entries))
-	for i, entry := range entries {
-		out[i] = PruneEntry{
-			Path:           entry.Path,
-			Kind:           entry.Kind,
-			LogicalBytes:   entry.LogicalBytes,
-			AllocatedBytes: entry.AllocatedBytes,
-			State:          entry.State,
-			Error:          entry.Error,
-		}
-	}
-	return out
 }
 
 // jobLogOptions translates a JobLogQuery into the SDK detached-job log filter.

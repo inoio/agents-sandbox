@@ -44,6 +44,11 @@ var (
 	_ msbSdk.ModificationConflict     = ModificationConflict{}
 )
 
+var (
+	_ PruneEntry              = msbSdk.MemoryCacheEntry{}
+	_ msbSdk.MemoryCacheEntry = PruneEntry{}
+)
+
 // TestAliasSetIsExactlyTheObservations pins exclusivity: an aliased observation
 // resolves to the SDK package, and every type the port keeps launcher-owned
 // resolves to this package. A defined type in the alias set, or an accidental
@@ -63,6 +68,7 @@ func TestAliasSetIsExactlyTheObservations(t *testing.T) {
 		"ExecFailure":              ExecFailure{},
 		"DiskCompactionDiskResult": DiskCompactionDiskResult{},
 		"ModificationConflict":     ModificationConflict{},
+		"PruneEntry":               PruneEntry{},
 	}
 	for name, value := range aliases {
 		if got := reflect.TypeOf(value).PkgPath(); got == launcherPackage {
@@ -76,7 +82,6 @@ func TestAliasSetIsExactlyTheObservations(t *testing.T) {
 		"LogEntry":                LogEntry{},
 		"SandboxModificationPlan": SandboxModificationPlan{},
 		"PruneReport":             PruneReport{},
-		"PruneEntry":              PruneEntry{},
 		"DiskCompactionResult":    DiskCompactionResult{},
 		"ExecRequest":             ExecRequest{},
 		"JobSpec":                 JobSpec{},

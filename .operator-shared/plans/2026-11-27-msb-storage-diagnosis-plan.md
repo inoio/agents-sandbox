@@ -51,7 +51,7 @@ read_if: Executing #919; touching `msb.PruneReport`/`PruneEntry`, `pruneReportFr
 
 **Interfaces:**
 - Consumes: `msbSdk.MemoryCacheEntry` (`Path`, `Kind`, `LogicalBytes *uint64`, `AllocatedBytes *uint64`, `State`, `Error *string`) and `msbSdk.StoragePruneReport.Entries`/`Truncated` (SDK v0.8.3).
-- Produces: `type PruneEntry struct { Path string; Kind string; LogicalBytes *uint64; AllocatedBytes *uint64; State string; Error *string }` in package `msb`.
+- Produces: `type PruneEntry = msbSdk.MemoryCacheEntry` in package `msb` (a pure-data alias; no projector or register).
 - Produces: `PruneReport.Entries []PruneEntry` and `PruneReport.Truncated bool`.
 - Produces (unchanged signature): `func pruneReportFrom(*msbSdk.StoragePruneReport) *PruneReport`, now projecting `Entries`/`Truncated`.
 
@@ -148,19 +148,12 @@ Expected: build failure, `report.Truncated undefined (type *PruneReport has no f
 
 - [ ] **Step 3: Implement the type, the projection, and the register edit**
 
-In `internal/sandbox/msb/storage_values.go`, add `PruneEntry` and grow `PruneReport`:
+In `internal/sandbox/msb/storage_values.go`, alias `PruneEntry` and grow `PruneReport`:
 
 ```go
-// PruneEntry is one runtime-memory backing's prune outcome. Error is set when the
-// backing could not be pruned; State explains eligibility or retention.
-type PruneEntry struct {
-	Path           string
-	Kind           string
-	LogicalBytes   *uint64
-	AllocatedBytes *uint64
-	State          string
-	Error          *string
-}
+// PruneEntry is the SDK's one-runtime-memory-backing observation: a pure-data
+// alias, since it mirrors every field with no rename or narrowing.
+type PruneEntry = msbSdk.MemoryCacheEntry
 
 // PruneReport keeps the reclaimed totals and the per-backing outcomes. The SDK's
 // DryRun echo is not surfaced: the caller issued the prune and knows it.
@@ -173,29 +166,7 @@ type PruneReport struct {
 }
 ```
 
-In `internal/sandbox/msb/translate.go`, move `Entries`/`Truncated` from `storagePruneReportNotModeled` into `storagePruneReportProjected` (leave `DryRun` in the not-modeled map with its existing reason), update the register's doc comment, and project the fields. `pruneReportFrom` gains `Entries: pruneEntriesFrom(report.Entries)` and `Truncated: report.Truncated`, plus a translator:
-
-```go
-// pruneEntriesFrom translates the SDK's per-backing outcomes, preserving nil as
-// nil and each optional byte count as nil when the runtime could not measure it.
-func pruneEntriesFrom(entries []msbSdk.MemoryCacheEntry) []PruneEntry {
-	if entries == nil {
-		return nil
-	}
-	out := make([]PruneEntry, len(entries))
-	for i, entry := range entries {
-		out[i] = PruneEntry{
-			Path:           entry.Path,
-			Kind:           entry.Kind,
-			LogicalBytes:   entry.LogicalBytes,
-			AllocatedBytes: entry.AllocatedBytes,
-			State:          entry.State,
-			Error:          entry.Error,
-		}
-	}
-	return out
-}
-```
+In `internal/sandbox/msb/translate.go`, move `Entries`/`Truncated` from `storagePruneReportNotModeled` into `storagePruneReportProjected` (leave `DryRun` in the not-modeled map with its existing reason), update the register's doc comment, and project the fields. `pruneReportFrom` gains `Entries: report.Entries` and `Truncated: report.Truncated`. `MemoryCacheEntry` itself needs no register - the alias makes the compiler the field-drift guard.
 
 - [ ] **Step 4: Run the tests and the lint**
 

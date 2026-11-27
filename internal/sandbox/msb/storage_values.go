@@ -19,16 +19,12 @@ type PruneRequest struct {
 	OlderThanSeconds uint64
 }
 
-// PruneEntry is one runtime-memory backing's prune outcome. Error is set when the
-// backing could not be pruned; State explains eligibility or retention.
-type PruneEntry struct {
-	Path           string
-	Kind           string
-	LogicalBytes   *uint64
-	AllocatedBytes *uint64
-	State          string
-	Error          *string
-}
+// PruneEntry is the SDK's one-runtime-memory-backing observation. It mirrors
+// every field with no rename or narrowing and has no enum field or method, so it
+// is an alias rather than a launcher struct: no projector and no register entry.
+// Error is set when the backing could not be pruned; State explains eligibility
+// or retention.
+type PruneEntry = msbSdk.MemoryCacheEntry
 
 // PruneReport keeps the reclaimed totals and the per-backing outcomes. The SDK's
 // DryRun echo is not surfaced: the caller issued the prune and knows it.
