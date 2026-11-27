@@ -26,6 +26,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 - `observation.go` (`Destination`/`Attribution`/`Observation`, the value-free scrubbed capture and its recorder), `proxy.go` (the `elazarl/goproxy` terminating proxy: `Start`/`Handle.Stop`/`CAPEM`/`CAFile`, per-session CA, destination and header-name recording), `proxylog.go` (bounded, value-free warning log and session-correlated handshake failures), `session.go` (`StartObservation`/`Observer`, the in-memory network overlay), `store.go` (`Save`/`Load`/`Delete`/`Prune` under `<UserStateDir>/learn/`) — the destination/credential-attribution fact source of `specs/onboarding/learn-mode/observation-channel.md`; started by `learn.Begin` before the VM is prepared.
 - `observation_test.go`, `proxy_test.go`, `proxylog_test.go`, `session_test.go`, `store_test.go` — unit tests; `channel_msb_test.go` (`//go:build msb`) — the host-only acceptance test that drives a real session through the proxy.
+- `proxy_connections.go`, `proxy_connections_test.go` — accepted-connection ownership beyond HTTP hijacking and teardown joining the tunnel workers.
 
 ### `docker/` — Docker client wrapper and guards
 

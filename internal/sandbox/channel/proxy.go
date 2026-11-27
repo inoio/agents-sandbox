@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"net"
 	"net/http"
@@ -63,7 +64,13 @@ type proxyState struct {
 	recorder *recorder
 	caFile   string
 
-	log *proxyLog
+	log            *proxyLog
+	connections    *proxyConnections
+	requestContext context.Context
+	cancelRequests context.CancelFunc
+	transport      *http.Transport
+	stopOnce       sync.Once
+	observation    Observation
 
 	mu sync.Mutex
 }
@@ -107,6 +114,9 @@ func Start(bindHost string, skipUpstreamVerify bool, openLog func() (*os.File, e
 	state := new(proxyState)
 	state.recorder = new(recorder)
 	state.caFile = caFile
+	state.requestContext, state.cancelRequests = context.WithCancel(context.Background())
+	//exhaustruct:ignore // accepted connections are registered lazily
+	state.connections = &proxyConnections{Listener: listener}
 	//exhaustruct:ignore // zero-valued counters and status flags are the initial logger state
 	state.log = &proxyLog{
 		openLog:            openLog,
@@ -120,7 +130,7 @@ func Start(bindHost string, skipUpstreamVerify bool, openLog func() (*os.File, e
 		ReadHeaderTimeout: 30 * time.Second,
 	}
 	go func() {
-		_ = state.server.Serve(listener)
+		_ = state.server.Serve(state.connections)
 	}()
 
 	return Handle{
@@ -147,6 +157,7 @@ func terminateProxy(ca tls.Certificate, state *proxyState, skipUpstreamVerify bo
 	// directly instead of honouring a host proxy environment variable.
 	proxy.Tr.Proxy = nil
 	proxy.ConnectDial = nil
+	state.transport = proxy.Tr
 	// goproxy's origin transport verifies upstream certificates by default;
 	// keep that unless the operator opted out for a host whose egress is
 	// transparently intercepted. Verification is what stops a forwarded
@@ -251,8 +262,14 @@ func (s *proxyState) onRequest(req *http.Request, ctx *goproxy.ProxyCtx) (*http.
 	ctx.UserData = destination
 	ctx.RoundTripper = goproxy.RoundTripperFunc(
 		func(roundTripReq *http.Request, roundTripCtx *goproxy.ProxyCtx) (*http.Response, error) {
+			if s.requestContext != nil {
+				requestContext, cancel := context.WithCancel(roundTripReq.Context())
+				stopCancellation := context.AfterFunc(s.requestContext, cancel)
+				context.AfterFunc(requestContext, func() { stopCancellation() })
+				roundTripReq = roundTripReq.Clone(requestContext)
+			}
 			response, err := roundTripCtx.Proxy.Tr.RoundTrip(roundTripReq)
-			if err != nil {
+			if err != nil && !s.cancelledRequest(err) {
 				s.mu.Lock()
 				s.recorder.deny(host, ip, path, protocol, port)
 				s.mu.Unlock()
@@ -261,6 +278,10 @@ func (s *proxyState) onRequest(req *http.Request, ctx *goproxy.ProxyCtx) (*http.
 		},
 	)
 	return req, nil
+}
+
+func (s *proxyState) cancelledRequest(err error) bool {
+	return s.requestContext != nil && s.requestContext.Err() != nil && errors.Is(err, context.Canceled)
 }
 
 // onResponse marks the destination of a completed request successful. A nil
@@ -301,10 +322,27 @@ func (h Handle) CAFile() string { return h.caFile }
 // stop closes the server, removes the CA file, closes the session log, and
 // returns the artefact naming the log when it holds anything. It is idempotent.
 func (s *proxyState) stop() Observation {
-	// Close is idempotent, so a second Stop needs no flag to stay a no-op.
+	s.stopOnce.Do(s.finish)
+	return s.observation
+}
+
+func (s *proxyState) finish() {
+	if s.log != nil {
+		s.log.beginShutdown()
+	}
+	if s.connections != nil {
+		s.connections.abort()
+	}
+	if s.cancelRequests != nil {
+		s.cancelRequests()
+	}
 	_ = s.server.Close()
-	// Close waits for a warning callback already in progress. That callback
-	// records the session's handshake failure before the recorder snapshot.
+	if s.connections != nil {
+		s.connections.wait()
+	}
+	if s.transport != nil {
+		s.transport.CloseIdleConnections()
+	}
 	var logResult proxyLogResult
 	if s.log != nil {
 		logResult = s.log.close()
@@ -320,7 +358,7 @@ func (s *proxyState) stop() Observation {
 	observation.UnattributedHandshakes = logResult.UnattributedHandshakes
 	observation.ProxyLogTruncated = logResult.Truncated
 	observation.ProxyLogWriteFailed = logResult.WriteFailed
-	return observation
+	s.observation = observation
 }
 
 // logger returns the state's session log, or a counting-only one for a state

@@ -1,12 +1,28 @@
 package channel
 
 import (
+	"context"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestProxyLogShutdownKeepsGenuineWarningsButDropsLocalCancellation(t *testing.T) {
+	callbacks := 0
+	log := &proxyLog{onHandshakeFailure: func(uint16, string) bool { callbacks++; return true }}
+	log.beginShutdown()
+	log.Printf(handshakeFailureWarning, int64(1), "api.example:443", net.ErrClosed)
+	log.Printf(handshakeFailureWarning, int64(1), "api.example:443", context.Canceled)
+	log.Printf(handshakeFailureWarning, int64(1), "api.example:443", errors.New("remote error: tls: bad certificate"))
+	log.Printf("unknown warning without arguments")
+	result := log.close()
+	if result.Warnings != 2 || result.UnattributedHandshakes != 0 || callbacks != 1 {
+		t.Errorf("close = %+v, callbacks=%d, want the genuine handshake and unknown warning only", result, callbacks)
+	}
+}
 
 func TestProxyLogWritesScrubbedLinesAndCountsThem(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "proxy.log")

@@ -163,6 +163,12 @@ capture (the after-run deletes that), so the after-run can name it; `Prune` expi
 whether the session finished, was cancelled, or its after-run failed. The log carries no raw request value, so it does
 not weaken invariant 3.
 
+**Stop is a completed teardown and a frozen observation.** The channel closes the listener and every accepted
+connection, including hijacked CONNECT tunnels, cancels in-flight upstream requests, and waits for the connection
+workers to complete before closing the diagnostic log and taking the observation snapshot. Pending genuine handshake
+failures reach the snapshot; socket-close and request-cancellation errors caused by shutdown do not become proxy
+warnings or policy denials. Concurrent and repeated Stop calls return the same completed observation.
+
 A destination is identified by host, IP, port, path, and protocol, so the same host reached on two ports — two
 CONNECT tunnels, say — is two entries, each with its own port and count, rather than one entry whose port is
 whichever request arrived last.

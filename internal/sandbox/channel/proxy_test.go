@@ -594,6 +594,50 @@ func TestProxyHandleExposesCAAndStopsIdempotently(t *testing.T) {
 	}
 }
 
+func TestStopCancelsAStalledUpstreamRequest(t *testing.T) {
+	started := make(chan struct{})
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		close(started)
+		<-request.Context().Done()
+	}))
+	defer upstream.Close()
+	handle, err := Start("127.0.0.1", true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer handle.Stop()
+	client := proxyClient(t, handle)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		response, err := client.Get(upstream.URL)
+		if err == nil {
+			_ = response.Body.Close()
+		}
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("request never reached upstream")
+	}
+	stopped := make(chan Observation, 1)
+	go func() { stopped <- handle.Stop() }()
+	select {
+	case observation := <-stopped:
+		if observation.ProxyWarnings != 0 {
+			t.Errorf("Stop logged its own upstream cancellation: %+v", observation)
+		}
+		for _, destination := range observation.Destinations {
+			if destination.Denied {
+				t.Errorf("Stop turned its own cancellation into a denial: %+v", destination)
+			}
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop did not cancel the stalled upstream request")
+	}
+	<-done
+}
+
 // A session that never warns reports no warnings and leaves no log, so the
 // after-run's summary does not claim a problem the clean session never had.
 func TestProxyCleanSessionReportsNoWarnings(t *testing.T) {
@@ -1008,5 +1052,125 @@ func TestStopClosesProxyListener(t *testing.T) {
 			t.Fatalf("the proxy still accepts connections at %s after Stop", handle.Addr)
 		}
 		time.Sleep(10 * time.Millisecond) //testenv:allow a negative assertion: the proxy must accept nothing after Stop
+	}
+}
+
+func openProxyTunnel(t *testing.T, handle Handle, target string) net.Conn {
+	t.Helper()
+	//testenv:allow the test dials only the proxy's freshly bound loopback listener
+	connection, err := net.DialTimeout("tcp", handle.Addr, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = connection.Close() })
+	if err := connection.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(connection, "CONNECT "+target+" HTTP/1.1\r\nHost: "+target+"\r\n\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	response, err := http.ReadResponse(bufio.NewReader(connection), nil)
+	if err != nil || response.StatusCode != http.StatusOK {
+		t.Fatalf("CONNECT response = %v, %v", response, err)
+	}
+	return connection
+}
+
+func TestStopClosesAnEstablishedTunnelAndFreezesObservation(t *testing.T) {
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+	handle, err := Start("127.0.0.1", true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer handle.Stop()
+	target := strings.TrimPrefix(upstream.URL, "https://")
+	connection := openProxyTunnel(t, handle, target)
+	pool := x509.NewCertPool()
+	pool.AppendCertsFromPEM([]byte(handle.CAPEM()))
+	secure := tls.Client(connection, &tls.Config{RootCAs: pool, ServerName: "localhost", MinVersion: tls.VersionTLS12})
+	if err := secure.Handshake(); err != nil {
+		t.Fatal(err)
+	}
+
+	first := handle.Stop()
+	_, writeErr := io.WriteString(secure, "GET /after-stop HTTP/1.1\r\nHost: "+target+"\r\n\r\n")
+	if first.ProxyWarnings != 0 {
+		t.Errorf("Stop turned a healthy idle tunnel into a proxy problem: %+v", first)
+	}
+	if writeErr == nil {
+		if response, err := http.ReadResponse(bufio.NewReader(secure), nil); err == nil {
+			_ = response.Body.Close()
+			t.Errorf("the stopped proxy still served a request: %s", response.Status)
+		}
+	}
+	if second := handle.Stop(); !reflect.DeepEqual(first, second) {
+		t.Errorf("Stop changed its snapshot: first=%+v second=%+v", first, second)
+	}
+	results := make(chan Observation, 4)
+	for range 4 {
+		go func() { results <- handle.Stop() }()
+	}
+	for range 4 {
+		if result := <-results; !reflect.DeepEqual(first, result) {
+			t.Errorf("concurrent Stop returned a different snapshot: %+v", result)
+		}
+	}
+}
+
+type gatedHandshakeLogger struct {
+	logger  goproxy.Logger
+	started chan struct{}
+	release chan struct{}
+}
+
+func (l gatedHandshakeLogger) Printf(format string, arguments ...any) {
+	if format == handshakeFailureWarning {
+		close(l.started)
+		<-l.release
+	}
+	l.logger.Printf(format, arguments...)
+}
+
+func TestStopWaitsForPendingHandshakeDiagnostics(t *testing.T) {
+	handle, err := Start("127.0.0.1", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy := handle.state.server.Handler.(*goproxy.ProxyHttpServer)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	defer func() { unblock(); handle.Stop() }()
+	proxy.Logger = gatedHandshakeLogger{logger: proxy.Logger, started: started, release: release}
+	connection := openProxyTunnel(t, handle, "127.0.0.1:443")
+	secure := tls.Client(connection, &tls.Config{ServerName: "localhost", MinVersion: tls.VersionTLS12})
+	if err := secure.Handshake(); err == nil {
+		t.Fatal("an untrusted client unexpectedly accepted the proxy CA")
+	}
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the failed handshake never reached the proxy logger")
+	}
+	stopped := make(chan Observation, 1)
+	go func() { stopped <- handle.Stop() }()
+	select {
+	case result := <-stopped:
+		unblock()
+		t.Fatalf("Stop returned before pending handshake diagnostics: %+v", result)
+	case <-time.After(50 * time.Millisecond):
+	}
+	unblock()
+	select {
+	case observation := <-stopped:
+		if observation.ProxyWarnings != 1 || destinationFor(t, observation.Destinations, ConnectProtocol).Failed != 1 {
+			t.Errorf("Stop lost the pending handshake: %+v", observation)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop did not complete after the handshake diagnostic was released")
 	}
 }

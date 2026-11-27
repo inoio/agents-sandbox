@@ -1,6 +1,9 @@
 package channel
 
 import (
+	"context"
+	"errors"
+	"net"
 	"os"
 	"sync"
 )
@@ -38,6 +41,7 @@ type proxyLog struct {
 	truncated          bool
 	writeFailed        bool
 	closed             bool
+	stopping           bool
 	result             proxyLogResult
 	onHandshakeFailure func(sessionID uint16, connectTarget string) bool
 }
@@ -58,10 +62,31 @@ func (l *proxyLog) Printf(format string, args ...any) {
 	if l.closed {
 		return
 	}
+	if l.stopping && shutdownWarning(argumentsError(args)) {
+		return
+	}
 	l.warnings++
 	l.recordHandshakeFailure(handshakeFailure, gotHandshakeSession, sessionID, connectTarget)
 	l.openOnFirstWarning()
 	l.writeLine(line)
+}
+
+func argumentsError(arguments []any) error {
+	if len(arguments) == 0 {
+		return nil
+	}
+	err, _ := arguments[len(arguments)-1].(error)
+	return err
+}
+
+func shutdownWarning(err error) bool {
+	return errors.Is(err, net.ErrClosed) || errors.Is(err, context.Canceled)
+}
+
+func (l *proxyLog) beginShutdown() {
+	l.mu.Lock()
+	l.stopping = true
+	l.mu.Unlock()
 }
 
 // recordHandshakeFailure runs under l.mu so close cannot snapshot the warning
