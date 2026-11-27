@@ -665,6 +665,36 @@ func TestSandboxOptionsOmitSDKDefaults(t *testing.T) {
 	}
 }
 
+// TestSandboxOptionsMaxDurationZeroBoundary pins the zero-is-unset rule with
+// literal bounds: WithMaxDuration(0) writes the type's zero value, so only
+// exactly 0 is indistinguishable from an omitted option. A 1ns or negative
+// bound must pass through untouched.
+func TestSandboxOptionsMaxDurationZeroBoundary(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		spec time.Duration
+		want time.Duration
+	}{
+		{"zero leaves the option unset", 0, 0},
+		{"one nanosecond passes through", time.Nanosecond, time.Nanosecond},
+		{"negative passes through", -time.Nanosecond, -time.Nanosecond},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts, err := sandboxOptions(SandboxSpec{Image: "img:1", MaxDuration: tc.spec})
+			if err != nil {
+				t.Fatalf("sandboxOptions: %v", err)
+			}
+			var cfg msbSdk.SandboxConfig
+			for _, opt := range opts {
+				opt(&cfg)
+			}
+			if cfg.MaxDuration != tc.want {
+				t.Errorf("MaxDuration = %v, want %v", cfg.MaxDuration, tc.want)
+			}
+		})
+	}
+}
+
 func TestSandboxOptionsPropagateNetworkError(t *testing.T) {
 	_, err := sandboxOptions(SandboxSpec{
 		Network: NetworkSpec{Profiles: []NetworkProfile{NetworkProfile("bogus")}},

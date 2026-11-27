@@ -241,4 +241,21 @@ func TestMockSandboxTouch(t *testing.T) {
 	if err := (&MockSandbox{TouchErr: boom}).Touch(context.Background()); !errors.Is(err, boom) {
 		t.Errorf("Touch() error = %v, want %v", err, boom)
 	}
+
+	// TouchFn takes precedence over TouchErr: its sentinel wins.
+	sentinel := errors.New("touch fn sentinel")
+	fnCalled := false
+	fn := &MockSandbox{
+		TouchErr: boom,
+		TouchFn: func(context.Context) error {
+			fnCalled = true
+			return sentinel
+		},
+	}
+	if err := fn.Touch(context.Background()); !errors.Is(err, sentinel) {
+		t.Errorf("Touch() error = %v, want the TouchFn sentinel %v", err, sentinel)
+	}
+	if !fnCalled {
+		t.Error("TouchFn was not called")
+	}
 }

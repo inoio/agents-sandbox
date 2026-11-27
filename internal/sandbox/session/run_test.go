@@ -2798,23 +2798,138 @@ func TestRunServeOnlyPassesIdleTimeoutToKeeper(t *testing.T) {
 	}
 }
 
-// TestRunDryRunVMReportsMaxLifetime pins that a configured lifetime bound is
-// reported on the would-start line's path.
+// TestRunServeOnlyLogsKeeperError pins that runServeOnly reports a keeper whose
+// stop func returned an error, so a keepalive that stopped working is visible.
+func TestRunServeOnlyLogsKeeperError(t *testing.T) {
+	boom := errors.New("keeper stop boom")
+	orig := keepVMAlive
+	keepVMAlive = func(context.Context, msb.SandboxActivity, time.Duration) func() error {
+		return func() error { return boom }
+	}
+	defer func() { keepVMAlive = orig }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	ui := &termiotest.Mock{}
+	if err := runServeOnly(
+		ctx,
+		opencodeResolved(t),
+		&msbtest.MockSandbox{},
+		ui,
+		4096,
+		90*time.Second,
+		false,
+	); !errors.Is(
+		err,
+		context.Canceled,
+	) {
+		t.Fatalf("runServeOnly = %v, want context.Canceled", err)
+	}
+	found := false
+	for _, v := range ui.VerboseCalls {
+		if strings.Contains(v, boom.Error()) {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("keeper error not logged; verbose = %v", ui.VerboseCalls)
+	}
+}
+
+// TestRunDryRunVMReportsMaxLifetime pins the positive lifetime report and its
+// literal boundary on the would-start-line's path: only a bound greater than
+// zero is reported, including the smallest one.
 func TestRunDryRunVMReportsMaxLifetime(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	ui := &termiotest.Mock{}
 	orig := prepareSandbox
 	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
 		return &fakePrepared{}, nil
 	}
 	defer func() { prepareSandbox = orig }()
 
-	opts := resolvedRunOptions(t, options.RunOptions{MaxLifetime: 2 * time.Hour})
-	if err := Run(context.Background(), opts, options.ModeSkipVM, ui); err != nil {
-		t.Fatalf("Run dry-run-vm: %v", err)
+	for _, tc := range []struct {
+		name          string
+		maxLifetime   time.Duration
+		wantSubstring string
+	}{
+		{"unset is not reported", 0, ""},
+		{"one nanosecond is reported", time.Nanosecond, "dry-run: max lifetime 1ns"},
+		{"two hours is reported", 2 * time.Hour, "dry-run: max lifetime 2h"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ui := &termiotest.Mock{}
+			opts := resolvedRunOptions(t, options.RunOptions{MaxLifetime: tc.maxLifetime})
+			if err := Run(context.Background(), opts, options.ModeSkipVM, ui); err != nil {
+				t.Fatalf("Run dry-run-vm: %v", err)
+			}
+			assertMaxLifetimeReport(t, ui.InfoCalls, tc.wantSubstring)
+		})
 	}
-	joined := strings.Join(ui.InfoCalls, "\n")
-	if !strings.Contains(joined, "dry-run: max lifetime 2h") {
-		t.Errorf("info = %v, want a max-lifetime report", ui.InfoCalls)
+}
+
+// TestShellDryRunVMReportsMaxLifetime mirrors the Run boundary on Shell's
+// dry-run-vm path: only a bound greater than zero is reported.
+func TestShellDryRunVMReportsMaxLifetime(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{}, nil
+	}
+	defer func() { prepareSandbox = orig }()
+
+	for _, tc := range []struct {
+		name          string
+		maxLifetime   time.Duration
+		wantSubstring string
+	}{
+		{"unset is not reported", 0, ""},
+		{"one nanosecond is reported", time.Nanosecond, "dry-run: max lifetime 1ns"},
+		{"two hours is reported", 2 * time.Hour, "dry-run: max lifetime 2h"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ui := &termiotest.Mock{}
+			opts := resolvedRunOptions(t, options.RunOptions{MaxLifetime: tc.maxLifetime})
+			if err := Shell(context.Background(), opts, options.ModeSkipVM, ui); err != nil {
+				t.Fatalf("Shell dry-run-vm: %v", err)
+			}
+			assertMaxLifetimeReport(t, ui.InfoCalls, tc.wantSubstring)
+		})
+	}
+}
+
+// assertMaxLifetimeReport asserts the max-lifetime line names the configured
+// value (wantSubstring is a substring of the rendered duration) when set, and
+// that no such line is emitted when wantSubstring is empty.
+func assertMaxLifetimeReport(t *testing.T, infoCalls []string, wantSubstring string) {
+	t.Helper()
+	joined := strings.Join(infoCalls, "\n")
+	if wantSubstring == "" {
+		if strings.Contains(joined, "dry-run: max lifetime") {
+			t.Errorf("info = %v, want no max-lifetime report", infoCalls)
+		}
+		return
+	}
+	if !strings.Contains(joined, wantSubstring) {
+		t.Errorf("info = %v, want %q", infoCalls, wantSubstring)
+	}
+}
+
+// TestEffectiveIdleTimeout pins the single idle-timeout default: a
+// non-positive configured timeout falls back to the default, and a positive
+// one passes through. The 1ns row is the smallest positive value, so it pins
+// the positive side of the boundary.
+func TestEffectiveIdleTimeout(t *testing.T) {
+	for _, tc := range []struct {
+		configured time.Duration
+		want       time.Duration
+	}{
+		{0, options.DefaultVMIdleTimeout},
+		{-time.Second, options.DefaultVMIdleTimeout},
+		{time.Nanosecond, time.Nanosecond},
+		{45 * time.Second, 45 * time.Second},
+	} {
+		if got := effectiveIdleTimeout(tc.configured); got != tc.want {
+			t.Errorf("effectiveIdleTimeout(%v) = %v, want %v", tc.configured, got, tc.want)
+		}
 	}
 }

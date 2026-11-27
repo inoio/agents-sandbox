@@ -1186,12 +1186,12 @@ func TestKeeperIntervalClamps(t *testing.T) {
 	for _, tc := range []struct {
 		idle, want time.Duration
 	}{
-		{0, keeperMinInterval},
-		{1 * time.Second, keeperMinInterval},
-		{2 * time.Second, keeperMinInterval},
-		{4 * time.Second, keeperMaxInterval},
-		{10 * time.Second, keeperMaxInterval},
-		{10 * time.Minute, keeperMaxInterval},
+		{0, 1 * time.Second},
+		{1 * time.Second, 1 * time.Second},
+		{2 * time.Second, 1 * time.Second},
+		{4 * time.Second, 2 * time.Second},
+		{10 * time.Second, 2 * time.Second},
+		{10 * time.Minute, 2 * time.Second},
 	} {
 		if got := keeperInterval(tc.idle); got != tc.want {
 			t.Errorf("keeperInterval(%v) = %v, want %v", tc.idle, got, tc.want)
@@ -1249,6 +1249,67 @@ func TestKeepVMAliveReturnsLastTouchError(t *testing.T) {
 	}
 	if err := stop(); !errors.Is(err, boom) {
 		t.Errorf("stop() = %v, want %v", err, boom)
+	}
+}
+
+// TestKeepVMAliveImmediateTouch pins the pre-ticker touch's error surfacing:
+// with a ticker that cannot fire during the test, the immediate touch's error
+// is what the stop func reports. A STATEMENT_REMOVE of the assignment leaves
+// the Touch call in place but drops lastErr, so the stop func would report nil.
+func TestKeepVMAliveImmediateTouch(t *testing.T) {
+	restore := swapKeeperInterval(t, time.Hour)
+	defer restore()
+
+	boom := errors.New("immediate touch boom")
+	sb := &touchRecorder{err: boom}
+	stop := keepVMAlive(context.Background(), sb, options.DefaultVMIdleTimeout)
+	touched := false
+	for range 50 {
+		if sb.touches.Load() > 0 {
+			touched = true
+			break
+		}
+		time.Sleep(time.Millisecond) //testenv:allow poll until the immediate touch lands
+	}
+	if !touched {
+		t.Fatal("keepVMAlive did not perform the immediate touch")
+	}
+	if got := sb.touches.Load(); got != 1 {
+		t.Errorf("touches = %d, want exactly the immediate touch (1)", got)
+	}
+	if err := stop(); !errors.Is(err, boom) {
+		t.Errorf("stop() = %v, want %v from the immediate touch", err, boom)
+	}
+}
+
+// TestKeepVMAliveReturnsLaterTickerError pins that a ticker touch's error is
+// what the stop func returns: a first success followed by a failing ticker
+// touch must surface the later error, so the two touch assignments cannot be
+// confused.
+func TestKeepVMAliveReturnsLaterTickerError(t *testing.T) {
+	restore := swapKeeperInterval(t, time.Millisecond)
+	defer restore()
+
+	boom := errors.New("later touch boom")
+	var calls atomic.Int64
+	sb := &msbtest.MockSandbox{TouchFn: func(context.Context) error {
+		if calls.Add(1) == 1 {
+			return nil
+		}
+		return boom
+	}}
+	stop := keepVMAlive(context.Background(), sb, options.DefaultVMIdleTimeout)
+	for range 50 {
+		if calls.Load() >= 2 {
+			break
+		}
+		time.Sleep(time.Millisecond) //testenv:allow poll until a later ticker touch lands
+	}
+	if calls.Load() < 2 {
+		t.Fatalf("keeper made %d touches, want a later ticker touch", calls.Load())
+	}
+	if err := stop(); !errors.Is(err, boom) {
+		t.Errorf("stop() = %v, want %v from the later ticker touch", err, boom)
 	}
 }
 

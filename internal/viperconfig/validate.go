@@ -359,6 +359,7 @@ func validateMaxLifetime(v *viper.Viper) error {
 		return nil
 	}
 	d := v.GetDuration(keyMaxLifetime)
+	// gomutants:disable-next-line INTEGER_INCREMENT reason="the branch only re-derives d from the key's string form via ParseHumanDuration, which parses the same string to the same 1ns GetDuration already returned (both fall through to time.ParseDuration); a non-string value is not re-parsed, so admitting d==1 is a no-op"
 	if d <= 0 {
 		if s, ok := v.Get(keyMaxLifetime).(string); ok {
 			if parsed, ok := ParseHumanDuration(s); ok {
