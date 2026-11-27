@@ -1,6 +1,6 @@
 ---
 description: Contract for detecting a project VM resource-limit hit (memory OOM and full disks) and prompting the user to raise the persisted setting, with the host terminal recovered automatically — the evidence classes (guest OOM kernel-log line, metrics headroom, in-guest probe), the threshold and re-arm, the anti-nag marker, the persistence-layer selection and env-shadow rule, and which limits apply live vs recreate.
-read_if: Working on the OOM/limit-hit detector, the disk probe or disk raise, the "raise the limit" proposal, terminal corruption after an in-VM kill, the `msb.Sandbox.Metrics`/`Logs` seam, the persistence of `memory`/`disk-size`/`workspace-quota`/`tmp-size`, the live root-disk grow, or the memory-above-boot-max recreate rule.
+read_if: Working on the OOM/limit-hit detector, the disk probe or disk raise, the "raise the limit" proposal, terminal corruption after an in-VM kill, the `msb.Sandbox.Metrics`/`Logs` seam, the persistence of `memory`/`disk-size`/`workspace-quota`/`tmp-size`, the live root-disk grow, or the memory-above-boot-max recreate rule, the MetricsStream pressure-watcher fallback, or metricsStreamStopTimeout.
 ---
 
 # Resource-limit detection and raise proposal
@@ -94,9 +94,17 @@ terminal, the un-explained session death) rather than leaving the user to diagno
 
 Three mechanisms compose; the first two run in-session, the third covers everything else.
 
-**(a) Metrics watcher during the session.** In the shared `session.runAttach` path, start a
-watcher goroutine that samples `sb.Metrics()` on an interval (default ~2 s, tunable via
-a `Session` option/seam) for the lifetime of the attach. It retains a compact summary: the
+**(a) Metrics watcher during the session.** In the shared `session.runAttach` path, start a watcher
+goroutine that subscribes to `sb.MetricsStream(ctx, interval)` (default ~2 s, the existing
+`pressureWatchInterval` seam) for the lifetime of the attach. When the stream cannot start, or yields
+no sample at all (a `Recv` error before the first sample, where the runtime's no-slot error surfaces),
+it closes the handle and falls back to polling `sb.Metrics()` at the same interval, exactly once — so a
+sandbox with no live metrics slot degrades exactly as it did before, and a mid-stream `Recv` error
+(the VM stopped) is kept without polling a dead VM. Teardown cancels the watch and waits for it only
+until a small bound, so a stream that ignores cancellation cannot block the attach. A metrics reader
+treats an absent field (`MemoryAvailableBytes`, `Upper*`) or an unknown (zero) limit as unknown, never
+as zero: the existing `MemoryLimitBytes == 0` guard keeps an unknown limit from tripping or clearing
+the threshold, and no nullable pointer is dereferenced. It retains a compact summary: the
 minimum observed memory headroom (`MemoryLimitBytes - MemoryBytes`, or `MemoryAvailableBytes` —
 confirmed on a KVM host that `MemoryBytes` is guest-in-use and `MemoryAvailableBytes` tracks it),
 the peak `MemoryBytes`/`MemoryLimitBytes` ratio, and the minimum `UpperFreeBytes` when present
