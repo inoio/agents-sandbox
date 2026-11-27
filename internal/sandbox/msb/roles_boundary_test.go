@@ -79,6 +79,7 @@ func TestCompositeMethodSetsEqualTheirRoleUnions(t *testing.T) {
 				reflect.TypeFor[SandboxJobs](),
 				reflect.TypeFor[SandboxObserver](),
 				reflect.TypeFor[SandboxLifecycle](),
+				reflect.TypeFor[SandboxActivity](),
 			},
 		},
 	}

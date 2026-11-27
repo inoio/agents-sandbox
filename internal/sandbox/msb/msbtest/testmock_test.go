@@ -224,3 +224,21 @@ func TestMockSandboxHandleMetricsAndLogs(t *testing.T) {
 		t.Fatalf("Logs() error = %v; want boom", err)
 	}
 }
+
+// TestMockSandboxTouch pins the sandbox double's Touch: it records the call and
+// returns the configured error, defaulting to success.
+func TestMockSandboxTouch(t *testing.T) {
+	var calls int
+	sb := &MockSandbox{TouchCalls: &calls}
+	if err := sb.Touch(context.Background()); err != nil {
+		t.Fatalf("Touch() error = %v, want nil", err)
+	}
+	if calls != 1 {
+		t.Errorf("TouchCalls = %d, want 1", calls)
+	}
+
+	boom := errors.New("touch boom")
+	if err := (&MockSandbox{TouchErr: boom}).Touch(context.Background()); !errors.Is(err, boom) {
+		t.Errorf("Touch() error = %v, want %v", err, boom)
+	}
+}
