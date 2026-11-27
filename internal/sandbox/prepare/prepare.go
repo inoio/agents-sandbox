@@ -19,6 +19,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
+	"github.com/inoio/agents-sandbox/internal/sandbox/hostenv"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
@@ -872,13 +873,30 @@ func liveHomeVolume(ctx context.Context, client msb.Client, k state.Key, ui term
 	return volume
 }
 
+// hostEnvDefaults is the production host-env resolver and the fallback when
+// options.Seams.HostEnvDefaults is nil. Sealed in TestMain so prepare tests
+// never read real host state; tests that assert the merge override it or the
+// seam.
+var hostEnvDefaults = hostenv.Defaults
+
+// hostEnvDefaultsFor returns the resolver for a run: the injected seam when a
+// test set one, the production default otherwise.
+func hostEnvDefaultsFor(seams options.Seams) func(scopes []configpaths.ConfigScope) map[string]string {
+	if seams.HostEnvDefaults != nil {
+		return seams.HostEnvDefaults
+	}
+	return hostEnvDefaults
+}
+
 // loadEnvFingerprints reads the host env and secret files once per run and
 // derives the VM-config fingerprints from that single read, so the persisted
 // fingerprints and the env/secrets baked into a newly created VM cannot
-// disagree.
+// disagree. The host-derived environment defaults are merged under the
+// configured values, so a configured value wins.
 func loadEnvFingerprints(opts options.RunOptions, ui termio.Logger) (envsecret.EnvSecrets, state.Fingerprints) {
 	scopes := configpaths.ConfigScopes(configpaths.Get(), opts.ConfigSlug)
 	env := envsecret.LoadEnvAndSecrets(ui, scopes, opts.AllowPlaceholderFor)
+	env.Vars = hostenv.Under(env.Vars, hostEnvDefaultsFor(opts.Seams)(scopes))
 	return env, desiredFingerprints(opts, env)
 }
 
