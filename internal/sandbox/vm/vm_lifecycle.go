@@ -286,19 +286,24 @@ func reconcileResources(ctx context.Context, handle msb.SandboxHandle, opts opti
 	}
 }
 
+var totalMemoryGiB = sysinfo.TotalMemoryGiB
+
 // BootMaxMemoryMiB is the boot-time memory maximum a project VM is created
 // with: the host's installed RAM in whole GiB. No live modification can raise
 // a VM's memory above it.
 func BootMaxMemoryMiB() uint32 {
 	//nolint:gosec // G115: physical RAM in GiB cannot overflow uint32
-	return options.ParseMemoryGiB(uint32(sysinfo.TotalMemoryGiB()))
+	return options.ParseMemoryGiB(uint32(totalMemoryGiB()))
 }
 
 // bootMemoryMiB is the memory a new project VM boots with: the configured
-// memory, clamped to the boot maximum with a warning.
+// memory, clamped to the boot maximum with a warning. A host whose RAM cannot
+// be read reports a maximum of 0, which means unknown, not none: the configured
+// memory boots as is, as the raise proposal also treats 0.
 func bootMemoryMiB(memory string, ui termio.Logger) uint32 {
 	memoryMiB := options.ParseMemory(memory)
-	if maxMiB := BootMaxMemoryMiB(); memoryMiB > maxMiB {
+	// gomutants:disable-next-line INTEGER_INCREMENT reason="the boot maximum is whole GiB (a multiple of 1024 MiB), so > 0 and > 1 agree on every value it takes"
+	if maxMiB := BootMaxMemoryMiB(); maxMiB > 0 && memoryMiB > maxMiB {
 		ui.Warnf("memory limited to %d MiB (host maximum); requested %d MiB", maxMiB, memoryMiB)
 		return maxMiB
 	}
