@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -37,4 +38,9 @@ type Seams struct {
 	// uses the production default: the launcher's stdin and stdout are both
 	// terminals.
 	HookInteractive func() bool
+	// HostEnvDefaults resolves the host facts defaulted into a project VM's
+	// environment (specs/vm/host-environment-defaults.md): the host time zone, a
+	// UTF-8 locale, and the host git commit identity. The scopes are the config
+	// scopes whose home: keys may provision a git config.
+	HostEnvDefaults func(scopes []configpaths.ConfigScope) map[string]string
 }

@@ -558,6 +558,32 @@ func TestLoadEnvFingerprintsAppliesHostDefaultsUnderEnvFileValues(t *testing.T) 
 	}
 }
 
+// TestLoadEnvFingerprintsPassesConfigScopesToHostDefaults pins that the host
+// defaults are resolved from the same config scopes the env load reads, so a
+// scope that provisions a git config can suppress the identity default.
+func TestLoadEnvFingerprintsPassesConfigScopesToHostDefaults(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+
+	var got []configpaths.ConfigScope
+	opts := options.RunOptions{
+		ConfigSlug: "widget-bbb",
+		Seams: options.Seams{
+			HostEnvDefaults: func(scopes []configpaths.ConfigScope) map[string]string {
+				got = scopes
+				return nil
+			},
+		},
+	}
+
+	ui := termiotest.NewTestMock(t)
+	loadEnvFingerprints(opts, &ui)
+
+	want := configpaths.ConfigScopes(configpaths.Get(), opts.ConfigSlug)
+	if !slices.Equal(got, want) {
+		t.Errorf("host defaults received scopes %#v, want %#v", got, want)
+	}
+}
+
 // TestPrepareSandboxBakesHostEnvDefaults pins that a host-derived default
 // reaches the created VM and the persisted fingerprint, while a configured env
 // value for the same key wins.
