@@ -31,6 +31,8 @@ func PruneStorage(
 		FilesRemoved:           report.FilesRemoved,
 		LogicalBytesRemoved:    report.LogicalBytesRemoved,
 		PhysicalBytesReclaimed: report.PhysicalBytesReclaimed,
+		Entries:                report.Entries,
+		Truncated:              report.Truncated,
 	}, nil
 }
 
