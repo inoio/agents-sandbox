@@ -80,13 +80,14 @@ provider-owned split avoids an adapter per consumer.
 - **Live stream handles.** A method-carrying handle the SDK returns is a launcher-owned interface, not
   an SDK alias: `MetricsStream(ctx, interval)` is declared on **both** `SandboxObserver` and
   `SandboxResourceControl` and returns the launcher `MetricsStream` (`Recv(ctx) (*Metrics, error)`;
-  `Close() error`), never the SDK's `*msbSdk.MetricsStreamHandle`, which has no exported constructor
-  and so cannot be stubbed. It sits on both roles because the watcher takes the live `Sandbox` (an
+  `Close() error`), never the SDK's `*msbSdk.MetricsStreamHandle`, which has no exported constructor.
+  It sits on both roles because the watcher takes the live `Sandbox` (an
   `Observer`) while `resourceproposal.DetectAndOfferMemoryRaise` is handed a persisted `SandboxHandle`,
   whose method set comes from `SandboxResourceControl`. The adapter's `realMetricsStream` wraps the SDK
-  handle and the `newMetricsStream` package seam returns the launcher interface, so a unit test
-  substitutes a fake without the native library; `realSandbox` and `realSandboxHandle` both delegate
-  through it.
+  handle, routing `Recv`/`Close` through method-expression seams (`realMetricsStreamRecv`,
+  `realMetricsStreamClose`) a unit test swaps, and the `newMetricsStream` package seam returns the
+  launcher interface, so a unit test exercises the wrapper without the native library; `realSandbox`
+  and `realSandboxHandle` both delegate through it.
 - **Target.** No production file outside `internal/sandbox/msb` imports `msbSdk`, pinned by
   `phase4_boundary_test.go` (no residue: the boundary has zero exemptions). The scan scopes to this
   module: a nested directory carrying its own `go.mod` owns its own import graph and is skipped, so

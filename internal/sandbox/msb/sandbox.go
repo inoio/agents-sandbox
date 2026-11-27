@@ -527,18 +527,24 @@ func (s realSandbox) MetricsStream(ctx context.Context, interval time.Duration) 
 }
 
 // realMetricsStream wraps the SDK handle behind the launcher MetricsStream, so
-// no SDK type crosses the seam (the SDK handle has no exported constructor and
-// so cannot itself be stubbed).
+// no SDK type crosses the seam. The SDK handle has no exported constructor, so
+// Recv and Close route through method-expression seams a unit test swaps,
+// exercising the wrapper without the native library (as realStreamHandle does).
 type realMetricsStream struct {
 	handle *msbSdk.MetricsStreamHandle
 }
 
+var (
+	realMetricsStreamRecv  = (*msbSdk.MetricsStreamHandle).Recv
+	realMetricsStreamClose = (*msbSdk.MetricsStreamHandle).Close
+)
+
 func (s realMetricsStream) Recv(ctx context.Context) (*Metrics, error) {
-	return s.handle.Recv(ctx)
+	return realMetricsStreamRecv(s.handle, ctx)
 }
 
 func (s realMetricsStream) Close() error {
-	return s.handle.Close()
+	return realMetricsStreamClose(s.handle)
 }
 
 // newMetricsStream is the SDK call as a seam returning the launcher handle, so

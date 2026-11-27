@@ -209,3 +209,37 @@ func TestRealSandboxHandleMetricsStreamDelegatesThroughSeam(t *testing.T) {
 		t.Errorf("interval = %v, want 4s", gotInterval)
 	}
 }
+
+// TestRealMetricsStreamRecvAndClose covers the wrapper's Recv and Close
+// delegation through the method-expression seams, so the adapter lines run
+// without the native library (the SDK handle has no exported constructor).
+func TestRealMetricsStreamRecvAndClose(t *testing.T) {
+	ctx := context.Background()
+	wantMetrics := &Metrics{MemoryBytes: 1 << 20, MemoryLimitBytes: 2 << 20}
+	wantRecvErr := errors.New("recv boom")
+
+	t.Run("Recv delegates", func(t *testing.T) {
+		swapSeam(t, &realMetricsStreamRecv, func(
+			_ *msbSdk.MetricsStreamHandle, _ context.Context,
+		) (*Metrics, error) {
+			return wantMetrics, wantRecvErr
+		})
+
+		got, err := (realMetricsStream{}).Recv(ctx)
+		if got != wantMetrics || !errors.Is(err, wantRecvErr) {
+			t.Fatalf("Recv() = (%v, %v); want (%v, %v)", got, err, wantMetrics, wantRecvErr)
+		}
+	})
+
+	t.Run("Close delegates", func(t *testing.T) {
+		called := false
+		swapSeam(t, &realMetricsStreamClose, func(*msbSdk.MetricsStreamHandle) error {
+			called = true
+			return nil
+		})
+
+		if err := (realMetricsStream{}).Close(); err != nil || !called {
+			t.Fatalf("Close() = %v, called=%v; want nil, true", err, called)
+		}
+	})
+}
