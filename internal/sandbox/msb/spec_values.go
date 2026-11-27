@@ -19,7 +19,7 @@ type SandboxSpec struct {
 	Ports       []PortBinding
 	Secrets     []SecretEntry
 	IdleTimeout time.Duration
-	// MaxDuration bounds the sandbox's total lifetime from creation; zero
+	// MaxDuration bounds the sandbox's uptime since its last start; zero
 	// leaves it unlimited.
 	MaxDuration  time.Duration
 	MemoryMiB    uint32

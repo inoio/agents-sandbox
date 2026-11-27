@@ -75,10 +75,10 @@ largest untapped win, and it composes with `setup-sandbox` rather than replacing
 `Touch` is adopted: the session reaper's `waitQuiescent` and `runServeOnly` hold the VM with it (`SandboxActivity`) at
 `clamp(idleTimeout/2, 1s, 2s)`, replacing the silent `sleep` exec session that relied on the idle monitor treating
 `active_exec_sessions > 0` as never-idle — an assumption v0.7.11 removed
-(`specs/vm/detached-jobs.md`, `specs/vm/lifecycle.md`). `WithMaxDuration`, the create option that bounds a VM's total
-lifetime, is adopted behind the opt-in `max-lifetime` config key (unset = unlimited, applied at creation like the idle
-timeout; `specs/vm/idle-timeout.md`), a safety net for a leaked long-lived VM. The rest of the section is settled as
-declined:
+(`specs/vm/detached-jobs.md`, `specs/vm/lifecycle.md`). `WithMaxDuration`, the create option that bounds a VM's
+uptime since its last start, is adopted behind the opt-in `max-lifetime` config key (unset = unlimited, applied at
+creation like the idle timeout; `specs/vm/idle-timeout.md`), a safety net for a leaked long-lived VM. The rest of the
+section is settled as declined:
 
 - **`Ping` — decline.** agentd readiness is implied by the sandbox status and weaker than the launcher's
   application-level probes (`docker info`, the agent health endpoint), so it says nothing the readiness waits do not.

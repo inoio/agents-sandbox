@@ -130,7 +130,8 @@ See `specs/vm/reconfig-decision.md`.
 **`ensure-vm`.** Creates, starts, recreates or reconnects the project VM, using the handle `plan-reconfig` read instead
 of looking the VM up again. Creation and recreation take the per-project `ensure-vm.lock`; starting or reconnecting to
 an existing VM takes the lock-free fast path (`resolveExistingVM`). Creation includes an optional `max-lifetime`
-total-lifetime bound (`RunOptions.MaxLifetime` → `msb.SandboxSpec.MaxDuration`); a creation first loads the runner image into msb
+bound on the VM's uptime since its last start (`RunOptions.MaxLifetime` →
+`msb.SandboxSpec.MaxDuration`); a creation first loads the runner image into msb
 unless it is cached with matching content (`createProjectVM` → `image.EnsureLoaded`), then persists the fingerprints
 (`persistConfigHashes`). Returns the boot kind. Skipped under `--dry-run-vm` (no VM, nil sandbox). See
 `specs/vm/reconfig-decision.md`, `specs/identity/sandbox-identity.md`, `specs/vm/idle-timeout.md`.

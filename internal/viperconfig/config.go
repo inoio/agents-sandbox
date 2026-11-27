@@ -44,7 +44,7 @@ type Config struct {
 	AutoStopTimeout           time.Duration `mapstructure:"auto-stop-timeout"`
 	AutoStopMaxSessionRetries int           `mapstructure:"auto-stop-max-session-retries"`
 
-	// MaxLifetime bounds a project VM's total lifetime from creation; zero
+	// MaxLifetime bounds a project VM's uptime since its last start; zero
 	// means unlimited. It is applied at creation only (no reconfig).
 	MaxLifetime time.Duration `mapstructure:"max-lifetime"`
 

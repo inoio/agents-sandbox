@@ -45,7 +45,7 @@ type RunOptions struct {
 	ConfigSlug  string
 	ReapPolicy  ReapPolicy
 	IdleTimeout time.Duration
-	// MaxLifetime bounds a project VM's total lifetime from creation; zero
+	// MaxLifetime bounds a project VM's uptime since its last start; zero
 	// means unlimited. It is a create-time option, not compared against a live
 	// VM by reconfig.
 	MaxLifetime time.Duration
@@ -140,7 +140,7 @@ type ReapPolicy struct {
 	// AutoStopOnActiveSessions, when true, behaves like "auto-stop active sessions":
 	// the VM is NOT held for in-flight agent work and stops promptly (via the msb
 	// idle timeout) even while sessions are busy. When false (default), the reaper
-	// holds the VM (keeper exec) while any session is busy or retrying below
+	// holds the VM (an SDK `Touch` keepalive) while any session is busy or retrying below
 	// MaxSessionRetries, then detaches and the idle timeout stops the VM.
 	AutoStopOnActiveSessions bool
 	// MaxSessionRetries is how many retry attempts a detach tolerates before
