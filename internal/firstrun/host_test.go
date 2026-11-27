@@ -94,9 +94,66 @@ func TestHostFilesPrunesUnselectedDirectoriesAndFiles(t *testing.T) {
 	}
 }
 
+// TestHostFilesExcludesConfigNamedFilesInsideContentTrees pins that the probe no
+// longer walks the provisioned content trees: a config-shaped file inside one (a
+// codex skill bundling config.toml, a qwen skill or command shipping
+// settings.json) is not reported as seedable setup, so the seed, which writes
+// under the config dir by base name, cannot overwrite the agent's real config
+// with it. opencode declares a broad "**" rule rather than named trees, so its
+// nested config-named files must be excluded by the broad-glob narrowing. The
+// top-level config file is still reported.
+func TestHostFilesExcludesConfigNamedFilesInsideContentTrees(t *testing.T) {
+	cases := []struct {
+		agentName string
+		topLevel  string
+		nested    []string
+	}{
+		{
+			agentName: "codex",
+			topLevel:  ".codex/config.toml",
+			nested:    []string{".codex/skills/foo/config.toml"},
+		},
+		{
+			agentName: "pi",
+			topLevel:  ".pi/agent/settings.json",
+			nested:    []string{".pi/agent/skills/foo/settings.json", ".pi/agent/extensions/foo/settings.json"},
+		},
+		{
+			agentName: "opencode",
+			topLevel:  ".config/opencode/opencode.json",
+			nested: []string{
+				".config/opencode/skills/foo/opencode.json",
+				".config/opencode/themes/mytheme.json",
+				".config/opencode/plugins/plugin.json",
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.agentName, func(t *testing.T) {
+			hostHome := t.TempDir()
+			writeHostFile(t, hostHome, tc.topLevel, "top")
+			for _, rel := range tc.nested {
+				writeHostFile(t, hostHome, rel, "nested")
+			}
+			a, ok := agent.Lookup(tc.agentName)
+			if !ok {
+				t.Fatalf("%s is not registered", tc.agentName)
+			}
+
+			files, _ := HostFiles(a, hostHome)
+
+			want := []string{filepath.Join(hostHome, filepath.FromSlash(tc.topLevel))}
+			if !slices.Equal(files, want) {
+				t.Errorf("HostFiles = %v, want only the top-level config %v", files, want)
+			}
+		})
+	}
+}
+
 // TestHostFilesFindsProvisionedConfig pins that the probe returns the host-side
-// paths of every file the agent's provision rule selects, sorted, with a
-// non-empty source hash.
+// paths of the single launcher-managed files the agent's provision rule selects,
+// sorted, with a non-empty source hash. A broad "**" rule is narrowed to the
+// rule dir's top level, so a nested file it also selects is not reported.
 func TestHostFilesFindsProvisionedConfig(t *testing.T) {
 	hostHome := t.TempDir()
 	writeHostFile(t, hostHome, ".config/widget/a.json", `{"a":1}`)
@@ -110,10 +167,9 @@ func TestHostFilesFindsProvisionedConfig(t *testing.T) {
 
 	want := []string{
 		filepath.Join(hostHome, ".config/widget/a.json"),
-		filepath.Join(hostHome, ".config/widget/nested/b.json"),
 	}
 	if !slices.Equal(files, want) {
-		t.Errorf("HostFiles = %v, want %v", files, want)
+		t.Errorf("HostFiles = %v, want the top-level config only %v", files, want)
 	}
 	if sourceHash == "" {
 		t.Error("HostFiles returned an empty source hash for non-empty host config")
@@ -359,10 +415,11 @@ func TestHostSourceHashIsStableForAKnownSet(t *testing.T) {
 	}
 }
 
-// TestSelectHostPathsExcludesSelectedDirectories pins the walk's directory
-// branch: a rule that selects a directory (so the walk descends it) must report
-// only the files under it, never the directory itself.
-func TestSelectHostPathsExcludesSelectedDirectories(t *testing.T) {
+// TestSelectHostPathsNarrowsBroadGlobToTopLevel pins the walk's broad-glob
+// narrowing: a "**" rule selects every nested file, but only the rule dir's
+// top-level files are managed, so the walk reports the top-level file and prunes
+// the nested directory rather than descending it.
+func TestSelectHostPathsNarrowsBroadGlobToTopLevel(t *testing.T) {
 	hostHome := t.TempDir()
 	writeHostFile(t, hostHome, ".config/widget/a.json", `{"a":1}`)
 	writeHostFile(t, hostHome, ".config/widget/sub/b.json", `{"b":2}`)
@@ -372,9 +429,8 @@ func TestSelectHostPathsExcludesSelectedDirectories(t *testing.T) {
 
 	want := []string{
 		filepath.Join(hostHome, ".config/widget/a.json"),
-		filepath.Join(hostHome, ".config/widget/sub/b.json"),
 	}
 	if !slices.Equal(paths, want) {
-		t.Errorf("selectHostPaths = %v, want only the files, not the selected directory %v", paths, want)
+		t.Errorf("selectHostPaths = %v, want only the top-level managed file %v", paths, want)
 	}
 }

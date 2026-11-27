@@ -57,21 +57,35 @@ release, in particular an urgent security fix, for unrelated backports. For an u
 branch); let it merge, then rerun the audit. Outstanding debt is mirrored in the pinned
 `[Tracker] Missing backports` issue.
 
-Then run `git cherry main release/<major>.<minor>` as the wrong-direction tripwire. Every commit on the
-branch must be patch-equivalent to a `main` commit; a `+` line is a branch commit `main` lacks. Three
-kinds of `+` are legitimate, not missed:
+A porter run that hits a real conflict aborts (`exit 1`, "Port it by hand and rerun") and does not
+resume, so finish that port by hand:
 
-- **a prior micro's release commit** — each shipped micro assembled a changelog and tagged the branch,
-  and that commit stays on the line. At the next micro it is in scope; one per micro is expected.
-- **an adapted port** — a conflict resolved differently, so a different patch-id.
-- **an urgent fix authored straight on the branch** — permitted, but debt to clear by getting its
-  patch onto `main`.
+- Resolve and `git cherry-pick --continue`; the `-x` trailer is kept.
+- A source commit may be **main-only** — it touches a subsystem the line does not carry, or the fix's
+  own message says it was kept out so the pick stays clean. `git cherry-pick --skip` it; the audit's
+  `missing:<n>` is a patch-id count, not a target, and a merged backport PR that references the fix
+  clears the finding even when its patch-id differs.
+- Push the branch, open the PR with the porter's shape (`--base release/<major>.<minor>`, one line per
+  ported commit, `Backport of #<n>.`), rename the carried `changelog.d/<source number>.*.md` to the
+  backport PR's number, append a `Backport of #<n> to the <line> line.` line, and push that second
+  commit.
+
+Then run `git cherry main release/<major>.<minor>` as the wrong-direction tripwire. Every commit on the
+branch must be patch-equivalent to a `main` commit; a `+` line is a branch commit `main` lacks. A
+mature line prints many `+` lines, not one per micro, and each falls into one of four classes:
+
+- **a prior micro's release commit** — `chore(release): promote <x>.<y>.<z>`, one per shipped micro.
+- **a porter fragment-rename commit** — `chore(changelog): name the backported fragment for this PR`,
+  one per backport PR, branch-local by the porter's design.
+- **an adapted port** — a conflict resolved differently, or a test seam adapted, so a different
+  patch-id.
+- **a fix or test commit authored straight on the branch** — permitted, but debt to clear by getting
+  its patch onto `main`.
 
 Surface each `+` line for the maintainer to confirm "adapted, not missed" and proceed.
 
 Completion: the audit is clean (or the maintainer chose to ship without the outstanding backports), and
-every `+` line is accounted for as a prior micro's release commit, an adapted port, or known branch
-debt.
+every `+` line is accounted for as one of the four classes above.
 
 ### 1. Curate the changelog
 
@@ -102,10 +116,17 @@ top to bottom.
 
 Run `make check` and confirm it passes.
 
-Run `make test-hermetic` and confirm it passes. It is the strict hermetic envelope (a temp copy, a scrubbed
-environment, the sentinel pass, and a loopback-only network namespace; needs Linux unprivileged user
-namespaces). The tag-triggered `hermetic` CI job runs the same envelope and gates the release
-(`release.needs`), so a red envelope refuses to publish.
+Run `make test-hermetic` and confirm it passes on `main`. It is the strict hermetic envelope (a temp copy, a
+scrubbed environment, the sentinel pass, and a loopback-only network namespace; needs Linux unprivileged user
+namespaces).
+
+A micro tags an older line, which cannot inherit this: `make test-hermetic` **fails on `release/0.7`** — its
+strict netns tier reads files a `chmod` should deny, because the permission fixtures were repaired on `main`
+after that line was cut and the line's `ci.yml` carries no `hermetic` job. Whether the envelope gates the
+release is the **tagged line's** `release.needs`, not a constant (`main`:
+`[tag-guard, lint, test, integration, integration-podman, hermetic]`; `release/0.7`:
+`[lint, test, integration, integration-podman]`). So on an older line a red local envelope is expected, not a
+release blocker — that line's tag CI is the authority.
 
 Confirm the last `fuzz` workflow run on `main` is green (`gh run list --workflow=fuzz.yml --branch main --limit 1`), or
 dispatch one (`gh workflow run fuzz.yml -f fuzztime=15m`) and wait for it. It runs nightly and on merges that touch the
@@ -126,8 +147,9 @@ the mutant with `// gomutants:disable <TYPE> reason="..."` — and leave one you
 debt, not a release blocker. If you do strengthen tests, that is the one write in steps 1-4: nothing
 reaches a remote until step 5.
 
-Completion: `make check` green, `make test-hermetic` green, the last `main` fuzz run green, and the
-host-only integration and harness-smoke steps run or noted for the maintainer.
+Completion: `make check` green, `make test-hermetic` green on `main` (noted as expected-red on an older
+line), the last `main` fuzz run green, and the host-only integration and harness-smoke steps run or noted
+for the maintainer.
 
 ### 3. Choose a version
 
@@ -179,7 +201,12 @@ content.
 `main` merges through a queue and repo auto-merge is disabled, so `gh pr merge` is refused. Enqueue
 the PR with the `enqueuePullRequest` GraphQL mutation once its required checks have passed (the
 mutation fails until they do), or have the maintainer click "Merge when ready". The queue re-runs the
-required checks on the combined tree before it merges.
+required checks on the combined tree before it merges. `scripts/enqueue-pr.sh` wraps that wait-and-enqueue.
+
+A `release/<major>.<minor>` PR has no queue: merge it directly with `gh pr merge <n> --merge` once its
+required checks pass. A required check the changeset makes inert reports **skipped** — its conclusion is
+`SKIPPED`, and it still satisfies the gate — so a wait loop must accept `SKIPPED` (or watch
+`mergeStateStatus`), not demand `SUCCESS` from every required context.
 
 ### 7. Create the release branch and push the tag
 
@@ -238,7 +265,8 @@ On any release:
 
 On major/minor releases (from `main` branch):
 
-- `make upgrade-deps`, push any `go.mod`/`go.sum` changes to PR
+- `make upgrade-deps`, push any `go.mod`/`go.sum` changes to PR — but hold the microsandbox SDK on its
+  current v0.7 line (crossing into v0.8 is source-breaking and needs the `msb-seam` migration first)
 - Bump the non-Go tool versions per [NON-GO-DEPS.md](NON-GO-DEPS.md), push to PR
 
 Completion: the bumps are on `main` (or found unnecessary), and the tagged branch's `[Unreleased]`/`changelog.d/`

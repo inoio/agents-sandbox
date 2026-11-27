@@ -4,6 +4,8 @@ import (
 	"context"
 	"path/filepath"
 	"strings"
+
+	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 )
 
 // claudeCodeName is the canonical registry name of the claude-code agent.
@@ -41,9 +43,15 @@ func (claudeCodeProfile) VMConfigPath(home string) string {
 }
 func (claudeCodeProfile) ConfigFileNames() []string { return []string{settingsFileName} }
 
+// ProvisionRules copies settings.json and the user-authored instruction files:
+// CLAUDE.md and the commands, agents, and skills trees. settings.json can hold
+// keys in its env block; the drop-in is opt-in with that consent. The
+// .credentials.json login and the runtime state are not copied.
 func (claudeCodeProfile) ProvisionRules() []ProvisionRule {
 	return []ProvisionRule{
-		{Dir: ".claude", Patterns: []string{settingsFileName}},
+		{Dir: ".claude", Patterns: []string{
+			settingsFileName, claudeRulesPattern, commandsDirPattern, agentsDirPattern, skillsDirPattern,
+		}},
 	}
 }
 
@@ -57,6 +65,18 @@ func (claudeCodeProfile) ReadBackPaths() []string {
 
 func (claudeCodeProfile) CredentialProbes() []string { return nil }
 
+// StateDefaults pre-accepts Claude Code's folder-trust question for the
+// workspace in ~/.claude.json, its state file: the user chose the directory on
+// the host, and the VM is the isolation boundary.
+func (claudeCodeProfile) StateDefaults() []StateDefault {
+	return []StateDefault{{
+		Path: ".claude.json",
+		Keys: map[string]any{"projects": map[string]any{
+			mounts.WorkspaceMountPath: map[string]any{"hasTrustDialogAccepted": true},
+		}},
+	}}
+}
+
 func (claudeCodeProfile) AttachCommand(_ string, args []string) string {
 	parts := []string{"claude"}
 	parts = append(parts, shellQuoteArgs(args)...)
@@ -66,4 +86,10 @@ func (claudeCodeProfile) AttachCommand(_ string, args []string) string {
 func (claudeCodeProfile) VersionCmd() string { return "claude --version" }
 func (claudeCodeProfile) ParseVersion(stdout string) (string, error) {
 	return extractSemverFromOutput(stdout)
+}
+
+// InstructionPaths declares the credential-free files the host seed copies:
+// the global CLAUDE.md and the command, subagent, and skill trees.
+func (claudeCodeProfile) InstructionPaths() []string {
+	return []string{claudeRulesFileName, commandsDirName, agentsDirName, skillsDirName}
 }

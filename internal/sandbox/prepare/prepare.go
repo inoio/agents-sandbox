@@ -519,7 +519,7 @@ func planReconfigStage(
 	reprovision.WarnUnprovisionedDependencies(
 		session.agent, configFiles, mounts.MountTargets(opts.Mounts), provisionHostConfig(opts), ui,
 	)
-	live, err := readLiveProjectVM(ctx, home.client, session.key, configFiles.Keys, ui)
+	live, err := readLiveProjectVM(ctx, home.client, session.key, configFiles.ComparedPaths(), ui)
 	if err != nil {
 		return reconfigPlan{}, err
 	}
@@ -544,7 +544,7 @@ func planReconfigStage(
 	}
 	decision, err := resolveReconfigDecision(
 		ctx, home.volumes, session.key, opts, imageInfo, home.homeVolume, home.homeState, configFiles,
-		home.env, live, ui,
+		home.env, live, homeVolumePolicy(paths, opts, session.key, skipVM), ui,
 	)
 	if err != nil {
 		return reconfigPlan{}, err

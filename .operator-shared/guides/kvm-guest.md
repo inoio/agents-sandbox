@@ -1,6 +1,6 @@
 ---
-description: The host-only libvirt KVM guest for running the msb test suites and an agent that works on this repo - why the development VM cannot run them, the `scripts/kvm-guest.sh` provisioner and its `make kvm-up`/`kvm-sync`/`kvm-prime`/`kvm-run`/`kvm-agent`/`kvm-agent-provision`/`kvm-down` targets, the disk-backed reuse root the guest pre-creates, the nested-KVM prerequisites, and the volatile host-firewall fix guest egress needs.
-read_if: Running the msb suites (`make test-msb`, `make test-msb-journeys`) and needing a KVM host; running an agent (opencode2) on the guest so it can build the launcher and drive real VMs (`make kvm-agent`, `make kvm-agent-provision`); provisioning or destroying the libvirt guest; priming the guest's runner-image/msb cache from the host (`make kvm-prime`) or diagnosing a `prime` that copies nothing; diagnosing a guest that never gets a DHCP lease, a `virsh start` `Permission denied` on the cache (AppArmor), or no DNS/egress behind Docker's `ip filter` table; or changing `scripts/kvm-guest.sh`.
+description: The host-only libvirt KVM guest for running the msb test suites and an agent that works on this repo - why the development VM cannot run them, the `scripts/kvm-guest.sh` provisioner and its `make kvm-up`/`kvm-sync`/`kvm-prime`/`kvm-run`/`kvm-agent`/`kvm-agent-provision`/`kvm-sync-back`/`kvm-pause`/`kvm-down` targets, the shared-across-worktrees guest and its state-derived branch lock, the host git remote the guest pulls from and pushes to over a `git-shell`-restricted key, the disk-backed reuse root the guest pre-creates, the nested-KVM prerequisites, and the volatile host-firewall fix guest egress needs.
+read_if: Running the msb suites (`make test-msb`, `make test-msb-journeys`) and needing a KVM host; running an agent (opencode2) on the guest so it can build the launcher and drive real VMs (`make kvm-agent`, `make kvm-agent-provision`); provisioning, pausing, or destroying the libvirt guest; handing the shared guest between branches or diagnosing an `in use by branch` refusal, an `owner label` message, or an unexpected `domstate`; priming the guest's runner-image/msb cache from the host (`make kvm-prime`) or diagnosing a `prime` that copies nothing; diagnosing a guest that never gets a DHCP lease, a `virsh start` `Permission denied` on the cache (AppArmor), or no DNS/egress behind Docker's `ip filter` table; the guest's host git remote (`make kvm-sync`, guest `git push`, the `git-shell`-restricted key) or a sync that refuses; or changing `scripts/kvm-guest.sh`.
 ---
 
 # The KVM guest for the msb suites
@@ -20,19 +20,22 @@ the guest; the suites then build the launcher there and drive it directly.
 - Nested virtualization enabled (for example `options kvm-amd nested=1` and a reboot). `up` checks this and refuses to
   build a guest that would not have KVM.
 - The libvirt `default` network.
+- An `sshd` the guest can reach at the bridge gateway, and `git-shell` on the host (part of `git`). The guest's git
+  remote is the host, reached over SSH, so `make kvm-sync` fails with a diagnostic when either is missing.
 
 ## Workflow
 
 ```console
 make kvm-up                 # create + boot the guest; cloud-init provisions it on first boot
 make kvm-ssh                # a shell in the guest (or: scripts/kvm-guest.sh ssh)
-make kvm-sync               # rsync this checkout into ~/agents-sandbox in the guest
+make kvm-sync               # point the guest's git at the host and pull its branch
 make kvm-prime              # copy the host's built runner images + msb home into the guest
 make kvm-run                # run KVM_RUN (default: make test-msb-in-vm) in the guest
 make kvm-run KVM_RUN='make test-msb'          # the host variant, unchanged
 make kvm-run KVM_RUN='make test-msb-journeys'
+make kvm-pause              # pause the guest and hand it to another branch (disk kept)
 make kvm-down               # destroy the guest and its disk (the base image stays cached)
-make kvm-agent-up           # one command: ensure up + cloud-init + sync + provision + attach (gh sign-in from GITHUB_PAT)
+make kvm-agent-up           # one command: ensure up + cloud-init + pull + provision + attach (gh sign-in from GITHUB_PAT)
 ```
 
 `make kvm-run` defaults to `make test-msb-in-vm`, the in-guest variant of `make test-msb`: the same caching
@@ -53,15 +56,57 @@ on the guest that is not vCPU-capped with `--cpus` — can make a harness miss i
 `up` prints the guest's SSH address and a next-steps checklist; cloud-init takes a few minutes on first boot. Once it
 is done, gate the guest (`ls -la /dev/kvm`, `msb doctor`) before running a suite. `up` waits up to `KVM_BOOT_TIMEOUT`
 seconds (default 300) for a DHCP lease, printing progress, and warns with diagnostics if none arrives. `scripts/kvm-guest.sh render` writes
-the cloud-init seed and domain XML under `ARTIFACT_DIR` (default `./.kvm-guest`) without booting, useful to inspect
+the cloud-init seed and domain XML under `ARTIFACT_DIR` (default `$KVM_IMAGE_CACHE/guest`) without booting, useful to inspect
 before `up`. Env overrides (`VM_NAME`, `VM_VCPUS`, `VM_MEMORY_MIB`, `VM_DISK_GIB`, `VM_USER`, `REPO_URL`,
-`REPO_BRANCH`, `GO_VERSION`, `SSH_PUBKEY`, `SOURCE_DIR`, `LIBVIRT_URI`, `UBUNTU_CODENAME`, `IMAGE_URL`,
-`ARTIFACT_DIR`, `KVM_IMAGE_CACHE`, `KVM_REFRESH_IMAGE`, `KVM_BOOT_TIMEOUT`) are documented in the script header.
+`REPO_BRANCH`, `GO_VERSION`, `SSH_PUBKEY`, `KVM_HOST_USER`, `KVM_GUEST_STATE`, `LIBVIRT_URI`, `UBUNTU_CODENAME`,
+`IMAGE_URL`, `ARTIFACT_DIR`, `KVM_IMAGE_CACHE`, `KVM_REFRESH_IMAGE`, `KVM_BOOT_TIMEOUT`) are documented in the script
+header.
 
 cloud-init also creates `/opt/asb-reuse`, owned by the guest user, for the msb suites' standing reuse root: `make
 test-msb` caches 10+ GiB of runner images under `MSB_REUSE_ROOT` (default `/opt/asb-reuse`), while the guest's `/tmp`
 is a RAM-backed tmpfs that would exhaust at the largest runner image. See
 `.operator-shared/specs/testing/harness-smoke-tests.md`.
+
+### Sharing the guest across worktrees
+
+Every worktree resolves to the **same** guest: `VM_NAME` is the constant `asb-kvm`, and its disk, seed, and domain XML
+live in one host-global `ARTIFACT_DIR` (default `$KVM_IMAGE_CACHE/guest`), never in `$PWD`. So worktrees no longer each
+grow an 80 GiB overlay, and `make kvm-sync` swaps whichever checkout you are in into the one guest.
+
+Because one guest serves every branch, its **domain state is the lock**: `running` means a branch holds it, `paused` or
+`pmsuspended` (a host suspend/resume), or absent means it is free. The holding branch is named in
+`$ARTIFACT_DIR/$VM_NAME.owner`. `up`, `sync`, `prime`, `run`,
+`agent`, `agent-up`, and `agent-provision` all acquire first — idempotent for the branch that already holds it, and
+refused, by name, for any other:
+
+```console
+$ make kvm-sync                               # on branch B while branch A holds the guest
+error: guest 'asb-kvm' is in use by branch 'A'. Hand it over with '… pause' (keeps the disk) or '… down' (destroys it).
+```
+
+`make kvm-pause` (`virsh suspend`) is the hand-off: it releases the lock but keeps the disk, so the next branch's
+`up`/`sync`/`run` **resumes** rather than rebuilds. `make kvm-down` releases too and destroys the disk. Because the lock
+is the `running` state, a dropped SSH that leaves the tmux agent alive keeps the guest held; and `pause` freezes that
+session, so hand over only once the agent is done.
+
+The owner key is the branch name, so a checkout whose branch cannot be resolved — a detached HEAD, or a directory git
+does not recognize — **cannot acquire**; check out a branch or set `REPO_BRANCH` explicitly. The artifacts path is
+host-global, so two separate clones of this repository on one host resolve to the same guest: keep them off the
+same-named branch, or give one a distinct `VM_NAME`/`ARTIFACT_DIR`. Whether the guest is *defined* is proven from
+`virsh list --all --name`, and a state query that cannot reach libvirt is **fatal**: `up` and `pause` fail closed rather
+than mistake an unreachable guest for an absent one and drop the owner label.
+
+A host that already had a guest **before** this change is not migrated. Its domain was defined against the old
+per-worktree `$PWD/.kvm-guest/asb-kvm.qcow2`, and `up` only runs `create` when *no* domain is defined, so it
+resumes/starts that existing domain at the old path instead of redefining it into `ARTIFACT_DIR`; `down` then removes
+the domain and the *new* artifact paths, leaving the old 80 GiB overlay behind. Reclaim it once, after `make kvm-down`:
+
+```console
+rm -f <old-worktree>/.kvm-guest/asb-kvm.qcow2   # plus -seed.img/-user-data/-meta-data/.xml if present
+```
+
+The next `make kvm-up` then builds a fresh guest under `ARTIFACT_DIR`. Re-defining a live domain onto a new disk source
+is not done automatically: it is rare, one-time, and not worth the risk of touching a running guest.
 
 ### Priming the guest from the host
 
@@ -79,7 +124,8 @@ nothing is reused. Host and guest must also share the CPU architecture and the m
 the host's cache first (`make test-msb` on the host), and prime before a run, never while a run is using the home.
 
 The base cloud image is cached in `KVM_IMAGE_CACHE` (default
-`/var/lib/libvirt/images/agents-sandbox`), **outside** `ARTIFACT_DIR`: only the first `up` fetches it, `down` leaves it
+`/var/lib/libvirt/images/agents-sandbox`), and the guest's own disk, seed, and domain XML live in `ARTIFACT_DIR`
+(default `$KVM_IMAGE_CACHE/guest`) inside that same tree: only the first `up` fetches the base image, `down` leaves it
 in place, and every worktree of a bare checkout reuses the one copy. The default is libvirt's own image dir because
 libvirt runs QEMU as its own user (`libvirt-qemu`) and, on Debian/Ubuntu, confines it with AppArmor to paths libvirt
 knows about — a qcow2 backing file under `$HOME` is denied even at `0644` in a `0755` dir (see below). Create the dir
@@ -131,23 +177,24 @@ version as the dev image), and the repo's `shellcheck` / `Makefile`-pinned `gola
 `make check`.
 
 ```console
-make kvm-sync              # the checkout, so the guest has the `config provision` command
+make kvm-sync              # pull the checkout from the host, so the guest has the `config provision` command
 make kvm-agent-provision   # materialize the agent config into the guest home
 make kvm-agent             # attach the agent session
 ```
 
 The one-command path is `make kvm-agent-up`: it ensures the guest is running (idempotent — a created, stopped, or
-running guest all work), waits for cloud-init, syncs the checkout, materializes the config, and attaches, reading
-`LITELLM_API_KEY` from the host environment (extend the credential set with `KVM_AGENT`). It fails fast when the key
-is unset. When the agent's tmux session is already running, it **reattaches without syncing** — `kvm-sync` is one-way
-and `--delete`s — so re-running it to recover a dropped connection cannot overwrite the live agent's work. The three
-commands above stay for manual control.
+running guest all work), waits for cloud-init, pulls the host branch into the guest, materializes the config, and
+attaches, reading `LITELLM_API_KEY` from the host environment (extend the credential set with `KVM_AGENT`). It fails
+fast when the key is unset. When the agent's tmux session is already running, it **reattaches without syncing** — the
+pull would check out the host branch and disturb the live session — so re-running it to recover a dropped connection
+cannot overwrite the live agent's work. The three commands above stay for manual control.
 
 `make kvm-agent-up` also signs the guest's `gh` in to GitHub when `GITHUB_PAT` is set in the host environment: it runs
-`gh auth login --with-token` over ssh **stdin** (the token never reaches a command line), then `gh auth setup-git` and
-the SSH→HTTPS `url.*.insteadOf` rewrites. The agent can then read and comment on issues and PRs and push branches or
-open PRs; unset `GITHUB_PAT` to skip it. A guest booted before `gh` was installed fails the sign-in loudly — rebuild it
-with `make kvm-down && make kvm-up`.
+`gh auth login --with-token` over ssh **stdin** (the token never reaches a command line), then `gh auth setup-git`. The
+agent can then read and comment on issues and PRs; unset `GITHUB_PAT` to skip it. The guest's git remote is the host,
+not GitHub, so the guest does not push to GitHub and no GitHub `insteadOf` rewrite is set up — `gh`'s remote-based repo
+inference sees the host, so pass `--repo <owner/repo>` or set `GH_REPO`. A guest booted before `gh` was installed fails
+the sign-in loudly — rebuild it with `make kvm-down && make kvm-up`.
 
 `make kvm-agent-provision` runs the launcher's own `config provision` **in the guest** — so it writes exactly the
 config a sandbox would receive (merged snippets, verbatim mirror, host drop-in, home files), reusing the launcher's
@@ -157,7 +204,7 @@ own agent config (`opencode.jsonc` → `AGENTS.md`, `.agents/skills/`, `.operato
 directory, not provisioned. It also gives the guest the host's git identity — only `user.name` and `user.email`, not the
 rest of the host's `~/.gitconfig` (credential helpers, aliases, signing config) — so the agent commits as the host user;
 a host with neither key keeps the guest's own identity. Because this rewrites the guest's identity file, running
-`make kvm-agent-provision` **after** a `kvm-agent-up` sign-in drops gh's git configuration (credential helper, rewrites);
+`make kvm-agent-provision` **after** a `kvm-agent-up` sign-in drops gh's git configuration (its credential helper);
 re-run `make kvm-agent-up` to restore it.
 
 `make kvm-agent` allocates a TTY and runs the agent inside a named `tmux` session (`KVM_AGENT_SESSION`, default
@@ -174,19 +221,32 @@ process list and shell history. The GitHub token is the exception: `make kvm-age
 `GITHUB_PAT` over ssh stdin, so it never reaches a command line. The `KVM_AGENT` command is embedded in a nested shell
 string, so it must not contain a single quote, double quote, backslash, dollar sign, or backtick.
 
-The guest checkout is the agent's own: it commits and creates worktrees there. `make kvm-sync` is one-way and `--delete`s,
-so do not run it over a live agent session. It excludes the `.git` entry itself (not just a `.git/` directory): the host
-checkout may be a linked worktree whose `.git` is a file recording a relative `gitdir: ../.git/worktrees/<name>`, which a
-directory-only pattern would not match — copying it over the guest's real `.git` directory would leave every launcher
-command in the guest unable to resolve the project identity.
+The guest checkout is the agent's own: it commits and creates worktrees there.
 
-Work returns to the host with `make kvm-sync-back`. By default it fetches every guest branch into the
-`refs/remotes/kvm-guest/*` namespace, so each is reachable as `kvm-guest/<name>` without touching a local branch; `BRANCH=<name>`
-instead fetches one branch into the local branch of the same name (fast-forward only). A branch checked out here refuses
-the fetch — updating the ref without the working tree would make the next commit silently revert it — so update such a
-branch by merging the namespace ref (`git merge kvm-guest/<name>`). The guest pushes only when `make kvm-agent-up`
-signed `gh` in with a `GITHUB_PAT` (then `gh` and a push over the HTTPS remote authenticate); without a PAT it does not,
-and `kvm-sync-back` stays the return path either way.
+### Git transport
+
+The guest's git remote is the **host repository**, not GitHub. The host generates one ed25519 key
+(`KVM_GUEST_STATE/id_kvm_guest`, default under `$XDG_STATE_HOME/agents-sandbox/kvm-guest` — host-global, so a guest
+rebuild reuses it instead of accumulating `authorized_keys` lines), authorizes its public half in the host's
+`~/.ssh/authorized_keys` restricted to `git-shell`, and installs the private half in the guest. A
+`url."ssh://<host-user>@<gateway><repo-path>".insteadOf <repo-url>` rewrite then routes the guest's single `origin`
+remote — the clone the boot made — to the host, reached at the bridge gateway over the guest→host SSH. The rewrite lives
+in the guest **repository** config (`~/agents-sandbox/.git/config`), not `~/.gitconfig`, so `make kvm-agent-provision`
+(writes only the host git name/email into `~/.gitconfig`) does not wipe it. `make kvm-sync` applies that setup and pulls:
+`git fetch origin --prune`, switch to the host branch, `git merge --ff-only`. Uncommitted host work is not copied; a
+diverged guest branch refuses rather than being reset.
+
+The agent pushes its branches straight to the host with plain `git push` (the guest sets `push.autoSetupRemote`, so a
+new branch's first push creates it on the host and sets its upstream), and the host's worktrees see them without a
+fetch. A branch checked out in a host worktree is refused (`branch is currently checked out`), so the host's current
+branches stay protected and integration stays a host-side merge. `make kvm-sync-back` remains the host-initiated
+fallback: by default it fetches every guest branch into the `refs/remotes/kvm-guest/*` namespace, so each is reachable
+as `kvm-guest/<name>` without touching a local branch; `BRANCH=<name>` instead fetches one branch into the local branch
+of the same name (fast-forward only), and a branch checked out here refuses the fetch — update it by merging the
+namespace ref (`git merge kvm-guest/<name>`).
+
+**Known limitation:** the `git-shell` key confines the *command*, not the *path* — a git-shell session reaches any
+repository the host user can read, so treat the guest as sharing the host user's git trust.
 
 `guides/kvm-agent-testing.md` is the manual host-accept procedure for this workflow (T1–T6), since it needs a real
 hypervisor and cannot run in the development VM.

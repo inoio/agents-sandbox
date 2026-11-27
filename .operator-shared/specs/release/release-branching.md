@@ -95,9 +95,12 @@ micro's changelog/tag commit:
     PR's merge commit absent from the local clone (a stale fetch) would otherwise empty the walked
     range and read as clean — so the run says to fetch and rerun. The caller treats anything but
     `0`/`1` as an operational failure.
-- **`git cherry main release/<X>`** — the wrong-direction tripwire described above. The only expected
-  `+` lines are each prior micro's release commit, an adapted port, and a branch-authored fix; any
-  other `+` is an unexplained branch commit.
+- **`git cherry main release/<X>`** — the wrong-direction tripwire described above. Every expected `+`
+  line falls into one of four classes: a prior micro's release commit (`chore(release): promote …`, one
+  per shipped micro), a porter fragment-rename commit (`chore(changelog): name the backported fragment
+  for this PR`, one per backport PR), an adapted port (a conflict resolved differently, so a different
+  patch-id), or a fix authored straight on the branch. A mature line prints many `+` lines, not one per
+  micro; any other `+` is an unexplained branch commit.
 
 The porter, `scripts/open-backport-pr.sh <n>`, skips a source commit whose patch-id is already on the
 line, so a partially ported PR (a commit hand-ported earlier, an adapted port) is completed instead of
@@ -110,6 +113,14 @@ opening the PR it renames the carried `changelog.d/<n>.*.md` fragments to the ba
 appends a line noting the backport, and pushes that second commit; if that push fails it exits `4`
 (the PR exists but fails the `changelog` slug check). It references the tracker as `Part of #<n>`
 (non-closing, so merging a backport does not close the tracker) when `BACKPORT_TRACKER_ISSUE` is set.
+
+A porter run that hits a **real conflict** aborts and pushes nothing (exit `1`); it does not resume, so the
+skill finishes that port by hand: resolve and `git cherry-pick --continue` (the `-x` trailer is kept), skip a
+source commit that is main-only (it touches a subsystem the line does not carry, or the fix's own message says
+it was kept out so the pick stays clean — the audit's `missing:<n>` is a patch-id count, not a target, and a
+merged backport PR that references the fix clears the finding even when its patch-id differs), then push, open
+the PR with the porter's shape, rename the carried `changelog.d/<source number>.*.md` to the backport PR's
+number, append a `Backport of #<n> to the <line> line.` line, and push that second commit.
 
 The latest line is the highest-semver `release/<major>.<minor>` among local and origin refs; with no
 release branch the audit reports nothing to audit and exits clean.
@@ -137,6 +148,9 @@ query: enumerate what should be on the branch and verify each is.
   publishing), which is only sound because `tag-guard` plus that ruleset prove the tagged tree passed
   them; adding them to `release.needs` is the backstop if a release branch is ever pushed without the
   ruleset.
+- **A `release/*` PR merges directly**, not through `main`'s queue: `gh pr merge <n> --merge` once the
+  ruleset's checks pass. A required check the changeset makes inert reports `SKIPPED` and still satisfies
+  the ruleset, so a wait loop must accept it.
 
 ## Cutting a release
 

@@ -129,6 +129,10 @@ type Plan struct {
 	// PortsChanged reports whether the desired published port bindings differ
 	// from the ones the existing VM carries.
 	PortsChanged bool
+	// NewSessionAgentConfig lists a daemonless agent's changed config files.
+	// Provisioning already writes them and the agent reads them when it next
+	// starts, so they need neither a restart nor a prompt, only a notice.
+	NewSessionAgentConfig []string
 }
 
 func configChangeList(changes []Change) string {
@@ -179,6 +183,9 @@ type ChangeFlags struct {
 	// AgentConfig lists the guest paths of agent config files that differ from
 	// the running VM; empty means unchanged.
 	AgentConfig []string
+	// DaemonlessAgent reports that the agent runs no server, so an agent-config
+	// change has nothing to restart.
+	DaemonlessAgent bool
 	// BootMaxMemoryGrew reports that a freshly created VM would boot with a
 	// higher memory maximum than the live one (the host gained RAM), so a
 	// recreate can apply memory above the live maximum.
@@ -249,8 +256,12 @@ func PlanReconfig(
 		d.applyEnvSecretRecreate(flags)
 	}
 	if !d.Recreate && len(flags.AgentConfig) > 0 {
-		d.RestartDaemons = true
-		d.Changes = append(d.Changes, Change{Label: changeLabelAgentConfig, Details: flags.AgentConfig})
+		if flags.DaemonlessAgent {
+			d.NewSessionAgentConfig = flags.AgentConfig
+		} else {
+			d.RestartDaemons = true
+			d.Changes = append(d.Changes, Change{Label: changeLabelAgentConfig, Details: flags.AgentConfig})
+		}
 	}
 
 	return d
@@ -470,6 +481,10 @@ func ResolveReconfig(
 			return ApplyActions{}, errors.New("config apply aborted by user")
 		}
 		return ApplyActions{Recreate: false, Restart: key == restartKey}, nil
+	}
+	if len(plan.NewSessionAgentConfig) > 0 {
+		ui.Infof("agent config changed (%s); it is written for the agent's next start",
+			strings.Join(plan.NewSessionAgentConfig, ", "))
 	}
 	return ApplyActions{}, nil
 }

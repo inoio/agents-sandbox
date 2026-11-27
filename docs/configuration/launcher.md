@@ -174,6 +174,7 @@ Configuration is resolved in this order (later entries override earlier ones):
 | `upgrade.mode`                   | —                        | `AGENTS_SANDBOX_UPGRADE_MODE`                                   | How to handle a newer release when one is found: `prompt`, `notify`, `auto`, or `auto-exit` (default `prompt`, see [Self-upgrade]({% link configuration/self-upgrade.md %}))                                                            |
 | `upgrade.interval`               | —                        | `AGENTS_SANDBOX_UPGRADE_INTERVAL`                               | How often to check for a newer release (default `1d`, minimum `1h`, see [Self-upgrade]({% link configuration/self-upgrade.md %}))                                                                                                                        |
 | `upgrade.channel`                | —                        | `AGENTS_SANDBOX_UPGRADE_CHANNEL`                                | Opt into a release channel: `stable` (default) or `canary` (see [Self-upgrade]({% link configuration/self-upgrade.md %}))                                                                                                                                |
+| `home-volume.on-image-change`    | —                        | `AGENTS_SANDBOX_HOME_VOLUME_ON_IMAGE_CHANGE`                    | What happens to the home volume when the runner image changed: `keep`, `migrate`, `reset`, or `ask` to show the dialog (default `keep`, see [Home volumes]({% link sandboxes.md %}#volume-lifecycle)) |
 | `notify.desktop`                 | —                        | `AGENTS_SANDBOX_NOTIFY_DESKTOP`                                 | Show desktop notifications via `notify-send` (Linux) / `osascript` (macOS) (default false, see [Notifications]({% link configuration/notifications.md %}))                                                                                                |
 | `notify.audio`                   | —                        | `AGENTS_SANDBOX_NOTIFY_AUDIO`                                   | Audio notification channel: `system`, `bell`, or `off` (default `off`, see [Notifications]({% link configuration/notifications.md %}))                                                                                                                  |
 | `notify.on-input`                | —                        | `AGENTS_SANDBOX_NOTIFY_ON_INPUT`                                | Notify when the agent is waiting on user input (default true; the whole block is inactive until any `notify:` key is set, see [Notifications]({% link configuration/notifications.md %}))                                                    |
@@ -244,6 +245,7 @@ field (for the self-upgrade check) accept:
 The launcher validates:
 
 - `cpus` must be between 0 and 255
+- `home-volume.on-image-change` must be one of `keep`, `migrate`, `reset`, `ask`
 - `upgrade.mode` must be one of `prompt`, `notify`, `auto`, `auto-exit`
 - `upgrade.interval` must be at least `1h` (a floor guarding against GitHub rate limits)
 - `upgrade.channel` must be `stable` or `canary` (an unknown value is rejected)
@@ -261,7 +263,7 @@ session. The change type determines the mechanism used to apply the new settings
 | `memory`          | Live Modify / VM recreate | Applied live via SDK Modify (hotplug) up to the sandbox's boot maximum (the host RAM at creation); a higher value is capped there, and recreates the VM only when the host has gained RAM since. The launcher confirms the live limit against the request: a live limit greater than the request is a decrease the runtime never unplugs (whether the launcher lowered the setting or another client holds the larger limit), reported not applied rather than silently keeping the old size, and a lower one is a raise it waits on. A live limit that is unknown (unreadable, or a nil/zero reading) is reported as unconfirmed |
 | `env`             | VM recreate    | microsandbox cannot apply env live or on a daemon restart, so the VM is rebuilt; env is baked in at creation |
 | `secrets`         | VM recreate    | microsandbox cannot apply secrets live or on a daemon restart, so the VM is rebuilt; secrets are baked in at creation |
-| `agent config` | Daemon restart | Files are always copied into the VM (provisioning); the agent daemon is restarted in-place to pick them up   |
+| `agent config` | Daemon restart | Files are always copied into the VM (provisioning); the agent daemon is restarted in-place to pick them up. An agent without a daemon reads them at its next start, so nothing is restarted and no prompt is shown |
 | `tmp-size`        | VM recreate    | VM is stopped, removed, and rebuilt with new tmpfs size; unset, it defaults to `min(2 GiB, memory/2)`. A value larger than the boot memory is clamped to it. Home volume is preserved. |
 | `disk-size`       | Live grow / VM recreate | A larger size grows the root disk live; a smaller one stops, removes, and rebuilds the VM. Home volume is preserved. |
 | `workspace-quota` | VM recreate    | VM is stopped, removed, and rebuilt with new workspace write quota. Home volume is preserved.            |
@@ -294,7 +296,9 @@ A sandbox created by an earlier agents-sandbox version has no record of its prev
 reads `(previous value not recorded)` and lists only the new entries.
 
 Agent/home config files are provisioned into the VM on every startup, so a change is picked up by the next daemon start
-even when the current daemon is kept running. Only the `agent config` change prompts for a daemon restart;
+even when the current daemon is kept running. Only the `agent config` change prompts for a daemon restart, and only for
+an agent that runs one; for an agent without a daemon the change is named in one info line and is written for the
+agent's next start;
 `home:` file changes are applied on the next startup without any prompt, since they do not require the daemon to restart.
 
 #### Parallel Sessions

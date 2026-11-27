@@ -554,6 +554,10 @@ func runAttach(
 			if !interrupted {
 				offerDiskRaiseAfterAttach(ctx, k, sb, opts, ui)
 			}
+			if attachErr != nil && !interrupted && vmStoppedDuringAttach(ctx, k) {
+				ui.Verbosef("the attach ended with: %v", attachErr)
+				return errVMStoppedDuringAttach
+			}
 			return finalizeRun(attachErr, exitCode)
 		},
 	)

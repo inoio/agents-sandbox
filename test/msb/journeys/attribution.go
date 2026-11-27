@@ -5,23 +5,28 @@ import "github.com/inoio/agents-sandbox/test/msb/driver"
 // attributionPrompt is the one message the journey sends, so the agent issues a
 // request at the stub provider's baseURL. A completed model turn is not
 // required; the journey asserts what the analyser wrote to the scope, not the
-// model's answer. Under the default `.invalid` advertised route the request need
-// not reach the stub at all, so this journey does not depend on the terminating
-// proxy observing the credential→destination pair (see attributionScope).
+// model's answer. Under the journey's `public` profile the host-gateway route is
+// denied, so the request need not reach the stub at all, and this journey does
+// not depend on the terminating proxy observing the credential→destination pair
+// (see attributionScope).
 const attributionPrompt = "hello"
 
-// attributionHostConfig builds the journey's host agent config from the context:
-// the same OpenAI-compatible provider the stub serves, so the credential has a
-// config-entry source and the agent sends to the stub. Its baseURL host is the
-// stub's advertised origin, the host attributionScope asserts.
+// attributionHostConfig builds the journey's host agent config from the context
+// (Harness.Learn.HostConfig). Where it holds the provider (opencode2), it is the
+// OpenAI-compatible provider the stub serves, so the credential has a
+// config-entry source whose baseURL host is the stub's advertised origin, the
+// host attributionScope asserts; elsewhere the credential's source is the
+// stub's provisioned provider file.
 //
 // The builder reads the stub's runtime address, so StepSeedStub must run before
 // this step (the reverse of the plan's prose order, which the context-derived
 // builder requires).
-func attributionHostConfig(c *Context) map[string]string {
-	return map[string]string{
-		opencodeHostConfigRelPath: stubProviderDocument(c.Stub.Addr()),
+func attributionHostConfig(c *Context) (map[string]string, error) {
+	learn, err := learnFacts(c)
+	if err != nil {
+		return nil, err
 	}
+	return learn.HostConfig(c.Stub.Addr()), nil
 }
 
 // attributionScope is what the attribution journey asserts the run wrote to the
@@ -39,12 +44,7 @@ func attributionHostConfig(c *Context) map[string]string {
 // specs/testing/msb-journeys.md. There is no managed-config assertion: the
 // provisioned provider file precedes CaptureBaseline, so --learn leaves it
 // unchanged, exactly as UC1's live path does.
-var attributionScope = ScopeWant{
-	EnvVar:      stubCredentialEnvVar,
-	Hosts:       []string{stubHost},
-	ConfigKeys:  nil,
-	Placeholder: false,
-}
+var attributionScope = ScopeWant{ManagedConfig: false, Placeholder: false}
 
 // attributionJourney drives `run --learn` against the host-side stub provider and
 // asserts the learned scope keeps the credential scoped to the stub host while
@@ -55,8 +55,9 @@ var attributionScope = ScopeWant{
 // no used destination and writes no network posture, leaving the
 // network-not-widened assertion vacuous. Under public a turn that reaches the
 // stub is a used destination, so the analyser's lock (none + the used host)
-// actually exercises the guard. The default `.invalid` route still denies the
-// dial, so this only bites on a host accept that pins a working route.
+// actually exercises the guard. `public` does not include the host gateway the
+// default route names, so the dial is still denied; this only bites on a route
+// that `public` admits and that passes the observation proxy.
 //
 // `--learn` skips the first-run menu (firstRunMenu returns early when --learn is
 // set), so firstrun.SeedFromHost does not run; the seeded host config reaches the
@@ -67,19 +68,21 @@ var attributionScope = ScopeWant{
 // is unreachable, so the stub-host assertion holds via the fallback regardless of
 // whether the observation saw the pair (see attributionScope).
 var attributionJourney = Journey{
-	Name:    "attribution-observed-pair",
-	Agent:   opencode2AgentName,
-	Network: driver.PublicNetwork,
+	Name:      "attribution-observed-pair",
+	Harnesses: []string{opencode2AgentName, ohMyPiAgentName},
+	LearnMode: true,
+	Network:   driver.PublicNetwork,
 	Steps: []Step{
-		StepFreshHome(),
-		StepSeedStub(),
-		StepSeedHostConfig(attributionHostConfig),
-		StepLaunch("run", "--learn"),
-		StepWaitReady(),
-		StepSendPrompt(attributionPrompt),
-		StepQuit(),
-		StepChooseExit(exitSaveAllKey),
-		StepAssertScopeWritten(attributionScope),
-		StepAssertNetworkNotWidened(runNetworkPolicy, stubHost),
+		Given(StepFreshHome()),
+		And(StepSeedStub()),
+		And(StepSeedHostConfig(attributionHostConfig)),
+		When(StepLaunch("run", "--learn")),
+		And(StepExitHarnessSetup()),
+		Then(StepWaitReady()),
+		When(StepSendPrompt(attributionPrompt)),
+		And(StepQuit()),
+		And(StepChooseExit(exitSaveAllKey)),
+		Then(StepAssertScopeWritten(attributionScope)),
+		And(StepAssertNetworkNotWidened(runNetworkPolicy, stubHost)),
 	},
 }

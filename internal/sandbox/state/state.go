@@ -61,8 +61,6 @@ type FingerprintState struct {
 type FingerprintLines []string
 
 // IsZero keeps a recorded empty list from being omitted: only nil is zero.
-//
-//deadcode:ignore reason="called by the yaml encoder through its IsZeroer interface for omitempty"
 func (l FingerprintLines) IsZero() bool {
 	return l == nil
 }

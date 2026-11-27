@@ -63,7 +63,7 @@ func (piProfile) ProvisionRules() []ProvisionRule {
 		{Dir: piAgentDir, Patterns: []string{
 			"/" + settingsFileName,
 			"/keybindings.json",
-			"/AGENTS.override.md", "/AGENTS.md", "/AGENTS.MD", "/CLAUDE.md", "/CLAUDE.MD",
+			agentsOverridePattern, agentsRulesPattern, "/AGENTS.MD", claudeRulesPattern, "/CLAUDE.MD",
 			"/SYSTEM.md", "/APPEND_SYSTEM.md",
 			"/extensions/", skillsDirPattern, promptsDirPattern, "/themes/",
 		}},
@@ -92,4 +92,14 @@ func (piProfile) AttachCommand(_ string, args []string) string {
 func (piProfile) VersionCmd() string { return "pi --version" }
 func (piProfile) ParseVersion(stdout string) (string, error) {
 	return extractSemverFromOutput(stdout)
+}
+
+// InstructionPaths declares the credential-free files the host seed copies:
+// the instruction and system-prompt files and the prompt and skill trees. The
+// extension tree holds code and is left out.
+func (piProfile) InstructionPaths() []string {
+	return []string{
+		agentsRulesFileName, "AGENTS.MD", "AGENTS.override.md", claudeRulesFileName, "CLAUDE.MD",
+		"SYSTEM.md", "APPEND_SYSTEM.md", promptsDirName, skillsDirName,
+	}
 }

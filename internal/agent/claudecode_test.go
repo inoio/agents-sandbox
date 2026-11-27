@@ -76,21 +76,11 @@ func TestClaudeCodeConfigMerger(t *testing.T) {
 	}
 }
 
-func TestClaudeCodeProvisionRules(t *testing.T) {
-	a, _ := agent.Lookup("claude-code")
-	provisioner, ok := agent.AsProvisioner(a)
-	if !ok {
-		t.Fatal("claude-code should implement Provisioner")
-	}
-	found := false
-	for _, r := range provisioner.ProvisionRules() {
-		if r.Dir == ".claude" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("ProvisionRules missing .claude: %+v", provisioner.ProvisionRules())
-	}
+func TestClaudeCodeProvisionRulesCopySettingsAndInstructions(t *testing.T) {
+	assertProvisionedSet(t, "claude-code", ".claude",
+		[]string{"settings.json", "CLAUDE.md", "commands/review.md", "agents/reviewer.md", "skills/tdd/SKILL.md"},
+		[]string{".credentials.json", "settings.local.json", "projects/x/session.jsonl", "todos/a.json", "statsig/s"},
+	)
 }
 
 func TestClaudeCodeLatestVersionCancelledCtx(t *testing.T) {
@@ -135,5 +125,29 @@ func TestClaudeCodeHasUpgradeCheckerNoDaemonNoWorktree(t *testing.T) {
 	}
 	if _, ok := agent.AsWorktreeProvider(a); ok {
 		t.Error("claude-code must not implement WorktreeProvider")
+	}
+}
+
+func TestClaudeCodePreAcceptsTheWorkspaceTrust(t *testing.T) {
+	a, _ := agent.Lookup("claude-code")
+	defaulter, ok := agent.AsStateDefaulter(a)
+	if !ok {
+		t.Fatal("claude-code should implement StateDefaulter")
+	}
+	defaults := defaulter.StateDefaults()
+	if len(defaults) != 1 || defaults[0].Path != ".claude.json" {
+		t.Fatalf("StateDefaults = %+v, want one default for .claude.json", defaults)
+	}
+	projects, _ := defaults[0].Keys["projects"].(map[string]any)
+	workspace, _ := projects["/workspace"].(map[string]any)
+	if workspace["hasTrustDialogAccepted"] != true {
+		t.Errorf("Keys = %v, want projects./workspace.hasTrustDialogAccepted true", defaults[0].Keys)
+	}
+}
+
+func TestOnlyAgentsWithStateDefaultsImplementStateDefaulter(t *testing.T) {
+	codex, _ := agent.Lookup("codex")
+	if _, ok := agent.AsStateDefaulter(codex); ok {
+		t.Error("codex declares no state defaults")
 	}
 }

@@ -154,7 +154,8 @@ func TestRunShellRunAttachError(t *testing.T) {
 	initTestProjectDir(t)
 
 	mock := &msbtest.MockMsbClient{}
-	root, _ := setupRunMocks(t, mock, &msbtest.MockSandbox{AttachErr: errors.New("connection refused")}, "run")
+	root, _ := setupRunMocks(t, mock, &msbtest.MockSandbox{}, "run")
+	mock.CreatedSandbox = attachFailingWith(mock, errors.New("connection refused"), sandboxmsb.SandboxStatusRunning)
 
 	err := root.Execute()
 	if err == nil {
@@ -218,11 +219,53 @@ func TestRunDryRunVMDoesNotOfferFirstRunMenu(t *testing.T) {
 	}
 }
 
+// attachFailingWith is a sandbox whose attach fails with attachErr and, once it
+// has, lets the mock find the project VM in status: the lookup a failed attach
+// makes. Before the attach the lookup reports the VM absent, so the run creates
+// it as usual.
+func attachFailingWith(
+	mock *msbtest.MockMsbClient,
+	attachErr error,
+	status sandboxmsb.SandboxStatus,
+) *msbtest.MockSandbox {
+	attached := false
+	absent := mock.GetSandboxFn
+	mock.GetSandboxFn = func(ctx context.Context, name string) (sandboxmsb.SandboxHandle, error) {
+		if !attached {
+			return absent(ctx, name)
+		}
+		return &msbtest.MockSandboxHandle{Status_: status}, nil
+	}
+	return &msbtest.MockSandbox{AttachFn: func(context.Context) (int, error) {
+		attached = true
+		return 0, attachErr
+	}}
+}
+
+// TestRunReportsAVMThatStoppedDuringTheAttach pins the run's error when the
+// project VM went away under the attach (killed from another terminal): it
+// names the stopped VM and the next step instead of the lost connection, and
+// the command fails.
+func TestRunReportsAVMThatStoppedDuringTheAttach(t *testing.T) {
+	initTestProjectDir(t)
+
+	mock := &msbtest.MockMsbClient{}
+	root, _ := setupRunMocks(t, mock, &msbtest.MockSandbox{}, "run")
+	mock.CreatedSandbox = attachFailingWith(mock,
+		errors.New("agent connection closed during terminal attach"), sandboxmsb.SandboxStatusStopped)
+
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "the project VM stopped while the session was attached") {
+		t.Fatalf("err = %v, want the VM-stopped message", err)
+	}
+}
+
 func TestRunShellShellAttachError(t *testing.T) {
 	initTestProjectDir(t)
 
 	mock := &msbtest.MockMsbClient{}
-	root, _ := setupRunMocks(t, mock, &msbtest.MockSandbox{AttachErr: errors.New("shell error")}, "shell")
+	root, _ := setupRunMocks(t, mock, &msbtest.MockSandbox{}, "shell")
+	mock.CreatedSandbox = attachFailingWith(mock, errors.New("shell error"), sandboxmsb.SandboxStatusRunning)
 
 	err := root.Execute()
 	if err == nil {

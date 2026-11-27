@@ -11,20 +11,28 @@ through the merge queue, and the two side effects that commonly stall one.
 
 1. Wait for the six required checks: `lint`, `test`, `race`, `deadcode`, `changelog`, and
    `integration (docker build)`.
-2. Enqueue it once they pass — the `enqueuePullRequest` GraphQL mutation (it fails until the
-   required checks pass), or the maintainer's "Merge when ready" button:
+2. Enqueue it once they pass, through the REST async merge pinned to the head SHA (it fails until
+   the required checks pass), or the maintainer's "Merge when ready" button:
 
    ```
-   id=$(gh pr view <n> --json id -q .id)
-   gh api graphql -f query='mutation($id:ID!){ enqueuePullRequest(input:{pullRequestId:$id}){ mergeQueueEntry { position } } }' -f id="$id"
+   gh api -X PUT "repos/{owner}/{repo}/pulls/<n>/merge-async" -H "X-GitHub-Api-Version: 2026-03-10" \
+     -f merge_action=merge_queue -f sha="$(gh pr view <n> --json headRefOid -q .headRefOid)"
    ```
 
-   `scripts/enqueue-pr.sh <n>` does the wait-and-enqueue in one call, and refuses
-   (non-zero) a PR that has merge conflicts, since a conflicted PR runs no checks
-   and the queue will eject it.
+   The GraphQL `enqueuePullRequest` mutation also works for a plain PR but is **refused for a PR that
+   was stacked on another one**, which is why the script uses the REST call for every PR.
+   `scripts/enqueue-pr.sh <n>` does the wait-and-enqueue in one call, and refuses (non-zero) a PR that
+   has merge conflicts, since a conflicted PR runs no checks and the queue will eject it.
 3. The queue rebuilds the PR on the current `main` and re-runs the required checks there, so a PR
    that only passed against a stale base is rejected. `integration` is skipped on the queue ref (a
    skipped required check reports Success), so the queue does not pay the image build.
+
+**Stacked PRs** land bottom-up, one at a time: `scripts/enqueue-pr.sh --stack <bottom> … <top>` retargets
+each PR whose base is the previous PR's branch onto `main` once that one merged, enqueues it, and waits
+until it merges, so a PR never enters the queue while the PR under it is still open. The list starts at
+the stack's bottom PR. It refuses a PR based on an unmerged branch outside the list, and stops
+when the queue drops a PR (three polls outside the queue). The repo does not delete merged branches,
+so GitHub does not retarget a stacked PR by itself.
 
 `gh pr checks <n> --watch` (and `gh run watch`) wait for results in one call — prefer them over a
 `sleep`/`gh pr checks` poll loop.

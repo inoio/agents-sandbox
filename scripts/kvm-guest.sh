@@ -19,7 +19,7 @@
 #   ./scripts/kvm-guest.sh up        # create + boot the guest
 #   ./scripts/kvm-guest.sh render    # write the cloud-init seed + domain XML, no boot
 #   ./scripts/kvm-guest.sh ssh       # ssh into the guest
-#   ./scripts/kvm-guest.sh sync      # rsync the current checkout into the guest
+#   ./scripts/kvm-guest.sh sync      # point the guest's git at the host and pull its branch
 #   ./scripts/kvm-guest.sh prime     # copy the host's runner images + msb home into the guest
 #   ./scripts/kvm-guest.sh run make test-msb-journeys   # run a command in the guest
 #   ./scripts/kvm-guest.sh agent            # interactive agent session in the guest
@@ -39,7 +39,14 @@
 #
 # `agent-up` additionally signs the guest's `gh` in from a host-environment
 # `GITHUB_PAT` when set (see `gh_auth`), so the in-guest agent can work with
-# GitHub issues and PRs and push. Unset it to skip the sign-in.
+# GitHub issues and PRs. Unset it to skip the sign-in. The guest's git remote is
+# the host repository, not GitHub, so the agent pushes to the host.
+#
+# The guest is shared by every worktree and its artifacts live in one host-global
+# ARTIFACT_DIR (default $KVM_IMAGE_CACHE/guest), not in $PWD. Its domain state is
+# the lock: running means one branch holds it, paused or absent means it is free.
+# The holder is named in $ARTIFACT_DIR/$VM_NAME.owner; a competing branch is
+# refused and hands over with `pause` (keeps the disk) or `down`.
 #
 # Host prerequisites:
 #   qemu-kvm libvirt-daemon-system cloud-image-utils genisoimage
@@ -48,8 +55,9 @@
 #
 # Env overrides:
 #   VM_NAME=asb-kvm  VM_VCPUS=12  VM_MEMORY_MIB=16384  VM_DISK_GIB=80
-#   VM_USER=dev  SSH_PUBKEY=<path-or-key>  ARTIFACT_DIR=$PWD/.kvm-guest
-#   SOURCE_DIR=<checkout to sync>  LIBVIRT_URI=qemu:///system
+#   VM_USER=dev  SSH_PUBKEY=<path-or-key>  ARTIFACT_DIR=$KVM_IMAGE_CACHE/guest
+#   KVM_HOST_USER=<host user>  KVM_GUEST_STATE=<guest git key/state dir>
+#   LIBVIRT_URI=qemu:///system
 #   UBUNTU_CODENAME=resolute  IMAGE_URL=<full cloud-image URL>
 #   KVM_IMAGE_CACHE=/var/lib/libvirt/images/agents-sandbox  KVM_REFRESH_IMAGE=1  KVM_BOOT_TIMEOUT=300
 #   REPO_URL=https://github.com/inoio/agents-sandbox.git  REPO_BRANCH=<current branch>
@@ -88,8 +96,17 @@ VM_DISK_GIB="${VM_DISK_GIB:-80}"
 VM_USER="${VM_USER:-dev}"
 LIBVIRT_URI="${LIBVIRT_URI:-qemu:///system}"
 REPO_URL="${REPO_URL:-https://github.com/inoio/agents-sandbox.git}"
-ARTIFACT_DIR="${ARTIFACT_DIR:-$PWD/.kvm-guest}"
 KVM_IMAGE_CACHE="${KVM_IMAGE_CACHE:-/var/lib/libvirt/images/agents-sandbox}"
+# Guest artifacts are host-global, not per-worktree: one guest is shared by every
+# worktree, so its disk, seed, and XML live beside the base-image cache in the
+# libvirt images tree (AppArmor-safe) rather than in $PWD.
+ARTIFACT_DIR="${ARTIFACT_DIR:-$KVM_IMAGE_CACHE/guest}"
+# The guest authenticates to the host for git with a key kept in a separate
+# host-global state dir: it is private key material, not a libvirt artifact, so
+# it does not belong with the guest artifacts.
+KVM_HOST_USER="${KVM_HOST_USER:-${USER:-$(id -un)}}"
+KVM_GUEST_STATE="${KVM_GUEST_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/agents-sandbox/kvm-guest}"
+KVM_GUEST_KEY="$KVM_GUEST_STATE/id_kvm_guest"
 # The cloud-init gate waits for sshd, then for cloud-init itself. The attempts ×
 # interval bound only how long the guest may take to accept SSH; the
 # `cloud-init status --wait` that follows blocks until cloud-init reports.
@@ -99,6 +116,11 @@ KVM_CLOUD_INIT_INTERVAL="${KVM_CLOUD_INIT_INTERVAL:-5}"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 
+# REPO_BRANCH names the branch the guest clones; it falls back to `main` so a
+# detached host checkout still has something to check out. The shared-guest lock
+# needs a real branch, so it reads REPO_BRANCH_EXPLICIT (the caller's override)
+# or the live branch, and refuses a checkout that has neither.
+REPO_BRANCH_EXPLICIT="${REPO_BRANCH:-}"
 if [ -z "${REPO_BRANCH:-}" ]; then
   REPO_BRANCH="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
   [ -n "$REPO_BRANCH" ] && [ "$REPO_BRANCH" != "HEAD" ] || REPO_BRANCH="main"
@@ -116,7 +138,7 @@ fi
 
 if [ -z "${GH_VERSION:-}" ]; then
   GH_VERSION="$(sed -n 's/^ARG GH_VERSION=//p' "$repo_root/.agents-sandbox/Dockerfile" 2>/dev/null | head -1 | tr -d '[:space:]' || true)"
-  [ -n "$GH_VERSION" ] || GH_VERSION="2.104.0"
+  [ -n "$GH_VERSION" ] || GH_VERSION="2.105.0"
 fi
 
 case "$(uname -m)" in
@@ -134,6 +156,7 @@ SEED_PATH="$ARTIFACT_DIR/$VM_NAME-seed.img"
 USERDATA_PATH="$ARTIFACT_DIR/$VM_NAME-user-data"
 METADATA_PATH="$ARTIFACT_DIR/$VM_NAME-meta-data"
 DOMAIN_XML_PATH="$ARTIFACT_DIR/$VM_NAME.xml"
+OWNER_PATH="$ARTIFACT_DIR/$VM_NAME.owner"
 
 log() { printf '%s\n' "==> $*" >&2; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -151,14 +174,31 @@ require_safe_agent_command() {
   done
 }
 
+# require_safe_branch rejects a branch name that cannot be embedded safely in the
+# guest shell string the sync commands build. A git branch name may contain shell
+# metacharacters (`;`, `&`, `|`, …), so the name is placed inside double quotes in
+# the remote `bash -lc` script; the characters it still cannot carry are the single
+# quote, which ends the outer single-quoted remote script, and the double quote,
+# backslash, dollar sign, and backtick, which double quotes do not neutralize.
+require_safe_branch() {
+  local branch="$1" char
+  for char in "'" '"' '$' '`' "\\"; do
+    case "$branch" in
+      *"$char"*) die "the branch name must not contain a single quote, double quote, backslash, dollar sign, or backtick (it is embedded in a shell string): $branch" ;;
+    esac
+  done
+}
+
 usage() {
   cat <<'EOF'
-usage: kvm-guest.sh {up|render|ssh|sync|prime|run <cmd...>|agent [cmd]|agent-up [cmd]|agent-provision [name]|sync-back [branch]|firewall|down}
+usage: kvm-guest.sh {up|render|ssh|sync|prime|run <cmd...>|agent [cmd]|agent-up [cmd]|agent-provision [name]|sync-back [branch]|pause|firewall|down}
 
-  up                create and boot the KVM guest (cloud-init provisions it)
+  up                bring the shared guest up for this branch (create if absent,
+                    resume a suspended one, start a stopped one; refuses a guest
+                    another branch holds). cloud-init provisions a new guest.
   render            write the cloud-init seed and domain XML to ARTIFACT_DIR, no boot
   ssh               open a shell in the guest
-  sync              rsync SOURCE_DIR (default: this checkout) into the guest
+  sync              point the guest's git at the host and pull its branch
   prime             copy the host's runner images and microsandbox home into the guest
   run <..>          run a command in ~/agents-sandbox in the guest
   agent [cmd]       open an interactive agent session in a guest tmux session (default: opencode2)
@@ -169,6 +209,8 @@ usage: kvm-guest.sh {up|render|ssh|sync|prime|run <cmd...>|agent [cmd]|agent-up 
   sync-back [branch]
                     fetch the guest's branches back (all into
                     refs/remotes/kvm-guest/*, or one into a local branch)
+  pause             suspend the shared guest and release it for another branch
+                    (the disk is kept; the next command resumes it)
   firewall          re-apply the host nft rules the guest's egress needs
   down              destroy the guest and its disk
 
@@ -337,7 +379,9 @@ render() {
 check_host() {
   local tool
   for tool in virsh qemu-img cloud-localds curl; do require_tool "$tool"; done
-  [ -w /dev/kvm ] || die "/dev/kvm not writable on the host (add \$USER to the kvm group)"
+  if ! kvm_device_writable; then
+    die "/dev/kvm not writable on the host (add \$USER to the kvm group)"
+  fi
   local nested="" module path
   for module in kvm_amd kvm_intel; do
     path="/sys/module/$module/parameters/nested"
@@ -348,11 +392,38 @@ check_host() {
     "") log "warn: could not read the host nested-virt parameter; continuing" ;;
     *) die "host nested virtualization is off (nested=$nested); set options kvm-amd nested=1 and reboot" ;;
   esac
-  virsh_cmd list >/dev/null 2>&1 || die "cannot reach libvirt at $LIBVIRT_URI (is it running? set LIBVIRT_URI?)"
-  virsh_cmd net-info default >/dev/null 2>&1 || die "libvirt network 'default' not found at $LIBVIRT_URI"
+  require_libvirt_probe
+  require_default_network_gate
   if virsh_cmd dominfo "$VM_NAME" >/dev/null 2>&1; then
     die "libvirt domain '$VM_NAME' already exists (run: $0 down)"
   fi
+}
+
+# kvm_device_writable is the one host fact the harness cannot state any other
+# way: a real /dev/kvm cannot be made writable inside a test, so a case that
+# drives the create path sets KVM_FAKE_DEVICE_WRITABLE.
+kvm_device_writable() {
+  [ "${KVM_FAKE_DEVICE_WRITABLE:-}" = "1" ] || [ -w /dev/kvm ]
+}
+
+# fetch_base_image downloads the cloud image to a .part and moves it on success,
+# so a failed fetch (a 404, a dropped connection) leaves no partial base image to
+# be mistaken for a complete one.
+fetch_base_image() {
+  log "fetching $IMAGE_URL"
+  curl -fL --progress-bar "$IMAGE_URL" -o "$IMAGE_PATH.part"
+  mv "$IMAGE_PATH.part" "$IMAGE_PATH"
+}
+
+# require_libvirt_probe and require_default_network_gate are the create-path's
+# fail-closed host checks: an unreachable libvirt must not read as an absent
+# guest, and a missing network is fatal.
+require_libvirt_probe() {
+  virsh_cmd list >/dev/null 2>&1 || die "cannot reach libvirt at $LIBVIRT_URI (is it running? set LIBVIRT_URI?)"
+}
+
+require_default_network_gate() {
+  virsh_cmd net-info default >/dev/null 2>&1 || die "libvirt network 'default' not found at $LIBVIRT_URI"
 }
 
 ensure_default_network() {
@@ -377,6 +448,32 @@ default_bridge() {
   bridge="$(virsh_cmd net-dumpxml default 2>/dev/null |
     sed -n "s/.*<bridge name='\([^']*\)'.*/\1/p" | head -1)"
   printf '%s\n' "${bridge:-virbr0}"
+}
+
+# default_gateway prints the host's address on the guest's bridge: the guest
+# reaches the host there, and the guest's git remote points at it.
+default_gateway() {
+  local gateway
+  gateway="$(virsh_cmd net-dumpxml default 2>/dev/null |
+    sed -n "s/.*<ip address='\([^']*\)'.*/\1/p" | head -1)"
+  printf '%s\n' "$gateway"
+}
+
+require_gateway() {
+  local gateway
+  gateway="$(default_gateway)"
+  [ -n "$gateway" ] || die "could not determine the '$VM_NAME' bridge gateway; is the libvirt 'default' network active?"
+  printf '%s\n' "$gateway"
+}
+
+# host_repo_path prints the host repository the guest's origin is routed to.
+# --git-common-dir is the bare repository in the bare-worktree layout and the
+# .git gitdir in a plain clone; git serves both as a remote path.
+host_repo_path() {
+  local path
+  path="$(git -C "$repo_root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+  [ -n "$path" ] || die "cannot resolve the host repository path from $repo_root"
+  printf '%s\n' "$path"
 }
 
 print_firewall_hint() {
@@ -434,24 +531,253 @@ require_guest_ip() {
   printf '%s\n' "$ip"
 }
 
+# lock_branch is this checkout's identity for the shared-guest lock: an explicit
+# REPO_BRANCH wins, else the live branch. An unresolved checkout (detached HEAD,
+# not a repo) prints nothing, and acquire_guest refuses rather than calling it
+# `main` and colliding with a real main checkout.
+lock_branch() {
+  if [ -n "$REPO_BRANCH_EXPLICIT" ]; then
+    printf '%s\n' "$REPO_BRANCH_EXPLICIT"
+    return
+  fi
+  git -C "$repo_root" rev-parse --abbrev-ref HEAD 2>/dev/null || true
+}
+
+# The shared guest is locked by its domain state: running means one branch holds
+# it, paused or absent means it is free. The label names the holding branch so a
+# competing branch can be told who has it; it is a record, not the lock.
+guest_owner_branch() {
+  [ -r "$OWNER_PATH" ] || return 0
+  sed -n 's/^branch=//p' "$OWNER_PATH" 2>/dev/null | head -1
+}
+
+write_guest_owner() {
+  mkdir -p "$ARTIFACT_DIR"
+  printf 'branch=%s\npid=%s\ncwd=%s\n' "$1" "$$" "$PWD" > "$OWNER_PATH"
+}
+
+clear_guest_owner() { rm -f "$OWNER_PATH"; }
+
+# guest_state prints "absent" when the domain is not defined, else libvirt's
+# state name with whitespace removed ("running", "paused", "pmsuspended",
+# "shutoff", ...). An
+# undefined domain is proven by its absence from `virsh list --all --name`; a
+# failed query dies rather than reading as absent, so a caller acting on
+# "absent" (pause releasing the lock, create) never mistakes an unreachable or
+# mis-permitted libvirt for a guest that is not there.
+guest_state() {
+  local defined state
+  defined="$(virsh_cmd list --all --name 2>/dev/null)" ||
+    die "cannot query libvirt at $LIBVIRT_URI (is it running? set LIBVIRT_URI?)"
+  if ! grep -qxF "$VM_NAME" <<<"$defined"; then
+    printf 'absent\n'
+    return
+  fi
+  state="$(virsh_cmd domstate "$VM_NAME" 2>/dev/null | tr -d '[:space:]')" ||
+    die "cannot read the state of guest '$VM_NAME'"
+  printf '%s\n' "$state"
+}
+
+# acquire_guest brings the shared guest up for this branch and records it as the
+# holder. Idempotent for the branch that already holds it; a guest held by
+# another branch (or a pre-lock guest with no label) is refused by name. The
+# label is written the moment the branch has the guest — before any readiness
+# wait — so a guest that is merely booting is never mistaken for an unlabeled
+# pre-lock one.
+acquire_guest() {
+  local state owner ip branch
+  branch="$(lock_branch)"
+  case "$branch" in
+    ""|HEAD)
+      die "cannot lock the shared guest: this checkout is not on a branch (detached HEAD?). Check out a branch or set REPO_BRANCH." ;;
+  esac
+  state="$(guest_state)"
+  case "$state" in
+    running)
+      owner="$(guest_owner_branch)"
+      [ "$owner" = "$branch" ] && return 0
+      if [ -n "$owner" ]; then
+        die "guest '$VM_NAME' is in use by branch '$owner'. Hand it over with '$0 pause' (keeps the disk) or '$0 down' (destroys it)."
+      fi
+      die "guest '$VM_NAME' is running without an owner label (created before the lock). Hand it over with '$0 pause' or '$0 down'."
+      ;;
+    paused|pmsuspended)
+      # `pmsuspended` is the state a host suspend/resume leaves a QEMU guest in;
+      # `virsh start` rejects an already-active domain, so both are resumed.
+      log "resuming guest '$VM_NAME'"
+      virsh_cmd resume "$VM_NAME" >/dev/null
+      write_guest_owner "$branch"
+      ip="$(wait_for_lease)"
+      probe_guest_egress "$ip"
+      ;;
+    shutoff)
+      # A host reboot drops the default network and the firewall accepts the
+      # guest egress needs, so re-ensure both, matching `create`.
+      ensure_default_network
+      log "starting the stopped guest '$VM_NAME'"
+      virsh_cmd start "$VM_NAME" >/dev/null
+      write_guest_owner "$branch"
+      ip="$(wait_for_lease)"
+      probe_guest_egress "$ip"
+      ;;
+    absent)
+      # Labeled before create: create defines and starts the domain, and the
+      # label must land before its boot-long lease wait, or a competing branch
+      # reads the booting guest as an unlabeled pre-lock one and is invited to
+      # take it over.
+      write_guest_owner "$branch"
+      create
+      ;;
+    *)
+      die "guest '$VM_NAME' is in state '$state'; expected running, paused, suspended, shut off, or absent"
+      ;;
+  esac
+  # Re-asserted after the readiness wait (idempotent): the label is written the
+  # moment the branch has the guest, and rewritten here so its pid and cwd name
+  # this run.
+  write_guest_owner "$branch"
+}
+
+# suspend_guest pauses the guest and releases the lock, keeping the disk so the
+# next branch resumes rather than rebuilds. Hand-off is explicit: a running guest
+# stays held until it is paused or destroyed.
+suspend_guest() {
+  local state
+  state="$(guest_state)"
+  case "$state" in
+    running)
+      log "pausing guest '$VM_NAME' (disk kept; '$0 up' resumes it)"
+      virsh_cmd suspend "$VM_NAME" >/dev/null
+      ;;
+    paused|pmsuspended) log "guest '$VM_NAME' is already suspended" ;;
+    absent|shutoff) log "guest '$VM_NAME' is not running" ;;
+    *) die "guest '$VM_NAME' is in an unexpected state '$state'" ;;
+  esac
+  clear_guest_owner
+}
+
 ssh_in() {
   exec ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$(require_guest_ip)"
 }
 
+# configure_guest_remote routes the guest checkout's single origin remote to the
+# host: a url.<host>.insteadOf rewrite sends every git operation on origin to the
+# host repository, while origin keeps the URL the boot clone recorded. The branch
+# upstream is pinned to origin and the guest's git uses the dedicated key. Each
+# setting is repository-local (in ~/agents-sandbox/.git/config), not --global:
+# `agent-provision` truncates the guest's ~/.gitconfig, which would wipe a global
+# rewrite and send the agent's pushes back to GitHub. The host URL is recorded in
+# kvmguest.hostUrl so a re-run against a different host first removes the previous
+# url.<host> section — two insteadOf rules for the same URL would let the stale
+# one shadow the new one. push.autoSetupRemote makes the agent's plain `git push`
+# of a new branch work.
+configure_guest_remote() {
+  local ip="$1" gateway="$2" repo_path="$3" host_url branch
+  branch="${REPO_BRANCH:-main}"
+  require_safe_branch "$branch"
+  host_url="ssh://$KVM_HOST_USER@$gateway$repo_path"
+  log "routing the guest origin to $host_url"
+  ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
+    -- "bash -lc 'set -e && cd ~/agents-sandbox && prev=\$(git config kvmguest.hostUrl 2>/dev/null || true); if [ -n \"\$prev\" ]; then git config --remove-section \"url.\$prev\" || true; fi; git config url.\"$host_url\".insteadOf \"$REPO_URL\" && git config kvmguest.hostUrl \"$host_url\" && git config push.autoSetupRemote true && git config branch.\"$branch\".remote origin && git config branch.\"$branch\".merge refs/heads/\"$branch\" && git config core.sshCommand \"ssh -i \$HOME/.ssh/id_kvm_guest -o StrictHostKeyChecking=accept-new\"'"
+}
+
+# ensure_guest_git_key gives the guest a key that authenticates it to the host for
+# git: the key is generated once under the host-global state dir (so a guest
+# rebuild reuses it and authorized_keys does not accumulate lines), authorized on
+# the host, and installed in the guest.
+ensure_guest_git_key() {
+  local ip="$1"
+  if [ ! -f "$KVM_GUEST_KEY" ]; then
+    log "generating the guest git key at $KVM_GUEST_KEY"
+    mkdir -p "$KVM_GUEST_STATE"
+    chmod 700 "$KVM_GUEST_STATE"
+    ssh-keygen -t ed25519 -N '' -C agents-sandbox-kvm-guest -f "$KVM_GUEST_KEY" >/dev/null
+  fi
+  ensure_host_authorized_key
+  log "installing the guest git key in $VM_USER@$ip"
+  ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
+    -- "bash -lc 'install -d -m 700 ~/.ssh && cat > ~/.ssh/id_kvm_guest && chmod 600 ~/.ssh/id_kvm_guest'" \
+    < "$KVM_GUEST_KEY"
+}
+
+# ensure_host_authorized_key authorizes the guest key for git on this host,
+# confined to git-shell (it can run git-upload-pack/receive-pack, not a shell).
+# It drops any previous guest line before appending, so a re-run replaces rather
+# than accumulates. The line is identified by the options prefix it must begin
+# with AND the key's 'agents-sandbox-kvm-guest' comment: the comment makes the
+# match rotation-safe (a rotated key is still this script's line) without
+# matching another git-shell key that shares the prefix. It is not matched by
+# the comment alone, so a line a pre-fix run merged this options block onto (the
+# appended-without-newline bug) — which does not begin with the prefix — is
+# preserved; deleting it would drop the host key it was merged onto.
+ensure_host_authorized_key() {
+  local pubkey line auth="$HOME/.ssh/authorized_keys" prefix='^command="git-shell -c.*agents-sandbox-kvm-guest$'
+  command -v git-shell >/dev/null 2>&1 || die "git-shell not found on the host; install git"
+  pubkey="$(cat "$KVM_GUEST_KEY.pub")"
+  line="command=\"git-shell -c \\\"\$SSH_ORIGINAL_COMMAND\\\"\",restrict $pubkey"
+  mkdir -p "$HOME/.ssh"
+  chmod 700 "$HOME/.ssh"
+  touch "$auth"
+  chmod 600 "$auth"
+  # grep exits 1 when it selects no lines (a fresh or all-removed file), which is
+  # success here; any higher status is a read error and the rewrite must abort
+  # rather than move a partial temp file over authorized_keys. It terminates the
+  # last selected line, so the rewrite also gives the append its trailing newline.
+  local rewrite_status=0
+  grep -v "$prefix" "$auth" > "$auth.tmp" || rewrite_status=$?
+  if [ "$rewrite_status" -gt 1 ]; then
+    rm -f "$auth.tmp"
+    die "could not rewrite $auth (grep exited $rewrite_status); it is unchanged"
+  fi
+  mv "$auth.tmp" "$auth"
+  chmod 600 "$auth"
+  printf '%s\n' "$line" >> "$auth"
+}
+
+# probe_guest_to_host_ssh checks that the guest can complete a git exchange with
+# the host, so a host without sshd (or one refusing the key) fails with a
+# diagnostic instead of an opaque git error. There is no fallback transport. It
+# runs a real `git ls-remote`: the key is forced through `git-shell`, which rejects
+# any command but git-upload-pack/git-receive-pack, so a plain `ssh … true` would
+# always fail on a correctly configured host. Relies on configure_guest_remote
+# having set the rewrite and core.sshCommand.
+probe_guest_to_host_ssh() {
+  local ip="$1" gateway="$2"
+  if ! ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=8 -o LogLevel=ERROR \
+      "$VM_USER@$ip" \
+      "bash -lc 'cd ~/agents-sandbox && git ls-remote origin >/dev/null 2>&1'" \
+      >/dev/null 2>&1; then
+    die "the guest cannot reach the host over SSH at $KVM_HOST_USER@$gateway for git.
+    On the host: run sshd and accept the guest's key (authorized in $HOME/.ssh/authorized_keys),
+    and install git-shell. Retry: $0 sync"
+  fi
+}
+
+# ensure_guest_git_remote makes the host the guest's git remote. Idempotent.
+ensure_guest_git_remote() {
+  local ip="$1" gateway repo_path
+  gateway="$(require_gateway)"
+  repo_path="$(host_repo_path)"
+  ensure_guest_git_key "$ip"
+  configure_guest_remote "$ip" "$gateway" "$repo_path"
+  probe_guest_to_host_ssh "$ip" "$gateway"
+}
+
+# sync_in brings the guest checkout to the host's branch: it ensures the host is
+# the guest's git remote, then, in the guest, fetches the host, switches to the
+# branch, and fast-forwards. A diverged branch refuses (never a reset), so the
+# agent's work is not clobbered; only committed host work moves — uncommitted
+# changes are no longer copied.
 sync_in() {
-  local ip source
+  local ip branch
+  branch="${REPO_BRANCH:-main}"
+  require_safe_branch "$branch"
+  acquire_guest
   ip="$(require_guest_ip)"
-  source="${SOURCE_DIR:-$(git -C "$repo_root" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$repo_root")}"
-  log "syncing $source → $VM_USER@$ip:~/agents-sandbox"
-  # Exclude the `.git` entry, not a `.git/` directory: the guest owns its own
-  # clone's .git, and the host checkout may be a linked worktree whose .git is a
-  # *file* recording a relative `gitdir: ../.git/worktrees/<name>`. A
-  # directory-only `.git/` pattern does not match that file, so rsync would copy
-  # the dangling pointer over the guest's real .git directory and every launcher
-  # command in the guest would then fail to resolve the project identity.
-  rsync -az --delete --exclude '.git' --exclude '.superpowers/' \
-    --exclude "$(basename "$ARTIFACT_DIR")/" \
-    "$source/" "$VM_USER@$ip:~/agents-sandbox/"
+  ensure_guest_git_remote "$ip"
+  log "pulling $branch from the host into $VM_USER@$ip:~/agents-sandbox"
+  ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
+    -- "bash -lc 'set -e && cd ~/agents-sandbox && git fetch origin --prune && git checkout \"$branch\" && git merge --ff-only origin/\"$branch\"'"
 }
 
 # sync_back fetches the guest checkout's branches back to the host: by default
@@ -461,9 +787,9 @@ sync_in() {
 # here refuses the fetch — git protects it, because updating the ref without the
 # working tree would make the next commit silently revert the fetch — so update
 # it by merging the namespace ref instead (`git merge kvm-guest/<name>`). The
-# guest keeps its own .git (sync excludes it), so this fetch is the return path;
-# a guest signed in via `gh_auth` can also push directly, but sync-back needs no
-# credential and is the path for a guest without one.
+# guest keeps its own .git (sync pulls it from the host, it is not copied), so
+# this fetch is the fallback return path; the guest's origin already resolves to
+# the host, so a plain `git push` works and is the primary path.
 sync_back() {
   local ip branch
   branch="${1:-}"
@@ -488,6 +814,7 @@ sync_back() {
 # prime before a run, never while one is using the home.
 prime() {
   local ip root="${KVM_PRIME_ROOT:-/opt/asb-reuse}" tags home
+  acquire_guest
   ip="$(require_guest_ip)"
   home="$root/smoke/data/agents-sandbox/msb"
 
@@ -520,6 +847,7 @@ prime() {
 
 run_in() {
   [ "$#" -gt 0 ] || { usage >&2; exit 2; }
+  acquire_guest
   # A login shell so /etc/profile.d puts Go and ~/.local/bin (msb) on PATH for
   # the suite the command runs.
   exec ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$(require_guest_ip)" \
@@ -538,6 +866,7 @@ agent_in() {
   session="${KVM_AGENT_SESSION:-agents-sandbox}"
   command="${*:-opencode2}"
   require_safe_agent_command "$command"
+  acquire_guest
   ip="$(require_guest_ip)"
   exec ssh -tt -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
     -- "bash -lc 'cd ~/agents-sandbox && exec tmux new -A -s $session bash -c \"$command\"'"
@@ -555,6 +884,7 @@ agent_in() {
 agent_provision() {
   local ip agent
   agent="${1:-opencode2}"
+  acquire_guest
   ip="$(require_guest_ip)"
   if [ -d "$HOME/.config/agents-sandbox" ]; then
     log "syncing $HOME/.config/agents-sandbox → $VM_USER@$ip"
@@ -582,13 +912,11 @@ agent_provision() {
 }
 
 # gh_auth signs the guest's `gh` in to GitHub from the host environment's
-# GITHUB_PAT, so the in-guest agent can read and comment on issues and PRs and
-# push. It also points git at gh's credential helper and rewrites SSH GitHub
-# remotes to HTTPS, so a push from the guest's HTTPS clone authenticates. The
-# rewrites use `--replace-all` before the second `--add`, so re-running on a
-# reattach stays at two values instead of accumulating. It is a no-op when
-# GITHUB_PAT is unset, and the token rides stdin, never argv. It must run after
-# `agent_provision`, which rewrites the guest ~/.gitconfig.
+# GITHUB_PAT, so the in-guest agent can read and comment on issues and PRs. The
+# guest's git targets the host (see ensure_guest_git_remote), not GitHub, so no
+# GitHub remote rewrite is set up here. It is a no-op when GITHUB_PAT is unset,
+# and the token rides stdin, never argv. It must run after `agent_provision`,
+# which rewrites the guest ~/.gitconfig.
 gh_auth() {
   local ip="$1"
   if [ -z "${GITHUB_PAT:-}" ]; then
@@ -596,32 +924,9 @@ gh_auth() {
   fi
   log "signing gh in to GitHub in '$VM_NAME'"
   if ! printf '%s\n' "$GITHUB_PAT" | ssh -o StrictHostKeyChecking=accept-new "$VM_USER@$ip" \
-      -- "bash -lc 'gh auth login --with-token && gh auth setup-git && git config --global --replace-all url.https://github.com/.insteadOf git@github.com: && git config --global --add url.https://github.com/.insteadOf ssh://git@github.com/'"; then
+      -- "bash -lc 'gh auth login --with-token && gh auth setup-git'"; then
     die "gh sign-in failed in '$VM_NAME'; check the token (GITHUB_PAT), or rebuild a guest that predates gh: make kvm-down && make kvm-up"
   fi
-}
-
-# ensure_running brings the guest to a running state without recreating an
-# existing domain: undefined is created, a stopped domain is started (sharing
-# the boot path's lease wait), a running one is left alone. `create`'s
-# check_host refuses an existing domain, so it is never called over one.
-ensure_running() {
-  if ! virsh_cmd dominfo "$VM_NAME" >/dev/null 2>&1; then
-    create
-    return
-  fi
-  if [ "$(virsh_cmd domstate "$VM_NAME" 2>/dev/null | tr -d '[:space:]')" = "running" ]; then
-    log "guest '$VM_NAME' is running"
-    return
-  fi
-  local ip
-  log "starting the stopped guest '$VM_NAME'"
-  # A host reboot drops the default network and the firewall accepts the guest
-  # egress needs, so the start path re-ensures both, matching `create`.
-  ensure_default_network
-  virsh_cmd start "$VM_NAME" >/dev/null
-  ip="$(wait_for_lease)"
-  probe_guest_egress "$ip"
 }
 
 # wait_for_cloud_init gates on the guest being provisioned: it retries the SSH
@@ -650,8 +955,8 @@ wait_for_cloud_init() {
 
 # guest_agent_session_state prints "present" or "absent" for the agent's tmux
 # session, and returns non-zero only when the guest could not be reached. A
-# failed probe must not read as "absent": the caller syncs on "absent", and that
-# sync is one-way with `--delete`.
+# failed probe must not read as "absent": the caller pulls on "absent", which
+# checks out the host branch and would disturb a live session's work.
 guest_agent_session_state() {
   local ip="$1" session="${KVM_AGENT_SESSION:-agents-sandbox}"
   ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=8 \
@@ -661,13 +966,14 @@ guest_agent_session_state() {
 
 # agent_up is the one-command bring-up: ensure the guest is running, gate on
 # cloud-init, then — checking for a live session only now that the guest is
-# reachable — sync this checkout and materialize the agent config (or, for a live
-# session, reattach without syncing), sign gh in from GITHUB_PAT, and attach. It
-# composes the subcommands so the step-by-step targets remain available.
+# reachable — pull the host branch and materialize the agent config (or, for a
+# live session, reattach without syncing), sign gh in from GITHUB_PAT, and
+# attach. It composes the subcommands so the step-by-step targets remain
+# available.
 agent_up() {
   local ip session_state
   require_safe_agent_command "${*:-opencode2}"
-  ensure_running
+  acquire_guest
   ip="$(require_guest_ip)"
   wait_for_cloud_init "$ip"
   session_state="$(guest_agent_session_state "$ip" || true)"
@@ -721,7 +1027,7 @@ When cloud-init is done, gate the guest (after: make kvm-ssh):
   go version                                        # Go from /etc/profile.d
   exit
 
-Then, on the host, sync this checkout and run the suite:
+Then, on the host, pull the host branch into the guest and run the suite:
 
   make kvm-sync && make kvm-run                     # KVM_RUN (default: make test-msb)
 
@@ -733,11 +1039,13 @@ EOF
 
 create() {
   check_host
-  mkdir -p "$ARTIFACT_DIR"
   # The base image must be readable by libvirt's QEMU user, and on
   # Debian/Ubuntu AppArmor only allows libvirt's own paths, so the cache
   # defaults to /var/lib/libvirt/images/agents-sandbox. Create it once,
-  # owned by us so the fetch can write.
+  # owned by us so the fetch can write. The check precedes the artifact
+  # mkdir: with the default ARTIFACT_DIR ($KVM_IMAGE_CACHE/guest) the mkdir
+  # would otherwise create the very cache this guards, or abort with a bare
+  # "No such file or directory" when the parent is read-only.
   if [ ! -d "$KVM_IMAGE_CACHE" ]; then
     die "image cache '$KVM_IMAGE_CACHE' does not exist. Create it once:
       sudo install -d -o \"\$USER\" -g \"\$USER\" -m 0755 '$KVM_IMAGE_CACHE'
@@ -746,17 +1054,14 @@ create() {
   fi
   [ -w "$KVM_IMAGE_CACHE" ] || die "image cache '$KVM_IMAGE_CACHE' is not writable by $USER; chown it: sudo chown \"\$USER\" '$KVM_IMAGE_CACHE'"
 
+  mkdir -p "$ARTIFACT_DIR"
+
   if [ "${KVM_REFRESH_IMAGE:-}" = "1" ]; then
     log "KVM_REFRESH_IMAGE set; discarding the cached base image"
     rm -f "$IMAGE_PATH"
   fi
   if [ ! -f "$IMAGE_PATH" ]; then
-    log "fetching $IMAGE_URL"
-    # Download to a .part and move on success, so a failed fetch (a 404, a
-    # dropped connection) leaves no partial base image to be mistaken for a
-    # complete one on the next run.
-    curl -fL --progress-bar "$IMAGE_URL" -o "$IMAGE_PATH.part"
-    mv "$IMAGE_PATH.part" "$IMAGE_PATH"
+    fetch_base_image
   else
     log "using cached base image $IMAGE_PATH"
   fi
@@ -784,8 +1089,8 @@ create() {
 }
 
 # wait_for_lease blocks until the guest has a DHCP lease, printing progress, and
-# warns (printing nothing) on timeout. It is the boot gate `create` and the
-# ensure-running path share.
+# warns (printing nothing) on timeout. It is the boot gate `create` and
+# `acquire_guest`'s resume/start arms share.
 wait_for_lease() {
   local timeout="${KVM_BOOT_TIMEOUT:-300}" waited=0 ip=""
   log "waiting up to ${timeout}s for a DHCP lease (cloud-init first boot takes a few minutes)"
@@ -806,19 +1111,30 @@ wait_for_lease() {
 }
 
 destroy() {
-  if virsh_cmd dominfo "$VM_NAME" >/dev/null 2>&1; then
-    log "destroying domain '$VM_NAME'"
-    virsh_cmd destroy "$VM_NAME" >/dev/null 2>&1 || true
-    virsh_cmd undefine "$VM_NAME" --nvram >/dev/null 2>&1 || virsh_cmd undefine "$VM_NAME" >/dev/null 2>&1 || true
-  else
-    log "domain '$VM_NAME' is not defined; removing any leftover disk"
-  fi
+  local state
+  state="$(guest_state)"
+  case "$state" in
+    absent)
+      log "domain '$VM_NAME' is not defined; removing any leftover disk"
+      ;;
+    running|paused|pmsuspended|shutoff)
+      log "destroying domain '$VM_NAME'"
+      virsh_cmd destroy "$VM_NAME" >/dev/null 2>&1 || true
+      virsh_cmd undefine "$VM_NAME" --nvram >/dev/null 2>&1 ||
+        virsh_cmd undefine "$VM_NAME" >/dev/null 2>&1 ||
+        die "cannot undefine domain '$VM_NAME'; not removing its disk"
+      ;;
+    *)
+      die "guest '$VM_NAME' is in an unexpected state '$state'; refusing to remove its disk"
+      ;;
+  esac
   rm -f "$DISK_PATH" "$SEED_PATH" "$USERDATA_PATH" "$METADATA_PATH" "$DOMAIN_XML_PATH"
+  clear_guest_owner
   log "removed '$VM_NAME' and its disk (base image kept in cache at $IMAGE_PATH)"
 }
 
 case "${1:-}" in
-  up|create)       create ;;
+  up|create)       acquire_guest ;;
   render)          render ;;
   ssh)             ssh_in ;;
   sync)            sync_in ;;
@@ -828,6 +1144,7 @@ case "${1:-}" in
   agent-up)        shift; agent_up "$@" ;;
   agent-provision) shift; agent_provision "$@" ;;
   sync-back)       shift; sync_back "$@" ;;
+  pause|suspend)   suspend_guest ;;
   firewall|fix-net) fix_firewall ;;
   down|destroy)    destroy ;;
   *) usage >&2; exit 2 ;;

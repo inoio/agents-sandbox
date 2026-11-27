@@ -1,8 +1,12 @@
 package driver
 
 import (
+	"slices"
+	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/term"
 )
 
 // TestQuitIntervalKeepsPairsRapidAndWaitsBetweenThem pins the quit tap cadence:
@@ -37,5 +41,47 @@ func TestQuitIntervalKeepsPairsRapidAndWaitsBetweenThem(t *testing.T) {
 func TestExitSaveTimeoutExceedsQuitTimeout(t *testing.T) {
 	if ExitSaveTimeout <= QuitTimeout {
 		t.Errorf("ExitSaveTimeout %s must exceed QuitTimeout %s", ExitSaveTimeout, QuitTimeout)
+	}
+}
+
+// TestQuitNamesTheKeyWhenTheWriteStalls pins that a write failure in the quit
+// loop reports the key it was pressing, so a stalled pty fails with the step
+// named rather than the bare write timeout.
+func TestQuitNamesTheKeyWhenTheWriteStalls(t *testing.T) {
+	ses := MustStartUnderPTY(t, "", nil, "/bin/sh", "-c", "sleep 30")
+	defer ses.Close()
+
+	// The quit loop pads while the pty is raw; cooked would drop input instead.
+	if _, err := term.MakeRaw(ses.fd); err != nil {
+		t.Fatalf("MakeRaw: %v", err)
+	}
+	fillStalledPTY(t, ses)
+
+	_, err := Quit(ses, Spec{QuitKey: []byte("q")})
+	if err == nil {
+		t.Fatal("Quit = nil error, want a stalled-write error")
+	}
+	if !strings.Contains(err.Error(), "0x71") {
+		t.Errorf("Quit error %q does not name the quit key", err)
+	}
+}
+
+func TestImageBuildArgsAddsDockerOnlyWhenAsked(t *testing.T) {
+	if got, want := ImageBuildArgs("codex", false), []string{"build", "--agent", "codex"}; !slices.Equal(got, want) {
+		t.Errorf("ImageBuildArgs(codex, false) = %v, want %v", got, want)
+	}
+	if got, want := ImageBuildArgs(
+		"opencode",
+		true,
+	), []string{
+		"build",
+		"--agent",
+		"opencode",
+		"--docker",
+	}; !slices.Equal(
+		got,
+		want,
+	) {
+		t.Errorf("ImageBuildArgs(opencode, true) = %v, want %v", got, want)
 	}
 }

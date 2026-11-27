@@ -10,8 +10,6 @@ import "github.com/inoio/agents-sandbox/test/msb/driver"
 
 // Context is the mutable state one journey's steps share. The runner builds it
 // once per journey and passes the same pointer to every step in order.
-//
-//exhaustruct:ignore
 type Context struct {
 	TB     driver.TB   // the *testing.T the runner passed in
 	Root   string      // the suite root from driver.Prepare
@@ -19,33 +17,151 @@ type Context struct {
 	Spec   driver.Spec // driver.Specs[agent]
 	Agent  string      // the journey's registered agent name
 	Home   string      // this journey's isolated HOME base (HOME and the XDG dirs)
-	// Session is set by StepLaunch and driven by the later steps.
+	// Project is the journey's own project dir, set by StepOwnProject; empty
+	// means the agent's shared project (see ProjectDir).
+	Project string
+	// Harness is the agent's journey adapter (Harnesses[Agent]).
+	Harness Harness
+	// Session is the active client: set by a launch step and driven by the
+	// later steps. Clients holds every client the journey started, in order.
 	Session *driver.Session
+	Clients []*driver.Session
+	// prompts maps a client to where its last prompt started, so a reply check
+	// only accepts what followed.
+	prompts map[*driver.Session]promptMark
 	// Stub is set by StepSeedStub: the host-side destination the journey's
 	// agent sends to, kept so a later step or a host accept can inspect it.
 	Stub StubProvider
+	// Browser is set by StepFakeHostBrowser: the host's link handler the
+	// journey's launcher runs, standing in for the user's browser.
+	Browser *HostBrowser
+	// Login is set by StepAssertLoginLinkOpened: the harness's authorization
+	// link and the callback it names.
+	Login *LoginLink
+	// OAuth is set by StepStartStubOAuthServer: the authorization server and
+	// MCP server the journey's harness signs in to.
+	OAuth *StubOAuthServer
+	// SignInTokens are the access tokens the stub issued by the time the MCP
+	// sign-in completed (StepAssertMCPLoginCompleted).
+	SignInTokens []string
+	// Callback is set by StepBrowserReturnsToCallback or StepBrowserSignsIn: the host forwarder's
+	// answer to the browser's return to the callback.
+	Callback *CallbackAnswer
 }
 
-// Step is one named action in a journey. A step's Run returns an error; the
-// runner aborts the journey there and reports Name, so a failure names the step.
+// ProjectDir is the project dir the journey runs in: its own project when
+// StepOwnProject set one, else the agent's shared project.
+func (c *Context) ProjectDir() string {
+	if c.Project != "" {
+		return c.Project
+	}
+	return driver.ProjectDir(c.Root, c.Agent)
+}
+
+// promptMark is where a client's last prompt started: its output length and the
+// number of replies the stub had sent by then.
+type promptMark struct {
+	offset  int
+	replies int
+}
+
+// markPrompt records where client's output and the stub's replies stood before
+// a prompt was typed.
+func (c *Context) markPrompt(client *driver.Session) {
+	if c.prompts == nil {
+		c.prompts = map[*driver.Session]promptMark{}
+	}
+	replies := 0
+	if c.Stub != nil {
+		replies = len(c.Stub.Replies())
+	}
+	c.prompts[client] = promptMark{offset: len(client.Output()), replies: replies}
+}
+
+// lastPrompt is where client's last prompt started (zero before any prompt).
+func (c *Context) lastPrompt(client *driver.Session) promptMark {
+	return c.prompts[client]
+}
+
+// Keyword is a step's Gherkin keyword: it only shapes how the scenario reads.
+type Keyword string
+
+// The Gherkin keywords a journey's steps carry.
+const (
+	KeywordGiven Keyword = "Given"
+	KeywordWhen  Keyword = "When"
+	KeywordThen  Keyword = "Then"
+	KeywordAnd   Keyword = "And"
+)
+
+// StepKind decides what a failing step does to the rest of its journey.
+type StepKind int
+
+const (
+	// Action is a step later steps depend on: its failure ends the journey.
+	Action StepKind = iota
+	// Check is an assertion nothing later depends on: its failure is recorded
+	// and the journey continues, so one run reports every broken check.
+	Check
+)
+
+// Step is one named step in a journey. Name is the sentence after the keyword,
+// so Text reads as a Gherkin line and a failure names the step in that form.
 type Step struct {
-	Name string
-	Run  func(*Context) error
+	Keyword Keyword
+	Kind    StepKind
+	Name    string
+	Run     func(*Context) error
 }
 
-// Journey is one named scenario driven against one registered agent, composed of
-// steps drawn from the shared vocabulary in steps.go. No journey inlines a step.
+// Text is the step's Gherkin line.
+func (s Step) Text() string {
+	return string(s.Keyword) + " " + s.Name
+}
+
+// Given sets the step's keyword to Given; When, Then, and And are its siblings
+// for the other keywords. A journey literal wraps each step in one of them.
+func Given(step Step) Step { return withKeyword(step, KeywordGiven) }
+
+// When sets the step's keyword to When.
+func When(step Step) Step { return withKeyword(step, KeywordWhen) }
+
+// Then sets the step's keyword to Then.
+func Then(step Step) Step { return withKeyword(step, KeywordThen) }
+
+// And sets the step's keyword to And.
+func And(step Step) Step { return withKeyword(step, KeywordAnd) }
+
+func withKeyword(step Step, keyword Keyword) Step {
+	step.Keyword = keyword
+	return step
+}
+
+// AsCheck marks a step as a non-fatal check.
+func AsCheck(step Step) Step {
+	step.Kind = Check
+	return step
+}
+
+// Journey is one named scenario, composed of steps drawn from the shared
+// vocabulary in steps.go and run once per harness in Harnesses. No journey
+// inlines a step.
 //
-// Network overrides the agent's spec network profile for this journey when set
+// Network overrides the harness's spec network profile for this journey when set
 // (driver.Spec.NetworkOrDefault otherwise). The attribution journey sets it to a
 // profile that admits the stub, so the run's baseline is broad enough for the
 // analyser to actually narrow it and the network-not-widened assertion to have a
 // posture to check.
-//
-//exhaustruct:ignore
 type Journey struct {
-	Name    string
-	Agent   string
-	Network string
-	Steps   []Step
+	Name      string
+	Harnesses []string
+	Network   string
+	// LearnMode marks a learn-mode journey: every harness it lists must declare
+	// learn facts (Harness.Learn).
+	LearnMode bool
+	Steps     []Step
 }
+
+// hostGatewayNetwork is the network profile that admits the host gateway the
+// stub's default route names.
+const hostGatewayNetwork = "host"

@@ -520,6 +520,16 @@ linters:
           - nilnil
           - reassign
           - revive
+      # Everything under test/ is test code (specs/testing/msb-journeys.md): its
+      # non-test files (the msb driver, journey adapters, the stub model) get
+      # the test-only relaxations that matter there.
+      - path: '^test/'
+        linters:
+          - exhaustruct_v5
+          - goconst
+          - gosec
+          - nonamedreturns
+          - reassign
       - path: '_test\.go'
         linters:
           - bodyclose

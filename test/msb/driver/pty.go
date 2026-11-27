@@ -25,6 +25,12 @@ const (
 	ptyDrainGrace = 500 * time.Millisecond
 	// ptyOutputTailLimit caps the output an error message quotes.
 	ptyOutputTailLimit = 500
+	// ptyWriteTimeout bounds how long Write waits for a stalled pty slave to
+	// accept input before reporting an error. A slave that has stopped reading
+	// its pty fills the kernel buffer, where a bare write blocks forever and
+	// outlasts every caller's own deadline.
+	// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT reason="a write timeout is a soft bound; every seconds-scale value behaves identically at every caller and no test can observe the exact one without pinning it tautologically"
+	ptyWriteTimeout = 5 * time.Second
 	// fallbackTerminalRows and fallbackTerminalCols size the child's terminal
 	// when the test process has none to inherit. A full-screen TUI renders
 	// into zero columns without a size, so a fallback is required.
@@ -44,6 +50,12 @@ const altScreenLeave = "\x1b[?1049l"
 type Session struct {
 	cmd    *exec.Cmd
 	master *os.File
+
+	// fd is the master's descriptor, captured once at construction before the
+	// read loop starts. The write path uses it instead of calling
+	// os.File.Fd, whose read of the file's poller state races the read loop's
+	// teardown.
+	fd int
 
 	// cancel stops the child; Close uses it to kill a session the test left
 	// running.
@@ -74,7 +86,7 @@ type Session struct {
 // this in MustStartUnderPTY, which fails the test on error.
 func StartUnderPTY(dir string, env []string, argv []string) (*Session, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // G204: the caller passes the argv to drive
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	if dir != "" {
 		cmd.Dir = dir
 	}
@@ -100,6 +112,7 @@ func StartUnderPTY(dir string, env []string, argv []string) (*Session, error) {
 	ses := &Session{
 		cmd:       cmd,
 		master:    master,
+		fd:        int(master.Fd()),
 		cancel:    cancel,
 		mu:        sync.Mutex{},
 		buffer:    bytes.Buffer{},
@@ -195,10 +208,69 @@ func (s *Session) Output() []byte {
 	return bytes.Clone(s.buffer.Bytes())
 }
 
-// Write sends data to the child's terminal.
+// Write sends data to the child's terminal, bounding the wait so a slave that
+// has stopped reading its pty cannot block the caller past ptyWriteTimeout. The
+// master is a blocking descriptor on which SetWriteDeadline is a no-op, so it
+// polls for writability before each byte: the kernel reports the pty writable
+// only when the next write has room, and a byte is the most that guarantee
+// covers. A stalled slave fails the write with a timeout error instead of
+// hanging, so a caller like TapUntilMarker can enforce its own budget and name
+// the step it was driving.
 func (s *Session) Write(data []byte) error {
-	_, err := s.master.Write(data)
-	return err
+	deadline := time.Now().Add(ptyWriteTimeout)
+	for len(data) > 0 {
+		if err := waitWritable(s.fd, deadline); err != nil {
+			return err
+		}
+		n, err := unix.Write(s.fd, data[:1])
+		// gomutants:disable-next-line BRANCH_IF reason="unreachable in-process: a blocking pty write returns only after transferring the byte or with a fatal error, and Go restarts a signal-interrupted write, so the retry has no triggering input"
+		if err != nil {
+			if errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EINTR) {
+				continue
+			}
+			return err
+		}
+		// gomutants:disable-next-line BRANCH_IF,INTEGER_DECREMENT reason="unreachable: a blocking pty write reports the byte it transferred or an error, never a nil-error zero write"
+		if n == 0 {
+			return errors.New("pty write made no progress")
+		}
+		data = data[n:]
+	}
+	return nil
+}
+
+// waitWritable blocks until the pty master is writable or deadline elapses. A
+// poll timeout means a stalled slave whose buffer is full; reporting it as the
+// write's timeout lets the caller fail with its own budget instead of hanging.
+func waitWritable(fd int, deadline time.Time) error {
+	pollFds := []unix.PollFd{{
+		Fd:     int32(fd),
+		Events: unix.POLLOUT,
+		// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT reason="Revents is an output field the poll overwrites, so its seed value is unobservable"
+		Revents: 0,
+	}}
+	for {
+		remaining := time.Until(deadline)
+		// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT,CONDITIONALS_BOUNDARY reason="the check only distinguishes an already-elapsed deadline; the nanosecond boundary and its +/-1 shift reach the same timeout error"
+		if remaining <= 0 {
+			return fmt.Errorf(
+				"pty write timed out after %s: the child has stopped reading its terminal",
+				ptyWriteTimeout,
+			)
+		}
+		// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT reason="the clamp only avoids a zero poll timeout for a sub-millisecond remainder, which loops to the same timeout error"
+		timeoutMillis := max(1, int(remaining/time.Millisecond))
+		ready, err := unix.Poll(pollFds, timeoutMillis)
+		if err != nil {
+			if errors.Is(err, syscall.EINTR) {
+				continue
+			}
+			return err
+		}
+		if ready > 0 {
+			return nil
+		}
+	}
 }
 
 // inRawMode reports whether the terminal is in raw mode. The launcher's msb
@@ -361,7 +433,7 @@ func TapUntilMarker(ses *Session, key []byte, marker string, budget time.Duratio
 			return fmt.Errorf("%q never appeared within %s", marker, budget)
 		}
 		if err := ses.Write(key); err != nil {
-			return fmt.Errorf("write %q: %w", key, err)
+			return fmt.Errorf("write %q waiting for %q: %w", key, marker, err)
 		}
 		time.Sleep(QuitPressInterval) //testenv:allow the tap cadence is the behavior under test
 	}

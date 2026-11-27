@@ -3,14 +3,13 @@ package readback
 import (
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
-	"github.com/inoio/agents-sandbox/internal/filewalk"
-	"github.com/inoio/agents-sandbox/internal/projectguard"
 )
 
 // writeFile writes content to rel under home, creating parent directories.
@@ -77,6 +76,46 @@ func TestTakeManifestRecordsDeclaredFiles(t *testing.T) {
 	require.EqualValues(t, 1, entry.Size)
 	require.NotEmpty(t, entry.Hash)
 	require.False(t, entry.ModTime.IsZero(), "a file entry carries its mtime")
+}
+
+func TestTakeManifestDoesNotBlockOnAFIFOInsteadOfAConfigDirectory(t *testing.T) {
+	home := t.TempDir()
+	configDirectory := filepath.Join(home, ".config", "opencode")
+	require.NoError(t, os.MkdirAll(filepath.Dir(configDirectory), 0o750))
+	require.NoError(t, syscall.Mkfifo(configDirectory, 0o600))
+	type readResult struct {
+		manifest Manifest
+		readBack ReadBack
+		err      error
+	}
+	finished := make(chan readResult, 1)
+	go func() {
+		manifest, err := TakeManifest(home, "opencode")
+		if err != nil {
+			finished <- readResult{err: err}
+			return
+		}
+		readBack, err := Read(home, "opencode", Manifest{})
+		finished <- readResult{manifest: manifest, readBack: readBack, err: err}
+	}()
+
+	select {
+	case result := <-finished:
+		require.NoError(t, result.err)
+		require.Empty(t, result.manifest.Entries)
+		require.Empty(t, result.readBack.ConfigPaths)
+	case <-time.After(2 * time.Second):
+		// Release a blocking open so a regression does not leave a reader behind.
+		writer, err := os.OpenFile(configDirectory, os.O_WRONLY|syscall.O_NONBLOCK, 0)
+		if err == nil {
+			defer func() { _ = writer.Close() }()
+			select {
+			case <-finished:
+			case <-time.After(2 * time.Second):
+			}
+		}
+		t.Fatal("reading a FIFO in place of the config directory blocked")
+	}
 }
 
 func TestTakeManifestHashesDistinctContentDistinctly(t *testing.T) {
@@ -242,47 +281,40 @@ func TestManifestHashCapBoundary(t *testing.T) {
 	}
 }
 
-// TestTakeManifestPropagatesAWalkRefusal: a declared path the projectguard
-// refuses to list aborts the walk and surfaces as an error, never as an empty
-// manifest.
-func TestTakeManifestPropagatesAWalkRefusal(t *testing.T) {
-	home := t.TempDir()
-	dir := filepath.Join(home, ".config/opencode")
-	require.NoError(t, os.MkdirAll(dir, 0o750))
-	gone := filepath.Join(dir, "gone.jsonc")
-	t.Cleanup(projectguard.Install(
-		[]string{dir},
-		map[string]projectguard.Approval{gone: projectguard.ApprovalOf([]byte("x"))},
-	))
-
-	_, err := TakeManifest(home, "opencode")
-
-	require.ErrorIs(t, err, projectguard.ErrNotApproved)
-}
-
 // TestAppendDeclaredPathDedupesOverlappingPaths: a file two declared paths both
-// select is recorded once, because the first walk marks it seen.
+// select is recorded once, because the first marks it seen.
 func TestAppendDeclaredPathDedupesOverlappingPaths(t *testing.T) {
 	home := t.TempDir()
 	writeFile(t, home, ".config/opencode/opencode.jsonc", "a")
 	var manifest Manifest
 	seen := map[string]bool{}
+	root, err := os.OpenRoot(home)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = root.Close() })
 
-	require.NoError(t, appendDeclaredPath(&manifest, seen, home, ".config/opencode/*"))
-	require.NoError(t, appendDeclaredPath(&manifest, seen, home, ".config/opencode/opencode.jsonc"))
+	appendDeclaredPath(&manifest, seen, root, ".config/opencode/*")
+	appendDeclaredPath(&manifest, seen, root, ".config/opencode/opencode.jsonc")
 
 	require.Len(t, manifest.Entries, 1, "a file selected by two declared paths is recorded once")
 }
 
-// TestDescribeFileFallsBackToWalkRelativeKey: a walked path that cannot be made
-// home-relative keeps the walk's own relative name rather than dropping the
-// entry.
-func TestDescribeFileFallsBackToWalkRelativeKey(t *testing.T) {
-	entry := filewalk.Entry{Path: "/absolute/path.txt", Rel: "path.txt", Size: 1}
+// TestAppendDeclaredPathRecordsTheUnseenFilesAfterASeenOne: a glob over a
+// directory whose first file an earlier declared path already recorded still
+// records the rest.
+func TestAppendDeclaredPathRecordsTheUnseenFilesAfterASeenOne(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, ".config/opencode/a.json", "a")
+	writeFile(t, home, ".config/opencode/b.json", "b")
+	var manifest Manifest
+	seen := map[string]bool{}
+	root, err := os.OpenRoot(home)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = root.Close() })
 
-	got := describeFile("relative-home", entry)
+	appendDeclaredPath(&manifest, seen, root, ".config/opencode/a.json")
+	appendDeclaredPath(&manifest, seen, root, ".config/opencode/*")
 
-	require.Equal(t, "path.txt", got.Key)
+	require.Len(t, manifest.Entries, 2)
 }
 
 // TestChangedReportsAKeyPresentInOneManifestOnly: a key present in the current

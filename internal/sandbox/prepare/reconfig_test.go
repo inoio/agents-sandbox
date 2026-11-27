@@ -10,6 +10,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/git"
@@ -255,6 +256,7 @@ func TestResolveReconfigDecisionNeedsNoVMAccess(t *testing.T) {
 		cfs,
 		envsecret.EnvSecrets{},
 		live,
+		volume.ImageChangePolicy{Answer: "", Remember: nil},
 		&ui,
 	)
 	if err != nil {
@@ -695,6 +697,7 @@ func TestResolveReconfigDecisionRecreatesWhenARecordedFingerprintDiffers(t *test
 				configFiles,
 				tc.desired,
 				live,
+				volume.ImageChangePolicy{Answer: "", Remember: nil},
 				&ui,
 			)
 			if err != nil {
@@ -891,6 +894,7 @@ func TestResolveReconfigDecisionAgentConfigDrivesRestart(t *testing.T) {
 				configFiles,
 				envsecret.EnvSecrets{},
 				live,
+				volume.ImageChangePolicy{Answer: "", Remember: nil},
 				&ui,
 			)
 			if err != nil {
@@ -903,6 +907,48 @@ func TestResolveReconfigDecisionAgentConfigDrivesRestart(t *testing.T) {
 				t.Errorf("Restart = %v, want %v", decision.Restart, test.wantRestart)
 			}
 		})
+	}
+}
+
+// TestResolveReconfigDecisionDaemonlessAgentConfigRestartsNothing pins the
+// wiring of #810: a daemonless agent's differing config file restarts nothing
+// and is named in one info line.
+func TestResolveReconfigDecisionDaemonlessAgentConfigRestartsNothing(t *testing.T) {
+	const mirrorPath = "/home/dev/.codex/AGENTS.md"
+	configpathstest.WithMockConfigPaths(t)
+	ui := termiotest.NewTestMock(t)
+	codex, _ := agent.Lookup("codex")
+	persisted := matchingHomeState(network.Policy{})
+	live := liveProjectVM{
+		handle: &msbtest.MockSandboxHandle{},
+		config: &msb.SandboxConfig{
+			Image: "img:tag", CPUs: 4, MemoryMiB: 4096, Volumes: launcherLiveMounts(1024, 16384, "vol"),
+		},
+		agentConfigFiles: map[string][]byte{mirrorPath: []byte("old")},
+	}
+
+	decision, err := resolveReconfigDecision(
+		context.Background(),
+		volume.NewManager(docker.Get()),
+		testVMKey(),
+		options.RunOptions{Agent: "codex", ResolvedAgent: agent.Resolve(codex)},
+		image.ImageInfo{Ref: "img:tag", Digest: persisted.ImageDigest},
+		"vol",
+		persisted,
+		&reprovision.ConfigFiles{Mirror: map[string][]byte{mirrorPath: []byte("new")}, Keys: []string{mirrorPath}},
+		envsecret.EnvSecrets{},
+		live,
+		volume.ImageChangePolicy{Answer: "", Remember: nil},
+		&ui,
+	)
+	if err != nil {
+		t.Fatalf("resolveReconfigDecision: %v", err)
+	}
+	if decision.Restart || decision.Recreate {
+		t.Errorf("decision = %+v, want no restart and no recreate for a daemonless agent", decision)
+	}
+	if !strings.Contains(strings.Join(ui.InfoCalls, "\n"), mirrorPath) {
+		t.Errorf("info %v, want the changed file named", ui.InfoCalls)
 	}
 }
 
@@ -1029,7 +1075,7 @@ func TestResolveReconfigDecisionHomePromptDeferredWhenRebuildDeferred(t *testing
 			case strings.Contains(prompt, "Applying requires rebuilding"):
 				reconfigPrompted = true
 				return "k", nil
-			case strings.Contains(prompt, "Docker image changed"):
+			case strings.Contains(prompt, "runner image changed"):
 				homePrompted = true
 			}
 			return "", nil
@@ -1064,7 +1110,7 @@ func TestResolveReconfigDecisionHomePromptDeferredWhenRebuildDeferred(t *testing
 		mock,
 		volumes,
 		key,
-		options.RunOptions{Agent: "opencode"},
+		options.RunOptions{Agent: "opencode", HomeVolumeOnImageChange: volume.AnswerAsk},
 		imageInfo,
 		"vol",
 		persisted,
@@ -1112,7 +1158,7 @@ func TestResolveReconfigDecisionHomePromptAskedWhenRebuildConfirmed(t *testing.T
 	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(prompt string, _ []termio.Choice, _ string) (string, error) {
-			if strings.Contains(prompt, "Docker image changed") {
+			if strings.Contains(prompt, "runner image changed") {
 				prompted = true
 				return "k", nil // keep volume
 			}
@@ -1150,7 +1196,7 @@ func TestResolveReconfigDecisionHomePromptAskedWhenRebuildConfirmed(t *testing.T
 		mock,
 		volumes,
 		state.Key{Slug: slug, Agent: "opencode"},
-		options.RunOptions{Agent: "opencode"},
+		options.RunOptions{Agent: "opencode", HomeVolumeOnImageChange: volume.AnswerAsk},
 		imageInfo,
 		"vol",
 		persisted,
@@ -1204,7 +1250,7 @@ func TestApplyReconfigHomeActionError(t *testing.T) {
 	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(prompt string, _ []termio.Choice, _ string) (string, error) {
-			if contains(prompt, "Docker image changed") {
+			if contains(prompt, "runner image changed") {
 				return "m", nil // migrate -> triggers ApplyHomeAction -> CreateVolume
 			}
 			return "", nil
@@ -1230,7 +1276,7 @@ func TestApplyReconfigHomeActionError(t *testing.T) {
 		mock,
 		volumes,
 		state.Key{Slug: "testproj", Agent: "opencode"},
-		options.RunOptions{Agent: "opencode"},
+		options.RunOptions{Agent: "opencode", HomeVolumeOnImageChange: volume.AnswerAsk},
 		image.ImageInfo{DockerTag: "img:new", Ref: "img:new", Digest: "sha256:new"},
 		"vol",
 		persisted,
@@ -1317,7 +1363,7 @@ func TestApplyReconfigHomeActionQuit(t *testing.T) {
 	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(prompt string, _ []termio.Choice, _ string) (string, error) {
-			if contains(prompt, "Docker image changed") {
+			if contains(prompt, "runner image changed") {
 				return "q", nil
 			}
 			return "", nil
@@ -1346,7 +1392,7 @@ func TestApplyReconfigHomeActionQuit(t *testing.T) {
 		mock,
 		volumes,
 		state.Key{Slug: "testproj", Agent: "opencode"},
-		options.RunOptions{Agent: "opencode"},
+		options.RunOptions{Agent: "opencode", HomeVolumeOnImageChange: volume.AnswerAsk},
 		image.ImageInfo{DockerTag: "img:new", Ref: "img:new", Digest: "sha256:new"},
 		"vol",
 		persisted,
@@ -2001,6 +2047,7 @@ func TestResolveReconfigDecisionRecreateDoesNotDeferServePort(t *testing.T) {
 		loadOpencodeConfigFiles(t, &ui),
 		envsecret.EnvSecrets{},
 		live,
+		volume.ImageChangePolicy{Answer: "", Remember: nil},
 		&ui,
 	)
 	if err != nil {
@@ -2989,5 +3036,20 @@ func TestDetectAndOfferDiskRaiseAtLaunch(t *testing.T) {
 					opts.DiskSize, opts.WorkspaceQuota, opts.TmpSize, tc.wantDisk, tc.wantQuota, tc.wantTmp)
 			}
 		})
+	}
+}
+
+func TestIsDaemonless(t *testing.T) {
+	for name, want := range map[string]bool{"codex": true, "claude-code": true, "pi": true, "opencode": false, "opencode2": false} {
+		profile, ok := agent.Lookup(name)
+		if !ok {
+			t.Fatalf("%s is not registered", name)
+		}
+		if got := isDaemonless(agent.Resolve(profile)); got != want {
+			t.Errorf("isDaemonless(%s) = %v, want %v", name, got, want)
+		}
+	}
+	if isDaemonless(agent.Resolved{}) {
+		t.Error("an unresolved agent was treated as daemonless")
 	}
 }

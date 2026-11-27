@@ -161,8 +161,8 @@ and [Configuration]({% link configuration/index.md %}) for how to configure auto
 When rebuilding an image, all state in the VM's home directory (`/home/dev/`) would get lost. Therefore, the home
 directory is copied to a volume and mounted to the running VM, so it survives a rebuild.
 
-When an image change actually leads to a rebuild, agents-sandbox prompts you to keep, migrate, or reset that volume;
-see [Home volumes]({% link sandboxes.md %}#home-volumes) for the choices and the non-interactive default. `volume
+When an image change actually leads to a rebuild, agents-sandbox keeps that volume by default, or migrates or resets it
+as `home-volume.on-image-change` says; see [Home volumes]({% link sandboxes.md %}#volume-lifecycle). `volume
 migrate`, `volume reset`, and `volume edit` remain available for manual management.
 
 When a rebuilt image changes content, its new content reference does not collide with the previous one, so

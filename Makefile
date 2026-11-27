@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-cold test-msb-journeys test-msb-in-vm test-msb-reuse msb-reuse-root compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic test-hermetic-sentinel envelope-test check check-test verify print-check-targets check-local-changes check-branch-changes check-selected changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test backport-audit-test open-backport-pr-test kvm-guest-test kvm-up kvm-sync kvm-prime kvm-ssh kvm-run kvm-agent kvm-agent-up kvm-agent-provision kvm-sync-back kvm-down event-base-test classify-changes-test brain-check brain-check-test shellcheck docs-serve
+.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-cold test-msb-journeys test-msb-in-vm test-msb-reuse msb-reuse-root compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint actionlint fmt validate-fmt run cleanup-branches cleanup-branches-test surface-sweep-test test-scrubbed test-hermetic test-hermetic-sentinel envelope-test check check-test verify print-check-targets check-local-changes check-branch-changes check-selected changed-files-test changed-targets-test changelog-presence all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test ci-guards-check ci-guards-check-test changelog-check changelog-check-test enqueue-pr-test backport-audit-test open-backport-pr-test kvm-guest-test kvm-up kvm-sync kvm-prime kvm-ssh kvm-run kvm-agent kvm-agent-up kvm-agent-provision kvm-sync-back kvm-pause kvm-down event-base-test classify-changes-test brain-check brain-check-test shellcheck docs-serve
 
 VERSION ?= dev
 
@@ -20,10 +20,10 @@ ZIG_ROOT = $(shell f="$$(command -v zig)"; [ -n "$$f" ] || exit 0; cd "$$(dirnam
 # the recipe tell the managed zig apart from one PATH resolves to elsewhere.
 ZIG_MANAGED_ROOT = $(shell cd "$$HOME/.local/zig" 2>/dev/null && pwd -P)
 GOTESTSUM_VERSION = 1.13.0
-GOVULNCHECK_VERSION = v1.9.0
+GOVULNCHECK_VERSION = v1.10.0
 ACTIONLINT_VERSION = v1.7.12
 GOMUTANTS_VERSION = v0.7.3
-DEADCODE_VERSION = v0.52.0
+DEADCODE_VERSION = v0.53.0
 # Per-binary cap for the unit suite: a wedged test panics with a stack dump
 # instead of blocking for go test's default 10m. Override for a slow machine.
 TEST_TIMEOUT ?= 5m
@@ -285,10 +285,15 @@ test-msb-cold: msb-reuse-root
 # it does not read AGENTS_SANDBOX_MSB_TEST_HOME, the internal/sandbox/msb
 # runtime's reuse home. Host-only; excluded from test/check via the `msb` build
 # tag. See .operator-shared/specs/testing/msb-journeys.md.
+# JOURNEY and HARNESS narrow test-msb-journeys to TestHarnessJourneys/<journey>/<harness>
+# (each an exact name; either may be left out); the suite prebuilds only those cells' images.
+JOURNEYS_RUN = $(if $(JOURNEY)$(HARNESS),-run 'TestHarnessJourneys/^$(or $(JOURNEY),.*)$$/^$(or $(HARNESS),.*)$$')
+
 test-msb-journeys: msb-reuse-root
 	AGENTS_SANDBOX_SMOKE_ROOT=$(MSB_REUSE_ROOT)/smoke \
+	AGENTS_SANDBOX_JOURNEYS_JOURNEY=$(JOURNEY) AGENTS_SANDBOX_JOURNEYS_HARNESS=$(HARNESS) \
 	AGENTS_SANDBOX_MSB_PARALLEL=$(MSB_PARALLEL) \
-	CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/msb/journeys/...
+	CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 $(JOURNEYS_RUN) ./test/msb/journeys/...
 
 # The in-guest variant `kvm-run` drives by default: the same caching suite as
 # test-msb, with changes that only matter on a nested guest. The two msb-tagged
@@ -310,9 +315,9 @@ test-msb-in-vm: msb-reuse-root
 	CGO_ENABLED=1 go test -tags msb -p 1 -timeout 60m -count=1 ./test/msb/startup/... ./internal/sandbox/msb/...
 
 # Host-only KVM-guest workflow. These build a libvirt guest (cloud-init seeds
-# docker, Go, msb, and the repo), sync a checkout into it, and run a command
-# there — the msb suites need a KVM host, which the dev VM is not. They are
-# never run by CI. See .operator-shared/guides/kvm-guest.md.
+# docker, Go, msb, and the repo), pull a checkout into it from the host, and run
+# a command there — the msb suites need a KVM host, which the dev VM is not. They
+# are never run by CI. See .operator-shared/guides/kvm-guest.md.
 kvm-up:
 	scripts/kvm-guest.sh up
 
@@ -346,14 +351,14 @@ kvm-agent-provision:
 
 # One command from nothing to an interactive guest agent session: ensure the
 # guest is running (idempotent — a created, stopped, or running guest all work),
-# wait for cloud-init, sync this checkout, materialize the agent config, and
-# attach. LITELLM_API_KEY is read from the host environment and handed to the
-# agent; extend the credential set with KVM_AGENT='GITHUB_PAT=… opencode2'. A
-# host-environment GITHUB_PAT is forwarded to the guest so gh signs in there (the
-# agent can then work with issues and PRs and push); it is optional. If
-# KVM_AGENT runs a different binary, set KVM_AGENT_NAME to the profile to
-# materialize (default opencode2), so the config matches the agent attached. The
-# step-by-step targets above stay for manual control.
+# wait for cloud-init, pull the host branch into the guest, materialize the agent
+# config, and attach. LITELLM_API_KEY is read from the host environment and handed
+# to the agent; extend the credential set with KVM_AGENT='GITHUB_PAT=… opencode2'.
+# A host-environment GITHUB_PAT is forwarded to the guest so gh signs in there
+# (the agent can then work with issues and PRs); it is optional. If KVM_AGENT runs
+# a different binary, set KVM_AGENT_NAME to the profile to materialize (default
+# opencode2), so the config matches the agent attached. The step-by-step targets
+# above stay for manual control.
 kvm-agent-up:
 	@test -n "$$LITELLM_API_KEY" || { printf 'error: set LITELLM_API_KEY\n' >&2; exit 1; }
 	GITHUB_PAT="$$GITHUB_PAT" KVM_AGENT_NAME="$(KVM_AGENT_NAME)" scripts/kvm-guest.sh agent-up "LITELLM_API_KEY=$$LITELLM_API_KEY $(KVM_AGENT)"
@@ -367,6 +372,11 @@ kvm-sync-back:
 
 kvm-down:
 	scripts/kvm-guest.sh down
+
+# Pause the shared guest and release it for another branch without destroying the
+# disk; the next `make kvm-up` (or any guarded target) resumes it.
+kvm-pause:
+	scripts/kvm-guest.sh pause
 
 # Compile every test binary including build-tagged files (`//go:build
 # integration`, `//go:build msb`) so a regression that only breaks tagged code

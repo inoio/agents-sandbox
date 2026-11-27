@@ -214,6 +214,7 @@ func readAndResolveReconfigDecision(
 		configFiles,
 		envsecret.EnvSecrets{},
 		live,
+		homeVolumePolicy(configpaths.Get(), opts, k, false),
 		ui,
 	)
 }

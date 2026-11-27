@@ -3,6 +3,7 @@ package viperconfig
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -44,6 +45,9 @@ func validate(v *viper.Viper) error {
 		return err
 	}
 	if err := validatePorts(v); err != nil {
+		return err
+	}
+	if err := validateHomeVolume(v); err != nil {
 		return err
 	}
 	if err := validateUpgrade(v); err != nil {
@@ -224,6 +228,23 @@ func profileEntries(raw any) ([]string, error) {
 	default:
 		return nil, fmt.Errorf("must be a profile name or a list of profile names, got %T", raw)
 	}
+}
+
+// homeVolumeOnImageChangeValues are the answers home-volume.on-image-change
+// accepts.
+var homeVolumeOnImageChangeValues = []string{"keep", "migrate", "reset", "ask"}
+
+// validateHomeVolume validates the home-volume.on-image-change key.
+func validateHomeVolume(v *viper.Viper) error {
+	if !v.IsSet(KeyHomeVolumeOnImageChange) {
+		return nil
+	}
+	value := v.GetString(KeyHomeVolumeOnImageChange)
+	if !slices.Contains(homeVolumeOnImageChangeValues, value) {
+		return fmt.Errorf("invalid %s %q (want %s)",
+			KeyHomeVolumeOnImageChange, value, strings.Join(homeVolumeOnImageChangeValues, ", "))
+	}
+	return nil
 }
 
 // validateUpgrade validates the upgrade.mode, upgrade.interval and

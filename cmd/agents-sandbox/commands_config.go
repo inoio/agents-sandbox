@@ -296,7 +296,7 @@ func printConfigAgent(
 				"No snippet file could be merged; every matching snippet failed to read or parse (see the errors above).",
 			)
 		} else {
-			ui.Out("No snippet files found; no merged config is provisioned.")
+			ui.Out("No snippet files found; no snippets are merged into the agent's main config.")
 		}
 	} else {
 		ui.Out("merged files:")
@@ -445,10 +445,11 @@ func runConfigLearn(cmd *cobra.Command, ui termio.UI) error {
 		Observation:  observation,
 		Current:      current,
 	}
-	_, err = learnAnalyse(cmd.Context(), analysis, ui, options.ModeRun, nil)
+	summary, err := learnAnalyse(cmd.Context(), analysis, ui, options.ModeRun, nil)
 	if err != nil {
 		return err
 	}
+	learn.PrintReported(ui, summary.Results)
 	// The replay is the after-run for a dead process: consume the record and its
 	// capture, so a second run does not re-prompt.
 	if clearErr := learnClearSession(key); clearErr != nil {

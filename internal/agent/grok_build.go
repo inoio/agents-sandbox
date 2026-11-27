@@ -96,7 +96,7 @@ func (grokBuildProfile) ConfigFileNames() []string { return []string{grokBuildCo
 func (grokBuildProfile) ProvisionRules() []ProvisionRule {
 	return []ProvisionRule{
 		{Dir: grokBuildDataDir, Patterns: []string{
-			agentsRulesPattern, "/Agents.md", "/AGENT.md", "/CLAUDE.md", "/Claude.md",
+			agentsRulesPattern, "/Agents.md", "/AGENT.md", claudeRulesPattern, "/Claude.md",
 			skillsDirPattern, "/sandbox.toml", "/workflows/",
 		}},
 	}
@@ -125,4 +125,18 @@ func (grokBuildProfile) AttachCommand(_ string, args []string) string {
 func (grokBuildProfile) VersionCmd() string { return "grok --version" }
 func (grokBuildProfile) ParseVersion(stdout string) (string, error) {
 	return extractSemverFromOutput(stdout)
+}
+
+// InstructionPaths declares the credential-free files the host seed copies:
+// the global rules files and the skill and workflow trees.
+func (grokBuildProfile) InstructionPaths() []string {
+	return []string{
+		agentsRulesFileName,
+		"Agents.md",
+		"AGENT.md",
+		claudeRulesFileName,
+		"Claude.md",
+		skillsDirName,
+		"workflows/",
+	}
 }

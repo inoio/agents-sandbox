@@ -12,8 +12,9 @@ import (
 func TestMaterializeWritesEveryFileGroup(t *testing.T) {
 	target := t.TempDir()
 	cf := &ConfigFiles{
-		Merged:     []byte("{\n  \"model\": \"x\"\n}\n"),
-		MergedPath: opencodeMergedPath,
+		HasSnippets: true,
+		Merged:      []byte("{\n  \"model\": \"x\"\n}\n"),
+		MergedPath:  opencodeMergedPath,
 		HomeFiles: map[string][]byte{
 			"/home/dev/.gitconfig": []byte("user.name=X\n"),
 		},
@@ -91,14 +92,54 @@ func TestMaterializeCreatesParentDirectories(t *testing.T) {
 	}
 }
 
+func TestMaterializeKeepsARenewingLogin(t *testing.T) {
+	for _, current := range []string{
+		"",
+		`{"auth_mode":"apikey","OPENAI_API_KEY":"previous-key"}`,
+		`{"tokens":{"refresh_token":"renew-me"}}`,
+	} {
+		t.Run(current, func(t *testing.T) {
+			target := t.TempDir()
+			path := filepath.Join(target, ".codex", "auth.json")
+			if current != "" {
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(current), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cf := &ConfigFiles{
+				HomeFiles: map[string][]byte{"/home/dev/.codex/auth.json": []byte(apiKeyAuth)},
+				KeepLogin: map[string]bool{"/home/dev/.codex/auth.json": true},
+			}
+			if err := Materialize(cf, VMHomeDir, target); err != nil {
+				t.Fatal(err)
+			}
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := apiKeyAuth
+			if strings.Contains(current, "refresh_token") {
+				want = current
+			}
+			if string(got) != want {
+				t.Fatalf("auth.json = %s, want %s", got, want)
+			}
+		})
+	}
+}
+
 // TestMaterializeWritesSingleByteMergedConfig pins the merged write at the
 // len(cf.Merged) > 0 boundary: a one-byte merged payload must still be written,
 // so the guard is not satisfied by "more than one byte".
 func TestMaterializeWritesSingleByteMergedConfig(t *testing.T) {
 	target := t.TempDir()
 	cf := &ConfigFiles{
-		Merged:     []byte("x"),
-		MergedPath: opencodeMergedPath,
+		HasSnippets: true,
+		Merged:      []byte("x"),
+		MergedPath:  opencodeMergedPath,
 	}
 
 	if err := Materialize(cf, VMHomeDir, target); err != nil {
@@ -159,21 +200,24 @@ func TestMaterializeRejectsRemovalPathOutsideVMHome(t *testing.T) {
 // the merged step.
 func TestMaterializeReportsMergedWriteFailure(t *testing.T) {
 	target := t.TempDir()
-	// A regular file where the merged config's parent directory must go makes
-	// MkdirAll fail with ENOTDIR.
-	if err := os.WriteFile(filepath.Join(target, ".config"), []byte("x"), 0o644); err != nil {
+	// A regular file where the base's parent directory must go makes MkdirAll
+	// fail with ENOTDIR. (A blocked main config path reads as unreadable and is
+	// left alone instead.)
+	if err := os.WriteFile(filepath.Join(target, ".local"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cf := &ConfigFiles{
-		Merged:     []byte("{}\n"),
-		MergedPath: opencodeMergedPath,
+		HasSnippets:    true,
+		Merged:         []byte(`{"model":"x"}`),
+		MergedPath:     opencodeMergedPath,
+		MergedBasePath: mainConfigBasePath(VMHomeDir, opencodeMergedPath),
 	}
 
 	err := Materialize(cf, VMHomeDir, target)
 	if err == nil {
 		t.Fatal("Materialize over a blocked parent = nil error, want the mkdir failure")
 	}
-	if !strings.Contains(err.Error(), "materialize merged agent config") {
+	if !strings.Contains(err.Error(), "materialize the agent's main config") {
 		t.Errorf("Materialize error = %v, want it to name the merged step", err)
 	}
 	if !strings.Contains(err.Error(), "create parent directory") {
@@ -276,9 +320,10 @@ func TestMaterializeRemovesStaleTargetsBeforeWriting(t *testing.T) {
 		t.Fatal(err)
 	}
 	cf := &ConfigFiles{
-		Merged:     []byte("{}\n"),
-		MergedPath: opencodeMergedPath,
-		Remove:     []string{"/home/dev/.config/opencode/opencode.json"},
+		HasSnippets: true,
+		Merged:      []byte(`{"model":"x"}`),
+		MergedPath:  opencodeMergedPath,
+		Remove:      []string{"/home/dev/.config/opencode/opencode.json"},
 	}
 
 	if err := Materialize(cf, VMHomeDir, target); err != nil {

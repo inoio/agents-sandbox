@@ -12,7 +12,16 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
+
+// testLogger returns a logger for Provision. These tests pin the write and
+// removal behavior, not the removal log line.
+func testLogger(t *testing.T) *termiotest.Mock {
+	t.Helper()
+	ui := termiotest.NewTestMock(t)
+	return &ui
+}
 
 func TestProvisionWritesOpenCodeAndHomeFiles(t *testing.T) {
 	cf := &ConfigFiles{
@@ -25,7 +34,7 @@ func TestProvisionWritesOpenCodeAndHomeFiles(t *testing.T) {
 	}
 	fs := msbtest.NewTestFS(nil)
 	sb := &msbtest.MockSandbox{FSValue_: fs}
-	if err := Provision(context.Background(), sb, cf); err != nil {
+	if err := Provision(context.Background(), sb, cf, testLogger(t)); err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
 	if fs.Writes[opencodeMergedPath] == nil {
@@ -40,7 +49,7 @@ func TestProvisionNoSnippetsSkipsOpenCode(t *testing.T) {
 	cf := &ConfigFiles{Merged: nil, HomeFiles: map[string][]byte{}}
 	fs := msbtest.NewTestFS(nil)
 	sb := &msbtest.MockSandbox{FSValue_: fs}
-	if err := Provision(context.Background(), sb, cf); err != nil {
+	if err := Provision(context.Background(), sb, cf, testLogger(t)); err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
 	if _, ok := fs.Writes[opencodeMergedPath]; ok {
@@ -67,7 +76,7 @@ func TestProvisionChownsHomeFiles(t *testing.T) {
 	var execCalls []string
 	sb := &msbtest.MockSandbox{FSValue_: fs, ShellCalls: &calls, ExecCalls: &execCalls}
 
-	if err := Provision(context.Background(), sb, cf); err != nil {
+	if err := Provision(context.Background(), sb, cf, testLogger(t)); err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
 
@@ -108,7 +117,7 @@ func TestProvisionReturnsHomeChmodError(t *testing.T) {
 		},
 	}
 
-	err := Provision(context.Background(), sb, cf)
+	err := Provision(context.Background(), sb, cf, testLogger(t))
 	if err == nil || !strings.Contains(err.Error(), "chmod home file") {
 		t.Fatalf("Provision error = %v, want home-file chmod error", err)
 	}
@@ -119,7 +128,7 @@ func TestProvisionReturnsHomeChmodError(t *testing.T) {
 func TestProvisionNoFilesSkipsChown(t *testing.T) {
 	var calls []string
 	sb := &msbtest.MockSandbox{FSValue_: msbtest.NewTestFS(nil), ShellCalls: &calls}
-	if err := Provision(context.Background(), sb, &ConfigFiles{}); err != nil {
+	if err := Provision(context.Background(), sb, &ConfigFiles{}, testLogger(t)); err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
 	if len(calls) != 0 {
@@ -137,7 +146,7 @@ func TestProvisionJoinsErrors(t *testing.T) {
 	fs.WriteErr = writeErr
 	sb := &msbtest.MockSandbox{FSValue_: fs, ShellErr: chownErr}
 
-	err := Provision(context.Background(), sb, cf)
+	err := Provision(context.Background(), sb, cf, testLogger(t))
 	if !errors.Is(err, writeErr) {
 		t.Errorf("Provision error does not wrap write error: %v", err)
 	}
@@ -160,7 +169,7 @@ func TestProvisionRemovesStalePaths(t *testing.T) {
 	}
 	fs := msbtest.NewTestFS(nil)
 	sb := &msbtest.MockSandbox{FSValue_: fs, ShellCalls: &[]string{}}
-	if err := Provision(context.Background(), sb, cf); err != nil {
+	if err := Provision(context.Background(), sb, cf, testLogger(t)); err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
 	if len(fs.Removed) != len(cf.Remove) {
@@ -188,7 +197,7 @@ func TestProvisionWritesProvisioned(t *testing.T) {
 	}
 	fs := msbtest.NewTestFS(nil)
 	sb := &msbtest.MockSandbox{FSValue_: fs, ShellCalls: &[]string{}}
-	if err := Provision(context.Background(), sb, cf); err != nil {
+	if err := Provision(context.Background(), sb, cf, testLogger(t)); err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
 	for p := range cf.Provisioned {
@@ -211,7 +220,7 @@ func TestProvisionAppliesProvisionedFileMode(t *testing.T) {
 		ExecCalls: &execCalls,
 	}
 
-	if err := Provision(context.Background(), sb, cf); err != nil {
+	if err := Provision(context.Background(), sb, cf, testLogger(t)); err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
 	if !slices.Contains(execCalls, "chmod 0755 "+path) {
@@ -233,7 +242,7 @@ func TestProvisionReturnsChmodError(t *testing.T) {
 		},
 	}
 
-	err := Provision(context.Background(), sb, cf)
+	err := Provision(context.Background(), sb, cf, testLogger(t))
 	if err == nil || !strings.Contains(err.Error(), "chmod") {
 		t.Fatalf("Provision error = %v, want chmod error", err)
 	}
@@ -249,7 +258,7 @@ func TestProvisionReturnsChmodExecError(t *testing.T) {
 	fs := msbtest.NewTestFS(nil)
 	sb := &msbtest.MockSandbox{FSValue_: fs, ExecErr: wantErr}
 
-	err := Provision(context.Background(), sb, cf)
+	err := Provision(context.Background(), sb, cf, testLogger(t))
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("Provision error = %v, want %v", err, wantErr)
 	}
@@ -269,7 +278,7 @@ func TestProvisionReturnsMirrorChmodError(t *testing.T) {
 		},
 	}
 
-	err := Provision(context.Background(), sb, cf)
+	err := Provision(context.Background(), sb, cf, testLogger(t))
 	if err == nil || !strings.Contains(err.Error(), "chmod mirror file") {
 		t.Fatalf("Provision error = %v, want mirror-file chmod error", err)
 	}
@@ -291,7 +300,7 @@ func TestProvisionWritesMirror(t *testing.T) {
 	var execCalls []string
 	sb := &msbtest.MockSandbox{FSValue_: fs, ShellCalls: &[]string{}, ExecCalls: &execCalls}
 
-	if err := Provision(context.Background(), sb, cf); err != nil {
+	if err := Provision(context.Background(), sb, cf, testLogger(t)); err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
 	for p := range cf.Mirror {
@@ -317,7 +326,7 @@ func TestProvisionPropagatesMkdirError(t *testing.T) {
 	fs.MkdirErr = mkdirErr
 	sb := &msbtest.MockSandbox{FSValue_: fs}
 
-	err := Provision(context.Background(), sb, cf)
+	err := Provision(context.Background(), sb, cf, testLogger(t))
 	if !errors.Is(err, mkdirErr) {
 		t.Errorf("expected mkdir error to be surfaced, got %v", err)
 	}
@@ -327,11 +336,11 @@ func TestProvisionPropagatesMkdirError(t *testing.T) {
 // opencode config surfaces an error.
 func TestProvisionWriteOpenCodeError(t *testing.T) {
 	writeErr := errors.New("write boom")
-	cf := &ConfigFiles{HasSnippets: true, Merged: []byte(`{"model":"x"}`)}
+	cf := &ConfigFiles{HasSnippets: true, Merged: []byte(`{"model":"x"}`), MergedPath: opencodeMergedPath}
 	fs := msbtest.NewTestFS(nil)
 	fs.WriteErr = writeErr
 	sb := &msbtest.MockSandbox{FSValue_: fs, ShellErr: nil}
-	err := Provision(context.Background(), sb, cf)
+	err := Provision(context.Background(), sb, cf, testLogger(t))
 	if !errors.Is(err, writeErr) {
 		t.Errorf("expected write error to be surfaced, got %v", err)
 	}
@@ -348,7 +357,7 @@ func TestProvisionReturnsMkdirError(t *testing.T) {
 	fs.MkdirErr = mkdirErr
 	sb := &msbtest.MockSandbox{FSValue_: fs, ShellCalls: &[]string{}}
 
-	err := Provision(context.Background(), sb, cf)
+	err := Provision(context.Background(), sb, cf, testLogger(t))
 	if !errors.Is(err, mkdirErr) {
 		t.Fatalf("Provision error = %v, want %v", err, mkdirErr)
 	}
@@ -363,7 +372,7 @@ func TestProvisionReturnsErrorWhenProvisionedWriteFails(t *testing.T) {
 	fs.WriteErr = writeErr
 	sb := &msbtest.MockSandbox{FSValue_: fs, ShellCalls: &[]string{}}
 
-	err := Provision(context.Background(), sb, cf)
+	err := Provision(context.Background(), sb, cf, testLogger(t))
 	if !errors.Is(err, writeErr) {
 		t.Errorf("Provision error = %v, want to wrap %v", err, writeErr)
 	}
@@ -467,7 +476,7 @@ func TestProvisionChownsWhatItCreatedBeforeAFailure(t *testing.T) {
 		},
 		{
 			name:      "merged config directory creation fails",
-			cf:        &ConfigFiles{Merged: []byte("{}"), MergedPath: opencodeMergedPath},
+			cf:        &ConfigFiles{HasSnippets: true, Merged: []byte(`{"model":"x"}`), MergedPath: opencodeMergedPath},
 			failPath:  "/home/dev/.config/opencode",
 			wantChown: "chown -R dev:dev /home /home/dev /home/dev/.config",
 		},
@@ -489,12 +498,74 @@ func TestProvisionChownsWhatItCreatedBeforeAFailure(t *testing.T) {
 				ShellCalls: &calls,
 				ExecErr:    tc.execErr,
 			}
-			if err := Provision(context.Background(), sb, tc.cf); err == nil {
+			if err := Provision(context.Background(), sb, tc.cf, testLogger(t)); err == nil {
 				t.Fatal("Provision error = nil, want the failure")
 			}
 			if len(calls) != 1 || calls[0] != tc.wantChown {
 				t.Errorf("chown calls = %v, want [%q]", calls, tc.wantChown)
 			}
 		})
+	}
+}
+
+// removeFailingFS fails the Remove of failPath (every path when it is empty)
+// and records the others.
+type removeFailingFS struct {
+	*msbtest.TestFS
+
+	failPath string
+}
+
+func (f removeFailingFS) Remove(ctx context.Context, path string) error {
+	if f.failPath == "" || path == f.failPath {
+		return errors.New("remove boom")
+	}
+	return f.TestFS.Remove(ctx, path)
+}
+
+// TestProvisionReportsEachStaleRemoval pins that a removal, and a failed one,
+// is reported rather than silent, and that a failed removal does not stop
+// provisioning.
+func TestProvisionReportsEachStaleRemoval(t *testing.T) {
+	stale := "/home/dev/.config/opencode/config.json"
+	for name, tc := range map[string]struct {
+		fs   msb.SandboxFS
+		want string
+	}{
+		"removed": {msbtest.NewTestFS(nil), "removed stale config " + stale},
+		"failed": {
+			removeFailingFS{TestFS: msbtest.NewTestFS(nil), failPath: ""},
+			"remove stale config " + stale + " failed: remove boom",
+		},
+	} {
+		ui := testLogger(t)
+		sb := &msbtest.MockSandbox{FSValue_: tc.fs, ShellCalls: &[]string{}}
+		if err := Provision(context.Background(), sb, &ConfigFiles{Remove: []string{stale}}, ui); err != nil {
+			t.Fatalf("%s: Provision: %v", name, err)
+		}
+		if !slices.Contains(ui.VerboseCalls, tc.want) {
+			t.Errorf("%s: verbose = %v, want %q", name, ui.VerboseCalls, tc.want)
+		}
+	}
+}
+
+// TestProvisionKeepsRemovingAfterAFailedRemoval: one stale path that cannot be
+// removed must not leave the later ones behind to shadow the main config.
+func TestProvisionKeepsRemovingAfterAFailedRemoval(t *testing.T) {
+	first := "/home/dev/.config/opencode/config.json"
+	second := "/home/dev/.config/opencode/opencode.json"
+	fs := removeFailingFS{TestFS: msbtest.NewTestFS(nil), failPath: first}
+	sb := &msbtest.MockSandbox{FSValue_: fs, ShellCalls: &[]string{}}
+
+	if err := Provision(
+		context.Background(),
+		sb,
+		&ConfigFiles{Remove: []string{first, second}},
+		testLogger(t),
+	); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if !slices.Equal(fs.Removed, []string{second}) {
+		t.Errorf("removed = %v, want the path after the failed one removed", fs.Removed)
 	}
 }

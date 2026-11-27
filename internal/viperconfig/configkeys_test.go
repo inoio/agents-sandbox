@@ -174,6 +174,7 @@ func TestConfigEnvKeysGoldenSet(t *testing.T) {
 		"network.proxy.username", "network.proxy.password-env",
 		"network.observe.skip-upstream-verify",
 		keyUpgradeMode, keyUpgradeInterval, keyUpgradeChannel,
+		KeyHomeVolumeOnImageChange,
 		"image-cache-from", "image-cache-to",
 		KeyDind,
 	}

@@ -29,6 +29,7 @@ jobs:
   # dispatch (even one that names a prerelease tag).
   classify:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       tag: ${{ steps.resolve.outputs.tag }}
       prerelease: ${{ steps.resolve.outputs.prerelease }}
@@ -73,6 +74,7 @@ jobs:
     needs: classify
     if: needs.classify.outputs.prerelease != 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
@@ -98,13 +100,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends default-jre
           curl -fsSL "https://github.com/plantuml/plantuml/releases/download/v${PLANTUML_VERSION}/plantuml.jar" -o /tmp/plantuml.jar
+          # The release asset's published SHA-256, verified before the jar runs.
+          echo "${PLANTUML_SHA256}  /tmp/plantuml.jar" | sha256sum -c -
           cd diagrams
           mapfile -t diagrams < <(find . -maxdepth 1 -name '*.puml' ! -name 'C4*' -printf '%f\n')
           java -jar /tmp/plantuml.jar -DRELATIVE_INCLUDE -tsvg -o . "${diagrams[@]}"
         env:
           PLANTUML_VERSION: 1.2026.10
+          PLANTUML_SHA256: e9bc9e6b2eb715e8c0c929f3dcb5fc1923be13f37599b09c293c66d354e88686
       - name: Setup Ruby
-        uses: ruby/setup-ruby@v1
+        uses: ruby/setup-ruby@145243922b4465b78e04dd66294782c7de45901f # v1.345.0
         with:
           ruby-version: "3.3"
           bundler-cache: true

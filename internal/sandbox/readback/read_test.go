@@ -11,8 +11,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-
-	"github.com/inoio/agents-sandbox/internal/projectguard"
 )
 
 func TestReadClassifiesStaticAndLogin(t *testing.T) {
@@ -319,23 +317,6 @@ func TestReadMissingDeclaredPaths(t *testing.T) {
 	require.Empty(t, rb.ConfigPaths)
 	require.Empty(t, rb.Static)
 	require.Empty(t, rb.Login)
-}
-
-// TestReadPropagatesAWalkRefusal: a declared path the projectguard refuses to
-// list aborts the read rather than reporting fewer config facts.
-func TestReadPropagatesAWalkRefusal(t *testing.T) {
-	home := t.TempDir()
-	dir := filepath.Join(home, ".config/opencode")
-	require.NoError(t, os.MkdirAll(dir, 0o750))
-	gone := filepath.Join(dir, "gone.jsonc")
-	t.Cleanup(projectguard.Install(
-		[]string{dir},
-		map[string]projectguard.Approval{gone: projectguard.ApprovalOf([]byte("x"))},
-	))
-
-	_, err := Read(home, "opencode", Manifest{})
-
-	require.ErrorIs(t, err, projectguard.ErrNotApproved)
 }
 
 // TestReadDoesNotListAProbeAsAConfigPath: a credential probe's entry carries no
@@ -1464,4 +1445,34 @@ func TestReadClassifiesMistralVibeDotenv(t *testing.T) {
 	require.Len(t, rb.Static, 1)
 	require.Equal(t, ".vibe/.env", rb.Static[0].Source)
 	require.Equal(t, "MISTRAL_API_KEY", rb.Static[0].EnvVar)
+}
+
+// codex keeps its providers under model_providers.<id>, with an inline
+// experimental_bearer_token beside its base_url: a static credential scoped to
+// that endpoint, named from the provider id. A provider that names its key
+// indirectly (env_key) holds none.
+func TestInlineCredentialsInReadsCodexModelProviders(t *testing.T) {
+	const config = `model = "stub"
+model_provider = "corp"
+
+[model_providers.corp]
+name = "corp"
+base_url = "https://llm.corp.example/v1"
+experimental_bearer_token = "sk-corp-inline"
+
+[model_providers.other]
+name = "other"
+base_url = "https://other.example/v1"
+env_key = "OTHER_API_KEY"
+`
+	credentials := InlineCredentialsIn(".codex/config.toml", []byte(config))
+	require.Len(t, credentials, 1)
+	require.Equal(t, Credential{
+		Kind:     CredentialStatic,
+		Source:   ".codex/config.toml",
+		Provider: "corp",
+		EnvVar:   "CORP_API_KEY",
+		Hosts:    []string{"llm.corp.example"},
+		Value:    "sk-corp-inline",
+	}, credentials[0])
 }

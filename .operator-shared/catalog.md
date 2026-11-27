@@ -51,8 +51,8 @@
   - Description: Verdict, with primary sources: GitHub ignores `.gitattributes` merge drivers server-side, so `CHANGELOG.md merge=union` does not resolve a conflict.
   - Read If: Considering `merge=union`, a custom merge driver, or any `.gitattributes` merge attribute to auto-resolve conflicts on GitHub; or explaining why a server-side conflict persists when the CLI git merges cleanly.
 - `guides/github-pr-workflow.md`
-  - Description: The PR mechanics `guides/github-issue-workflow.md` does not cover: landing through the `main` merge queue, the `GITHUB_TOKEN` bot-PR approval, and naming a changelog fragment's slug.
-  - Read If: Opening, merging, or troubleshooting a PR; enqueueing one into the merge queue; a bot PR that reports no checks; or naming a `changelog.d/` fragment before the PR number is known.
+  - Description: The PR mechanics `guides/github-issue-workflow.md` does not cover: landing through the `main` merge queue (also a stack of PRs, bottom-up), the `GITHUB_TOKEN` bot-PR approval, and naming a changelog fragment's slug.
+  - Read If: Opening, merging, or troubleshooting a PR; enqueueing one into the merge queue or landing stacked PRs; a bot PR that reports no checks; or naming a `changelog.d/` fragment before the PR number is known.
 - `guides/go-version-support.md`
   - Description: The module's minimum Go version and why it cannot be lower, with the evidence and primary sources.
   - Read If: Changing the `go` directive, `.go-version`, or a Go pin; asking whether a lower Go version can be advertised; or diagnosing a dependency/promoted-field/GOTOOLCHAIN "requires a newer Go" error.
@@ -60,8 +60,8 @@
   - Description: Manual host-accept procedure for the KVM-guest agent environment - the ordered checks that `make kvm-agent`, `make kvm-agent-provision`, and `agents-sandbox config provision` behave on a real KVM host.
   - Read If: Accepting the KVM-guest agent work on a host; verifying an agent runs on the guest, gets the launcher's provisioned config, and can build the launcher and run the `msb` suites; or debugging a guest missing opencode2, tmux, or the toolchain.
 - `guides/kvm-guest.md`
-  - Description: The host-only libvirt KVM guest for running the msb test suites and an agent that works on this repo - why the development VM cannot run them, the `scripts/kvm-guest.sh` provisioner and its `make kvm-up`/`kvm-sync`/`kvm-prime`/`kvm-run`/`kvm-agent`/`kvm-agent-provision`/`kvm-sync-back`/`kvm-down` targets, the disk-backed reuse root the guest pre-creates, the nested-KVM prerequisites, and the volatile host-firewall fix guest egress needs.
-  - Read If: Running the msb suites (`make test-msb`, `make test-msb-journeys`) and needing a KVM host; running an agent (opencode2) on the guest so it can build the launcher and drive real VMs (`make kvm-agent`, `make kvm-agent-provision`) or fetching its branches back (`make kvm-sync-back`); provisioning or destroying the libvirt guest; priming the guest's runner-image/msb cache from the host (`make kvm-prime`) or diagnosing a `prime` that copies nothing; diagnosing a guest with no DNS/egress behind Docker's `ip filter` table; or changing `scripts/kvm-guest.sh`.
+  - Description: The host-only libvirt KVM guest for running the msb test suites and an agent that works on this repo - why the development VM cannot run them, the `scripts/kvm-guest.sh` provisioner and its `make kvm-up`/`kvm-sync`/`kvm-prime`/`kvm-run`/`kvm-agent`/`kvm-agent-provision`/`kvm-sync-back`/`kvm-pause`/`kvm-down` targets, the shared-across-worktrees guest and its state-derived branch lock, the host git remote the guest pulls from and pushes to over a `git-shell`-restricted key, the disk-backed reuse root the guest pre-creates, the nested-KVM prerequisites, and the volatile host-firewall fix guest egress needs.
+  - Read If: Running the msb suites (`make test-msb`, `make test-msb-journeys`) and needing a KVM host; running an agent (opencode2) on the guest so it can build the launcher and drive real VMs (`make kvm-agent`, `make kvm-agent-provision`) or pushing its branches to the host; provisioning, pausing, or destroying the libvirt guest; handing the shared guest between branches or diagnosing an `in use by branch` refusal, an `owner label` message, or an unexpected `domstate`; priming the guest's runner-image/msb cache from the host (`make kvm-prime`) or diagnosing a `prime` that copies nothing; diagnosing a guest with no DNS/egress behind Docker's `ip filter` table; the guest's host git remote (`make kvm-sync`, guest `git push`, the `git-shell`-restricted key) or a sync that refuses; or changing `scripts/kvm-guest.sh`.
 - `guides/mutation-testing.md`
   - Description: Mutation testing for Go in this repo: the gomutants choice, how to close survivors, and the multi-turn sweep runbook.
   - Read If: Evaluating or changing a Go mutation-testing tool or the `make mutation` target; triaging LIVED mutants from a sweep; picking a `SINCE` scope for a branch/PR sweep; coordinating a #268 survivor-reduction pass; or deciding whether a sweep may run in the VM (it may not - it OOMs).
@@ -93,7 +93,7 @@
 
 - `specs/architecture/`
   - Description: Cross-cutting contracts: `client-injection.md`, `dry-run-preview.md`, `msb-seam.md`, `package-boundaries.md`, `termio-ui.md`.
-  - Read If: Changing a `docker.Get()`/`configpaths.Get()` call site or threading a client/path resolver; the `--dry-run`/`--dry-run-vm` or `options.Mode` boundary; the `msb` role interfaces/composites/mock or how a consumer depends on the seam; moving a Printer/report DTO between `cliout` and `view` or run-preparation code between `prepare` and `vm`; or a termio role interface, `termio.UI`/`New`, prompts/spinners, or non-TTY behavior.
+  - Read If: Changing a `docker.Get()`/`configpaths.Get()` call site or threading a client/path resolver; the `--dry-run`/`--dry-run-vm` or `options.Mode` boundary; the `msb` role interfaces/composites/mock or how a consumer depends on the seam; moving a Printer/report DTO between `cliout` and `view` or run-preparation code between `prepare` and `vm`; or a termio role interface, `termio.UI`/`New`, prompts/spinners, or non-TTY behavior; or upgrading the microsandbox SDK (`go get -u ./...`).
 
 #### `specs/ci/` - CI pipeline and quality gates
 
@@ -104,8 +104,8 @@
 #### `specs/configuration/` - Config scopes, keys, decoding, validation, project-config root and trust
 
 - `specs/configuration/`
-  - Description: Config contracts: `config-file-decoding.md`, `config-keys.md`, `config-scopes.md`, `config-value-validation.md`, `project-config-root.md`, `project-config-trust.md`.
-  - Read If: Config-file reading/classification/JSON5, a config key's env var or CLI flag, config-scope order or `configpaths.ConfigPaths`/`ConfigScopes`, VM size/duration validation, the bare-layout project-config root/`core.bare`, or the project-config trust gate (`config harden`, provenance); or diagnosing a file one loader accepts and another rejects, a silently ignored env var, a rejected size, or a run that refuses to start because `.agents-sandbox` changed.
+  - Description: Config contracts: `config-file-decoding.md`, `config-keys.md`, `config-scopes.md`, `config-value-validation.md`, `dialog-answers.md` (configurable answers for recurring dialogs), `drop-in-provisioning.md`, `main-config-ownership.md`, `project-config-root.md`, `project-config-trust.md`.
+  - Read If: Config-file reading/classification/JSON5, a config key's env var or CLI flag, config-scope order or `configpaths.ConfigPaths`/`ConfigScopes`, VM size/duration validation, the drop-in's file scope (`agent.ProvisionRule`, `reprovision.provisionDestinations`/`ConfigFiles.Remove`, `firstrun.HostFiles`), the bare-layout project-config root/`core.bare`, or the project-config trust gate (`config harden`, provenance), or a recurring dialog's configured answer (`home-volume.on-image-change`); the agent's main config in the VM (`reconcileMainConfig`, `configmerge.Reconcile`); or diagnosing a file one loader accepts and another rejects, an in-VM agent setting lost between runs, a silently ignored env var, a rejected size, an in-VM instruction/skill file deleted when `provision-host-config` is off, a config-named file inside a skill tree seeding over the real config, or a run that refuses to start because `.agents-sandbox` changed.
 
 #### `specs/conventions/` - Repo-wide conventions
 
@@ -196,21 +196,3 @@
 - `plans/2026-11-21-msb-journeys.md`
   - Description: Implementation plan for #793, the first slice of the harness-journeys acceptance harness: host-side libvirt KVM-guest tooling (`scripts/kvm-guest.sh` + `make kvm-*`), the `test/harness`→`test/msb/startup` rename with the shared untagged `test/msb/driver`, the gate-scope changes (dead-code `test/` filter, ambient scan over non-test `.go` under `test/`, the production-closure contract test), `make test-msb-journeys` with the named-step journey model, and the learn-mode journeys (UC1, UC4, `config learn`, attribution) plus the surface-sweep block.
   - Read If: Executing #793; working on `scripts/kvm-guest.sh` or the `make kvm-*` targets; the `test/msb/{driver,startup,journeys}` rename and layout; the journeys' `Journey`/`Step` model; or the dead-code/ambient `test/` gate scope.
-- `plans/2026-11-22-msb-smoke-remedies.md`
-  - Description: Implementation plan for the in-guest smoke-suite reliability remedies: the start-of-run sandbox sweep, the `docker-ready-timeout`/`daemon-ready-timeout` config keys threaded into `internal/sandbox/vm`, the `AGENTS_SANDBOX_MSB_TIMEOUT_FACTOR` ceiling scaler, and the stale daemon-timeout marker.
-  - Read If: Working on the `test-msb-in-vm` guest target, the smoke suite's readiness/quit ceilings or start sweep, the VM readiness-timeout config keys, or the `MSB_GUEST_*` make variables.
-- `plans/2026-11-22-kvm-guest-agent-design.md`
-  - Description: Design for running an agent (opencode2) directly on the KVM guest so it can build the launcher and drive real VMs: provisioning the guest toolchain, materializing the launcher's provisioned agent config into the guest (`config provision`), attaching a durable session, credential handling, and the git return path.
-  - Read If: Working on `make kvm-agent`/`kvm-agent-provision`, the `agents-sandbox config provision` command, or how an agent works on this repo from the guest.
-- `plans/2026-11-22-kvm-guest-sync-back.md`
-  - Description: Implementation plan for the guest git identity and `make kvm-sync-back`: `kvm-agent-provision` writes the host's git `user.name`/`user.email` into the guest (later narrowed from a whole-`~/.gitconfig` copy; see `guides/kvm-guest.md`), and the new sync-back subcommand fetches the guest's branches back (all into `refs/remotes/kvm-guest/*`, or one into a local branch).
-  - Read If: Working on `make kvm-sync-back`, the guest git identity provisioning, or `scripts/kvm-guest.sh`'s `sync_back`/`agent_provision`.
-- `plans/2026-11-22-kvm-agent-up-design.md`
-  - Description: Design for the one-command KVM-guest agent bring-up (`make kvm-agent-up`, the `agent-up` subcommand): idempotent ensure-running, the cloud-init gate, and credential passthrough.
-  - Read If: Working on `make kvm-agent-up` or `scripts/kvm-guest.sh`'s `agent_up`/`ensure_running`/`wait_for_cloud_init`.
-- `plans/2026-11-22-kvm-agent-up.md`
-  - Description: Implementation plan for the same one-command bring-up (its tasks and tests); retire when folded into `guides/kvm-guest.md`.
-  - Read If: Executing or reviewing the `kvm-agent-up` plan.
-- `plans/2026-11-22-kvm-guest-dedicated-cpu.md`
-  - Description: Contingency plan for making the in-guest `msb` suites reliable on a CPU-shared host: measure `steal`, then pin the guest's vCPUs (libvirt `cputune`) or dedicate host cores, versus keeping the timing/factor approach. Triggered only if the factor-3 sweep is not stable.
-  - Read If: The in-guest `make test-msb-in-vm` runs are still unstable after `MSB_GUEST_TIMEOUT_FACTOR=3`, or you are evaluating CPU pinning/dedication for the KVM guest.

@@ -24,6 +24,21 @@ const configTOMLSnippetPattern = "config*.toml"
 // instructions file at the root of its data dir.
 const agentsRulesPattern = "/AGENTS.md"
 
+// claudeRulesPattern is the drop-in pattern for a CLAUDE.md rules file at the
+// root of an agent's data dir.
+const claudeRulesPattern = "/CLAUDE.md"
+
+// agentsOverridePattern is the drop-in pattern for an AGENTS.override.md rules
+// file at the root of an agent's data dir.
+const agentsOverridePattern = "/AGENTS.override.md"
+
+// agentsDirPattern and commandsDirPattern are the drop-in patterns for an
+// agent's subagent and command trees at the root of its data dir.
+const (
+	agentsDirPattern   = "/agents/"
+	commandsDirPattern = "/commands/"
+)
+
 // skillsDirPattern is the drop-in pattern for an agent's skills tree at the
 // root of its data dir.
 const skillsDirPattern = "/skills/"
@@ -143,6 +158,24 @@ type AttachRunner interface {
 type Provisioner interface {
 	ProvisionRules() []ProvisionRule
 }
+
+// StateDefault names keys the launcher sets in one of the agent's own state
+// files when they are missing, merged into whatever the agent keeps there.
+type StateDefault struct {
+	// Path is the state file's path relative to the home.
+	Path string
+	// Keys are set at their nested position; tables merge key by key.
+	Keys map[string]any
+}
+
+// StateDefaulter is implemented by an agent whose own state file needs
+// launcher-set keys, such as a pre-accepted trust decision for the workspace.
+type StateDefaulter interface {
+	StateDefaults() []StateDefault
+}
+
+// AsStateDefaulter returns the agent's StateDefaulter, if it implements one.
+func AsStateDefaulter(a Agent) (StateDefaulter, bool) { p, ok := a.(StateDefaulter); return p, ok }
 
 // AsDaemonProvider returns the agent's DaemonProvider, if it implements one.
 func AsDaemonProvider(a Agent) (DaemonProvider, bool) {

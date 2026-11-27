@@ -1977,3 +1977,16 @@ func TestBuildReadyTimeouts(t *testing.T) {
 		t.Errorf("DaemonReadyTimeout = %v; want 180s", opts.DaemonReadyTimeout)
 	}
 }
+
+func TestBuildHomeVolumeOnImageChangeFromConfig(t *testing.T) {
+	r := viperconfig.NewResolverWithConfig(viperconfig.Config{
+		HomeVolume: viperconfig.HomeVolumeConfig{OnImageChange: "ask"},
+	})
+	opts, err := Build(r.Config(), newRunCommand(), &termiotest.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if opts.HomeVolumeOnImageChange != "ask" {
+		t.Errorf("opts.HomeVolumeOnImageChange = %q, want ask from the config", opts.HomeVolumeOnImageChange)
+	}
+}

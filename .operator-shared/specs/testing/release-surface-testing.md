@@ -138,11 +138,12 @@ Failure modes the surface implies; each is pinned by a check in the task named.
   ```
 
   Expected: the suite's preflight passes on this KVM host, the launcher builds, the runner images prebuild into
-  `<root>/smoke/data`, every journey in the table passes (v1: UC1, UC4, `config learn`, attribution on opencode2), and
-  the host-gated `TestHarnessJourneys/stub-provider-turn-reaches-the-proxy` subtest passes. That spike is provisional:
-  it proves the agent's turn reaches the terminating proxy only when the advertised stub route resolves, so if it fails
-  on the default `http://agents-sandbox-stub.invalid`, pin `AGENTS_SANDBOX_JOURNEYS_STUB_ORIGIN` at a route that reaches
-  the host stub and rerun (see `specs/testing/msb-journeys.md`).
+  `<root>/smoke/data`, every journey in the table passes on every harness it lists (UC1, UC4, `config learn`, attribution, and
+  `core-session`, which drives real turns against the host-side stub over the host gateway on five harnesses).
+  The
+  proxy spike journey `proxy-observes-the-stub` skips unless
+  `AGENTS_SANDBOX_JOURNEYS_PROXY_SPIKE=1`: no stub route is known yet that the learn-mode proxy observes (see
+  `specs/testing/msb-journeys.md`).
   A host without `/dev/kvm` or a reachable docker daemon skips, never fails. Evidence: the `go test` output. The suite
   reuses and keeps `<root>/smoke` and sweeps its own sandboxes at teardown; the manual Task 15 run drives `asb-dev`
   under the sweep's separate `<root>/data` home, so the warmed BuildKit layer cache is what the two share.

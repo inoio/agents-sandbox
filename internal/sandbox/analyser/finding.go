@@ -103,6 +103,9 @@ type Write struct {
 	// lands in the scope's agent config directory, where provisioning merges
 	// it into the VM config.
 	ManagedConfig *ManagedConfigWrite
+	// HomeFile provisions a host file into the VM home through the scope's
+	// home: key, nil unless the proposal replaces a credential store.
+	HomeFile *HomeFileWrite
 	// Text is the user-facing sentence the applier renders in the accept
 	// prompt, beside the finding's evidence. It never carries a secret value.
 	Text string
@@ -124,6 +127,20 @@ type ManagedConfigWrite struct {
 	Name string
 	// Content is the file's bytes, holding a placeholder where a static secret
 	// value stood.
+	Content []byte
+}
+
+// HomeFileWrite provisions one file into the VM home from the scope: the
+// content is written beside the scope's config as home/<Name>, and the home:
+// key maps Target to it with keep-login, so a renewing login the agent later
+// stores there is left in place. The content holds a placeholder, never a
+// secret value.
+type HomeFileWrite struct {
+	// Target is the VM-home-relative path the file is provisioned to.
+	Target string
+	// Name is the file name under the scope's home/ directory.
+	Name string
+	// Content is the file's bytes.
 	Content []byte
 }
 

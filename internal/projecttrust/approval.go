@@ -105,9 +105,13 @@ func wordingFor(firstApproval bool) approvalWording {
 }
 
 func changedPaths(changes []Change) string {
+	// One file can carry several inputs (config.yaml's launcher settings and
+	// its home: manifest), so each path is named once.
 	var paths []string
 	for _, change := range changes {
-		paths = append(paths, termio.EscapeControl(change.Path))
+		if path := termio.EscapeControl(change.Path); !slices.Contains(paths, path) {
+			paths = append(paths, path)
+		}
 	}
 	return strings.Join(paths, ", ")
 }

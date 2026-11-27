@@ -28,7 +28,7 @@ One finding shape serves both a learning session and config-only analysis (`conf
   user-set project entry. When the project layer owns a proposed key, the applier reports the finding and skips
   the write.
 - **A per-slug write is YAML-only.** The applier edits a config file format-preservingly by rewriting its document
-  tree, so a per-slug config in JSON, JSONC, JSON5, or TOML is reported and skipped rather than converted to YAML.
+  tree, so a per-slug config in JSON, JSONC, or JSON5 is reported and skipped rather than converted to YAML.
 - **A harden move writes two scopes.** A static secret wrongly committed in the project scope is removed from the
   project config and added at the per-slug user scope; the removal is harden's "reduce" contract, which the
   proposal never invokes. Both writes are trust-gated and applied together (or neither).
@@ -38,10 +38,14 @@ One finding shape serves both a learning session and config-only analysis (`conf
 
 ## The credential store
 
-**The managed layer never owns the credential store.** `reprovision.Provision` writes merged and mirror files
+**The managed layer never owns a renewing credential store.** `reprovision.Provision` writes merged and mirror files
 unconditionally on every start, so a managed file that carries a login entry the agent refreshed in the sandbox
 would destroy it. The copy-back therefore never targets a file the agent refreshes, and never adds a `home:` or
-provision rule for the credential store. Static secrets go to `env.secret.yaml` and appear as placeholders in the
+provision rule for a store holding a renewing login. The one exception is a **static** store that held a plain-text
+API key (see [exposed login keys](home-read-back.md#exposed-login-keys)): the proposal provisions it from the
+per-slug scope with the secret's placeholder through a `keep-login` `home:` entry, which skips the target while it
+holds a renewing login (a refresh token), so a login the user later makes in the VM is not overwritten. The
+provisioned store survives a home-volume reset, which a write into the home volume would not. Static secrets go to `env.secret.yaml` and appear as placeholders in the
 managed agent config; login entries stay only in the persistent sandbox home. The secret writer never persists a spec
 with an empty value or with neither hosts nor an explicit dangerous flag — `BuildSecretsFromSpecs` would drop it — so
 a finding that cannot produce a provisionable spec writes nothing.
@@ -59,16 +63,54 @@ config-family name such as opencode's `config.json`, or any name outside the pat
 takes no effect. The shared predicate `agent.MergesSnippetName` carries the pattern match; the host seed applies the
 same check, so it never copies a host config file the merge would not read.
 
-**The no-raw-sibling rule is enforced only on the host-seed path so far.** The shared sanitizer
-(`readback.SanitizeConfig`) takes a `RefuseUndeclaredSecretKeys` flag: the UC4 host seed sets it, so any non-reference
-string left under a secret-shaped key the credential walk did not name — directly or inside a nested array or object —
-refuses the whole file. A key is secret-shaped when a camelCase/separator-aware key segment is one of the markers
-`KEY`/`TOKEN`/`SECRET`/`PASSWORD`/`AUTHORIZATION`/`CREDENTIAL`, **or its plural** (so a secret list spelled `tokens`,
-`secrets`, `keys`, `credentials`, or `passwords` is covered); a downstream non-string value (a numeric count) is not a
-raw value, so `maxTokens: 4096` stays allowed while `tokens: ["sk-…"]` refuses. The after-run write-back
-(`analyser.ManagedConfigFindings`) leaves it off — a pre-existing S10 gap — so a secret-shaped value the walk did not
-classify can still be copied verbatim into the managed config. Until that flag is turned on for the write-back, the
-shared sanitizer must not be read as enforcing this rule on both paths.
+**The no-raw-sibling rule holds on both paths.** The shared sanitizer (`readback.SanitizeConfig`) takes a
+`RefuseUndeclaredSecretKeys` flag, and both the UC4 host seed and the after-run write-back
+(`analyser.ManagedConfigFindings`) set it. With it, a file is refused whole when, after substitution, it still holds:
+
+- a non-reference string under a **secret-shaped key** the credential walk did not name, directly or inside a nested
+  array or object. A key is secret-shaped when a camelCase/separator-aware segment is one of `KEY`, `TOKEN`, `SECRET`,
+  `PASSWORD`, `PASS`, `PASSWD`, `PWD`, `PIN`, `AUTHORIZATION`, `CREDENTIAL`, `APIKEY`, `ACCESSKEY`, `PRIVATEKEY`,
+  `AUTHTOKEN`, or a plural of one; `AUTH`, `COOKIE` and `SESSION` count only for a key holding a string directly,
+  since they also name tables of settings. A non-reference string or any native non-string scalar is a raw value under
+  a password, PIN, or key; a number or boolean word is exempt only under a token count
+  (`MAX_THINKING_TOKENS: "31999"`, `maxTokens: 4096`). A native timestamp the parser resolved from an unquoted
+  spelling (YAML's `time.Time`, TOML's `toml.LocalDate` and its siblings) is never exempted, so a date-shaped password
+  is refused like its quoted form;
+- a **secret-shaped value** under any key, in the decoded document or anywhere in the raw text (a comment is copied
+  verbatim): a credential header with a literal token (`authorization:`, `x-api-key:`, `x-auth-token:`, `Bearer …`,
+  `Basic …` with a digit or padding), a URL with userinfo, a credential in a query string or a `password=` connection
+  string, a credential command-line flag (any flag whose name names a secret, also as separate list elements
+  `["--access-token", "…"]` or `["--access-token", 84736251]` — a bare flag value is a literal, so a native number is
+  one too, with no token-count exemption; a flag naming where a secret lives, `--token-file`/`--password-stdin`, is not
+  one; the string and the list form are judged by the same flag-name predicate, so a name spelled with an underscore
+  (`--api_key`) is caught in a single command string, and an assignment after `-e`/`--env` in that string is judged by
+  the `NAME=value` rule), a
+  `NAME=value` list entry (an env array, a docker `-e` argument) or a `{name, value}` entry the env rule does not
+  clear, a JWT, a PEM private
+  key, or a token with a well-known vendor prefix (`sk-`, `sk_live_`, `ghp_`, `github_pat_`, `xox?-`, `AKIA`/`ASIA`,
+  `glpat-`, `AIza`, `xai-`, `hf_`, `gsk_`, `npm_`, `pypi-`);
+- an entry of an **env table** (`env`, `environment`) or a **header table** (`headers`, `http_headers`), at any depth,
+  that is not known to be harmless. Such tables carry credentials under names no rule can enumerate, so their entries
+  are secret by default; a string entry is judged by the table's rule alone, and a nested table or list under it holds
+  no configuration names, so any raw value inside counts. A string entry is cleared when its value is an explicit
+  reference (`${…}`, `{env:…}`, `{file:…}` — a bare word is a literal here), empty, a multi-component filesystem path,
+  a value whose only credential parts are placeholders (no digit-bearing or 16-character literal left beside them), a
+  number or boolean under a key that names no stored secret (env only; a number under an unknown header can be a
+  key), or its name is
+  known configuration (env: `*_URL`, `*_ENDPOINT`, `*_HOST`, `*_PORT`, `*_MODEL`, `*_REGION`, `*_VERSION`,
+  `*_TIMEOUT*`, `*_LEVEL`, `*_MODE`, `*_DIR`, `*PATH`, `*_OPTIONS`, `*_PROFILE`, `*_PROJECT*`, `*_NAME`, `*_PROTOCOL`,
+  `*_EXPORTER`, `DISABLE_*`, `ENABLE_*`, `NO_*`, `USE_*`, `SKIP_*`, the proxy variables; headers: `Content-Type`,
+  `Accept*`, `User-Agent`, `anthropic-beta`, …), and its value is not secret-shaped.
+
+A YAML file with more than one document is refused, because the decoder reads only the first (a single leading `---`
+that opens the first document, after nothing but blank lines and comments, is no second document). The rule is
+deliberately conservative: an unknown entry refuses the file rather than risk a missed credential, so a refused file
+stays in the sandbox. A placeholder as a URL password (`postgres://app:${DB_PW}@db`) is not a credential, so the
+sanitizer's own substituted output passes. It remains a heuristic, and these are not caught: an unshaped raw value
+under an unmarked key outside these tables; a duplicated JSON key whose first occurrence holds the raw value; a value
+that only starts like a reference (`"${X}raw"`, `"!raw"`) or is a bare upper-case word outside env tables; a webhook
+URL under a `*_URL` env key. It also fails closed on some harmless content (a prompt quoting `Authorization: Bearer
+YOUR_TOKEN_HERE`, `?key=value` in a link, `{"auth":"oauth"}`). The refusal does not yet name the key (#790).
 
 A candidate whose path matches a **declared credential-store pattern** is excluded by the pattern alone, independently
 of whether that store is a login for the current agent: `readback.IsCredentialStorePath` tests the pattern
@@ -87,8 +129,10 @@ never targets that scope. An unknown agent resolves to no target directory and i
 The placeholder convention is `${<ENVVAR>}` **where the harness passes a config value through verbatim**: a literal
 config string is not shell-expanded, so the placeholder reaches the request. A harness that does not expand `${VAR}`
 in its config needs its **native env indirection** instead — kimi reads no key from the process environment and only
-accepts `api_key_env = "<ENVVAR>"`, so the write-back emits that form, and msb puts the placeholder into the named
-env var. An assignment whose key is already the env-var name — an env-table entry such as `KIMI_API_KEY = "…"` —
+accepts `api_key_env = "<ENVVAR>"`, and codex reads a provider's key from the variable its `env_key` names, so the
+write-back emits that form (`api_key_env`, `env_key`; `agent.EnvIndirectionDescriber`), and msb puts the placeholder
+into the named env var. The first-run host seed writes the same form, so a seeded and a written-back config agree.
+An assignment whose key is already the env-var name — an env-table entry such as `KIMI_API_KEY = "…"` —
 keeps its key and takes `${ENVVAR}` instead: that name is what the harness reads. Which form a harness needs is a
 per-harness property of the write-back, not of the finding. The placeholder is explicit (`envsecret.PlaceholderFor`)
 because the runtime's default placeholder is generated and cannot be referenced from a config file, so the launcher
@@ -140,12 +184,28 @@ finding.
 
 - A learning session presents its whole proposal behind one prompt: **Review and save**, **Save all**, or **Not now**.
   Review and save drives the per-finding prompt below; Save all applies every finding without asking (an explicit
-  top-level accept-all, never `--yes`); Not now writes nothing and records nothing.
+  top-level accept-all, never `--yes`); Not now writes nothing and records nothing. The prompt first drops terminal input
+  typed for the agent's session and not consumed (`DiscardTypeAhead`): a surplus Ctrl-D after the one that quit
+  the TUI would otherwise read as end of input, fail the after-run, and leave the session unsaved.
 - Applying is interactive and per finding, and a finding's writes each name their own scope and are applied together
   (a move applies both writes or neither). A decline is remembered, keyed on a hash of the evidence, and re-armed
   when the evidence changes. The hash is canonical — list fields are sorted — so it is stable across runs for the
   same observation and changes with any evidence change. The record lives in the user state dir, keyed by repo slug,
   so it survives a config-dir reset and is shared by clones.
+- A **report-only** finding (a write that carries only text) makes no machine change: the applier asks nothing and
+  records no decline, and every caller that applies findings (the after-run summary and the `config learn` replay)
+  prints its evidence and guidance as a warning.
+- An **exposed login key** is applied as one finding: the key becomes an env secret in the per-slug scope (its
+  value read from the store, in memory only) and, for a harness that reads it from its store (codex), the store is
+  provisioned with the secret's `${ENVVAR}` placeholder. Both writes apply together, since a placeholder without its
+  secret breaks the harness. A harness that reads the key from its environment (claude-code) gets the secret and a
+  one-time follow-up (`/logout`) for the key its existing home volume still holds.
+- Before any write of an exposed-key finding, the applier validates the proposed `home:` document edit and refuses
+  an existing mapping to the same target in the per-slug or project scope (including an equivalent relative spelling).
+  Literal guest-path segments match case-sensitively. A refusal leaves the secret and provisioned source untouched;
+  unexpected filesystem failures during execution are reported as failures, not guaranteed to roll back.
+- `keep-login` has the same semantics for VM provisioning and `config provision --target`: a JSON store with a
+  non-empty refresh token is preserved. An absent, unreadable, or unrecognised store is provisioned from the source.
 - A non-interactive run writes no proposal and prints one line naming the command that produces it. `--learn` is
   refused together with `--serve-only` at option resolution (a learning session attaches a TUI). A `--dry-run` returns
   before the channel starts, and a `--dry-run-vm` prepares but skips the VM, so neither writes a session record or runs

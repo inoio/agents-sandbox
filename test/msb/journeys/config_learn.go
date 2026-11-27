@@ -1,7 +1,5 @@
 package journeys
 
-import "github.com/inoio/agents-sandbox/internal/agent"
-
 // configLearnScope is what the `config learn` replay asserts it wrote to the
 // per-slug user scope: the stub provider's inline apiKey is a static credential,
 // saved to env.secret.yaml scoped to the stub host, and the managed agent config
@@ -15,12 +13,7 @@ import "github.com/inoio/agents-sandbox/internal/agent"
 // so the provisioned stub config reaches ManagedConfigFindings and is written
 // back sanitized. That is the same placeholder effect UC4 asserts for its host
 // seed, produced through the replay's changed-config path instead.
-var configLearnScope = ScopeWant{
-	EnvVar:      stubCredentialEnvVar,
-	Hosts:       []string{stubHost},
-	ConfigKeys:  nil,
-	Placeholder: true,
-}
+var configLearnScope = ScopeWant{ManagedConfig: false, Placeholder: true}
 
 // configLearnJourney is the `config learn` journey: it replays a recorded
 // learning session whose owning process is gone.
@@ -34,25 +27,23 @@ var configLearnScope = ScopeWant{
 // persists in the volume for the replay's read-back), writes nothing, and clears
 // its own session record — leaving the home volume in state for
 // StepSeedLearnSession to copy.
-//
-// The command resolves its agent with no --agent flag, so it targets
-// agent.DefaultAgentName; StepLaunchCommand guards that the journey drives the
-// same agent.
 var configLearnJourney = Journey{
-	Name:  "config-learn-replay",
-	Agent: agent.DefaultAgentName,
+	Name:      "config-learn-replay",
+	Harnesses: []string{opencode2AgentName, ohMyPiAgentName},
+	LearnMode: true,
 	Steps: []Step{
-		StepFreshHome(),
-		StepSeedStub(),
-		StepLaunch("run", "--learn"),
-		StepWaitReady(),
-		StepQuit(),
-		StepChooseExit(exitNotNowKey),
-		StepSeedLearnSession(),
-		StepLaunchCommand("config", "learn"),
-		StepAnswerApplyPrompts(),
-		StepAssertScopeWritten(configLearnScope),
-		StepAssertLearnArtefactGone(),
-		StepAssertSessionCleared(),
+		Given(StepFreshHome()),
+		And(StepSeedStub()),
+		And(StepLaunch("run", "--learn")),
+		And(StepExitHarnessSetup()),
+		And(StepWaitReady()),
+		And(StepQuit()),
+		And(StepChooseExit(exitNotNowKey)),
+		And(StepSeedLearnSession()),
+		When(StepLaunchCommand("config", "learn")),
+		And(StepAnswerApplyPrompts()),
+		Then(StepAssertScopeWritten(configLearnScope)),
+		And(StepAssertLearnArtefactGone()),
+		And(StepAssertSessionCleared()),
 	},
 }

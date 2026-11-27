@@ -14,7 +14,9 @@
 # cover: every `github.event_name == '<event>'` / `!= '<event>'` condition names
 # an event declared in `on:`, and a declared `on.pull_request.types` repeats the
 # pull_request default types (`types:` replaces the default set rather than
-# extending it).
+# extending it). It checks that every job in every workflow (not only ci.yml)
+# carries a `timeout-minutes`, so a job added to a sibling workflow cannot hang
+# against the 360-minute default unnoticed.
 #
 # Finally it pins the release invariants no other gate covers: the release/*
 # push trigger, the `tag-guard` job and its place in `release.needs`, and the
@@ -82,6 +84,7 @@ canonical="$(
     'Formula/**' \
     '.github/ISSUE_TEMPLATE/**' \
     '.agents-sandbox/**' \
+    '.idea/**' \
     '**.md' \
     '.gitignore' | LC_ALL=C sort
 )"
@@ -349,8 +352,8 @@ fi
 # top-level job key). Scoping to the block keeps a job-local assertion honest:
 # the `changelog` job legitimately keeps a `git diff ... || true`, and a
 # whole-file grep would false-positive on it.
-job_block() {
-  awk -v want="$1" '
+workflow_job_block() {
+  awk -v want="$2" '
     /^jobs:[[:space:]]*$/ { in_jobs = 1; next }
     in_jobs && /^[^[:space:]]/ { in_jobs = 0 }
     in_jobs && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ {
@@ -362,12 +365,16 @@ job_block() {
       next
     }
     in_job { print }
-  ' "$CI_YML"
+  ' "$1"
+}
+
+job_block() {
+  workflow_job_block "$CI_YML" "$1"
 }
 
 # job_names: every job key under `jobs:`, in order (the `on:` events share the
 # two-space indent, so the section boundary has to be tracked).
-job_names() {
+workflow_job_names() {
   awk '
     /^jobs:[[:space:]]*$/ { in_jobs = 1; next }
     in_jobs && /^[^[:space:]]/ { in_jobs = 0 }
@@ -377,7 +384,11 @@ job_names() {
       sub(/:.*$/, "", name)
       print name
     }
-  ' "$CI_YML"
+  ' "$1"
+}
+
+job_names() {
+  workflow_job_names "$CI_YML"
 }
 
 changes_block="$(job_block changes)"
@@ -503,12 +514,21 @@ for job in integration integration-cache-writer vulncheck; do
     "ci.yml: '$job' if: is missing needs.changes.outputs.code != 'false'"
 done
 
-# Every job bounds itself with a timeout; a hung job otherwise burns a runner.
-while IFS= read -r job; do
-  [[ -n "$job" ]] || continue
-  block_matches "$(job_block "$job")" '^    timeout-minutes:[[:space:]]*[0-9]+' \
-    || report "ci.yml: '$job' is missing a job-level timeout-minutes"
-done <<<"$(job_names)"
+# Every job in every workflow bounds itself with a timeout; a hung job otherwise
+# burns a runner for the default 360 minutes. Scanning every workflow, not just
+# ci.yml, is what keeps a job added to a sibling workflow from slipping through.
+while IFS=$'\t' read -r file job; do
+  [[ -n "$file" ]] || continue
+  block_matches "$(workflow_job_block "$file" "$job")" '^    timeout-minutes:[[:space:]]*[0-9]+' \
+    || report "$(basename "$file"): '$job' is missing a job-level timeout-minutes"
+done < <(
+  for file in "$ROOT"/.github/workflows/*.yml; do
+    [[ -f "$file" ]] || continue
+    while IFS= read -r job; do
+      [[ -n "$job" ]] && printf '%s\t%s\n' "$file" "$job"
+    done <<<"$(workflow_job_names "$file")"
+  done
+)
 
 # --- Release-invariant guards. -------------------------------------------------
 #

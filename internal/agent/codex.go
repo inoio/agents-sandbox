@@ -76,17 +76,33 @@ func (codexProfile) VMConfigPath(home string) string {
 }
 func (codexProfile) ConfigFileNames() []string { return []string{codexConfigFileName} }
 
-// ProvisionRules copies only config.toml. auth.json is left out: a ChatGPT
-// login holds rotating refresh tokens that a copy would invalidate on the host.
+// ProvisionRules copies config.toml and the global instructions (AGENTS.md,
+// AGENTS.override.md) and skills tree. config.toml can hold a provider's bearer
+// token and MCP env and headers; the drop-in is opt-in with that consent.
+// auth.json is left out: a ChatGPT login holds rotating refresh tokens that a
+// copy would invalidate on the host.
 func (codexProfile) ProvisionRules() []ProvisionRule {
 	return []ProvisionRule{
-		{Dir: ".codex", Patterns: []string{codexConfigFileName}},
+		{Dir: ".codex", Patterns: []string{
+			codexConfigFileName, agentsRulesPattern, agentsOverridePattern, skillsDirPattern,
+		}},
 	}
 }
 
-// ReadBackPaths declares codex's login file only: config.toml is covered by the
-// config merger and carries no credential.
-func (codexProfile) ReadBackPaths() []string { return []string{".codex/auth.json"} }
+// ReadBackPaths declares codex's login file and its config.toml, whose provider
+// entries (model_providers.<id>) can hold an inline experimental_bearer_token
+// the read-back classifies. A provider's or MCP server's http_headers can carry
+// a token under any name; the host seed and the write-back refuse such a file
+// rather than copy it.
+func (codexProfile) ReadBackPaths() []string {
+	return []string{".codex/auth.json", ".codex/config.toml"}
+}
+
+// EnvIndirectionKey is codex's native env indirection: its config.toml does not
+// expand ${VAR}, and a provider reads its key from the environment variable its
+// env_key names. The write-back and the host seed therefore rewrite an inline
+// experimental_bearer_token to env_key = "<ENVVAR>".
+func (codexProfile) EnvIndirectionKey() string { return "env_key" }
 
 func (codexProfile) CredentialProbes() []string { return nil }
 
@@ -105,4 +121,11 @@ func (codexProfile) AttachCommand(_ string, args []string) string {
 func (codexProfile) VersionCmd() string { return "codex --version" }
 func (codexProfile) ParseVersion(stdout string) (string, error) {
 	return extractSemverFromOutput(stdout)
+}
+
+// InstructionPaths declares the credential-free files the host seed copies: the
+// global AGENTS.md (and its override) and the skill tree, the instruction files
+// codex reads from CODEX_HOME.
+func (codexProfile) InstructionPaths() []string {
+	return []string{agentsRulesFileName, "AGENTS.override.md", skillsDirName}
 }

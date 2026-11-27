@@ -3,12 +3,12 @@ package readback
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"os"
 	"path/filepath"
 	"sort"
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
-	"github.com/inoio/agents-sandbox/internal/filewalk"
 )
 
 // MaxHashedBytes caps the size of a file whose content is hashed. A larger
@@ -49,11 +49,7 @@ type Manifest struct {
 // an empty manifest, never an error; a declared path that does not exist yet is
 // simply absent, so a first run has nothing to compare against.
 func TakeManifest(home, agentName string) (Manifest, error) {
-	collection, err := collectReadBack(home, agentName)
-	if err != nil {
-		return Manifest{}, err
-	}
-	return collection.manifest, nil
+	return collectReadBack(home, agentName).manifest, nil
 }
 
 // readBackCollection is one pass over an agent's home: the baseline manifest and
@@ -77,17 +73,19 @@ type probeOutcome struct {
 
 // collectReadBack walks the named agent's declared paths and runs its credential
 // probes once, producing the manifest together with the probe outcomes.
-func collectReadBack(home, agentName string) (readBackCollection, error) {
+func collectReadBack(home, agentName string) readBackCollection {
 	var manifest Manifest
 	seen := map[string]bool{}
-	for _, declaredPath := range declaredReadBackPaths(agentName) {
-		if err := appendDeclaredPath(&manifest, seen, home, declaredPath); err != nil {
-			return readBackCollection{}, err
+	// A home that cannot be opened (not created yet) has no declared file.
+	if root, err := os.OpenRoot(home); err == nil {
+		for _, declaredPath := range declaredReadBackPaths(agentName) {
+			appendDeclaredPath(&manifest, seen, root, declaredPath)
 		}
+		_ = root.Close()
 	}
 	probes := appendCredentialProbes(&manifest, seen, home, agentName)
 	sortEntries(manifest.Entries)
-	return readBackCollection{manifest: manifest, probes: probes}, nil
+	return readBackCollection{manifest: manifest, probes: probes}
 }
 
 // appendCredentialProbes appends exactly one entry per credential probe the
@@ -158,49 +156,43 @@ func probeSource(agentName, probe string) string {
 	return agentName + ":" + probe
 }
 
-// appendDeclaredPath walks one declared path (a file or a glob) under home and
-// appends a manifest entry for every file it selects. A file selected twice by
-// overlapping declared paths is recorded once.
-func appendDeclaredPath(manifest *Manifest, seen map[string]bool, home, declaredPath string) error {
-	root := filepath.Join(home, filepath.Dir(declaredPath))
-	base := filepath.Base(declaredPath)
-	// A declared pattern is a bare basename or "*", neither of which contains a
-	// separator, and filepath.Match never lets "*" cross one. No file reached
-	// through a subdirectory can therefore match, so the filter's answer for a
-	// directory only decides whether the walk descends into it, never which
-	// files are selected; the directory flag is irrelevant.
-	take := func(rel string, _ bool) bool {
-		matches, _ := filepath.Match(base, rel)
-		return matches
-	}
-	return filewalk.WalkCapped(root, MaxHashedBytes, take, func(entry filewalk.Entry) error {
-		manifestEntry := describeFile(home, entry)
-		if seen[manifestEntry.Key] {
-			return nil
+// appendDeclaredPath appends a manifest entry for every regular file a declared
+// path selects: an exact home-relative path, or a glob whose pattern is its last
+// element and matches the files of its directory. A file selected twice by
+// overlapping declared paths is recorded once. A file over MaxHashedBytes is
+// recorded opaque (size and mtime, no hash).
+func appendDeclaredPath(manifest *Manifest, seen map[string]bool, root *os.Root, declaredPath string) {
+	directory, pattern := filepath.Dir(declaredPath), filepath.Base(declaredPath)
+	// A missing or unreadable directory lists no entries; a matching
+	// subdirectory is refused below as not a regular file.
+	entries := readHomeDirectory(root, directory)
+	for _, entry := range entries {
+		if matched, _ := filepath.Match(pattern, entry.Name()); !matched {
+			continue
 		}
-		seen[manifestEntry.Key] = true
-		manifest.Entries = append(manifest.Entries, manifestEntry)
-		return nil
-	})
+		key := filepath.Join(directory, entry.Name())
+		if seen[key] {
+			continue
+		}
+		file, ok := readHomeFile(root, key, MaxHashedBytes)
+		if !ok {
+			continue
+		}
+		seen[key] = true
+		manifest.Entries = append(manifest.Entries, describeFile(key, file))
+	}
 }
 
-// describeFile records the size and mtime of the file behind entry, keyed by its
-// sandbox-home-relative path, and hashes its content when the walk read it. The
-// walk leaves an over-cap file's data nil, so that entry stays opaque. A path
-// that cannot be made home-relative falls back to its walk-relative name rather
-// than dropping the entry: the walk is best-effort.
-func describeFile(home string, entry filewalk.Entry) ManifestEntry {
-	key, err := filepath.Rel(home, entry.Path)
-	if err != nil {
-		key = entry.Rel
+// describeFile records a home file's size and mtime under its home-relative
+// key, and hashes its content when it was read.
+func describeFile(key string, file homeFile) ManifestEntry {
+	entry := ManifestEntry{Key: key, Size: file.size, ModTime: file.modTime, Hash: ""}
+	if file.data == nil {
+		return entry
 	}
-	manifestEntry := ManifestEntry{Key: key, Size: entry.Size, ModTime: entry.ModTime, Hash: ""}
-	if entry.Data == nil {
-		return manifestEntry
-	}
-	digest := sha256.Sum256(entry.Data)
-	manifestEntry.Hash = hex.EncodeToString(digest[:])
-	return manifestEntry
+	digest := sha256.Sum256(file.data)
+	entry.Hash = hex.EncodeToString(digest[:])
+	return entry
 }
 
 // Changed returns the keys whose size, mtime, or hash differs from prev, plus

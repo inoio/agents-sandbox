@@ -60,6 +60,8 @@ type ReadBack struct {
 	// whose read failed this run. A non-empty entry means the absence of that
 	// source's credentials is undetermined, not a confirmed "no credentials".
 	Unreadable []string
+	// Exposed names the login stores holding a plain-text API key.
+	Exposed []ExposedKey
 }
 
 // Read inspects the agent's declared config and credential paths under home and
@@ -74,10 +76,7 @@ func Read(home, agentName string, baseline Manifest) (ReadBack, error) {
 		return ReadBack{}, nil
 	}
 
-	collection, err := collectReadBack(home, agentName)
-	if err != nil {
-		return ReadBack{}, err
-	}
+	collection := collectReadBack(home, agentName)
 
 	readBack := ReadBack{
 		ConfigPaths: nil,
@@ -85,6 +84,7 @@ func Read(home, agentName string, baseline Manifest) (ReadBack, error) {
 		Login:       nil,
 		Changed:     collection.manifest.Changed(baseline),
 		Unreadable:  nil,
+		Exposed:     exposedKeys(home, agentName),
 	}
 	for _, entry := range collection.manifest.Entries {
 		if isProbe(entry) {
@@ -103,7 +103,7 @@ func Read(home, agentName string, baseline Manifest) (ReadBack, error) {
 			})
 		}
 		if filepath.Base(entry.Key) == dotenvFileName {
-			if content, ok := ReadCappedFile(filepath.Join(home, entry.Key), MaxHashedBytes); ok {
+			if content, ok := ReadHomeFile(home, entry.Key, MaxHashedBytes); ok {
 				readBack.Static = append(readBack.Static, staticCredentials(entry.Key, content)...)
 			}
 			continue
@@ -178,7 +178,7 @@ func configEndpointHosts(home string, manifest Manifest) map[string][]string {
 		}
 		// A failed read yields nil content, which decodes to no hosts, so it
 		// needs no separate skip.
-		content, _ := ReadCappedFile(filepath.Join(home, entry.Key), MaxHashedBytes)
+		content, _ := ReadHomeFile(home, entry.Key, MaxHashedBytes)
 		document, err := configdecode.Decode(format, content)
 		if err != nil {
 			continue
@@ -277,10 +277,11 @@ func providerNamedByEntry(entry map[string]any, entryKey string) (string, bool) 
 
 // providerContainers are the config keys whose value is keyed by provider id, so
 // a child entry names its provider through its container-relative key
-// (opencode's "provider.<id>" shape, and the "models.providers.<id>" wrapper).
-// A bare "models" map is a model catalog, not a container: only the
-// "models.providers.<id>" wrapper is one (see isModelCatalog).
-var providerContainers = []string{"provider", "providers", "models"}
+// (opencode's "provider.<id>" shape, codex's "model_providers.<id>", and the
+// "models.providers.<id>" wrapper). A bare "models" map is a model catalog, not
+// a container: only the "models.providers.<id>" wrapper is one (see
+// isModelCatalog).
+var providerContainers = []string{"provider", "providers", "modelproviders", "models"}
 
 // isProviderContainer reports whether a config key holds provider-keyed entries.
 func isProviderContainer(key string) bool {
@@ -388,7 +389,7 @@ func (s loginCredentialStore) appliesTo(agentName string) bool {
 // would be a false positive.
 var loginCredentialStores = []loginCredentialStore{
 	{pattern: ".claude/.credentials.json", provider: "claude-code"},
-	{pattern: ".codex/auth.json", provider: "codex"},
+	{pattern: codexAuthPath, provider: "codex"},
 	{pattern: ".local/share/opencode/auth.json", provider: "opencode", agents: []string{"opencode"}},
 	{pattern: ".pi/agent/auth.json", provider: "pi"},
 	{pattern: ".kimi-code/credentials/*.json", provider: "kimi-code"},
@@ -531,8 +532,9 @@ func isSecretKeySeparator(r rune) bool {
 }
 
 // inlineCredentialKeys are the normalized keys whose value inside a provider
-// entry is that provider's own static credential.
-var inlineCredentialKeys = []string{"apikey", "key", "token"}
+// entry is that provider's own static credential (codex's provider entry keeps
+// it as experimental_bearer_token).
+var inlineCredentialKeys = []string{"apikey", "key", "token", "experimentalbearertoken"}
 
 // ClassifyConfigContent splits path's credential-bearing entries into static
 // (provider/host/env-var) and login classifications. No credential value is
@@ -619,7 +621,7 @@ func configInlineCredentials(home string, manifest Manifest) []Credential {
 		}
 		// A failed read yields nil content, which decodes to an empty
 		// document, so it needs no separate skip.
-		content, _ := ReadCappedFile(filepath.Join(home, entry.Key), MaxHashedBytes)
+		content, _ := ReadHomeFile(home, entry.Key, MaxHashedBytes)
 		credentials = append(credentials, InlineCredentialsIn(entry.Key, content)...)
 	}
 	return credentials
@@ -727,10 +729,20 @@ func derivedEnvVarName(provider string) string {
 // value the read-back cannot tell apart from a bound variable name). Only the
 // classification leaves this predicate; the value stays in memory.
 func isReferenceValue(value string) bool {
+	return isExplicitReference(value) || isEnvVarIdentifier(strings.TrimSpace(value))
+}
+
+// isExplicitReference reports whether a value is an explicit reference rather
+// than a literal: a ${...} placeholder, opencode's {env:...}/{file:...} form, or
+// a leading-! command reference. It does not treat a bare upper-case word as a
+// reference, so a caller for whom a bare word is a value (a nested table under
+// an env or header table) can use it directly.
+func isExplicitReference(value string) bool {
 	trimmed := strings.TrimSpace(value)
 	return strings.HasPrefix(trimmed, "${") ||
-		strings.HasPrefix(trimmed, "!") ||
-		isEnvVarIdentifier(trimmed)
+		strings.HasPrefix(trimmed, "{env:") ||
+		strings.HasPrefix(trimmed, "{file:") ||
+		strings.HasPrefix(trimmed, "!")
 }
 
 // isEnvVarIdentifier reports whether value is a bare environment-variable name:
@@ -824,8 +836,14 @@ func ReadCappedFile(path string, maxBytes int64) ([]byte, bool) {
 		return nil, false
 	}
 	defer func() { _ = file.Close() }()
+	return readCapped(file, maxBytes)
+}
+
+// readCapped reads reader whole when it holds at most maxBytes, and reports
+// false for a longer or failing read.
+func readCapped(reader io.Reader, maxBytes int64) ([]byte, bool) {
 	// gomutants:disable-next-line INTEGER_INCREMENT reason="io.LimitReader with maxBytes+2 returns the same bytes as maxBytes+1 for any file at or below maxBytes+1, and a longer file is rejected by the cap check below either way"
-	data, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
+	data, err := io.ReadAll(io.LimitReader(reader, maxBytes+1))
 	if err != nil {
 		return nil, false
 	}

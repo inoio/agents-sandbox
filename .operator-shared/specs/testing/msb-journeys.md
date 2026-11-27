@@ -1,6 +1,6 @@
 ---
-description: Design for harness journeys - a second `msb`-tagged suite (`test/msb/journeys`) that drives full user journeys through real harnesses (v1: learn mode on opencode2), the shared untagged `test/msb/driver` package, the `test/harness`→`test/msb/startup` rename, the "everything under test/ is test code" gate scope with the production-closure contract test, and the surface-sweep promotion flow.
-read_if: Working on the msb journeys suite (`test/msb/journeys`, `make test-msb-journeys`), the shared `test/msb/driver` package, the `test/harness`→`test/msb/startup` rename, the dead-code/ambient "test/ is test code" gate scope, the production-closure contract test, or wiring the release surface sweep to the journeys suite.
+description: Design for harness journeys - a second `msb`-tagged suite (`test/msb/journeys`) that drives full user journeys through real harnesses (v1: learn mode on opencode2), the shared untagged `test/msb/driver` package, the startup smoke `test/msb/startup`, the "everything under test/ is test code" gate scope with the production-closure contract test, and the surface-sweep promotion flow.
+read_if: Working on the msb journeys suite (`test/msb/journeys`, `make test-msb-journeys`), the shared `test/msb/driver` package, the startup smoke (`test/msb/startup`), the dead-code/ambient "test/ is test code" gate scope, the production-closure contract test, or wiring the release surface sweep to the journeys suite.
 ---
 
 # Harness journeys (msb) — design
@@ -66,7 +66,7 @@ triages and adapts the test rather than treating the failure as a product regres
 
 ### Suite placement
 
-- **A — ride the existing tiers:** extend `test/harness` toward a first turn and add a learn-mode
+- **A — ride the existing tiers:** extend the startup smoke (`test/msb/startup`) toward a first turn and add a learn-mode
   journey to the surface sweep. Rejected: it violates "keep `test-msb` minimal".
 - **B — a second `msb` suite + the surface sweep as the exploratory tier** (chosen). The automated
   half is a new suite; the exploratory half is the existing sweep.
@@ -83,17 +83,16 @@ test/
   scripts/           # unchanged — drives shell tools, no VM
   msb/
     driver/          # shared driving support (untagged)
-    startup/         # was test/harness — the minimal startup smoke (msb-tagged)
-    journeys/        # the new full-journey suite (msb-tagged)
+    startup/         # the minimal startup smoke (msb-tagged)
+    journeys/        # the full-journey suite (msb-tagged)
 ```
 
-`test/harness` → `test/msb/startup`. "startup" pairs cleanly with "journeys" (harness lifecycle
-phase); "smoke" names a depth, not a phase. Targets: `make test-msb` (startup, unchanged intent) and
-`make test-msb-journeys`. The `AGENTS_SANDBOX_SMOKE_ROOT` env var is **kept by name** (documented,
-CI-facing); only the package path changes.
+The startup smoke lives in `test/msb/startup`: "startup" pairs with "journeys" (a harness lifecycle
+phase), where "smoke" would name a depth. Targets: `make test-msb` (startup) and `make test-msb-journeys`.
+The `AGENTS_SANDBOX_SMOKE_ROOT` env var keeps its name (documented, CI-facing).
 
 `driver` is **untagged** so its unit tests run in the default `make test` and never start a VM. The
-**harness table** (`driver.Specs`, quit keys, seeds, readiness markers) moves into `driver` — both
+**harness table** (`driver.Specs`, quit keys, seeds, readiness markers) lives in `driver` — both
 suites need "how to start and quit harness X", and keeping the table untagged keeps its
 completeness test running in the default suite (the tagged-only-package trap).
 
@@ -113,7 +112,10 @@ the built binary, not the SDK).
   and ambient-tool contract tests to scan **non-test `.go` files under `test/`** as well as `_test.go`.
   No `//deadcode:ignore` on `driver`; its host calls keep the `//testenv:allow` markers they carry
   today. The widening reaches the shared untagged driver's non-test files (they live under `test/`),
-  which would otherwise escape the ambient scan because they are not `_test.go` files.
+  which would otherwise escape the ambient scan because they are not `_test.go` files. The linter follows
+  the same scope: a `^test/` path rule in `.golangci.yml` relaxes `exhaustruct`, `goconst`, `gosec`,
+  `nonamedreturns`, and `reassign` there (the test-only subset of the `_test.go` rule), so non-test files
+  under `test/` carry no `//exhaustruct:ignore` or `//nolint` markers for them.
 - **B — marker-driven:** add the file-scope marker to `driver` and key the ambient scans on it.
   Rejected as fiddlier for no extra reach.
 - **C — keep host-touching calls in `_test.go`, extract only pure helpers.** Rejected: it defeats
@@ -121,31 +123,23 @@ the built binary, not the SDK).
 
 ### Provider for a journey
 
-A learn-mode journey must make the harness **send** an outbound request so the terminating proxy sees
-the credential→destination pair. **Correction (builder check):** a *guest-loopback* stub never
-traverses the host-owned terminating proxy, so it cannot produce attribution — the earlier "loopback
-stub" wording was wrong for the attribution half. The destination must be a **host-side stub** the VM
-reaches through the proxy, with the same dummy-provider seed pattern `hermes`/`goose` use. That keeps
-the turn egress-free (no public destination) while the proxy still terminates TLS and observes the
-credential→destination pair.
+A journey's model turns go to a **host-side stub** with a dummy provider seed, so no turn needs public egress.
+The VM reaches it through the host gateway, which completes turns but bypasses the learn-mode observation proxy;
+whether any route both completes a turn and is observed is #793's open question (see "Route" below). The
+read-back journeys (config changes, static secrets, managed-config write-back) do not depend on it.
 
-**Decision:** proving the real agent turn through the proxy is a **prerequisite**, not a deferrable
-unknown. The plan includes a spike that lands the host-side stub destination and a real turn the
-proxy carries, before the attribution journeys are written. The read-back journeys (config changes,
-static secrets, managed-config write-back) are independent and can land in parallel; the attribution
-journeys depend on the spike.
-
-#### Stub provider (implemented; the advertised route is provisional pending the host accept)
+#### Stub provider
 
 The stub is a host-side loopback HTTP listener (`test/msb/journeys/stub_provider.go`), started per journey and
-closed by `tb.Cleanup`.
+closed by `tb.Cleanup`. It records every request it served (`StubProvider.Requests`) and answers a chat completion
+with a numbered reply (`stub-reply-<n>`), streamed when the request asks for a stream, so a journey can assert that a turn
+reached the stub and completed. The provider config declares a separate `small_model` (`stub/stub-title`), which
+opencode uses for side requests such as the session title, and the stub answers it with a different text: a title
+on screen cannot pass for the turn's reply, and a title request does not count as the turn.
 
-- **Protocol: plain HTTP.** The agent's request traverses the terminating proxy as an absolute-URI HTTP
-  request, which the proxy records (`protocol: "http"`), so the stub needs no CA and the run needs no
-  `network.observe.skip-upstream-verify`. An `https` advertised route would need `skip-upstream-verify`,
-  because the stub's certificate is not trusted.
-- **Provider config.** `StubProvider.ProviderConfig()` returns the VM-home-relative config manifest
-  (`driver.SeedLauncherConfig`'s target→content map): one target, opencode's `.config/opencode/opencode.json`
+- **Protocol: plain HTTP.** The stub needs no CA, and the run needs no `network.observe.skip-upstream-verify`.
+- **Provider config.** The harness adapter's `Stub.HomeFiles(addr)` returns the VM-home-relative config manifest
+  (`driver.SeedLauncherConfig`'s target→content map); for opencode2 it is one target, opencode's `.config/opencode/opencode.json`
   (the file opencode actually reads; `config.json < opencode.json < opencode.jsonc`), holding an
   OpenAI-compatible provider `stub` whose `options.baseURL` is `<advertised>/v1` plus the top-level
   `model: stub/stub`. `StepSeedStub` provisions it through the launcher's `home:` manifest. That path
@@ -153,33 +147,234 @@ closed by `tb.Cleanup`.
   `firstrun.managedConfigPresent` count a managed layer and suppresses the menu, and seeding the isolated
   HOME's `~/.config/opencode` makes `firstrun.HostFiles` read it as host config; the `home:` manifest
   avoids both, so the first-run menu (and its "Learn by using it" choice) is still offered.
-- **Advertised route.** The listener always binds `127.0.0.1:0`; the *advertised* origin (scheme + host) is
-  `AGENTS_SANDBOX_JOURNEYS_STUB_ORIGIN`, default `http://agents-sandbox-stub.invalid`. A host accept pins a
-  route that both the runtime interception and the proxy's upstream dial reach, without a code change; the
-  port is always the listener's own ephemeral one.
-- **Assertion.** The spike asserts the saved observation names the advertised stub host. A denied proxy dial
-  is still recorded, so the assertion passes whenever the turn reaches the proxy at all.
+- **Route: the host gateway.** The listener binds `127.0.0.1:0`; the *advertised* origin defaults to
+  `http://host.microsandbox.internal` (overridable through `AGENTS_SANDBOX_JOURNEYS_STUB_ORIGIN`; the port is
+  always the listener's). A VM reaches it under a network profile that includes `host`, and microsandbox
+  delivers the connection to the host's loopback listener. Verified on a KVM host: a plain `run` on opencode2
+  completes turns against the stub (`TestHarnessJourneys/core-session/opencode2`).
+- **The route does not pass the observation proxy.** Host-gateway traffic bypasses the learn-mode terminating
+  proxy, and the runtime enforces the egress policy before the proxy is consulted, so a name the policy denies
+  or the guest cannot resolve (the former `agents-sandbox-stub.invalid` default) is never observed either. No
+  route is known yet that both completes a turn and is observed; the proxy spike, the table journey
+  `proxy-observes-the-stub` (opencode2), therefore opts in through `StepRequireOptIn`: it is skipped unless
+  `AGENTS_SANDBOX_JOURNEYS_PROXY_SPIKE=1`, and stays the open question of the attribution half.
 
-**Provisional.** The one open question the host accept settles is whether the default route reaches the
-proxy; the managed-layer suppression is resolved by provisioning through the `home:` manifest (above).
+#### Typing into a harness
+
+A TUI can paint before it takes input: opencode answers its terminal-capability queries first and, on the host,
+swallowed an early write whole. `StepSendPrompt` therefore types the prompt, waits for the harness to echo it (only
+output printed after the write counts), and retypes on a missing echo before it presses Enter. A partly swallowed
+write or a late echo could leave stray characters before the retyped prompt; a journey only needs the turn to be
+sent, so it tolerates that. A prompt must be text a repaint does not print on its own, since the echo is a
+substring match. The echo also comes from the terminal itself while no harness reads it, so the step is only
+sound after a readiness marker that means the harness takes keys (see "Rules the harnesses taught").
 
 ### Isolation between journeys
 
-All v1 journeys drive the same project directory (`driver.ProjectDir(root, "opencode2")`), so they share one
-project slug and therefore one microsandbox VM and one home volume. The runner sweeps sandboxes only at
-suite start and teardown, so a journey must not rely on the shared volume being clean: per-journey state it
-asserts must live in the journey's own isolated HOME (a fresh temp dir per subtest, threaded by
-`driver.IsolatedEnv`). A future journey that needs a clean shared VM must reset it itself.
+By default all journeys of an agent drive the same project directory (`driver.ProjectDir(root, <agent>)`), so they
+share one project slug and therefore one microsandbox VM and one home volume. The runner sweeps sandboxes only at
+suite start and teardown, so a journey on the shared project must not rely on the shared volume being clean:
+per-journey state it asserts must live in the journey's own isolated HOME (a fresh temp dir per subtest, threaded
+by `driver.IsolatedEnv`). The shared VM also carries state between journeys: a later journey attaches to the VM an
+earlier one started, with that run's network policy and any agent session still running in it. A journey that
+needs its own VM starts with `StepOwnProject(<label>)`, which builds the agent's runner image in
+`<agent>-<label>` (cheap, the prebuild's layers are cached) and points the journey's project there; the teardown
+sweep covers it, since it removes every sandbox in the suite's isolated home.
 
-### Harness scope for v1
+### Journey model: scenarios, steps, harnesses
 
-**Decision:** v1 covers **opencode2 only** (the S1-verified profile, with its SQLite credential
-probe). The journey spec is a **table field**, so adding a harness is one entry, and the remaining
-harnesses are recorded as explicit exemptions — the #252 acceptance shape ("covered, or exempted with
-the reason recorded") — so S1's partial state is visible rather than silently so. Coverage of the
-other harnesses is tracked separately (the "extend to all agents" issue). One agent may be driven by
-**several journeys** (v1 drives opencode2 with UC1 and UC4); the completeness contract reports an agent
-only when it is neither covered nor exempted, never because it has more than one entry.
+A journey is a Go table entry (`test/msb/journeys/table.go`), not a `.feature` file: the table is the one
+source of truth and its steps are type-checked. It reads as Gherkin anyway:
+
+- **Keywords.** Every step carries `Given`/`When`/`Then`/`And` (the table test rejects one without) and a
+  sentence name, so `Step.Text()` is a Gherkin line. The runner logs the whole scenario before it runs and one
+  line per step with its duration, so the boot cost of a journey stays visible.
+- **Actions and checks.** A step is an *action* (its failure ends the journey: later steps depend on it) or a
+  *check* (`AsCheck`: its failure is recorded with `t.Errorf` and the journey goes on). The kind is about
+  dependency, not the keyword: "Then the harness TUI comes up" is an action. Final assertions are checks, so
+  one run reports every broken check that does not block the chain.
+- **Parallel harnesses, serial journeys.** The journeys run one after another; a journey's harnesses run in
+  parallel, as many at once as `driver.HarnessConcurrency` allows (the startup smoke's memory-sized limit).
+  Parallel cells never share a VM (each harness has its own project). The journeys on a harness's shared
+  project share its VM and its **home volume**, which outlives a journey (a host config one provisions is still
+  there for the next), so their table order is part of what they assert. Running journeys in parallel was
+  measured and rejected for now: it cut the suite from about 100 s to about 75 s, but the extra VMs starting at
+  once made opencode2 take a typed prompt before its input read keys, failing its turns in most runs (see the
+  readiness rule below). The one in-process global, the state-path swap of `StepSeedLearnSession`, is
+  serialized by a lock.
+- **Few, long journeys.** A harness boot dominates a journey's runtime, so a new check extends an existing
+  journey when it can run on the state that journey already reached; a new journey is for a different
+  starting state (another first-run choice, network profile, or a clean VM).
+- **Journey × harness.** A journey lists the harnesses it runs on and runs once per harness as
+  `TestHarnessJourneys/<journey>/<harness>`; `make test-msb-journeys JOURNEY=<name> HARNESS=<agent>` selects
+  one cell (either may be left out), and the suite then prebuilds only the images the selected cells drive (never
+  the startup smoke's whole set). `test/msb/journeys/JOURNEYS.md` is the generated scenario catalogue
+  (`TestJourneyCatalogueIsCurrent` fails when it is stale; `-update-catalogue` regenerates it). The
+  completeness contract is per pair: every (journey, registered agent) pair is driven or exempted with a
+  recorded reason (`Exemptions`, derived per journey from one explicit `placedHarnesses` list, a fallback
+  reason, and per-harness reasons), so a newly registered agent fails the default suite until it is placed, and a
+  stale exemption for a driven pair fails too.
+- **Seeds.** A journey starts from the startup smoke's seeds for the harness (`driver.Spec.Seeds`), so
+  first-run state the smoke already settles (claude-code's `.claude.json`) is not restated per adapter:
+  `StepSeedStub` applies the smoke's `home:` manifest with the adapter's `Stub.HomeFiles` added, and
+  `StepConfigureLauncherEnv` the smoke's agent snippets with the adapter's on top (a snippet is a managed layer,
+  and a learn journey needs the first-run menu). The smoke's host files are not seeded: the first-run menu reads
+  host files as host setup, and a journey's host setup is its own (`StepSeedHostConfig`).
+- **Harness adapter.** Everything a step needs to know about a harness beyond starting and quitting it
+  (`driver.Spec`, shared with the startup smoke) lives in its `Harness` adapter (`Harnesses`), in three parts:
+  `Stub` (how it reaches the stub: `HomeFiles` through the `home:` manifest, `Env` through the launcher env file,
+  `Snippets` merged into its own config), `Drive` (how a journey drives its TUI: `ReadyMarker`, `LaunchArgs`,
+  `ResumeArgs`, `WriteFileCall`, and `Setup`, the harness's own first-start screen), `Login` (how it signs in,
+  for the login journey), and `Learn` (what learn mode
+  finds: its host config and credential store, the credential env var the read-back derives, the managed-config
+  keys, whether the managed config can hold the credential; nil without learn coverage). A learn journey
+  (`LearnMode`) says only which evidence its path produces (`ScopeWant`: config keys, placeholder); the values come
+  from `Learn`, and a placeholder is expected only where `ManagedConfigHoldsCredential` says the harness's managed
+  config can hold one, and the completeness test requires `Learn` for every harness a learn journey lists. A step or
+  journey carries no harness's path or format literal: the scope checks read every config dir of the agent,
+  recursively (skipping `node_modules`), and the login-store check fails on the store's file name or its
+  content under any name (so a store fixture holds no static value the host seed would rewrite). A flagless command such as
+  `config learn` gets the journey's agent through `AGENTS_SANDBOX_AGENT`. The adapter grows a field only when a
+  journey needs it.
+
+The learn-mode journeys cover **opencode2 and oh-my-pi**; core-session covers opencode2, claude-code, codex,
+pi, oh-my-pi, and hermes; the login journeys cover codex, and the MCP sign-in also claude-code and opencode2. The rest of the #852 slice is blocked by the
+product, not the suite: on claude-code, codex, and pi
+the read-back finds no host-scoped credential to learn (the exemption reasons in `table.go` name each blocker:
+#821, #873, #820/#849). The rollout harnesses are #794.
+
+### Rules the harnesses taught
+
+Six harnesses joined with an adapter each and no harness branch in shared code (the refactor hypothesis of
+#851 held at every step). What they taught is now the rule:
+
+- **A harness's natural config is often closed to the journey.** Its own config file is frequently the
+  launcher's merged-config target or a reserved `home:` target, so the adapter has three routes to the stub:
+  `Stub.HomeFiles` (the `home:` manifest), `Stub.Env` (the launcher env file), and `Stub.Snippets` (merged into
+  its config). The env file and snippets are managed layers: they make core-session start configured, and they
+  are unavailable to a learn journey, which needs the first-run menu.
+- **A protocol is a stub handler, routed by path** (`/chat/completions`, `/messages`, `/responses`), not a
+  harness setting. Numbered replies, the one-shot tool call, and the side-request split work for all.
+- **A side request is one for the small model or without tools**; it gets `stubTitleReply`, no numbered reply,
+  and is not a turn. A non-chat request (a model probe) is never a turn. An undecodable turn is answered 400 and
+  recorded. A real tool-less turn would be misread; a journey driving one must refine the rule.
+- **A turn that never reaches the stub prints the harness's own view.** `Drive.Diagnostics` is a shell command
+  (opencode2: its sessions and their messages from its API) whose output `StepAssertStubServed` logs from the
+  VM on timeout, before the sweep removes it; opencode2's own log records no session events at its default level.
+- **A readiness marker means the harness takes keys.** A marker printed before the input line reads the
+  terminal lets a typed prompt lose its Enter, and the prompt step's echo check cannot notice, because the
+  terminal's own echo satisfies it. `Drive.ReadyMarker` overrides the smoke's marker where the two differ.
+- **A submit is confirmed at the stub.** Where the stub is reachable (core-session), each harness sends some
+  request once it received a prompt (a turn, a title, a model probe). With none after a generous scaled wait,
+  the prompt step presses Enter again (an Enter lost before the input read keys) and then types the prompt
+  again once (text lost too). It never resends after a request arrived; a harness whose Enter stops a turn
+  (`Drive.EnterInterrupts`, hermes) gets no resend at all, since a slow first request after an accepted prompt
+  would otherwise turn the resend into an interrupt or a duplicate prompt.
+- **A timing-based negative check needs a positive counterpart.** "No sign-in screen after a settle", "no setup
+  screen after a settle" can pass on a slow host; each is paired with positive evidence (a login status, the
+  readiness marker in output written after the exit keys).
+- **Resume semantics differ per harness** (last active vs. last saved session); a journey orders its steps so
+  every harness resumes the same session, rather than adding an adapter field.
+- **A learn journey leaves the launcher unconfigured,** so a harness's journey snippet cannot silence its own
+  first-start screen there: `Drive.Setup` names the screen, and `StepExitHarnessSetup` leaves it as a user
+  would, waiting for it or the readiness marker and distrusting a marker that was already in the buffer.
+
+### Adapter facts per harness
+
+- **opencode2:** a provider file through `home:` (`opencode.json`), `write` with `path`, `--continue`; a
+  `small_model` for side requests; the S1-verified learn profile (SQLite credential probe). A new session can
+  get opencode2's built-in default model (`opencode/big-pickle`) instead of the configured one, in roughly one
+  of ten core-session runs; the title still reaches the stub (its small model), the turn does not. Disabling
+  its models.dev fetch did not prevent it. The journeys enable only the stub provider, so such a turn fails at
+  once with "Model unavailable" in the diagnostics instead of retrying an unreachable provider (#881).
+- **claude-code:** the environment (`ANTHROPIC_BASE_URL`, a dummy auth token) through the env file, since
+  `settings.json` is reserved; `--permission-mode acceptEdits`; `Write` with `file_path`; resumes the last saved
+  session.
+- **codex:** a Responses provider in a `config*.toml` snippet (it ignores `OPENAI_BASE_URL`, and `-c` switches it
+  to embedded mode), a dummy `auth.json` past its sign-in screen; `exec_command` with a quoted shell line;
+  `resume --last`; its title is a tool-less main-model request. Its logins are the login journey's (below).
+- **pi:** a `models.json` provider through `home:`, `--model stub/stub`, `write` with `path`, `--continue`.
+  Its screen is up before its startup ends, and a prompt submitted then gets "Startup is still in progress"
+  with the text kept; `Drive.StartupBusyMarker` makes the prompt step press Enter again while the notice
+  shows and no turn arrived, ending on a turn at the stub or a screen quiet for a few scaled rechecks.
+- **oh-my-pi:** pi's adapter with `models.yml`, plus a snippet that turns off the setup wizard, forked titles,
+  and predictions (they would take numbered replies); `smol` on the stub's small model; its status line as the
+  readiness marker. In learn journeys its wizard is left with `Drive.Setup`, and its key lives in `models.yml`,
+  which the read-back reads but neither seed nor write-back copies (`Learn.ManagedConfigHoldsCredential` false,
+  so UC4 covers the copy of a credential-free settings file and its dotenv fixture guards the store exclusion).
+- **hermes:** a `custom` OpenAI-compatible provider in a `config*.yaml` snippet, `write_file` with `path`,
+  `--continue`; the hint row under its input line as the readiness marker (its banner precedes input); it probes
+  `GET /v1/models` and `POST /api/show` before its first turn. It dominates core-session's wall time.
+
+### The core-session journey
+
+`core-session` is the regression spine every harness is meant to pass: it chains the #783 promotion bar's
+first run (A), real turn (C), second client (E), and persistence (D) over one project and two boots.
+
+- **A:** the harness starts on a fresh home whose launcher env file is seeded (`StepConfigureLauncherEnv`), so
+  the launcher counts it as configured and offers no first-run menu; the launcher prints the experimental notice
+  exactly when the profile is experimental; the project gets no `.agents-sandbox` scaffolding. Core-session does
+  **not** cover the first-run menu on any harness; the learn-mode journeys do.
+- **C:** the stub answers the first turn with the harness's own write-file tool call (the adapter's
+  `WriteFileCall`, e.g. opencode2's `write` with `path`/`content`), then with its text reply; the file
+  appears in the project on the host, owned by the host user, and the reply shows. The stub numbers its
+  replies (`stub-reply-1`, …), and a reply check accepts only a reply sent after the client's last prompt and
+  shown after it, so a repainted earlier reply cannot pass.
+- **E:** a second `run` attaches to the same VM while the first runs; it gets no reconfig prompt, and both
+  clients complete a turn.
+- **D:** both clients quit and `agents-sandbox stop` stops the VM; the next run boots it again (asserted from
+  the launcher's "started existing project VM"), and with the adapter's `ResumeArgs` (opencode2: `--continue`) it
+  shows the last session's message, so the session survived in the home volume, not in a live server. Client 1
+  both sends the last prompt and quits last: opencode2 continues the last active session, claude-code the last
+  saved one, and only that order makes them the same session.
+
+A wrong tool argument is a tool error the harness reports back to the model and the turn survives, so only
+the file check notices it: the adapter's tool call is pinned by a unit test to the argument keys the
+harness's tool schema names (read from a recorded request). The journey runs on its own project (`StepOwnProject`), because it restarts and attaches twice, and
+under the `host` profile the stub route needs. Per-journey projects stay opt-in: the learn-mode journeys run
+in seconds on the shared project and assert only state in their own HOME.
+
+### The login journeys (#875)
+
+Two journeys cover a harness's own logins through the sandbox without a real account; a real provider login
+stays in the exploratory tier. Each runs on its own project, so the logins it stores stay out of the shared
+home volume. The journey's launcher finds a fake host opener first on `PATH` (named like the opener's command:
+`xdg-open`, `open` on macOS) that records links instead of opening them, so no run opens a real browser; each
+login link must reach it unchanged and name a loopback `redirect_uri`.
+
+**`harness-login`** (codex; `Login` facts) runs without egress:
+
+- **Return leg.** The journey requests the provider login's callback on the host's loopback with the link's
+  `state` and a dummy code. The answer must be the harness's own page (`Login.CallbackMarker`, which the
+  forwarder's own answers lack) behind the host boundary: a sandboxing CSP and no `Set-Cookie`. The harness's
+  token exchange then fails; that is expected.
+- **Login persistence.** An API-key login typed into `agents-sandbox shell` writes the login store in the VM's
+  home, outside the `home:` manifest, which would re-provision it and mask a loss. After `agents-sandbox stop`,
+  the harness reports the login (`Login.Status`, exit 0) and starts without its sign-in screen
+  (`Login.SignInMarker`). Without the login both checks fail, which is how they were validated.
+
+**`mcp-oauth-login`** (codex, claude-code, opencode2; `MCP` facts) runs under `host`, which admits only the host
+gateway (disjoint from `public`), so no connection reaches a real provider (DNS queries still resolve upstream):
+
+- **A full OAuth login.** A stub authorization server on the host (`StubOAuthServer`) guards a stub MCP server
+  the harness's way declares (`MCP.Snippets`, `MCP.ProjectFiles`; claude-code reads its servers from the
+  project's `.mcp.json`). The harness's sign-in runs the whole flow: the MCP endpoint's 401 names the
+  protected-resource metadata, the harness registers a client, the opener hands the authorize link to the fake
+  browser, which follows the server's redirect to the callback on the host loopback, the forwarder replays it
+  into the VM, and the harness exchanges the code with its PKCE verifier (the stub issues a token only for a
+  matching one, and refreshes only a refresh token it issued). The fake browser follows only a link on the
+  stub's origin. The stub accepts only HTTP callback URIs with a loopback host and explicit port, rejecting
+  other redirect targets before returning a code.
+- **Every endpoint is on the host gateway's origin** (codex refuses an authorize endpoint on another origin); the
+  opener takes that name for a remote host, and only the fake browser resolves it to the host loopback.
+- **TLS where the harness insists.** claude-code and opencode2 send OAuth credentials only over HTTPS (loopback
+  exempt), so for them (`MCP.TLS`) the stub serves HTTPS with a fresh test CA: the journey provisions the CA
+  through the `home:` manifest and points `NODE_EXTRA_CA_CERTS` (Node and Bun) at it through the env file, and
+  the fake browser trusts it too. codex accepts the plain-HTTP stub.
+- **Sign-in in the shell where `run` cannot pass a subcommand** (`MCP.LoginCommand`): opencode2's attach command
+  puts the working directory before any argument, and claude-code's `LaunchArgs` precede it.
+- **The token persists.** After `agents-sandbox stop` the next run calls the MCP server with a token the
+  sign-in issued; only calls after the sign-in count.
 
 ### Production-closure gate
 
@@ -212,6 +407,17 @@ convention into an enforced gate. Reuses `internal/testutil`'s existing `TestMai
   persists for the replay's read-back), writes nothing, and clears its own session record. The
   journey then seeds the record and a scrubbed observation through `state.RecordLearnSession` and
   `channel.Save` under an isolated state root.
+
+- **`learn-exposed-login-key`** (codex, claude-code) — a harness's own login left an API key in plain
+  text in its store (`~/.codex/auth.json`, `~/.claude.json`). The journey overlays the key on the stub seeds
+  through the `home:` manifest (claude-code's `.claude.json` keeps its onboarding state), runs `run --learn`
+  to the TUI, quits with "Save all", and asserts the per-slug scope holds the key as an env secret for the
+  provider's host. For codex it also asserts the keep-login `home:` entry and its placeholdered copy, and,
+  through a shell client (which provisions the home on connecting), that the VM's `auth.json` now holds the
+  `${OPENAI_API_KEY}` placeholder instead of the key: the learned per-slug entry outranks the journey's own
+  generic seed per target. A synthetic renewing login must survive the next shell's provisioning. After
+  `stop` and `volume reset --rm`, another shell must recover the placeholdered store from the same host scope.
+  These lifecycle checks apply only to codex, which has a provisioned store. The journey needs no turn and no `Learn` facts.
 
 **Assertion granularity (call).** A journey asserts the *semantic* effect, not a byte-for-byte
 golden: the credential's env-var name appears in `env.secret.yaml` with its host scoping, the managed
@@ -248,13 +454,14 @@ come from the read-back config entry. The plan's "config-entry source but no hos
 unachievable: the credential must name the stub baseURL for the agent to reach the stub, and that
 baseURL host is exactly the fallback host the assertion checks. The journey therefore discriminates
 that a `run --learn` session writes a stub-host-scoped credential and narrows a broad network posture,
-not — as was intended — that observation attribution supersedes the config-entry fallback; proving the
+not that observation attribution supersedes the config-entry fallback; proving the
 latter needs the product gap closed first (a follow-up, not #793). The journey runs under `public`
 rather than the agent spec's default `none`: under `none` the stub dial is denied, so the analyser
 records no used destination and writes no network posture, leaving `StepAssertNetworkNotWidened`
 vacuous; under `public` a turn that reaches the stub is a used destination, so the analyser's lock
-(`none` plus the used host) actually exercises the guard. The default `.invalid` advertised route still
-denies the dial, so this only bites on a host accept that pins a working route.
+(`none` plus the used host) actually exercises the guard. `public` does not include the host gateway the
+default route names, so the dial is still denied; this only bites on a route `public` admits and the
+observation proxy sees.
 
 This also absorbs #252's project-scaffolding check: `StepAssertNoProjectScaffolding` asserts the run
 creates no `.agents-sandbox` directory in the project, which belongs to a journey, not to the minimal
@@ -263,9 +470,9 @@ config-fork warning). The first-turn round-trip half is likewise **not** covered
 a journey's scope assertion is read-back-driven
 (`analyser.SessionFacts.secretFindings` iterates the read-back's static credentials and `credentialHosts`
 falls back to the config entry's hosts, since `channel.Attribution.Credential` is always empty), so
-UC1/UC4/attribution pass even if no request leaves the VM. Only the host-gated
-`TestHarnessJourneys/stub-provider-turn-reaches-the-proxy` subtest asserts a turn reached the proxy, by
-loading the saved observation; folding that assertion into the journey table is a follow-up.
+UC1/UC4/attribution pass even if no request leaves the VM. The core-session journey asserts real turns,
+outside learn mode; that a learning session's turn reaches the proxy is the opt-in proxy spike's open
+question (see "Stub provider").
 
 Non-interactive and dry-run behaviour are asserted per the repo's invariants (warn, never hang).
 
@@ -293,28 +500,7 @@ against any other carry-over run. The `test-msb-journeys` target derives the var
 
 - A tagged-only package is dropped by `go test ./...` — the table and completeness test must stay
   untagged (in `driver`).
-- The rename touches specs/brain/docs; the doc-link gate must stay green (relative links updated).
-- `make test-msb`'s explicit package list must be updated so startup stays the quick gate.
+- `make test-msb`'s explicit package list names `test/msb/startup`, so startup stays the quick gate.
 - The driver's own `TestMain` must install its acyclic fail-fast mocks, like every test package.
 - A journey under load must not become a host-dependent flake (no fixed wall-clock against a real
   VM; reuse the readiness/quit-tap pattern).
-
-## Resolved in review
-
-- **Proxy turn is a prerequisite.** The plan includes the spike that proves a real agent turn through
-  the host-owned terminating proxy (host-side stub destination), ahead of the attribution journeys.
-- **v1 scope is opencode2 only.** The journey spec is a table field; the other harnesses are recorded
-  exemptions, with their coverage tracked by a follow-up issue.
-
-## Calls recorded for the user to check
-
-- Package/target: `test/msb/{driver,startup,journeys}`, tag stays `msb`, `make test-msb-journeys`.
-- Harness table in `driver`; `driver` untagged.
-- Keep `AGENTS_SANDBOX_SMOKE_ROOT`.
-- Gate scope: option A (all of `test/` is test code).
-- Provider: **host-side** stub reached through the proxy; proving the proxy turn is a prerequisite.
-- v1 harness scope: opencode2 only; the journey spec is a table field with recorded exemptions.
-- `config learn` journey: seed the session record + a real home volume, no abnormal kill.
-- Assertions: semantic (env-var name, host scoping, placeholder, keys), not byte-for-byte goldens.
-- Shared root: the spine sets `AGENTS_SANDBOX_SMOKE_ROOT` into the sweep root; no new interface.
-- #252's first-turn assertion moves into the journeys suite; other areas tracked separately.

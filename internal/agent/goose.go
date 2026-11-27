@@ -97,3 +97,9 @@ func (gooseProfile) VersionCmd() string { return "goose --version" }
 func (gooseProfile) ParseVersion(stdout string) (string, error) {
 	return extractSemverFromOutput(stdout)
 }
+
+// InstructionPaths declares the credential-free files the host seed copies:
+// the global AGENTS.md and the prompt tree.
+func (gooseProfile) InstructionPaths() []string {
+	return []string{agentsRulesFileName, promptsDirName}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/hostfigures"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
@@ -166,6 +167,7 @@ func resolveReconfigDecision(
 	cfs *reprovision.ConfigFiles,
 	env envsecret.EnvSecrets,
 	live liveProjectVM,
+	homePolicy volume.ImageChangePolicy,
 	ui termio.UI,
 ) (reconfigDecision, error) {
 	// Detect whether the project's image digest changed since the last run. The
@@ -205,6 +207,7 @@ func resolveReconfigDecision(
 				desired.Mount,
 			),
 			AgentConfig:       changedAgentConfig,
+			DaemonlessAgent:   isDaemonless(opts.ResolvedAgent),
 			BootMaxMemoryGrew: bootMaxMemoryGrew(live),
 		},
 		homeVol,
@@ -256,7 +259,7 @@ func resolveReconfigDecision(
 	// front. When the rebuild is deferred (keep current VM) or no state exists
 	// yet (fresh home already created), the prompt is skipped.
 	if decision.Recreate && imageChanged {
-		action := volumes.ResolveHomeAction(ui, hs.ImageDigest, imageInfo.Digest)
+		action := volumes.ResolveHomeAction(ui, hs.ImageDigest, imageInfo.Digest, homePolicy)
 		decision.HomeAction = &action
 	}
 
@@ -446,4 +449,11 @@ func detectAndOfferDiskRaise(
 		opts.TmpSize = setting
 	}
 	return opts
+}
+
+// isDaemonless reports whether the resolved agent runs no server, so an
+// agent-config change has nothing to restart. An unresolved agent is not
+// assumed daemonless.
+func isDaemonless(resolved agent.Resolved) bool {
+	return resolved.Profile != nil && resolved.Daemon == nil
 }

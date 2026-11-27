@@ -73,8 +73,12 @@ var firstRunMenu = func(ui termio.UI, opts *options.RunOptions, slug, agentName 
 		seeded, err := firstrun.SeedFromHost(facts, paths, hostHome)
 		if err != nil {
 			ui.Warnf("first-run setup: seeding from your host config was incomplete: %v", err)
-		} else if seeded > 0 {
-			ui.Infof("first-run setup: seeded %d secret(s) from your host config", seeded)
+		} else if seeded.Secrets > 0 {
+			ui.Infof("first-run setup: seeded %d secret(s) from your host config", seeded.Secrets)
+		}
+		if seeded.InstructionFiles > 0 {
+			ui.Infof("first-run setup: copied %d instruction file(s) into %s",
+				seeded.InstructionFiles, seeded.InstructionDir)
 		}
 	}
 	return outcome.Apply(opts, slug, agentName)

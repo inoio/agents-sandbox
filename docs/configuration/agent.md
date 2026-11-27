@@ -24,23 +24,16 @@ These agents ship as built-in profiles:
   schema (e.g. structured `providers.*.models.*.capabilities`) differs from v1's — so the two can now diverge. Its VM
   config path and host drop-in stay `~/.config/opencode/` (v2 reads the same files as v1).
 - **`pi`** — the pi coding agent, run interactively; upgrade checks via `pi.dev`.
-- **`claude-code`** — Anthropic's Claude Code, run interactively; upgrade checks via the npm registry.
+- **`claude-code`** — Anthropic's Claude Code, run interactively; upgrade checks via the npm registry. `/workspace` is
+  [pre-trusted](#workspace-is-pre-trusted).
 - **`codex`** — OpenAI's Codex CLI, run interactively; upgrade checks via GitHub releases. The image sets three
   defaults in Codex's system config, `/etc/codex/config.toml`:
   - The startup update check is off (`check_for_update_on_startup = false`), because agents-sandbox offers upgrades
     itself.
   - Codex's own command sandbox is off (`sandbox_mode = "danger-full-access"`), because the VM already isolates it.
     Codex still asks for approval according to its `approval_policy`.
-  - `/workspace` is a trusted folder, so Codex does not ask whether to trust it. This covers `/workspace` and the
-    repository rooted there (also from a subdirectory or a worktree inside it). Because the folder is trusted, the
-    repository's own `.codex/` config, hooks, and MCP servers load without asking, as they would after answering
-    Codex's trust question. To keep them off, mark the folder untrusted in a `codex/config.toml` snippet; Codex then
-    opens it restricted:
-
-    ```toml
-    [projects."/workspace"]
-    trust_level = "untrusted"
-    ```
+  - `/workspace` is a trusted folder (`[projects."/workspace"] trust_level = "trusted"`); see
+    [`/workspace` is pre-trusted](#workspace-is-pre-trusted).
 
   These are defaults, Codex's lowest config layer, so every other layer overrides them: a
   [config snippet](#config-snippet-merge) or the opt-in host drop-in of `config.toml`, the repository's
@@ -125,6 +118,23 @@ VMs, home volumes, and state are also scoped per agent: the sandbox name, home v
 switching agents no longer tears down the project sandbox and multiple agents can serve the same project concurrently
 (see [Sandboxes]({% link sandboxes.md %}#identity-one-sandbox-per-checkout-and-agent)).
 
+### `/workspace` is pre-trusted
+
+Claude Code and Codex ask on first start whether you trust the folder they open. In the sandbox they do not ask
+about `/workspace`: you chose that directory on the host when you started the sandbox, and the VM is the isolation
+boundary. Because the folder is trusted, the repository's own agent config applies without asking, as it would after
+you answered the question yourself — Codex loads its `.codex/` config, hooks, and MCP servers; Claude Code applies the
+repository's `.claude/settings.json` permission rules, additional directories, and environment variables.
+
+| Agent | Where the trust is set | To keep the folder untrusted |
+| --- | --- | --- |
+| `codex` | The image's system config, `/etc/codex/config.toml` (Codex's lowest config layer, never written at run time) | Set `trust_level = "untrusted"` for `[projects."/workspace"]` in a `codex/config.toml` snippet; Codex then opens the folder restricted |
+| `claude-code` | `projects["/workspace"].hasTrustDialogAccepted` in `~/.claude.json` on the home volume, set only when the key is missing; every other key in that file is kept | Set that key to `false` in `~/.claude.json` inside the sandbox; agents-sandbox keeps an explicit value |
+
+The trust covers `/workspace` and the repository rooted there, also when the agent starts in a subdirectory. Claude
+Code looks for a trusted folder only up to the repository root, so a checkout nested inside `/workspace` (a sandbox
+started outside the worktree) still asks.
+
 ## Config snippet merge
 
 agents-sandbox provisions a single agent config into the VM. No embedded provider or permission config is shipped.
@@ -172,9 +182,21 @@ that no snippet could be merged.
 Run `agents-sandbox config agent` to print the merged config that would be provisioned into the VM.
 
 > **Note:** the merged config is written to the agent's VM config path (for opencode, `opencode.jsonc`, the last file
-> opencode loads: `config.json` < `opencode.json` < `opencode.jsonc`), so it always wins the deep merge. When snippets
-> exist, the config-file family (for opencode: `config.json`, `opencode.json`, `opencode.jsonc`, …) is removed from the
-> VM so a host drop-in copy of any of those files cannot shadow the merged snippet config.
+> opencode loads: `config.json` < `opencode.json` < `opencode.jsonc`), so it always wins the deep merge. The other
+> files of the config-file family (for opencode: `config.json`, `opencode.json`, …) are removed from the VM so a stale
+> copy of any of them cannot shadow it.
+
+### Settings the agent writes itself
+
+agents-sandbox owns only the keys it writes into the agent's main config file (the merged snippets, or without
+snippets the drop-in copy of your host file). Settings the agent saves there inside the VM — a model chosen with
+`/model`, codex's folder trust, goose's telemetry answer — stay on the home volume across runs. On each start,
+agents-sandbox sets every key it writes to its own value again — so a setting from a snippet, such as a
+`permissions.deny` entry or codex's `sandbox_mode`, cannot be changed from inside the VM for good — and removes a key
+it wrote last time but no longer writes. Every other key is left alone. When the file already holds the launcher's
+values, it is not touched at all, so its formatting and comments survive. A file that is not valid
+JSON, TOML, or YAML is replaced by the launcher's content. To make an in-VM setting portable across projects and machines, put
+it in a snippet, or let [learn mode]({% link learn-your-setup.md %}) propose it.
 
 See the [permissions example](#example-permissions) for a concrete snippet.
 
@@ -229,10 +251,15 @@ The drop-in copy is scoped to the agent's settings and, for opencode, its creden
   `AGENTS.override.md`, `CLAUDE.md`, `SYSTEM.md`, `APPEND_SYSTEM.md`), and the `extensions/`, `skills/`, `prompts/`,
   and `themes/` directories. `auth.json` (saved keys and `/login` credentials), `models.json` and `mcp.json` (which
   can hold literal keys and headers), `mcp-auth.json`, and sessions are not copied.
-- **claude-code** — `~/.claude/settings.json` (runtime state and the machine-managed `.credentials.json` are not copied).
-- **codex** — `~/.codex/config.toml` (sessions, logs, and the `auth.json` login cache are not copied).
+- **claude-code** — from `~/.claude`: `settings.json`, `CLAUDE.md`, and the `commands/`, `agents/`, and `skills/`
+  directories (runtime state and the machine-managed `.credentials.json` are not copied). `settings.json` can hold keys
+  and tokens in its `env` block, which are copied with it.
+- **codex** — from `~/.codex`: `config.toml`, `AGENTS.md`, `AGENTS.override.md`, and the `skills/` directory
+  (sessions, logs, and the `auth.json` login cache are not copied). `config.toml` can hold a provider's
+  `experimental_bearer_token` and MCP servers' `env` and `http_headers`, which are copied with it.
 - **hermes** — `~/.hermes/config.yaml` (the rest of `~/.hermes` — `state.db`, `sessions/`, `memories/`, `skills/` — is
-  runtime state and is not copied; credentials in `~/.hermes/.env` are never copied).
+  runtime state and is not copied; credentials in `~/.hermes/.env` are never copied). `config.yaml` can hold a
+  `model.api_key` and MCP servers' `env` and `headers`, which are copied with it.
 - **oh-my-pi** — `~/.omp/agent/config.yml` or `config.yaml` (the rest of `~/.omp` — sessions, `agent.db`, the
   extracted native addon — is runtime state and is not copied; `models.yml` and `~/.omp/agent/.env` can hold literal
   provider keys and are never copied).
@@ -300,7 +327,10 @@ codex logs in inside the VM, and kimi-code, qwen-code, grok-build, and mistral-v
 - **pi** — per-provider env vars, e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` (see pi's docs for the
   full list). Put them in an `env.secret` / `env.secret.yaml` file.
 - **claude-code** — `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY`, or `CLAUDE_CODE_OAUTH_TOKEN`. Claude's
-  `.credentials.json` is machine-managed and not hand-provisioned, so env vars are the supported channel here.
+  `.credentials.json` is machine-managed and not hand-provisioned, so env vars are the supported channel here. Don't
+  paste a Console API key into `/login` inside the VM: claude-code stores it in plain text in `~/.claude.json` on the
+  home volume. Declare it as an `ANTHROPIC_API_KEY` env secret for `api.anthropic.com` instead; `/logout` removes a key
+  `/login` stored.
 - **codex** — the interactive Codex CLI reads its login from `~/.codex/auth.json`, not from an env var, so you log in
   once inside the VM (see [Codex login](#codex-login)). The host `auth.json` is not copied because a ChatGPT login
   rotates its refresh token, and a second copy using it would sign the host out.
@@ -319,9 +349,8 @@ codex logs in inside the VM, and kimi-code, qwen-code, grok-build, and mistral-v
   with the provider and model in a `config*.yaml` snippet (e.g. `GOOSE_PROVIDER: anthropic` and `GOOSE_MODEL: …`). Goose
   reads a secret from the process environment before its secret store, so nothing needs to be written into
   `secrets.yaml`. Keep goose's settings in the snippet, including `GOOSE_TELEMETRY_ENABLED: false` (or `true`):
-  agents-sandbox owns `config.yaml` in the VM — with a snippet it is replaced by the merged document, and with none it
-  is removed — so whatever `goose configure` or the first-run telemetry prompt writes there does not survive the next
-  run. A key that `goose configure` stores in `secrets.yaml` on the home volume does persist, but the `env.secret`
+  what `goose configure` or the first-run telemetry prompt writes into `config.yaml` stays in the VM (see
+  [Settings the agent writes itself](#settings-the-agent-writes-itself)), but only for this project. A key that `goose configure` stores in `secrets.yaml` on the home volume does persist, but the `env.secret`
   route keeps it out of the VM.
 - **grok-build** — `XAI_API_KEY`, supplied through `env.secret` for `api.x.ai`; Grok uses it when no login is active.
   Or sign in once inside the VM with `grok login --device-auth` (or `/login` in the TUI) and finish the sign-in on your
@@ -364,6 +393,13 @@ secret's placeholder, so `auth.json` stores the placeholder and the network prox
 `api.openai.com`.
 
 The login is stored in `~/.codex/auth.json` on the home volume, so you sign in once per project and agent.
+
+**A custom provider:** point a `[model_providers.<id>]` entry at its endpoint with `env_key` naming the variable, and
+declare that variable as an [env secret]({% link configuration/secrets.md %}) for the endpoint's host. Codex reads the
+key from the variable, and the VM only sees its placeholder. Codex does not expand `${VAR}` in `config.toml`, so a
+literal `experimental_bearer_token` cannot take a placeholder. When the first-run "Learn from my host setup" or learn
+mode finds one, it moves the key into `env.secret.yaml` and rewrites the entry to `env_key` naming a variable derived
+from the provider id (`corp` becomes `CORP_API_KEY`).
 
 ### Kimi Code login
 
@@ -432,9 +468,9 @@ DASHSCOPE_API_KEY:
 **In the VM:** run `/auth` in the TUI and pick a provider. A Qwen OAuth sign-in is saved into
 `~/.qwen/oauth_creds.json` on the home volume, so you sign in once per project and agent; it is never copied from the
 host. Qwen OAuth signs in through a browser. An API key entered through `/auth` is written to
-`~/.qwen/settings.json`, but agents-sandbox owns that file through the `settings*.json` snippet merge — with a snippet
-it is replaced by the merged document, and with none it is removed — so an API key entered there does not survive the
-next run. Use the `envKey` + `env.secret` snippet instead for an API key that persists.
+`~/.qwen/settings.json` and stays there in plain text on the home volume (see
+[Settings the agent writes itself](#settings-the-agent-writes-itself)). Use the `envKey` + `env.secret` snippet
+instead, so the key reaches the VM only as an msb secret.
 
 ## Example: permissions
 

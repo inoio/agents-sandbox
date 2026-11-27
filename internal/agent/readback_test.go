@@ -14,7 +14,7 @@ func TestReadBackPaths(t *testing.T) {
 	want := map[string][]string{
 		"opencode":     {".config/opencode/*", ".local/share/opencode/auth.json"},
 		"opencode2":    {".config/opencode/*", ".local/share/opencode/auth.json"},
-		"codex":        {".codex/auth.json"},
+		"codex":        {".codex/auth.json", ".codex/config.toml"},
 		"claude-code":  {".claude/.credentials.json"},
 		"hermes":       {".hermes/config.yaml", ".hermes/.env"},
 		"kimi-code":    {".kimi-code/config.toml", ".kimi-code/mcp.json", ".kimi-code/credentials/*.json"},

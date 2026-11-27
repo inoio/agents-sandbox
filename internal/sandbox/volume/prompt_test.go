@@ -63,8 +63,17 @@ func TestFromKey(t *testing.T) {
 	}
 }
 
+// askPolicy shows the dialog and offers to remember the answer through
+// remembered.
+func askPolicy(remembered *[]string) ImageChangePolicy {
+	return ImageChangePolicy{Answer: AnswerAsk, Remember: func(answer string) (string, error) {
+		*remembered = append(*remembered, answer)
+		return "/home/u/.config/agents-sandbox", nil
+	}}
+}
+
 // TestResolveHomeAction_SameDigestReturnsKeep pins that an unchanged image
-// keeps the home volume without asking, even in an interactive session.
+// keeps the home volume without asking, even under ask.
 func TestResolveHomeAction_SameDigestReturnsKeep(t *testing.T) {
 	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
@@ -74,46 +83,47 @@ func TestResolveHomeAction_SameDigestReturnsKeep(t *testing.T) {
 		},
 	}
 	vm := NewManager(docker.Get())
-	action := vm.ResolveHomeAction(ui, "same-digest", "same-digest")
+	action := vm.ResolveHomeAction(ui, "same-digest", "same-digest", askPolicy(new([]string)))
 	if action != ActionKeep || len(ui.InfoCalls) != 0 {
 		t.Errorf("action %v, info %v; want ActionKeep and nothing reported", action, ui.InfoCalls)
 	}
 }
 
-func TestResolveHomeAction_DifferentDigestInNonInteractiveReturnsKeep(t *testing.T) {
-	ui := termiotest.NewTestMock(t)
-	ui.IsInteractiveResult = false
-	vm := NewManager(docker.Get())
-	action := vm.ResolveHomeAction(&ui, "old", "new")
-	if action != ActionKeep {
-		t.Errorf("expected ActionKeep in non-interactive mode, got %v", action)
+// TestResolveHomeAction_ConfiguredAnswerNeverAsks pins #845: a configured answer
+// applies without the dialog, named in one info line with its key.
+func TestResolveHomeAction_ConfiguredAnswerNeverAsks(t *testing.T) {
+	verbs := map[VolumeAction]string{
+		ActionKeep:    "keeping",
+		ActionMigrate: "migrating",
+		ActionReset:   "resetting",
+		ActionQuit:    "",
+	}
+	for answer, want := range map[string]VolumeAction{
+		"": ActionKeep, "keep": ActionKeep, "migrate": ActionMigrate, "reset": ActionReset, "bogus": ActionKeep,
+	} {
+		ui := &termiotest.Mock{
+			IsInteractiveResult: true,
+			SelectFn: func(string, []termio.Choice, string) (string, error) {
+				t.Errorf("%q: prompted although an answer is configured", answer)
+				return "q", nil
+			},
+		}
+		vm := NewManager(docker.Get())
+		action := vm.ResolveHomeAction(ui, "old", "new", ImageChangePolicy{Answer: answer, Remember: nil})
+		if action != want {
+			t.Errorf("%q: action %v, want %v", answer, action, want)
+		}
+		if len(ui.InfoCalls) != 1 || !strings.Contains(ui.InfoCalls[0], "home-volume.on-image-change") ||
+			!strings.Contains(ui.InfoCalls[0], actionLabel(want)) || !strings.Contains(ui.InfoCalls[0], verbs[want]) {
+			t.Errorf("%q: info %v, want one line naming the answer and the key", answer, ui.InfoCalls)
+		}
 	}
 }
 
-func TestResolveHomeAction_DifferentDigestInInteractivePrompt(t *testing.T) {
-	ui := &termiotest.Mock{
-		IsInteractiveResult: true,
-		SelectFn: func(prompt string, choices []termio.Choice, _ string) (string, error) {
-			if !strings.Contains(prompt, "Docker image changed") {
-				return "", fmt.Errorf("unexpected prompt: %q", prompt)
-			}
-			if len(choices) != 4 {
-				return "", fmt.Errorf("expected 4 choices, got %d", len(choices))
-			}
-			return "m", nil
-		},
-	}
-	vm := NewManager(docker.Get())
-	action := vm.ResolveHomeAction(ui, "old", "new")
-	if action != ActionMigrate {
-		t.Errorf("expected ActionMigrate, got %v", action)
-	}
-}
-
-func TestResolveHomeAction_NonInteractiveExplains(t *testing.T) {
+func TestResolveHomeAction_AskInNonInteractiveKeeps(t *testing.T) {
 	vm := NewManager(docker.Get())
 	ui := &termiotest.Mock{IsInteractiveResult: false}
-	action := vm.ResolveHomeAction(ui, "old", "new")
+	action := vm.ResolveHomeAction(ui, "old", "new", askPolicy(new([]string)))
 	if action != ActionKeep {
 		t.Fatalf("expected ActionKeep, got %v", action)
 	}
@@ -123,34 +133,124 @@ func TestResolveHomeAction_NonInteractiveExplains(t *testing.T) {
 	}
 }
 
-func TestResolveHomeAction_ActionQuitReturnsQuit(t *testing.T) {
+func TestResolveHomeAction_AskShowsTheDialogAndRemembersOnRequest(t *testing.T) {
+	var remembered []string
 	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
-		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
-			return "q", nil
+		ConfirmResult:       true,
+		SelectFn: func(prompt string, choices []termio.Choice, defaultKey string) (string, error) {
+			if !strings.Contains(prompt, "runner image changed") || len(choices) != 4 || defaultKey != "k" {
+				return "", fmt.Errorf("unexpected dialog: %q %v %q", prompt, choices, defaultKey)
+			}
+			return "m", nil
 		},
 	}
 	vm := NewManager(docker.Get())
-	action := vm.ResolveHomeAction(ui, "old", "new")
-	if action != ActionQuit {
-		t.Errorf("expected ActionQuit, got %v", action)
+	action := vm.ResolveHomeAction(ui, "old", "new", askPolicy(&remembered))
+	if action != ActionMigrate {
+		t.Errorf("action %v, want ActionMigrate", action)
+	}
+	if len(ui.ConfirmCalls) != 1 || !strings.Contains(ui.ConfirmCalls[0], "home-volume.on-image-change: migrate") {
+		t.Errorf("confirm %v, want the offer to remember migrate", ui.ConfirmCalls)
+	}
+	if len(remembered) != 1 || remembered[0] != "migrate" {
+		t.Errorf("remembered %v, want migrate", remembered)
+	}
+	if !strings.Contains(strings.Join(ui.InfoCalls, "\n"), "/home/u/.config/agents-sandbox") {
+		t.Errorf("info %v, want where the answer was saved", ui.InfoCalls)
+	}
+}
+
+func TestResolveHomeAction_AskWithoutRememberingWritesNothing(t *testing.T) {
+	var remembered []string
+	ui := &termiotest.Mock{
+		IsInteractiveResult: true,
+		ConfirmResult:       false,
+		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "k", nil },
+	}
+	vm := NewManager(docker.Get())
+	if action := vm.ResolveHomeAction(ui, "old", "new", askPolicy(&remembered)); action != ActionKeep {
+		t.Errorf("action %v, want ActionKeep", action)
+	}
+	if len(remembered) != 0 {
+		t.Errorf("remembered %v, want nothing", remembered)
+	}
+}
+
+func TestResolveHomeAction_AskReportsAFailedRemember(t *testing.T) {
+	ui := &termiotest.Mock{
+		IsInteractiveResult: true,
+		ConfirmResult:       true,
+		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "r", nil },
+	}
+	policy := ImageChangePolicy{Answer: AnswerAsk, Remember: func(string) (string, error) {
+		return "", errors.New("write boom")
+	}}
+	vm := NewManager(docker.Get())
+	if action := vm.ResolveHomeAction(ui, "old", "new", policy); action != ActionReset {
+		t.Errorf("action %v, want ActionReset", action)
+	}
+	if len(ui.WarnCalls) != 1 || !strings.Contains(ui.WarnCalls[0], "write boom") {
+		t.Errorf("warnings %v, want the failed write", ui.WarnCalls)
+	}
+}
+
+func TestResolveHomeAction_AskOffersNoRememberForQuitOrWithoutAWriter(t *testing.T) {
+	for name, tc := range map[string]struct {
+		key    string
+		policy ImageChangePolicy
+		want   VolumeAction
+	}{
+		"quit":      {"q", askPolicy(new([]string)), ActionQuit},
+		"no writer": {"k", ImageChangePolicy{Answer: AnswerAsk, Remember: nil}, ActionKeep},
+	} {
+		ui := &termiotest.Mock{
+			IsInteractiveResult: true,
+			SelectFn:            func(string, []termio.Choice, string) (string, error) { return tc.key, nil },
+		}
+		vm := NewManager(docker.Get())
+		if action := vm.ResolveHomeAction(ui, "old", "new", tc.policy); action != tc.want {
+			t.Errorf("%s: action %v, want %v", name, action, tc.want)
+		}
+		if len(ui.ConfirmCalls) != 0 {
+			t.Errorf("%s: confirm %v, want no offer to remember", name, ui.ConfirmCalls)
+		}
 	}
 }
 
 func TestResolveHomeAction_PromptFails_ReturnsKeep(t *testing.T) {
 	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
+		ConfirmResult:       true,
 		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
 			return "", errors.New("select failed")
 		},
 	}
 	vm := NewManager(docker.Get())
-	action := vm.ResolveHomeAction(ui, "old", "new")
+	action := vm.ResolveHomeAction(ui, "old", "new", askPolicy(new([]string)))
 	if action != ActionKeep {
 		t.Errorf("expected ActionKeep on prompt failure, got %v", action)
 	}
 	if len(ui.WarnCalls) != 1 {
 		t.Errorf("expected 1 warning on prompt failure, got %d", len(ui.WarnCalls))
+	}
+	if len(ui.ConfirmCalls) != 0 {
+		t.Errorf("confirm %v, want no offer to remember after a failed dialog", ui.ConfirmCalls)
+	}
+}
+
+func TestResolveHomeAction_AskRemembersNothingWhenTheConfirmFails(t *testing.T) {
+	var remembered []string
+	ui := &termiotest.Mock{
+		IsInteractiveResult: true,
+		ConfirmResult:       true,
+		ConfirmErr:          errors.New("confirm boom"),
+		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "m", nil },
+	}
+	vm := NewManager(docker.Get())
+	vm.ResolveHomeAction(ui, "old", "new", askPolicy(&remembered))
+	if len(remembered) != 0 {
+		t.Errorf("remembered %v after a failed confirm, want nothing", remembered)
 	}
 }
 

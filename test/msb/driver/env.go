@@ -3,8 +3,10 @@ package driver
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -152,7 +154,7 @@ func PrepareHome(homeBase string) error {
 
 // SeedHomeFiles writes each home-relative file under the run's isolated HOME
 // (<homeBase>/home/<rel>), creating parent directories, so the launcher
-// provisions it into the VM (see Spec.SeedHomeFiles).
+// provisions it into the VM (see Seeds.HomeFiles).
 //
 // It writes through mkdirAll and writeFile, seams a test can replace to assert
 // the seed's private modes without depending on the process umask.
@@ -171,7 +173,7 @@ func SeedHomeFiles(homeBase string, files map[string]string) error {
 
 // SeedAgentSnippets writes each snippet into the agent's config dir under the
 // run's isolated launcher config dir, where the launcher's snippet merge reads
-// it (see Spec.SeedAgentSnippets). A nil or empty map writes nothing.
+// it (see Seeds.AgentSnippets). A nil or empty map writes nothing.
 //
 // It uses the same mkdirAll/writeFile seams as SeedHomeFiles.
 func SeedAgentSnippets(homeBase, agentConfigDirName string, snippets map[string]string) error {
@@ -195,6 +197,7 @@ const (
 	seedDirName            = "seed"
 	launcherConfigDirName  = "agents-sandbox"
 	launcherConfigFileName = "config.json"
+	launcherEnvFileName    = "env"
 )
 
 // SeedLauncherConfig writes the run's isolated launcher config. It always
@@ -255,4 +258,23 @@ func envValue(env []string, name string) string {
 		}
 	}
 	return ""
+}
+
+// SeedLauncherEnv writes vars as the isolated home's launcher env file
+// (KEY=value lines, sorted), which the launcher forwards into every VM. Like any
+// launcher-managed layer it counts as configuration, so a run on that home is
+// not offered the first-run menu.
+func SeedLauncherEnv(homeBase string, vars map[string]string) error {
+	dir := filepath.Join(homeBase, configDirName, launcherConfigDirName)
+	if err := mkdirAll(dir, 0o750); err != nil {
+		return fmt.Errorf("create launcher config dir: %w", err)
+	}
+	var lines strings.Builder
+	for _, name := range slices.Sorted(maps.Keys(vars)) {
+		lines.WriteString(name + "=" + vars[name] + "\n")
+	}
+	if err := writeFile(filepath.Join(dir, launcherEnvFileName), []byte(lines.String()), 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", launcherEnvFileName, err)
+	}
+	return nil
 }

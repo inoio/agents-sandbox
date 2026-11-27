@@ -5,7 +5,9 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -14,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/creack/pty"
+	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 )
 
@@ -221,6 +224,108 @@ func TestTapUntilMarkerReportsChildExit(t *testing.T) {
 	err := TapUntilMarker(ses, []byte("q"), "NEVER", 5*time.Second)
 	if err == nil || !strings.Contains(err.Error(), "exited") {
 		t.Fatalf("TapUntilMarker = %v, want an exited-before error", err)
+	}
+}
+
+// fillStalledPTY fills a raw pty's input buffer until it can accept no more, so
+// the next write to the master cannot complete. It writes one large buffer from
+// a goroutine: a blocking pty write accepts up to the kernel buffer's capacity
+// and then waits for a reader that never comes, which is the stalled state.
+func fillStalledPTY(t *testing.T, ses *Session) {
+	t.Helper()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = unix.Write(ses.fd, make([]byte, 1<<20))
+	}()
+	select {
+	case <-done:
+		t.Fatal("pty input buffer never filled: a large write completed")
+	case <-time.After(500 * time.Millisecond):
+	}
+}
+
+// TestPTYWriteReportsAStalledSlave pins the write bound: a slave that has
+// stopped reading its pty fills the kernel buffer, where a bare write blocks
+// forever and outlasts every caller's own deadline. Write must fail within its
+// bound instead, so a caller like TapUntilMarker can enforce its budget and
+// report the step it was driving rather than letting the whole suite hang.
+func TestPTYWriteReportsAStalledSlave(t *testing.T) {
+	ses := MustStartUnderPTY(t, "", nil, "/bin/sh", "-c", "sleep 30")
+	defer ses.Close()
+
+	// The launcher's attach holds the pty raw while it drives the session; a
+	// cooked pty drops input rather than filling, so raw is the case that
+	// stalls.
+	if _, err := term.MakeRaw(ses.fd); err != nil {
+		t.Fatalf("MakeRaw: %v", err)
+	}
+	fillStalledPTY(t, ses)
+
+	returned := make(chan error, 1)
+	go func() { returned <- ses.Write([]byte("q")) }()
+
+	select {
+	case err := <-returned:
+		if err == nil {
+			t.Fatal("Write = nil, want a timeout error for a stalled slave")
+		}
+	case <-time.After(ptyWriteTimeout + 5*time.Second):
+		t.Fatal("Write blocked on a stalled pty slave; want a bounded error")
+	}
+}
+
+// TestPTYWriteRetriesAWaitInterruptedByASignal pins the transient-error retry:
+// a signal delivered while the write waits for the pty to drain (SIGWINCH
+// arrives on a terminal resize) makes the poll return EINTR rather than being
+// restarted, and the wait must resume. A stalled slave must still end in the
+// write timeout, not surface the interruption as the write's failure.
+func TestPTYWriteRetriesAWaitInterruptedByASignal(t *testing.T) {
+	ses := MustStartUnderPTY(t, "", nil, "/bin/sh", "-c", "sleep 30")
+	defer ses.Close()
+
+	if _, err := term.MakeRaw(ses.fd); err != nil {
+		t.Fatalf("MakeRaw: %v", err)
+	}
+	fillStalledPTY(t, ses)
+
+	// A caught signal interrupts an in-progress poll; the default ignore
+	// action would not deliver it.
+	resized := make(chan os.Signal, 1)
+	signal.Notify(resized, syscall.SIGWINCH)
+	defer signal.Stop(resized)
+
+	returned := make(chan error, 1)
+	go func() {
+		// Pin the write to one OS thread so the resize signal targets the
+		// thread blocked in poll.
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		threadID := unix.Gettid()
+
+		stop := make(chan struct{})
+		go func() {
+			ticker := time.NewTicker(time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-stop:
+					return
+				case <-ticker.C:
+					_ = unix.Tgkill(unix.Getpid(), threadID, syscall.SIGWINCH)
+				}
+			}
+		}()
+
+		err := ses.Write([]byte("q"))
+		close(stop)
+		returned <- err
+	}()
+
+	err := <-returned
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("Write = %v, want the write timeout after retrying the interrupted wait", err)
 	}
 }
 

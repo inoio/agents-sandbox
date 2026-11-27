@@ -114,7 +114,7 @@ func (qwenCodeProfile) ConfigFileNames() []string { return []string{settingsFile
 func (qwenCodeProfile) ProvisionRules() []ProvisionRule {
 	return []ProvisionRule{
 		{Dir: qwenCodeDataDir, Patterns: []string{
-			"/QWEN.md", agentsRulesPattern, "/commands/", skillsDirPattern, "/agents/", "/workflows/",
+			"/QWEN.md", agentsRulesPattern, commandsDirPattern, skillsDirPattern, agentsDirPattern, "/workflows/",
 		}},
 	}
 }
@@ -144,4 +144,10 @@ func (qwenCodeProfile) AttachCommand(_ string, args []string) string {
 func (qwenCodeProfile) VersionCmd() string { return "qwen --version" }
 func (qwenCodeProfile) ParseVersion(stdout string) (string, error) {
 	return extractSemverFromOutput(stdout)
+}
+
+// InstructionPaths declares the credential-free files the host seed copies:
+// the global instructions and the command, skill, subagent, and workflow trees.
+func (qwenCodeProfile) InstructionPaths() []string {
+	return []string{"QWEN.md", agentsRulesFileName, commandsDirName, skillsDirName, agentsDirName, "workflows/"}
 }

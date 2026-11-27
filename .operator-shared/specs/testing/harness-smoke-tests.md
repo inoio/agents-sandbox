@@ -64,7 +64,7 @@ unpinned version, so the suite pays that budget once per GitHub-backed agent the
 carries a GitHub token (see Isolation).
 
 **The isolated launcher config turns host-config provisioning on.** `provision-host-config` is opt-in since the
-first-run change (default off), so a `SeedHomeFiles` seed — written under the isolated HOME for the agent's
+first-run change (default off), so a `Seeds.HomeFiles` seed — written under the isolated HOME for the agent's
 `ProvisionRules` to copy — would never reach the VM, and the harness would stop at its own first-run setup. So every
 subtest writes a launcher config into the run's isolated `XDG_CONFIG_HOME` with `provision-host-config: true`,
 alongside any `home:` manifest seed. What provisioning copies from is that isolated, seed-only home, so nothing of the
@@ -153,7 +153,7 @@ Five harnesses keep the terminal's normal buffer (`KeepsNormalBuffer`) and are a
 `claude-code`, `hermes`, `oh-my-pi`, `kimi-code`, and `goose`. The alternate-screen harnesses are `opencode`,
 `opencode2`, `pi`, `codex`, `qwen-code`, `grok-build`, and `mistral-vibe`.
 
-**Seeded home files.** A harness whose host-side state decides whether its CLI starts headful declares `SeedHomeFiles`,
+**Seeded home files.** A harness whose host-side state decides whether its CLI starts headful declares `Seeds.HomeFiles`,
 a map of home-relative path to content written under the harness's isolated HOME
 (`<root>/runs/<name>/home`) before the run; the launcher copies it into the VM through the agent's `ProvisionRules`,
 which the isolated launcher config's `provision-host-config: true` enables (see above), the way it copies a real
@@ -166,7 +166,7 @@ loopback port and no request leaves the VM before a message is submitted. `oh-my
 otherwise come up before the editor — is skipped.
 
 **Manifest-seeded home files.** A harness whose first-run state lives outside the paths its `ProvisionRules` copy
-declares `SeedHomeManifest` instead: a map of VM-home-relative target to content, written under the run's seed dir and
+declares `Seeds.HomeManifest` instead: a map of VM-home-relative target to content, written under the run's seed dir and
 declared in the isolated launcher config's `home:` manifest with an absolute source, so the launcher provisions it into
 the VM home independently of `ProvisionRules`. `claude-code` needs it: its first-run state is `~/.claude.json`, beside
 the `~/.claude/settings.json` the agent's rules copy. Current releases stop there at onboarding — a theme picker and a
@@ -192,6 +192,14 @@ signal appears and only waits for the exit:
   SIGINT the cooked terminal makes of it and kills the launcher mid-teardown, reporting its clean exit as `-1`. It
   cannot stand in for the guest-side signal, though: the attach owns the host pty and restores it only after the guest
   process has already exited, so it never observes the guest's earlier restore.
+
+**A stalled pty write fails, it does not hang.** A harness that has stopped reading its pty fills the kernel's
+terminal buffer, where a bare write to the pty master blocks forever and outlasts every caller's deadline — the tap
+loop's budget and `HasExited` check both become unreachable. `driver.Session.Write` polls the master for room and
+bounds the wait by `ptyWriteTimeout` (5s), so a stalled slave returns a timeout error instead; the readiness and quit
+loops then fail with the harness/step named (the marker or quit key they were driving) rather than wedging the suite
+until `go test -timeout`. The master is a blocking descriptor on which `os.File.SetWriteDeadline` is a no-op, which is
+why the bound is a poll, not a deadline.
 
 The cadence serves two constraints that pull against each other. The arm and fire
 presses must stay within the window the harness's "press again" prompt allows, and `qwen-code`'s was measured at under
@@ -326,7 +334,7 @@ waiting run only proceeds once the sweep sharing the root is done.
 ## Non-goals
 
 - TUI content or behaviour beyond reaching the full-screen TUI and leaving it on its quit key.
-- Credentials, authenticated sessions, or harness network egress. A `SeedHomeFiles` config may name a dummy, loopback
+- Credentials, authenticated sessions, or harness network egress. A `Seeds.HomeFiles` config may name a dummy, loopback
   provider so a CLI reaches its REPL; it is not a usable credential and sends nothing off the VM.
 - Replacing the mocked `internal/sandbox/vm` tests.
 - Agent version resolution, the upgrade prompt, or the image build.

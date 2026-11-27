@@ -9,114 +9,10 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/inoio/agents-sandbox/internal/sandbox/readback"
 )
-
-// TestStubOriginFromValue pins the advertised-route override: a valid
-// http(s) origin is kept (port and any path dropped), and anything else falls
-// back to the documented placeholder, so an unset or malformed override can
-// never expose the stub on a surprising scheme or host.
-func TestStubOriginFromValue(t *testing.T) {
-	cases := []struct {
-		name string
-		in   string
-		want string
-	}{
-		{name: "unset", in: "", want: stubOriginDefault},
-		{name: "blank", in: "   ", want: stubOriginDefault},
-		{name: "loopback http", in: "http://127.0.0.1", want: "http://127.0.0.1"},
-		{name: "loopback https", in: "https://127.0.0.1", want: "https://127.0.0.1"},
-		{name: "host http", in: "http://stub.internal", want: "http://stub.internal"},
-		{name: "port dropped", in: "http://127.0.0.1:8080", want: "http://127.0.0.1"},
-		{name: "userinfo and path dropped", in: "https://user:pass@host/path", want: "https://host"},
-		{name: "ipv6 literal", in: "http://[::1]", want: "http://[::1]"},
-		{name: "ipv6 literal with port", in: "https://[2001:db8::1]:8443", want: "https://[2001:db8::1]"},
-		{name: "unsupported scheme", in: "ftp://host", want: stubOriginDefault},
-		{name: "no host", in: "https://", want: stubOriginDefault},
-		{name: "not a url", in: "not a url", want: stubOriginDefault},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := stubOriginFromValue(tc.in); got != tc.want {
-				t.Errorf("stubOriginFromValue(%q) = %q, want %q", tc.in, got, tc.want)
-			}
-		})
-	}
-}
-
-// TestStubProviderDocumentCarriesAnInlineCredential pins the credential a
-// learn-mode journey observes: the provider document's options carry a literal
-// apiKey, which the read-back classifies as a static credential scoped by the
-// derived env-var name <PROVIDERID>_API_KEY (stubCredentialEnvVar) and the
-// entry's baseURL host. Without it the UC1 secret assertion has nothing to find.
-func TestStubProviderDocumentCarriesAnInlineCredential(t *testing.T) {
-	provider, err := StartStubProvider(t)
-	if err != nil {
-		t.Fatalf("StartStubProvider: %v", err)
-	}
-	t.Cleanup(provider.Stop)
-
-	content := provider.ProviderConfig()[stubAgentConfigTarget]
-	var document struct {
-		Provider map[string]struct {
-			Options struct {
-				APIKey string `json:"apiKey"`
-			} `json:"options"`
-		} `json:"provider"`
-	}
-	if err := json.Unmarshal([]byte(content), &document); err != nil {
-		t.Fatalf("decode provider config %q: %v", content, err)
-	}
-	if document.Provider[stubProviderID].Options.APIKey == "" {
-		t.Fatalf("provider %q carries no inline apiKey: %q", stubProviderID, content)
-	}
-}
-
-// TestStubProviderDocumentClassifiesAsTheAssertedCredential pins the journey's
-// premise without a VM: the read-back classifies the stub provider document's
-// inline apiKey as a static credential named exactly what UC1 asserts
-// (uc1Scope), scoped to the advertised host. It ties the stub's document to the
-// assertion, so a change to the provider id or the options shape fails here
-// rather than only on a host accept.
-func TestStubProviderDocumentClassifiesAsTheAssertedCredential(t *testing.T) {
-	provider, err := StartStubProvider(t)
-	if err != nil {
-		t.Fatalf("StartStubProvider: %v", err)
-	}
-	t.Cleanup(provider.Stop)
-
-	content := provider.ProviderConfig()[stubAgentConfigTarget]
-	credentials := readback.InlineCredentialsIn(stubAgentConfigTarget, []byte(content))
-	var found bool
-	for _, credential := range credentials {
-		if credential.Kind != readback.CredentialStatic || credential.EnvVar != uc1Scope.EnvVar {
-			continue
-		}
-		found = true
-		if !slices.Equal(credential.Hosts, uc1Scope.Hosts) {
-			t.Errorf("credential hosts = %v, want %v", credential.Hosts, uc1Scope.Hosts)
-		}
-	}
-	if !found {
-		t.Fatalf("InlineCredentialsIn found no static credential %q in %q", uc1Scope.EnvVar, content)
-	}
-}
-
-// TestStubAdvertisedHostTracksTheOrigin pins that the host a journey scopes its
-// credential assertion to is the advertised origin's host (the default, or a
-// host accept's override), so the asserted host and env.secret.yaml's scoping
-// host cannot disagree.
-func TestStubAdvertisedHostTracksTheOrigin(t *testing.T) {
-	t.Setenv(stubOriginEnv, "https://stub.example:8443/path")
-	if got, want := stubAdvertisedHost(), "stub.example"; got != want {
-		t.Errorf("stubAdvertisedHost() = %q, want %q", got, want)
-	}
-}
 
 // TestStartStubProviderBindsAndAdvertises pins the stub's own contract: it binds
 // a real host-side listener, advertises the (overridden) origin on the
@@ -147,13 +43,13 @@ func TestStartStubProviderBindsAndAdvertises(t *testing.T) {
 		t.Errorf("Addr %q carries no ephemeral port", provider.Addr())
 	}
 
-	config := provider.ProviderConfig()
+	config := opencode2Harness.Stub.HomeFiles(provider.Addr())
 	if len(config) != 1 {
-		t.Fatalf("ProviderConfig has %d entries, want 1: %v", len(config), config)
+		t.Fatalf("StubConfig has %d entries, want 1: %v", len(config), config)
 	}
-	content, ok := config[stubAgentConfigTarget]
+	content, ok := config[opencodeStubConfigTarget]
 	if !ok {
-		t.Fatalf("ProviderConfig has no target %q: %v", stubAgentConfigTarget, config)
+		t.Fatalf("StubConfig has no target %q: %v", opencodeStubConfigTarget, config)
 	}
 	if got, want := providerBaseURL(t, content), provider.Addr()+"/v1"; got != want {
 		t.Errorf("provider baseURL = %q, want %q", got, want)
@@ -178,7 +74,7 @@ func TestStartStubProviderBindsAndAdvertises(t *testing.T) {
 // target to it, and creates no managed agent-config layer.
 func TestStepSeedStubProvisionsThroughTheHomeManifest(t *testing.T) {
 	home := t.TempDir()
-	ctx := &Context{TB: t, Agent: "opencode2", Home: home}
+	ctx := &Context{TB: t, Agent: "opencode2", Harness: opencode2Harness, Home: home}
 
 	if err := StepSeedStub().Run(ctx); err != nil {
 		t.Fatalf("StepSeedStub: %v", err)
@@ -187,7 +83,7 @@ func TestStepSeedStubProvisionsThroughTheHomeManifest(t *testing.T) {
 		t.Fatal("StepSeedStub left no provider on the context")
 	}
 
-	seedPath := filepath.Join(home, "seed", stubAgentConfigTarget)
+	seedPath := filepath.Join(home, "seed", opencodeStubConfigTarget)
 	content, err := os.ReadFile(seedPath)
 	if err != nil {
 		t.Fatalf("read the provisioned seed file %s: %v", seedPath, err)
@@ -196,7 +92,7 @@ func TestStepSeedStubProvisionsThroughTheHomeManifest(t *testing.T) {
 		t.Errorf("provisioned baseURL = %q, want %q", got, want)
 	}
 
-	assertHomeManifestMaps(t, home, stubAgentConfigTarget, seedPath)
+	assertHomeManifestMaps(t, home, opencodeStubConfigTarget, seedPath)
 	assertNoManagedAgentConfigLayer(t, home)
 }
 
@@ -328,5 +224,79 @@ func TestStartStubProviderAppendsTheListenerPort(t *testing.T) {
 	}
 	if first.Addr() == second.Addr() {
 		t.Errorf("both providers advertise %q, want distinct ports", first.Addr())
+	}
+}
+
+func TestStubAnswersAnUnknownPathWithNotFound(t *testing.T) {
+	provider := startTestStub(t)
+
+	response := postChat(t, provider, `{"model":"stub","tools":[{}]}`)
+	_ = response.Body.Close()
+	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{Proxy: nil}}
+	request, err := http.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		stubLoopbackURL(t, provider)+"/v1/other",
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknown, err := client.Do(request)
+	if err != nil {
+		t.Fatalf("POST /v1/other: %v", err)
+	}
+	_ = unknown.Body.Close()
+	if unknown.StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", unknown.StatusCode)
+	}
+	if got := provider.Replies(); len(got) != 1 {
+		t.Errorf("replies = %v, want only the chat completion's", got)
+	}
+}
+
+func TestStubAnswersAnUndecodableTurnWithBadRequest(t *testing.T) {
+	provider := startTestStub(t)
+	provider.ScriptToolCall(ToolCall{Name: "write", Arguments: `{}`})
+
+	response := postChat(t, provider, "\x28\xb5\x2f\xfd compressed")
+
+	if response.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", response.StatusCode)
+	}
+	requests := provider.Requests()
+	if len(requests) != 1 || requests[0].DecodeError == "" || servedTurn(requests) {
+		t.Errorf("requests = %+v, want one recorded with its decode error and not a turn", requests)
+	}
+}
+
+func TestTurnProtocolForRoutesEachProtocolsTurnPath(t *testing.T) {
+	for path, want := range map[string]string{
+		"/v1/chat/completions": stubCompletionPath,
+		"/v1/messages":         stubMessagesPath,
+		"/v1/responses":        stubResponsesPath,
+	} {
+		protocol, ok := turnProtocolFor(path)
+		if !ok || protocol.suffix != want {
+			t.Errorf("turnProtocolFor(%q) = %q, %v; want %q", path, protocol.suffix, ok, want)
+		}
+	}
+	for _, path := range []string{"/v1/messages/count_tokens", "/v1/models", "/v1/other"} {
+		if _, ok := turnProtocolFor(path); ok {
+			t.Errorf("turnProtocolFor(%q) found a turn protocol", path)
+		}
+	}
+}
+
+func TestStepSeedStubReportsASeedFailure(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home-is-a-file")
+	if err := os.WriteFile(home, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &Context{TB: t, Agent: "opencode2", Harness: opencode2Harness, Home: home}
+
+	err := StepSeedStub().Run(ctx)
+	if err == nil || !strings.Contains(err.Error(), "seed the home") {
+		t.Fatalf("StepSeedStub = %v, want a seed-the-home error", err)
 	}
 }

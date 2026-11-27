@@ -112,7 +112,7 @@ agents-sandbox build --agent-version 0.5.0  # pin a specific agent version
 |----------------------|-------|----------|-----------------------------------------------------------------|
 | `--rebuild`          | `-r`  | `false`  | Force a clean rebuild that pulls the latest base image          |
 | `--dry-run`          | `-n`  | `false`  | Dry run without building or installing the microsandbox runtime |
-| `--agent`            | —     | `opencode2` | Coding-agent profile to build: `opencode2` (default), `opencode`, `claude-code`, `codex`, `pi`, or another [built-in agent]({% link configuration/agent.md %}#built-in-agents). |
+| `--agent`            | —     | `opencode2` | Coding-agent profile to build: `opencode2` (default), `opencode`, `claude-code`, `codex`, `pi`, or another [built-in agent]({% link configuration/agent.md %}#built-in-agents). Without it, the configured `agent` (or `AGENTS_SANDBOX_AGENT`). |
 | `--agent-version`    | —     | `""`     | Pin the version agents-sandbox installs into the image (default: latest). Ignored for a user-provided agent |
 | `--docker`           | —     | `false`  | Bake the Docker engine into the runner image; overrides the project Dockerfile's declaration in both directions (`--dind` is a deprecated alias) |
 
@@ -134,7 +134,7 @@ agents-sandbox build dockerfile --agent claude-code
 
 | Flag              | Short | Default    | Purpose                                                     |
 |-------------------|-------|------------|-------------------------------------------------------------|
-| `--agent`         | —     | `opencode2` | Coding-agent profile to build: `opencode2`, `opencode`, `claude-code`, `codex`, `pi`, or another [built-in agent]({% link configuration/agent.md %}#built-in-agents). |
+| `--agent`         | —     | `opencode2` | Coding-agent profile to build: `opencode2`, `opencode`, `claude-code`, `codex`, `pi`, or another [built-in agent]({% link configuration/agent.md %}#built-in-agents). Without it, the configured `agent` (or `AGENTS_SANDBOX_AGENT`). |
 | `--agent-version` | —     | `""`       | Pin the agent version rendered into the preview (default: no pinned default) |
 | `--docker`        | —     | `false`    | Bake the Docker engine into the runner image; overrides the project Dockerfile's declaration in both directions (`--dind` is a deprecated alias) |
 
@@ -162,7 +162,7 @@ agents-sandbox stop -f     # stop and remove VM state (also a stopped or never-s
 |-------------|-------|-------------|---------------------------------------------|
 | `--force`   | `-f`  | `false`     | Remove VM's persisted state, also for a stopped or never-started VM |
 | `--dry-run` | `-n`  | `false`     | Show what would be stopped without stopping |
-| `--agent`   | —     | `opencode2`  | Coding-agent profile to stop                |
+| `--agent`   | —     | `opencode2`  | Coding-agent profile to stop; without it, the configured `agent` (or `AGENTS_SANDBOX_AGENT`) |
 
 ---
 
@@ -186,7 +186,7 @@ agents-sandbox kill -f     # kill and remove VM state (also a stopped or never-s
 |-------------|-------|-------------|-------------------------------------------|
 | `--force`   | `-f`  | `false`     | Remove VM's persisted state, also for a stopped or never-started VM |
 | `--dry-run` | `-n`  | `false`     | Show what would be killed without killing |
-| `--agent`   | —     | `opencode2`  | Coding-agent profile to kill              |
+| `--agent`   | —     | `opencode2`  | Coding-agent profile to kill; without it, the configured `agent` (or `AGENTS_SANDBOX_AGENT`) |
 
 ---
 
@@ -487,7 +487,7 @@ config dirs (primary):
 
 One `user:` line is printed per user scope in precedence order — the generic user dir, then the per-slug user dir — and the project dir follows last. A dir that does not exist is marked `(missing)`, e.g. `user: "/home/me/.config/agents-sandbox/opencode2" (missing)`. The header label is `primary` when the agent's own namespace is used, or `legacy fallback "<namespace>"` when the agent is reading a shared legacy namespace (see [agent configuration]({% link configuration/agent.md %})). These are host launcher-config dirs; the guest agent config path is always `~/.config/opencode` regardless.
 
-Each host file is listed as `merged` (its VM path is the merged config path or part of the removed config-file family) or `not merged` (copied verbatim). Verbatim mirror files are listed as their host source path → VM path.
+Each host file is listed as `merged` (its VM path is the main config path, reconciled with the agent's own settings, or one of its removed siblings) or `not merged` (copied verbatim). Verbatim mirror files are listed as their host source path → VM path.
 
 #### config provision [name]
 
@@ -888,7 +888,7 @@ Create a new home volume and copy files from the old volume on top of it.
 - **Flags:**
   - `--rm` — remove old volume after successful migration
   - `--dry-run` — show what would be done
-  - `--agent` — coding-agent profile to provision (`opencode2` default)
+  - `--agent` — coding-agent profile to provision; without it, the configured `agent` (or `AGENTS_SANDBOX_AGENT`), else `opencode2`
 
 #### `agents-sandbox volume reset [volume-name]`
 
@@ -899,7 +899,7 @@ Create a new home volume from the image contents only (fresh, no copy).
 - **Flags:**
   - `--rm` — remove old volume after reset
   - `--dry-run` — show what would be done
-  - `--agent` — coding-agent profile to provision (`opencode2` default)
+  - `--agent` — coding-agent profile to provision; without it, the configured `agent` (or `AGENTS_SANDBOX_AGENT`), else `opencode2`
 
 #### `agents-sandbox volume edit [volume-name]`
 
@@ -910,6 +910,7 @@ Create a new volume alongside the old one, for manual data transfer.
 - **Flags:**
   - `--rm` — remove old volume after you exit (you are responsible for confirming)
   - `--dry-run` — show what would be done
+  - `--agent` — coding-agent profile to provision; without it, the configured `agent` (or `AGENTS_SANDBOX_AGENT`), else `opencode2`
 
 #### `agents-sandbox volume remove <name>...`
 

@@ -28,12 +28,7 @@ var stubHost = stubAdvertisedHost()
 // ${STUB_API_KEY} placeholder — is produced for UC1. Asserting the placeholder
 // here would fail on what the product actually does, so the scope want stays at
 // the effects the read-back and analyser do produce.
-var uc1Scope = ScopeWant{
-	EnvVar:      stubCredentialEnvVar,
-	Hosts:       []string{stubHost},
-	ConfigKeys:  nil,
-	Placeholder: false,
-}
+var uc1Scope = ScopeWant{ManagedConfig: false, Placeholder: false}
 
 // uc1Journey is UC1: a fresh install with no host config and no managed layer,
 // offered the first-run menu, that learns by using the seeded stub provider and
@@ -44,20 +39,22 @@ var uc1Scope = ScopeWant{
 // `run --learn` would never offer the menu. The menu's "Learn by using it"
 // choice turns learn mode on for the session through Outcome.Apply.
 var uc1Journey = Journey{
-	Name:  "uc1-learn-by-using",
-	Agent: opencode2AgentName,
+	Name:      "uc1-learn-by-using",
+	Harnesses: []string{opencode2AgentName, ohMyPiAgentName},
+	LearnMode: true,
 	Steps: []Step{
-		StepFreshHome(),
-		StepSeedStub(),
-		StepLaunch("run"),
-		StepAssertFirstRunOffered(firstrun.ChoiceLearnByUsing),
-		StepChooseFirstRun(firstrun.ChoiceLearnByUsing),
-		StepWaitReady(),
-		StepSendPrompt(uc1Prompt),
-		StepQuit(),
-		StepChooseExit(exitSaveAllKey),
-		StepAssertScopeWritten(uc1Scope),
-		StepAssertNoProjectScaffolding(),
-		StepAssertFirstRunRecorded(firstrun.ChoiceLearnByUsing),
+		Given(StepFreshHome()),
+		And(StepSeedStub()),
+		When(StepLaunch("run")),
+		Then(StepAssertFirstRunOffered(firstrun.ChoiceLearnByUsing)),
+		When(StepChooseFirstRun(firstrun.ChoiceLearnByUsing)),
+		And(StepExitHarnessSetup()),
+		Then(StepWaitReady()),
+		When(StepSendPrompt(uc1Prompt)),
+		And(StepQuit()),
+		And(StepChooseExit(exitSaveAllKey)),
+		Then(StepAssertScopeWritten(uc1Scope)),
+		And(StepAssertNoProjectScaffolding()),
+		And(StepAssertFirstRunRecorded(firstrun.ChoiceLearnByUsing)),
 	},
 }

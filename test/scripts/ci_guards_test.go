@@ -330,6 +330,13 @@ func TestCIGuards(t *testing.T) {
 		ciGuardsExpect(t, f.root, 1, "missing a job-level timeout-minutes")
 	})
 
+	t.Run("a sibling workflow job missing timeout-minutes", func(t *testing.T) {
+		t.Parallel()
+		f := newCIGuardsFixture(t)
+		f.write(".github/workflows/pages.yml", ciGuardsUntimedWorkflowContent)
+		ciGuardsExpect(t, f.root, 1, "pages.yml: 'build' is missing a job-level timeout-minutes")
+	})
+
 	t.Run("changes re-inlining the merge-base", func(t *testing.T) {
 		t.Parallel()
 		f := newCIGuardsFixture(t)
@@ -646,7 +653,23 @@ const ciGuardsCodeQLPullRequestBlock = `  pull_request:
       - 'Formula/**'
       - '.github/ISSUE_TEMPLATE/**'
       - '.agents-sandbox/**'
+      - '.idea/**'
       - '.gitignore'
+`
+
+// ciGuardsUntimedWorkflowContent is a sibling workflow whose second job has no
+// timeout-minutes, so the workflow-wide timeout scan must name pages.yml and
+// the job rather than only ci.yml.
+const ciGuardsUntimedWorkflowContent = `on:
+  workflow_dispatch:
+
+jobs:
+  classify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+  build:
+    needs: [classify]
+    runs-on: ubuntu-latest
 `
 
 // ciGuardsCIContent mirrors the real ci.yml's structure: job keys at two-space
@@ -869,7 +892,7 @@ const ciGuardsClassifyContent = `#!/usr/bin/env bash
 set -euo pipefail
 changed_files="$1"
 code=false
-if grep -vqE '^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/|\.agents-sandbox/)|\.md$|^\.gitignore$' "$changed_files"; then
+if grep -vqE '^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/|\.agents-sandbox/|\.idea/)|\.md$|^\.gitignore$' "$changed_files"; then
   code=true
 fi
 exec=false
@@ -890,6 +913,7 @@ const ciGuardsMutationContent = `on:
       - 'Formula/**'
       - '.github/ISSUE_TEMPLATE/**'
       - '.agents-sandbox/**'
+      - '.idea/**'
       - '.gitignore'
   workflow_dispatch:
 `
@@ -905,6 +929,7 @@ const ciGuardsCodeQLContent = `on:
       - 'Formula/**'
       - '.github/ISSUE_TEMPLATE/**'
       - '.agents-sandbox/**'
+      - '.idea/**'
       - '.gitignore'
   pull_request:
     paths-ignore:
@@ -914,6 +939,7 @@ const ciGuardsCodeQLContent = `on:
       - 'Formula/**'
       - '.github/ISSUE_TEMPLATE/**'
       - '.agents-sandbox/**'
+      - '.idea/**'
       - '.gitignore'
 `
 
@@ -927,7 +953,7 @@ set -euo pipefail
 IGNORE='README.md README.rst README .gitignore .gitkeep .keep'
 check_presence() {
   while IFS= read -r line; do
-    if [[ ! "$line" =~ ^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/|\.agents-sandbox/) ]] \
+    if [[ ! "$line" =~ ^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/|\.agents-sandbox/|\.idea/) ]] \
       && [[ ! "$line" =~ \.md$ ]] \
       && [[ ! "$line" =~ _test\.go$ ]] \
       && [[ "$line" != ".gitignore" ]]; then

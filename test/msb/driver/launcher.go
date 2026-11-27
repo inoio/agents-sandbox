@@ -98,8 +98,6 @@ func PreflightDocker(tb TB, root string) {
 // (SmokeRootReuseEnv) is kept. Destroying the sandboxes inside the root stays
 // separate: that needs the binary and a reachable docker daemon, so it runs only
 // after the docker preflight.
-//
-//nolint:nonamedreturns // the named results document the returned root/binary pair
 func Prepare(tb TB) (root, binary string) {
 	tb.Helper()
 
@@ -170,20 +168,27 @@ func CreateRootAndBuildBinary() {
 // PreflightDocker has confirmed the child can reach a daemon.
 func PrebuildImages(tb TB, root string) {
 	tb.Helper()
+	PrebuildImagesFor(tb, root, SuiteProjectAgents())
+}
 
-	prebuildOnce.Do(func() { errPrebuild = BuildHarnessImages(tb, root) })
+// PrebuildImagesFor builds the images of pairs once, for a suite that drives
+// only some harnesses (the journeys under a HARNESS selection).
+func PrebuildImagesFor(tb TB, root string, pairs []ProjectAgent) {
+	tb.Helper()
+
+	prebuildOnce.Do(func() { errPrebuild = BuildHarnessImages(tb, root, pairs) })
 	if errPrebuild != nil {
 		tb.Fatalf("prebuild harness images: %v", errPrebuild)
 	}
 }
 
-// BuildHarnessImages builds every image in SuiteProjectAgents in the same
+// BuildHarnessImages builds every image in pairs in the same
 // throwaway project directory its subtest will run from, so the project slug
 // and agent identity match. The builds run up to prebuildConcurrency at a time;
 // the isolated home pays for the microsandbox runtime install here, outside any
 // harness's TUI budget. The env carries the environment's GitHub token when one
 // is set, so its release resolutions authenticate.
-func BuildHarnessImages(tb TB, root string) error {
+func BuildHarnessImages(tb TB, root string, pairs []ProjectAgent) error {
 	tb.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), prepareTimeout)
@@ -192,7 +197,6 @@ func BuildHarnessImages(tb TB, root string) error {
 	//testenv:allow the prebuild runs under the host environment it authenticates from
 	inherited := os.Environ()
 	env := WithGitHubToken(IsolatedEnv(root, root, inherited), inherited)
-	pairs := SuiteProjectAgents()
 	for _, pair := range pairs {
 		if err := os.MkdirAll(ProjectDir(root, pair.Project), 0o750); err != nil {
 			return fmt.Errorf("create project dir for %s: %w", pair.Project, err)
@@ -207,11 +211,9 @@ func BuildHarnessImages(tb TB, root string) error {
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
 
-			args := []string{"build", agentFlag, pair.Agent}
-			if pair.Docker {
-				args = append(args, "--docker")
-			}
+			args := ImageBuildArgs(pair.Agent, pair.Docker)
 			build := exec.CommandContext(ctx, smokeBinary, args...)
+
 			build.Dir = ProjectDir(root, pair.Project)
 			build.Env = env
 			started := time.Now()
@@ -239,6 +241,46 @@ func BuildHarnessImages(tb TB, root string) error {
 	}
 	builds.Wait()
 	return errors.Join(buildErrors...)
+}
+
+// ImageBuildArgs is the launcher invocation that builds agentName's runner
+// image in the current project dir, docker-enabled when docker is set.
+func ImageBuildArgs(agentName string, docker bool) []string {
+	args := []string{"build", agentFlag, agentName}
+	if docker {
+		args = append(args, "--docker")
+	}
+	return args
+}
+
+// projectImageBuilds caps concurrent BuildProjectImage calls at the prebuild's
+// concurrency: parallel journey cells each build their own project's image,
+// and every build shares the suite root's image store.
+var projectImageBuilds = make(chan struct{}, prebuildConcurrency)
+
+// BuildProjectImage builds agentName's runner image for projectDir, creating the
+// dir, so a `run --no-rebuild` there finds its image. A journey that runs on a
+// project of its own calls it; the docker layers the prebuild cached make it
+// cheap.
+func BuildProjectImage(root, binary, projectDir, agentName string) error {
+	projectImageBuilds <- struct{}{}
+	defer func() { <-projectImageBuilds }()
+	if err := os.MkdirAll(projectDir, 0o750); err != nil {
+		return fmt.Errorf("create project dir %s: %w", projectDir, err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), prepareTimeout)
+	defer cancel()
+	//testenv:allow the image build runs under the host environment it authenticates from
+	inherited := os.Environ()
+	args := ImageBuildArgs(agentName, false)
+	build := exec.CommandContext(ctx, binary, args...)
+
+	build.Dir = projectDir
+	build.Env = WithGitHubToken(IsolatedEnv(root, root, inherited), inherited)
+	if out, err := build.CombinedOutput(); err != nil {
+		return fmt.Errorf("build %s image for %s: %w\n%s", agentName, projectDir, err, out)
+	}
+	return nil
 }
 
 // SweepSandboxes best-effort destroys any sandbox left in the isolated home. It
@@ -359,7 +401,7 @@ func Quit(ses *Session, spec Spec) (int, error) {
 			return waitExitWithin(ses, deadline, budget, presses, spec)
 		}
 		if err := ses.Write(spec.QuitKey); err != nil {
-			return 0, err
+			return 0, fmt.Errorf("press %#x: %w", spec.QuitKey, err)
 		}
 		code, err := ses.WaitExit(interval)
 		if err == nil {

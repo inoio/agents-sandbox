@@ -125,7 +125,7 @@ func (mistralVibeProfile) ProvisionRules() []ProvisionRule {
 	return []ProvisionRule{
 		{
 			Dir:      mistralVibeDataDir,
-			Patterns: []string{agentsRulesPattern, "/agents/", promptsDirPattern, skillsDirPattern},
+			Patterns: []string{agentsRulesPattern, agentsDirPattern, promptsDirPattern, skillsDirPattern},
 		},
 	}
 }
@@ -149,4 +149,10 @@ func (mistralVibeProfile) AttachCommand(_ string, args []string) string {
 func (mistralVibeProfile) VersionCmd() string { return "vibe --version" }
 func (mistralVibeProfile) ParseVersion(stdout string) (string, error) {
 	return extractSemverFromOutput(stdout)
+}
+
+// InstructionPaths declares the credential-free files the host seed copies:
+// the user instructions and the agent, prompt, and skill trees.
+func (mistralVibeProfile) InstructionPaths() []string {
+	return []string{agentsRulesFileName, agentsDirName, promptsDirName, skillsDirName}
 }
