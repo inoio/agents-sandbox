@@ -26,3 +26,8 @@ var (
 	_ Metrics        = msbSdk.Metrics{}
 	_ msbSdk.Metrics = Metrics{}
 )
+
+var (
+	_ ExecFailure        = msbSdk.ExecFailure{}
+	_ msbSdk.ExecFailure = ExecFailure{}
+)

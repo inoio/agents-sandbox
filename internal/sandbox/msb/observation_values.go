@@ -26,14 +26,8 @@ type JobInfo struct {
 	TimedOut      bool
 }
 
-// ExecFailure carries a detached job's structured launch failure.
-type ExecFailure struct {
-	Kind      string
-	Errno     *int
-	ErrnoName string
-	Message   string
-	Path      string
-}
+// ExecFailure is the SDK's structured detached-job launch-failure observation.
+type ExecFailure = msbSdk.ExecFailure
 
 // JobLogEntry is one retained output record of a detached job. Data holds the
 // original output bytes and Cursor a job-specific replay token.

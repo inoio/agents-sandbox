@@ -137,18 +137,6 @@ var (
 	}
 	jobLogEntryNotModeled = map[string]string{}
 
-	// execFailureProjected names every field of msbSdk.ExecFailure the
-	// launcher projects onto ExecFailure; execFailureNotModeled is empty
-	// because every field is projected.
-	execFailureProjected = map[string]struct{}{
-		"Kind":      {},
-		"Errno":     {},
-		"ErrnoName": {},
-		"Message":   {},
-		"Path":      {},
-	}
-	execFailureNotModeled = map[string]string{}
-
 	// logEntryProjected names every field of msbSdk.LogEntry the launcher
 	// projects onto LogEntry; logEntryNotModeled is empty because every field
 	// is projected.
@@ -599,7 +587,7 @@ func jobInfoFrom(info *msbSdk.JobInfo) *JobInfo {
 		FinishedAt:    info.FinishedAt,
 		ExitCode:      info.ExitCode,
 		TimedOut:      info.TimedOut,
-		Failure:       execFailureFrom(info.Failure),
+		Failure:       info.Failure,
 		Error:         info.Error,
 	}
 }
@@ -614,21 +602,6 @@ func jobInfosFrom(infos []msbSdk.JobInfo) []JobInfo {
 		out[i] = *jobInfoFrom(&info)
 	}
 	return out
-}
-
-// execFailureFrom translates the SDK's structured launch failure field for
-// field. A nil failure stays nil.
-func execFailureFrom(failure *msbSdk.ExecFailure) *ExecFailure {
-	if failure == nil {
-		return nil
-	}
-	return &ExecFailure{
-		Kind:      failure.Kind,
-		Errno:     failure.Errno,
-		ErrnoName: failure.ErrnoName,
-		Message:   failure.Message,
-		Path:      failure.Path,
-	}
 }
 
 // jobLogEntriesFrom translates a slice of SDK job log entries, preserving nil

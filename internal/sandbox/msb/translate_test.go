@@ -54,7 +54,6 @@ func TestSDKStructFieldsAreClassified(t *testing.T) {
 		},
 		{"JobInfo", reflect.TypeFor[msbSdk.JobInfo](), jobInfoProjected, jobInfoNotModeled},
 		{"JobLogEntry", reflect.TypeFor[msbSdk.JobLogEntry](), jobLogEntryProjected, jobLogEntryNotModeled},
-		{"ExecFailure", reflect.TypeFor[msbSdk.ExecFailure](), execFailureProjected, execFailureNotModeled},
 		{"LogEntry", reflect.TypeFor[msbSdk.LogEntry](), logEntryProjected, logEntryNotModeled},
 		{
 			"SandboxConfig",
