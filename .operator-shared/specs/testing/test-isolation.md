@@ -128,6 +128,15 @@ home from `MSB_HOME` (`configpathstest.UseMSBHomeFromEnv`) and creates the home 
 segment, keeping the two on one directory. Without it the msb-tagged suite reaches the fail-fast
 resolver and panics.
 
+A test that installs `WithMockConfigPaths(t)` instead of leaving the fail-fast resolver in place
+defeats that alignment: the mock's `UserDataDir()` is rooted in its own `t.TempDir()`, so
+`configpaths.MSBHome()` names a temp home that the SDK's `MSB_HOME`-derived one does not contain. A
+test that needs both — creating a volume through the real client and then resolving its host path
+through the adapter, which is what `readback`'s msb-tagged test does — uses
+`configpathstest.WithMockConfigPathsMSBHomeFromEnv(t)`, the mock's opt-in mirroring
+`UseMSBHomeFromEnv`: `UserDataDir()` then follows `MSB_HOME`, while the state directories stay in the
+mock temp tree.
+
 A set `AGENTS_SANDBOX_MSB_TEST_HOME` overrides this with a directory kept between runs (its final segment must be
 `msb`, for the same alignment); the harness suite's `AGENTS_SANDBOX_SMOKE_ROOT` does the same for its temp root, so
 the SDK runtime and cached images are not

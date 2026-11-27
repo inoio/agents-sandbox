@@ -133,6 +133,31 @@ func TestFailFastConfigPathsServesMSBHomeFromEnv(t *testing.T) {
 	}
 }
 
+// TestWithMockConfigPathsServesMSBHomeFromEnv pins the msb-tagged harness
+// opt-in on the temp-rooted mock: when a reused or isolated runtime home is set
+// in MSB_HOME, the mock's UserDataDir must resolve so that
+// configpaths.MSBHome() names that same home — the volume the real msb client
+// writes and the adapter's explicit local destination must agree on one home.
+// The default mock stays rooted in its temp tree.
+func TestWithMockConfigPathsServesMSBHomeFromEnv(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "msb")
+	t.Setenv("MSB_HOME", home)
+
+	t.Run("default mock ignores MSB_HOME", func(t *testing.T) {
+		WithMockConfigPaths(t)
+		if got := configpaths.MSBHome(); got == home {
+			t.Errorf("MSBHome() = %q; the default mock must resolve under its temp base", got)
+		}
+	})
+
+	t.Run("opt-in follows MSB_HOME", func(t *testing.T) {
+		WithMockConfigPathsMSBHomeFromEnv(t)
+		if got := configpaths.MSBHome(); got != home {
+			t.Errorf("MSBHome() = %q, want the MSB_HOME-derived home %q", got, home)
+		}
+	})
+}
+
 func TestGetConfigPathsFailFastDefault(t *testing.T) {
 	defer func() {
 		if recover() == nil {
