@@ -16,7 +16,7 @@ read_if: Working in an internal/ package that is not under internal/sandbox.
 
 ## `internal/` Index
 
-- `agent/` — Agent profiles (opencode/opencode2/claudecode/codex/pi/hermes/oh-my-pi/kimi-code/qwen-code/goose/grok-build/mistral-vibe): version resolution, capabilities (including the optional `EnvIndirectionDescriber` a harness like kimi uses to read its key from an env-var name), config-dir names, image selection.
+- `agent/` — Agent profiles (one `<name>.go` + `<name>_release.go` per built-in agent, registered in `builtinRegistry`): version resolution, capabilities (including the optional `EnvIndirectionDescriber` a harness like kimi uses to read its key from an env-var name), config-dir names, image selection.
 - `configpaths/` — Config/home path resolution and guards, plus shared config-file discovery (`FindConfigFile`) used by both config loaders; `configpathstest/` — its test double.
 - `configread/` — `ReadFile` under a 16 MiB cap (`MaxBytes`/`ErrTooLarge`) for untrusted config, secret, and snippet reads.
 - `configdecode/` — The one config-file read/classify/decode core (`FormatFor`/`Decode`/`DecodeFile`) over `configread` and `configpaths`; JSON5/JSONC via `json5`, YAML via `go.yaml.in/yaml/v4`, TOML via `go-toml/v2`.

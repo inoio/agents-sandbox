@@ -788,40 +788,6 @@ func TestRunDryRunAgentPi(t *testing.T) {
 	}
 }
 
-// TestRunDryRunAgentCodex verifies `run --agent codex` resolves the codex
-// profile and previews without starting a VM.
-func TestRunDryRunAgentCodex(t *testing.T) {
-	initTestProjectDir(t)
-
-	mock := &msbtest.MockMsbClient{}
-	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{},
-		"run", "--dry-run", "--agent", "codex", "--agent-version", "0.164.0")
-	setupAbsentImagePreviewMocks(t, mock)
-
-	if err := root.Execute(); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	var pinnedVersion, experimental bool
-	for _, line := range ui.InfoCalls {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "dry-run: agent version 0.164.0" {
-			pinnedVersion = true
-		}
-		if strings.Contains(trimmed, "experimental") {
-			experimental = true
-		}
-	}
-	if !pinnedVersion {
-		t.Errorf("expected pinned codex version line; got: %v", ui.InfoCalls)
-	}
-	if !experimental {
-		t.Errorf("expected an experimental notice for codex; got: %v", ui.InfoCalls)
-	}
-	if len(mock.CreatedSandboxCalls) != 0 {
-		t.Errorf("--dry-run created %d sandbox(es), want 0", len(mock.CreatedSandboxCalls))
-	}
-}
-
 // TestRunForwardsAgentArgs verifies the positional args after `--` reach the
 // agent attach as forwarded arguments: dropping opts.Args would swallow them.
 func TestRunForwardsAgentArgs(t *testing.T) {
@@ -837,175 +803,6 @@ func TestRunForwardsAgentArgs(t *testing.T) {
 	joined := strings.Join(sb.AttachArgs, " ")
 	if !strings.Contains(joined, "'--model' 'sonnet'") {
 		t.Errorf("AttachArgs = %q, want the forwarded --model sonnet args", sb.AttachArgs)
-	}
-}
-
-// TestRunAgentCodexRejectsDaemonOnlyFlags verifies codex, which runs no
-// daemon, rejects --worktree and --serve-only.
-func TestRunAgentCodexRejectsDaemonOnlyFlags(t *testing.T) {
-	for _, flagArgs := range [][]string{{"--worktree", "feat"}, {"--serve-only"}} {
-		t.Run(flagArgs[0], func(t *testing.T) {
-			initTestProjectDir(t)
-			args := append([]string{"run", "--dry-run", "--agent", "codex"}, flagArgs...)
-			root, _ := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, args...)
-			err := root.Execute()
-			if err == nil || !strings.Contains(err.Error(), `not supported by agent "codex"`) {
-				t.Errorf("err = %v, want 'not supported by agent \"codex\"'", err)
-			}
-		})
-	}
-}
-
-// TestRunDryRunAgentOhMyPi verifies `run --agent oh-my-pi` resolves the
-// oh-my-pi profile, notices that it is experimental, and previews without
-// starting a VM.
-func TestRunDryRunAgentOhMyPi(t *testing.T) {
-	initTestProjectDir(t)
-
-	mock := &msbtest.MockMsbClient{}
-	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{},
-		"run", "--dry-run", "--agent", "oh-my-pi", "--agent-version", "18.14.0")
-	setupAbsentImagePreviewMocks(t, mock)
-
-	if err := root.Execute(); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	var pinnedVersion, experimental bool
-	for _, line := range ui.InfoCalls {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "dry-run: agent version 18.14.0" {
-			pinnedVersion = true
-		}
-		if strings.Contains(trimmed, "experimental") {
-			experimental = true
-		}
-	}
-	if !pinnedVersion {
-		t.Errorf("expected pinned oh-my-pi version line; got: %v", ui.InfoCalls)
-	}
-	if !experimental {
-		t.Errorf("expected an experimental notice for oh-my-pi; got: %v", ui.InfoCalls)
-	}
-	if len(mock.CreatedSandboxCalls) != 0 {
-		t.Errorf("--dry-run created %d sandbox(es), want 0", len(mock.CreatedSandboxCalls))
-	}
-}
-
-// TestRunAgentOhMyPiRejectsDaemonOnlyFlags verifies oh-my-pi, which runs no
-// daemon, rejects --worktree and --serve-only.
-func TestRunAgentOhMyPiRejectsDaemonOnlyFlags(t *testing.T) {
-	for _, flagArgs := range [][]string{{"--worktree", "feat"}, {"--serve-only"}} {
-		t.Run(flagArgs[0], func(t *testing.T) {
-			initTestProjectDir(t)
-			args := append([]string{"run", "--dry-run", "--agent", "oh-my-pi"}, flagArgs...)
-			root, _ := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, args...)
-			err := root.Execute()
-			if err == nil || !strings.Contains(err.Error(), `not supported by agent "oh-my-pi"`) {
-				t.Errorf("err = %v, want 'not supported by agent \"oh-my-pi\"'", err)
-			}
-		})
-	}
-}
-
-// TestRunDryRunAgentKimiCode verifies `run --agent kimi-code` resolves the
-// kimi-code profile, notices that it is experimental, and previews without
-// starting a VM.
-func TestRunDryRunAgentKimiCode(t *testing.T) {
-	initTestProjectDir(t)
-
-	mock := &msbtest.MockMsbClient{}
-	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{},
-		"run", "--dry-run", "--agent", "kimi-code", "--agent-version", "2.7.0")
-	setupAbsentImagePreviewMocks(t, mock)
-
-	if err := root.Execute(); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	var pinnedVersion, experimental bool
-	for _, line := range ui.InfoCalls {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "dry-run: agent version 2.7.0" {
-			pinnedVersion = true
-		}
-		if strings.Contains(trimmed, "experimental") {
-			experimental = true
-		}
-	}
-	if !pinnedVersion {
-		t.Errorf("expected pinned kimi-code version line; got: %v", ui.InfoCalls)
-	}
-	if !experimental {
-		t.Errorf("expected an experimental notice for kimi-code; got: %v", ui.InfoCalls)
-	}
-	if len(mock.CreatedSandboxCalls) != 0 {
-		t.Errorf("--dry-run created %d sandbox(es), want 0", len(mock.CreatedSandboxCalls))
-	}
-}
-
-// TestRunAgentKimiCodeRejectsDaemonOnlyFlags verifies kimi-code, which runs no
-// daemon, rejects --worktree and --serve-only.
-func TestRunAgentKimiCodeRejectsDaemonOnlyFlags(t *testing.T) {
-	for _, flagArgs := range [][]string{{"--worktree", "feat"}, {"--serve-only"}} {
-		t.Run(flagArgs[0], func(t *testing.T) {
-			initTestProjectDir(t)
-			args := append([]string{"run", "--dry-run", "--agent", "kimi-code"}, flagArgs...)
-			root, _ := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, args...)
-			err := root.Execute()
-			if err == nil || !strings.Contains(err.Error(), `not supported by agent "kimi-code"`) {
-				t.Errorf("err = %v, want 'not supported by agent \"kimi-code\"'", err)
-			}
-		})
-	}
-}
-
-// TestRunDryRunAgentQwenCode verifies `run --agent qwen-code` resolves the
-// qwen-code profile, notices that it is experimental, and previews without
-// starting a VM.
-func TestRunDryRunAgentQwenCode(t *testing.T) {
-	initTestProjectDir(t)
-
-	mock := &msbtest.MockMsbClient{}
-	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{},
-		"run", "--dry-run", "--agent", "qwen-code", "--agent-version", "0.28.0")
-	setupAbsentImagePreviewMocks(t, mock)
-
-	if err := root.Execute(); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	var pinnedVersion, experimental bool
-	for _, line := range ui.InfoCalls {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "dry-run: agent version 0.28.0" {
-			pinnedVersion = true
-		}
-		if strings.Contains(trimmed, "experimental") {
-			experimental = true
-		}
-	}
-	if !pinnedVersion {
-		t.Errorf("expected pinned qwen-code version line; got: %v", ui.InfoCalls)
-	}
-	if !experimental {
-		t.Errorf("expected an experimental notice for qwen-code; got: %v", ui.InfoCalls)
-	}
-	if len(mock.CreatedSandboxCalls) != 0 {
-		t.Errorf("--dry-run created %d sandbox(es), want 0", len(mock.CreatedSandboxCalls))
-	}
-}
-
-// TestRunAgentQwenCodeRejectsDaemonOnlyFlags verifies qwen-code, which runs no
-// daemon, rejects --worktree and --serve-only.
-func TestRunAgentQwenCodeRejectsDaemonOnlyFlags(t *testing.T) {
-	for _, flagArgs := range [][]string{{"--worktree", "feat"}, {"--serve-only"}} {
-		t.Run(flagArgs[0], func(t *testing.T) {
-			initTestProjectDir(t)
-			args := append([]string{"run", "--dry-run", "--agent", "qwen-code"}, flagArgs...)
-			root, _ := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, args...)
-			err := root.Execute()
-			if err == nil || !strings.Contains(err.Error(), `not supported by agent "qwen-code"`) {
-				t.Errorf("err = %v, want 'not supported by agent \"qwen-code\"'", err)
-			}
-		})
 	}
 }
 
@@ -1197,155 +994,68 @@ func writeStartupHookConfig(t *testing.T) {
 		"home:\n  .hello.sh:\n    source: hello.sh\n    hook: startup\n")
 }
 
-// TestRunDryRunAgentGoose verifies `run --agent goose` resolves the
-// goose profile, notices that it is experimental, and previews without
-// starting a VM.
-func TestRunDryRunAgentGoose(t *testing.T) {
-	initTestProjectDir(t)
-
-	mock := &msbtest.MockMsbClient{}
-	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{},
-		"run", "--dry-run", "--agent", "goose", "--agent-version", "1.60.1")
-	setupAbsentImagePreviewMocks(t, mock)
-
-	if err := root.Execute(); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	var pinnedVersion, experimental bool
-	for _, line := range ui.InfoCalls {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "dry-run: agent version 1.60.1" {
-			pinnedVersion = true
+// TestRunDryRunExperimentalAgents verifies that `run --dry-run --agent <name>`
+// resolves every experimental profile, prints the pinned agent version and the
+// experimental notice, and starts no VM.
+func TestRunDryRunExperimentalAgents(t *testing.T) {
+	for _, name := range agent.Names() {
+		a, _ := agent.Lookup(name)
+		if !a.Experimental() {
+			continue
 		}
-		if strings.Contains(trimmed, "experimental") {
-			experimental = true
-		}
-	}
-	if !pinnedVersion {
-		t.Errorf("expected pinned goose version line; got: %v", ui.InfoCalls)
-	}
-	if !experimental {
-		t.Errorf("expected an experimental notice for goose; got: %v", ui.InfoCalls)
-	}
-	if len(mock.CreatedSandboxCalls) != 0 {
-		t.Errorf("--dry-run created %d sandbox(es), want 0", len(mock.CreatedSandboxCalls))
-	}
-}
-
-// TestRunAgentGooseRejectsDaemonOnlyFlags verifies goose, which runs no
-// daemon, rejects --worktree and --serve-only.
-func TestRunAgentGooseRejectsDaemonOnlyFlags(t *testing.T) {
-	for _, flagArgs := range [][]string{{"--worktree", "feat"}, {"--serve-only"}} {
-		t.Run(flagArgs[0], func(t *testing.T) {
+		t.Run(name, func(t *testing.T) {
 			initTestProjectDir(t)
-			args := append([]string{"run", "--dry-run", "--agent", "goose"}, flagArgs...)
-			root, _ := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, args...)
-			err := root.Execute()
-			if err == nil || !strings.Contains(err.Error(), `not supported by agent "goose"`) {
-				t.Errorf("err = %v, want 'not supported by agent \"goose\"'", err)
+
+			mock := &msbtest.MockMsbClient{}
+			root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{},
+				"run", "--dry-run", "--agent", name, "--agent-version", "1.2.3")
+			setupAbsentImagePreviewMocks(t, mock)
+
+			if err := root.Execute(); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			var pinnedVersion, experimental bool
+			for _, line := range ui.InfoCalls {
+				trimmed := strings.TrimSpace(line)
+				if trimmed == "dry-run: agent version 1.2.3" {
+					pinnedVersion = true
+				}
+				if strings.Contains(trimmed, "experimental") {
+					experimental = true
+				}
+			}
+			if !pinnedVersion {
+				t.Errorf("expected the pinned %s version line; got: %v", name, ui.InfoCalls)
+			}
+			if !experimental {
+				t.Errorf("expected an experimental notice for %s; got: %v", name, ui.InfoCalls)
+			}
+			if len(mock.CreatedSandboxCalls) != 0 {
+				t.Errorf("--dry-run created %d sandbox(es), want 0", len(mock.CreatedSandboxCalls))
 			}
 		})
 	}
 }
 
-// TestRunDryRunAgentGrokBuild verifies `run --agent grok-build` resolves the
-// grok-build profile, notices that it is experimental, and previews without
-// starting a VM.
-func TestRunDryRunAgentGrokBuild(t *testing.T) {
-	initTestProjectDir(t)
-
-	mock := &msbtest.MockMsbClient{}
-	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{},
-		"run", "--dry-run", "--agent", "grok-build", "--agent-version", "1.0.89")
-	setupAbsentImagePreviewMocks(t, mock)
-
-	if err := root.Execute(); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	var pinnedVersion, experimental bool
-	for _, line := range ui.InfoCalls {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "dry-run: agent version 1.0.89" {
-			pinnedVersion = true
+// TestRunDaemonlessAgentsRejectDaemonOnlyFlags verifies that every profile
+// without a daemon rejects --worktree and --serve-only.
+func TestRunDaemonlessAgentsRejectDaemonOnlyFlags(t *testing.T) {
+	for _, name := range agent.Names() {
+		a, _ := agent.Lookup(name)
+		if _, ok := agent.AsDaemonProvider(a); ok {
+			continue
 		}
-		if strings.Contains(trimmed, "experimental") {
-			experimental = true
+		for _, flagArgs := range [][]string{{"--worktree", "feat"}, {"--serve-only"}} {
+			t.Run(name+"/"+flagArgs[0], func(t *testing.T) {
+				initTestProjectDir(t)
+				args := append([]string{"run", "--dry-run", "--agent", name}, flagArgs...)
+				root, _ := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, args...)
+				err := root.Execute()
+				want := `not supported by agent "` + name + `"`
+				if err == nil || !strings.Contains(err.Error(), want) {
+					t.Errorf("err = %v, want %q", err, want)
+				}
+			})
 		}
-	}
-	if !pinnedVersion {
-		t.Errorf("expected pinned grok-build version line; got: %v", ui.InfoCalls)
-	}
-	if !experimental {
-		t.Errorf("expected an experimental notice for grok-build; got: %v", ui.InfoCalls)
-	}
-	if len(mock.CreatedSandboxCalls) != 0 {
-		t.Errorf("--dry-run created %d sandbox(es), want 0", len(mock.CreatedSandboxCalls))
-	}
-}
-
-// TestRunAgentGrokBuildRejectsDaemonOnlyFlags verifies grok-build, which runs no
-// daemon, rejects --worktree and --serve-only.
-func TestRunAgentGrokBuildRejectsDaemonOnlyFlags(t *testing.T) {
-	for _, flagArgs := range [][]string{{"--worktree", "feat"}, {"--serve-only"}} {
-		t.Run(flagArgs[0], func(t *testing.T) {
-			initTestProjectDir(t)
-			args := append([]string{"run", "--dry-run", "--agent", "grok-build"}, flagArgs...)
-			root, _ := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, args...)
-			err := root.Execute()
-			if err == nil || !strings.Contains(err.Error(), `not supported by agent "grok-build"`) {
-				t.Errorf("err = %v, want 'not supported by agent \"grok-build\"'", err)
-			}
-		})
-	}
-}
-
-// TestRunDryRunAgentMistralVibe verifies `run --agent mistral-vibe` resolves the
-// mistral-vibe profile, notices that it is experimental, and previews without
-// starting a VM.
-func TestRunDryRunAgentMistralVibe(t *testing.T) {
-	initTestProjectDir(t)
-
-	mock := &msbtest.MockMsbClient{}
-	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{},
-		"run", "--dry-run", "--agent", "mistral-vibe", "--agent-version", "3.1.3")
-	setupAbsentImagePreviewMocks(t, mock)
-
-	if err := root.Execute(); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	var pinnedVersion, experimental bool
-	for _, line := range ui.InfoCalls {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "dry-run: agent version 3.1.3" {
-			pinnedVersion = true
-		}
-		if strings.Contains(trimmed, "experimental") {
-			experimental = true
-		}
-	}
-	if !pinnedVersion {
-		t.Errorf("expected pinned mistral-vibe version line; got: %v", ui.InfoCalls)
-	}
-	if !experimental {
-		t.Errorf("expected an experimental notice for mistral-vibe; got: %v", ui.InfoCalls)
-	}
-	if len(mock.CreatedSandboxCalls) != 0 {
-		t.Errorf("--dry-run created %d sandbox(es), want 0", len(mock.CreatedSandboxCalls))
-	}
-}
-
-// TestRunAgentMistralVibeRejectsDaemonOnlyFlags verifies mistral-vibe, which runs
-// no daemon, rejects --worktree and --serve-only.
-func TestRunAgentMistralVibeRejectsDaemonOnlyFlags(t *testing.T) {
-	for _, flagArgs := range [][]string{{"--worktree", "feat"}, {"--serve-only"}} {
-		t.Run(flagArgs[0], func(t *testing.T) {
-			initTestProjectDir(t)
-			args := append([]string{"run", "--dry-run", "--agent", "mistral-vibe"}, flagArgs...)
-			root, _ := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, args...)
-			err := root.Execute()
-			if err == nil || !strings.Contains(err.Error(), `not supported by agent "mistral-vibe"`) {
-				t.Errorf("err = %v, want 'not supported by agent \"mistral-vibe\"'", err)
-			}
-		})
 	}
 }

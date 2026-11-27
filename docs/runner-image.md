@@ -183,9 +183,8 @@ stages with fixed parents, merged into the final stage with `COPY` **after** the
   `debian:trixie-slim` plus `curl`, `ca-certificates`, and `tar`. It is **not** part of the runner's lineage, so your base
   needs none of those binaries and the tool layers cache across bases.
 - **`agents-sandbox-node`** *(only for agents that need node)* — installs Node.js into `/opt/agents-sandbox`. It is emitted
-  only when the selected agent requires node (today only `pi`, an npm-installed node bundle); `opencode`, `opencode2`,
-  `claude-code`, `codex`, `hermes`, `oh-my-pi`, `kimi-code`, `qwen-code`, `goose`, `grok-build`, and `mistral-vibe` install native binaries or provision their own runtime, and their images carry no
-  tool-installed node.
+  only when the selected agent requires node (today only `pi`, an npm-installed node bundle); every other agent installs
+  native binaries or provisions its own runtime, and its image carries no tool-installed node.
 - **`agents-sandbox-agent`** *(conditional)* — installs the selected agent into `/opt/agents-sandbox`. It starts from the
   node stage when one was emitted, otherwise from the tool base, and creates `/opt/agents-sandbox/bin` itself. npm agents
   (`pi`) install with `npm install -g --prefix /opt/agents-sandbox <pkg>@$VERSION`; the rest copy the binary produced by
@@ -245,8 +244,8 @@ base must meet these requirements:
 - **For the daemon agents (`opencode`, `opencode2`)**: the in-VM tool the launcher uses — `curl`. It reaches the daemon
   (the health probe, session and worktree calls, and notifications); the daemon is launched and stopped as a
   runtime-owned job, so no process-control tool is needed. `curl` is checked after your Dockerfile body runs, so it may
-  be installed in the body or an earlier stage; if it is missing, the build fails and names the tool. `pi`,
-  `claude-code`, `codex`, `hermes`, `oh-my-pi`, `kimi-code`, `qwen-code`, `goose`, `grok-build`, and `mistral-vibe` run no daemon and need none.
+  be installed in the body or an earlier stage; if it is missing, the build fails and names the tool. Every other agent
+  runs no daemon and needs none.
 - **For the host opener**: `curl`. The launcher replays a browser-login callback inside the VM with it, so every custom
   base needs `curl` even when the agent runs no daemon (the daemon agents' `curl` requirement covers the same tool). It
   is checked after your Dockerfile body runs, and a missing `curl` fails the build naming the tool. See
@@ -402,9 +401,8 @@ the v26 tarballs gained a hard `libatomic.so.1` runtime dependency, while v24 ha
 architecture, so a custom base needs no extra library to run the tool-installed node. (The managed base carries
 `libatomic1` anyway, for `hermes`.)
 
-Twelve agents are built in: `opencode`, `opencode2` (default, the opencode 2 beta), `pi`, `claude-code`, `codex`,
-`hermes`, `oh-my-pi`, `kimi-code`, `qwen-code`, `goose`, `grok-build`, and `mistral-vibe`. Only `pi` needs node: its published package is an npm-installed `#!/usr/bin/env node` bundle, so it installs
-through `npm install -g --prefix /opt/agents-sandbox @earendil-works/pi-coding-agent@$PI_VERSION`. The other eleven ship
+Of the [built-in agents]({% link configuration/agent.md %}#built-in-agents), only `pi` needs node: its published package is an npm-installed `#!/usr/bin/env node` bundle, so it installs
+through `npm install -g --prefix /opt/agents-sandbox @earendil-works/pi-coding-agent@$PI_VERSION`. The others ship
 self-contained native binaries or provision their own runtime — `opencode` and `opencode2` via their upstream
 installers `https://opencode.ai/install` and `https://opencode.ai/v2/install`, `claude-code` via
 `https://claude.ai/install.sh`, copying the binary into `/opt/agents-sandbox/bin`, and `codex` from the static
@@ -439,7 +437,7 @@ a `COPY --chown=dev:dev` emitted for agents that write into their own installati
 dependency ledger and bytecode markers there. The launcher the stage publishes is therefore a small shim: it keeps user state in
 `$HERMES_HOME` (`/home/dev/.hermes`, so config, sessions, and memories persist on the home volume) and links the tool
 store, uv cache, and dependency environments from the image into it, so a fresh home volume starts Hermes without
-reinstalling its dependencies. All twelve resolve their latest version for an unpinned build — opencode, codex, hermes,
+reinstalling its dependencies. All of them resolve their latest version for an unpinned build — opencode, codex, hermes,
 oh-my-pi, and goose via the GitHub API, opencode2 via the opencode update API (`/update/api/latest/cli/npm`, the installer's
 own source), pi via `pi.dev`, claude-code, kimi-code, qwen-code, and grok-build via the npm registry's `latest` dist-tag, and mistral-vibe via PyPI's
 JSON API — as a host-side HTTP query,

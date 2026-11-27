@@ -66,52 +66,20 @@ func TestOpencodeImplementsDaemon(t *testing.T) {
 	}
 }
 
+// TestExperimentalAgentSet pins the tested default agents: only opencode,
+// opencode2 and pi are stable, and every other registered profile, including
+// one added later, is experimental.
 func TestExperimentalAgentSet(t *testing.T) {
-	experimental := map[string]bool{
-		"claude-code":  true,
-		"codex":        true,
-		"hermes":       true,
-		"kimi-code":    true,
-		"qwen-code":    true,
-		"goose":        true,
-		"grok-build":   true,
-		"mistral-vibe": true,
-		"oh-my-pi":     true,
-	}
-	stable := map[string]bool{
-		"opencode":  true,
-		"opencode2": true,
-		"pi":        true,
-	}
-
-	names := agent.Names()
-	classified := map[string]bool{}
-	for _, name := range names {
-		a, ok := agent.Lookup(name)
-		if !ok {
-			t.Fatalf("Lookup(%q) = not-ok", name)
-		}
-		want, known := experimental[name]
-		if !known {
-			if !stable[name] {
-				t.Errorf("agent %q is in neither the experimental nor the stable set", name)
-				continue
-			}
-			want = false
-		}
-		classified[name] = true
-		if got := a.Experimental(); got != want {
-			t.Errorf("agent %q Experimental() = %v, want %v", name, got, want)
-		}
-	}
-	for name := range experimental {
-		if !classified[name] {
-			t.Errorf("experimental agent %q is not registered", name)
-		}
-	}
+	stable := map[string]bool{"opencode": true, "opencode2": true, "pi": true}
 	for name := range stable {
-		if !classified[name] {
+		if _, ok := agent.Lookup(name); !ok {
 			t.Errorf("stable agent %q is not registered", name)
+		}
+	}
+	for _, name := range agent.Names() {
+		a, _ := agent.Lookup(name)
+		if got, want := a.Experimental(), !stable[name]; got != want {
+			t.Errorf("agent %q Experimental() = %v, want %v", name, got, want)
 		}
 	}
 }

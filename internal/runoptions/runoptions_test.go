@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/notify"
@@ -1316,22 +1317,14 @@ func TestBuildAgentOpencode2(t *testing.T) {
 }
 
 func TestBuildNoticesExperimentalAgents(t *testing.T) {
-	cases := []struct {
+	type noticeCase struct {
 		agent string
 		want  bool
-	}{
-		{"claude-code", true},
-		{"codex", true},
-		{"hermes", true},
-		{"oh-my-pi", true},
-		{"kimi-code", true},
-		{"qwen-code", true},
-		{"goose", true},
-		{"grok-build", true},
-		{"mistral-vibe", true},
-		{"opencode", false},
-		{"opencode2", false},
-		{"pi", false},
+	}
+	var cases []noticeCase
+	for _, name := range agent.Names() {
+		a, _ := agent.Lookup(name)
+		cases = append(cases, noticeCase{agent: name, want: a.Experimental()})
 	}
 	for _, tc := range cases {
 		t.Run(tc.agent, func(t *testing.T) {

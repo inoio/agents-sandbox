@@ -54,7 +54,10 @@ func TestCredentialProbes(t *testing.T) {
 		t.Errorf("opencode2 CredentialProbes() = %v, want [opencode2-sqlite]", got)
 	}
 
-	for _, name := range []string{"opencode", "codex", "claude-code", "hermes", "kimi-code", "oh-my-pi", "pi", "qwen-code", "goose", "grok-build", "mistral-vibe"} {
+	for _, name := range agent.Names() {
+		if name == "opencode2" {
+			continue
+		}
 		t.Run(name, func(t *testing.T) {
 			a, _ := agent.Lookup(name)
 			describer, _ := agent.AsReadBackDescriber(a)

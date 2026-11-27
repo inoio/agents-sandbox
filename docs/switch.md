@@ -1,6 +1,6 @@
 ---
 title: Switch from your existing agent
-description: "Run your existing Claude Code, Codex, opencode, opencode2, pi, hermes, oh-my-pi, kimi-code, qwen-code, goose, grok-build or mistral-vibe setup inside an agents-sandbox microVM without writing any config."
+description: "Run your existing Claude Code, Codex, opencode, pi, or other agent setup inside an agents-sandbox microVM without writing any config."
 layout: default
 parent: Get started
 nav_order: 30
