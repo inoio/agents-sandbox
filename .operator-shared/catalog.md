@@ -211,3 +211,15 @@
 - `plans/2026-11-27-msb-adapter-decisions-plan.md`
   - Description: TDD implementation plan for #923: the explicit `LocalContext` destination plus the contract tests and `msb-seam.md` clauses for the captured-observation, error-class, enum, and unavailable-inspection decisions.
   - Read If: Executing #923 after its design lands; or resuming it inline.
+- `plans/2026-11-27-msb-lifecycle-design.md`
+  - Description: Design for #916: replace the silent-exec keepalive with the SDK's `Touch`, add an opt-in `max-lifetime` (`WithMaxDuration`) bound, and record `Ping`, `RequestDrain`, `WaitUntilStopped`/`WaitForStatus`, and `Pause`/`Resume` as non-adoptions with reasons.
+  - Read If: `session.keepVMAlive` or its callers, a keepalive that fails to hold a VM, the `max-lifetime`/`auto-stop-timeout` keys, `WithMaxDuration`/`WithIdleTimeout`, or a request to pause/resume or drain a VM.
+- `plans/2026-11-27-msb-metrics-design.md`
+  - Description: Design for #918: replace the pressure watcher's point-read polling with the SDK's `MetricsStream` (with a polling fallback), and defer `AllSandboxMetrics` and the `msb-metrics` OTLP sidecar, restating the unknown-is-not-zero rule.
+  - Read If: `session/pressure_watch.go`, the `SandboxObserver.MetricsStream` seam, a metrics spike missed between point reads, `AllSandboxMetrics`, the `msb-metrics` sidecar, or a nullable metrics field rendering as zero.
+- `plans/2026-11-27-msb-storage-diagnosis-design.md`
+  - Description: Design for #919: stop dropping `PruneStorage`'s per-object entries and `Truncated` from `PruneReport` (surfaced in the explicit `prune` render/JSON), and defer `DiagnoseStorage` and `RecoverStorage` as recorded non-adoptions.
+  - Read If: `internal/sandbox/storage`, `pruning.PruneStorage`, the `PruneReport` entries/`truncated`, `DiagnoseStorage`/`RecoverStorage`, or the `prune` report render.
+- `plans/2026-11-27-msb-filesystem-transfer-design.md`
+  - Description: Design for #920: add a cwd-scoped, running-VM `sandbox cp`/`copy` command for host↔project-VM files, adopt `SandboxFS.CopyFromHost`/`CopyToHost`, and reverse the spec's "dropped" decision (VM↔VM, directories, and address-by-name are out of scope).
+  - Read If: `msb.SandboxFS` or `CopyFromHost`/`CopyToHost`, a `sandbox cp`/patch-export flow, or the `sandbox copy`/`cp` drop in `specs/volumes/runtime-management-commands.md`.
