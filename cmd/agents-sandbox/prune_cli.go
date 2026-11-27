@@ -146,11 +146,27 @@ func runPruneBatch(
 		cliout.RenderPruneReport(ui, mode,
 			func() {
 				pruning.RenderPruneSummary(ui, report, dryRun)
+				renderPruneStorageOutcomes(ui, report.Storage)
 				view.RenderRetiredProjects(ui, retired)
 			},
 			jsonReport)
 	}
 	return errors.Join(pruneErr, retiredErr)
+}
+
+// renderPruneStorageOutcomes reports the runtime-memory phase's per-backing
+// failures and its truncated listing. It belongs to the explicit prune's human
+// render, not the shared summary AutoPrune also prints, so an ordinary launch
+// stays terse.
+func renderPruneStorageOutcomes(ui termio.UI, report pruning.StorageReport) {
+	for _, entry := range report.Entries {
+		if entry.Error != nil {
+			ui.Warnf("runtime memory: failed to prune %s (%s): %s", entry.Path, entry.Kind, *entry.Error)
+		}
+	}
+	if report.Truncated {
+		ui.Warnf("runtime memory: listing truncated; additional eligible backings were not reported")
+	}
 }
 
 // purgeUI is the role set a targeted purge needs: render the plan, confirm it,

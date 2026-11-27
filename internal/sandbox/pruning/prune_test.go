@@ -758,3 +758,30 @@ func TestPruneCleanStorageReportKeepsNilError(t *testing.T) {
 		t.Fatalf("Prune error = %v, want nil for a clean runtime-memory phase", err)
 	}
 }
+
+// TestRenderPruneSummaryIgnoresStorageEntries pins that the summary AutoPrune
+// prints on every launch stays terse: the per-backing failures and truncated
+// note belong to the explicit prune command's human render, not this summary.
+func TestRenderPruneSummaryIgnoresStorageEntries(t *testing.T) {
+	entryErr := "locked by a running sandbox"
+	ui := &termiotest.Mock{}
+	RenderPruneSummary(ui, &StaleReport{
+		Storage: StorageReport{
+			FilesRemoved: 1,
+			Truncated:    true,
+			Entries: []msb.PruneEntry{
+				{Path: "/home/.msb/branch/locked", Kind: "branch_memory", Error: &entryErr},
+			},
+		},
+	}, false)
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("RenderPruneSummary emitted warnings, want none: %v", ui.WarnCalls)
+	}
+	// RenderPruneSummary writes through Outf/Verbosef, so a regression folding the
+	// detail into the shared summary surfaces as an out/verbose line, not a warning.
+	for _, line := range slices.Concat(ui.OutCalls, ui.VerboseCalls) {
+		if strings.Contains(line, "truncated") || strings.Contains(line, "/home/.msb/branch/locked") {
+			t.Errorf("RenderPruneSummary leaked the per-entry detail: %q", line)
+		}
+	}
+}
