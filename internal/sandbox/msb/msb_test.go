@@ -945,6 +945,10 @@ func TestRealMsbClientPruneStorageSuccess(t *testing.T) {
 				FilesRemoved:           3,
 				LogicalBytesRemoved:    12288,
 				PhysicalBytesReclaimed: &physical,
+				Truncated:              true,
+				Entries: []msbSdk.MemoryCacheEntry{
+					{Path: "/home/.msb/branch/one", Kind: "branch_memory", State: "removed"},
+				},
 			}, nil
 		},
 	)
@@ -964,6 +968,9 @@ func TestRealMsbClientPruneStorageSuccess(t *testing.T) {
 	}
 	if report.PhysicalBytesReclaimed == nil || *report.PhysicalBytesReclaimed != physical {
 		t.Errorf("PruneStorage() physical = %v, want %d", report.PhysicalBytesReclaimed, physical)
+	}
+	if !report.Truncated || len(report.Entries) != 1 || report.Entries[0].Path != "/home/.msb/branch/one" {
+		t.Errorf("PruneStorage() = %+v, want the entry and truncated flag carried", report)
 	}
 }
 

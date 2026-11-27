@@ -173,8 +173,8 @@
 #### `specs/vm/` - VM lifecycle and per-VM behaviours
 
 - `specs/vm/`
-  - Description: Per-VM contracts: `lifecycle.md`, `detached-jobs.md`, `idle-timeout.md`, `live-mount-readback.md`, `reconfig-decision.md`, `session-reaper.md`, `startup-hooks.md`, `workspace-bind-permissions.md`.
-  - Read If: Any change to a run/shell/session lifecycle stage or cross-stage value (`prepare.PrepareSandbox`, `session.Run`/`Shell`, the `--dry-run*`/`--serve-only` modes); VM dockerd/agent-serve startup, readiness, or the idle timeout; reading a live VM's mounts or ports (an empty `cfg.Volumes`/`mounts (0)`); the reconfig decision or `ensure-vm.lock`; the reaper's `waitQuiescent`/`ReapPolicy`; a startup hook's interactivity or the `HookInteractive` seam; or the `/workspace` bind permission policy.
+  - Description: Per-VM contracts: `lifecycle.md`, `detached-jobs.md`, `host-environment-defaults.md`, `idle-timeout.md`, `live-mount-readback.md`, `reconfig-decision.md`, `session-reaper.md`, `startup-hooks.md`, `workspace-bind-permissions.md`.
+  - Read If: Any change to a run/shell/session lifecycle stage or cross-stage value (`prepare.PrepareSandbox`, `session.Run`/`Shell`, the `--dry-run*`/`--serve-only` modes); VM dockerd/agent-serve startup, readiness, or the idle timeout; the host facts defaulted into the VM env (time zone, UTF-8 locale, git identity) or a guest `date`/locale/commit-identity that differs from the host; reading a live VM's mounts or ports (an empty `cfg.Volumes`/`mounts (0)`); the reconfig decision or `ensure-vm.lock`; the reaper's `waitQuiescent`/`ReapPolicy`; a startup hook's interactivity or the `HookInteractive` seam; or the `/workspace` bind permission policy.
 
 #### `specs/volumes/` - Home volume recovery/decoupling and volume commands
 
@@ -211,3 +211,30 @@
 - `plans/2026-11-27-msb-adapter-decisions-plan.md`
   - Description: TDD implementation plan for #923: the explicit `LocalContext` destination plus the contract tests and `msb-seam.md` clauses for the captured-observation, error-class, enum, and unavailable-inspection decisions.
   - Read If: Executing #923 after its design lands; or resuming it inline.
+- `plans/2026-11-27-msb-lifecycle-design.md`
+  - Description: Design for #916: replace the silent-exec keepalive with the SDK's `Touch`, add an opt-in `max-lifetime` (`WithMaxDuration`) bound, and record `Ping`, `RequestDrain`, `WaitUntilStopped`/`WaitForStatus`, and `Pause`/`Resume` as non-adoptions with reasons.
+  - Read If: `session.keepVMAlive` or its callers, a keepalive that fails to hold a VM, the `max-lifetime`/`auto-stop-timeout` keys, `WithMaxDuration`/`WithIdleTimeout`, or a request to pause/resume or drain a VM.
+- `plans/2026-11-27-msb-lifecycle-plan.md`
+  - Description: TDD implementation plan for #916: the `SandboxActivity` role and `Touch` adapter, the capped Touch keeper with the idle timeout threaded through the reaper and serve-only paths, the `max-lifetime` config key → `RunOptions.MaxLifetime` → `SandboxSpec.MaxDuration` → `WithMaxDuration` creation mapping, and the spec/guide/changelog updates.
+  - Read If: Executing #916, or resuming it inline; touching `internal/sandbox/session/reaper.go`'s keeper, the `max-lifetime` config key, or the `WithMaxDuration` mapping.
+- `plans/2026-11-27-msb-metrics-design.md`
+  - Description: Design for #918: replace the pressure watcher's point-read polling with the SDK's `MetricsStream` (with a polling fallback), and defer `AllSandboxMetrics` and the `msb-metrics` OTLP sidecar, restating the unknown-is-not-zero rule.
+  - Read If: `session/pressure_watch.go`, the `SandboxObserver.MetricsStream` seam, a metrics spike missed between point reads, `AllSandboxMetrics`, the `msb-metrics` sidecar, or a nullable metrics field rendering as zero.
+- `plans/2026-11-27-msb-metrics-plan.md`
+  - Description: TDD implementation plan for #918: add the `MetricsStream` seam on both `SandboxObserver` and `SandboxResourceControl` plus the doubles, stream the session pressure watcher with a first-`Recv` polling fallback and bounded teardown, record the deferred fleet/sidecar, and pin the real-runtime stream contract.
+  - Read If: Executing #918; `session/pressure_watch.go`, `startPressureWatcher`/`foldSample`, `metricsStreamStopTimeout`, or the `msb.SandboxObserver`/`SandboxResourceControl`/`MetricsStream`/`newMetricsStream` seam.
+- `plans/2026-11-27-msb-storage-diagnosis-design.md`
+  - Description: Design for #919: stop dropping `PruneStorage`'s per-object entries and `Truncated` from `PruneReport` (surfaced in the explicit `prune` render/JSON), and defer `DiagnoseStorage` and `RecoverStorage` as recorded non-adoptions.
+  - Read If: `internal/sandbox/storage`, `pruning.PruneStorage`, the `PruneReport` entries/`truncated`, `DiagnoseStorage`/`RecoverStorage`, or the `prune` report render.
+- `plans/2026-11-27-msb-storage-diagnosis-plan.md`
+  - Description: TDD implementation plan for #919: carry `PruneStorage`'s per-object `Entries`/`Truncated` through the msb seam and `pruning.StorageReport`, surface them in the explicit `prune` render/JSON, and join per-entry errors into the aggregate prune error.
+  - Read If: Executing #919; `msb.PruneReport`/`PruneEntry`, `pruneReportFrom` or the `storagePruneReportProjected` register, `pruning.PruneStorage`/`StorageReport`, or the explicit prune human/JSON render.
+- `plans/2026-11-27-msb-filesystem-transfer-design.md`
+  - Description: Design for #920: add a cwd-scoped, running-VM `sandbox cp`/`copy` command for host↔project-VM files, adopt `SandboxFS.CopyFromHost`/`CopyToHost`, and reverse the spec's "dropped" decision (VM↔VM, directories, and address-by-name are out of scope).
+  - Read If: `msb.SandboxFS` or `CopyFromHost`/`CopyToHost`, a `sandbox cp`/patch-export flow, or the `sandbox copy`/`cp` drop in `specs/volumes/runtime-management-commands.md`.
+- `plans/2026-11-27-msb-filesystem-transfer-plan.md`
+  - Description: TDD implementation plan for #920: the `SandboxFS.CopyFromHost`/`CopyToHost` seam and `realSandboxFS` adapter, the cwd-scoped running-VM `vm.CopyProjectFile`, the `sandbox copy`/`cp` CLI command, and the spec/guide/docs/changelog updates.
+  - Read If: `sandbox cp`/`sandbox copy`, `vm.CopyProjectFile`, `msb.SandboxFS.CopyFromHost`/`CopyToHost`, or `realSandboxFS`; a `vm:` operand; or the `sandbox copy`/`cp` "dropped" note in `specs/volumes/runtime-management-commands.md`.
+- `plans/2026-11-27-host-environment-defaults.md`
+  - Description: TDD implementation plan for #808: the `internal/sandbox/hostenv` resolver (host time zone, UTF-8 locale, git identity), the `prepare.loadEnvFingerprints` merge under configured env values, the sealed test seam, and the docs/changelog tasks.
+  - Read If: Executing #808, or resuming its inline execution.

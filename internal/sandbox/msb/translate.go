@@ -91,18 +91,17 @@ var (
 	jobLogNotModeled = map[string]string{}
 
 	// storagePruneReportProjected names the msbSdk.StoragePruneReport fields
-	// the launcher projects onto PruneReport. The notModeled register names
-	// the rest, which PruneReport deliberately drops: it keeps only the
-	// reclaimed totals.
+	// the launcher projects onto PruneReport. The notModeled register names the
+	// rest, which PruneReport deliberately drops: the caller's DryRun echo.
 	storagePruneReportProjected = map[string]struct{}{
 		"FilesRemoved":           {},
 		"LogicalBytesRemoved":    {},
 		"PhysicalBytesReclaimed": {},
+		"Entries":                {},
+		"Truncated":              {},
 	}
 	storagePruneReportNotModeled = map[string]string{
-		"DryRun":    "the caller issued the prune, so the dry-run echo adds nothing",
-		"Entries":   "per-file outcomes are not surfaced",
-		"Truncated": "the entries-listing cap is not surfaced",
+		"DryRun": "the caller issued the prune, so the dry-run echo adds nothing",
 	}
 
 	// jobInfoProjected names every field of msbSdk.JobInfo the launcher
@@ -426,8 +425,8 @@ func storagePruneOptions(req PruneRequest) msbSdk.StoragePruneOptions {
 	}
 }
 
-// pruneReportFrom translates the SDK prune report, keeping only the reclaimed
-// totals the launcher surfaces. A nil report stays nil.
+// pruneReportFrom translates the SDK prune report, keeping the reclaimed totals
+// and the per-backing outcomes the launcher surfaces. A nil report stays nil.
 func pruneReportFrom(report *msbSdk.StoragePruneReport) *PruneReport {
 	if report == nil {
 		return nil
@@ -436,6 +435,8 @@ func pruneReportFrom(report *msbSdk.StoragePruneReport) *PruneReport {
 		FilesRemoved:           report.FilesRemoved,
 		LogicalBytesRemoved:    report.LogicalBytesRemoved,
 		PhysicalBytesReclaimed: report.PhysicalBytesReclaimed,
+		Entries:                report.Entries,
+		Truncated:              report.Truncated,
 	}
 }
 

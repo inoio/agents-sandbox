@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pruning"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
@@ -343,5 +344,60 @@ func TestRenderRetiredProjectsNamesEachWithAHint(t *testing.T) {
 	RenderRetiredProjects(&empty, nil)
 	if len(empty.OutCalls) != 0 {
 		t.Errorf("no retired project should print nothing, got %v", empty.OutCalls)
+	}
+}
+
+// TestNewPruneReportJSONIncludesRuntimeMemoryEntries pins that the
+// runtime-memory phase's per-backing outcomes and truncated flag reach the JSON,
+// with an unmeasured byte count as null.
+func TestNewPruneReportJSONIncludesRuntimeMemoryEntries(t *testing.T) {
+	logical := uint64(2048)
+	entryErr := "locked by a running sandbox"
+	got := NewPruneReportJSON(&pruning.StaleReport{
+		Storage: pruning.StorageReport{
+			FilesRemoved: 1,
+			Truncated:    true,
+			Entries: []msb.PruneEntry{
+				{Path: "/home/.msb/branch/one", Kind: "branch_memory", LogicalBytes: &logical, State: "removed"},
+				{Path: "/home/.msb/branch/locked", Kind: "branch_memory", State: "error", Error: &entryErr},
+			},
+		},
+	}, false)
+	if !got.RuntimeTruncated {
+		t.Error("RuntimeTruncated = false, want true")
+	}
+	if len(got.RuntimeMemoryEntries) != 2 {
+		t.Fatalf("RuntimeMemoryEntries = %+v, want two entries", got.RuntimeMemoryEntries)
+	}
+	if got.RuntimeMemoryEntries[0].LogicalBytes == nil || *got.RuntimeMemoryEntries[0].LogicalBytes != logical {
+		t.Errorf("first entry = %+v, want the logical byte count", got.RuntimeMemoryEntries[0])
+	}
+	if got.RuntimeMemoryEntries[0].AllocatedBytes != nil {
+		t.Errorf("first entry allocated = %v, want nil", got.RuntimeMemoryEntries[0].AllocatedBytes)
+	}
+	if got.RuntimeMemoryEntries[1].Error == nil || *got.RuntimeMemoryEntries[1].Error != entryErr {
+		t.Errorf("second entry = %+v, want the entry error", got.RuntimeMemoryEntries[1])
+	}
+	encoded := marshal(t, got)
+	for _, key := range []string{
+		`"runtime_memory_entries":[`,
+		`"path":"/home/.msb/branch/one"`,
+		`"logical_bytes":2048`,
+		`"allocated_bytes":null`,
+		`"error":"locked by a running sandbox"`,
+		`"runtime_truncated":true`,
+	} {
+		if !strings.Contains(encoded, key) {
+			t.Errorf("JSON missing %s: %s", key, encoded)
+		}
+	}
+}
+
+// TestNewPruneReportJSONEmptyRuntimeEntriesMarshalArray pins that a clean
+// runtime-memory phase marshals runtime_memory_entries as [] not null.
+func TestNewPruneReportJSONEmptyRuntimeEntriesMarshalArray(t *testing.T) {
+	encoded := marshal(t, NewPruneReportJSON(&pruning.StaleReport{}, false))
+	if !strings.Contains(encoded, `"runtime_memory_entries":[]`) {
+		t.Errorf("empty entries must marshal as []: %s", encoded)
 	}
 }

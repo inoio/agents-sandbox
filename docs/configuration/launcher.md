@@ -366,3 +366,11 @@ DATABASE_URL=postgres://localhost/mydb
 ```
 
 These are available to the agent and any child processes inside the sandbox.
+
+Each value you set in these files wins over the host-derived defaults agents-sandbox applies to the sandbox environment:
+
+- `TZ` — the host's time zone, taken from the host's `TZ` or the `/etc/localtime` symlink, so the sandbox's local time matches the host. The image must carry zoneinfo (`tzdata`); the managed base does, and a custom base without it stays on UTC.
+- `LANG` — `C.UTF-8` when the host locale is UTF-8, so text is handled as UTF-8. Left unset when the host is not UTF-8.
+- `GIT_AUTHOR_*` / `GIT_COMMITTER_*` — the host's global git `user.name` and `user.email`, so commits the agent makes inside the sandbox are attributed to you. This default is skipped entirely when a config file's `home:` key provisions a git global config (`.gitconfig` or `.config/git/config`): provisioning one means you own the sandbox's git identity.
+
+A host fact that cannot be resolved is left unset silently. The defaults are part of the sandbox environment, so a changed host fact rebuilds the VM on the next run, like any other environment change.

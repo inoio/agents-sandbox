@@ -531,6 +531,148 @@ func TestPrepareSandboxBakesAndFingerprintsTheLoadedEnv(t *testing.T) {
 	}
 }
 
+// TestLoadEnvFingerprintsAppliesHostDefaultsUnderEnvFileValues pins that a
+// host-derived default fills only the keys the configured env leaves absent,
+// and that the fingerprint records the merged env.
+func TestLoadEnvFingerprintsAppliesHostDefaultsUnderEnvFileValues(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), configpaths.EnvFileName, "TZ=From/File\n")
+
+	orig := hostEnvDefaults
+	hostEnvDefaults = func([]configpaths.ConfigScope) map[string]string {
+		return map[string]string{"TZ": "Host/Zone", "LANG": "C.UTF-8"}
+	}
+	t.Cleanup(func() { hostEnvDefaults = orig })
+
+	ui := termiotest.NewTestMock(t)
+	env, fingerprints := loadEnvFingerprints(options.RunOptions{}, &ui)
+
+	if env.Vars["TZ"] != "From/File" {
+		t.Errorf("TZ = %q, want the configured From/File", env.Vars["TZ"])
+	}
+	if env.Vars["LANG"] != "C.UTF-8" {
+		t.Errorf("LANG = %q, want the default C.UTF-8", env.Vars["LANG"])
+	}
+	if want := state.BuildEnvState(env.Vars); fingerprints.Env.Hash != want.Hash {
+		t.Errorf("fingerprint hash = %q, want the merged env %q", fingerprints.Env.Hash, want.Hash)
+	}
+}
+
+// TestLoadEnvFingerprintsPassesConfigScopesToHostDefaults pins that the host
+// defaults are resolved from the same config scopes the env load reads, so a
+// scope that provisions a git config can suppress the identity default.
+func TestLoadEnvFingerprintsPassesConfigScopesToHostDefaults(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+
+	var got []configpaths.ConfigScope
+	opts := options.RunOptions{
+		ConfigSlug: "widget-bbb",
+		Seams: options.Seams{
+			HostEnvDefaults: func(scopes []configpaths.ConfigScope) map[string]string {
+				got = scopes
+				return nil
+			},
+		},
+	}
+
+	ui := termiotest.NewTestMock(t)
+	loadEnvFingerprints(opts, &ui)
+
+	want := configpaths.ConfigScopes(configpaths.Get(), opts.ConfigSlug)
+	if !slices.Equal(got, want) {
+		t.Errorf("host defaults received scopes %#v, want %#v", got, want)
+	}
+}
+
+// TestPrepareSandboxBakesHostEnvDefaults pins that a host-derived default
+// reaches the created VM and the persisted fingerprint, while a configured env
+// value for the same key wins.
+func TestPrepareSandboxBakesHostEnvDefaults(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteFile(t, cp.UserConfigDir(), configpaths.EnvFileName, "TZ=From/File\n")
+
+	origHostEnvDefaults := hostEnvDefaults
+	hostEnvDefaults = func([]configpaths.ConfigScope) map[string]string {
+		return map[string]string{"TZ": "Host/Zone", "LANG": "C.UTF-8"}
+	}
+	t.Cleanup(func() { hostEnvDefaults = origHostEnvDefaults })
+
+	origUpgradeInfo := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
+	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
+
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
+		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
+		},
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{
+				ID: "sha256:abc123",
+				Config: &dockerspec.DockerOCIImageConfig{
+					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
+				},
+			}, nil
+		},
+	})
+
+	key := state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"}
+	createdSb := &msbtest.MockSandbox{
+		Name_:    vm.ProjectVMName(key),
+		FSValue_: msbtest.NewTestFS(nil),
+		ShellOut: map[string]msb.ShellResult{
+			dockerdBinaryCheckCmd: msbtest.NewTestResult(false, 1, "", "", nil),
+		},
+	}
+	mock := &msbtest.MockMsbClient{
+		ImageGetFn:     func(_ context.Context, _ string) error { return nil },
+		CreatedSandbox: createdSb,
+		Volumes:        []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: "home-vol"}},
+	}
+	msbtest.WithMsbMock(t, mock)
+
+	if err := seedHomeState(key, state.HomeState{
+		HomeVolume:   "home-vol",
+		ImageDigest:  "sha256:abc123",
+		AgentVersion: "1.5.0",
+		AgentSource:  state.AgentSourceTool,
+	}); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
+	}
+
+	ui := termiotest.NewTestMock(t)
+	sess, err := PrepareSandbox(
+		context.Background(),
+		sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),
+		false,
+		&ui,
+	)
+	if err != nil {
+		t.Fatalf("PrepareSandbox: %v", err)
+	}
+	defer sess.Cleanup()
+
+	if len(mock.CreatedSandboxCalls) != 1 {
+		t.Fatalf("expected the project VM to be created, got %d creations", len(mock.CreatedSandboxCalls))
+	}
+	spec := mock.CreatedSandboxCalls[0].Spec
+	if spec.Env["TZ"] != "From/File" {
+		t.Errorf("created VM TZ = %q, want the configured From/File", spec.Env["TZ"])
+	}
+	if spec.Env["LANG"] != "C.UTF-8" {
+		t.Errorf("created VM LANG = %q, want the default C.UTF-8", spec.Env["LANG"])
+	}
+
+	st, err := state.ReadState(key)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	wantEnv := state.BuildEnvState(map[string]string{"TZ": "From/File", "LANG": "C.UTF-8"})
+	if st.EnvState.Hash != wantEnv.Hash {
+		t.Errorf("persisted EnvState.Hash = %q, want %q", st.EnvState.Hash, wantEnv.Hash)
+	}
+}
+
 // TestPrepareSandboxRunsStartupHook verifies that a home entry marked
 // hook: startup is executed through a non-interactive streaming exec as the
 // configured user (root) during startup, before the opencode daemon is ensured.

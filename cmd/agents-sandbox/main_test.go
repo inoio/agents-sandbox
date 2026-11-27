@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -25,5 +26,9 @@ func TestMain(m *testing.M) {
 	runSeams.AgentLatestVersion = func(context.Context, agent.Agent) (string, error) {
 		panic("agent latest-version lookup not stubbed in this test")
 	}
+	// Seal the host env defaults so a run/shell test that reaches the real
+	// prepare does not read the developer's time zone, locale, or host git
+	// config; a test that asserts the merge opts in explicitly.
+	runSeams.HostEnvDefaults = func([]configpaths.ConfigScope) map[string]string { return nil }
 	mocks.InitFailFastMocks(m)
 }
