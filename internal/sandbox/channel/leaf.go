@@ -19,16 +19,18 @@ import (
 // ClientHello, or the CONNECT target when it sends none. The msb runtime opens
 // the tunnel by IP and verifies the certificate against the hostname it sends
 // as SNI, so a certificate for the CONNECT target alone fails its handshake.
-// onServerName learns the SNI each handshake presents for its CONNECT target.
+// onServerName learns the SNI and session each handshake presents for its
+// CONNECT target.
 // Session tickets are off so every handshake reaches GetCertificate: a resumed
 // session would skip it and leave its tunnel unnamed.
 func mitmTLSConfig(
 	ca tls.Certificate,
-	onServerName func(connectTarget, serverName string),
-) func(host string, _ *goproxy.ProxyCtx) (*tls.Config, error) {
+	onServerName func(connectTarget, serverName string, sessionID uint16),
+) func(host string, ctx *goproxy.ProxyCtx) (*tls.Config, error) {
 	issuer := newLeafIssuer(ca)
-	return func(host string, _ *goproxy.ProxyCtx) (*tls.Config, error) {
+	return func(host string, ctx *goproxy.ProxyCtx) (*tls.Config, error) {
 		connectHost, _ := splitHostPort(host)
+		sessionID := proxySessionID(ctx.Session)
 		//nolint:exhaustruct_v5 // a terminating server config sets only the certificate hook, tickets, and the version floor
 		return &tls.Config{
 			MinVersion:             tls.VersionTLS12,
@@ -38,7 +40,7 @@ func mitmTLSConfig(
 				if name == "" {
 					name = connectHost
 				} else {
-					onServerName(host, name)
+					onServerName(host, name, sessionID)
 				}
 				return issuer.leafFor(name)
 			},

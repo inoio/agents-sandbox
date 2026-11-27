@@ -81,8 +81,11 @@ func Delete(path string) error {
 // expires with the artefacts, however its session ended.
 const proxyLogDirName = "proxy-logs"
 
+var createSessionLogFile = os.CreateTemp
+
 // openSessionLog creates the proxy log of the session started at startedAt:
-// <UserStateDir>/learn/proxy-logs/<startUnix>.log, mode 0600.
+// <UserStateDir>/learn/proxy-logs/<startUnix>-<unique>.log, mode 0600. The
+// unique suffix keeps same-second sessions in separate files.
 func openSessionLog(startedAt time.Time) (*os.File, error) {
 	stateDir := configpaths.Get().UserStateDir()
 	if !filepath.IsAbs(stateDir) {
@@ -92,8 +95,8 @@ func openSessionLog(startedAt time.Time) (*os.File, error) {
 	if err := os.MkdirAll(dir, artefactDirMode); err != nil {
 		return nil, fmt.Errorf("create the learn proxy log directory: %w", err)
 	}
-	name := filepath.Join(dir, strconv.FormatInt(startedAt.Unix(), 10)+".log")
-	file, err := os.OpenFile(name, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	pattern := strconv.FormatInt(startedAt.Unix(), 10) + "-*.log"
+	file, err := createSessionLogFile(dir, pattern)
 	if err != nil {
 		return nil, fmt.Errorf("open the learn proxy log: %w", err)
 	}

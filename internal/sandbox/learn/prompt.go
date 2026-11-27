@@ -96,6 +96,7 @@ type FinishInput struct {
 // saves no artefact.
 func (r *Run) Finish(ctx context.Context, in FinishInput) error {
 	observation := r.Stop()
+	PrintProxyDiagnostics(in.UI, observation)
 
 	artefactPath := ""
 	if !r.Passive() {
@@ -153,19 +154,51 @@ func printSummary(ui termio.UI, summary Summary) {
 	if len(summary.Denied) > 0 {
 		ui.Infof("Denied destinations (never auto-allowed): %s", strings.Join(summary.Denied, ", "))
 	}
-	if len(summary.HandshakeFailed) > 0 {
+	PrintReported(ui, summary.Results)
+}
+
+// PrintProxyDiagnostics reports observation failures before later analysis or
+// capture storage can fail. The observation records only a value-free log path
+// and destination/handshake facts.
+func PrintProxyDiagnostics(ui termio.Logger, observation channel.Observation) {
+	if ui == nil {
+		return
+	}
+	handshakeHosts := map[string]bool{}
+	for _, destination := range observation.Destinations {
+		if destination.HandshakeFailed() && destination.Host != "" {
+			handshakeHosts[destination.Host] = true
+		}
+	}
+	if hosts := sortedKeys(handshakeHosts); len(hosts) > 0 {
 		ui.Warnf(
-			"TLS handshake failed for %s: a client that pins its certificates, or one missing the sandbox CA trust.",
-			strings.Join(summary.HandshakeFailed, ", "),
+			"TLS interception failed for %s; successful use was not verified. Possible causes include certificate pinning or missing sandbox CA trust.",
+			strings.Join(hosts, ", "),
 		)
 	}
-	switch {
-	case summary.ProxyLog != "":
-		ui.Warnf("The learn proxy logged %d problem(s): %s", summary.ProxyWarnings, summary.ProxyLog)
-	case summary.ProxyWarnings > 0:
-		ui.Warnf("The learn proxy reported %d problem(s); its log could not be written.", summary.ProxyWarnings)
+	if observation.UnattributedHandshakes > 0 {
+		ui.Warnf(
+			"%d TLS handshake failure(s) could not be tied to a destination without guessing.",
+			observation.UnattributedHandshakes,
+		)
 	}
-	PrintReported(ui, summary.Results)
+	if observation.ProxyWarnings == 0 {
+		return
+	}
+	if observation.ProxyLog == "" {
+		ui.Warnf("The learn proxy reported %d warning(s), but its log could not be created.", observation.ProxyWarnings)
+		return
+	}
+	status := ""
+	switch {
+	case observation.ProxyLogWriteFailed && observation.ProxyLogTruncated:
+		status = " (log is incomplete and truncated)"
+	case observation.ProxyLogWriteFailed:
+		status = " (log may be incomplete)"
+	case observation.ProxyLogTruncated:
+		status = " (log was truncated)"
+	}
+	ui.Warnf("The learn proxy logged %d warning(s): %s%s", observation.ProxyWarnings, observation.ProxyLog, status)
 }
 
 // PrintReported warns with each report-only finding's evidence and guidance.

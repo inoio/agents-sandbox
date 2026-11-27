@@ -103,13 +103,6 @@ type Summary struct {
 	KeysUsed        int
 	Denied          []string
 	Results         []analyser.ApplyResult
-	// HandshakeFailed are the hosts whose every terminating TLS handshake the
-	// client aborted: a pinned client, or one missing the session CA trust.
-	HandshakeFailed []string
-	// ProxyLog is the observation proxy's session log, empty when it logged
-	// nothing or could not be written; ProxyWarnings is its line count.
-	ProxyLog      string
-	ProxyWarnings int
 }
 
 // Analyse reads the home back, derives the findings, and applies them
@@ -158,7 +151,6 @@ func analyse(
 func summarize(a Analysis, results []analyser.ApplyResult) Summary {
 	services := map[string]bool{}
 	denied := map[string]bool{}
-	handshakeFailed := map[string]bool{}
 	for _, destination := range a.Observation.Destinations {
 		if destination.Host == "" || destination.AddressOnlyTunnel() {
 			continue
@@ -166,11 +158,8 @@ func summarize(a Analysis, results []analyser.ApplyResult) Summary {
 		switch {
 		case destination.Denied:
 			denied[destination.Host] = true
-		case destination.Success:
+		case destination.Success && !destination.HandshakeFailed():
 			services[destination.Host] = true
-		}
-		if destination.HandshakeFailed() {
-			handshakeFailed[destination.Host] = true
 		}
 	}
 	// A denied host's accepted tunnel is not use, matching the egress lock.
@@ -182,9 +171,6 @@ func summarize(a Analysis, results []analyser.ApplyResult) Summary {
 		KeysUsed:        appliedSecretCount(results),
 		Denied:          sortedKeys(denied),
 		Results:         results,
-		HandshakeFailed: sortedKeys(handshakeFailed),
-		ProxyLog:        a.Observation.ProxyLog,
-		ProxyWarnings:   a.Observation.ProxyWarnings,
 	}
 }
 

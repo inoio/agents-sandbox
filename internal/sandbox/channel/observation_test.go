@@ -67,10 +67,10 @@ func TestRecorderObservedPointerStaysValid(t *testing.T) {
 // hostname rather than an address a CDN may rotate.
 func TestRecorderNamesAnIPTunnelByItsSNIHostname(t *testing.T) {
 	r := new(recorder)
-	r.observe("160.79.104.10", "160.79.104.10", "", "connect", 443, nil).Success = true
-	r.observe("160.79.104.10", "160.79.104.10", "", "connect", 443, nil).Success = true
+	r.observeTunnel(1, "160.79.104.10", "160.79.104.10", 443)
+	r.observeTunnel(2, "160.79.104.10", "160.79.104.10", 443)
 
-	r.nameTunnel("160.79.104.10", 443, "api.anthropic.com")
+	r.nameTunnel(1, "160.79.104.10:443", "api.anthropic.com")
 
 	destinations := r.result(Observation{}).Destinations
 	if len(destinations) != 2 {
@@ -91,9 +91,9 @@ func TestRecorderNamesAnIPTunnelByItsSNIHostname(t *testing.T) {
 
 func TestRecorderNamingTheLastIPTunnelRemovesTheIPEntry(t *testing.T) {
 	r := new(recorder)
-	r.observe("160.79.104.10", "160.79.104.10", "", "connect", 443, nil).Success = true
+	r.observeTunnel(1, "160.79.104.10", "160.79.104.10", 443)
 
-	r.nameTunnel("160.79.104.10", 443, "api.anthropic.com")
+	r.nameTunnel(1, "160.79.104.10:443", "api.anthropic.com")
 
 	destinations := r.result(Observation{}).Destinations
 	if len(destinations) != 1 || destinations[0].Host != "api.anthropic.com" {
@@ -103,9 +103,9 @@ func TestRecorderNamingTheLastIPTunnelRemovesTheIPEntry(t *testing.T) {
 
 func TestRecorderNameTunnelIgnoresAnUnknownTunnel(t *testing.T) {
 	r := new(recorder)
-	r.observe("api.example", "", "", "connect", 443, nil).Success = true
+	r.observeTunnel(1, "api.example", "", 443)
 
-	r.nameTunnel("203.0.113.7", 443, "other.example")
+	r.nameTunnel(1, "203.0.113.7:443", "other.example")
 
 	destinations := r.result(Observation{}).Destinations
 	if len(destinations) != 1 || destinations[0].Host != "api.example" {
@@ -144,23 +144,18 @@ func TestDestinationAddressOnlyTunnel(t *testing.T) {
 	}
 }
 
-// TestRecorderFailTunnelChargesTheTunnelUnderTheTarget: goproxy reports a
-// failed handshake by its CONNECT target. When a healthy host's named entry and
-// an address-only entry share that target's IP:port, the failure is charged to
-// the entry under the target itself — the failing tunnel stayed unnamed because
-// it sent no SNI before aborting — not to the named entry, which would blame a
-// healthy host and, on the after-run path, name it in the summary.
-func TestRecorderFailTunnelChargesTheTunnelUnderTheTarget(t *testing.T) {
+// TestRecorderFailTunnelUsesTheSessionID: goproxy's handshake warning carries
+// the CONNECT session, so a no-SNI failure is charged to that tunnel even when
+// another named tunnel shares its target IP:port.
+func TestRecorderFailTunnelUsesTheSessionID(t *testing.T) {
 	r := new(recorder)
-	// A second client that sent no SNI, so its tunnel stayed under the address.
-	// It is seeded first on purpose: the healthy named tunnel is seen later, so
-	// a "most recent matching entry wins" rule would charge the named host and
-	// only the under-the-target preference keeps the failure on the address.
-	r.observe("203.0.113.7", "203.0.113.7", "", ConnectProtocol, 443, nil).Success = true
-	// The healthy host's tunnel, which merely shares the IP:port.
-	r.observe("api.example", "203.0.113.7", "", ConnectProtocol, 443, nil).Success = true
+	r.observeTunnel(1, "203.0.113.7", "203.0.113.7", 443)
+	r.observeTunnel(2, "203.0.113.7", "203.0.113.7", 443)
+	r.nameTunnel(2, "203.0.113.7:443", "api.example")
 
-	r.failTunnel("203.0.113.7:443")
+	if !r.failTunnel(1, "203.0.113.7:443") {
+		t.Fatal("failTunnel did not attribute the known session")
+	}
 
 	destinations := r.result(Observation{}).Destinations
 	underTarget := destinationByHost(t, destinations, "203.0.113.7")
@@ -173,18 +168,19 @@ func TestRecorderFailTunnelChargesTheTunnelUnderTheTarget(t *testing.T) {
 	}
 }
 
-// TestRecorderFailTunnelChargesOnlyTheMatchingTunnel: a request entry for the
-// same host and a tunnel on another port, both seen after the match, are not
-// charged, and a non-canonical IPv6 target matches its canonical entry.
+// TestRecorderFailTunnelChecksTheTarget: a mismatching target is left
+// unattributed, while a non-canonical IPv6 target matches its tracked session.
 func TestRecorderFailTunnelChargesOnlyTheMatchingTunnel(t *testing.T) {
 	r := new(recorder)
-	// The matching tunnel comes first, so the most-recent rule would pick a
-	// later non-matching entry if the filter let it through.
-	r.observe("2607:6bc0::10", "2607:6bc0::10", "", ConnectProtocol, 443, nil).Success = true
-	r.observe("2607:6bc0::10", "2607:6bc0::10", "", ConnectProtocol, 8443, nil).Success = true
-	r.observe("2607:6bc0::10", "2607:6bc0::10", "", "https", 443, nil).Success = true
+	r.observeTunnel(1, "2607:6bc0::10", "2607:6bc0::10", 443)
+	r.observeTunnel(2, "2607:6bc0::10", "2607:6bc0::10", 8443)
 
-	r.failTunnel("[2607:6BC0:0::10]:443")
+	if r.failTunnel(1, "[2607:6BC0:0::10]:8443") {
+		t.Fatal("failTunnel attributed a target whose port did not match the session")
+	}
+	if !r.failTunnel(1, "[2607:6BC0:0::10]:443") {
+		t.Fatal("failTunnel did not canonicalize the tracked IPv6 target")
+	}
 
 	for _, destination := range r.result(Observation{}).Destinations {
 		want := 0
@@ -197,34 +193,65 @@ func TestRecorderFailTunnelChargesOnlyTheMatchingTunnel(t *testing.T) {
 	}
 }
 
-// TestRecorderFailTunnelMatchesANamedTunnelByItsIP: the runtime's failure names
-// the IP it opened, while the tunnel is already recorded under its SNI name.
-func TestRecorderFailTunnelMatchesANamedTunnelByItsIP(t *testing.T) {
+// TestRecorderFailTunnelMatchesTheSNIName: the runtime's warning names the IP,
+// but the session mapping follows the tunnel after SNI names it.
+func TestRecorderFailTunnelMatchesTheSNIName(t *testing.T) {
 	r := new(recorder)
-	r.observe("api.example", "203.0.113.7", "", ConnectProtocol, 443, nil).Success = true
+	r.observeTunnel(17, "203.0.113.7", "203.0.113.7", 443)
+	r.nameTunnel(17, "203.0.113.7:443", "api.example")
 
-	r.failTunnel("203.0.113.7:443")
+	if !r.failTunnel(17, "203.0.113.7:443") {
+		t.Fatal("failTunnel did not attribute the named tunnel")
+	}
 
 	if failed := r.result(Observation{}).Destinations[0].Failed; failed != 1 {
 		t.Errorf("Failed = %d, want the named tunnel charged by its IP", failed)
 	}
 }
 
-// TestRecorderFailTunnelChargesNeitherOfTwoNamedTunnelsSharingTheIP: two hosts
-// behind one IP:port are both plausible owners of a target-named failure, and
-// goproxy names only the target, so charging either would blame a host whose
-// handshake did not fail. The failure stays unattributed rather than being
-// charged to the most recent entry.
-func TestRecorderFailTunnelChargesNeitherOfTwoNamedTunnelsSharingTheIP(t *testing.T) {
+// TestRecorderFailTunnelCorrelatesConcurrentNamedTunnelsSharingTheIP: two hosts
+// behind one IP:port are distinguishable by the CONNECT session, even when
+// their handshakes are reported after both SNI names have been observed.
+func TestRecorderFailTunnelCorrelatesConcurrentNamedTunnelsSharingTheIP(t *testing.T) {
 	r := new(recorder)
-	r.observe("api.example", "203.0.113.7", "", ConnectProtocol, 443, nil).Success = true
-	r.observe("www.example", "203.0.113.7", "", ConnectProtocol, 443, nil).Success = true
+	r.observeTunnel(1, "203.0.113.7", "203.0.113.7", 443)
+	r.observeTunnel(2, "203.0.113.7", "203.0.113.7", 443)
+	r.nameTunnel(1, "203.0.113.7:443", "api.example")
+	r.nameTunnel(2, "203.0.113.7:443", "www.example")
 
-	r.failTunnel("203.0.113.7:443")
+	if !r.failTunnel(2, "203.0.113.7:443") {
+		t.Fatal("failTunnel did not attribute the second session")
+	}
 
 	for _, destination := range r.result(Observation{}).Destinations {
+		want := 0
+		if destination.Host == "www.example" {
+			want = 1
+		}
+		if destination.Failed != want {
+			t.Errorf(
+				"destination %+v Failed = %d, want %d for the session that failed",
+				destination,
+				destination.Failed,
+				want,
+			)
+		}
+	}
+}
+
+func TestRecorderLeavesAReusedSessionIDUnattributed(t *testing.T) {
+	r := new(recorder)
+	r.observeTunnel(9, "203.0.113.7", "203.0.113.7", 443)
+	r.nameTunnel(9, "203.0.113.7:443", "api.example")
+	r.observeTunnel(9, "203.0.113.7", "203.0.113.7", 443)
+	r.nameTunnel(9, "203.0.113.7:443", "www.example")
+
+	if r.failTunnel(9, "203.0.113.7:443") {
+		t.Fatal("failTunnel charged a reused session ID")
+	}
+	for _, destination := range r.result(Observation{}).Destinations {
 		if destination.Failed != 0 {
-			t.Errorf("destination %+v Failed = %d, want neither named tunnel charged", destination, destination.Failed)
+			t.Errorf("destination %+v has Failed=%d, want no guessed attribution", destination, destination.Failed)
 		}
 	}
 }
@@ -233,10 +260,12 @@ func TestRecorderFailTunnelChargesNeitherOfTwoNamedTunnelsSharingTheIP(t *testin
 // not match does not end the search.
 func TestRecorderFailTunnelLooksPastANonMatchingEntry(t *testing.T) {
 	r := new(recorder)
-	r.observe("other.example", "", "", ConnectProtocol, 443, nil).Success = true
-	r.observe("api.example", "", "", ConnectProtocol, 443, nil).Success = true
+	r.observeTunnel(1, "api.example", "", 443)
+	r.observeTunnel(2, "other.example", "", 443)
 
-	r.failTunnel("api.example:443")
+	if !r.failTunnel(1, "api.example:443") {
+		t.Fatal("failTunnel did not attribute the matching session")
+	}
 
 	for _, destination := range r.result(Observation{}).Destinations {
 		want := 0
@@ -251,10 +280,14 @@ func TestRecorderFailTunnelLooksPastANonMatchingEntry(t *testing.T) {
 
 func TestRecorderFailTunnelMatchesAHostnameTarget(t *testing.T) {
 	r := new(recorder)
-	r.observe("api.example", "", "", ConnectProtocol, 443, nil).Success = true
+	r.observeTunnel(1, "api.example", "", 443)
 
-	r.failTunnel("api.example:443")
-	r.failTunnel("other.example:443")
+	if !r.failTunnel(1, "api.example:443") {
+		t.Fatal("failTunnel did not attribute the hostname target")
+	}
+	if r.failTunnel(1, "other.example:443") {
+		t.Fatal("failTunnel attributed a different target to the session")
+	}
 
 	destinations := r.result(Observation{}).Destinations
 	if len(destinations) != 1 || destinations[0].Failed != 1 {
@@ -267,8 +300,9 @@ func TestDestinationHandshakeFailed(t *testing.T) {
 		destination Destination
 		want        bool
 	}{
-		"request": {Destination{Protocol: "https", Success: true, Count: 1, Failed: 1}, false},
-		"tunnel":  {Destination{Protocol: ConnectProtocol, Success: true, Count: 2}, false},
+		"request":      {Destination{Protocol: "https", Success: true, Count: 1, Failed: 1}, false},
+		"empty tunnel": {Destination{Protocol: ConnectProtocol}, false},
+		"tunnel":       {Destination{Protocol: ConnectProtocol, Success: true, Count: 2}, false},
 		"tunnel, one of two failed": {
 			Destination{Protocol: ConnectProtocol, Success: true, Count: 2, Failed: 1},
 			false,
@@ -490,7 +524,10 @@ func TestObservationCarriesNoValueBearingField(t *testing.T) {
 			"last_seen", "path", "port", "protocol", "success",
 		},
 		"Attribution": {"credential", "header_names", "host", "path", "saw_placeholder", "saw_real"},
-		"Observation": {"attribution", "destinations", "proxy_log", "proxy_warnings"},
+		"Observation": {
+			"attribution", "destinations", "proxy_log", "proxy_log_truncated",
+			"proxy_log_write_failed", "proxy_warnings", "unattributed_handshakes",
+		},
 	}
 	shapes := map[string]any{
 		"Destination": Destination{
@@ -503,10 +540,13 @@ func TestObservationCarriesNoValueBearingField(t *testing.T) {
 			HeaderNames: []string{"authorization"}, SawReal: true, SawPlaceholder: true,
 		},
 		"Observation": Observation{
-			Destinations:  []Destination{{Host: "api.example"}},
-			Attribution:   []Attribution{{Host: "api.example"}},
-			ProxyLog:      "/state/learn/proxy-logs/1763458200.log",
-			ProxyWarnings: 1,
+			Destinations:           []Destination{{Host: "api.example"}},
+			Attribution:            []Attribution{{Host: "api.example"}},
+			ProxyLog:               "/state/learn/proxy-logs/1763458200-random.log",
+			ProxyWarnings:          1,
+			UnattributedHandshakes: 1,
+			ProxyLogTruncated:      true,
+			ProxyLogWriteFailed:    true,
 		},
 	}
 	for name, shape := range shapes {

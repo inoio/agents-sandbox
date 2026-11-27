@@ -249,29 +249,19 @@ func TestSummarizeDoesNotCountADeniedHostsTunnel(t *testing.T) {
 	}
 }
 
-// TestSummarizeCarriesTheProxyLogAndNamesFailedHandshakes: a tunnel whose every
-// handshake failed still counts as reached (a pinned client looks the same),
-// but the summary names its host, and the session's proxy log.
-func TestSummarizeCarriesTheProxyLogAndNamesFailedHandshakes(t *testing.T) {
-	analysis := Analysis{Observation: channel.Observation{
-		Destinations: []channel.Destination{
-			{Host: "pinned.example", Protocol: channel.ConnectProtocol, Success: true, Count: 1, Failed: 1},
-			{Host: "api.example", Protocol: "https", Success: true, Count: 1},
-		},
-		ProxyLog:      "/state/learn/x/1.proxy.log",
-		ProxyWarnings: 3,
-	}}
+// TestSummarizeExcludesUnverifiedTunnels: a tunnel whose every terminating
+// handshake failed is not verified application use, while the egress proposal
+// keeps it conservatively.
+func TestSummarizeExcludesUnverifiedTunnels(t *testing.T) {
+	analysis := Analysis{Observation: channel.Observation{Destinations: []channel.Destination{
+		{Host: "pinned.example", Protocol: channel.ConnectProtocol, Success: true, Count: 1, Failed: 1},
+		{Host: "api.example", Protocol: "https", Success: true, Count: 1},
+	}}}
 
 	summary := summarize(analysis, nil)
 
-	if summary.ServicesReached != 2 {
-		t.Errorf("ServicesReached = %d, want 2", summary.ServicesReached)
-	}
-	if len(summary.HandshakeFailed) != 1 || summary.HandshakeFailed[0] != "pinned.example" {
-		t.Errorf("HandshakeFailed = %v, want [pinned.example]", summary.HandshakeFailed)
-	}
-	if summary.ProxyLog != "/state/learn/x/1.proxy.log" || summary.ProxyWarnings != 3 {
-		t.Errorf("summary = %+v, want the proxy log and its warning count", summary)
+	if summary.ServicesReached != 1 {
+		t.Errorf("ServicesReached = %d, want only the verified request", summary.ServicesReached)
 	}
 }
 

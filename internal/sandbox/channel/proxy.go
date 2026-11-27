@@ -63,9 +63,7 @@ type proxyState struct {
 	recorder *recorder
 	caFile   string
 
-	log      *proxyLog
-	logPath  string
-	logLines int
+	log *proxyLog
 
 	mu sync.Mutex
 }
@@ -110,7 +108,12 @@ func Start(bindHost string, skipUpstreamVerify bool, openLog func() (*os.File, e
 	state.recorder = new(recorder)
 	state.caFile = caFile
 	state.log = &proxyLog{
-		mu: sync.Mutex{}, file: nil, openLog: openLog, lines: 0, closed: false, path: "",
+		mu: sync.Mutex{}, file: nil, openLog: openLog, warnings: 0, bytesWritten: 0,
+		unattributed: 0, maxBytes: 0, truncated: false, writeFailed: false,
+		closed: false,
+		result: proxyLogResult{
+			Path: "", Warnings: 0, UnattributedHandshakes: 0, Truncated: false, WriteFailed: false,
+		},
 		onHandshakeFailure: state.failTunnel,
 	}
 	state.server = &http.Server{
@@ -163,8 +166,8 @@ func terminateProxy(ca tls.Certificate, state *proxyState, skipUpstreamVerify bo
 		TLSConfig: mitmTLSConfig(ca, state.nameTunnel),
 	}
 	proxy.OnRequest().HandleConnect(goproxy.FuncHttpsHandler(
-		func(host string, _ *goproxy.ProxyCtx) (*goproxy.ConnectAction, string) {
-			state.observeConnect(host)
+		func(host string, ctx *goproxy.ProxyCtx) (*goproxy.ConnectAction, string) {
+			state.observeConnect(host, proxySessionID(ctx.Session))
 			return mitm, host
 		},
 	))
@@ -180,7 +183,7 @@ func terminateProxy(ca tls.Certificate, state *proxyState, skipUpstreamVerify bo
 // the request inside the tunnel is never seen (nil header names). A host that
 // also terminates appears twice — once here as "connect" and once as its own
 // "https" destination with attribution.
-func (s *proxyState) observeConnect(host string) {
+func (s *proxyState) observeConnect(host string, sessionID uint16) {
 	hostname, port := splitHostPort(host)
 	ip := ""
 	if parsed := net.ParseIP(hostname); parsed != nil {
@@ -191,25 +194,26 @@ func (s *proxyState) observeConnect(host string) {
 	}
 
 	s.mu.Lock()
-	destination := s.recorder.observe(hostname, ip, "", ConnectProtocol, port, nil)
-	destination.Success = true
+	s.recorder.observeTunnel(sessionID, hostname, ip, port)
 	s.mu.Unlock()
 }
 
 // nameTunnel records the SNI hostname a client sent through a tunnel it opened
 // by IP, so the tunnel is attributed to the host rather than the address. A
 // tunnel opened by hostname, or a handshake without SNI, needs no naming.
-func (s *proxyState) nameTunnel(connectTarget, serverName string) {
-	hostname, port := splitHostPort(connectTarget)
-	parsed := net.ParseIP(hostname)
+func (s *proxyState) nameTunnel(connectTarget, serverName string, sessionID uint16) {
+	targetHost, _ := splitHostPort(connectTarget)
+	parsed := net.ParseIP(targetHost)
 	if serverName == "" || parsed == nil || serverName == parsed.String() {
 		return
 	}
-	hostname = parsed.String()
 	s.mu.Lock()
-	s.recorder.nameTunnel(hostname, port, serverName)
+	s.recorder.nameTunnel(sessionID, connectTarget, serverName)
 	s.mu.Unlock()
 }
+
+// proxySessionID returns the 16-bit session number goproxy writes in warnings.
+func proxySessionID(session int64) uint16 { return uint16(session & 0xFFFF) }
 
 // splitHostPort returns a CONNECT target's host and port, leaving the port zero
 // when the target carries none.
@@ -282,7 +286,10 @@ func (s *proxyState) onResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *htt
 func (h Handle) Stop() Observation {
 	if h.state == nil {
 		// gomutants:disable-next-line RETURN_ZERO reason="an empty Observation is the zero value, so zeroing the literal is the identical value"
-		return Observation{Destinations: nil, Attribution: nil, ProxyLog: "", ProxyWarnings: 0}
+		return Observation{
+			Destinations: nil, Attribution: nil, ProxyLog: "", ProxyWarnings: 0,
+			UnattributedHandshakes: 0, ProxyLogTruncated: false, ProxyLogWriteFailed: false,
+		}
 	}
 	return h.state.stop()
 }
@@ -301,19 +308,27 @@ func (h Handle) CAFile() string { return h.caFile }
 func (s *proxyState) stop() Observation {
 	// Close is idempotent, so a second Stop needs no flag to stay a no-op.
 	_ = s.server.Close()
-	// The log closes before the recorder is read, so a failure logged after
-	// Stop reaches neither; one logged just before can still miss the
-	// artefact, which is harmless once the session is over.
+	// Close waits for a warning callback already in progress. That callback
+	// records the session's handshake failure before the recorder snapshot.
+	logResult := proxyLogResult{
+		Path: "", Warnings: 0, UnattributedHandshakes: 0, Truncated: false, WriteFailed: false,
+	}
 	if s.log != nil {
-		s.logPath, s.logLines = s.log.close()
+		logResult = s.log.close()
 	}
 	s.mu.Lock()
-	// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT reason="ProxyWarnings is overwritten from the log below; the zero literal is exhaustruct's"
-	observation := s.recorder.result(Observation{Destinations: nil, Attribution: nil, ProxyLog: "", ProxyWarnings: 0})
+	observation := s.recorder.result(Observation{
+		Destinations: nil, Attribution: nil, ProxyLog: "", ProxyWarnings: 0,
+		UnattributedHandshakes: 0, ProxyLogTruncated: false, ProxyLogWriteFailed: false,
+	})
 	s.mu.Unlock()
 
 	_ = os.Remove(s.caFile)
-	observation.ProxyLog, observation.ProxyWarnings = s.logPath, s.logLines
+	observation.ProxyLog = logResult.Path
+	observation.ProxyWarnings = logResult.Warnings
+	observation.UnattributedHandshakes = logResult.UnattributedHandshakes
+	observation.ProxyLogTruncated = logResult.Truncated
+	observation.ProxyLogWriteFailed = logResult.WriteFailed
 	return observation
 }
 
@@ -322,8 +337,12 @@ func (s *proxyState) stop() Observation {
 func (s *proxyState) logger() *proxyLog {
 	if s.log == nil {
 		s.log = &proxyLog{
-			// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT reason="a counting-only log built for a state without Start; its start count is read by no caller"
-			mu: sync.Mutex{}, file: nil, openLog: nil, lines: 0, closed: false, path: "",
+			mu: sync.Mutex{}, file: nil, openLog: nil, warnings: 0, bytesWritten: 0,
+			unattributed: 0, maxBytes: 0, truncated: false, writeFailed: false,
+			closed: false,
+			result: proxyLogResult{
+				Path: "", Warnings: 0, UnattributedHandshakes: 0, Truncated: false, WriteFailed: false,
+			},
 			onHandshakeFailure: s.failTunnel,
 		}
 	}
@@ -331,10 +350,11 @@ func (s *proxyState) logger() *proxyLog {
 }
 
 // failTunnel records a handshake the client aborted on the tunnel it belongs to.
-func (s *proxyState) failTunnel(connectTarget string) {
+func (s *proxyState) failTunnel(sessionID uint16, connectTarget string) bool {
 	s.mu.Lock()
-	s.recorder.failTunnel(connectTarget)
+	attributed := s.recorder.failTunnel(sessionID, connectTarget)
 	s.mu.Unlock()
+	return attributed
 }
 
 // generateCA creates a fresh self-signed CA for one proxy, returned parsed (for

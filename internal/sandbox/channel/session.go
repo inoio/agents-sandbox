@@ -36,8 +36,9 @@ type observer struct {
 // opts.Network = obs.Overlay() there, and calls Stop at teardown. This subplan
 // does not touch session/options/prepare/vm.
 //
-// The proxy's warnings go to a log under <UserStateDir>/learn/proxy-logs/,
-// named by startedAt and opened on the first warning only.
+// The proxy's warnings go to a unique, bounded log under
+// <UserStateDir>/learn/proxy-logs/, prefixed by startedAt and opened on the first
+// warning only.
 func StartObservation(bindHost string, base network.Policy, startedAt time.Time) (Observer, error) {
 	handle, err := Start(bindHost, base.Observe.SkipUpstreamVerify, func() (*os.File, error) {
 		return openSessionLog(startedAt)

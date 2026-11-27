@@ -176,7 +176,8 @@ func assertArtefactKeys(t *testing.T, obs Observation) {
 		"host": true, "ip": true, "port": true, "protocol": true, "path": true,
 		"success": true, "denied": true, "count": true, "first_seen": true,
 		"last_seen": true, "channel": true, "failed": true,
-		"proxy_log": true, "proxy_warnings": true,
+		"proxy_log": true, "proxy_warnings": true, "unattributed_handshakes": true,
+		"proxy_log_truncated": true, "proxy_log_write_failed": true,
 		"credential": true, "header_names": true, "saw_real": true,
 		"saw_placeholder": true,
 	}
@@ -211,40 +212,58 @@ func collectKeys(node any) []string {
 
 // Load of a path that was never written errors rather than returning an empty
 // artefact, so a caller cannot mistake a missing capture for an empty session.
-// TestOpenSessionLogLivesUnderTheLearnStateDir: the proxy log is a 0600 file
-// under <UserStateDir>/learn/proxy-logs/, named by the session start, so it
-// survives the after-run (whose capture is deleted) and a cancelled session
-// alike, and Prune expires it like an artefact.
+// TestOpenSessionLogLivesUnderTheLearnStateDir: the proxy log is a unique 0600
+// file under <UserStateDir>/learn/proxy-logs/, prefixed by the session start, so
+// concurrent sessions do not append to each other's diagnostics and Prune
+// expires each file like an artefact.
 func TestOpenSessionLogLivesUnderTheLearnStateDir(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
-	file, err := openSessionLog(time.Unix(1763458200, 0))
+	startedAt := time.Unix(1763458200, 0)
+	first, err := openSessionLog(startedAt)
 	if err != nil {
 		t.Fatalf("openSessionLog: %v", err)
 	}
-	if _, err := file.WriteString("warning\n"); err != nil {
+	second, err := openSessionLog(startedAt)
+	if err != nil {
+		t.Fatalf("open second session log: %v", err)
+	}
+	if first.Name() == second.Name() {
+		t.Fatalf("same-second sessions share log path %q", first.Name())
+	}
+	if _, err := first.WriteString("warning\n"); err != nil {
 		t.Fatalf("the proxy log is not writable: %v", err)
 	}
-	_ = file.Close()
-
-	want := filepath.Join(configpaths.Get().UserStateDir(), "learn", "proxy-logs", "1763458200.log")
-	if file.Name() != want {
-		t.Errorf("log path = %q, want %q", file.Name(), want)
+	if _, err := second.WriteString("second warning\n"); err != nil {
+		t.Fatalf("the second proxy log is not writable: %v", err)
 	}
-	info, err := os.Stat(want)
-	if err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("log = %v %v, want a 0600 file", info, err)
+	_ = first.Close()
+	_ = second.Close()
+
+	wantDir := filepath.Join(configpaths.Get().UserStateDir(), "learn", "proxy-logs")
+	for _, file := range []*os.File{first, second} {
+		if filepath.Dir(file.Name()) != wantDir || !strings.HasPrefix(filepath.Base(file.Name()), "1763458200-") {
+			t.Errorf("log path = %q, want a unique 1763458200-* file under %s", file.Name(), wantDir)
+		}
+		info, err := os.Stat(file.Name())
+		if err != nil || info.Mode().Perm() != 0o600 {
+			t.Fatalf("log = %v %v, want a 0600 file", info, err)
+		}
 	}
 
 	past := time.Now().Add(-time.Hour)
-	if err := os.Chtimes(want, past, past); err != nil {
-		t.Fatalf("Chtimes: %v", err)
+	for _, file := range []*os.File{first, second} {
+		if err := os.Chtimes(file.Name(), past, past); err != nil {
+			t.Fatalf("Chtimes: %v", err)
+		}
 	}
-	if _, err := Prune(time.Now().Add(-time.Minute)); err != nil {
-		t.Fatalf("Prune: %v", err)
+	if removed, err := Prune(time.Now().Add(-time.Minute)); err != nil || removed != 2 {
+		t.Fatalf("Prune = (%d, %v), want 2 removed", removed, err)
 	}
-	if _, err := os.Stat(want); !os.IsNotExist(err) {
-		t.Errorf("an expired proxy log survived Prune (stat err %v)", err)
+	for _, file := range []*os.File{first, second} {
+		if _, err := os.Stat(file.Name()); !os.IsNotExist(err) {
+			t.Errorf("an expired proxy log %s survived Prune (stat err %v)", file.Name(), err)
+		}
 	}
 }
 
@@ -517,10 +536,9 @@ func TestOpenSessionLogMkdirFailure(t *testing.T) {
 func TestOpenSessionLogOpenFailure(t *testing.T) {
 	stateDir := t.TempDir()
 	withStateDir(t, stateDir)
-	// A directory where the log file would go makes the open fail.
-	if err := os.MkdirAll(filepath.Join(stateDir, "learn", "proxy-logs", "1.log"), 0o700); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
+	orig := createSessionLogFile
+	createSessionLogFile = func(string, string) (*os.File, error) { return nil, errChannelSeam }
+	t.Cleanup(func() { createSessionLogFile = orig })
 
 	_, err := openSessionLog(time.Unix(1, 0))
 	if err == nil || !strings.Contains(err.Error(), "open the learn proxy log") {

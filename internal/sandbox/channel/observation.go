@@ -35,9 +35,7 @@ type Destination struct {
 // handshake failed: a client that pins its certificates, or one missing the
 // session CA trust (#812). The two look the same to the proxy.
 func (d Destination) HandshakeFailed() bool {
-	// A tunnel entry has a count of at least one, so Failed >= Count implies a
-	// failure.
-	return d.Protocol == ConnectProtocol && d.Failed >= d.Count
+	return d.Protocol == ConnectProtocol && d.Count > 0 && d.Failed >= d.Count
 }
 
 // ConnectProtocol is the protocol of an accepted CONNECT tunnel's entry.
@@ -71,10 +69,17 @@ type Attribution struct {
 type Observation struct {
 	Destinations []Destination `json:"destinations"`
 	Attribution  []Attribution `json:"attribution"`
-	// ProxyLog is the session's proxy log file, empty when the proxy logged
-	// nothing; ProxyWarnings is its line count.
-	ProxyLog      string `json:"proxy_log,omitempty"`
-	ProxyWarnings int    `json:"proxy_warnings,omitempty"`
+	// ProxyLog is the session's proxy log file, empty when no log was created.
+	ProxyLog string `json:"proxy_log,omitempty"`
+	// ProxyWarnings counts warnings, including those omitted after the log cap.
+	ProxyWarnings int `json:"proxy_warnings,omitempty"`
+	// UnattributedHandshakes counts failures that could not be tied to one
+	// CONNECT session and destination without guessing.
+	UnattributedHandshakes int `json:"unattributed_handshakes,omitempty"`
+	// ProxyLogTruncated reports that the bounded log omitted warning lines.
+	ProxyLogTruncated bool `json:"proxy_log_truncated,omitempty"`
+	// ProxyLogWriteFailed reports an open, write, or close error.
+	ProxyLogWriteFailed bool `json:"proxy_log_write_failed,omitempty"`
 }
 
 // recorder accumulates the artefact as requests are observed. Its methods take
@@ -83,8 +88,14 @@ type Observation struct {
 // valid for the recorder's lifetime and a caller can keep it from the request
 // hook until the response hook.
 type recorder struct {
-	destinations []*Destination
-	attribution  []Attribution
+	destinations     []*Destination
+	attribution      []Attribution
+	tunnelsBySession map[uint16]tunnelSession
+}
+
+type tunnelSession struct {
+	destination *Destination
+	ambiguous   bool
 }
 
 // observe folds one request into the artefact and returns the destination entry
@@ -110,69 +121,75 @@ func (r *recorder) observe(host, ip, path, protocol string, port uint16, headerN
 	return destination
 }
 
-// nameTunnel moves one tunnel opened to ip:port onto hostname, the name the
-// client sent as TLS SNI. The msb runtime opens its tunnels by IP and names the
-// host only in the handshake, so without this every tunnel would be recorded
-// under an address. The IP stays on the named entry; the IP-only entry loses
-// the one tunnel and disappears once it has none left. A tunnel this recorder
-// never saw is ignored.
-func (r *recorder) nameTunnel(ip string, port uint16, hostname string) {
-	for index, tunnel := range r.destinations {
-		if tunnel.Host != ip || tunnel.IP != ip || tunnel.Protocol != ConnectProtocol || tunnel.Port != port {
+// observeTunnel records an accepted CONNECT and associates it with goproxy's
+// session number. The logger carries the same 16-bit session number in a
+// handshake warning, so SNI naming and failure accounting can follow one
+// tunnel even when other hosts share its IP.
+func (r *recorder) observeTunnel(sessionID uint16, host, ip string, port uint16) {
+	tunnel := r.observe(host, ip, "", ConnectProtocol, port, nil)
+	tunnel.Success = true
+	if r.tunnelsBySession == nil {
+		r.tunnelsBySession = make(map[uint16]tunnelSession)
+	}
+	if _, ok := r.tunnelsBySession[sessionID]; ok {
+		r.tunnelsBySession[sessionID] = tunnelSession{destination: nil, ambiguous: true}
+		return
+	}
+	r.tunnelsBySession[sessionID] = tunnelSession{destination: tunnel, ambiguous: false}
+}
+
+// nameTunnel moves the session's CONNECT entry onto the hostname from its TLS
+// SNI. The IP stays on the named entry; the IP-only entry loses that tunnel and
+// disappears once it has none left. A session number collision or unknown
+// session is left unnamed rather than charging the wrong tunnel.
+func (r *recorder) nameTunnel(sessionID uint16, connectTarget, hostname string) {
+	targetHost, port := splitHostPort(connectTarget)
+	parsed := net.ParseIP(targetHost)
+	if parsed == nil || hostname == "" || hostname == parsed.String() {
+		return
+	}
+	connectIP := parsed.String()
+	tracked, ok := r.tunnelsBySession[sessionID]
+	if !ok || tracked.ambiguous || tracked.destination == nil {
+		return
+	}
+	tunnel := tracked.destination
+	if tunnel.Host != connectIP || tunnel.IP != connectIP || tunnel.Protocol != ConnectProtocol || tunnel.Port != port {
+		return
+	}
+	for index, destination := range r.destinations {
+		if destination != tunnel {
 			continue
 		}
-		named := r.observe(hostname, ip, "", ConnectProtocol, port, nil)
+		named := r.observe(hostname, connectIP, "", ConnectProtocol, port, nil)
 		named.Success = true
 		tunnel.Count--
 		if tunnel.Count <= 0 {
 			r.destinations = slices.Delete(r.destinations, index, index+1)
 		}
+		r.tunnelsBySession[sessionID] = tunnelSession{destination: named, ambiguous: false}
 		return
 	}
 }
 
-// failTunnel records a failed terminating handshake (the client aborted, sent
-// EOF, or offered no acceptable version) of a tunnel it opened to
-// connectTarget. goproxy names only the target, so this is a conservative
-// heuristic, used for reporting only: the failure is charged to the entry
-// recorded under the target itself (an unnamed, address-only tunnel, or a tunnel
-// opened by hostname). Failing that, a named entry that merely shares the
-// target's IP is charged only when exactly one entry shares it — one candidate
-// is the best available identification, while two or more would blame a healthy
-// host that shares the IP:port, since the failing tunnel is as likely to be the
-// other one, so the failure is left unattributed (still in the proxy log). The
-// cost is the reverse case: when an address-only tunnel shares the target, a
-// named tunnel's real failure is charged to the address-only entry, which
-// summarize skips, so it goes unreported.
-func (r *recorder) failTunnel(connectTarget string) {
+// failTunnel records a failed terminating handshake on the CONNECT session that
+// goproxy names in its warning. A missing, reused, or mismatched session is left
+// unattributed rather than charged to a plausible but unverified destination.
+func (r *recorder) failTunnel(sessionID uint16, connectTarget string) bool {
 	host, port := splitHostPort(connectTarget)
 	if parsed := net.ParseIP(host); parsed != nil {
 		host = parsed.String()
 	}
-	var (
-		underTarget *Destination
-		sharingIP   []*Destination
-	)
-	for _, tunnel := range r.destinations {
-		if tunnel.Protocol != ConnectProtocol || tunnel.Port != port {
-			continue
-		}
-		switch {
-		case tunnel.Host == host:
-			if underTarget == nil || !tunnel.LastSeen.Before(underTarget.LastSeen) {
-				underTarget = tunnel
-			}
-		case tunnel.IP == host:
-			sharingIP = append(sharingIP, tunnel)
-		}
+	tracked, ok := r.tunnelsBySession[sessionID]
+	if !ok || tracked.ambiguous || tracked.destination == nil {
+		return false
 	}
-	charged := underTarget
-	if charged == nil && len(sharingIP) == 1 {
-		charged = sharingIP[0]
+	tunnel := tracked.destination
+	if tunnel.Protocol != ConnectProtocol || tunnel.Port != port || (tunnel.Host != host && tunnel.IP != host) {
+		return false
 	}
-	if charged != nil {
-		charged.Failed++
-	}
+	tunnel.Failed++
+	return true
 }
 
 // deny records that a request to a destination was refused by this proxy's own
@@ -221,6 +238,11 @@ func (r *recorder) result(obs Observation) Observation {
 		Attribution: append(
 			append(make([]Attribution, 0, len(obs.Attribution)+len(r.attribution)), obs.Attribution...),
 			r.attribution...),
+		ProxyLog:               obs.ProxyLog,
+		ProxyWarnings:          obs.ProxyWarnings,
+		UnattributedHandshakes: obs.UnattributedHandshakes,
+		ProxyLogTruncated:      obs.ProxyLogTruncated,
+		ProxyLogWriteFailed:    obs.ProxyLogWriteFailed,
 	}
 	for _, destination := range r.destinations {
 		combined.Destinations = append(combined.Destinations, *destination)

@@ -426,6 +426,7 @@ func runConfigLearn(cmd *cobra.Command, ui termio.UI) error {
 			return err
 		}
 	}
+	learn.PrintProxyDiagnostics(ui, observation)
 
 	//exhaustruct:ignore // the zero policy resolves to the default (public) profile
 	current := network.Policy{}

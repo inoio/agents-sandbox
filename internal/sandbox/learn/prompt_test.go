@@ -290,34 +290,55 @@ func TestPrintSummaryReportsDeniedDestinations(t *testing.T) {
 	}
 }
 
-// TestPrintSummaryNamesTheProxyLog pins that a session whose proxy logged
-// problems says so and names the file, and that a clean session prints nothing
-// about it.
-func TestPrintSummaryNamesTheProxyLog(t *testing.T) {
+// TestPrintProxyDiagnosticsReportsFailuresAndLogState pins the warning shown
+// before analysis, including ambiguous attribution and incomplete-log status.
+func TestPrintProxyDiagnosticsReportsFailuresAndLogState(t *testing.T) {
 	ui := &termiotest.Mock{}
-	printSummary(ui, Summary{ProxyLog: "/tmp/agents-sandbox-channel-1.log", ProxyWarnings: 3})
+	PrintProxyDiagnostics(ui, channel.Observation{
+		Destinations: []channel.Destination{{
+			Host: "pinned.example", Protocol: channel.ConnectProtocol, Success: true, Count: 1, Failed: 1,
+		}},
+		ProxyLog:               "/state/learn/proxy-logs/1-unique.log",
+		ProxyWarnings:          3,
+		UnattributedHandshakes: 1,
+		ProxyLogTruncated:      true,
+		ProxyLogWriteFailed:    true,
+	})
 
-	if len(ui.WarnCalls) != 1 || !strings.Contains(ui.WarnCalls[0], "3") ||
-		!strings.Contains(ui.WarnCalls[0], "/tmp/agents-sandbox-channel-1.log") {
-		t.Errorf("WarnCalls = %v, want one line naming the count and the log", ui.WarnCalls)
+	warnings := strings.Join(ui.WarnCalls, "\n")
+	for _, want := range []string{
+		"pinned.example", "successful use was not verified", "Possible causes",
+		"1 TLS handshake failure(s)", "could not be tied to a destination", "3",
+		"/state/learn/proxy-logs/1-unique.log",
+		"truncated", "incomplete",
+	} {
+		if !strings.Contains(warnings, want) {
+			t.Errorf("WarnCalls = %v, want %q", ui.WarnCalls, want)
+		}
 	}
 
-	failed := &termiotest.Mock{}
-	printSummary(failed, Summary{HandshakeFailed: []string{"pinned.example"}, ProxyWarnings: 1})
-	if len(failed.WarnCalls) != 2 || !strings.Contains(failed.WarnCalls[0], "pinned.example") ||
-		!strings.Contains(failed.WarnCalls[1], "could not be written") {
-		t.Errorf("WarnCalls = %v, want the failed host and the unwritten log", failed.WarnCalls)
+	openFailed := &termiotest.Mock{}
+	PrintProxyDiagnostics(openFailed, channel.Observation{ProxyWarnings: 1, ProxyLogWriteFailed: true})
+	if len(openFailed.WarnCalls) != 1 || !strings.Contains(openFailed.WarnCalls[0], "could not be created") {
+		t.Errorf("WarnCalls = %v, want the open failure", openFailed.WarnCalls)
 	}
 
 	clean := &termiotest.Mock{}
-	printSummary(clean, Summary{})
+	PrintProxyDiagnostics(clean, channel.Observation{})
 	if len(clean.WarnCalls) != 0 {
 		t.Errorf("WarnCalls = %v, want nothing for a clean session", clean.WarnCalls)
 	}
 }
 
 // TestFinishPropagatesSaveFailure pins that a failed capture save aborts the
-// after-run rather than analysing an unsaved session.
+// after-run rather than analysing an unsaved session, while the proxy
+// diagnostic is printed before the save can fail.
+type fixedObserver struct{ observation channel.Observation }
+
+func (fixedObserver) Overlay() network.Policy { return network.Policy{} }
+
+func (o fixedObserver) Stop() channel.Observation { return o.observation }
+
 func TestFinishPropagatesSaveFailure(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
@@ -328,16 +349,20 @@ func TestFinishPropagatesSaveFailure(t *testing.T) {
 	}
 	t.Cleanup(func() { saveArtefact = orig })
 
-	run, err := Begin(network.Policy{Profiles: []network.Profile{network.ProfileNone}})
-	if err != nil {
-		t.Fatalf("Begin: %v", err)
-	}
+	ui := &termiotest.Mock{}
+	run := &Run{observer: fixedObserver{observation: channel.Observation{
+		ProxyLog:      "/state/learn/proxy-logs/1-session.log",
+		ProxyWarnings: 2,
+	}}}
 
 	finishErr := run.Finish(context.Background(), FinishInput{
-		Key: k, Slug: "proj", Agent: "opencode", Paths: configpaths.Get(), UI: &termiotest.Mock{},
+		Key: k, Slug: "proj", Agent: "opencode", Paths: configpaths.Get(), UI: ui,
 	})
 	if finishErr == nil || !strings.Contains(finishErr.Error(), "save the learn capture") {
 		t.Fatalf("Finish error = %v, want the wrapped save failure", finishErr)
+	}
+	if len(ui.WarnCalls) != 1 || !strings.Contains(ui.WarnCalls[0], "/state/learn/proxy-logs/1-session.log") {
+		t.Errorf("WarnCalls = %v, want the proxy log path despite the capture save failure", ui.WarnCalls)
 	}
 }
 

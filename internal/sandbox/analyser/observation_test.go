@@ -115,7 +115,8 @@ func TestObservationNetworkLockLeavesOutAddressOnlyTunnels(t *testing.T) {
 // TestObservationNetworkLockKeepsFailedTunnels: a tunnel whose every
 // terminating handshake failed cannot be told apart from a pinned client's
 // (both abort on the session CA), and a pinned client works outside learn mode,
-// so its host stays in the lock; the after-run names it instead.
+// so its host stays in the lock even though the summary does not count it as
+// verified service use.
 func TestObservationNetworkLockKeepsFailedTunnels(t *testing.T) {
 	s := SessionFacts{
 		Observation: channel.Observation{Destinations: []channel.Destination{

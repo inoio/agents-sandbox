@@ -204,9 +204,13 @@ func policyIsNarrowNone(policy network.Policy, allow []string) bool {
 // only when its host has no denied destination: the channel records the tunnel's
 // acceptance separately from a request denied through it, so a host whose only
 // request was denied still carries a successful connect entry, and that tunnel
-// is not evidence the host is safe to allow. A tunnel still recorded under an
-// address is not use either (see channel.Destination.AddressOnlyTunnel). A denied destination is
-// never a used one.
+// is not evidence the host is safe to allow. A tunnel whose every terminating
+// handshake failed remains in the proposed allow set as a conservative fallback:
+// pinning and missing CA trust look the same to the proxy, but the client may
+// work outside learn mode. The after-run does not count that tunnel as verified
+// service use. A tunnel still recorded under an address is not use either (see
+// channel.Destination.AddressOnlyTunnel). A denied destination is never a used
+// one.
 func observedUsedHosts(destinations []channel.Destination) []string {
 	denied := deniedHosts(destinations)
 	var hosts []string

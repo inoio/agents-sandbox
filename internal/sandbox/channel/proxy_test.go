@@ -418,9 +418,10 @@ func TestProxyRecordsConnectTunnelWhenMitmHandshakeFails(t *testing.T) {
 	}
 	handshakeFailed := make(chan struct{}, 1)
 	recordFailure := handle.state.logger().onHandshakeFailure
-	handle.state.logger().onHandshakeFailure = func(target string) {
-		recordFailure(target)
+	handle.state.logger().onHandshakeFailure = func(sessionID uint16, target string) bool {
+		attributed := recordFailure(sessionID, target)
 		handshakeFailed <- struct{}{}
+		return attributed
 	}
 	if _, err := client.Get(upstream.URL); err == nil {
 		t.Fatal("the untrusted proxy CA should have failed the handshake")
@@ -455,6 +456,12 @@ func TestProxyRecordsConnectTunnelWhenMitmHandshakeFails(t *testing.T) {
 	if destination.Failed != 1 || !destination.HandshakeFailed() {
 		t.Errorf("destination = %+v, want its one handshake failed", destination)
 	}
+	if observation.UnattributedHandshakes != 0 {
+		t.Errorf(
+			"UnattributedHandshakes = %d, want the session-correlated failure attributed",
+			observation.UnattributedHandshakes,
+		)
+	}
 	if observation.ProxyWarnings == 0 || observation.ProxyLog == "" {
 		t.Fatalf("observation = %+v, want the handshake failure logged", observation)
 	}
@@ -462,8 +469,9 @@ func TestProxyRecordsConnectTunnelWhenMitmHandshakeFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read the proxy log: %v", err)
 	}
-	if !strings.Contains(string(logged), "Cannot handshake client") {
-		t.Errorf("proxy log = %q, want the handshake failure", logged)
+	if !strings.Contains(string(logged), "TLS handshake failed") ||
+		strings.Contains(string(logged), "bad certificate") {
+		t.Errorf("proxy log = %q, want the safe handshake category and no raw cause", logged)
 	}
 	info, err := os.Stat(observation.ProxyLog)
 	if err == nil && info.Mode().Perm() != 0o600 {
@@ -477,7 +485,7 @@ func TestProxyRecordsConnectTunnelWhenMitmHandshakeFails(t *testing.T) {
 func TestProxyConnectHostnameRecordsEmptyIP(t *testing.T) {
 	state := &proxyState{recorder: new(recorder)}
 
-	state.observeConnect("api.example:443")
+	state.observeConnect("api.example:443", 1)
 
 	observation := state.recorder.result(Observation{})
 	if len(observation.Destinations) != 1 {
@@ -862,12 +870,12 @@ func TestTerminateProxyForwardsSkipUpstreamVerify(t *testing.T) {
 // better name, so only an IP tunnel with a distinct SNI is renamed.
 func TestProxyStateNamesOnlyIPTunnelsWithAnSNI(t *testing.T) {
 	state := &proxyState{recorder: new(recorder)}
-	state.observeConnect("203.0.113.7:443")
-	state.observeConnect("api.example:443")
+	state.observeConnect("203.0.113.7:443", 1)
+	state.observeConnect("api.example:443", 2)
 
-	state.nameTunnel("api.example:443", "other.example")
-	state.nameTunnel("203.0.113.7:443", "")
-	state.nameTunnel("203.0.113.7:443", "203.0.113.7")
+	state.nameTunnel("api.example:443", "other.example", 2)
+	state.nameTunnel("203.0.113.7:443", "", 1)
+	state.nameTunnel("203.0.113.7:443", "203.0.113.7", 1)
 
 	hosts := map[string]bool{}
 	for _, destination := range state.recorder.result(Observation{}).Destinations {
@@ -877,7 +885,7 @@ func TestProxyStateNamesOnlyIPTunnelsWithAnSNI(t *testing.T) {
 		t.Fatalf("hosts = %v, want both tunnels unchanged", hosts)
 	}
 
-	state.nameTunnel("203.0.113.7:443", "named.example")
+	state.nameTunnel("203.0.113.7:443", "named.example", 1)
 	destinations := state.recorder.result(Observation{}).Destinations
 	if destinationByHost(t, destinations, "named.example").IP != "203.0.113.7" {
 		t.Errorf("destinations = %+v, want the IP tunnel named named.example", destinations)
@@ -887,7 +895,7 @@ func TestProxyStateNamesOnlyIPTunnelsWithAnSNI(t *testing.T) {
 func TestProxyConnectIPHostRecordsIP(t *testing.T) {
 	state := &proxyState{recorder: new(recorder)}
 
-	state.observeConnect("203.0.113.7:443")
+	state.observeConnect("203.0.113.7:443", 1)
 
 	destinations := state.recorder.result(Observation{}).Destinations
 	if len(destinations) != 1 {
@@ -907,8 +915,8 @@ func TestProxyConnectIPHostRecordsIP(t *testing.T) {
 func TestProxyConnectTunnelsOnDifferentPortsStayDistinct(t *testing.T) {
 	state := &proxyState{recorder: new(recorder)}
 
-	state.observeConnect("api.example:443")
-	state.observeConnect("api.example:8443")
+	state.observeConnect("api.example:443", 1)
+	state.observeConnect("api.example:8443", 2)
 
 	destinations := state.recorder.result(Observation{}).Destinations
 	if len(destinations) != 2 {

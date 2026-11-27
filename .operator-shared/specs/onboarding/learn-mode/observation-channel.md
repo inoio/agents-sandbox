@@ -139,28 +139,29 @@ request succeeded or was denied, the request path, and the credential-bearing he
 request bodies or header **values**. A raw flow capture is scrubbed of values before it is kept. `IP` is empty for a
 hostname target (the analyser treats it as unknown, not as a resolved address).
 
-**Failed handshakes are reported, not dropped.** The proxy records each terminating handshake that fails as a count on
-the entry it charges the failure to (`Failed`). A client that pins its certificates and one missing the session CA
-trust (#812) look the same to the proxy, and a pinned client works outside learn mode, so such a tunnel stays a used
-destination (the egress lock keeps it) and the after-run names its host instead.
+**Failed handshakes are reported, not treated as verified use.** The proxy records each terminating handshake failure
+on the exact CONNECT entry (`Failed`) when it can identify the tunnel. A tunnel whose every terminating handshake
+failed is not counted as a verified service in the after-run. It stays in the proposed egress allow set: certificate
+pinning and missing session-CA trust look the same to the proxy, and a pinned client may work outside learn mode. When
+the session is identifiable, the warning names the host or IP and describes possible causes, not a diagnosis; otherwise
+the after-run reports an unattributed failure count.
 
-**The failed-handshake attribution is a conservative heuristic.** goproxy names a failed handshake only by its CONNECT
-target — under T2 an IP, so the proxy cannot tell which tunnel's handshake failed. The failure is charged to the entry
-recorded under the target itself (an address-only tunnel), and only when no such entry exists to a named entry that
-shares the target's IP. A named host is never blamed for a failure a no-SNI client may have caused: the fallback fires
-only when **exactly one** entry shares the target's IP:port, since with two or more the failing tunnel is as likely to
-be any of them and charging the most recent would name a healthy host — the failure is then left to the proxy log
-instead of a host. The cost is the reverse case: when an address-only tunnel shares the target's IP:port the named
-tunnel's real failure is charged to the address-only entry instead — and because `summarize` skips `AddressOnlyTunnel`
-entries, that failure goes unreported.
+**Handshake failures use goproxy's session number, not an IP heuristic.** goproxy includes its 16-bit session number and
+the CONNECT target in the handshake warning. The channel associates that number with the accepted CONNECT, follows it
+when SNI names the tunnel, and charges the failure only when both the session and target still match. A missing,
+mismatched, or reused session number is left unattributed and counted in the artefact; the channel never guesses which
+host behind a shared IP failed.
 
-**The proxy log is a separate diagnostic file.** The proxy's own warnings go to
-`<UserStateDir>/learn/proxy-logs/<session start>.log` (0600), opened on the first warning only, so a clean session
-writes nothing. Every quoted payload and every query string is redacted before a line is written: Go quotes a malformed
-header line and a request URL in its errors, and goproxy prints an unparsable URL unquoted. The log never goes to the
-terminal, where it would interleave with the agent's TUI. It is not deleted with the session's capture (the after-run
-deletes that), so the after-run can name it; `Prune` expires it after 30 days like an artefact, whether the session
-finished, was cancelled, or its after-run failed. It holds no header or query value, so it does not weaken invariant 3.
+**The proxy log is a separate, bounded diagnostic file.** The proxy's warnings go to a unique
+`<UserStateDir>/learn/proxy-logs/<startUnix>-<unique>.log` file (0600), opened on the first warning only, so a clean
+session writes nothing and same-second sessions never share a file. The logger writes a fixed, value-free message for
+known warning formats and a generic message for unknown formats; it never formats goproxy's arguments, which may carry
+URLs, queries, or header values. Each line is capped at 512 bytes and each session log at 1 MiB. `ProxyWarnings` counts
+all warnings even after truncation. Open, write, and close failures and truncation are reported separately. The log
+never goes to the terminal, where it would interleave with the agent's TUI. It is not deleted with the session's
+capture (the after-run deletes that), so the after-run can name it; `Prune` expires it after 30 days like an artefact,
+whether the session finished, was cancelled, or its after-run failed. The log carries no raw request value, so it does
+not weaken invariant 3.
 
 A destination is identified by host, IP, port, path, and protocol, so the same host reached on two ports — two
 CONNECT tunnels, say — is two entries, each with its own port and count, rather than one entry whose port is
