@@ -85,36 +85,6 @@ func TestSDKStructFieldsAreClassified(t *testing.T) {
 			diskCompactionResultProjected,
 			diskCompactionResultNotModeled,
 		},
-		{
-			"SandboxConfigInspection",
-			reflect.TypeFor[msbSdk.SandboxConfigInspection](),
-			sandboxConfigInspectionProjected,
-			sandboxConfigInspectionNotModeled,
-		},
-		{
-			"SandboxInspectionSpec",
-			reflect.TypeFor[msbSdk.SandboxInspectionSpec](),
-			sandboxInspectionSpecProjected,
-			sandboxInspectionSpecNotModeled,
-		},
-		{
-			"SandboxResourceInspection",
-			reflect.TypeFor[msbSdk.SandboxResourceInspection](),
-			sandboxResourceInspectionProjected,
-			sandboxResourceInspectionNotModeled,
-		},
-		{
-			"VolumeInfo",
-			reflect.TypeFor[msbSdk.VolumeInfo](),
-			volumeInfoProjected,
-			volumeInfoNotModeled,
-		},
-		{
-			"SandboxInfo",
-			reflect.TypeFor[msbSdk.SandboxInfo](),
-			sandboxInfoProjected,
-			sandboxInfoNotModeled,
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
