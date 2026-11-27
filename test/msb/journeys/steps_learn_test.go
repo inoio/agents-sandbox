@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/channel"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -321,5 +322,33 @@ func writeTestFile(t *testing.T, path, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestAnswerApplyPromptsAnswersUntilTheProcessExits(t *testing.T) {
+	ses := driver.MustStartUnderPTY(t, t.TempDir(), nil, "sh", "-c", "read first; read second; exit 0")
+
+	if err := answerApplyPrompts(ses, 10*time.Second); err != nil {
+		t.Fatalf("answerApplyPrompts: %v", err)
+	}
+}
+
+func TestAnswerApplyPromptsReportsAReplayThatDoesNotExit(t *testing.T) {
+	ses := driver.MustStartUnderPTY(t, t.TempDir(), nil, "sh", "-c", "while read line; do :; done")
+
+	err := answerApplyPrompts(ses, time.Second)
+
+	if err == nil || !strings.Contains(err.Error(), "while answering the apply prompts") {
+		t.Fatalf("answerApplyPrompts = %v, want the answering budget to run out", err)
+	}
+}
+
+func TestAnswerApplyPromptsReportsANonZeroExit(t *testing.T) {
+	ses := driver.MustStartUnderPTY(t, t.TempDir(), nil, "sh", "-c", "read answer; exit 3")
+
+	err := answerApplyPrompts(ses, 10*time.Second)
+
+	if err == nil || !strings.Contains(err.Error(), "exited 3") {
+		t.Fatalf("answerApplyPrompts = %v, want the non-zero exit", err)
 	}
 }

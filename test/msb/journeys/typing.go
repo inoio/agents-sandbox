@@ -57,15 +57,10 @@ func typeUntilEchoed(terminal echoTerminal, text string, attempts int, echoWait 
 // waitForEcho reports whether needle appears in the output printed after offset
 // within echoWait.
 func waitForEcho(terminal echoTerminal, offset int, needle string, echoWait time.Duration) bool {
-	deadline := time.Now().Add(echoWait)
-	for {
-		if strings.Contains(driver.MarkerText(string(terminal.Output()[offset:])), needle) {
-			return true
-		}
-		if !time.Now().Before(deadline) || terminal.HasExited() {
-			return false
-		}
-		//testenv:allow polling a live harness on a wall-clock interval
-		time.Sleep(echoPollInterval)
-	}
+	echoed := false
+	_ = pollUntil(echoWait, echoPollInterval, func() (bool, error) {
+		echoed = strings.Contains(driver.MarkerText(string(terminal.Output()[offset:])), needle)
+		return echoed || terminal.HasExited(), nil
+	}, func() error { return nil })
+	return echoed
 }

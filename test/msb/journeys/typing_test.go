@@ -131,3 +131,46 @@ type echoRewritingTerminal struct {
 func (e *echoRewritingTerminal) Write(data []byte) error {
 	return e.fakeTerminal.Write([]byte(e.rewrite(string(data))))
 }
+
+// returnsWithin runs wait and fails the test unless it returns well before the
+// wait's own budget, which proves the wait ended early.
+func returnsWithin(t *testing.T, wait func() bool) bool {
+	t.Helper()
+	result := make(chan bool, 1)
+	go func() { result <- wait() }()
+	select {
+	case got := <-result:
+		return got
+	case <-time.After(5 * time.Second):
+		t.Fatal("the wait ran into its budget instead of ending early")
+		return false
+	}
+}
+
+func TestWaitForEchoEndsAsSoonAsTheEchoShows(t *testing.T) {
+	terminal := &fakeTerminal{output: []byte("hello")}
+
+	if !returnsWithin(t, func() bool { return waitForEcho(terminal, 0, "hello", time.Hour) }) {
+		t.Error("waitForEcho = false, want the echo found")
+	}
+}
+
+func TestWaitForEchoEndsAsSoonAsTheHarnessExited(t *testing.T) {
+	terminal := &fakeTerminal{exited: true}
+
+	if returnsWithin(t, func() bool { return waitForEcho(terminal, 0, "hello", time.Hour) }) {
+		t.Error("waitForEcho = true, want no echo from an exited harness")
+	}
+}
+
+func TestWaitForEchoWaitsForALateEcho(t *testing.T) {
+	terminal := &fakeTerminal{}
+	go func() {
+		time.Sleep(3 * echoPollInterval) //testenv:allow the echo has to arrive after the first poll
+		_ = terminal.Write([]byte("hello"))
+	}()
+
+	if !waitForEcho(terminal, 0, "hello", 5*time.Second) {
+		t.Error("waitForEcho = false, want the late echo found")
+	}
+}
