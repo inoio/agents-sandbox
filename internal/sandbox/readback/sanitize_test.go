@@ -986,8 +986,8 @@ func TestSanitizeConfigGuardRuleBoundaries(t *testing.T) {
 		}
 	}
 	accepted := map[string]struct{ path, content string }{
-		"single yaml document":          {"config.yaml", "model: x\nnote: y\n"},
-		"single yaml document, CR-only": {"config.yaml", "model: x\rnote: y\r"},
+		"single yaml document":          {"config.yaml", "model: x\nname: y\n"},
+		"single yaml document, CR-only": {"config.yaml", "model: x\rname: y\r"},
 		"comment then document start": {
 			"config.yaml",
 			"# agent config\n---\nmodel: x\n",

@@ -1495,3 +1495,14 @@ env_key = "OTHER_API_KEY"
 		Value:    "sk-corp-inline",
 	}, credentials[0])
 }
+
+// TestInlineCredentialsInTreatsAnMsbPlaceholderAsAReference pins that a stored
+// $MSB_<NAME> guest value is a reference, not a static credential to learn,
+// while a value that only starts like one is still a literal.
+func TestInlineCredentialsInTreatsAnMsbPlaceholderAsAReference(t *testing.T) {
+	const placeholderConfig = `{"provider":{"corp":{"options":{"apiKey":"$MSB_CORP_API_KEY","baseURL":"https://llm.corp.example"}}}}`
+	require.Empty(t, InlineCredentialsIn("opencode.json", []byte(placeholderConfig)))
+
+	const lookalikeConfig = `{"provider":{"corp":{"options":{"apiKey":"$MSB_corp-real-key","baseURL":"https://llm.corp.example"}}}}`
+	require.Len(t, InlineCredentialsIn("opencode.json", []byte(lookalikeConfig)), 1)
+}

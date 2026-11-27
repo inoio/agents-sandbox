@@ -94,7 +94,7 @@ func holdsUndeclaredSecretValue(path, content string) bool {
 	if err != nil {
 		return true
 	}
-	return decodedHoldsUndeclaredSecretValue(decoded)
+	return decodedHoldsUndeclaredSecretValue(decoded) || unprovenLeafPath(decoded) != ""
 }
 
 // yamlDocumentMarker matches a line that opens or closes a YAML document.
