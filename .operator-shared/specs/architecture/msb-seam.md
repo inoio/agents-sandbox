@@ -67,7 +67,10 @@ provider-owned split avoids an adapter per consumer.
   `DiskCompactionResult`, and the `ModificationPolicy` string enum. `ConfigMounts`/`ConfigPorts` return
   the launcher `MountConfig`/`PortBinding`. Aliases that must stay distinct from an SDK enum keep their
   values verbatim (e.g. `msb.SandboxStatus` string-mirrors `msbSdk.SandboxStatus` so `string(x)` and
-  `==` keep working), and the sync guards below cover them.
+  `==` keep working), and the sync guards below cover them. The lifecycle enums stay string-backed
+  launcher types (`SandboxStatus` mirrors the SDK's string values so `string(x)` and `==` keep
+  working); `JobInfo.State` and `JobLogEntry.Source` surface the SDK enum as a plain `string` because
+  the launcher renames it, so no SDK enum crosses the seam.
 - **Observation aliases.** A full-mirror, pure-data SDK observation with no enum field and no method is
   the seam's currency as an **alias** (`type Metrics = msbSdk.Metrics`), not a launcher struct: the
   launcher keeps the name while the compiler guards field drift, so the alias needs no projector and no
@@ -90,6 +93,12 @@ resolved and never refresh. A consumer that needs the live VM state re-resolves 
 `vm.FindProjectVM` does) or uses the status-gated `Connect`, which reads live. A failed config
 observation is retained on the handle, so a run degrades to "config unreadable" rather than failing
 the lookup.
+
+**Error classes.** The adapter's `Is*` predicates (`IsNotFound`, `IsVolumeNotFound`,
+`IsVolumeAlreadyExists`, `IsSandboxAlreadyExists`, `IsReplaced`, `IsUnsupportedOperation`,
+`IsJobNotRunning`) are the seam's named error classes over the SDK's typed `*Error{Kind}`; consumers
+branch on them rather than on SDK kinds. `IsJobNotRunning` is the one class the SDK does not type: it
+matches `*msbJobError.Code == "job_not_running"`, an upstream gap to revisit if the SDK gains a kind.
 
 ## Upstream sync guards
 
