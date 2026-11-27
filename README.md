@@ -24,7 +24,7 @@ In short, agents-sandbox:
 
 - runs each agent in its own microVM with a separate kernel, not just a container or process sandbox,
 - is open source and needs no account,
-- denies network egress by default and keeps secrets on the host,
+- keeps secrets on the host and controls network egress with profiles and allow/deny rules,
 - runs on Linux (KVM) and Apple Silicon Macs.
 
 The [alternatives page](https://inoio.github.io/agents-sandbox/alternatives.html) compares it with NVIDIA OpenShell, Anthropic sandbox-runtime,

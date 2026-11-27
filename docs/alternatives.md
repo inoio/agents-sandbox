@@ -11,10 +11,8 @@ coding agents in a sandbox. It doesn't hand out a security score, and there's
 no single best tool. These projects move fast, so check the upstream docs
 before you decide. Hosted sandbox services are out of scope.
 
-For agents-sandbox, the page describes v0.5.0 including
-[PR #98](https://github.com/inoio/agents-sandbox/pull/98) and
-[PR #103](https://github.com/inoio/agents-sandbox/pull/103): egress is denied
-by default and host agent config is no longer copied into the VM by default.
+The other tools were checked on 3 October 2026. The agents-sandbox section is
+current as of November 2026.
 
 ## Overview
 
@@ -29,7 +27,7 @@ Sorted roughly by GitHub stars. The order is not a ranking.
 | [nono](#nono) | ~4.3k | Process (Landlock, Seatbelt) | Linux, macOS, WSL 2 | Deny; proxy allowlist | Phantom token; proxy injects                         | Host directory, policy-scoped | Claude Code, Codex, Pi, Copilot, OpenCode, more | Apache-2.0 |
 | [container-use](#dagger-container-use) | ~4k | Container per agent (not a security boundary) | Where Dagger runs | Not documented | Not documented                                       | Container + Git branch per agent | Any MCP-capable agent | Apache-2.0 |
 | [Docker Sandboxes](#docker-sandboxes) | n/a | MicroVM | macOS (Apple Silicon), Windows 11, Linux with KVM | TCP per rule; UDP off | Proxy injects AI-service keys                        | Host directory read-write; `--clone` optional | Claude Code, Codex, Copilot, Gemini, OpenCode, more | Proprietary; account required |
-| **[agents-sandbox](#agents-sandbox)** | ~21 | libkrun microVM (microsandbox) | Linux (KVM), macOS (Apple Silicon) | Deny; profiles and allow rules | Placeholder for `env.secret`; host config not copied | Host directory read-write; `--worktree` for opencode/opencode2 | opencode, opencode2, pi, Claude Code | GPL-3.0 |
+| **[agents-sandbox](#agents-sandbox)** | ~93 | libkrun microVM (microsandbox) | Linux (KVM), macOS (Apple Silicon) | Public internet by default; profiles tune it | Placeholder for `env.secret`; host config not copied | Host directory read-write; `--worktree` for opencode/opencode2 | opencode, opencode2, pi; nine more experimental | GPL-3.0 |
 
 Docker Sandboxes has no public repository, so there's no star count. It is
 still one of the closest alternatives to agents-sandbox.
@@ -42,7 +40,7 @@ agents-sandbox section; it's listed under
 ## Choosing a tool
 
 Start with the questions that rule tools out. What's left usually comes down
-to workflow and taste. The [threat model](#threat-model) below explains the
+to workflow and taste. The [threat model](#threat-model) section explains the
 risks behind these questions.
 
 **1. Is a shared host kernel acceptable?**
@@ -68,8 +66,9 @@ compromise. A microVM puts a guest kernel in between.
 - Intel Macs: agents-sandbox and Docker Sandboxes need Apple Silicon.
 
 **3. Which agent?**
-Check the agents column in the overview. agents-sandbox ships profiles for
-opencode, opencode2, pi and Claude Code. For Codex, Copilot or Gemini, look at
+Check the agents column in the overview. agents-sandbox ships tested profiles
+for opencode, opencode2 and pi; Claude Code, Codex, Hermes and six more are
+experimental. For a better-tested Codex or Copilot setup, look at
 Sandcastle, Docker Sandboxes, nono or OpenShell. Without a profile you can
 still run any CLI in most of these tools, but you set up config and credentials
 yourself.
@@ -85,8 +84,9 @@ token be used".
 - agents-sandbox and smolvm bind a secret to hosts. Docker Sandboxes does this
   for supported AI services.
 - OpenShell and nono go further: a credential can be limited to a binary or
-  tool, an HTTP method and a path. That's the only way to stop a GitHub token
-  from writing to repositories outside the task.
+  tool, an HTTP method and a path. These rules can restrict writes to the task's
+  repositories. A GitHub fine-grained token scoped to those repositories also
+  prevents writes elsewhere.
 - sandbox-runtime has no credential proxy by default; the agent holds the
   real token.
 
@@ -121,7 +121,7 @@ need audit logs.
 | --- | --- | --- | --- |
 | Laptop, Claude Code, want protection with little overhead | sandbox-runtime | No VM, protects hooks and config files | Shared kernel; turn on fail-closed, or Claude Code runs commands unsandboxed when the sandbox can't start |
 | Several agents, fine-grained credential rules, no VM | nono | Per-tool policies, method/path rules, keychain and password-manager integration | Shared kernel; pre-1.0 with several advisories in 2026 |
-| Guest kernel, open source, no account; opencode, pi or Claude Code | agents-sandbox | MicroVM per project, egress denied, host-bound secrets, works on your checkout | Checkout writable by default; network rules are host-level only; Linux and Apple Silicon only |
+| Guest kernel, open source, no account; opencode, opencode2 or pi | agents-sandbox | MicroVM per project, composable egress profiles, host-bound secrets, works on your checkout | Checkout writable by default; network rules are host-level only; Linux and Apple Silicon only |
 | Guest kernel, many agents, Windows, closed source is fine | Docker Sandboxes | Broadest agent list, `--clone`, Docker-in-VM | Account, telemetry, Docker's terms; credential injection only for AI services |
 | Team or platform, central policy and audit | OpenShell | Per-binary L7 rules, policy prover, audit events | Operational overhead; default is a container, microVM driver is experimental |
 | Scriptable agent workflows, parallel branches and broad agent support | Sandcastle | TypeScript orchestration with Docker/Podman and worktree strategies | Local providers use shared-kernel containers; env secrets are visible to the agent |
@@ -187,30 +187,31 @@ It depends on whether the host checkout is mounted read-write.
 
 ## agents-sandbox
 
-> **Assumption:** this section describes v0.5.0 with
-> [PR #98](https://github.com/inoio/agents-sandbox/pull/98) and
-> [PR #103](https://github.com/inoio/agents-sandbox/pull/103) merged, including
-> safe config migration for all supported agent profiles.
+> **Note:** this section is current as of November 2026.
 
 agents-sandbox is a launcher on top of the microsandbox runtime. It starts one
 libkrun microVM per project and agent, mounts the project at `/workspace`, and
-runs opencode, opencode2, pi or Claude Code inside.
+runs opencode, opencode2 or pi (the tested agents) plus Claude Code, Codex,
+Hermes and several more inside.
 
 - **Boundary:** KVM on Linux, Apple's virtualization on Apple Silicon Macs.
   The guest has its own kernel and root filesystem. The VMM and runtime still
   run on the host with your permissions.
 - **Guest user:** the agent runs as the non-root `dev` user; startup hooks can
-  run as root. With `--dind`, the agent can use Docker inside the VM.
+  run as root. With `--docker`, the agent can use Docker inside the VM.
 - **Secrets:** values from `env.secret` or `env.secret.yaml` stay on the host;
   the guest only sees placeholders. Host agent config and credential files are
-  not copied by default. `provision-host-config: true` brings back the old
-  copy-everything behavior. `config migrate` and the first-run guidance move an
-  existing setup over: recognized credentials become placeholders, raw values
-  go into the user-level secret file, and provider hosts are added to the
-  allow list after you review them. Ambiguous values need manual review. None
-  of this protects values in plain `env`, `home:`, mounts or project files.
-- **Egress:** denied by default. Profiles and host, CIDR or suffix rules open
-  it up. The policy is set when the VM is created; changing it can recreate
+  not copied into the VM by default; `provision-host-config: true` opts back in
+  to copying them. A first run offers to learn the setup from a real session:
+  `run --learn` observes what the agent reached and proposes config — secrets,
+  network hosts, agent snippets — for you to accept or reject, and
+  `config harden` audits config you already have and proposes tightening it.
+  None of this protects values in plain `env`, `home:`, mounts or project
+  files.
+- **Egress:** the public internet is allowed by default (the `public` profile);
+  the `private` and `host` profiles extend it to your LAN and the host, and
+  `none` is deny-by-default and allowlist-only. Host, CIDR and suffix rules
+  refine the policy. It is set when the VM is created; changing it can recreate
   the VM.
 - **Workspace:** a normal session mounts the project read-write, so whatever
   the agent writes lands in your checkout. `--worktree` uses a Git worktree
@@ -237,11 +238,12 @@ mounts and the VMM process remain things to think about.
 Ideas and progress are tracked in the
 [issues](https://github.com/inoio/agents-sandbox/issues).
 
-Sources (checked 3 October 2026):
+Sources (checked 27 November 2026):
 [repository](https://github.com/inoio/agents-sandbox),
 [releases](https://github.com/inoio/agents-sandbox/releases),
 [security policy](https://github.com/inoio/agents-sandbox/blob/main/SECURITY.md),
 [networking]({% link configuration/networking.md %}),
+[learn your setup]({% link learn-your-setup.md %}),
 [worktree sessions]({% link branch-sessions.md %}),
 [agent configuration]({% link configuration/agent.md %}).
 
@@ -345,9 +347,9 @@ hosted Firecracker microVMs, which are outside this page's local-tools scope.
 
 **Compared with agents-sandbox:** Sandcastle offers broader agent support and
 more flexible orchestration and branch workflows. Its local providers use a
-shared host kernel and do not provide agents-sandbox's default-deny egress or
-host-bound secret placeholders. The Vercel provider offers a guest-kernel
-boundary, but is hosted rather than a local alternative.
+shared host kernel and do not provide agents-sandbox's composable egress
+profiles or host-bound secret placeholders. The Vercel provider offers a
+guest-kernel boundary, but is hosted rather than a local alternative.
 
 Sources (checked 3 October 2026; repository snapshot near that date):
 [README](https://github.com/mattpocock/sandcastle/blob/62307ab65ad9f8414f7a4893d96328a0353b0c3f/README.md),
@@ -574,11 +576,20 @@ agent trustworthy.
   model output and MCP responses.
 - A read-write host mount lets the agent plant hooks or build steps that run
   later outside the sandbox. Clone and worktree modes make that reviewable.
-- Young runtimes collect advisories quickly. A microVM doesn't mean you can
+- Young runtimes collect advisories fast. A microVM doesn't mean you can
   skip updates to the VMM, kernel, proxy and host OS.
 - Your code and prompts still go to the model provider. If data sovereignty
   matters, pick the provider accordingly; a sandbox only controls local
   execution.
+
+## Further reading
+
+- [Agent Sandboxes](https://agentsandboxes.org/) is an independent directory and
+  comparison of 126 agent sandboxes, with a finder by workload, environment and
+  isolation.
+- [How to choose an AI agent sandbox](https://cosmonic.com/ai-sandbox/choosing-an-agent-sandbox/)
+  (Cosmonic) covers the same ground from a WebAssembly and capability-security
+  angle. It is the vendor's own guide and argues for Wasm sandboxes.
 
 ## Contributing
 
