@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/hostfigures"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -21,5 +22,8 @@ func TestMain(m *testing.M) {
 	offerRuntimeHomeMigration = func(context.Context, msb.Client, termio.UI) error { return nil }
 	// No existing runner image by default; recovery tests opt in explicitly.
 	existingAgentVersion = func(context.Context, docker.Client, string, string) (string, bool) { return "", false }
+	// Host-derived env defaults are sealed so prepare tests never read the host
+	// time zone, locale, or git config; tests that assert the merge opt in.
+	hostEnvDefaults = func([]configpaths.ConfigScope) map[string]string { return nil }
 	mocks.InitFailFastMocks(m)
 }
