@@ -63,6 +63,14 @@ left intact lands bottom-up the same way, and GitHub rebases the remaining PRs o
 one merges. (Deleting the stack's base branch also makes GitHub retarget the stack to the default
 branch, but a merged branch is not deleted here by convention.)
 
+Changing a PR's base — retargeting it, or dissolving a stack — fires `pull_request` `edited`, which
+`ci.yml` does not subscribe to, so its checks do **not** re-run: a red check from before the change
+persists until the branch is updated. `gh pr update-branch <n>` merges the current base into the
+branch and re-reports the checks, and it also clears the stale-branch `codecov/patch` miss (codecov
+measures the head merged with the base, so a branch behind `main` shows a spurious patch miss — see
+`specs/testing/test-coverage.md`). `scripts/enqueue-pr.sh` retargets a base but does not update the
+branch, so update each upper PR after the one below merges before enqueueing it.
+
 The `changelog` slug gate diffs each PR against the branch it directly targets (the CI job passes
 `GH_PR_BASE_REF`), so a mid-stack PR's diff no longer carries the lower PRs' fragments and their slugs
 do not trip it. See `specs/ci/ci-pipeline.md`.
