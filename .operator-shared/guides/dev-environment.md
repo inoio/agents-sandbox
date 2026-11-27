@@ -36,10 +36,14 @@ Prefer these installed CLI tools over other tools or custom solutions:
 | Create a Python environment                | `python3 -m venv`                               |
 | Go: navigate, find references, rename      | `gopls` (`definition`, `references`, `rename`)  |
 | Go: add/remove imports after a move        | `goimports`                                     |
-| Wait for PR/CI checks to finish            | `gh pr checks <n> --watch` / `gh run watch`     |
+| Wait for PR/CI checks to finish            | `gh pr checks <n> --watch` / `gh run watch --compact -i 30` |
 
 `~/go/bin` (GOBIN) is on `PATH`, so a `go install`ed tool is runnable in a later
 shell.
+
+Wait for a run with `gh run watch <id> --compact --exit-status -i 30`: `--compact` prints only the relevant
+and failed steps, and a coarse `-i` cuts redraws. A bare `gh run watch` redraws the whole job graph every few
+seconds — thousands of lines over a long run — which buries the outcome when the output is a background log.
 
 ## Build cache
 
