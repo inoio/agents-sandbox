@@ -131,6 +131,14 @@ func TestFailFastConfigPathsServesMSBHomeFromEnv(t *testing.T) {
 	if got := configpaths.MSBHome(); got != home {
 		t.Errorf("MSBHome() = %q, want %q", got, home)
 	}
+
+	// The opt-in is not a licence to invent a home: with MSB_HOME unset there is
+	// nothing to follow, so the resolver must still fail loudly rather than
+	// resolve a bogus "msb" under the empty path.
+	t.Run("MSB_HOME unset still panics", func(t *testing.T) {
+		t.Setenv("MSB_HOME", "")
+		assertPanics(t, func() { _ = (&failFastConfigPaths{}).UserDataDir() })
+	})
 }
 
 // TestWithMockConfigPathsServesMSBHomeFromEnv pins the msb-tagged harness

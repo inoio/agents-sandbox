@@ -50,7 +50,7 @@ func WithMockConfigPaths(t *testing.T) {
 // does not leak across tests. Only the msb-tagged harness uses it; every other
 // test keeps the temp baseDir.
 func WithMockConfigPathsMSBHomeFromEnv(t *testing.T) {
-	t.Helper()
+	t.Helper() // gomutants:disable STATEMENT_REMOVE reason="t.Helper only affects the stack trace a failing test reports, so removing it cannot change observable test behaviour"
 	withMockConfigPaths(t, true)
 }
 
