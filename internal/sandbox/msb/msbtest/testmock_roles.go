@@ -4,6 +4,7 @@ package msbtest
 import (
 	"context"
 	"io"
+	"time"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
@@ -387,8 +388,9 @@ func (m *MockSandboxJobs) ListJobs(ctx context.Context, query msb.JobQuery) ([]m
 // MockSandboxObserver is a test double for SandboxObserver. A nil callback
 // means return the zero value with no error.
 type MockSandboxObserver struct {
-	MetricsFn func(ctx context.Context) (*msb.Metrics, error)
-	LogsFn    func(ctx context.Context, query msb.LogQuery) ([]msb.LogEntry, error)
+	MetricsFn       func(ctx context.Context) (*msb.Metrics, error)
+	MetricsStreamFn func(ctx context.Context, interval time.Duration) (msb.MetricsStream, error)
+	LogsFn          func(ctx context.Context, query msb.LogQuery) ([]msb.LogEntry, error)
 }
 
 // Compile-time check.
@@ -398,6 +400,16 @@ var _ msb.SandboxObserver = (*MockSandboxObserver)(nil)
 func (m *MockSandboxObserver) Metrics(ctx context.Context) (*msb.Metrics, error) {
 	if m.MetricsFn != nil {
 		return m.MetricsFn(ctx)
+	}
+	return nil, nil
+}
+
+// MetricsStream implements SandboxObserver.
+func (m *MockSandboxObserver) MetricsStream(
+	ctx context.Context, interval time.Duration,
+) (msb.MetricsStream, error) {
+	if m.MetricsStreamFn != nil {
+		return m.MetricsStreamFn(ctx, interval)
 	}
 	return nil, nil
 }
