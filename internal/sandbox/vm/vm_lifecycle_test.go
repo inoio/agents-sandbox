@@ -1307,7 +1307,9 @@ func TestBootMemoryMiB(t *testing.T) {
 // was read correctly) sets no boot maximum: the configured memory boots as is,
 // rather than being clamped to 0 MiB and leaving the VM at the runtime's floor.
 func TestBootMemoryMiBKeepsTheConfiguredMemoryOnAnUnknownHost(t *testing.T) {
-	t.Cleanup(hostfigures.OverrideTotalMemoryGiBForTest(func() int { return 0 }))
+	original := totalMemoryGiB
+	totalMemoryGiB = func() int { return 0 }
+	t.Cleanup(func() { totalMemoryGiB = original })
 	ui := &termiotest.Mock{}
 
 	if got := bootMemoryMiB("4G", ui); got != 4096 {

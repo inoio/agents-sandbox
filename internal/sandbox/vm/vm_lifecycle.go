@@ -286,12 +286,14 @@ func reconcileResources(ctx context.Context, handle msb.SandboxHandle, opts opti
 	}
 }
 
+var totalMemoryGiB = sysinfo.TotalMemoryGiB
+
 // BootMaxMemoryMiB is the boot-time memory maximum a project VM is created
 // with: the host's installed RAM in whole GiB. No live modification can raise
 // a VM's memory above it.
 func BootMaxMemoryMiB() uint32 {
 	//nolint:gosec // G115: physical RAM in GiB cannot overflow uint32
-	return options.ParseMemoryGiB(uint32(sysinfo.TotalMemoryGiB()))
+	return options.ParseMemoryGiB(uint32(totalMemoryGiB()))
 }
 
 // bootMemoryMiB is the memory a new project VM boots with: the configured
