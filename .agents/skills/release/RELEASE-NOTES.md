@@ -57,3 +57,13 @@ the returning contributors, reuse the authors from the generated `## What's Chan
 List first-time contributors first, each marked `(first contribution)`, then the returning ones.
 The range the endpoint uses matches the release's merged-PR window, so the notes and the changelog
 describe one set of changes.
+
+### Micro releases
+
+A micro is assembled from backport PRs, whose authors are the porter and the backport bot — the people
+who wrote the fixes are the **source** PRs. Credit the source PRs' authors (the `#<n>` each changelog
+bullet carries), and mark a first-time source contributor `(first contribution)`.
+
+`releases/generate-notes` needs both tags to exist: with a not-yet-created `tag_name` it silently returns
+the wrong range. For a micro, resolve the contributors from the source PRs, or rerun the endpoint after the
+tag exists.
