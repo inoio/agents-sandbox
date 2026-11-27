@@ -1213,7 +1213,7 @@ func TestKeepVMAliveTouchesUntilStopped(t *testing.T) {
 			touched = true
 			break
 		}
-		time.Sleep(time.Millisecond)
+		time.Sleep(time.Millisecond) //testenv:allow poll until the keeper's first touch lands
 	}
 	if !touched {
 		t.Fatal("keepVMAlive never touched the VM")
@@ -1222,7 +1222,7 @@ func TestKeepVMAliveTouchesUntilStopped(t *testing.T) {
 		t.Fatalf("stop() = %v, want nil after successful touches", err)
 	}
 	before := sb.touches.Load()
-	time.Sleep(5 * time.Millisecond)
+	time.Sleep(5 * time.Millisecond) //testenv:allow a negative assertion: the keeper must touch no more after stop()
 	if got := sb.touches.Load(); got != before {
 		t.Errorf("keeper touched %d more times after stop()", got-before)
 	}
@@ -1242,7 +1242,7 @@ func TestKeepVMAliveReturnsLastTouchError(t *testing.T) {
 		if sb.touches.Load() >= 2 {
 			break
 		}
-		time.Sleep(time.Millisecond)
+		time.Sleep(time.Millisecond) //testenv:allow poll until the keeper's second touch lands
 	}
 	if sb.touches.Load() < 2 {
 		t.Fatalf("keeper stopped after one touch (%d), want it to tolerate the error and keep going", sb.touches.Load())
