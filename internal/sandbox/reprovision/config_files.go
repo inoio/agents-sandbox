@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configdecode"
 	config "github.com/inoio/agents-sandbox/internal/configmerge"
 	cp "github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
@@ -363,7 +364,10 @@ func LoadConfigFilesForHost(
 	// Remove the main config's siblings so a stale one cannot shadow it. The
 	// main config itself is reconciled, not removed: the launcher owns only the
 	// keys it writes, so the agent's own settings survive. When host config
-	// provisioning is disabled no copied host file may remain.
+	// provisioning is disabled no copied host config file may remain; only the
+	// single launcher-managed files are removed, and a content tree the drop-in
+	// would have copied (skills, commands, agents, …) is left alone, because its
+	// files can also be written inside the sandbox.
 	remove := configFileFamilyPaths(merged.path, subject.familyNames)
 	if !provisionHostConfig {
 		remove = append(remove, subject.provisionDestinations(hostHome)...)
@@ -655,20 +659,32 @@ func mirrorMaps(entries map[string]config.MirrorEntry) (map[string][]byte, map[s
 	return mirror, modes
 }
 
-// provisionDestinations returns the VM paths the subject's provision rules
-// would copy for the given host, without copying anything. It mirrors the
-// drop-in copy's destinations so they can be removed when host provisioning is
-// disabled.
+// provisionDestinations returns the VM paths of the config and credential files
+// the subject's provision rules would copy for the given host, without copying
+// anything. It mirrors the drop-in copy's destinations so they can be removed
+// when host provisioning is disabled. Only files the launcher manages are
+// included: a single file with a config-format extension (a config or credential
+// file such as settings.json, config.toml, or auth.json). The user-authored
+// instruction and content files — CLAUDE.md, AGENTS.md, and everything under the
+// skills, commands, agents, prompts, extensions, themes, and workflows trees —
+// are excluded, because the agent may also write those inside the sandbox and
+// deleting them would discard in-VM content the launcher never wrote. A
+// broad-glob rule (opencode's "**") is narrowed to its dir's top level, so a
+// config-shaped file the glob also selects inside a skill, theme, or plugin
+// directory is never removed.
 func (s configSubject) provisionDestinations(hostHome string) []string {
 	if s.provisioner == nil {
 		return nil
 	}
 	var dsts []string
-	_, _ = agent.EvalProvisionRules(
-		s.provisionRules,
+	_, _ = agent.EvalManagedProvisionRules(
+		agent.ProvisionRulesWithoutContentTrees(s.provisionRules),
 		hostHome,
 		s.vmHome,
 		func(dst string, _ []byte, _ os.FileMode) error {
+			if _, known := configdecode.FormatFor(dst); !known {
+				return nil
+			}
 			dsts = append(dsts, dst)
 			return nil
 		},

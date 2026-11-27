@@ -247,10 +247,15 @@ The drop-in copy is scoped to the agent's settings and, for opencode, its creden
   `AGENTS.override.md`, `CLAUDE.md`, `SYSTEM.md`, `APPEND_SYSTEM.md`), and the `extensions/`, `skills/`, `prompts/`,
   and `themes/` directories. `auth.json` (saved keys and `/login` credentials), `models.json` and `mcp.json` (which
   can hold literal keys and headers), `mcp-auth.json`, and sessions are not copied.
-- **claude-code** — `~/.claude/settings.json` (runtime state and the machine-managed `.credentials.json` are not copied).
-- **codex** — `~/.codex/config.toml` (sessions, logs, and the `auth.json` login cache are not copied).
+- **claude-code** — from `~/.claude`: `settings.json`, `CLAUDE.md`, and the `commands/`, `agents/`, and `skills/`
+  directories (runtime state and the machine-managed `.credentials.json` are not copied). `settings.json` can hold keys
+  and tokens in its `env` block, which are copied with it.
+- **codex** — from `~/.codex`: `config.toml`, `AGENTS.md`, `AGENTS.override.md`, and the `skills/` directory
+  (sessions, logs, and the `auth.json` login cache are not copied). `config.toml` can hold a provider's
+  `experimental_bearer_token` and MCP servers' `env` and `http_headers`, which are copied with it.
 - **hermes** — `~/.hermes/config.yaml` (the rest of `~/.hermes` — `state.db`, `sessions/`, `memories/`, `skills/` — is
-  runtime state and is not copied; credentials in `~/.hermes/.env` are never copied).
+  runtime state and is not copied; credentials in `~/.hermes/.env` are never copied). `config.yaml` can hold a
+  `model.api_key` and MCP servers' `env` and `headers`, which are copied with it.
 - **oh-my-pi** — `~/.omp/agent/config.yml` or `config.yaml` (the rest of `~/.omp` — sessions, `agent.db`, the
   extracted native addon — is runtime state and is not copied; `models.yml` and `~/.omp/agent/.env` can hold literal
   provider keys and are never copied).

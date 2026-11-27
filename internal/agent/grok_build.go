@@ -96,7 +96,7 @@ func (grokBuildProfile) ConfigFileNames() []string { return []string{grokBuildCo
 func (grokBuildProfile) ProvisionRules() []ProvisionRule {
 	return []ProvisionRule{
 		{Dir: grokBuildDataDir, Patterns: []string{
-			agentsRulesPattern, "/Agents.md", "/AGENT.md", "/CLAUDE.md", "/Claude.md",
+			agentsRulesPattern, "/Agents.md", "/AGENT.md", claudeRulesPattern, "/Claude.md",
 			skillsDirPattern, "/sandbox.toml", "/workflows/",
 		}},
 	}

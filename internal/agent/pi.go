@@ -63,7 +63,7 @@ func (piProfile) ProvisionRules() []ProvisionRule {
 		{Dir: piAgentDir, Patterns: []string{
 			"/" + settingsFileName,
 			"/keybindings.json",
-			"/AGENTS.override.md", "/AGENTS.md", "/AGENTS.MD", "/CLAUDE.md", "/CLAUDE.MD",
+			agentsOverridePattern, agentsRulesPattern, "/AGENTS.MD", claudeRulesPattern, "/CLAUDE.MD",
 			"/SYSTEM.md", "/APPEND_SYSTEM.md",
 			"/extensions/", skillsDirPattern, promptsDirPattern, "/themes/",
 		}},

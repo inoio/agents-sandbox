@@ -276,6 +276,153 @@ func TestEvalProvisionRulesUnreadableDir(t *testing.T) {
 	}
 }
 
+// TestIsContentTreePattern pins the classification the stale-removal scope and
+// the first-run host probe share: a nested content tree is a non-negated
+// directory pattern (a trailing slash), while a single file, a broad glob, and a
+// negation are not trees.
+func TestIsContentTreePattern(t *testing.T) {
+	cases := map[string]bool{
+		"/skills/":       true,
+		"/commands/":     true,
+		"/agents/":       true,
+		"/prompts/":      true,
+		"/extensions/":   true,
+		"/themes/":       true,
+		"/workflows/":    true,
+		"/recipes/":      true,
+		"!node_modules/": false,
+		"/CLAUDE.md":     false,
+		"/AGENTS.md":     false,
+		"settings.json":  false,
+		"**":             false,
+	}
+	for pattern, want := range cases {
+		if got := agent.IsContentTreePattern(pattern); got != want {
+			t.Errorf("IsContentTreePattern(%q) = %v, want %v", pattern, got, want)
+		}
+	}
+}
+
+// TestProvisionRulesWithoutContentTrees pins the shared filter: content-tree
+// patterns are removed, single-file patterns and negations are kept, and a rule
+// left with no patterns is dropped. It backs both the disabled drop-in's
+// stale-removal scope and the first-run host probe.
+func TestProvisionRulesWithoutContentTrees(t *testing.T) {
+	rules := []agent.ProvisionRule{
+		{Dir: ".claude", Patterns: []string{"settings.json", "/CLAUDE.md", "/commands/", "/agents/", "/skills/"}},
+		{Dir: ".pi/agent", Patterns: []string{"/extensions/", "/themes/"}},
+		{Dir: ".config/opencode", Patterns: []string{"**", "!node_modules/"}},
+	}
+	want := []agent.ProvisionRule{
+		{Dir: ".claude", Patterns: []string{"settings.json", "/CLAUDE.md"}},
+		{Dir: ".config/opencode", Patterns: []string{"**", "!node_modules/"}},
+	}
+	if got := agent.ProvisionRulesWithoutContentTrees(rules); !reflect.DeepEqual(got, want) {
+		t.Errorf("ProvisionRulesWithoutContentTrees() = %v, want %v", got, want)
+	}
+}
+
+// TestIsBroadGlobPattern pins the classification the broad-glob narrowing
+// shares: only the recursive "**" glob is broad; a depth-one "*", an explicit
+// file or tree pattern, and a negation are not.
+func TestIsBroadGlobPattern(t *testing.T) {
+	cases := map[string]bool{
+		"**":             true,
+		"!**":            false,
+		"*":              false,
+		"/*":             false,
+		"settings.json":  false,
+		"/skills/":       false,
+		"!node_modules/": false,
+	}
+	for pattern, want := range cases {
+		if got := agent.IsBroadGlobPattern(pattern); got != want {
+			t.Errorf("IsBroadGlobPattern(%q) = %v, want %v", pattern, got, want)
+		}
+	}
+}
+
+// TestSelectManagedProvisionFileNarrowsBroadGlob pins the selection the
+// stale-removal set and the first-run host probe share: a broad-glob rule yields
+// only its dir's top-level files (honouring negations), never a nested file or a
+// directory it also selects.
+func TestSelectManagedProvisionFileNarrowsBroadGlob(t *testing.T) {
+	rule := agent.ProvisionRule{Dir: ".config/opencode", Patterns: []string{
+		"**", "!node_modules/", "!package*.json", "!.gitignore",
+	}}
+	cases := []struct {
+		rel   string
+		isDir bool
+		want  bool
+	}{
+		{rel: "opencode.json", want: true},
+		{rel: "themes/mytheme.json", want: false},
+		{rel: "skills/foo/config.json", want: false},
+		{rel: "plugins/x.yaml", want: false},
+		{rel: "themes", isDir: true, want: false},
+		{rel: "package.json", want: false},
+		{rel: ".gitignore", want: false},
+	}
+	for _, tc := range cases {
+		if got := agent.SelectManagedProvisionFile(rule, tc.rel, tc.isDir); got != tc.want {
+			t.Errorf("SelectManagedProvisionFile(%q, isDir=%v) = %v, want %v", tc.rel, tc.isDir, got, tc.want)
+		}
+	}
+}
+
+// TestSelectManagedProvisionFileKeepsANarrowRule pins the other branch: a rule
+// without a broad glob keeps its own selection, nested files included, minus
+// directories.
+func TestSelectManagedProvisionFileKeepsANarrowRule(t *testing.T) {
+	rule := agent.ProvisionRule{Dir: ".pi/agent", Patterns: []string{"/settings.json", "/skills/"}}
+	cases := []struct {
+		rel   string
+		isDir bool
+		want  bool
+	}{
+		{rel: "settings.json", want: true},
+		{rel: "skills/foo/SKILL.md", want: true},
+		{rel: "skills", isDir: true, want: false},
+		{rel: "auth.json", want: false},
+	}
+	for _, tc := range cases {
+		if got := agent.SelectManagedProvisionFile(rule, tc.rel, tc.isDir); got != tc.want {
+			t.Errorf("SelectManagedProvisionFile(%q, isDir=%v) = %v, want %v", tc.rel, tc.isDir, got, tc.want)
+		}
+	}
+}
+
+// TestEvalManagedProvisionRulesNarrowsBroadGlob pins the walk end to end: a
+// broad "**" rule copies the rule dir's top-level files (minus negations) and
+// none of the nested files or directories it also selects.
+func TestEvalManagedProvisionRulesNarrowsBroadGlob(t *testing.T) {
+	hostHome := t.TempDir()
+	vmHome := t.TempDir()
+	mustWrite(t, filepath.Join(hostHome, ".config/opencode/opencode.json"), `{"x":1}`)
+	mustWrite(t, filepath.Join(hostHome, ".config/opencode/package.json"), "{}")
+	mustWrite(t, filepath.Join(hostHome, ".config/opencode/themes/mytheme.json"), `{"t":1}`)
+	mustWrite(t, filepath.Join(hostHome, ".config/opencode/skills/foo/config.json"), `{"s":1}`)
+	rules := []agent.ProvisionRule{
+		{Dir: ".config/opencode", Patterns: []string{"**", "!package*.json"}},
+	}
+
+	var got []string
+	n, err := agent.EvalManagedProvisionRules(
+		rules, hostHome, vmHome,
+		func(dst string, _ []byte, _ os.FileMode) error {
+			got = append(got, filepath.ToSlash(dst))
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("EvalManagedProvisionRules: %v", err)
+	}
+	want := []string{filepath.ToSlash(filepath.Join(vmHome, ".config/opencode/opencode.json"))}
+	if n != 1 || !reflect.DeepEqual(got, want) {
+		t.Errorf("EvalManagedProvisionRules copied %d %v, want only the top-level config %v", n, got, want)
+	}
+}
+
 func TestValidateProvisionRules(t *testing.T) {
 	// Only the empty pattern and the bare "!" warn. Each is scoped to its own
 	// rule, and "!node_modules" (a legitimate negation) to a third, so a warning

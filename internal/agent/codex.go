@@ -76,11 +76,16 @@ func (codexProfile) VMConfigPath(home string) string {
 }
 func (codexProfile) ConfigFileNames() []string { return []string{codexConfigFileName} }
 
-// ProvisionRules copies only config.toml. auth.json is left out: a ChatGPT
-// login holds rotating refresh tokens that a copy would invalidate on the host.
+// ProvisionRules copies config.toml and the global instructions (AGENTS.md,
+// AGENTS.override.md) and skills tree. config.toml can hold a provider's bearer
+// token and MCP env and headers; the drop-in is opt-in with that consent.
+// auth.json is left out: a ChatGPT login holds rotating refresh tokens that a
+// copy would invalidate on the host.
 func (codexProfile) ProvisionRules() []ProvisionRule {
 	return []ProvisionRule{
-		{Dir: ".codex", Patterns: []string{codexConfigFileName}},
+		{Dir: ".codex", Patterns: []string{
+			codexConfigFileName, agentsRulesPattern, agentsOverridePattern, skillsDirPattern,
+		}},
 	}
 }
 
