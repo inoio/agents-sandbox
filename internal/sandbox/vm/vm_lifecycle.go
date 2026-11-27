@@ -382,6 +382,7 @@ func createProjectVM(ctx context.Context, creation ProjectVMCreation, name strin
 		MaxMemoryMiB: BootMaxMemoryMiB(),
 		Detached:     true,
 		IdleTimeout:  idleTimeout,
+		MaxDuration:  opts.MaxLifetime,
 		Ports:        ports.PublishBindings(opts.ServeOnly, opts.ServeHostPort, opts.Ports),
 		Network:      networkSpec,
 	}

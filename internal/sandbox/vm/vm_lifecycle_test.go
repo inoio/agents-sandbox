@@ -805,9 +805,10 @@ func newVMCreation(
 
 // TestCreateProjectVMConfiguresTheVM pins the config a project VM is created
 // with: the host's CPUs unless a count is configured, the default idle timeout
-// unless one is configured, a managed root disk only for a disk size, a
-// deny-by-default network unless a profile opens it, and published ports only
-// for serve-only mode's planned host port and the user's port mappings.
+// unless one is configured, an unlimited lifetime unless a max lifetime is
+// configured, a managed root disk only for a disk size, a deny-by-default
+// network unless a profile opens it, and published ports only for serve-only
+// mode's planned host port and the user's port mappings.
 func TestCreateProjectVMConfiguresTheVM(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -824,6 +825,9 @@ func TestCreateProjectVMConfiguresTheVM(t *testing.T) {
 				}
 				if spec.IdleTimeout != options.DefaultVMIdleTimeout {
 					t.Errorf("IdleTimeout = %v, want the default %v", spec.IdleTimeout, options.DefaultVMIdleTimeout)
+				}
+				if spec.MaxDuration != 0 {
+					t.Errorf("MaxDuration = %v, want unlimited when unset", spec.MaxDuration)
 				}
 				if spec.RootDiskMiB != 0 {
 					t.Errorf("RootDiskMiB = %d, want none without a disk size", spec.RootDiskMiB)
@@ -852,6 +856,15 @@ func TestCreateProjectVMConfiguresTheVM(t *testing.T) {
 			check: func(t *testing.T, spec msb.SandboxSpec) {
 				if spec.IdleTimeout != 45*time.Second {
 					t.Errorf("IdleTimeout = %v, want 45s", spec.IdleTimeout)
+				}
+			},
+		},
+		{
+			name: "configured max lifetime",
+			opts: options.RunOptions{Memory: "1G", MaxLifetime: 2 * time.Hour},
+			check: func(t *testing.T, spec msb.SandboxSpec) {
+				if spec.MaxDuration != 2*time.Hour {
+					t.Errorf("MaxDuration = %v, want 2h", spec.MaxDuration)
 				}
 			},
 		},
