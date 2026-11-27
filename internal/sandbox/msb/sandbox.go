@@ -56,6 +56,10 @@ type SandboxResourceControl interface {
 	Modify(ctx context.Context, opts ModifyOptions) (*SandboxModificationPlan, error)
 	Compact(ctx context.Context, req CompactionRequest) (*DiskCompactionResult, error)
 	Metrics(ctx context.Context) (*Metrics, error)
+	// MetricsStream is the same subscription the observer exposes; it lives on
+	// both roles so a persisted SandboxHandle, whose method set comes from here,
+	// still satisfies SandboxObserver.
+	MetricsStream(ctx context.Context, interval time.Duration) (MetricsStream, error)
 	Logs(ctx context.Context, query LogQuery) ([]LogEntry, error)
 }
 
@@ -104,9 +108,20 @@ type SandboxJobs interface {
 	ListJobs(ctx context.Context, query JobQuery) ([]JobInfo, error)
 }
 
+// MetricsStream is a live metrics subscription. Recv blocks until the next
+// sample arrives or the stream ends; Close releases the runtime-side resources.
+// Recv returning (nil, nil) means the stream ended.
+type MetricsStream interface {
+	Recv(ctx context.Context) (*Metrics, error)
+	Close() error
+}
+
 // SandboxObserver reads a sandbox's metrics and logs.
 type SandboxObserver interface {
 	Metrics(ctx context.Context) (*Metrics, error)
+	// MetricsStream subscribes to samples delivered every interval. The caller
+	// owns the returned handle and must Close it.
+	MetricsStream(ctx context.Context, interval time.Duration) (MetricsStream, error)
 	Logs(ctx context.Context, query LogQuery) ([]LogEntry, error)
 }
 
@@ -325,6 +340,10 @@ func (w realSandboxHandle) Metrics(ctx context.Context) (*Metrics, error) {
 	return metrics, nil
 }
 
+func (w realSandboxHandle) MetricsStream(ctx context.Context, interval time.Duration) (MetricsStream, error) {
+	return newMetricsStream(w.handle, ctx, interval)
+}
+
 func (w realSandboxHandle) Logs(ctx context.Context, query LogQuery) ([]LogEntry, error) {
 	entries, err := realSandboxLogs(w.handle, ctx, logOptions(query))
 	if err != nil {
@@ -501,6 +520,47 @@ func (s realSandbox) Metrics(ctx context.Context) (*Metrics, error) {
 		return nil, err
 	}
 	return metrics, nil
+}
+
+func (s realSandbox) MetricsStream(ctx context.Context, interval time.Duration) (MetricsStream, error) {
+	return newMetricsStream(s.sandbox, ctx, interval)
+}
+
+// realMetricsStream wraps the SDK handle behind the launcher MetricsStream, so
+// no SDK type crosses the seam. The SDK handle has no exported constructor, so
+// Recv and Close route through method-expression seams a unit test swaps,
+// exercising the wrapper without the native library (as realStreamHandle does).
+type realMetricsStream struct {
+	handle *msbSdk.MetricsStreamHandle
+}
+
+var (
+	realMetricsStreamRecv  = (*msbSdk.MetricsStreamHandle).Recv
+	realMetricsStreamClose = (*msbSdk.MetricsStreamHandle).Close
+)
+
+func (s realMetricsStream) Recv(ctx context.Context) (*Metrics, error) {
+	return realMetricsStreamRecv(s.handle, ctx)
+}
+
+func (s realMetricsStream) Close() error {
+	return realMetricsStreamClose(s.handle)
+}
+
+// sdkMetricsStream is the SDK call as a method-expression seam, so a unit test
+// runs newMetricsStream's wrapper body without the native library.
+var sdkMetricsStream = (*msbSdk.Sandbox).MetricsStream
+
+// newMetricsStream is the SDK call as a seam returning the launcher handle, so
+// a unit test injects a fake without the native library.
+var newMetricsStream = func(
+	s *msbSdk.Sandbox, ctx context.Context, interval time.Duration,
+) (MetricsStream, error) {
+	handle, err := sdkMetricsStream(s, ctx, interval)
+	if err != nil {
+		return nil, err
+	}
+	return realMetricsStream{handle: handle}, nil
 }
 
 func (s realSandbox) Logs(ctx context.Context, query LogQuery) ([]LogEntry, error) {
