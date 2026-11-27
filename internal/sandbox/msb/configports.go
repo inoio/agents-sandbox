@@ -6,14 +6,15 @@ import (
 	"strings"
 )
 
-// persistedConfigPorts mirrors the `network.ports` array of a persisted sandbox
-// config. The runtime stores a SandboxSpec whose NetworkSpec carries published
-// ports as PublishedPortSpec values (snake_case fields, the protocol spelled as
-// the Rust variant name), while the Go SDK's SandboxConfig.UnmarshalJSON drops
-// them: Config().PortBindings is empty on every read-back. See
+// persistedConfigPorts mirrors the inspection envelope's `spec.network.ports`
+// array. The native inspection returns the persisted `SandboxSpec` under `spec`,
+// whose NetworkSpec carries published ports as PublishedPortSpec values
+// (snake_case fields, the protocol spelled as the Rust variant name). See
 // .operator-shared/specs/vm/live-mount-readback.md.
 type persistedConfigPorts struct {
-	Network persistedNetworkPorts `json:"network"`
+	Spec struct {
+		Network persistedNetworkPorts `json:"network"`
+	} `json:"spec"`
 }
 
 // persistedNetworkPorts is the NetworkSpec subdocument; only its ports are
@@ -45,8 +46,8 @@ func ParseConfigPorts(configJSON string) ([]PortBinding, error) {
 	if err := json.Unmarshal([]byte(configJSON), &persisted); err != nil {
 		return nil, fmt.Errorf("parsing persisted sandbox config: %w", err)
 	}
-	bindings := make([]PortBinding, 0, len(persisted.Network.Ports))
-	for _, entry := range persisted.Network.Ports {
+	bindings := make([]PortBinding, 0, len(persisted.Spec.Network.Ports))
+	for _, entry := range persisted.Spec.Network.Ports {
 		protocol, known := portProtocol(entry.Protocol)
 		if !known {
 			continue

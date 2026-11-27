@@ -46,7 +46,7 @@ func TestParseConfigPortsWithoutNetworkKeyIsNotAnError(t *testing.T) {
 }
 
 func TestParseConfigPortsEmptyArrayIsNoBindings(t *testing.T) {
-	got, err := ParseConfigPorts(`{"network":{"ports":[]}}`)
+	got, err := ParseConfigPorts(`{"spec":{"network":{"ports":[]}}}`)
 	if err != nil {
 		t.Fatalf("ParseConfigPorts(empty array) error = %v", err)
 	}
@@ -65,10 +65,10 @@ func TestParseConfigPortsRejectsMalformedJSON(t *testing.T) {
 // TestParseConfigPortsSkipsUnknownProtocol pins that an entry with a protocol
 // this launcher does not know is skipped and the scan goes on to the next.
 func TestParseConfigPortsSkipsUnknownProtocol(t *testing.T) {
-	got, err := ParseConfigPorts(`{"network":{"ports":[
+	got, err := ParseConfigPorts(`{"spec":{"network":{"ports":[
 	  {"host_bind":"127.0.0.1","host_port":9,"guest_port":9,"protocol":"Sctp"},
 	  {"host_bind":"127.0.0.1","host_port":3000,"guest_port":3000,"protocol":"Tcp"}
-	]}}`)
+	]}}}`)
 	want := []PortBinding{{Bind: "127.0.0.1", HostPort: 3000, GuestPort: 3000, Protocol: PortProtocolTCP}}
 	if err != nil || !slices.Equal(got, want) {
 		t.Errorf("ParseConfigPorts() = %+v, %v; want %+v", got, err, want)
@@ -79,26 +79,30 @@ func TestParseConfigPortsSkipsUnknownProtocol(t *testing.T) {
 // ParseConfigPorts: a handle without persisted config JSON reports the decode
 // error rather than a silent empty binding list, mirroring ConfigMounts.
 func TestRealSandboxHandleConfigPorts(t *testing.T) {
-	h := &realSandboxHandle{handle: &msbSdk.SandboxHandle{}}
+	h := &realSandboxHandle{handle: &msbSdk.Sandbox{}}
 	if _, err := h.ConfigPorts(); err == nil {
 		t.Error("ConfigPorts() error = nil, want an error for a handle without config JSON")
 	}
 }
 
-// persistedConfigWithPorts mirrors the real persisted shape: SandboxConfig
-// flattens SandboxSpec, whose NetworkSpec carries published ports as
-// PublishedPortSpec values (microsandbox-types domain.rs) — snake_case fields,
-// the protocol spelled as the Rust variant name, host_bind always written.
+// persistedConfigWithPorts mirrors the real inspection envelope: the native
+// inspection returns the persisted SandboxSpec under `spec`, whose NetworkSpec
+// carries published ports as PublishedPortSpec values (microsandbox-types
+// domain.rs) — snake_case fields, the protocol spelled as the Rust variant name,
+// host_bind always written.
 const persistedConfigWithPorts = `{
-  "name": "agents-sandbox-vm-proj-opencode",
-  "memory_mib": 16384,
-  "network": {
-    "enabled": true,
-    "ports": [
-      {"host_port":4096,"guest_port":4096,"protocol":"Tcp","host_bind":"127.0.0.1"},
-      {"host_port":3000,"guest_port":3000,"host_bind":"127.0.0.1"},
-      {"host_port":8080,"guest_port":5173,"protocol":"Udp","host_bind":"127.0.0.1"},
-      {"host_port":9000,"guest_port":9000,"protocol":"Sctp","host_bind":"127.0.0.1"}
-    ]
+  "kind": "local",
+  "spec": {
+    "name": "agents-sandbox-vm-proj-opencode",
+    "memory_mib": 16384,
+    "network": {
+      "enabled": true,
+      "ports": [
+        {"host_port":4096,"guest_port":4096,"protocol":"Tcp","host_bind":"127.0.0.1"},
+        {"host_port":3000,"guest_port":3000,"host_bind":"127.0.0.1"},
+        {"host_port":8080,"guest_port":5173,"protocol":"Udp","host_bind":"127.0.0.1"},
+        {"host_port":9000,"guest_port":9000,"protocol":"Sctp","host_bind":"127.0.0.1"}
+      ]
+    }
   }
 }`

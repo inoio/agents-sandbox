@@ -2,10 +2,11 @@ package msb
 
 // SandboxConfig is the launcher's read-back view of a sandbox's persisted
 // configuration: the fields the launcher compares on a revisited VM. The
-// adapter translates the SDK's config onto it, and fills the mounts and
-// published ports through ConfigMounts/ConfigPorts because the SDK decode drops
-// them (specs/vm/live-mount-readback.md). A field the launcher does not model
-// is absent; the drift register in translate.go names it.
+// adapter projects the SDK's persisted-config inspection onto it, and fills the
+// mounts and published ports through ConfigMounts/ConfigPorts because the
+// model does not carry them (specs/vm/live-mount-readback.md). A field the
+// launcher does not model is absent; the drift register in translate.go names
+// it.
 //
 //exhaustruct:ignore
 type SandboxConfig struct {

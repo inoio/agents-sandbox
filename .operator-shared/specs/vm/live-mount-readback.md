@@ -1,42 +1,44 @@
 ---
-description: Contract for reading a live project VM's mounts and published ports. The microsandbox Go SDK's `SandboxConfig.UnmarshalJSON` drops the persisted `mounts` and `network.ports`, so `cfg.Volumes` and `cfg.PortBindings` are always empty on a read-back; the launcher instead decodes the persisted config JSON through `msb.SandboxHandle.ConfigMounts()` and `ConfigPorts()`. Consumers — the reconfig tmp-size/workspace-quota/home-volume detectors, the published-ports detectors (`publishReconfig`, `ports.ResolveServeHostPort`, `prepare.existingServeHostPort`), home-volume recovery via `vm.ProjectVMHomeVolume` (fail-closed), and `sandbox inspect` — all read from those sources; `reconfig` and `prepare.liveHomeVolume` degrade rather than fail when it is unavailable.
+description: Contract for reading a live project VM's mounts and published ports. The microsandbox Go SDK's read-back config model does not carry them, so `cfg.Volumes` and `cfg.PortBindings` are always empty on a read-back; the launcher instead decodes the persisted inspection envelope's `spec` through `msb.SandboxHandle.ConfigMounts()` and `ConfigPorts()`. Consumers — the reconfig tmp-size/workspace-quota/home-volume detectors, the published-ports detectors (`publishReconfig`, `ports.ResolveServeHostPort`, `prepare.existingServeHostPort`), home-volume recovery via `vm.ProjectVMHomeVolume` (fail-closed), and `sandbox inspect` — all read from those sources; `reconfig` and `prepare.liveHomeVolume` degrade rather than fail when it is unavailable.
 read_if: Reading or changing how the launcher learns a live VM's mounts or published ports, or diagnosing an empty `cfg.Volumes` / `mounts (0)` / silently ignored `tmp_size`, `workspace-quota`, or `ports:` change, or a serve-only VM that reads as changed on every start (`internal/sandbox/reconfig/plan.go`, `internal/sandbox/ports`, `internal/sandbox/vm/inspect.go`, `ProjectVMHomeVolume`/`liveHomeVolume`).
 ---
 
-# Live VM mounts and ports come from the persisted config JSON
+# Live VM mounts and ports come from the persisted inspection envelope
 
 ## The gap
 
-`SandboxHandle.Config()` decodes the sandbox record's `config_json` column through the Go SDK's
-`SandboxConfig.UnmarshalJSON` (`sdk/go` `options.go`), which populates a `persistedSandboxConfig` that has
-**no mounts field and no ports field**. `cfg.Volumes` and `cfg.PortBindings` are therefore nil for any config read
-back from a live VM. Fields that do round-trip (`cfg.Image`, `cfg.RootDisk`, `cfg.Labels`, resources) are
-unaffected, which is why `rootDiskChange` works and the `cfg.Volumes`/`cfg.PortBindings` readers do not.
+A read-back walks the SDK's persisted-config inspection. `SandboxHandle.Config()` projects it onto the
+launcher's `SandboxConfig`, which models only the scalar fields the launcher compares (`Image`,
+`Labels`, resources, the root disk). The mounts and published ports are not part of that projection, so
+`cfg.Volumes` and `cfg.PortBindings` are nil for any config read back from a live VM. The scalar fields
+that do round-trip are why `rootDiskChange` works and the `cfg.Volumes`/`cfg.PortBindings` readers do
+not.
 
-The data is present upstream. `config_json` holds a serialized `SandboxConfig` whose `#[serde(flatten)]`ed
-`SandboxSpec` carries `mounts: Vec<VolumeMount>` (`microsandbox-types`, `domain.rs`), serialized as an internally
-tagged array — one entry per mount, keyed in the launcher by its `guest` path:
+The data is present upstream. The inspection envelope's `spec` is the persisted `SandboxSpec`
+(`microsandbox-types`, `domain.rs`), whose `mounts: Vec<VolumeMount>` serializes as an internally tagged
+array — one entry per mount, keyed in the launcher by its `guest` path. The adapter captures the
+envelope's raw JSON (`ConfigJSON`) when it resolves the handle:
 
 ```json
-"mounts": [
+{"kind":"local","spec":{"mounts":[
   {"type":"Named","name":"agents-sandbox-home-<slug>-<agent>-<ts>","guest":"/home/dev","options":{...}},
   {"type":"Bind","host":"<host repo>","guest":"/workspace","quota_mib":16384,"options":{...}},
   {"type":"Tmpfs","guest":"/tmp","size_mib":2048,"options":{...}}
-]
+]}}
 ```
 
 This is exactly the shape `buildMounts` (`internal/sandbox/vm/vm_lifecycle.go`) creates, so the round-trip is
 lossless for everything the launcher sets.
 
-Published ports sit in the same record under `network.ports` — the `SandboxSpec`'s `NetworkSpec` carries
+Published ports sit under `spec.network.ports` — the `SandboxSpec`'s `NetworkSpec` carries
 `ports: Vec<PublishedPortSpec>` — with snake_case fields and the protocol spelled as the Rust variant name:
 
 ```json
-"network": {
+{"spec":{"network":{
   "ports": [
     {"host_port":4096,"guest_port":4096,"protocol":"Tcp","host_bind":"127.0.0.1"}
   ]
-}
+}}}
 ```
 
 This too is exactly the shape `ports.PublishBindings` composes, so the round-trip is lossless for the bindings the
@@ -45,11 +47,14 @@ launcher sets.
 ## Contract
 
 - The single source of truth for a live VM's mounts is `msb.SandboxHandle.ConfigMounts()`, backed by
-  `msb.ParseConfigMounts` over the handle's persisted config JSON (the `realSandboxHandleConfigJSON` seam), and for its
-  published ports it is `msb.SandboxHandle.ConfigPorts()`, backed by `msb.ParseConfigPorts` over the same JSON.
-  `cfg.Volumes` and `cfg.PortBindings` must not be treated as populated on a read-back; a consumer that needs them
-  applies `ConfigMounts()`/`ConfigPorts()` first (this is the one place the SDK gap is worked around). In `prepare`,
-  `readLiveProjectVM` applies both (`applyLiveMounts`/`applyLivePorts`) before any detector sees the config.
+  `msb.ParseConfigMounts` over the handle's captured persisted-inspection JSON (the
+  `realSandboxHandleConfigJSON` seam), and for its published ports it is `msb.SandboxHandle.ConfigPorts()`,
+  backed by `msb.ParseConfigPorts` over the same JSON. `cfg.Volumes` and `cfg.PortBindings` must not be
+  treated as populated on a read-back; a consumer that needs them applies `ConfigMounts()`/`ConfigPorts()`
+  first (this is the one place the read-back model is worked around). In `prepare`, `readLiveProjectVM`
+  applies both (`applyLiveMounts`/`applyLivePorts`) before any detector sees the config. A config lookup or
+  decode that failed when the handle was resolved is retained on the handle and reported by all three
+  config accessors, so the degrade paths below still work.
 - `ParseConfigMounts` keys by guest path and maps the five upstream variants onto the launcher's
   `MountConfig` directly: `Bind` → `quota_mib`, `Tmpfs` → `size_mib`, `Named` → `name`, `Owned` and
   `DiskImage` for completeness. Every variant keeps the nested `options` flags (`readonly`/`noexec`/
@@ -77,8 +82,8 @@ launcher sets.
   - `vm.InspectSandbox` — the mount list rendered by `sandbox inspect`
     (`specs/volumes/runtime-management-commands.md`, Slice 3). It reports the read failure like its `Config()` read does, so
     `sandbox inspect` never silently shows zero mounts for a VM that has them.
-- A missing `mounts` key is not an error — a config persisted by a runtime that does not record mounts is valid, and
-  must not read as "everything changed". It yields an empty (non-nil) map. The same holds for `network.ports`: a
+- A missing `spec.mounts` key is not an error — a config persisted by a runtime that does not record mounts is valid, and
+  must not read as "everything changed". It yields an empty (non-nil) map. The same holds for `spec.network.ports`: a
   config without it yields no bindings, and `ParseConfigPorts` skips an entry whose protocol the launcher does not
   know (a newer runtime), mirroring the mounts treatment of unknown variants. The ports consumers
   (`reconfig.publishReconfig` for change detection, `ports.ResolveServeHostPort` for serve-port reuse, and
@@ -94,7 +99,9 @@ change.
 
 ## Upstream
 
-`SandboxConfig.UnmarshalJSON` dropping `mounts` is a Go SDK defect, not an intentional contract: `SandboxConfig`
-already exposes `Volumes` and `WithMounts`, so the reverse direction (create) works while the read-back direction
-silently loses the same data. Fixing it upstream would let `ConfigMounts` collapse into `Config()`. Until then the
-launcher keeps its own decode.
+The v0.8 inspection exposes mounts and published ports as untyped raw collections (`spec.mounts`, `spec.network`)
+rather than a typed model, and the launcher's read-back `SandboxConfig` deliberately models neither. The launcher
+keeps its own decode because it needs a typed `MountConfig` keyed by guest path, it must skip an unrecognized mount
+variant (a newer runtime) instead of failing the read, and it derives the launcher's mount/volume enums from the
+persisted spellings. The read-back projection of the inspection's scalars lives in `sandboxConfigFrom`
+(`internal/sandbox/msb/translate.go`).

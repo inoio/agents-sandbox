@@ -1,6 +1,7 @@
 package msb
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -412,6 +413,96 @@ var (
 		"TotalUs":           {},
 	}
 	diskCompactionDiskResultNotModeled = map[string]string{}
+
+	// sandboxConfigInspectionProjected names every field of the read-back
+	// inspection envelope the launcher projects; the envelope's bookkeeping is
+	// notModeled.
+	sandboxConfigInspectionProjected = map[string]struct{}{
+		"Spec": {},
+	}
+
+	sandboxConfigInspectionNotModeled = map[string]string{
+		"Kind":        "the launcher only reads the local persisted spec",
+		"Name":        "the launcher names the sandbox itself",
+		"Unavailable": "unavailable-field paths are not surfaced by the launcher",
+		"Redacted":    "redacted-field paths are not surfaced by the launcher",
+	}
+
+	// sandboxInspectionSpecProjected names every field of the persisted spec the
+	// read-back projects; mounts and published ports are read separately by
+	// ConfigMounts/ConfigPorts, and the rest is notModeled.
+	sandboxInspectionSpecProjected = map[string]struct{}{
+		"Image":     {},
+		"Labels":    {},
+		"Resources": {},
+		"Mounts":    {},
+		"Network":   {},
+	}
+
+	sandboxInspectionSpecNotModeled = map[string]string{
+		"Name":              "the launcher names the sandbox itself",
+		"Runtime":           "the launcher does not compare runtime settings on a revisited VM",
+		"Env":               "env is compared against the launcher's own state",
+		"Rlimits":           "resource limits are not compared by the launcher",
+		"Lifecycle":         "lifecycle policy is not compared by the launcher",
+		"Init":              "PID 1 init is left to the runtime default",
+		"Patches":           "rootfs patches are not used by the launcher",
+		"SecurityProfile":   "the in-guest security profile is left to the runtime default",
+		"Vsock":             "vsock routes are not used by the launcher",
+		"DeploymentProfile": "the deployment profile is left to the runtime default",
+		"PullPolicy":        "image pulling is driven by the launcher's image stage",
+	}
+
+	// sandboxResourceInspectionProjected names every resource field the
+	// read-back compares; placement and the remote-only sizes are notModeled.
+	sandboxResourceInspectionProjected = map[string]struct{}{
+		"CPUs":         {},
+		"MaxCPUs":      {},
+		"MemoryMiB":    {},
+		"MaxMemoryMiB": {},
+	}
+
+	sandboxResourceInspectionNotModeled = map[string]string{
+		"CPUPlacement":     "host placement policy is left to the runtime default",
+		"PlacementProfile": "host placement profile is left to the runtime default",
+		"THP":              "transparent huge-page policy is left to the runtime default",
+		"NestedVirt":       "nested virtualization is not used by the launcher",
+		"VCPUs":            "remote-only CPU allocation is not compared",
+		"DiskSizeMiB":      "the root-disk size is read from the image source instead",
+	}
+
+	// volumeInfoProjected names every field of the volume Info observation the
+	// handle exposes; identity comes from the resource and is notModeled.
+	volumeInfoProjected = map[string]struct{}{
+		"QuotaMiB":      {},
+		"UsedBytes":     {},
+		"CapacityBytes": {},
+		"DiskFormat":    {},
+		"DiskFstype":    {},
+		"Labels":        {},
+		"CreatedAt":     {},
+	}
+
+	volumeInfoNotModeled = map[string]string{
+		"ID":        "the launcher identifies a volume by name",
+		"Name":      "identity comes from the resource, not the observation",
+		"Kind":      "identity comes from the resource, not the observation",
+		"IsDefault": "the launcher never inspects the default volume",
+	}
+
+	// sandboxInfoProjected names every field of the identity observation the
+	// handle exposes; ID/Name come from the resource and are notModeled.
+	sandboxInfoProjected = map[string]struct{}{
+		"Status":    {},
+		"CreatedAt": {},
+		"UpdatedAt": {},
+	}
+
+	sandboxInfoNotModeled = map[string]string{
+		"ID":                 "identity comes from the resource, not the observation",
+		"Name":               "identity comes from the resource, not the observation",
+		"LastFailureMessage": "the launcher does not surface a sandbox's last failure message",
+	}
 )
 
 // execOptions translates an ExecRequest into the SDK exec options. Options
@@ -631,10 +722,23 @@ func jobLogOptions(q JobLogQuery) msbSdk.JobLogOptions {
 		Tail:       q.Tail,
 		Since:      q.Since,
 		Until:      q.Until,
-		Sources:    q.Sources,
+		Sources:    jobOutputSources(q.Sources),
 		FromCursor: q.FromCursor,
 		Follow:     q.Follow,
 	}
+}
+
+// jobOutputSources translates the launcher's string log-source filter onto the
+// SDK's typed enum, preserving nil as nil.
+func jobOutputSources(sources []string) []msbSdk.JobOutputSource {
+	if sources == nil {
+		return nil
+	}
+	out := make([]msbSdk.JobOutputSource, len(sources))
+	for i, source := range sources {
+		out[i] = msbSdk.JobOutputSource(source)
+	}
+	return out
 }
 
 // jobInfoFrom translates the SDK job metadata field for field. A nil info
@@ -647,7 +751,7 @@ func jobInfoFrom(info *msbSdk.JobInfo) *JobInfo {
 		ID:            info.ID,
 		RuntimeBootID: info.RuntimeBootID,
 		Command:       info.Command,
-		State:         info.State,
+		State:         string(info.State),
 		TTY:           info.TTY,
 		StdinClosed:   info.StdinClosed,
 		PID:           info.PID,
@@ -698,7 +802,7 @@ func jobLogEntriesFrom(entries []msbSdk.JobLogEntry) []JobLogEntry {
 	for i, entry := range entries {
 		out[i] = JobLogEntry{
 			Timestamp: entry.Timestamp,
-			Source:    entry.Source,
+			Source:    string(entry.Source),
 			Data:      entry.Data,
 			Cursor:    entry.Cursor,
 		}
@@ -811,9 +915,18 @@ func sandboxStatusFrom(status msbSdk.SandboxStatus) SandboxStatus {
 	return SandboxStatus(status)
 }
 
-// backendKindFrom translates the SDK backend kind onto the launcher enum.
-func backendKindFrom(kind msbSdk.BackendKind) BackendKind {
-	return BackendKind(kind)
+// backendKindFrom translates the SDK context kind onto the launcher enum. The
+// SDK names the cloud destination "remote" while the launcher keeps its "cloud"
+// spelling, so the translation is explicit rather than a raw conversion.
+func backendKindFrom(kind msbSdk.ContextKind) BackendKind {
+	switch kind {
+	case msbSdk.ContextLocal:
+		return BackendLocal
+	case msbSdk.ContextRemote:
+		return BackendCloud
+	default:
+		return BackendKind(kind)
+	}
 }
 
 // volumeKindFrom translates the SDK volume kind onto the launcher enum.
@@ -826,95 +939,110 @@ func volumeKindTo(kind VolumeKind) msbSdk.VolumeKind {
 	return msbSdk.VolumeKind(kind)
 }
 
-// sandboxConfigFrom projects the SDK's persisted config onto the launcher
-// model, including the managed root disk the SDK decode parses. A nil config
-// stays nil. The mounts and ports the SDK decode drops are absent from the
-// projection; a consumer that needs them reads ConfigMounts/ConfigPorts
-// (specs/vm/live-mount-readback.md). The read itself can fail, but only inside
-// the adapter's Config seam; this projection always succeeds.
-func sandboxConfigFrom(config *msbSdk.SandboxConfig) *SandboxConfig {
-	if config == nil {
+// sandboxConfigFrom projects the SDK's persisted-config inspection onto the
+// launcher model. A nil inspection stays nil. The mounts and published ports
+// are absent from the projection; a consumer that needs them reads
+// ConfigMounts/ConfigPorts (specs/vm/live-mount-readback.md). The observation
+// itself is captured by the adapter; this projection always succeeds, reporting
+// a zero value for a field the provider left unavailable.
+func sandboxConfigFrom(inspection *msbSdk.SandboxConfigInspection) *SandboxConfig {
+	if inspection == nil {
 		return nil
 	}
-	var rootDisk *RootDiskConfig
-	if config.RootDisk != nil {
-		rootDisk = &RootDiskConfig{SizeMiB: config.RootDisk.SizeMiB}
-	}
+	spec := inspection.Spec
+	image, rootDisk := decodeInspectionRootfs(spec.Image)
 	return &SandboxConfig{
-		Image:        config.Image,
-		Labels:       config.Labels,
-		CPUs:         config.CPUs,
-		MaxCPUs:      config.MaxCPUs,
-		MemoryMiB:    config.MemoryMiB,
-		MaxMemoryMiB: config.MaxMemoryMiB,
+		Image:        image,
+		Labels:       spec.Labels,
+		CPUs:         derefUint8(spec.Resources.CPUs),
+		MaxCPUs:      derefUint8(spec.Resources.MaxCPUs),
+		MemoryMiB:    spec.Resources.MemoryMiB,
+		MaxMemoryMiB: derefUint32(spec.Resources.MaxMemoryMiB),
 		RootDisk:     rootDisk,
-		Volumes:      mountConfigsFrom(config.Volumes),
-		PortBindings: portBindingsFrom(config.PortBindings),
 	}
 }
 
-// mountConfigsFrom translates a guest-path-keyed map of SDK mount descriptors,
-// preserving nil as nil.
-func mountConfigsFrom(mounts map[string]msbSdk.MountConfig) map[string]MountConfig {
-	if mounts == nil {
-		return nil
-	}
-	out := make(map[string]MountConfig, len(mounts))
-	for target, mount := range mounts {
-		out[target] = mountConfigFrom(mount)
-	}
-	return out
+// imageFromInspection recovers just the image reference the identity exposes.
+func imageFromInspection(spec msbSdk.SandboxInspectionSpec) string {
+	image, _ := decodeInspectionRootfs(spec.Image)
+	return image
 }
 
-// mountConfigFrom projects one SDK mount descriptor onto the launcher model,
-// reading the unexported kind through Kind(). The SDK-only NamedMode, NamedKind
-// and Tmpfs fields are not modeled: the launcher derives the tmpfs variant from
-// the kind.
-func mountConfigFrom(mount msbSdk.MountConfig) MountConfig {
-	return MountConfig{
-		Kind:               MountKind(mount.Kind()),
-		Bind:               mount.Bind,
-		Named:              mount.Named,
-		Disk:               mount.Disk,
-		Owned:              mount.Owned,
-		Format:             mount.Format,
-		Fstype:             mount.Fstype,
-		QuotaMiB:           mount.QuotaMiB,
-		SizeMiB:            mount.SizeMiB,
-		Readonly:           mount.Readonly,
-		Noexec:             mount.Noexec,
-		Nosuid:             mount.Nosuid,
-		Nodev:              mount.Nodev,
-		StatVirtualization: StatVirtualization(mount.StatVirtualization),
-		HostPermissions:    HostPermissions(mount.HostPermissions),
-		Owner:              mountOwnerFrom(mount.Owner),
-	}
+// persistedRootDisk mirrors the SDK's root-disk descriptor as the persisted
+// spec serializes it (an internally tagged enum keyed by kind).
+type persistedRootDisk struct {
+	Kind    string `json:"kind"`
+	SizeMiB uint32 `json:"size_mib"`
 }
 
-// mountOwnerFrom translates an SDK mount owner, preserving nil.
-func mountOwnerFrom(owner *msbSdk.MountOwner) *MountOwner {
-	if owner == nil {
-		return nil
+// decodeInspectionRootfs recovers the image reference and the root-disk size
+// from the inspection's raw RootfsSource JSON. The SDK reports the source in the
+// persisted externally-tagged form (for example
+// {"Oci":{"reference":"alpine:3.19","root_disk":{"kind":"managed","size_mib":8192}}}),
+// which the launcher's read-back model flattens to an image string plus an
+// optional root-disk size. An absent, unrecognized or malformed source yields
+// zero values rather than an error, because the launcher only compares them.
+func decodeInspectionRootfs(raw json.RawMessage) (string, *RootDiskConfig) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", nil
 	}
-	return &MountOwner{UID: owner.UID, GID: owner.GID}
-}
-
-// portBindingsFrom translates SDK read-back port bindings onto the launcher
-// type, preserving nil as nil.
-func portBindingsFrom(bindings []msbSdk.PortBinding) []PortBinding {
-	if bindings == nil {
-		return nil
+	var plain string
+	if err := json.Unmarshal(raw, &plain); err == nil {
+		return plain, nil
 	}
-	out := make([]PortBinding, len(bindings))
-	for i, binding := range bindings {
-		out[i] = PortBinding{
-			Bind:      binding.Bind,
-			HostPort:  binding.HostPort,
-			GuestPort: binding.GuestPort,
-			Protocol:  PortProtocol(binding.Protocol),
+	var tagged map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &tagged); err != nil {
+		return "", nil
+	}
+	if value, ok := tagged["Oci"]; ok {
+		var source struct {
+			Reference string             `json:"reference"`
+			RootDisk  *persistedRootDisk `json:"root_disk"`
 		}
+		if err := json.Unmarshal(value, &source); err != nil {
+			return "", nil
+		}
+		var rootDisk *RootDiskConfig
+		if source.RootDisk != nil {
+			rootDisk = &RootDiskConfig{SizeMiB: source.RootDisk.SizeMiB}
+		}
+		return source.Reference, rootDisk
 	}
-	return out
+	if value, ok := tagged["Bind"]; ok {
+		var source struct {
+			Path string `json:"path"`
+		}
+		if err := json.Unmarshal(value, &source); err != nil {
+			return "", nil
+		}
+		return source.Path, nil
+	}
+	if value, ok := tagged["DiskImage"]; ok {
+		var source struct {
+			Path string `json:"path"`
+		}
+		if err := json.Unmarshal(value, &source); err != nil {
+			return "", nil
+		}
+		return source.Path, nil
+	}
+	return "", nil
+}
+
+// derefUint8 and derefUint32 report zero for a value the provider left
+// unavailable, matching the launcher's read-back zero-value convention.
+func derefUint8(value *uint8) uint8 {
+	if value == nil {
+		return 0
+	}
+	return *value
+}
+
+func derefUint32(value *uint32) uint32 {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 // modifyOptions translates a launcher modification request into the SDK

@@ -2,6 +2,7 @@ package msb
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -280,11 +281,11 @@ func TestIsSandboxAlreadyExists(t *testing.T) {
 // process, a failed connect-or-start is returned as-is, and a sandbox whose
 // ownership cannot be read is closed and reported instead of guessed.
 func TestRealSandboxHandleConnectOrStart(t *testing.T) {
-	originalConnectOrStart := realHandleConnectOrStart
+	originalEnsureRunning := realHandleEnsureRunning
 	originalOwnsLifecycle := realSandboxOwnsLifecycle
 	originalClose := realSandboxClose
 	t.Cleanup(func() {
-		realHandleConnectOrStart = originalConnectOrStart
+		realHandleEnsureRunning = originalEnsureRunning
 		realSandboxOwnsLifecycle = originalOwnsLifecycle
 		realSandboxClose = originalClose
 	})
@@ -309,15 +310,8 @@ func TestRealSandboxHandleConnectOrStart(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			ownsChecked, closed := false, false
-			realHandleConnectOrStart = func(
-				*msbSdk.SandboxHandle,
-				context.Context,
-				...msbSdk.ConnectOrStartOption,
-			) (*msbSdk.Sandbox, error) {
-				if tc.connectErr != nil {
-					return nil, tc.connectErr
-				}
-				return live, nil
+			realHandleEnsureRunning = func(*msbSdk.Sandbox, context.Context) error {
+				return tc.connectErr
 			}
 			realSandboxOwnsLifecycle = func(sb *msbSdk.Sandbox) (bool, error) {
 				ownsChecked = sb == live
@@ -328,7 +322,7 @@ func TestRealSandboxHandleConnectOrStart(t *testing.T) {
 				return nil
 			}
 
-			sb, booted, err := realSandboxHandle{handle: &msbSdk.SandboxHandle{}}.ConnectOrStart(context.Background())
+			sb, booted, err := realSandboxHandle{handle: live}.ConnectOrStart(context.Background())
 
 			wantSandbox := Sandbox(nil)
 			if tc.wantErr == nil {
@@ -365,29 +359,59 @@ func TestIsUnsupportedOperation(t *testing.T) {
 }
 
 func TestRealSandboxHandleOperationsReturnErrors(t *testing.T) {
-	h := &realSandboxHandle{handle: &msbSdk.SandboxHandle{}}
+	h := &realSandboxHandle{handle: &msbSdk.Sandbox{}}
 	ctx := context.Background()
+	cause := errors.New("sdk failed")
 
-	if sb, err := h.Connect(ctx); err == nil || sb != nil {
-		t.Errorf("Connect() = %v, %v; want error on empty handle", sb, err)
+	swapSeam(t, &realSandboxName, func(*msbSdk.Sandbox) string { return "vm" })
+	swapSeam(t, &realSandboxStatus, func(*msbSdk.Sandbox, context.Context) (msbSdk.SandboxStatus, error) {
+		return "", cause
+	})
+	swapSeam(t, &realSandboxHandleStop, func(*msbSdk.Sandbox, context.Context, ...msbSdk.StopOption) error {
+		return cause
+	})
+	swapSeam(t, &realSandboxHandleKill, func(*msbSdk.Sandbox, context.Context, ...msbSdk.KillOption) error {
+		return cause
+	})
+	swapSeam(t, &realSandboxRemove, func(context.Context, string) error { return cause })
+	swapSeam(t, &realSandboxHandleDestroy, func(*msbSdk.Sandbox, context.Context, ...msbSdk.DestroyOption) error {
+		return cause
+	})
+	swapSeam(
+		t,
+		&realSandboxHandleCompact,
+		func(*msbSdk.Sandbox, context.Context, msbSdk.DiskCompactionOptions) (*msbSdk.DiskCompactionResult, error) {
+			return nil, &msbSdk.Error{Kind: msbSdk.ErrUnsupportedOperation, Message: "nope"}
+		},
+	)
+	swapSeam(
+		t,
+		&realSandboxHandleModify,
+		func(*msbSdk.Sandbox, context.Context, msbSdk.ModifyOptions) (*msbSdk.SandboxModificationPlan, error) {
+			return nil, cause
+		},
+	)
+
+	if sb, err := h.Connect(ctx); !errors.Is(err, cause) || sb != nil {
+		t.Errorf("Connect() = %v, %v; want the SDK error", sb, err)
 	}
-	if err := h.Stop(ctx, LifecycleOptions{}); err == nil {
-		t.Error("Stop() = nil, want error on empty handle")
+	if err := h.Stop(ctx, LifecycleOptions{}); !errors.Is(err, cause) {
+		t.Error("Stop() = nil, want the SDK error")
 	}
-	if err := h.Kill(ctx, LifecycleOptions{}); err == nil {
-		t.Error("Kill() = nil, want error on empty handle")
+	if err := h.Kill(ctx, LifecycleOptions{}); !errors.Is(err, cause) {
+		t.Error("Kill() = nil, want the SDK error")
 	}
-	if err := h.Remove(ctx); err == nil {
-		t.Error("Remove() = nil, want error on empty handle")
+	if err := h.Remove(ctx); !errors.Is(err, cause) {
+		t.Error("Remove() = nil, want the SDK error")
 	}
-	if err := h.Destroy(ctx, LifecycleOptions{}); err == nil {
-		t.Error("Destroy() = nil, want error on empty handle")
+	if err := h.Destroy(ctx, LifecycleOptions{}); !errors.Is(err, cause) {
+		t.Error("Destroy() = nil, want the SDK error")
 	}
 	if result, err := h.Compact(ctx, CompactionRequest{}); !IsUnsupportedOperation(err) || result != nil {
-		t.Errorf("Compact() = %v, %v; want unsupported-operation error on non-local handle", result, err)
+		t.Errorf("Compact() = %v, %v; want unsupported-operation error", result, err)
 	}
-	if plan, err := h.Modify(ctx, ModifyOptions{}); err == nil || plan != nil {
-		t.Errorf("Modify() = %v, %v; want error on empty handle", plan, err)
+	if plan, err := h.Modify(ctx, ModifyOptions{}); !errors.Is(err, cause) || plan != nil {
+		t.Errorf("Modify() = %v, %v; want the SDK error", plan, err)
 	}
 }
 
@@ -1027,16 +1051,28 @@ func TestRealMsbClientImageInspectDetailHandleAndError(t *testing.T) {
 	}
 }
 
-func TestRealSandboxHandleConfigAndModify(t *testing.T) {
-	var h SandboxHandle = &realSandboxHandle{handle: &msbSdk.SandboxHandle{}}
-	cfg, err := h.Config()
-	if err == nil || cfg != nil {
-		t.Errorf("expected Config error on handle without config, got cfg=%v err=%v", cfg, err)
+func TestRealSandboxHandleConfigErrorIsSurfaced(t *testing.T) {
+	cause := errors.New("config unreadable")
+	h := &realSandboxHandle{handle: &msbSdk.Sandbox{}, configErr: cause}
+	if cfg, err := h.Config(); !errors.Is(err, cause) || cfg != nil {
+		t.Errorf("Config() = (%v, %v), want the stored config error", cfg, err)
+	}
+	if _, err := h.ConfigMounts(); !errors.Is(err, cause) {
+		t.Errorf("ConfigMounts() error = %v, want the stored config error", err)
+	}
+	if _, err := h.ConfigPorts(); !errors.Is(err, cause) {
+		t.Errorf("ConfigPorts() error = %v, want the stored config error", err)
+	}
+	if got := h.Image(); got != "" {
+		t.Errorf("Image() = %q, want empty on a config error", got)
 	}
 }
 
 func TestRealSandboxHandleAccessors(t *testing.T) {
-	h := &realSandboxHandle{handle: &msbSdk.SandboxHandle{}}
+	swapSeam(t, &realSandboxName, func(*msbSdk.Sandbox) string { return "" })
+	swapSeam(t, &realSandboxID, func(*msbSdk.Sandbox) string { return "" })
+	swapSeam(t, &realSandboxBackendKind, func(*msbSdk.Sandbox) msbSdk.ContextKind { return "" })
+	h := &realSandboxHandle{handle: &msbSdk.Sandbox{}}
 	if got := h.Name(); got != "" {
 		t.Errorf("Name() = %q, want empty", got)
 	}
@@ -1056,7 +1092,7 @@ func TestRealSandboxHandleAccessors(t *testing.T) {
 		t.Errorf("BackendKind() = %q, want empty", got)
 	}
 	if got := h.Image(); got != "" {
-		t.Errorf("Image() = %q, want empty (config parse fails)", got)
+		t.Errorf("Image() = %q, want empty (no config snapshot)", got)
 	}
 }
 
@@ -1064,13 +1100,13 @@ func TestRealSandboxHandleAccessors(t *testing.T) {
 // accessors translate the SDK enums onto the launcher types through their
 // seams, using values that are not the launcher zero value.
 func TestRealSandboxHandleStatusAndBackendKindDelegation(t *testing.T) {
-	h := realSandboxHandle{handle: &msbSdk.SandboxHandle{}}
+	h := realSandboxHandle{
+		handle: &msbSdk.Sandbox{},
+		info:   &msbSdk.SandboxInfo{Status: msbSdk.SandboxStatusRunning},
+	}
 
-	swapSeam(t, &realSandboxHandleStatus, func(*msbSdk.SandboxHandle) msbSdk.SandboxStatus {
-		return msbSdk.SandboxStatusRunning
-	})
-	swapSeam(t, &realSandboxHandleBackendKind, func(*msbSdk.SandboxHandle) msbSdk.BackendKind {
-		return msbSdk.BackendLocal
+	swapSeam(t, &realSandboxBackendKind, func(*msbSdk.Sandbox) msbSdk.ContextKind {
+		return msbSdk.ContextLocal
 	})
 	if got := h.Status(); got != SandboxStatusRunning {
 		t.Errorf("Status() = %q, want %q", got, SandboxStatusRunning)
@@ -1086,11 +1122,11 @@ func TestRealSandboxHandleStatusAndBackendKindDelegation(t *testing.T) {
 // translation itself is pinned in translate_test.go; this pins the adapter.
 func TestRealSandboxHandleModifyCompactTranslates(t *testing.T) {
 	ctx := context.Background()
-	h := realSandboxHandle{handle: &msbSdk.SandboxHandle{}}
+	h := realSandboxHandle{handle: &msbSdk.Sandbox{}}
 
 	t.Run("Modify translates the plan", func(t *testing.T) {
 		swapSeam(t, &realSandboxHandleModify, func(
-			*msbSdk.SandboxHandle,
+			*msbSdk.Sandbox,
 			context.Context,
 			msbSdk.ModifyOptions,
 		) (*msbSdk.SandboxModificationPlan, error) {
@@ -1107,7 +1143,7 @@ func TestRealSandboxHandleModifyCompactTranslates(t *testing.T) {
 	t.Run("Modify propagates the SDK error", func(t *testing.T) {
 		wantErr := errors.New("modify boom")
 		swapSeam(t, &realSandboxHandleModify, func(
-			*msbSdk.SandboxHandle,
+			*msbSdk.Sandbox,
 			context.Context,
 			msbSdk.ModifyOptions,
 		) (*msbSdk.SandboxModificationPlan, error) {
@@ -1120,7 +1156,7 @@ func TestRealSandboxHandleModifyCompactTranslates(t *testing.T) {
 
 	t.Run("Compact translates the result", func(t *testing.T) {
 		swapSeam(t, &realSandboxHandleCompact, func(
-			*msbSdk.SandboxHandle,
+			*msbSdk.Sandbox,
 			context.Context,
 			msbSdk.DiskCompactionOptions,
 		) (*msbSdk.DiskCompactionResult, error) {
@@ -1135,7 +1171,7 @@ func TestRealSandboxHandleModifyCompactTranslates(t *testing.T) {
 	t.Run("Compact propagates the SDK error", func(t *testing.T) {
 		wantErr := errors.New("compact boom")
 		swapSeam(t, &realSandboxHandleCompact, func(
-			*msbSdk.SandboxHandle,
+			*msbSdk.Sandbox,
 			context.Context,
 			msbSdk.DiskCompactionOptions,
 		) (*msbSdk.DiskCompactionResult, error) {
@@ -1148,16 +1184,20 @@ func TestRealSandboxHandleModifyCompactTranslates(t *testing.T) {
 }
 
 // TestRealSandboxHandleConfigImageConnect covers the handle's Config/Image and
-// Connect adapters through their SDK seams, including the config-error and
-// connect-error branches that a bare handle cannot reach.
+// Connect adapters: the config snapshot the handle carries and the
+// status-gated Connect that never starts a stopped sandbox.
 func TestRealSandboxHandleConfigImageConnect(t *testing.T) {
 	ctx := context.Background()
-	h := realSandboxHandle{handle: &msbSdk.SandboxHandle{}}
+	h := realSandboxHandle{
+		handle: &msbSdk.Sandbox{},
+		config: &msbSdk.SandboxConfigInspection{
+			Spec: msbSdk.SandboxInspectionSpec{
+				Image: json.RawMessage(`{"Oci":{"reference":"alpine:3"}}`),
+			},
+		},
+	}
 
-	t.Run("Config and Image read the SDK config", func(t *testing.T) {
-		swapSeam(t, &realSandboxHandleConfig, func(*msbSdk.SandboxHandle) (*msbSdk.SandboxConfig, error) {
-			return &msbSdk.SandboxConfig{Image: "alpine:3"}, nil
-		})
+	t.Run("Config and Image read the snapshot", func(t *testing.T) {
 		if got := h.Image(); got != "alpine:3" {
 			t.Fatalf("Image() = %q, want alpine:3", got)
 		}
@@ -1168,33 +1208,40 @@ func TestRealSandboxHandleConfigImageConnect(t *testing.T) {
 	})
 
 	t.Run("Image reads empty on a config error", func(t *testing.T) {
-		swapSeam(t, &realSandboxHandleConfig, func(*msbSdk.SandboxHandle) (*msbSdk.SandboxConfig, error) {
-			return nil, errors.New("no config")
-		})
-		if got := h.Image(); got != "" {
+		broken := realSandboxHandle{handle: &msbSdk.Sandbox{}, configErr: errors.New("no config")}
+		if got := broken.Image(); got != "" {
 			t.Fatalf("Image() = %q, want empty on a config error", got)
 		}
 	})
 
-	t.Run("Connect wraps the SDK sandbox", func(t *testing.T) {
-		live := &msbSdk.Sandbox{}
-		swapSeam(t, &realSandboxHandleConnect, func(*msbSdk.SandboxHandle, context.Context) (*msbSdk.Sandbox, error) {
-			return live, nil
+	t.Run("Connect wraps the SDK sandbox when it runs", func(t *testing.T) {
+		swapSeam(t, &realSandboxStatus, func(*msbSdk.Sandbox, context.Context) (msbSdk.SandboxStatus, error) {
+			return msbSdk.SandboxStatusRunning, nil
 		})
 		sb, err := h.Connect(ctx)
 		if err != nil || sb == nil {
 			t.Fatalf("Connect() = (%v, %v), want a sandbox, nil", sb, err)
 		}
 		wrapped, ok := sb.(*realSandbox)
-		if !ok || wrapped.sandbox != live {
+		if !ok || wrapped.sandbox != h.handle {
 			t.Fatalf("Connect() = %#v, want realSandbox wrapping the live handle", sb)
+		}
+	})
+
+	t.Run("Connect refuses a sandbox that is not running", func(t *testing.T) {
+		swapSeam(t, &realSandboxName, func(*msbSdk.Sandbox) string { return "vm" })
+		swapSeam(t, &realSandboxStatus, func(*msbSdk.Sandbox, context.Context) (msbSdk.SandboxStatus, error) {
+			return msbSdk.SandboxStatusStopped, nil
+		})
+		if sb, err := h.Connect(ctx); err == nil || sb != nil {
+			t.Fatalf("Connect() = (%v, %v), want a not-running error", sb, err)
 		}
 	})
 
 	t.Run("Connect propagates the SDK error", func(t *testing.T) {
 		wantErr := errors.New("connect boom")
-		swapSeam(t, &realSandboxHandleConnect, func(*msbSdk.SandboxHandle, context.Context) (*msbSdk.Sandbox, error) {
-			return nil, wantErr
+		swapSeam(t, &realSandboxStatus, func(*msbSdk.Sandbox, context.Context) (msbSdk.SandboxStatus, error) {
+			return "", wantErr
 		})
 		if _, err := h.Connect(ctx); !errors.Is(err, wantErr) {
 			t.Fatalf("Connect() error = %v, want %v", err, wantErr)
@@ -1203,13 +1250,10 @@ func TestRealSandboxHandleConfigImageConnect(t *testing.T) {
 }
 
 // TestRealSandboxHandleConfigMounts covers the handle's ConfigMounts adapter
-// through the config-JSON seam, so the delegation to ParseConfigMounts is
+// over the config-JSON snapshot, so the delegation to ParseConfigMounts is
 // exercised without a live VM.
 func TestRealSandboxHandleConfigMounts(t *testing.T) {
-	swapSeam(t, &realSandboxHandleConfigJSON, func(*msbSdk.SandboxHandle) string {
-		return persistedConfigWithMounts
-	})
-	h := realSandboxHandle{handle: &msbSdk.SandboxHandle{}}
+	h := realSandboxHandle{handle: &msbSdk.Sandbox{}, configJSON: persistedConfigWithMounts}
 	mounts, err := h.ConfigMounts()
 	if err != nil {
 		t.Fatalf("ConfigMounts() error = %v", err)
@@ -1227,7 +1271,10 @@ func TestRealSandboxHandleConfigMounts(t *testing.T) {
 // type. The SDK handle's fields are unexported, so a zero handle exercises the
 // delegation with its zero values.
 func TestRealVolumeHandleDelegatesAndTranslatesKind(t *testing.T) {
-	w := realVolumeHandle{handle: &msbSdk.VolumeHandle{}}
+	swapSeam(t, &realVolumeName, func(*msbSdk.Volume) string { return "" })
+	swapSeam(t, &realVolumePath, func(*msbSdk.Volume) string { return "" })
+	swapSeam(t, &realVolumeKind, func(*msbSdk.Volume) msbSdk.VolumeKind { return "" })
+	w := realVolumeHandle{handle: &msbSdk.Volume{}}
 	if got := w.Name(); got != "" {
 		t.Errorf("Name() = %q, want empty", got)
 	}
@@ -1260,28 +1307,34 @@ func TestRealVolumeHandleDelegatesAndTranslatesKind(t *testing.T) {
 	}
 }
 
-// TestRealVolumeHandleDelegationValues injects non-zero values through every
-// volume handle seam and pins that the accessors forward them, translating the
-// kind enum onto the launcher type.
+// TestRealVolumeHandleDelegationValues injects non-zero identity through the
+// volume handle seams and non-zero measurements through an Info snapshot, and
+// pins that the accessors forward them, translating the kind enum onto the
+// launcher type.
 func TestRealVolumeHandleDelegationValues(t *testing.T) {
-	w := realVolumeHandle{handle: &msbSdk.VolumeHandle{}}
 	createdAt := time.Unix(1_700_000_000, 0)
 	quota := uint32(512)
+	used := uint64(4096)
 	capacity := uint64(1 << 30)
 	format := "raw"
 	fstype := "ext4"
 	labels := map[string]string{"project": "demo"}
+	w := realVolumeHandle{
+		handle: &msbSdk.Volume{},
+		info: &msbSdk.VolumeInfo{
+			CreatedAt:     &createdAt,
+			QuotaMiB:      &quota,
+			UsedBytes:     &used,
+			CapacityBytes: &capacity,
+			DiskFormat:    &format,
+			DiskFstype:    &fstype,
+			Labels:        labels,
+		},
+	}
 
-	swapSeam(t, &realVolumeName, func(*msbSdk.VolumeHandle) string { return "data" })
-	swapSeam(t, &realVolumePath, func(*msbSdk.VolumeHandle) string { return "/vol/data" })
-	swapSeam(t, &realVolumeKind, func(*msbSdk.VolumeHandle) msbSdk.VolumeKind { return msbSdk.VolumeKindDisk })
-	swapSeam(t, &realVolumeCreatedAt, func(*msbSdk.VolumeHandle) time.Time { return createdAt })
-	swapSeam(t, &realVolumeQuotaMiB, func(*msbSdk.VolumeHandle) *uint32 { return &quota })
-	swapSeam(t, &realVolumeUsedBytes, func(*msbSdk.VolumeHandle) uint64 { return 4096 })
-	swapSeam(t, &realVolumeCapacityBytes, func(*msbSdk.VolumeHandle) *uint64 { return &capacity })
-	swapSeam(t, &realVolumeDiskFormat, func(*msbSdk.VolumeHandle) *string { return &format })
-	swapSeam(t, &realVolumeDiskFstype, func(*msbSdk.VolumeHandle) *string { return &fstype })
-	swapSeam(t, &realVolumeLabels, func(*msbSdk.VolumeHandle) map[string]string { return labels })
+	swapSeam(t, &realVolumeName, func(*msbSdk.Volume) string { return "data" })
+	swapSeam(t, &realVolumePath, func(*msbSdk.Volume) string { return "/vol/data" })
+	swapSeam(t, &realVolumeKind, func(*msbSdk.Volume) msbSdk.VolumeKind { return msbSdk.VolumeKindDisk })
 
 	if got := w.Name(); got != "data" {
 		t.Errorf("Name() = %q, want data", got)
@@ -1321,7 +1374,7 @@ func TestRealMsbClientAdapterErrors(t *testing.T) {
 	ctx := context.Background()
 	wantErr := errors.New("sdk failed")
 
-	swapSeam(t, &getSandbox, func(context.Context, string) (*msbSdk.SandboxHandle, error) {
+	swapSeam(t, &getSandbox, func(context.Context, string) (*msbSdk.Sandbox, error) {
 		return nil, wantErr
 	})
 	swapSeam(t, &createSandbox, func(context.Context, string, ...msbSdk.SandboxOption) (*msbSdk.Sandbox, error) {
@@ -1330,13 +1383,13 @@ func TestRealMsbClientAdapterErrors(t *testing.T) {
 	swapSeam(t, &listSandboxesWith, func(context.Context, ...msbSdk.SandboxListOption) (*msbSdk.SandboxPage, error) {
 		return nil, wantErr
 	})
-	swapSeam(t, &getVolume, func(context.Context, string) (*msbSdk.VolumeHandle, error) {
+	swapSeam(t, &getVolume, func(context.Context, string) (*msbSdk.Volume, error) {
 		return nil, wantErr
 	})
 	swapSeam(t, &createVolume, func(context.Context, string, ...msbSdk.VolumeOption) (*msbSdk.Volume, error) {
 		return nil, wantErr
 	})
-	swapSeam(t, &listVolumes, func(context.Context) ([]*msbSdk.VolumeHandle, error) {
+	swapSeam(t, &listVolumes, func(context.Context) ([]*msbSdk.Volume, error) {
 		return nil, wantErr
 	})
 	swapSeam(t, &removeVolume, func(context.Context, string) error { return wantErr })
@@ -1396,11 +1449,13 @@ func TestRealMsbClientAdapterErrors(t *testing.T) {
 // TestRealMsbClientLists pins the slice mapping of the three list adapters.
 func TestRealMsbClientLists(t *testing.T) {
 	ctx := context.Background()
+	stubSandboxObservations(t)
+	stubVolumeObservations(t)
 	swapSeam(t, &listSandboxesWith, func(context.Context, ...msbSdk.SandboxListOption) (*msbSdk.SandboxPage, error) {
-		return &msbSdk.SandboxPage{Sandboxes: []*msbSdk.SandboxHandle{{}, {}}}, nil
+		return &msbSdk.SandboxPage{Sandboxes: []*msbSdk.Sandbox{{}, {}}}, nil
 	})
-	swapSeam(t, &listVolumes, func(context.Context) ([]*msbSdk.VolumeHandle, error) {
-		return []*msbSdk.VolumeHandle{{}, {}}, nil
+	swapSeam(t, &listVolumes, func(context.Context) ([]*msbSdk.Volume, error) {
+		return []*msbSdk.Volume{{}, {}}, nil
 	})
 	swapSeam(t, &imageList, func(context.Context) ([]*msbSdk.ImageHandle, error) {
 		return []*msbSdk.ImageHandle{{}, {}}, nil
@@ -1424,10 +1479,11 @@ func TestRealMsbClientLists(t *testing.T) {
 // second, reached through NextCursor, adds the cursor option.
 func TestRealMsbClientListSandboxesPagination(t *testing.T) {
 	ctx := context.Background()
+	stubSandboxObservations(t)
 	next := "page-2"
 	pages := []*msbSdk.SandboxPage{
-		{Sandboxes: []*msbSdk.SandboxHandle{{}}, NextCursor: &next},
-		{Sandboxes: []*msbSdk.SandboxHandle{{}}, NextCursor: nil},
+		{Sandboxes: []*msbSdk.Sandbox{{}}, NextCursor: &next},
+		{Sandboxes: []*msbSdk.Sandbox{{}}, NextCursor: nil},
 	}
 	var optionCounts []int
 	swapSeam(
@@ -1496,13 +1552,14 @@ func TestRealMsbClientEnsureInstalled(t *testing.T) {
 
 func TestRealMsbClientCreateRemoveVolume(t *testing.T) {
 	ctx := context.Background()
+	stubVolumeObservations(t)
 	var createdName, removedName string
 	swapSeam(t, &createVolume, func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (*msbSdk.Volume, error) {
 		createdName = name
 		return &msbSdk.Volume{}, nil
 	})
-	swapSeam(t, &getVolume, func(context.Context, string) (*msbSdk.VolumeHandle, error) {
-		return &msbSdk.VolumeHandle{}, nil
+	swapSeam(t, &getVolume, func(context.Context, string) (*msbSdk.Volume, error) {
+		return &msbSdk.Volume{}, nil
 	})
 	swapSeam(t, &removeVolume, func(_ context.Context, name string) error {
 		removedName = name
@@ -1525,12 +1582,13 @@ func TestRealMsbClientCreateRemoveVolume(t *testing.T) {
 // returns the resolved lookup handle, not a wrapper or the raw create result.
 func TestCreateVolumeResolvesTheCreatedVolumeThroughGetVolume(t *testing.T) {
 	ctx := context.Background()
+	stubVolumeObservations(t)
 	swapSeam(t, &createVolume, func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (*msbSdk.Volume, error) {
 		return &msbSdk.Volume{}, nil
 	})
 	var resolvedName string
-	resolved := &msbSdk.VolumeHandle{}
-	swapSeam(t, &getVolume, func(_ context.Context, name string) (*msbSdk.VolumeHandle, error) {
+	resolved := &msbSdk.Volume{}
+	swapSeam(t, &getVolume, func(_ context.Context, name string) (*msbSdk.Volume, error) {
 		resolvedName = name
 		return resolved, nil
 	})
@@ -1543,7 +1601,7 @@ func TestCreateVolumeResolvesTheCreatedVolumeThroughGetVolume(t *testing.T) {
 		t.Fatal("CreateVolume did not resolve the created volume through getVolume")
 	}
 	if got, ok := handle.(realVolumeHandle); !ok || got.handle != resolved {
-		t.Errorf("CreateVolume() handle = %T, want a wrapper around the resolved *msbSdk.VolumeHandle", handle)
+		t.Errorf("CreateVolume() handle = %T, want a wrapper around the resolved *msbSdk.Volume", handle)
 	}
 }
 
@@ -1557,7 +1615,7 @@ func TestCreateVolumeRemovesTheOrphanWhenGetVolumeFails(t *testing.T) {
 		return &msbSdk.Volume{}, nil
 	})
 	wantErr := errors.New("resolve boom")
-	swapSeam(t, &getVolume, func(context.Context, string) (*msbSdk.VolumeHandle, error) {
+	swapSeam(t, &getVolume, func(context.Context, string) (*msbSdk.Volume, error) {
 		cancel() // the run is abandoned before the orphan can be cleaned up
 		return nil, wantErr
 	})
@@ -1589,9 +1647,9 @@ func TestCreateVolumeSkipsLookupWhenCreateFails(t *testing.T) {
 		return nil, createErr
 	})
 	lookedUp := false
-	swapSeam(t, &getVolume, func(context.Context, string) (*msbSdk.VolumeHandle, error) {
+	swapSeam(t, &getVolume, func(context.Context, string) (*msbSdk.Volume, error) {
 		lookedUp = true
-		return &msbSdk.VolumeHandle{}, nil
+		return &msbSdk.Volume{}, nil
 	})
 
 	if _, err := (&realMsbClient{}).CreateVolume(
@@ -1618,7 +1676,7 @@ func TestCreateVolumeReportsOrphanRemovalFailure(t *testing.T) {
 	})
 	lookupErr := errors.New("resolve boom")
 	removeErr := errors.New("remove boom")
-	swapSeam(t, &getVolume, func(context.Context, string) (*msbSdk.VolumeHandle, error) {
+	swapSeam(t, &getVolume, func(context.Context, string) (*msbSdk.Volume, error) {
 		return nil, lookupErr
 	})
 	swapSeam(t, &removeVolume, func(context.Context, string) error { return removeErr })
@@ -1634,8 +1692,9 @@ func TestCreateVolumeReportsOrphanRemovalFailure(t *testing.T) {
 // when the launcher spec cannot be translated.
 func TestRealMsbClientSandboxAdapters(t *testing.T) {
 	ctx := context.Background()
-	swapSeam(t, &getSandbox, func(context.Context, string) (*msbSdk.SandboxHandle, error) {
-		return &msbSdk.SandboxHandle{}, nil
+	stubSandboxObservations(t)
+	swapSeam(t, &getSandbox, func(context.Context, string) (*msbSdk.Sandbox, error) {
+		return &msbSdk.Sandbox{}, nil
 	})
 	swapSeam(t, &createSandbox, func(context.Context, string, ...msbSdk.SandboxOption) (*msbSdk.Sandbox, error) {
 		return &msbSdk.Sandbox{}, nil
@@ -1657,8 +1716,9 @@ func TestRealMsbClientSandboxAdapters(t *testing.T) {
 
 // TestRealMsbClientGetVolume covers the GetVolume success path.
 func TestRealMsbClientGetVolume(t *testing.T) {
-	swapSeam(t, &getVolume, func(context.Context, string) (*msbSdk.VolumeHandle, error) {
-		return &msbSdk.VolumeHandle{}, nil
+	stubVolumeObservations(t)
+	swapSeam(t, &getVolume, func(context.Context, string) (*msbSdk.Volume, error) {
+		return &msbSdk.Volume{}, nil
 	})
 	if handle, err := (&realMsbClient{}).GetVolume(context.Background(), "v"); err != nil || handle == nil {
 		t.Errorf("GetVolume() = %v, %v; want a handle, nil", handle, err)
@@ -1966,6 +2026,28 @@ func swapSeam[T any](t *testing.T, seam *T, replacement T) {
 	t.Cleanup(func() { *seam = original })
 }
 
+// stubSandboxObservations makes the identity and config observations a handle
+// captures a no-op, so a client test can exercise its mapping with a zero-value
+// *msbSdk.Sandbox that has no native resource.
+func stubSandboxObservations(t *testing.T) {
+	t.Helper()
+	swapSeam(t, &realSandboxHandleInfo, func(*msbSdk.Sandbox, context.Context) (*msbSdk.SandboxInfo, error) {
+		return &msbSdk.SandboxInfo{}, nil
+	})
+	swapSeam(t, &realSandboxHandleConfigJSON, func(*msbSdk.Sandbox, context.Context) (string, error) {
+		return "{}", nil
+	})
+}
+
+// stubVolumeObservations makes the volume Info observation a no-op, so a client
+// test can exercise its mapping with a zero-value *msbSdk.Volume.
+func stubVolumeObservations(t *testing.T) {
+	t.Helper()
+	swapSeam(t, &realVolumeInfo, func(*msbSdk.Volume, context.Context) (*msbSdk.VolumeInfo, error) {
+		return &msbSdk.VolumeInfo{}, nil
+	})
+}
+
 func TestRealSandboxMetricsAndLogsDelegation(t *testing.T) {
 	ctx := context.Background()
 	wantErr := errors.New("metrics failed")
@@ -2025,14 +2107,14 @@ func TestRealSandboxMetricsAndLogsDelegation(t *testing.T) {
 
 func TestRealSandboxHandleMetricsAndLogsDelegation(t *testing.T) {
 	ctx := context.Background()
-	h := realSandboxHandle{handle: &msbSdk.SandboxHandle{}}
+	h := realSandboxHandle{handle: &msbSdk.Sandbox{}}
 	wantErr := errors.New("handle metrics failed")
 
 	t.Run("Metrics", func(t *testing.T) {
-		original := realSandboxHandleMetrics
-		t.Cleanup(func() { realSandboxHandleMetrics = original })
+		original := realSandboxMetrics
+		t.Cleanup(func() { realSandboxMetrics = original })
 		want := &msbSdk.Metrics{MemoryLimitBytes: 99}
-		realSandboxHandleMetrics = func(_ *msbSdk.SandboxHandle, _ context.Context) (*msbSdk.Metrics, error) {
+		realSandboxMetrics = func(_ *msbSdk.Sandbox, _ context.Context) (*msbSdk.Metrics, error) {
 			return want, nil
 		}
 		got, err := h.Metrics(ctx)
@@ -2044,8 +2126,8 @@ func TestRealSandboxHandleMetricsAndLogsDelegation(t *testing.T) {
 	t.Run("Metrics error", func(t *testing.T) {
 		swapSeam(
 			t,
-			&realSandboxHandleMetrics,
-			func(_ *msbSdk.SandboxHandle, _ context.Context) (*msbSdk.Metrics, error) {
+			&realSandboxMetrics,
+			func(_ *msbSdk.Sandbox, _ context.Context) (*msbSdk.Metrics, error) {
 				return nil, wantErr
 			},
 		)
@@ -2055,11 +2137,11 @@ func TestRealSandboxHandleMetricsAndLogsDelegation(t *testing.T) {
 	})
 
 	t.Run("Logs", func(t *testing.T) {
-		original := realSandboxHandleLogs
-		t.Cleanup(func() { realSandboxHandleLogs = original })
+		original := realSandboxLogs
+		t.Cleanup(func() { realSandboxLogs = original })
 		want := []msbSdk.LogEntry{{Source: msbSdk.LogSourceSystem}}
-		realSandboxHandleLogs = func(
-			_ *msbSdk.SandboxHandle, _ context.Context, _ msbSdk.LogOptions,
+		realSandboxLogs = func(
+			_ *msbSdk.Sandbox, _ context.Context, _ msbSdk.LogOptions,
 		) ([]msbSdk.LogEntry, error) {
 			return want, nil
 		}
@@ -2070,8 +2152,8 @@ func TestRealSandboxHandleMetricsAndLogsDelegation(t *testing.T) {
 	})
 
 	t.Run("Logs error", func(t *testing.T) {
-		swapSeam(t, &realSandboxHandleLogs, func(
-			_ *msbSdk.SandboxHandle, _ context.Context, _ msbSdk.LogOptions,
+		swapSeam(t, &realSandboxLogs, func(
+			_ *msbSdk.Sandbox, _ context.Context, _ msbSdk.LogOptions,
 		) ([]msbSdk.LogEntry, error) {
 			return nil, wantErr
 		})

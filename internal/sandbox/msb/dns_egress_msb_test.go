@@ -105,9 +105,7 @@ func createSandboxWithPolicy(t *testing.T, sandboxName string, spec NetworkSpec)
 	t.Cleanup(func() {
 		cleanupCtx := context.Background()
 		_ = sandbox.Kill(cleanupCtx)
-		if handle, handleErr := msbSdk.GetSandbox(cleanupCtx, sandboxName); handleErr == nil {
-			_ = handle.Remove(cleanupCtx)
-		}
+		_ = msbSdk.RemoveSandbox(cleanupCtx, sandboxName)
 	})
 	return sandbox
 }

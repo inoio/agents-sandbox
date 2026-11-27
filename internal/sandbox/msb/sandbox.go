@@ -2,6 +2,7 @@ package msb
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -39,15 +40,14 @@ type SandboxLifecycleHandle interface {
 type SandboxConfigReader interface {
 	Config() (*SandboxConfig, error)
 	// ConfigMounts returns the mounts the persisted config records, keyed by
-	// guest path. Config() cannot supply them: the SDK's
-	// SandboxConfig.UnmarshalJSON drops the persisted mounts, so
-	// cfg.Volumes is always empty on a read-back
+	// guest path. Config() cannot supply them: the launcher's read-back model
+	// does not carry them, so it reads them from the persisted spec
 	// (specs/vm/live-mount-readback.md).
 	ConfigMounts() (map[string]MountConfig, error)
 	// ConfigPorts returns the published port bindings the persisted config
-	// records. Config() cannot supply them either: the same SDK decode drops
-	// the persisted network.ports, so cfg.PortBindings is always empty on a
-	// read-back (specs/vm/live-mount-readback.md).
+	// records. Config() cannot supply them either: the launcher's read-back
+	// model does not carry them, so it reads them from the persisted spec
+	// (specs/vm/live-mount-readback.md).
 	ConfigPorts() ([]PortBinding, error)
 }
 
@@ -59,7 +59,7 @@ type SandboxResourceControl interface {
 	Logs(ctx context.Context, query LogQuery) ([]LogEntry, error)
 }
 
-// SandboxHandle is the subset of *msb.SandboxHandle used by the launcher.
+// SandboxHandle is the subset of *msb.Sandbox used by the launcher.
 type SandboxHandle interface {
 	SandboxIdentity
 	SandboxLifecycleHandle
@@ -126,125 +126,171 @@ type Sandbox interface {
 	SandboxLifecycle
 }
 
-// realSandboxHandle adapts *msbSdk.SandboxHandle to SandboxHandle.
+// realSandboxHandle adapts *msbSdk.Sandbox to SandboxHandle. The v0.8 SDK
+// unified the persisted handle and the live sandbox into one resource and moved
+// the mutable observations behind context-bearing lookups, so the adapter
+// captures the identity (Info) and persisted config observations when the
+// handle is resolved and keeps the old synchronous identity/config methods.
+// Lifecycle and resource operations act on the retained resource.
+//
+// Each delegation target is a package-level seam (a method expression or a
+// function) so the thin adapter is unit-testable without a live VM.
 type realSandboxHandle struct {
-	handle *msbSdk.SandboxHandle
+	handle     *msbSdk.Sandbox
+	info       *msbSdk.SandboxInfo
+	config     *msbSdk.SandboxConfigInspection
+	configJSON string
+	configErr  error
 }
 
-func (w realSandboxHandle) Name() string {
-	return w.handle.Name()
-}
-
-func (w realSandboxHandle) ID() string {
-	return w.handle.ID()
-}
-
-func (w realSandboxHandle) Status() SandboxStatus {
-	return sandboxStatusFrom(realSandboxHandleStatus(w.handle))
-}
-
-func (w realSandboxHandle) UpdatedAt() time.Time {
-	return w.handle.UpdatedAt()
-}
-
-func (w realSandboxHandle) CreatedAt() time.Time {
-	return w.handle.CreatedAt()
-}
-
-func (w realSandboxHandle) BackendKind() BackendKind {
-	return backendKindFrom(realSandboxHandleBackendKind(w.handle))
-}
-
-func (w realSandboxHandle) Image() string {
-	cfg, err := realSandboxHandleConfig(w.handle)
-	if err != nil {
-		return ""
-	}
-	return cfg.Image
-}
-
-func (w realSandboxHandle) Connect(ctx context.Context) (Sandbox, error) {
-	sb, err := realSandboxHandleConnect(w.handle, ctx)
+// sandboxHandleFrom captures the observations the synchronous handle exposes and
+// wraps the resource. The identity observation is required; a failed config
+// lookup or decode is retained on the handle and reported by the config
+// accessors, so a run can degrade to "config unreadable" rather than fail the
+// whole lookup (specs/vm/reconfig-decision.md).
+func sandboxHandleFrom(ctx context.Context, sandbox *msbSdk.Sandbox) (*realSandboxHandle, error) {
+	info, err := realSandboxHandleInfo(sandbox, ctx)
 	if err != nil {
 		return nil, err
 	}
-	return &realSandbox{sandbox: sb}, nil
+	raw, configErr := realSandboxHandleConfigJSON(sandbox, ctx)
+	var config *msbSdk.SandboxConfigInspection
+	if configErr == nil {
+		config, configErr = sandboxConfigInspection(raw)
+	}
+	return &realSandboxHandle{
+		handle:     sandbox,
+		info:       info,
+		config:     config,
+		configJSON: raw,
+		configErr:  configErr,
+	}, nil
 }
 
-// The handle config/connect delegation targets are package-level seams (method
-// expressions) so the thin adapters are unit-testable without a live VM.
-var (
-	realSandboxHandleConfig     = (*msbSdk.SandboxHandle).Config
-	realSandboxHandleConfigJSON = (*msbSdk.SandboxHandle).ConfigJSON
-	realSandboxHandleConnect    = (*msbSdk.SandboxHandle).Connect
-	realSandboxHandleModify     = (*msbSdk.SandboxHandle).Modify
-	realSandboxHandleCompact    = (*msbSdk.SandboxHandle).Compact
-)
+// sandboxConfigInspection decodes the persisted-config inspection envelope.
+func sandboxConfigInspection(raw string) (*msbSdk.SandboxConfigInspection, error) {
+	var inspection msbSdk.SandboxConfigInspection
+	if err := json.Unmarshal([]byte(raw), &inspection); err != nil {
+		return nil, fmt.Errorf("decoding sandbox config inspection: %w", err)
+	}
+	return &inspection, nil
+}
 
-// The handle identity accessors delegate through package-level seams (method
-// expressions) so their enum translation is unit-testable without a live VM.
-var (
-	realSandboxHandleStatus      = (*msbSdk.SandboxHandle).Status
-	realSandboxHandleBackendKind = (*msbSdk.SandboxHandle).BackendKind
-)
+func (w realSandboxHandle) Name() string {
+	return realSandboxName(w.handle)
+}
 
-// The connect-or-start delegation targets are package-level seams (method
-// expressions) so the boot report is unit-testable without a live VM.
-var (
-	realHandleConnectOrStart = (*msbSdk.SandboxHandle).ConnectOrStart
-	realSandboxOwnsLifecycle = (*msbSdk.Sandbox).OwnsLifecycle
-)
+func (w realSandboxHandle) ID() string {
+	return realSandboxID(w.handle)
+}
+
+func (w realSandboxHandle) Status() SandboxStatus {
+	if w.info == nil {
+		return SandboxStatus("")
+	}
+	return sandboxStatusFrom(w.info.Status)
+}
+
+func (w realSandboxHandle) UpdatedAt() time.Time {
+	if w.info == nil || w.info.UpdatedAt == nil {
+		return time.Time{}
+	}
+	return *w.info.UpdatedAt
+}
+
+func (w realSandboxHandle) CreatedAt() time.Time {
+	if w.info == nil || w.info.CreatedAt == nil {
+		return time.Time{}
+	}
+	return *w.info.CreatedAt
+}
+
+func (w realSandboxHandle) BackendKind() BackendKind {
+	return backendKindFrom(realSandboxBackendKind(w.handle))
+}
+
+func (w realSandboxHandle) Image() string {
+	if w.configErr != nil || w.config == nil {
+		return ""
+	}
+	return imageFromInspection(w.config.Spec)
+}
+
+// Connect attaches to this sandbox only when it is running; a stopped or
+// starting sandbox is not connected. It never starts the sandbox, so a caller
+// that reads live VM state (the reconfiguration decision) does not boot a VM as
+// a side effect.
+func (w realSandboxHandle) Connect(ctx context.Context) (Sandbox, error) {
+	status, err := realSandboxStatus(w.handle, ctx)
+	if err != nil {
+		return nil, err
+	}
+	if status != msbSdk.SandboxStatusRunning {
+		return nil, &msbSdk.Error{
+			Kind:    msbSdk.ErrSandboxNotRunning,
+			Message: fmt.Sprintf("sandbox %q is %s, not running", realSandboxName(w.handle), status),
+		}
+	}
+	return &realSandbox{sandbox: w.handle}, nil
+}
 
 // ConnectOrStart starts attached (not detached), so the returned sandbox owns
 // the VM process exactly when this call booted it; ownership is read before the
 // caller can detach. A sandbox whose ownership cannot be read is closed and the
 // error returned, because guessing would run or skip the once-per-boot work.
 func (w realSandboxHandle) ConnectOrStart(ctx context.Context) (Sandbox, bool, error) {
-	sb, err := realHandleConnectOrStart(w.handle, ctx)
-	if err != nil {
+	if err := realHandleEnsureRunning(w.handle, ctx); err != nil {
 		return nil, false, err
 	}
-	booted, err := realSandboxOwnsLifecycle(sb)
+	booted, err := realSandboxOwnsLifecycle(w.handle)
 	if err != nil {
-		_ = realSandboxClose(sb)
+		_ = realSandboxClose(w.handle)
 		return nil, false, fmt.Errorf("read whether this run booted the sandbox: %w", err)
 	}
-	return realSandbox{sandbox: sb}, booted, nil
+	return realSandbox{sandbox: w.handle}, booted, nil
 }
 
 func (w realSandboxHandle) Stop(ctx context.Context, opts LifecycleOptions) error {
 	stopOptions, _, _ := lifecycleOptions(opts)
-	return w.handle.Stop(ctx, stopOptions...)
+	return realSandboxHandleStop(w.handle, ctx, stopOptions...)
 }
 
 func (w realSandboxHandle) Kill(ctx context.Context, opts LifecycleOptions) error {
 	_, killOptions, _ := lifecycleOptions(opts)
-	return w.handle.Kill(ctx, killOptions...)
+	return realSandboxHandleKill(w.handle, ctx, killOptions...)
 }
 
+// Remove deletes the persisted state of a stopped sandbox by name. The SDK's
+// resource-level removal is name-based, so a same-name replacement is guarded
+// by the caller's prior running check rather than by captured identity.
 func (w realSandboxHandle) Remove(ctx context.Context) error {
-	return w.handle.Remove(ctx)
+	return realSandboxRemove(ctx, realSandboxName(w.handle))
 }
 
 func (w realSandboxHandle) Destroy(ctx context.Context, opts LifecycleOptions) error {
 	_, _, destroyOptions := lifecycleOptions(opts)
-	return w.handle.Destroy(ctx, destroyOptions...)
+	return realSandboxHandleDestroy(w.handle, ctx, destroyOptions...)
 }
 
 func (w realSandboxHandle) Config() (*SandboxConfig, error) {
-	config, err := realSandboxHandleConfig(w.handle)
-	if err != nil {
-		return nil, err
+	if w.configErr != nil {
+		return nil, w.configErr
 	}
-	return sandboxConfigFrom(config), nil
+	return sandboxConfigFrom(w.config), nil
 }
 
 func (w realSandboxHandle) ConfigMounts() (map[string]MountConfig, error) {
-	return ParseConfigMounts(realSandboxHandleConfigJSON(w.handle))
+	if w.configErr != nil {
+		return nil, w.configErr
+	}
+	return ParseConfigMounts(w.configJSON)
 }
 
 func (w realSandboxHandle) ConfigPorts() ([]PortBinding, error) {
-	return ParseConfigPorts(realSandboxHandleConfigJSON(w.handle))
+	if w.configErr != nil {
+		return nil, w.configErr
+	}
+	return ParseConfigPorts(w.configJSON)
 }
 
 func (w realSandboxHandle) Modify(
@@ -270,7 +316,7 @@ func (w realSandboxHandle) Compact(
 }
 
 func (w realSandboxHandle) Metrics(ctx context.Context) (*Metrics, error) {
-	metrics, err := realSandboxHandleMetrics(w.handle, ctx)
+	metrics, err := realSandboxMetrics(w.handle, ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -278,12 +324,36 @@ func (w realSandboxHandle) Metrics(ctx context.Context) (*Metrics, error) {
 }
 
 func (w realSandboxHandle) Logs(ctx context.Context, query LogQuery) ([]LogEntry, error) {
-	entries, err := realSandboxHandleLogs(w.handle, ctx, logOptions(query))
+	entries, err := realSandboxLogs(w.handle, ctx, logOptions(query))
 	if err != nil {
 		return nil, err
 	}
 	return logEntriesFrom(entries), nil
 }
+
+// The handle delegation targets are package-level seams (method expressions or
+// functions) so their translation is unit-testable without a live VM.
+var (
+	realSandboxName             = (*msbSdk.Sandbox).Name
+	realSandboxID               = (*msbSdk.Sandbox).ID
+	realSandboxBackendKind      = (*msbSdk.Sandbox).ContextKind
+	realSandboxHandleInfo       = (*msbSdk.Sandbox).Info
+	realSandboxHandleConfigJSON = (*msbSdk.Sandbox).ConfigJSON
+	realSandboxStatus           = (*msbSdk.Sandbox).Status
+	realSandboxHandleStop       = (*msbSdk.Sandbox).Stop
+	realSandboxHandleKill       = (*msbSdk.Sandbox).Kill
+	realSandboxHandleDestroy    = (*msbSdk.Sandbox).Destroy
+	realSandboxHandleModify     = (*msbSdk.Sandbox).Modify
+	realSandboxHandleCompact    = (*msbSdk.Sandbox).Compact
+	realSandboxRemove           = msbSdk.RemoveSandbox
+)
+
+// The connect-or-start delegation targets are package-level seams (method
+// expressions) so the boot report is unit-testable without a live VM.
+var (
+	realHandleEnsureRunning  = (*msbSdk.Sandbox).EnsureRunning
+	realSandboxOwnsLifecycle = (*msbSdk.Sandbox).OwnsLifecycle
+)
 
 // realSandbox adapts *msbSdk.Sandbox to Sandbox.
 type realSandbox struct {
@@ -396,9 +466,6 @@ var (
 	realSandboxClose        = (*msbSdk.Sandbox).Close
 	realSandboxMetrics      = (*msbSdk.Sandbox).Metrics
 	realSandboxLogs         = (*msbSdk.Sandbox).Logs
-
-	realSandboxHandleMetrics = (*msbSdk.SandboxHandle).Metrics
-	realSandboxHandleLogs    = (*msbSdk.SandboxHandle).Logs
 )
 
 func (s realSandbox) Attach(ctx context.Context, command string, args ...string) (int, error) {

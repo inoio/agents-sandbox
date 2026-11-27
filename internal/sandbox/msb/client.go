@@ -98,7 +98,7 @@ func (realMsbClient) GetSandbox(ctx context.Context, name string) (SandboxHandle
 	if err != nil {
 		return nil, err
 	}
-	return &realSandboxHandle{handle: h}, nil
+	return sandboxHandleFrom(ctx, h)
 }
 
 func (realMsbClient) CreateSandbox(ctx context.Context, name string, spec SandboxSpec) (Sandbox, error) {
@@ -131,7 +131,11 @@ func (realMsbClient) ListSandboxes(ctx context.Context, labels map[string]string
 			return nil, err
 		}
 		for _, h := range page.Sandboxes {
-			result = append(result, &realSandboxHandle{handle: h})
+			handle, err := sandboxHandleFrom(ctx, h)
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, handle)
 		}
 		cursor = page.NextCursor
 		if cursor == nil {
@@ -146,7 +150,7 @@ func (realMsbClient) GetVolume(ctx context.Context, name string) (VolumeHandle, 
 	if err != nil {
 		return nil, err
 	}
-	return realVolumeHandle{handle: v}, nil
+	return volumeHandleFrom(ctx, v)
 }
 
 func (realMsbClient) CreateVolume(ctx context.Context, name string, spec VolumeSpec) (VolumeHandle, error) {
@@ -164,7 +168,7 @@ func (realMsbClient) CreateVolume(ctx context.Context, name string, spec VolumeS
 		}
 		return nil, err
 	}
-	return realVolumeHandle{handle: handle}, nil
+	return volumeHandleFrom(ctx, handle)
 }
 
 func (realMsbClient) ListVolumes(ctx context.Context) ([]VolumeHandle, error) {
@@ -174,7 +178,11 @@ func (realMsbClient) ListVolumes(ctx context.Context) ([]VolumeHandle, error) {
 	}
 	result := make([]VolumeHandle, len(handles))
 	for i, h := range handles {
-		result[i] = realVolumeHandle{handle: h}
+		handle, err := volumeHandleFrom(ctx, h)
+		if err != nil {
+			return nil, err
+		}
+		result[i] = handle
 	}
 	return result, nil
 }

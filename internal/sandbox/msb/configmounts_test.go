@@ -63,7 +63,7 @@ func TestParseConfigMountsWithoutMountsKeyIsNotAnError(t *testing.T) {
 }
 
 func TestParseConfigMountsEmptyArrayIsAnEmptyMap(t *testing.T) {
-	got, err := ParseConfigMounts(`{"mounts":[]}`)
+	got, err := ParseConfigMounts(`{"spec":{"mounts":[]}}`)
 	if err != nil {
 		t.Fatalf("ParseConfigMounts() error = %v", err)
 	}
@@ -75,10 +75,10 @@ func TestParseConfigMountsEmptyArrayIsAnEmptyMap(t *testing.T) {
 func TestParseConfigMountsSkipsUnknownType(t *testing.T) {
 	// The unknown mount comes first, so a skip that stopped the scan would
 	// lose the mount after it.
-	raw := `{"mounts":[
+	raw := `{"spec":{"mounts":[
 	  {"type":"SomethingNew","guest":"/future"},
 	  {"type":"Tmpfs","guest":"/tmp","size_mib":2048}
-	]}`
+	]}}`
 	got, err := ParseConfigMounts(raw)
 	if err != nil {
 		t.Fatalf("ParseConfigMounts() error = %v", err)
@@ -89,10 +89,10 @@ func TestParseConfigMountsSkipsUnknownType(t *testing.T) {
 }
 
 func TestParseConfigMountsLastDuplicateGuestWins(t *testing.T) {
-	raw := `{"mounts":[
+	raw := `{"spec":{"mounts":[
 	  {"type":"Tmpfs","guest":"/tmp","size_mib":2048},
 	  {"type":"Tmpfs","guest":"/tmp","size_mib":4096}
-	]}`
+	]}}`
 	got, err := ParseConfigMounts(raw)
 	if err != nil {
 		t.Fatalf("ParseConfigMounts() error = %v", err)
@@ -112,7 +112,7 @@ func TestParseConfigMountsRejectsMalformedJSON(t *testing.T) {
 }
 
 func TestParseConfigMountsRejectsMountWithoutGuest(t *testing.T) {
-	if _, err := ParseConfigMounts(`{"mounts":[{"type":"Tmpfs","size_mib":1}]}`); err == nil {
+	if _, err := ParseConfigMounts(`{"spec":{"mounts":[{"type":"Tmpfs","size_mib":1}]}}`); err == nil {
 		t.Error("ParseConfigMounts() error = nil, want an error for a mount without a guest path")
 	}
 }
@@ -121,9 +121,9 @@ func TestParseConfigMountsRejectsMountWithoutGuest(t *testing.T) {
 // storage-kind mapping: upstream spells the directory kind "directory" while
 // the SDK constant is "dir", so the disk spelling is easy to conflate or drop.
 func TestParseConfigMountsOwnedDiskKind(t *testing.T) {
-	raw := `{"mounts":[
+	raw := `{"spec":{"mounts":[
 	  {"type":"Owned","guest":"/data","storage":{"kind":"disk","capacity_mib":1024,"quota_mib":512},"options":{}}
-	]}`
+	]}}`
 	got, err := ParseConfigMounts(raw)
 	if err != nil {
 		t.Fatalf("ParseConfigMounts() error = %v", err)
@@ -137,18 +137,21 @@ func TestParseConfigMountsOwnedDiskKind(t *testing.T) {
 	}
 }
 
-// persistedConfigWithMounts mirrors the real persisted shape: SandboxConfig
-// flattens SandboxSpec, whose mounts are an internally tagged VolumeMount array
-// (microsandbox-types domain.rs). Note that stat_virtualization and
-// host_permissions sit next to `options`, not inside it.
+// persistedConfigWithMounts mirrors the real inspection envelope: the native
+// inspection returns the persisted SandboxSpec under `spec`, whose mounts are an
+// internally tagged VolumeMount array (microsandbox-types domain.rs). Note that
+// stat_virtualization and host_permissions sit next to `options`, not inside it.
 const persistedConfigWithMounts = `{
-  "name": "agents-sandbox-vm-proj-opencode",
-  "memory_mib": 16384,
-  "mounts": [
-    {"type":"Named","name":"agents-sandbox-home-proj-opencode-20261016T101010","guest":"/home/dev","options":{"readonly":false},"stat_virtualization":"strict","host_permissions":"private","follow_root_symlinks":false},
-    {"type":"Bind","host":"/host/proj","guest":"/workspace","options":{"readonly":false},"stat_virtualization":"strict","host_permissions":"mirror","follow_root_symlinks":false,"quota_mib":16384},
-    {"type":"Tmpfs","guest":"/tmp","size_mib":2048,"options":{}},
-    {"type":"Owned","guest":"/data","storage":{"kind":"directory","quota_mib":512},"options":{},"stat_virtualization":"strict","host_permissions":"private"},
-    {"type":"DiskImage","host":"/images/seed.img","guest":"/disk","format":"Raw","fstype":"ext4","options":{"readonly":true}}
-  ]
+  "kind": "local",
+  "spec": {
+    "name": "agents-sandbox-vm-proj-opencode",
+    "memory_mib": 16384,
+    "mounts": [
+      {"type":"Named","name":"agents-sandbox-home-proj-opencode-20261016T101010","guest":"/home/dev","options":{"readonly":false},"stat_virtualization":"strict","host_permissions":"private","follow_root_symlinks":false},
+      {"type":"Bind","host":"/host/proj","guest":"/workspace","options":{"readonly":false},"stat_virtualization":"strict","host_permissions":"mirror","follow_root_symlinks":false,"quota_mib":16384},
+      {"type":"Tmpfs","guest":"/tmp","size_mib":2048,"options":{}},
+      {"type":"Owned","guest":"/data","storage":{"kind":"directory","quota_mib":512},"options":{},"stat_virtualization":"strict","host_permissions":"private"},
+      {"type":"DiskImage","host":"/images/seed.img","guest":"/disk","format":"Raw","fstype":"ext4","options":{"readonly":true}}
+    ]
+  }
 }`
