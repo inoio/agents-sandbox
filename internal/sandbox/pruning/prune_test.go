@@ -704,3 +704,57 @@ func TestPruneNonDryRunSweepsState(t *testing.T) {
 		t.Errorf("the volume-less state file should be removed, read err = %v", err)
 	}
 }
+
+// TestPruneJoinsStorageEntryError proves a per-backing failure the runtime
+// reported inside a successful call is folded into the aggregate error and kept
+// on the report.
+func TestPruneJoinsStorageEntryError(t *testing.T) {
+	entryErr := "locked by a running sandbox"
+	client := &msbtest.MockMsbClient{
+		StoragePruneFn: func(context.Context, msb.PruneRequest) (*msb.PruneReport, error) {
+			return &msb.PruneReport{
+				Entries: []msb.PruneEntry{
+					{Path: "/home/.msb/branch/locked", Kind: "branch_memory", State: "error", Error: &entryErr},
+				},
+			}, nil
+		},
+	}
+	msbtest.WithMsbMock(t, client)
+	dockertest.WithNoopDockerMock(t)
+	configpathstest.WithMockConfigPaths(t)
+
+	report, err := Prune(context.Background(), docker.Get(), PruneOptions{Age: 7 * 24 * time.Hour}, &termiotest.Mock{})
+	if err == nil || !strings.Contains(err.Error(), entryErr) {
+		t.Fatalf("Prune error = %v, want the entry error joined", err)
+	}
+	if len(report.Storage.Entries) != 1 || report.Storage.Entries[0].Error == nil {
+		t.Errorf("Storage.Entries = %+v, want the errored entry on the report", report.Storage.Entries)
+	}
+}
+
+// TestPruneCleanStorageReportKeepsNilError proves entries without an error add
+// nothing to the aggregate error.
+func TestPruneCleanStorageReportKeepsNilError(t *testing.T) {
+	client := &msbtest.MockMsbClient{
+		StoragePruneFn: func(context.Context, msb.PruneRequest) (*msb.PruneReport, error) {
+			return &msb.PruneReport{
+				FilesRemoved: 1,
+				Entries: []msb.PruneEntry{
+					{Path: "/home/.msb/branch/one", Kind: "branch_memory", State: "removed"},
+				},
+			}, nil
+		},
+	}
+	msbtest.WithMsbMock(t, client)
+	dockertest.WithNoopDockerMock(t)
+	configpathstest.WithMockConfigPaths(t)
+
+	if _, err := Prune(
+		context.Background(),
+		docker.Get(),
+		PruneOptions{Age: 7 * 24 * time.Hour},
+		&termiotest.Mock{},
+	); err != nil {
+		t.Fatalf("Prune error = %v, want nil for a clean runtime-memory phase", err)
+	}
+}

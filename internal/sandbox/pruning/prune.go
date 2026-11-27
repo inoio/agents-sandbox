@@ -3,6 +3,7 @@ package pruning
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/humanize"
@@ -60,7 +61,22 @@ func Prune(
 		State:               stateReport,
 		Details:             append(vmReport.Details, imgReport.Details...),
 	}
-	return report, errors.Join(vmErr, imgErr, storageErr, stateErr)
+	entryErrors := storageEntryErrors(storageReport)
+	allErrors := append([]error{vmErr, imgErr, storageErr, stateErr}, entryErrors...)
+	return report, errors.Join(allErrors...)
+}
+
+// storageEntryErrors collects the per-backing prune failures the runtime
+// reported. They are data on the report, so the aggregate join folds them in
+// explicitly.
+func storageEntryErrors(report StorageReport) []error {
+	var errs []error
+	for _, entry := range report.Entries {
+		if entry.Error != nil {
+			errs = append(errs, fmt.Errorf("runtime memory: %s (%s): %s", entry.Path, entry.Kind, *entry.Error))
+		}
+	}
+	return errs
 }
 
 func RenderPruneSummary(ui termio.UI, report *StaleReport, dryRun bool) {
