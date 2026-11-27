@@ -1509,6 +1509,67 @@ func TestRealMsbClientListResolutionErrors(t *testing.T) {
 	}
 }
 
+// TestListSandboxesSkipsEntriesThatVanished pins that a page entry whose
+// observation reports it gone or replaced is skipped rather than failing the
+// whole enumeration: a list is a point-in-time view, so a concurrent removal
+// (prune, a force recreate, the reaper) must not turn listing into an error
+// (specs/identity/sandbox-identity.md).
+func TestListSandboxesSkipsEntriesThatVanished(t *testing.T) {
+	ctx := context.Background()
+	swapSeam(t, &listSandboxesWith, func(context.Context, ...msbSdk.SandboxListOption) (*msbSdk.SandboxPage, error) {
+		return &msbSdk.SandboxPage{Sandboxes: []*msbSdk.Sandbox{{}, {}, {}}}, nil
+	})
+	swapSeam(t, &realSandboxHandleConfigJSON, func(*msbSdk.Sandbox, context.Context) (string, error) {
+		return "{}", nil
+	})
+	calls := 0
+	swapSeam(t, &realSandboxHandleInfo, func(*msbSdk.Sandbox, context.Context) (*msbSdk.SandboxInfo, error) {
+		calls++
+		switch calls {
+		case 1:
+			return &msbSdk.SandboxInfo{}, nil
+		case 2:
+			return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound}
+		default:
+			return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxReplaced}
+		}
+	})
+
+	handles, err := (&realMsbClient{}).ListSandboxes(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListSandboxes() error = %v, want nil", err)
+	}
+	if len(handles) != 1 {
+		t.Errorf("ListSandboxes() returned %d handles, want the 1 that survived", len(handles))
+	}
+}
+
+// TestListVolumesSkipsEntriesThatVanished pins that a volume whose observation
+// reports it gone (a replaced volume reports the same not-found kind) is
+// skipped rather than failing the whole enumeration.
+func TestListVolumesSkipsEntriesThatVanished(t *testing.T) {
+	ctx := context.Background()
+	swapSeam(t, &listVolumes, func(context.Context) ([]*msbSdk.Volume, error) {
+		return []*msbSdk.Volume{{}, {}, {}}, nil
+	})
+	calls := 0
+	swapSeam(t, &realVolumeInfo, func(*msbSdk.Volume, context.Context) (*msbSdk.VolumeInfo, error) {
+		calls++
+		if calls == 2 {
+			return nil, &msbSdk.Error{Kind: msbSdk.ErrVolumeNotFound}
+		}
+		return &msbSdk.VolumeInfo{}, nil
+	})
+
+	handles, err := (&realMsbClient{}).ListVolumes(ctx)
+	if err != nil {
+		t.Fatalf("ListVolumes() error = %v, want nil", err)
+	}
+	if len(handles) != 2 {
+		t.Errorf("ListVolumes() returned %d handles, want the 2 that survived", len(handles))
+	}
+}
+
 // TestRealMsbClientListSandboxesPagination drives the paging loop and the label
 // and cursor option branches. The first page carries the label option; the
 // second, reached through NextCursor, adds the cursor option.

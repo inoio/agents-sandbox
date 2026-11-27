@@ -981,27 +981,23 @@ type persistedRootDisk struct {
 // {"Oci":{"reference":"alpine:3.19","root_disk":{"kind":"managed","size_mib":8192}}}),
 // which the launcher's read-back model flattens to an image string plus an
 // optional root-disk size. An absent, unrecognized or malformed source yields
-// zero values rather than an error, because the launcher only compares them.
+// zero values rather than an error, because the launcher only compares them; a
+// failed decode leaves the destination at its zero value and no tagged key
+// matches, so every decode error falls through to the same empty result and
+// needs no guard.
 func decodeInspectionRootfs(raw json.RawMessage) (string, *RootDiskConfig) {
-	if len(raw) == 0 || string(raw) == "null" {
-		return "", nil
-	}
 	var plain string
 	if err := json.Unmarshal(raw, &plain); err == nil {
 		return plain, nil
 	}
 	var tagged map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &tagged); err != nil {
-		return "", nil
-	}
+	_ = json.Unmarshal(raw, &tagged)
 	if value, ok := tagged["Oci"]; ok {
 		var source struct {
 			Reference string             `json:"reference"`
 			RootDisk  *persistedRootDisk `json:"root_disk"`
 		}
-		if err := json.Unmarshal(value, &source); err != nil {
-			return "", nil
-		}
+		_ = json.Unmarshal(value, &source)
 		var rootDisk *RootDiskConfig
 		if source.RootDisk != nil {
 			rootDisk = &RootDiskConfig{SizeMiB: source.RootDisk.SizeMiB}
@@ -1012,18 +1008,14 @@ func decodeInspectionRootfs(raw json.RawMessage) (string, *RootDiskConfig) {
 		var source struct {
 			Path string `json:"path"`
 		}
-		if err := json.Unmarshal(value, &source); err != nil {
-			return "", nil
-		}
+		_ = json.Unmarshal(value, &source)
 		return source.Path, nil
 	}
 	if value, ok := tagged["DiskImage"]; ok {
 		var source struct {
 			Path string `json:"path"`
 		}
-		if err := json.Unmarshal(value, &source); err != nil {
-			return "", nil
-		}
+		_ = json.Unmarshal(value, &source)
 		return source.Path, nil
 	}
 	return "", nil

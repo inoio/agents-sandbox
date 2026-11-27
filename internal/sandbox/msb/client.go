@@ -133,6 +133,12 @@ func (realMsbClient) ListSandboxes(ctx context.Context, labels map[string]string
 		for _, h := range page.Sandboxes {
 			handle, err := sandboxHandleFrom(ctx, h)
 			if err != nil {
+				// A list is a point-in-time view: an entry removed or replaced
+				// between the page fetch and this observation is nothing to
+				// enumerate, not a failure. Any other error is real.
+				if IsNotFound(err) || IsReplaced(err) {
+					continue
+				}
 				return nil, err
 			}
 			result = append(result, handle)
@@ -185,13 +191,19 @@ func (realMsbClient) ListVolumes(ctx context.Context) ([]VolumeHandle, error) {
 	if err != nil {
 		return nil, err
 	}
-	result := make([]VolumeHandle, len(handles))
-	for i, h := range handles {
+	result := make([]VolumeHandle, 0, len(handles))
+	for _, h := range handles {
 		handle, err := volumeHandleFrom(ctx, h)
 		if err != nil {
+			// A volume removed (or replaced, which reports the same not-found
+			// kind) between the fetch and this observation is nothing to
+			// enumerate. Any other error is real.
+			if IsVolumeNotFound(err) {
+				continue
+			}
 			return nil, err
 		}
-		result[i] = handle
+		result = append(result, handle)
 	}
 	return result, nil
 }
