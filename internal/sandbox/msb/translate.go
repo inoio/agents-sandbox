@@ -283,20 +283,6 @@ var (
 		"DryRun": "the caller issued the run and already knows whether it was a dry run",
 	}
 
-	// diskCompactionDiskResultProjected names every field of
-	// msbSdk.DiskCompactionDiskResult the launcher projects;
-	// diskCompactionDiskResultNotModeled is empty because every field is
-	// projected.
-	diskCompactionDiskResultProjected = map[string]struct{}{
-		"GuestPath":         {},
-		"InputLayers":       {},
-		"SelectedLayers":    {},
-		"OutputLayers":      {},
-		"MaterializedBytes": {},
-		"TotalUs":           {},
-	}
-	diskCompactionDiskResultNotModeled = map[string]string{}
-
 	// sandboxConfigInspectionProjected names every field of the read-back
 	// inspection envelope the launcher projects; the envelope's bookkeeping is
 	// notModeled.
@@ -789,21 +775,8 @@ func modificationPlanFrom(plan *msbSdk.SandboxModificationPlan) *SandboxModifica
 		return nil
 	}
 	return &SandboxModificationPlan{
-		Conflicts: modificationConflictsFrom(plan.Conflicts),
+		Conflicts: plan.Conflicts,
 	}
-}
-
-// modificationConflictsFrom translates SDK modification conflicts, preserving
-// nil as nil.
-func modificationConflictsFrom(conflicts []msbSdk.ModificationConflict) []ModificationConflict {
-	if conflicts == nil {
-		return nil
-	}
-	out := make([]ModificationConflict, len(conflicts))
-	for i, conflict := range conflicts {
-		out[i] = ModificationConflict{Field: conflict.Field, Message: conflict.Message}
-	}
-	return out
 }
 
 // diskCompactionResultFrom projects the SDK compaction result. A nil result
@@ -819,28 +792,8 @@ func diskCompactionResultFrom(result *msbSdk.DiskCompactionResult) *DiskCompacti
 		MaterializedBytes: result.MaterializedBytes,
 		TotalUs:           result.TotalUs,
 		PauseUs:           result.PauseUs,
-		Disks:             diskCompactionDisksFrom(result.Disks),
+		Disks:             result.Disks,
 	}
-}
-
-// diskCompactionDisksFrom translates per-disk compaction outcomes, preserving
-// nil as nil.
-func diskCompactionDisksFrom(disks []msbSdk.DiskCompactionDiskResult) []DiskCompactionDiskResult {
-	if disks == nil {
-		return nil
-	}
-	out := make([]DiskCompactionDiskResult, len(disks))
-	for i, disk := range disks {
-		out[i] = DiskCompactionDiskResult{
-			GuestPath:         disk.GuestPath,
-			InputLayers:       disk.InputLayers,
-			SelectedLayers:    disk.SelectedLayers,
-			OutputLayers:      disk.OutputLayers,
-			MaterializedBytes: disk.MaterializedBytes,
-			TotalUs:           disk.TotalUs,
-		}
-	}
-	return out
 }
 
 // sandboxOptions translates a SandboxSpec into the SDK option list in the order

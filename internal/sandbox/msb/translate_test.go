@@ -86,12 +86,6 @@ func TestSDKStructFieldsAreClassified(t *testing.T) {
 			diskCompactionResultNotModeled,
 		},
 		{
-			"DiskCompactionDiskResult",
-			reflect.TypeFor[msbSdk.DiskCompactionDiskResult](),
-			diskCompactionDiskResultProjected,
-			diskCompactionDiskResultNotModeled,
-		},
-		{
 			"SandboxConfigInspection",
 			reflect.TypeFor[msbSdk.SandboxConfigInspection](),
 			sandboxConfigInspectionProjected,
@@ -1286,15 +1280,5 @@ func TestDiskCompactionResultFromProjectsFields(t *testing.T) {
 func TestDiskCompactionResultFromNilIsNil(t *testing.T) {
 	if got := diskCompactionResultFrom(nil); got != nil {
 		t.Errorf("diskCompactionResultFrom(nil) = %v, want nil", got)
-	}
-}
-
-func TestDiskCompactionDisksFromPreservesNil(t *testing.T) {
-	if got := diskCompactionDisksFrom(nil); got != nil {
-		t.Errorf("diskCompactionDisksFrom(nil) = %v, want nil", got)
-	}
-	disks := diskCompactionResultFrom(&msbSdk.DiskCompactionResult{}).Disks
-	if disks != nil {
-		t.Errorf("diskCompactionResultFrom(no disks).Disks = %v, want nil", disks)
 	}
 }

@@ -1,5 +1,7 @@
 package msb
 
+import msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
 // SandboxConfig is the launcher's read-back view of a sandbox's persisted
 // configuration: the fields the launcher compares on a revisited VM. The
 // adapter projects the SDK's persisted-config inspection onto it, and fills the
@@ -58,11 +60,9 @@ type SandboxModificationPlan struct {
 	Conflicts []ModificationConflict
 }
 
-// ModificationConflict is one conflict that blocks applying a modification.
-type ModificationConflict struct {
-	Field   string
-	Message string
-}
+// ModificationConflict is the SDK's one-conflict-blocks-a-modification
+// observation.
+type ModificationConflict = msbSdk.ModificationConflict
 
 // DiskCompactionResult is the launcher's view of a disk-compaction run.
 //
@@ -77,14 +77,6 @@ type DiskCompactionResult struct {
 	Disks             []DiskCompactionDiskResult
 }
 
-// DiskCompactionDiskResult is the per-disk outcome of a compaction.
-//
-//exhaustruct:ignore
-type DiskCompactionDiskResult struct {
-	GuestPath         string
-	InputLayers       uint32
-	SelectedLayers    uint32
-	OutputLayers      uint32
-	MaterializedBytes uint64
-	TotalUs           uint64
-}
+// DiskCompactionDiskResult is the SDK's per-disk compaction outcome
+// observation.
+type DiskCompactionDiskResult = msbSdk.DiskCompactionDiskResult

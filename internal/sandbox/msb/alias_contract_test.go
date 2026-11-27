@@ -31,3 +31,10 @@ var (
 	_ ExecFailure        = msbSdk.ExecFailure{}
 	_ msbSdk.ExecFailure = ExecFailure{}
 )
+
+var (
+	_ DiskCompactionDiskResult        = msbSdk.DiskCompactionDiskResult{}
+	_ msbSdk.DiskCompactionDiskResult = DiskCompactionDiskResult{}
+	_ ModificationConflict            = msbSdk.ModificationConflict{}
+	_ msbSdk.ModificationConflict     = ModificationConflict{}
+)
