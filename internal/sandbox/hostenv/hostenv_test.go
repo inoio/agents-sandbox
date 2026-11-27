@@ -123,17 +123,30 @@ func TestUnderKeepsBaseValues(t *testing.T) {
 func TestProvisionedGitConfig(t *testing.T) {
 	provisioned := t.TempDir()
 	testutil.WriteFile(t, provisioned, "config.yaml", "home:\n  .gitconfig: /host/.gitconfig\n")
+	provisionedXDG := t.TempDir()
+	testutil.WriteFile(t, provisionedXDG, "config.yaml", "home:\n  .config/git/config: /host/gitconfig\n")
+	provisionedDotted := t.TempDir()
+	testutil.WriteFile(t, provisionedDotted, "config.yaml", "home:\n  ./.gitconfig: /host/.gitconfig\n")
 	other := t.TempDir()
 	testutil.WriteFile(t, other, "config.yaml", "home:\n  .inputrc:\n")
 	empty := t.TempDir()
 
-	if !hostenv.ProvisionedGitConfig([]configpaths.ConfigScope{{Dir: provisioned}}) {
-		t.Error("a provisioned .gitconfig was not detected")
+	tests := []struct {
+		name  string
+		scope configpaths.ConfigScope
+		want  bool
+	}{
+		{"dot-gitconfig", configpaths.ConfigScope{Dir: provisioned}, true},
+		{"xdg git config", configpaths.ConfigScope{Dir: provisionedXDG}, true},
+		{"dotted target", configpaths.ConfigScope{Dir: provisionedDotted}, true},
+		{"unrelated home entry", configpaths.ConfigScope{Dir: other}, false},
+		{"absent config", configpaths.ConfigScope{Dir: empty}, false},
 	}
-	if hostenv.ProvisionedGitConfig([]configpaths.ConfigScope{{Dir: other}}) {
-		t.Error("an unrelated home entry was reported as a git config")
-	}
-	if hostenv.ProvisionedGitConfig([]configpaths.ConfigScope{{Dir: empty}}) {
-		t.Error("an absent config was reported as a git config")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := hostenv.ProvisionedGitConfig([]configpaths.ConfigScope{tt.scope}); got != tt.want {
+				t.Errorf("ProvisionedGitConfig = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

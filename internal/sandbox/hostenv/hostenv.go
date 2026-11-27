@@ -7,6 +7,7 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
@@ -20,9 +21,22 @@ type Sources struct {
 	GitIdentity func() (name, email string)
 }
 
+// hostGetenv and hostReadlink are the real host accessors behind HostSources;
+// they are vars so an internal test can pin Defaults off the host.
+var (
+	hostGetenv   = os.Getenv
+	hostReadlink = os.Readlink
+)
+
 // HostSources returns the real host accessors.
 func HostSources() Sources {
-	return Sources{Getenv: os.Getenv, Readlink: os.Readlink, GitIdentity: hostGitIdentity}
+	return Sources{Getenv: hostGetenv, Readlink: hostReadlink, GitIdentity: hostGitIdentity}
+}
+
+// Defaults resolves the host environment defaults from the real host sources
+// for the given config scopes.
+func Defaults(scopes []configpaths.ConfigScope) map[string]string {
+	return Resolve(HostSources(), ProvisionedGitConfig(scopes))
 }
 
 // Resolve returns the host-derived environment defaults for a project VM. A
@@ -66,11 +80,11 @@ func ProvisionedGitConfig(scopes []configpaths.ConfigScope) bool {
 		if err != nil || !ok {
 			continue
 		}
-		if _, ok := manifest[".gitconfig"]; ok {
-			return true
-		}
-		if _, ok := manifest[".config/git/config"]; ok {
-			return true
+		for target := range manifest {
+			switch filepath.Clean(target) {
+			case ".gitconfig", ".config/git/config":
+				return true
+			}
 		}
 	}
 	return false
@@ -108,18 +122,16 @@ func resolveLocale(getenv func(string) string) string {
 	return ""
 }
 
-// gitRunner runs the host git binary. A var so an internal test injects a fake.
-var gitRunner = func(args ...string) (string, error) {
-	out, err := exec.Command("git", args...).Output()
-	return string(out), err
-}
+// execCommand is the host git launcher. A var so an internal test injects a
+// fake (the notify/opener seam pattern).
+var execCommand = exec.Command
 
 func gitConfigValue(key string) string {
-	out, err := gitRunner("config", "--global", key)
+	out, err := execCommand("git", "config", "--global", key).Output()
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(out)
+	return strings.TrimSpace(string(out))
 }
 
 func hostGitIdentity() (string, string) {

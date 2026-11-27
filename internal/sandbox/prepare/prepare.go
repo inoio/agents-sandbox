@@ -877,9 +877,7 @@ func liveHomeVolume(ctx context.Context, client msb.Client, k state.Key, ui term
 // environment (specs/vm/host-environment-defaults.md): the host time zone, a
 // UTF-8 locale, and the host git commit identity. Sealed in TestMain so no test
 // reads real host state; tests that assert the merge override it.
-var hostEnvDefaults = func(scopes []configpaths.ConfigScope) map[string]string {
-	return hostenv.Resolve(hostenv.HostSources(), hostenv.ProvisionedGitConfig(scopes))
-}
+var hostEnvDefaults = hostenv.Defaults
 
 // loadEnvFingerprints reads the host env and secret files once per run and
 // derives the VM-config fingerprints from that single read, so the persisted
