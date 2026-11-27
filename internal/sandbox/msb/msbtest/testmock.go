@@ -422,6 +422,12 @@ type MockSandboxHandle struct {
 	DidStop          bool
 	DidKill          bool
 	Destroyed        bool
+
+	// MetricsStream backs the resource-control role's live subscription.
+	MetricsStreamFn     func(ctx context.Context, interval time.Duration) (msb.MetricsStream, error)
+	MetricsStreamResult msb.MetricsStream
+	MetricsStreamErr    error
+	MetricsStreamCalls  []time.Duration
 }
 
 func (m *MockSandboxHandle) Name() string                 { return m.Name_ }
@@ -552,6 +558,24 @@ func (m *MockSandboxHandle) Metrics(_ context.Context) (*msb.Metrics, error) {
 	return m.MetricsResult, m.MetricsErr
 }
 
+// MetricsStream implements SandboxResourceControl. With neither a callback nor
+// an explicit error it reports the stream unsupported.
+func (m *MockSandboxHandle) MetricsStream(
+	ctx context.Context, interval time.Duration,
+) (msb.MetricsStream, error) {
+	m.MetricsStreamCalls = append(m.MetricsStreamCalls, interval)
+	if m.MetricsStreamFn != nil {
+		return m.MetricsStreamFn(ctx, interval)
+	}
+	if m.MetricsStreamErr != nil {
+		return nil, m.MetricsStreamErr
+	}
+	if m.MetricsStreamResult != nil {
+		return m.MetricsStreamResult, nil
+	}
+	return nil, errors.New("metrics stream not configured")
+}
+
 func (m *MockSandboxHandle) Logs(_ context.Context, query msb.LogQuery) ([]msb.LogEntry, error) {
 	m.LogsOptions = append(m.LogsOptions, query)
 	return m.LogsResult, m.LogsErr
@@ -625,6 +649,16 @@ type MockSandbox struct {
 	LogsErr       error
 	// LogsOptions records every LogQuery passed to Logs.
 	LogsOptions []msb.LogQuery
+
+	// MetricsStream backs the seam's push-based metrics observation. An
+	// unconfigured mock reports the stream unsupported, so a watcher that
+	// prefers the stream takes its Metrics-polling fallback, matching the tests
+	// written before the stream existed.
+	MetricsStreamFn     func(ctx context.Context, interval time.Duration) (msb.MetricsStream, error)
+	MetricsStreamResult msb.MetricsStream
+	MetricsStreamErr    error
+	// MetricsStreamCalls records every interval passed to MetricsStream.
+	MetricsStreamCalls []time.Duration
 }
 
 func (m *MockSandbox) FS() msb.SandboxFS {
@@ -745,6 +779,25 @@ func (m *MockSandbox) Metrics(_ context.Context) (*msb.Metrics, error) {
 	return m.MetricsResult, m.MetricsErr
 }
 
+// MetricsStream implements SandboxObserver. With neither a callback nor an
+// explicit error it reports the stream unsupported, so the pressure watcher
+// falls back to polling.
+func (m *MockSandbox) MetricsStream(
+	ctx context.Context, interval time.Duration,
+) (msb.MetricsStream, error) {
+	m.MetricsStreamCalls = append(m.MetricsStreamCalls, interval)
+	if m.MetricsStreamFn != nil {
+		return m.MetricsStreamFn(ctx, interval)
+	}
+	if m.MetricsStreamErr != nil {
+		return nil, m.MetricsStreamErr
+	}
+	if m.MetricsStreamResult != nil {
+		return m.MetricsStreamResult, nil
+	}
+	return nil, errors.New("metrics stream not configured")
+}
+
 func (m *MockSandbox) Logs(_ context.Context, query msb.LogQuery) ([]msb.LogEntry, error) {
 	m.LogsOptions = append(m.LogsOptions, query)
 	return m.LogsResult, m.LogsErr
@@ -830,6 +883,55 @@ func (h *ScriptedStreamHandle) Recv(context.Context) (msb.StreamEvent, error) {
 }
 
 func (*ScriptedStreamHandle) Close() error { return nil }
+
+// MetricsStreamSample is one scripted Recv result: a sample, the end (both
+// values zero), or an error.
+type MetricsStreamSample struct {
+	Metrics *msb.Metrics
+	Err     error
+}
+
+// ScriptedMetricsStream is a MetricsStream double replaying samples in order
+// and then reporting the stream ended (nil, nil). It records whether the caller
+// closed it.
+type ScriptedMetricsStream struct {
+	mu      sync.Mutex
+	samples []MetricsStreamSample
+	closed  bool
+}
+
+// NewScriptedMetricsStream returns a stream replaying samples in order.
+func NewScriptedMetricsStream(samples ...MetricsStreamSample) *ScriptedMetricsStream {
+	return &ScriptedMetricsStream{samples: samples}
+}
+
+// Recv implements MetricsStream: the next scripted sample, or (nil, nil) once
+// the script is exhausted.
+func (s *ScriptedMetricsStream) Recv(context.Context) (*msb.Metrics, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.samples) == 0 {
+		return nil, nil
+	}
+	sample := s.samples[0]
+	s.samples = s.samples[1:]
+	return sample.Metrics, sample.Err
+}
+
+// Close implements MetricsStream.
+func (s *ScriptedMetricsStream) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closed = true
+	return nil
+}
+
+// DidClose reports whether Close was called.
+func (s *ScriptedMetricsStream) DidClose() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.closed
+}
 
 // SandboxOpts configures a MockSandbox via NewMockSandbox.
 // Zero/unset values produce sensible defaults.

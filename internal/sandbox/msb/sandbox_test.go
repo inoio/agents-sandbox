@@ -149,3 +149,63 @@ func TestSandboxHandleStatusIsCaptured(t *testing.T) {
 		t.Errorf("Status() after the live status changed = %q, want the captured %q", got, SandboxStatusRunning)
 	}
 }
+
+// stubMetricsStream is a MetricsStream double for the adapter delegation test.
+type stubMetricsStream struct{}
+
+func (*stubMetricsStream) Recv(context.Context) (*Metrics, error) {
+	return nil, nil //nolint:nilnil // (nil, nil) is the MetricsStream contract's end-of-stream signal
+}
+func (*stubMetricsStream) Close() error { return nil }
+
+// TestRealSandboxMetricsStreamDelegatesThroughSeam pins that the adapter routes
+// the SDK sandbox and the interval through the newMetricsStream seam and returns
+// the launcher handle it yields, so the watcher never touches the SDK handle.
+func TestRealSandboxMetricsStreamDelegatesThroughSeam(t *testing.T) {
+	wanted := &stubMetricsStream{}
+	var gotInterval time.Duration
+	swapSeam(t, &newMetricsStream, func(
+		_ *msbSdk.Sandbox, _ context.Context, interval time.Duration,
+	) (MetricsStream, error) {
+		gotInterval = interval
+		return wanted, nil
+	})
+
+	sandbox := realSandbox{sandbox: &msbSdk.Sandbox{}}
+	stream, err := sandbox.MetricsStream(context.Background(), 3*time.Second)
+	if err != nil {
+		t.Fatalf("MetricsStream() error = %v", err)
+	}
+	if stream != MetricsStream(wanted) {
+		t.Errorf("MetricsStream() = %v, want the seam's handle", stream)
+	}
+	if gotInterval != 3*time.Second {
+		t.Errorf("interval = %v, want 3s", gotInterval)
+	}
+}
+
+// TestRealSandboxHandleMetricsStreamDelegatesThroughSeam pins the same
+// delegation for the persisted/unified handle: it shares the resource-control
+// role, so a SandboxHandle still satisfies SandboxObserver.
+func TestRealSandboxHandleMetricsStreamDelegatesThroughSeam(t *testing.T) {
+	wanted := &stubMetricsStream{}
+	var gotInterval time.Duration
+	swapSeam(t, &newMetricsStream, func(
+		_ *msbSdk.Sandbox, _ context.Context, interval time.Duration,
+	) (MetricsStream, error) {
+		gotInterval = interval
+		return wanted, nil
+	})
+
+	handle := realSandboxHandle{handle: &msbSdk.Sandbox{}}
+	stream, err := handle.MetricsStream(context.Background(), 4*time.Second)
+	if err != nil {
+		t.Fatalf("MetricsStream() error = %v", err)
+	}
+	if stream != MetricsStream(wanted) {
+		t.Errorf("MetricsStream() = %v, want the seam's handle", stream)
+	}
+	if gotInterval != 4*time.Second {
+		t.Errorf("interval = %v, want 4s", gotInterval)
+	}
+}
