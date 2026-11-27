@@ -15,21 +15,34 @@ type pruneDetailJSON struct {
 	StaleForSeconds int64  `json:"stale_for_seconds"`
 }
 
+// pruneStorageEntryJSON is one runtime-memory backing's prune outcome. The byte
+// counts are pointers so an unmeasured count marshals as null, never 0.
+type pruneStorageEntryJSON struct {
+	Path           string  `json:"path"`
+	Kind           string  `json:"kind"`
+	LogicalBytes   *uint64 `json:"logical_bytes"`
+	AllocatedBytes *uint64 `json:"allocated_bytes"`
+	State          string  `json:"state"`
+	Error          *string `json:"error"`
+}
+
 // PruneReportJSON is the --format json shape of a full prune report. Optional
 // byte counts are pointers so an unknown reclamation marshals as null, never 0.
 type PruneReportJSON struct {
-	ImageBytesReclaimed           *uint64           `json:"image_bytes_reclaimed"`
-	RuntimePhysicalBytesReclaimed *uint64           `json:"runtime_physical_bytes_reclaimed"`
-	Details                       []pruneDetailJSON `json:"details"`
-	RetiredProjects               []string          `json:"retired_projects"`
-	Sandboxes                     int               `json:"sandboxes"`
-	Volumes                       int               `json:"volumes"`
-	Images                        int               `json:"images"`
-	DockerImages                  int               `json:"docker_images"`
-	RuntimeFilesRemoved           uint64            `json:"runtime_files_removed"`
-	RuntimeLogicalBytesRemoved    uint64            `json:"runtime_logical_bytes_removed"`
-	SkippedImagesInUse            uint32            `json:"skipped_images_in_use"`
-	DryRun                        bool              `json:"dry_run"`
+	ImageBytesReclaimed           *uint64                 `json:"image_bytes_reclaimed"`
+	RuntimePhysicalBytesReclaimed *uint64                 `json:"runtime_physical_bytes_reclaimed"`
+	RuntimeMemoryEntries          []pruneStorageEntryJSON `json:"runtime_memory_entries"`
+	Details                       []pruneDetailJSON       `json:"details"`
+	RetiredProjects               []string                `json:"retired_projects"`
+	Sandboxes                     int                     `json:"sandboxes"`
+	Volumes                       int                     `json:"volumes"`
+	Images                        int                     `json:"images"`
+	DockerImages                  int                     `json:"docker_images"`
+	RuntimeFilesRemoved           uint64                  `json:"runtime_files_removed"`
+	RuntimeLogicalBytesRemoved    uint64                  `json:"runtime_logical_bytes_removed"`
+	SkippedImagesInUse            uint32                  `json:"skipped_images_in_use"`
+	DryRun                        bool                    `json:"dry_run"`
+	RuntimeTruncated              bool                    `json:"runtime_truncated"`
 }
 
 // ImageReportJSON is the --format json shape of an image prune report.
@@ -68,6 +81,8 @@ func NewPruneReportJSON(report *pruning.StaleReport, dryRun bool) PruneReportJSO
 		RuntimeFilesRemoved:           report.Storage.FilesRemoved,
 		RuntimeLogicalBytesRemoved:    report.Storage.LogicalBytesRemoved,
 		RuntimePhysicalBytesReclaimed: report.Storage.PhysicalBytesReclaimed,
+		RuntimeMemoryEntries:          newPruneStorageEntriesJSON(report.Storage),
+		RuntimeTruncated:              report.Storage.Truncated,
 		Details:                       newPruneDetailsJSON(report.Details),
 		RetiredProjects:               []string{},
 	}
@@ -112,6 +127,25 @@ func newPruneDetailsJSON(entries []pruning.StaleEntry) []pruneDetailJSON {
 		})
 	}
 	return details
+}
+
+// newPruneStorageEntriesJSON maps the runtime-memory phase's per-backing
+// outcomes into a non-nil array so an empty listing marshals as [] not null. It
+// ranges over the storage report (not msb.PruneEntry directly), keeping view
+// free of the msb package.
+func newPruneStorageEntriesJSON(storage pruning.StorageReport) []pruneStorageEntryJSON {
+	entries := make([]pruneStorageEntryJSON, 0, len(storage.Entries))
+	for _, entry := range storage.Entries {
+		entries = append(entries, pruneStorageEntryJSON{
+			Path:           entry.Path,
+			Kind:           entry.Kind,
+			LogicalBytes:   entry.LogicalBytes,
+			AllocatedBytes: entry.AllocatedBytes,
+			State:          entry.State,
+			Error:          entry.Error,
+		})
+	}
+	return entries
 }
 
 // RemovalPlanJSON is the --format json shape of a targeted purge plan. Keys are

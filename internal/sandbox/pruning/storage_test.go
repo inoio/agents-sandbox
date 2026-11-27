@@ -134,3 +134,62 @@ func TestPruneStorageFailureWarnsAndReturnsError(t *testing.T) {
 		t.Errorf("expected a warning mentioning the failure, got %v", ui.WarnCalls)
 	}
 }
+
+// TestPruneStorageCarriesEntriesAndTruncated pins that the runtime's per-object
+// outcomes and listing cap reach the launcher report.
+func TestPruneStorageCarriesEntriesAndTruncated(t *testing.T) {
+	logical := uint64(2048)
+	client := &msbtest.MockMsbClient{
+		StoragePruneFn: func(context.Context, msb.PruneRequest) (*msb.PruneReport, error) {
+			return &msb.PruneReport{
+				FilesRemoved: 1,
+				Entries: []msb.PruneEntry{
+					{Path: "/home/.msb/branch/one", Kind: "branch_memory", LogicalBytes: &logical, State: "removed"},
+				},
+				Truncated: true,
+			}, nil
+		},
+	}
+	msbtest.WithMsbMock(t, client)
+
+	report, err := PruneStorage(context.Background(), PruneState{Age: time.Hour}, false, &termiotest.Mock{})
+	if err != nil {
+		t.Fatalf("PruneStorage: %v", err)
+	}
+	if !report.Truncated {
+		t.Error("Truncated = false, want true")
+	}
+	if len(report.Entries) != 1 || report.Entries[0].Path != "/home/.msb/branch/one" ||
+		report.Entries[0].LogicalBytes == nil || *report.Entries[0].LogicalBytes != logical {
+		t.Errorf("Entries = %+v, want the runtime entry", report.Entries)
+	}
+}
+
+// TestPruneStorageErroredEntryReturnsPopulatedReport pins the return contract: a
+// per-entry error is data on the report, not a call failure, so the report must
+// not be zeroed the way the SDK-call-error branch does.
+func TestPruneStorageErroredEntryReturnsPopulatedReport(t *testing.T) {
+	entryErr := "locked by a running sandbox"
+	client := &msbtest.MockMsbClient{
+		StoragePruneFn: func(context.Context, msb.PruneRequest) (*msb.PruneReport, error) {
+			return &msb.PruneReport{
+				FilesRemoved: 1,
+				Entries: []msb.PruneEntry{
+					{Path: "/home/.msb/branch/locked", Kind: "branch_memory", State: "error", Error: &entryErr},
+				},
+			}, nil
+		},
+	}
+	msbtest.WithMsbMock(t, client)
+
+	report, err := PruneStorage(context.Background(), PruneState{Age: time.Hour}, false, &termiotest.Mock{})
+	if err != nil {
+		t.Fatalf("PruneStorage error = %v, want nil (a per-entry error is data, not a call failure)", err)
+	}
+	if len(report.Entries) != 1 || report.Entries[0].Error == nil {
+		t.Fatalf("report = %+v, want the errored entry preserved", report)
+	}
+	if report.FilesRemoved != 1 {
+		t.Errorf("FilesRemoved = %d, want the runtime total preserved", report.FilesRemoved)
+	}
+}

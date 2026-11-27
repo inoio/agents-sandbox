@@ -1257,3 +1257,75 @@ func TestDiskCompactionResultFromNilIsNil(t *testing.T) {
 		t.Errorf("diskCompactionResultFrom(nil) = %v, want nil", got)
 	}
 }
+
+func TestPruneReportFromProjectsEntries(t *testing.T) {
+	logical := uint64(2048)
+	allocated := uint64(4096)
+	entryErr := "locked by a running sandbox"
+	report := pruneReportFrom(&msbSdk.StoragePruneReport{
+		Truncated: true,
+		Entries: []msbSdk.MemoryCacheEntry{
+			{
+				Path:           "/home/.msb/branch/one",
+				Kind:           "branch_memory",
+				LogicalBytes:   &logical,
+				AllocatedBytes: &allocated,
+				State:          "retained",
+			},
+			{Path: "/home/.msb/branch/two", Kind: "snapshot_memory", State: "error", Error: &entryErr},
+		},
+	})
+	if report == nil {
+		t.Fatal("pruneReportFrom() = nil, want a report")
+	}
+	if !report.Truncated {
+		t.Error("Truncated = false, want true")
+	}
+	if len(report.Entries) != 2 {
+		t.Fatalf("Entries = %+v, want two entries", report.Entries)
+	}
+	first := report.Entries[0]
+	if first.Path != "/home/.msb/branch/one" || first.Kind != "branch_memory" ||
+		first.LogicalBytes == nil || *first.LogicalBytes != logical ||
+		first.AllocatedBytes == nil || *first.AllocatedBytes != allocated ||
+		first.State != "retained" || first.Error != nil {
+		t.Errorf("first entry = %+v, want the published backing copied field for field", first)
+	}
+	second := report.Entries[1]
+	if second.Path != "/home/.msb/branch/two" || second.Error == nil || *second.Error != entryErr {
+		t.Errorf("second entry = %+v, want the errored backing", second)
+	}
+}
+
+// TestPruneReportFromKeepsUnknownBytesNil pins the nil-not-zero convention for a
+// per-entry byte count the runtime could not measure.
+func TestPruneReportFromKeepsUnknownBytesNil(t *testing.T) {
+	report := pruneReportFrom(&msbSdk.StoragePruneReport{
+		Entries: []msbSdk.MemoryCacheEntry{
+			{Path: "/home/.msb/branch/one", Kind: "branch_memory", State: "eligible"},
+		},
+	})
+	if report == nil || len(report.Entries) != 1 {
+		t.Fatalf("pruneReportFrom() = %+v, want one entry", report)
+	}
+	if report.Entries[0].LogicalBytes != nil || report.Entries[0].AllocatedBytes != nil {
+		t.Errorf("entry = %+v, want nil byte pointers", report.Entries[0])
+	}
+}
+
+// TestStoragePruneReportRegisterProjectsEntries pins that the drift register
+// classifies Entries and Truncated as projected, not dropped, while DryRun stays
+// dropped.
+func TestStoragePruneReportRegisterProjectsEntries(t *testing.T) {
+	for _, field := range []string{"Entries", "Truncated"} {
+		if _, ok := storagePruneReportProjected[field]; !ok {
+			t.Errorf("storagePruneReportProjected missing %q", field)
+		}
+		if _, ok := storagePruneReportNotModeled[field]; ok {
+			t.Errorf("storagePruneReportNotModeled still lists %q", field)
+		}
+	}
+	if _, ok := storagePruneReportNotModeled["DryRun"]; !ok {
+		t.Error("storagePruneReportNotModeled missing DryRun")
+	}
+}

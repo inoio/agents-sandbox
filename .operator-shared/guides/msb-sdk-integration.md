@@ -97,8 +97,14 @@ but still has no completion signal for it.
 ### 1.5 Storage diagnosis, recovery, compaction
 
 `DiagnoseStorage`/`RecoverStorage` and the compaction result are unused beyond
-`StorageUsage`/`PruneStorage`/`Compact`. `PruneStorage` reports per-object errors and shared-memory
-attribution the launcher's `PruneReport` drops.
+`StorageUsage`/`PruneStorage`/`Compact`. `PruneStorage`'s per-object outcomes and its `Truncated`
+listing cap are now carried by the launcher's `PruneReport` and surfaced by the explicit `prune`
+command (#919): each failed backing warns and joins the aggregate prune error, and `--format json`
+carries `runtime_memory_entries`/`runtime_truncated`. `DiagnoseStorage` and `RecoverStorage` are
+recorded as deferred non-adoptions: `DiagnoseStorage` is a read-only observation path with no
+hosting surface (`doctor` checks host prerequisites, not per-sandbox storage), and `RecoverStorage`
+selects a disk view (`StorageRecoveryOptions.AcceptSelectedView`) and mutates storage, so wired
+automatically it would be a second recovery policy beside the launcher's prune.
 
 ### 1.6 Filesystem and transfer surface
 

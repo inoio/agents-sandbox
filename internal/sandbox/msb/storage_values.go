@@ -19,10 +19,19 @@ type PruneRequest struct {
 	OlderThanSeconds uint64
 }
 
-// PruneReport keeps the reclaimed totals. The SDK's DryRun echo, per-file
-// Entries and Truncated listing cap are not surfaced.
+// PruneEntry is the SDK's one-runtime-memory-backing observation. It mirrors
+// every field with no rename or narrowing and has no enum field or method, so it
+// is an alias rather than a launcher struct: no projector and no register entry.
+// Error is set when the backing could not be pruned; State explains eligibility
+// or retention.
+type PruneEntry = msbSdk.MemoryCacheEntry
+
+// PruneReport keeps the reclaimed totals and the per-backing outcomes. The SDK's
+// DryRun echo is not surfaced: the caller issued the prune and knows it.
 type PruneReport struct {
 	FilesRemoved           uint64
 	LogicalBytesRemoved    uint64
 	PhysicalBytesReclaimed *uint64
+	Entries                []PruneEntry
+	Truncated              bool
 }

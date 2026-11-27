@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/humanize"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
 // StaleReport describes the result of an aggregate prune. Task sandboxes count
@@ -34,11 +35,15 @@ type StateSweepReport struct {
 
 // StorageReport summarizes a runtime-memory reclaim run. PhysicalBytesReclaimed
 // is nil when the runtime cannot measure it, following the nil-not-zero
-// convention; it is never rendered as zero.
+// convention; it is never rendered as zero. Entries carries the runtime's
+// per-backing outcomes (an entry with Error set is a backing that could not be
+// pruned); Truncated records that the runtime capped its entry listing.
 type StorageReport struct {
 	FilesRemoved           uint64
 	LogicalBytesRemoved    uint64
 	PhysicalBytesReclaimed *uint64
+	Entries                []msb.PruneEntry
+	Truncated              bool
 }
 
 // StaleEntry describes a single artifact that was pruned or would be pruned.

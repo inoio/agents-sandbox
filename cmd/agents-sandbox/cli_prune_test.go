@@ -1296,3 +1296,71 @@ func TestRetiredProjectSlugsErrorReturnsEmptySlice(t *testing.T) {
 		t.Errorf("slugs = %v, want empty", slugs)
 	}
 }
+
+// TestPruneFormatJSONIncludesRuntimeMemoryEntries pins that the explicit prune's
+// JSON carries the runtime-memory per-backing outcomes and truncated flag. The
+// errored entry also joins the aggregate error, so Execute reports it.
+func TestPruneFormatJSONIncludesRuntimeMemoryEntries(t *testing.T) {
+	entryErr := "locked by a running sandbox"
+	m := &msbtest.MockMsbClient{
+		StoragePruneFn: func(context.Context, sandboxmsb.PruneRequest) (*sandboxmsb.PruneReport, error) {
+			return &sandboxmsb.PruneReport{
+				FilesRemoved: 1,
+				Truncated:    true,
+				Entries: []sandboxmsb.PruneEntry{
+					{Path: "/home/.msb/branch/one", Kind: "branch_memory", State: "removed"},
+					{Path: "/home/.msb/branch/locked", Kind: "branch_memory", State: "error", Error: &entryErr},
+				},
+			}, nil
+		},
+	}
+	cmd, ui := setupCommandFixtures(t, "prune", "--format", "json", "--yes")
+	msbtest.WithMsbMock(t, m)
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), entryErr) {
+		t.Fatalf("Execute() error = %v, want the entry error joined", err)
+	}
+	joined := strings.Join(ui.OutCalls, "\n")
+	// cliout.RenderPruneReport marshals with json.MarshalIndent, so the output is
+	// colon-spaced; assert the indented forms.
+	for _, key := range []string{
+		`"runtime_memory_entries": [`,
+		`"path": "/home/.msb/branch/locked"`,
+		`"error": "locked by a running sandbox"`,
+		`"runtime_truncated": true`,
+	} {
+		if !strings.Contains(joined, key) {
+			t.Errorf("JSON missing %s: %s", key, joined)
+		}
+	}
+}
+
+// TestPruneHumanOutputShowsRuntimeMemoryFailures pins that the explicit prune's
+// human render warns about an errored backing and notes a truncated listing.
+func TestPruneHumanOutputShowsRuntimeMemoryFailures(t *testing.T) {
+	entryErr := "locked by a running sandbox"
+	m := &msbtest.MockMsbClient{
+		StoragePruneFn: func(context.Context, sandboxmsb.PruneRequest) (*sandboxmsb.PruneReport, error) {
+			return &sandboxmsb.PruneReport{
+				Truncated: true,
+				Entries: []sandboxmsb.PruneEntry{
+					{Path: "/home/.msb/branch/locked", Kind: "branch_memory", State: "error", Error: &entryErr},
+				},
+			}, nil
+		},
+	}
+	cmd, ui := setupCommandFixtures(t, "prune", "--yes")
+	msbtest.WithMsbMock(t, m)
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), entryErr) {
+		t.Fatalf("Execute() error = %v, want the entry error joined", err)
+	}
+	if !slices.ContainsFunc(ui.WarnCalls, func(s string) bool {
+		return strings.Contains(s, "/home/.msb/branch/locked") && strings.Contains(s, entryErr)
+	}) {
+		t.Errorf("expected a warning naming the failed backing, got %v", ui.WarnCalls)
+	}
+	if !slices.ContainsFunc(ui.WarnCalls, func(s string) bool {
+		return strings.Contains(s, "truncated")
+	}) {
+		t.Errorf("expected a truncated-listing note, got %v", ui.WarnCalls)
+	}
+}

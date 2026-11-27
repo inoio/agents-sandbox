@@ -232,7 +232,13 @@ never `0`.
   `type`/`name`/`slug`/`digest`/`stale_for_seconds` entries; each group prune's
   object carries only its own counts plus `dry_run`/`details`. The full `prune`
   report also carries a `retired_projects` string array, and a reclaimed Docker
-  image is reported as a `docker-image` detail. The report is
+  image is reported as a `docker-image` detail. The runtime-memory phase
+  contributes `runtime_memory_entries` (each with `path`/`kind`/`logical_bytes`/
+  `allocated_bytes`/`state`/`error`, an unmeasured byte count as `null`) and
+  `runtime_truncated`; the explicit `prune`'s human output warns for each backing
+  whose `error` is set and notes a truncated listing, and a per-entry error joins
+  the aggregate prune error ("warn and join") while the report is rendered first.
+  The shared `AutoPrune` summary stays totals-only. The report is
   rendered before an error is returned: a prune whose per-group errors are joined
   (top-level `prune` and `AutoPrune`) still reports what it removed first
   ("summary, then error"). Output mode and flag validation (`--format`/`--quiet`
