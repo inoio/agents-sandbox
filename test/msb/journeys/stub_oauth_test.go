@@ -107,6 +107,40 @@ func TestStubOAuthServerRefusesTokensItDidNotIssue(t *testing.T) {
 	}
 }
 
+func TestStubOAuthServerRejectsUnsafeAuthorizationRedirects(t *testing.T) {
+	stub, client := startTestOAuthServer(t)
+	redirectURIs := []struct {
+		name string
+		uri  string
+	}{
+		{name: "external host", uri: "https://attacker.example/callback"},
+		{name: "scheme-relative host", uri: "//attacker.example/callback"},
+		{name: "localhost lookalike", uri: "http://localhost.attacker.example:4242/callback"},
+		{name: "missing port", uri: "http://127.0.0.1/callback"},
+		{name: "userinfo", uri: "http://attacker.example@127.0.0.1:4242/callback"},
+		{name: "backslash", uri: `http://attacker.example\@127.0.0.1:4242/callback`},
+	}
+	for _, testCase := range redirectURIs {
+		t.Run(testCase.name, func(t *testing.T) {
+			target := stub.Origin() + "/authorize?" + url.Values{
+				"redirect_uri":   {testCase.uri},
+				"code_challenge": {pkceChallenge("verifier")},
+			}.Encode()
+			response, err := client.Get(target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer response.Body.Close()
+			if response.StatusCode != http.StatusBadRequest {
+				t.Errorf("authorize status = %d, want %d", response.StatusCode, http.StatusBadRequest)
+			}
+			if location := response.Header.Get("Location"); location != "" {
+				t.Errorf("unsafe redirect location = %q, want none", location)
+			}
+		})
+	}
+}
+
 // mustPost sends a POST and fails the test on a transport error; an optional
 // authorization header value comes last.
 func mustPost(t *testing.T, client *http.Client, target, contentType string, body io.Reader,
