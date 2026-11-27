@@ -428,15 +428,15 @@ func serveOnlyShouldReap(sessionErr error) bool {
 }
 
 // runServeOnlySession supplies the serve-only payload around the shared client
-// session lifecycle: hold the VM (keeper exec) until ctx is done, then report a
-// clean exit.
+// session lifecycle: hold the VM (Touch keepalive) until ctx is done, then
+// report a clean exit.
 //
 // A deferred keep has no reachable serve binding, so nothing is served: it
 // reports the unreachability and returns without taking a client lease or
-// running the reaper. The last-client quiescence wait starts its own keeper exec
-// (waitQuiescent), which would hold the VM and defeat the warning's own remedy
-// ("stop the attached clients and re-run to recreate the VM"); the VM idles out
-// on its own instead.
+// running the reaper. The last-client quiescence wait starts its own Touch
+// keepalive (waitQuiescent), which would hold the VM and defeat the warning's
+// own remedy ("stop the attached clients and re-run to recreate the VM"); the
+// VM idles out on its own instead.
 func runServeOnlySession(
 	ctx context.Context,
 	a agent.Resolved,

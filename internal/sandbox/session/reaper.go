@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -364,7 +365,9 @@ var keeperInterval = func(idleTimeout time.Duration) time.Duration {
 // keepVMAlive touches the VM at the keeper interval so the runtime's idle
 // monitor does not stop it while the caller holds it, and returns a stop func
 // that returns the last touch error, so a keepalive that stopped working is
-// observable. It is a seam so the release-logging tests can inject a failure.
+// observable. A touch canceled by the stop is a normal release, not a failure,
+// so the stop func reports no error for it. It is a seam so the
+// release-logging tests can inject a failure.
 var keepVMAlive = func(ctx context.Context, sb msb.SandboxActivity, idleTimeout time.Duration) func() error {
 	done := make(chan struct{})
 	keeperCtx, keeperCancel := context.WithCancel(ctx)
@@ -392,6 +395,9 @@ var keepVMAlive = func(ctx context.Context, sb msb.SandboxActivity, idleTimeout 
 	return func() error {
 		keeperCancel()
 		<-done
+		if errors.Is(lastErr, context.Canceled) {
+			return nil
+		}
 		return lastErr
 	}
 }

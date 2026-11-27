@@ -1252,6 +1252,20 @@ func TestKeepVMAliveReturnsLastTouchError(t *testing.T) {
 	}
 }
 
+// TestKeepVMAliveDropsCancellation pins that a touch canceled by the stop is a
+// normal release: the stop func reports no error, so the callers' release path
+// does not log a false "vm keepalive touch failed".
+func TestKeepVMAliveDropsCancellation(t *testing.T) {
+	restore := swapKeeperInterval(t, time.Millisecond)
+	defer restore()
+
+	sb := &touchRecorder{err: context.Canceled}
+	stop := keepVMAlive(context.Background(), sb, options.DefaultVMIdleTimeout)
+	if err := stop(); err != nil {
+		t.Errorf("stop() = %v, want nil for a canceled touch", err)
+	}
+}
+
 // TestReapOnLastClient_IdleSessionsSkipTheQuestionPoll pins that questions
 // are only listed when a session is busy, since only a busy session can be
 // waiting on one.

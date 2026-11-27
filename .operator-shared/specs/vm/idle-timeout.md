@@ -3,7 +3,7 @@ description: Contract for the VM's creation-time lifetime bounds: the idle timeo
 read_if: Changing the idle timeout default, Config.AutoStopTimeout/Config.IdleTimeout, RunOptions.IdleTimeout, runoptions.Build, or the VM lifecycle's WithIdleTimeout wiring (#365); or changing max-lifetime/Config.MaxLifetime/RunOptions.MaxLifetime/SandboxSpec.MaxDuration or its WithMaxDuration wiring.
 ---
 
-# VM idle timeout default
+# VM creation-time lifetime bounds: idle timeout and max-lifetime
 
 ## Contract
 
