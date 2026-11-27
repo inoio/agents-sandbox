@@ -236,6 +236,9 @@ base must meet these requirements:
 - **A login profile that sources `/etc/profile.d/*.sh`** — the runner installs `/etc/profile.d/agents-sandbox-path.sh`
   to restore the composed `PATH` in login shells, so a base whose profile does not source `/etc/profile.d` will not get
   the merged `PATH`.
+- **For the host time zone**: zoneinfo (`tzdata` on Debian/Ubuntu). The launcher defaults the host's zone into `TZ`
+  (see [Configuration files and environment variables]({% link configuration/launcher.md %}#environment-variables)); a
+  base without zoneinfo's data stays on UTC, and its `date` will not match the host.
 - **For Docker only**: the runtime prerequisites `iptables`, `git`, `ps`, and `xz`, plus what the rootless engine needs:
   `newuidmap` and `newgidmap` (Debian/Ubuntu package `uidmap`, Fedora `shadow-utils`), `slirp4netns`, and `ip`
   (`iproute2`). These are checked after your Dockerfile body runs, so they may be installed in the body or an earlier
