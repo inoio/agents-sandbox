@@ -37,6 +37,7 @@ SandboxHandle = SandboxIdentity + SandboxLifecycleHandle + SandboxConfigReader
 
 Sandbox       = SandboxExecutor + SandboxStreamer + SandboxAttacher
                 + SandboxJobs + SandboxObserver + SandboxLifecycle
+                + SandboxActivity
 ```
 
 Role membership overlaps on purpose (`Shell` in `SandboxExecutor`/`SandboxStreamer`; `Metrics`/`Logs`

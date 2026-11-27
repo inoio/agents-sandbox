@@ -1059,3 +1059,32 @@ func TestRunDaemonlessAgentsRejectDaemonOnlyFlags(t *testing.T) {
 		}
 	}
 }
+
+// TestRunRejectsSubSecondMaxLifetimeAtLoad pins that an invalid max-lifetime is
+// rejected when the launcher loads its config, before any VM work.
+func TestRunRejectsSubSecondMaxLifetimeAtLoad(t *testing.T) {
+	initTestProjectDir(t)
+	root, _ := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, "run", "--dry-run-vm")
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{"max-lifetime": "500ms"})
+
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "max-lifetime") {
+		t.Fatalf("run with max-lifetime 500ms: err = %v, want a load error naming max-lifetime", err)
+	}
+}
+
+// TestRunDryRunVMReportsMaxLifetimeFromConfig pins that a configured
+// max-lifetime reaches the --dry-run-vm preview's report.
+func TestRunDryRunVMReportsMaxLifetimeFromConfig(t *testing.T) {
+	initTestProjectDir(t)
+	root, ui := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, "run", "--dry-run-vm")
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{"max-lifetime": "2h"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if joined := strings.Join(ui.InfoCalls, "\n"); !strings.Contains(joined, "dry-run: max lifetime 2h") {
+		t.Errorf("info = %v, want a max-lifetime report", ui.InfoCalls)
+	}
+}

@@ -98,6 +98,7 @@ func Build(cfg *viperconfig.Config, cmd *cobra.Command, ui termio.Logger) (optio
 		opts.WorkspaceQuota = cfg.WorkspaceQuota
 		opts.ReapPolicy = options.NewReapPolicy(cfg.AutoStopOnActiveSessions, cfg.AutoStopMaxSessionRetries)
 		opts.IdleTimeout = cfg.AutoStopTimeout
+		opts.MaxLifetime = cfg.MaxLifetime
 		opts.DockerReadyTimeout = cfg.DockerReadyTimeout
 		opts.DaemonReadyTimeout = cfg.DaemonReadyTimeout
 		opts.Mounts, err = mounts.ResolveBindMounts(cfg.Mounts)

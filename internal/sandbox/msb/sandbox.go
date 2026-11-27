@@ -131,6 +131,13 @@ type SandboxLifecycle interface {
 	Close() error
 }
 
+// SandboxActivity refreshes a sandbox's idle activity timer. It is the keeper's
+// narrow dependency: a resident holder touches the VM so the runtime's idle
+// monitor does not stop it while the holder waits.
+type SandboxActivity interface {
+	Touch(ctx context.Context) error
+}
+
 // Sandbox is the subset of *msb.Sandbox used by the launcher.
 type Sandbox interface {
 	SandboxExecutor
@@ -139,6 +146,7 @@ type Sandbox interface {
 	SandboxJobs
 	SandboxObserver
 	SandboxLifecycle
+	SandboxActivity
 }
 
 // realSandboxHandle adapts *msbSdk.Sandbox to SandboxHandle. The v0.8 SDK
@@ -569,4 +577,15 @@ func (s realSandbox) Logs(ctx context.Context, query LogQuery) ([]LogEntry, erro
 		return nil, err
 	}
 	return logEntriesFrom(entries), nil
+}
+
+// realSandboxTouch is the SDK Touch as a seam: the adapter discards the
+// SDK's touch result and surfaces only the error.
+var realSandboxTouch = func(sandbox *msbSdk.Sandbox, ctx context.Context) error {
+	_, err := sandbox.Touch(ctx)
+	return err
+}
+
+func (s realSandbox) Touch(ctx context.Context) error {
+	return realSandboxTouch(s.sandbox, ctx)
 }

@@ -163,6 +163,7 @@ var (
 		"MaxMemoryMiB": {},
 		"Detached":     {},
 		"IdleTimeout":  {},
+		"MaxDuration":  {},
 		"PortBindings": {},
 		"Network":      {},
 		"RootDisk":     {},
@@ -196,7 +197,6 @@ var (
 		"QuietLogs":          "quiet-logs is left to the runtime default",
 		"Scripts":            "startup hooks come from the image",
 		"PullPolicy":         "image pulling is driven by the launcher's image stage",
-		"MaxDuration":        "no maximum sandbox duration is set",
 		"RegistryAuth":       "registry credentials are not passed by the launcher",
 		"RegistryInsecure":   "plain-HTTP pulls are not used by the launcher",
 		"RegistryCACerts":    "registry CA certificates are not passed by the launcher",
@@ -709,9 +709,10 @@ func diskCompactionResultFrom(result *msbSdk.DiskCompactionResult) *DiskCompacti
 
 // sandboxOptions translates a SandboxSpec into the SDK option list in the order
 // the launcher has always emitted it: image, labels, mounts, secrets, env,
-// workdir, CPUs and memory bounds, detached, idle timeout, then an optional
-// managed root disk, port bindings, the network policy, and an optional
-// outbound proxy. Options equal to the SDK defaults are omitted, so a spec that
+// workdir, CPUs and memory bounds, detached, idle timeout, an optional maximum
+// lifetime, then an optional managed root disk, port bindings, the network
+// policy, and an optional outbound proxy. Options equal to the SDK defaults are
+// omitted, so a spec that
 // sets nothing but a network policy (the throwaway task sandboxes) does not
 // accidentally detach, bound, or size the sandbox. A network profile or proxy
 // protocol the runtime rejects fails the whole translation.
@@ -760,6 +761,9 @@ func sandboxOptions(spec SandboxSpec) ([]msbSdk.SandboxOption, error) {
 	}
 	if spec.IdleTimeout != 0 {
 		opts = append(opts, msbSdk.WithIdleTimeout(spec.IdleTimeout))
+	}
+	if spec.MaxDuration != 0 {
+		opts = append(opts, msbSdk.WithMaxDuration(spec.MaxDuration))
 	}
 	if spec.RootDiskMiB > 0 {
 		opts = append(opts, msbSdk.WithRootDisk(msbSdk.RootDisk.Managed(spec.RootDiskMiB)))

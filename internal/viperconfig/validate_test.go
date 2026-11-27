@@ -239,6 +239,54 @@ func TestValidateReadyTimeouts(t *testing.T) {
 	}
 }
 
+// TestValidateMaxLifetime pins the bound's validation: unset is unlimited and
+// passes; a positive whole number of seconds passes (including a "7d" string);
+// a zero, negative, or sub-second value fails at load.
+func TestValidateMaxLifetime(t *testing.T) {
+	v := viper.New()
+	if err := validateMaxLifetime(v); err != nil {
+		t.Fatalf("validateMaxLifetime() with unset key should pass, got %v", err)
+	}
+	v.Set(keyMaxLifetime, 2*time.Hour)
+	if err := validateMaxLifetime(v); err != nil {
+		t.Fatalf("validateMaxLifetime() with 2h should pass, got %v", err)
+	}
+	v.Set(keyMaxLifetime, "7d")
+	if err := validateMaxLifetime(v); err != nil {
+		t.Fatalf("validateMaxLifetime() with '7d' should pass, got %v", err)
+	}
+	for _, bad := range []any{0, -1 * time.Second, 500 * time.Millisecond} {
+		v.Set(keyMaxLifetime, bad)
+		if err := validateMaxLifetime(v); err == nil {
+			t.Errorf("validateMaxLifetime() with %v should fail", bad)
+		}
+	}
+	// A positive sub-second value fails as a non-whole second, not as
+	// non-positive: 1ns is above the second guard's bound.
+	v.Set(keyMaxLifetime, time.Nanosecond)
+	if err := validateMaxLifetime(v); err == nil || !strings.Contains(err.Error(), "whole number of seconds") {
+		t.Errorf("validateMaxLifetime() with 1ns = %v, want the whole-second message", err)
+	}
+}
+
+// TestValidateDispatchesMaxLifetime pins that the top-level validate runs
+// validateMaxLifetime: an invalid bound must fail validate, and a valid one
+// must pass.
+func TestValidateDispatchesMaxLifetime(t *testing.T) {
+	v := viper.New()
+	if err := validate(v); err != nil {
+		t.Fatalf("validate() with an unset max-lifetime should pass, got %v", err)
+	}
+	v.Set(keyMaxLifetime, 2*time.Hour)
+	if err := validate(v); err != nil {
+		t.Fatalf("validate() with 2h should pass, got %v", err)
+	}
+	v.Set(keyMaxLifetime, 500*time.Millisecond)
+	if err := validate(v); err == nil {
+		t.Error("validate() with a sub-second max-lifetime should fail")
+	}
+}
+
 func TestValidateHomeVolumeOnImageChange(t *testing.T) {
 	for value, wantErr := range map[string]bool{"keep": false, "migrate": false, "reset": false, "ask": false, "prompt": true, "": true} {
 		v := viper.New()

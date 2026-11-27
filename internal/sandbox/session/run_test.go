@@ -300,7 +300,9 @@ func TestRunServeOnlyBlocksUntilCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	got := make(chan error, 1)
 	ui := &termiotest.Mock{}
-	go func() { got <- runServeOnly(ctx, opencodeResolved(t), sb, ui, 4096, true) }()
+	go func() {
+		got <- runServeOnly(ctx, opencodeResolved(t), sb, ui, 4096, options.DefaultVMIdleTimeout, true)
+	}()
 	cancel()
 	select {
 	case err := <-got:
@@ -1640,6 +1642,7 @@ func TestWithClientSessionHandsResolvedAgentToBody(t *testing.T) {
 		state.Key{Slug: "withsessionagent", Agent: "opencode"},
 		&msbtest.MockSandbox{Name_: "test-vm"},
 		options.ReapPolicy{AutoStopOnActiveSessions: true},
+		options.DefaultVMIdleTimeout,
 		ui,
 		alwaysReap,
 		opencodeResolved(t),
@@ -1677,6 +1680,7 @@ func TestWithClientSessionReleasesLeaseBeforeReaping(t *testing.T) {
 		k,
 		sb,
 		options.ReapPolicy{},
+		options.DefaultVMIdleTimeout,
 		ui,
 		alwaysReap,
 		opencodeResolved(t),
@@ -1718,6 +1722,7 @@ func TestWithClientSessionReturnsBodyErrorAfterReaping(t *testing.T) {
 		k,
 		sb,
 		options.ReapPolicy{},
+		options.DefaultVMIdleTimeout,
 		ui,
 		alwaysReap,
 		opencodeResolved(t),
@@ -1756,6 +1761,7 @@ func TestWithClientSessionLeaseFailureStillRunsBody(t *testing.T) {
 		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{AutoStopOnActiveSessions: true},
+		options.DefaultVMIdleTimeout,
 		ui,
 		alwaysReap,
 		opencodeResolved(t),
@@ -1804,6 +1810,7 @@ func TestWithClientSessionReleasesLeaseOnPanic(t *testing.T) {
 			k,
 			&msbtest.MockSandbox{Name_: "test-vm"},
 			options.ReapPolicy{AutoStopOnActiveSessions: true},
+			options.DefaultVMIdleTimeout,
 			ui,
 			alwaysReap,
 			opencodeResolved(t),
@@ -1860,7 +1867,18 @@ func TestRunServeOnlySessionSkipsReapOnNonCanceledError(t *testing.T) {
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(50*time.Millisecond))
 	defer cancel()
 
-	err := runServeOnlySession(ctx, opencodeResolved(t), k, sb, options.ReapPolicy{}, ui, 4096, false, true)
+	err := runServeOnlySession(
+		ctx,
+		opencodeResolved(t),
+		k,
+		sb,
+		options.ReapPolicy{},
+		ui,
+		4096,
+		options.DefaultVMIdleTimeout,
+		false,
+		true,
+	)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("runServeOnlySession = %v, want context.DeadlineExceeded", err)
 	}
@@ -2758,5 +2776,160 @@ func TestShellPostAttachOffer(t *testing.T) {
 	}
 	if selects != 1 {
 		t.Fatalf("Select called %d times from Shell, want 1", selects)
+	}
+}
+
+// TestRunServeOnlyPassesIdleTimeoutToKeeper pins that serve-only derives the
+// keeper interval from the configured idle timeout.
+func TestRunServeOnlyPassesIdleTimeoutToKeeper(t *testing.T) {
+	got := make(chan time.Duration, 1)
+	orig := keepVMAlive
+	keepVMAlive = func(_ context.Context, _ msb.SandboxActivity, idleTimeout time.Duration) func() error {
+		got <- idleTimeout
+		return func() error { return nil }
+	}
+	defer func() { keepVMAlive = orig }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_ = runServeOnly(ctx, opencodeResolved(t), &msbtest.MockSandbox{}, &termiotest.Mock{}, 4096, 90*time.Second, false)
+	if d := <-got; d != 90*time.Second {
+		t.Errorf("keeper idle timeout = %v, want 90s", d)
+	}
+}
+
+// TestRunServeOnlyLogsKeeperError pins that runServeOnly reports a keeper whose
+// stop func returned an error, so a keepalive that stopped working is visible.
+func TestRunServeOnlyLogsKeeperError(t *testing.T) {
+	boom := errors.New("keeper stop boom")
+	orig := keepVMAlive
+	keepVMAlive = func(context.Context, msb.SandboxActivity, time.Duration) func() error {
+		return func() error { return boom }
+	}
+	defer func() { keepVMAlive = orig }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	ui := &termiotest.Mock{}
+	if err := runServeOnly(
+		ctx,
+		opencodeResolved(t),
+		&msbtest.MockSandbox{},
+		ui,
+		4096,
+		90*time.Second,
+		false,
+	); !errors.Is(
+		err,
+		context.Canceled,
+	) {
+		t.Fatalf("runServeOnly = %v, want context.Canceled", err)
+	}
+	found := false
+	for _, v := range ui.VerboseCalls {
+		if strings.Contains(v, boom.Error()) {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("keeper error not logged; verbose = %v", ui.VerboseCalls)
+	}
+}
+
+// TestRunDryRunVMReportsMaxLifetime pins the positive lifetime report and its
+// literal boundary on the would-start-line's path: only a bound greater than
+// zero is reported, including the smallest one.
+func TestRunDryRunVMReportsMaxLifetime(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{}, nil
+	}
+	defer func() { prepareSandbox = orig }()
+
+	for _, tc := range []struct {
+		name          string
+		maxLifetime   time.Duration
+		wantSubstring string
+	}{
+		{"unset is not reported", 0, ""},
+		{"one nanosecond is reported", time.Nanosecond, "dry-run: max lifetime 1ns"},
+		{"two hours is reported", 2 * time.Hour, "dry-run: max lifetime 2h"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ui := &termiotest.Mock{}
+			opts := resolvedRunOptions(t, options.RunOptions{MaxLifetime: tc.maxLifetime})
+			if err := Run(context.Background(), opts, options.ModeSkipVM, ui); err != nil {
+				t.Fatalf("Run dry-run-vm: %v", err)
+			}
+			assertMaxLifetimeReport(t, ui.InfoCalls, tc.wantSubstring)
+		})
+	}
+}
+
+// TestShellDryRunVMReportsMaxLifetime mirrors the Run boundary on Shell's
+// dry-run-vm path: only a bound greater than zero is reported.
+func TestShellDryRunVMReportsMaxLifetime(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{}, nil
+	}
+	defer func() { prepareSandbox = orig }()
+
+	for _, tc := range []struct {
+		name          string
+		maxLifetime   time.Duration
+		wantSubstring string
+	}{
+		{"unset is not reported", 0, ""},
+		{"one nanosecond is reported", time.Nanosecond, "dry-run: max lifetime 1ns"},
+		{"two hours is reported", 2 * time.Hour, "dry-run: max lifetime 2h"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ui := &termiotest.Mock{}
+			opts := resolvedRunOptions(t, options.RunOptions{MaxLifetime: tc.maxLifetime})
+			if err := Shell(context.Background(), opts, options.ModeSkipVM, ui); err != nil {
+				t.Fatalf("Shell dry-run-vm: %v", err)
+			}
+			assertMaxLifetimeReport(t, ui.InfoCalls, tc.wantSubstring)
+		})
+	}
+}
+
+// assertMaxLifetimeReport asserts the max-lifetime line names the configured
+// value (wantSubstring is a substring of the rendered duration) when set, and
+// that no such line is emitted when wantSubstring is empty.
+func assertMaxLifetimeReport(t *testing.T, infoCalls []string, wantSubstring string) {
+	t.Helper()
+	joined := strings.Join(infoCalls, "\n")
+	if wantSubstring == "" {
+		if strings.Contains(joined, "dry-run: max lifetime") {
+			t.Errorf("info = %v, want no max-lifetime report", infoCalls)
+		}
+		return
+	}
+	if !strings.Contains(joined, wantSubstring) {
+		t.Errorf("info = %v, want %q", infoCalls, wantSubstring)
+	}
+}
+
+// TestEffectiveIdleTimeout pins the single idle-timeout default: a
+// non-positive configured timeout falls back to the default, and a positive
+// one passes through. The 1ns row is the smallest positive value, so it pins
+// the positive side of the boundary.
+func TestEffectiveIdleTimeout(t *testing.T) {
+	for _, tc := range []struct {
+		configured time.Duration
+		want       time.Duration
+	}{
+		{0, options.DefaultVMIdleTimeout},
+		{-time.Second, options.DefaultVMIdleTimeout},
+		{time.Nanosecond, time.Nanosecond},
+		{45 * time.Second, 45 * time.Second},
+	} {
+		if got := effectiveIdleTimeout(tc.configured); got != tc.want {
+			t.Errorf("effectiveIdleTimeout(%v) = %v, want %v", tc.configured, got, tc.want)
+		}
 	}
 }

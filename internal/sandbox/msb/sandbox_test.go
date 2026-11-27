@@ -282,3 +282,25 @@ func TestNewMetricsStreamWrapsSDKHandleAndPropagatesError(t *testing.T) {
 		}
 	})
 }
+
+// TestRealSandboxTouchDelegates pins that the adapter's Touch delegates to the
+// SDK sandbox's Touch (its result is discarded) and propagates the error.
+func TestRealSandboxTouchDelegates(t *testing.T) {
+	var called bool
+	swapSeam(t, &realSandboxTouch, func(*msbSdk.Sandbox, context.Context) error {
+		called = true
+		return nil
+	})
+	if err := (realSandbox{}).Touch(context.Background()); err != nil {
+		t.Fatalf("Touch() error = %v, want nil", err)
+	}
+	if !called {
+		t.Error("Touch() did not delegate to realSandboxTouch")
+	}
+
+	boom := errors.New("touch boom")
+	swapSeam(t, &realSandboxTouch, func(*msbSdk.Sandbox, context.Context) error { return boom })
+	if err := (realSandbox{}).Touch(context.Background()); !errors.Is(err, boom) {
+		t.Errorf("Touch() error = %v, want %v", err, boom)
+	}
+}

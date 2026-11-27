@@ -54,8 +54,9 @@ take the opportunity to restructure the projection layer or add feature capabili
 
 The migration added no feature capabilities. Most of the list below remains open, and most of it
 already exists in the v0.7 line the launcher left, so it does not depend on this bump; only the
-items marked **(0.8)** are specific to the new line. The one exception is metrics streaming (§1.4):
-`Sandbox.MetricsStream` is now adopted by the in-session pressure watcher.
+items marked **(0.8)** are specific to the new line. Two exceptions are now settled: metrics streaming (§1.4),
+adopted by the in-session pressure watcher, and idle/lifecycle (§1.2), where `Touch` and `WithMaxDuration` are adopted
+and the remaining items declined.
 
 ### 1.1 Warm start: snapshots, checkpoints, fork, restore
 
@@ -69,16 +70,22 @@ running processes and resume execution; nested-VM snapshots capture an inner Doc
 largest untapped win, and it composes with `setup-sandbox` rather than replacing the home volume or
 `/workspace`, which a snapshot does not capture.
 
-### 1.2 Idle and lifecycle: pause/resume, drain, ping/touch, wait, max-lifetime
+### 1.2 Idle and lifecycle: pause/resume, drain, ping/touch, wait, max-lifetime — settled (#916)
 
-`Pause`/`Resume` freeze RAM and resume instantly; the launcher's idle path stops the VM
-(`specs/vm/idle-timeout.md`) and reboots on return, so pause is a candidate idle policy trading host
-memory for an instant resume. `RequestDrain` stops accepting commands, lets in-flight ones finish,
-then stops — the SDK's graceful counterpart to the launcher's `Stop` for detached jobs
-(`specs/vm/detached-jobs.md`). `Ping` is a guest-agent health check and `Touch` a keepalive; the
-launcher's readiness waits could use `Ping`. `WaitUntilStopped`/`WaitForStatus` replace polling, and
-the `WithMaxDuration` create option, still unused, bounds a VM's total lifetime (the launcher sets
-only `WithIdleTimeout`).
+`Touch` is adopted: the session reaper's `waitQuiescent` and `runServeOnly` hold the VM with it (`SandboxActivity`) at
+`clamp(idleTimeout/2, 1s, 2s)`, replacing the silent `sleep` exec session that relied on the idle monitor treating
+`active_exec_sessions > 0` as never-idle — an assumption v0.7.11 removed
+(`specs/vm/detached-jobs.md`, `specs/vm/lifecycle.md`). `WithMaxDuration`, the create option that bounds a VM's
+uptime since its last start, is adopted behind the opt-in `max-lifetime` config key (unset = unlimited, applied at
+creation like the idle timeout; `specs/vm/idle-timeout.md`), a safety net for a leaked long-lived VM. The rest of the
+section is settled as declined:
+
+- **`Ping` — decline.** agentd readiness is implied by the sandbox status and weaker than the launcher's
+  application-level probes (`docker info`, the agent health endpoint), so it says nothing the readiness waits do not.
+- **`RequestDrain` / `WaitUntilStopped` / `WaitForStatus` — decline.** The launcher has no drain workflow, and
+  `SandboxHandle.Stop` already waits for graceful shutdown; the waits would replace polling that does not exist.
+- **`Pause`/`Resume` — decline.** Pause-on-idle needs a resident supervisor the launcher lacks, there is no command
+  surface for it, and no path produces a paused VM. The idle path keeps stopping the VM (`specs/vm/idle-timeout.md`).
 
 ### 1.3 Live resize with tracked outcomes and pressure admission
 

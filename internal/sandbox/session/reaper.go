@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -50,8 +51,9 @@ func reapOnLastClient(
 	ctx context.Context,
 	a agent.Resolved,
 	k state.Key,
-	sb msb.SandboxExecutor,
+	sb msb.Sandbox,
 	policy options.ReapPolicy,
+	idleTimeout time.Duration,
 	ui termio.UI,
 ) error {
 	if state.CountActiveClients(k) > 0 {
@@ -72,7 +74,7 @@ func reapOnLastClient(
 		ui.Verbosef("agent %q has no session-status endpoints; skipping quiescence wait", a.Profile.Name())
 		return nil
 	}
-	return waitQuiescent(ctx, k, sb, provider, policy.MaxSessionRetries, ui)
+	return waitQuiescent(ctx, k, sb, provider, policy.MaxSessionRetries, idleTimeout, ui)
 }
 
 // runningContainersProbeCmd lists the IDs of running containers, one per line.
@@ -122,15 +124,16 @@ func warnRunningContainers(ctx context.Context, sb msb.SandboxExecutor, ui termi
 	}
 }
 
-// waitQuiescent keeps the VM alive (keeper exec) and polls the provider's
+// waitQuiescent keeps the VM alive (keeper touches) and polls the provider's
 // session-status endpoint until no session is busy and none is retrying below
 // the cap, or ctx is done. A client that reattaches during the wait aborts it.
 func waitQuiescent(
 	ctx context.Context,
 	k state.Key,
-	sb msb.SandboxExecutor,
+	sb msb.Sandbox,
 	provider agent.SessionStatusProvider,
 	maxRetry int,
+	idleTimeout time.Duration,
 	ui termio.UI,
 ) error {
 	if maxRetry <= 0 {
@@ -140,8 +143,12 @@ func waitQuiescent(
 	keeperCtx, cancelKeeper := context.WithCancel(context.Background())
 	defer cancelKeeper()
 
-	keeperDone := keepVMAlive(keeperCtx, sb)
-	defer func() { _ = keeperDone() }()
+	keeperDone := keepVMAlive(keeperCtx, sb, idleTimeout)
+	defer func() {
+		if err := keeperDone(); err != nil {
+			ui.Verbosef("vm keepalive touch failed: %v", err)
+		}
+	}()
 
 	ticker := time.NewTicker(waitQuiescentPollInterval)
 	defer ticker.Stop()
@@ -338,21 +345,59 @@ func quiescenceOf(states map[string]SessionStatus, pending map[string]bool, maxR
 	}
 }
 
-// keepVMAlive starts a benign long-running in-VM exec so active_exec_sessions > 0,
-// suppressing the msb idle timer while we wait. Returns a func() error that
-// cancels/stops the keeper exec.
-func keepVMAlive(ctx context.Context, sb msb.SandboxExecutor) func() error {
-	done := make(chan struct{})
-	keeper, keeperCancel := context.WithCancel(ctx)
+// keeperMinInterval and keeperMaxInterval bound the Touch cadence. The cap is
+// load-bearing: an existing VM keeps its creation-time idle timeout, which may
+// differ from this run's, so deriving a large interval from the run's value
+// could outrun the VM's live ~10s timer. Capped at 2s the keeper holds any live
+// timeout comfortably above ~2s.
+const (
+	keeperMinInterval = 1 * time.Second
+	keeperMaxInterval = 2 * time.Second
+)
 
+// keeperInterval is the Touch cadence: half the idle timeout, floored at 1s and
+// capped at 2s. It is a seam so loop tests can lower the cadence and the
+// timeout-threading tests can record the value it received.
+var keeperInterval = func(idleTimeout time.Duration) time.Duration {
+	return min(max(idleTimeout/2, keeperMinInterval), keeperMaxInterval)
+}
+
+// keepVMAlive touches the VM at the keeper interval so the runtime's idle
+// monitor does not stop it while the caller holds it, and returns a stop func
+// that returns the last touch error, so a keepalive that stopped working is
+// observable. A touch canceled by the stop is a normal release, not a failure,
+// so the stop func reports no error for it. It is a seam so the
+// release-logging tests can inject a failure.
+var keepVMAlive = func(ctx context.Context, sb msb.SandboxActivity, idleTimeout time.Duration) func() error {
+	done := make(chan struct{})
+	keeperCtx, keeperCancel := context.WithCancel(ctx)
+	interval := keeperInterval(idleTimeout)
+	var lastErr error
 	go func() {
 		defer close(done)
-		_, _ = sb.Exec(keeper, "sleep", []string{"1h"}, msb.ExecRequest{})
+		select {
+		case <-keeperCtx.Done():
+			return
+		default:
+			lastErr = sb.Touch(keeperCtx)
+		}
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-keeperCtx.Done():
+				return
+			case <-ticker.C:
+				lastErr = sb.Touch(keeperCtx)
+			}
+		}
 	}()
-
 	return func() error {
 		keeperCancel()
 		<-done
-		return nil
+		if errors.Is(lastErr, context.Canceled) {
+			return nil
+		}
+		return lastErr
 	}
 }

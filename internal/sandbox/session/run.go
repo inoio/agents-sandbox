@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
@@ -220,21 +221,26 @@ func serveOnlyMessage(a agent.Resolved, port string, deferred bool, stdinWatched
 
 // runServeOnly prints the connect message and keeps the VM alive, blocking
 // until ctx is done (CTRL-D or SIGINT), without attaching an in-VM TUI. It
-// holds the VM via a keeper exec so the msb idle timeout does not stop it while
-// serving.
+// holds the VM via the activity keeper so the msb idle timeout does not stop it
+// while serving.
 func runServeOnly(
 	ctx context.Context,
 	a agent.Resolved,
-	sb msb.SandboxExecutor,
+	sb msb.Sandbox,
 	ui termio.Logger,
 	hostPort int,
+	idleTimeout time.Duration,
 	stdinWatched bool,
 ) error {
 	ui.Infof("%s", serveOnlyMessage(a, strconv.Itoa(hostPort), false, stdinWatched))
 	keeperCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	keeperDone := keepVMAlive(keeperCtx, sb)
-	defer func() { _ = keeperDone() }()
+	keeperDone := keepVMAlive(keeperCtx, sb, idleTimeout)
+	defer func() {
+		if err := keeperDone(); err != nil {
+			ui.Verbosef("vm keepalive touch failed: %v", err)
+		}
+	}()
 	<-ctx.Done()
 	return ctx.Err()
 }
@@ -276,6 +282,9 @@ func Run(ctx context.Context, opts options.RunOptions, mode options.Mode, ui ter
 	// change behaviour.
 	if mode.SkipsVM() {
 		ui.Infof("dry-run: Would start agent session in VM")
+		if opts.MaxLifetime > 0 {
+			ui.Infof("dry-run: max lifetime %s", opts.MaxLifetime)
+		}
 		return nil
 	}
 
@@ -313,6 +322,7 @@ func Run(ctx context.Context, opts options.RunOptions, mode options.Mode, ui ter
 			opts.ReapPolicy,
 			ui,
 			ses.ServeHostPort(),
+			effectiveIdleTimeout(opts.IdleTimeout),
 			ses.ServePortDeferred(),
 			opts.ServeOnlyStdinWatched,
 		)
@@ -347,6 +357,15 @@ func Run(ctx context.Context, opts options.RunOptions, mode options.Mode, ui ter
 	return attachErr
 }
 
+// effectiveIdleTimeout applies the single idle-timeout default, matching the VM
+// lifecycle's creation-time fallback.
+func effectiveIdleTimeout(configured time.Duration) time.Duration {
+	if configured <= 0 {
+		return options.DefaultVMIdleTimeout
+	}
+	return configured
+}
+
 // withClientSession owns the client-lease lifecycle shared by the attach and
 // serve-only flows: it acquires a client lease for the run's resolved agent,
 // runs body, explicitly releases the lease before reaping so
@@ -357,8 +376,9 @@ func Run(ctx context.Context, opts options.RunOptions, mode options.Mode, ui ter
 func withClientSession(
 	ctx context.Context,
 	k state.Key,
-	sb msb.SandboxExecutor,
+	sb msb.Sandbox,
 	policy options.ReapPolicy,
+	idleTimeout time.Duration,
 	ui termio.UI,
 	shouldReap func(sessionErr error) bool,
 	a agent.Resolved,
@@ -386,7 +406,7 @@ func withClientSession(
 	}
 
 	if shouldReap(sessionErr) {
-		if err := reapOnLastClient(ctx, a, k, sb, policy, ui); err != nil {
+		if err := reapOnLastClient(ctx, a, k, sb, policy, idleTimeout, ui); err != nil {
 			ui.Warnf("reap failed: %v", err)
 		}
 	}
@@ -408,23 +428,24 @@ func serveOnlyShouldReap(sessionErr error) bool {
 }
 
 // runServeOnlySession supplies the serve-only payload around the shared client
-// session lifecycle: hold the VM (keeper exec) until ctx is done, then report a
-// clean exit.
+// session lifecycle: hold the VM (Touch keepalive) until ctx is done, then
+// report a clean exit.
 //
 // A deferred keep has no reachable serve binding, so nothing is served: it
 // reports the unreachability and returns without taking a client lease or
-// running the reaper. The last-client quiescence wait starts its own keeper exec
-// (waitQuiescent), which would hold the VM and defeat the warning's own remedy
-// ("stop the attached clients and re-run to recreate the VM"); the VM idles out
-// on its own instead.
+// running the reaper. The last-client quiescence wait starts its own Touch
+// keepalive (waitQuiescent), which would hold the VM and defeat the warning's
+// own remedy ("stop the attached clients and re-run to recreate the VM"); the
+// VM idles out on its own instead.
 func runServeOnlySession(
 	ctx context.Context,
 	a agent.Resolved,
 	k state.Key,
-	sb msb.SandboxExecutor,
+	sb msb.Sandbox,
 	policy options.ReapPolicy,
 	ui termio.UI,
 	hostPort int,
+	idleTimeout time.Duration,
 	deferred bool,
 	stdinWatched bool,
 ) error {
@@ -437,11 +458,12 @@ func runServeOnlySession(
 		k,
 		sb,
 		policy,
+		idleTimeout,
 		ui,
 		serveOnlyShouldReap,
 		a,
 		func(a agent.Resolved) error {
-			return runServeOnly(ctx, a, sb, ui, hostPort, stdinWatched)
+			return runServeOnly(ctx, a, sb, ui, hostPort, idleTimeout, stdinWatched)
 		},
 	)
 	if !serveOnlyShouldReap(sessionErr) {
@@ -468,6 +490,9 @@ func Shell(ctx context.Context, opts options.RunOptions, mode options.Mode, ui t
 	// prepare leaves sb nil.
 	if mode.SkipsVM() {
 		ui.Infof("dry-run: Would start interactive shell session")
+		if opts.MaxLifetime > 0 {
+			ui.Infof("dry-run: max lifetime %s", opts.MaxLifetime)
+		}
 		return nil
 	}
 
@@ -511,6 +536,7 @@ func runAttach(
 		k,
 		sb,
 		opts.ReapPolicy,
+		effectiveIdleTimeout(opts.IdleTimeout),
 		ui,
 		alwaysReap,
 		opts.ResolvedAgent,

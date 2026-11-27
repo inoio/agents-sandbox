@@ -659,6 +659,11 @@ type MockSandbox struct {
 	MetricsStreamErr    error
 	// MetricsStreamCalls records every interval passed to MetricsStream.
 	MetricsStreamCalls []time.Duration
+
+	// Touch backs the SandboxActivity seam; TouchCalls records the count.
+	TouchFn    func(ctx context.Context) error
+	TouchErr   error
+	TouchCalls *int
 }
 
 func (m *MockSandbox) FS() msb.SandboxFS {
@@ -796,6 +801,16 @@ func (m *MockSandbox) MetricsStream(
 		return m.MetricsStreamResult, nil
 	}
 	return nil, errors.New("metrics stream not configured")
+}
+
+func (m *MockSandbox) Touch(ctx context.Context) error {
+	if m.TouchCalls != nil {
+		*m.TouchCalls++
+	}
+	if m.TouchFn != nil {
+		return m.TouchFn(ctx)
+	}
+	return m.TouchErr
 }
 
 func (m *MockSandbox) Logs(_ context.Context, query msb.LogQuery) ([]msb.LogEntry, error) {

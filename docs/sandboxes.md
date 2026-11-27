@@ -317,19 +317,22 @@ The idle stop tears down everything inside the sandbox, including Docker contain
 Docker-enabled sandbox is stopped with the VM; its definition survives in the sandbox's Docker state, so `docker start`
 brings it back after the next connect. When the last client detaches with containers still running, the launcher warns
 you so the stop is not a surprise. Raise `auto-stop-timeout` if you want the sandbox to stay up longer between runs.
+`max-lifetime` is an optional lifetime cap, independent of activity: the sandbox is stopped once it has been up that
+long since its last start, even while it is busy. Leaving it unset means unlimited.
 The Docker engine runs rootless, as the agent's `dev` user, so a container cannot gain root inside the sandbox; see
 [The engine runs rootless]({% link runner-image.md %}#the-engine-runs-rootless) for what that changes.
 
-Set all three fields in launcher config:
+Set these fields in launcher config:
 
 ```yaml
 auto-stop-timeout: "10s"
 auto-stop-on-active-sessions: false
 auto-stop-max-session-retries: 10
+# max-lifetime: "7d"  # optional; unset = unlimited
 ```
 
 See [Launcher configuration]({% link configuration/launcher.md %}#configuration-file) for the full field table. None of
-the three has a CLI flag.
+these has a CLI flag.
 
 ## Concurrency
 

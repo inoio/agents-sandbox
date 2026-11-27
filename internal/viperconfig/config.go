@@ -44,6 +44,10 @@ type Config struct {
 	AutoStopTimeout           time.Duration `mapstructure:"auto-stop-timeout"`
 	AutoStopMaxSessionRetries int           `mapstructure:"auto-stop-max-session-retries"`
 
+	// MaxLifetime bounds a project VM's uptime since its last start; zero
+	// means unlimited. It is applied at creation only (no reconfig).
+	MaxLifetime time.Duration `mapstructure:"max-lifetime"`
+
 	// DockerReadyTimeout and DaemonReadyTimeout bound the in-VM Docker engine's
 	// and the agent serve daemon's readiness waits. Zero uses the built-in
 	// default (30s / 60s); a positive value overrides it for a slow host, such
@@ -173,6 +177,7 @@ const (
 	keyAutoStopOnActiveSessions  = "auto-stop-on-active-sessions"
 	keyAutoStopTimeout           = "auto-stop-timeout"
 	keyAutoStopMaxSessionRetries = "auto-stop-max-session-retries"
+	keyMaxLifetime               = "max-lifetime"
 	keyDockerReadyTimeout        = "docker-ready-timeout"
 	keyDaemonReadyTimeout        = "daemon-ready-timeout"
 	keyNetworkProfile            = "network.profile"
