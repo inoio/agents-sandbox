@@ -12,7 +12,7 @@ variables are listed in [Deprecations]({% link deprecations.md %}).
 
 The commands are grouped by area; jump to a group:
 
-- **Runtime:** [`run`](#run), [`shell`](#shell), [`stop`](#stop), [`kill`](#kill), [`list`](#list), [`tree`](#tree), [`doctor`](#doctor), [`version`](#version), [`upgrade`](#upgrade), [`completion`](#completion)
+- **Runtime:** [`run`](#run), [`shell`](#shell), [`stop`](#stop), [`kill`](#kill), [`copy`](#copy), [`list`](#list), [`tree`](#tree), [`doctor`](#doctor), [`version`](#version), [`upgrade`](#upgrade), [`completion`](#completion)
 - **Build and images:** [`build`](#build), [`image`](#image)
 - **Pruning:** [`prune`](#prune), [`prune --purge`](#prune---purge), [`image prune`](#image-prune), [`volume prune`](#volume-prune), [`sandbox prune`](#sandbox-prune), [`sandbox compact`](#sandbox-compact)
 - **Storage:** [`df`](#df), [`storage`](#storage)
@@ -187,6 +187,30 @@ agents-sandbox kill -f     # kill and remove VM state (also a stopped or never-s
 | `--force`   | `-f`  | `false`     | Remove VM's persisted state, also for a stopped or never-started VM |
 | `--dry-run` | `-n`  | `false`     | Show what would be killed without killing |
 | `--agent`   | —     | `opencode2`  | Coding-agent profile to kill; without it, the configured `agent` (or `AGENTS_SANDBOX_AGENT`) |
+
+---
+
+### copy
+
+Copy a single file between the host and the current checkout's project VM, in either direction. Exactly one of the two
+operands is a host path and the other is a guest path written as `vm:<absolute-path-inside-the-VM>`; both written as
+`vm:`, or neither, is an error. The VM must be running — `copy` never starts a stopped one.
+
+```console
+agents-sandbox cp ./patch.diff vm:/workspace/patch.diff   # host → VM
+agents-sandbox cp vm:/workspace/out.log ./out.log         # VM → host
+agents-sandbox cp ./patch.diff vm:/workspace/patch.diff --format json
+```
+
+**Aliases:** `sandbox copy`
+
+**Flags:**
+
+| Flag          | Short | Default | Purpose                                                                                    |
+|---------------|-------|---------|--------------------------------------------------------------------------------------------|
+| `--quiet`     | `-q`  | `false` | Suppress the transfer line                                                                 |
+| `--format`    | —     | `""`    | Output format (`json`); can't be combined with `-q`                                        |
+| `--agent`     | —     | `opencode2`  | Coding-agent profile whose project VM to copy into or out of; without it, the configured `agent` (or `AGENTS_SANDBOX_AGENT`) |
 
 ---
 
