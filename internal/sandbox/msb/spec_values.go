@@ -10,15 +10,18 @@ import "time"
 //
 //exhaustruct:ignore
 type SandboxSpec struct {
-	Env          map[string]string
-	Labels       map[string]string
-	Mounts       map[string]MountConfig
-	Image        string
-	Workdir      string
-	Network      NetworkSpec
-	Ports        []PortBinding
-	Secrets      []SecretEntry
-	IdleTimeout  time.Duration
+	Env         map[string]string
+	Labels      map[string]string
+	Mounts      map[string]MountConfig
+	Image       string
+	Workdir     string
+	Network     NetworkSpec
+	Ports       []PortBinding
+	Secrets     []SecretEntry
+	IdleTimeout time.Duration
+	// MaxDuration bounds the sandbox's total lifetime from creation; zero
+	// leaves it unlimited.
+	MaxDuration  time.Duration
 	MemoryMiB    uint32
 	MaxMemoryMiB uint32
 	// RootDiskMiB sets a managed root disk of this size; 0 leaves the runtime

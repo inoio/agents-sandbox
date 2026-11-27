@@ -551,6 +551,7 @@ func TestSandboxOptionsProjectSpec(t *testing.T) {
 		Workdir:      "/workspace",
 		Detached:     true,
 		IdleTimeout:  5 * time.Minute,
+		MaxDuration:  3 * time.Hour,
 		Env:          map[string]string{"A": "1"},
 		Labels:       map[string]string{"k": "v"},
 		Mounts: map[string]MountConfig{
@@ -584,6 +585,9 @@ func TestSandboxOptionsProjectSpec(t *testing.T) {
 	if cfg.Workdir != "/workspace" || !cfg.Detached || cfg.IdleTimeout != 5*time.Minute {
 		t.Errorf("workdir/detached/idle = %q/%v/%v, want /workspace/true/5m",
 			cfg.Workdir, cfg.Detached, cfg.IdleTimeout)
+	}
+	if cfg.MaxDuration != 3*time.Hour {
+		t.Errorf("MaxDuration = %v, want 3h", cfg.MaxDuration)
 	}
 	if cfg.Env["A"] != "1" {
 		t.Errorf("Env = %v, want A=1", cfg.Env)
@@ -653,7 +657,7 @@ func TestSandboxOptionsOmitSDKDefaults(t *testing.T) {
 		t.Error("Detached = true for a default-valued spec, want false")
 	}
 	if cfg.CPUs != 0 || cfg.MaxCPUs != 0 || cfg.MemoryMiB != 0 || cfg.MaxMemoryMiB != 0 ||
-		cfg.IdleTimeout != 0 || cfg.Workdir != "" || cfg.RootDisk != nil {
+		cfg.IdleTimeout != 0 || cfg.MaxDuration != 0 || cfg.Workdir != "" || cfg.RootDisk != nil {
 		t.Errorf("default-valued spec set a resource: %+v", cfg)
 	}
 	if len(cfg.PortBindings) != 0 || len(cfg.Secrets) != 0 || len(cfg.Env) != 0 {
