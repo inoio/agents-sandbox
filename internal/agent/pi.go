@@ -9,6 +9,10 @@ import (
 // piName is the canonical registry name of the pi agent.
 const piName = "pi"
 
+// piAgentDir is pi's home-relative agent dir, which holds its user config,
+// logins, and runtime state.
+const piAgentDir = ".pi/agent"
+
 type piProfile struct{}
 
 func (piProfile) Name() string          { return piName }
@@ -43,9 +47,21 @@ func (piProfile) VMConfigPath(home string) string {
 }
 func (piProfile) ConfigFileNames() []string { return []string{settingsFileName} }
 
+// ProvisionRules copies the agent dir's user-authored files that carry no
+// credential: settings, keybindings, instructions, system prompts, and the
+// extension, skill, prompt, and theme trees. auth.json holds logins and saved
+// keys, models.json and mcp.json can hold literal keys and headers, and
+// mcp-auth.json holds MCP tokens; keys reach the VM only as msb secrets, and
+// the rest of the agent dir is runtime state.
 func (piProfile) ProvisionRules() []ProvisionRule {
 	return []ProvisionRule{
-		{Dir: ".pi/agent", Patterns: []string{"**"}},
+		{Dir: piAgentDir, Patterns: []string{
+			"/" + settingsFileName,
+			"/keybindings.json",
+			"/AGENTS.override.md", "/AGENTS.md", "/AGENTS.MD", "/CLAUDE.md", "/CLAUDE.MD",
+			"/SYSTEM.md", "/APPEND_SYSTEM.md",
+			"/extensions/", "/skills/", "/prompts/", "/themes/",
+		}},
 	}
 }
 
