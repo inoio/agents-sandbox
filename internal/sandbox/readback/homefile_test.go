@@ -170,3 +170,24 @@ func TestReadHomeFile(t *testing.T) {
 	_, ok = ReadHomeFile(filepath.Join(home, "no-such-home"), "small.json", 10)
 	require.False(t, ok, "a missing home")
 }
+
+func TestReadHomeDirectoryListsOnlyInHomeDirectories(t *testing.T) {
+	home := t.TempDir()
+	writeFile(t, home, "config/z.json", "{}")
+	writeFile(t, home, "config/a.json", "{}")
+	require.NoError(t, os.Symlink("config", filepath.Join(home, "inside")))
+	require.NoError(t, os.Symlink(t.TempDir(), filepath.Join(home, "outside")))
+	root, err := os.OpenRoot(home)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = root.Close() })
+
+	for _, path := range []string{"config", "inside"} {
+		entries := readHomeDirectory(root, path)
+		require.Len(t, entries, 2)
+		require.Equal(t, "a.json", entries[0].Name())
+		require.Equal(t, "z.json", entries[1].Name())
+	}
+	for _, path := range []string{"missing", "outside", "config/a.json"} {
+		require.Empty(t, readHomeDirectory(root, path), path)
+	}
+}

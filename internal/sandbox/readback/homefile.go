@@ -3,6 +3,8 @@ package readback
 import (
 	"io/fs"
 	"os"
+	"slices"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -55,6 +57,20 @@ func ReadHomeFile(home, rel string, maxBytes int64) ([]byte, bool) {
 	// refusal and an over-cap file.
 	file, _ := readHomeFile(root, rel, maxBytes)
 	return file.data, file.data != nil
+}
+
+// readHomeDirectory lists children in name order without following a path out
+// of the home or blocking on a FIFO. ReadDir checks the opened descriptor is a
+// directory, so replacing the path after open cannot bypass the check.
+func readHomeDirectory(root *os.Root, rel string) []fs.DirEntry {
+	directory, err := root.OpenFile(rel, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = directory.Close() }()
+	entries, _ := directory.ReadDir(-1)
+	slices.SortFunc(entries, func(a, b fs.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
+	return entries
 }
 
 // lstatInHome describes the home-relative rel without following it, resolving

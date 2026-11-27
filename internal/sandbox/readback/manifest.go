@@ -3,7 +3,6 @@ package readback
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -166,7 +165,7 @@ func appendDeclaredPath(manifest *Manifest, seen map[string]bool, root *os.Root,
 	directory, pattern := filepath.Dir(declaredPath), filepath.Base(declaredPath)
 	// A missing or unreadable directory lists no entries; a matching
 	// subdirectory is refused below as not a regular file.
-	entries, _ := fs.ReadDir(root.FS(), filepath.ToSlash(directory))
+	entries := readHomeDirectory(root, directory)
 	for _, entry := range entries {
 		if matched, _ := filepath.Match(pattern, entry.Name()); !matched {
 			continue

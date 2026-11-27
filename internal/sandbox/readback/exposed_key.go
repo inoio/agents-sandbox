@@ -2,9 +2,7 @@ package readback
 
 import (
 	"encoding/json"
-	"os"
 	"strings"
-	"syscall"
 )
 
 // ExposedKey is an API key a harness's own login stored in plain text in the
@@ -105,38 +103,15 @@ func exposedKeys(home, agentName string) []ExposedKey {
 // that is not a JSON object, decodes to no field. A secret's placeholder is no
 // plain-text key.
 func plainTextKey(home, source, field string) (string, bool) {
+	content, _ := ReadHomeFile(home, source, maxExposedKeyStoreBytes)
 	var document map[string]any
 	// A failed decode leaves document nil, which holds no field.
-	_ = json.Unmarshal(readStoreInHome(home, source), &document)
+	_ = json.Unmarshal(content, &document)
 	value, _ := document[field].(string)
 	if value == "" || isSecretPlaceholder(value) {
 		return "", false
 	}
 	return value, true
-}
-
-// readStoreInHome reads source under home within the bounds
-// storeHoldsPlainTextKey describes, or returns nil.
-func readStoreInHome(home, source string) []byte {
-	root, err := os.OpenRoot(home)
-	if err != nil {
-		return nil
-	}
-	defer func() { _ = root.Close() }()
-	// gomutants:disable-next-line INTEGER_INCREMENT reason="the permission is used only with O_CREATE, which this read-only open never passes"
-	file, err := root.OpenFile(source, os.O_RDONLY|syscall.O_NONBLOCK, 0)
-	// gomutants:disable-next-line BRANCH_IF reason="a failed open leaves file nil, whose Stat fails with ErrInvalid, so the next check refuses it too"
-	if err != nil {
-		return nil
-	}
-	defer func() { _ = file.Close() }()
-	info, err := file.Stat()
-	// gomutants:disable-next-line BRANCH_IF,EXPRESSION_REMOVE,INVERT_LOGICAL reason="defence in depth: a non-regular file in a temp home reads as nothing anyway (a directory fails with EISDIR, a FIFO without a writer reads EOF); the check refuses a FIFO a writer feeds, which a test cannot stage without racing"
-	if err != nil || !info.Mode().IsRegular() {
-		return nil
-	}
-	content, _ := readCapped(file, maxExposedKeyStoreBytes)
-	return content
 }
 
 // msbDefaultPlaceholderPrefix starts the guest value microsandbox gives a secret

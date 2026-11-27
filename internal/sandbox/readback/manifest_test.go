@@ -3,6 +3,7 @@ package readback
 import (
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
@@ -75,6 +76,46 @@ func TestTakeManifestRecordsDeclaredFiles(t *testing.T) {
 	require.EqualValues(t, 1, entry.Size)
 	require.NotEmpty(t, entry.Hash)
 	require.False(t, entry.ModTime.IsZero(), "a file entry carries its mtime")
+}
+
+func TestTakeManifestDoesNotBlockOnAFIFOInsteadOfAConfigDirectory(t *testing.T) {
+	home := t.TempDir()
+	configDirectory := filepath.Join(home, ".config", "opencode")
+	require.NoError(t, os.MkdirAll(filepath.Dir(configDirectory), 0o750))
+	require.NoError(t, syscall.Mkfifo(configDirectory, 0o600))
+	type readResult struct {
+		manifest Manifest
+		readBack ReadBack
+		err      error
+	}
+	finished := make(chan readResult, 1)
+	go func() {
+		manifest, err := TakeManifest(home, "opencode")
+		if err != nil {
+			finished <- readResult{err: err}
+			return
+		}
+		readBack, err := Read(home, "opencode", Manifest{})
+		finished <- readResult{manifest: manifest, readBack: readBack, err: err}
+	}()
+
+	select {
+	case result := <-finished:
+		require.NoError(t, result.err)
+		require.Empty(t, result.manifest.Entries)
+		require.Empty(t, result.readBack.ConfigPaths)
+	case <-time.After(2 * time.Second):
+		// Release a blocking open so a regression does not leave a reader behind.
+		writer, err := os.OpenFile(configDirectory, os.O_WRONLY|syscall.O_NONBLOCK, 0)
+		if err == nil {
+			defer func() { _ = writer.Close() }()
+			select {
+			case <-finished:
+			case <-time.After(2 * time.Second):
+			}
+		}
+		t.Fatal("reading a FIFO in place of the config directory blocked")
+	}
 }
 
 func TestTakeManifestHashesDistinctContentDistinctly(t *testing.T) {

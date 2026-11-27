@@ -115,9 +115,11 @@ provisioned from the host instead.
 ## Reading an agent-controlled home
 
 The sandboxed agent controls the home volume, so every read-back read of it — the manifest, a dotenv, the inline
-walk, the endpoint hosts, and the write-back's candidate file (`ReadHomeFile`) — stays inside the home (`os.Root`: a
+walk, the endpoint hosts, exposed login keys, and the write-back's candidate file (`ReadHomeFile`) — stays inside the home (`os.Root`: a
 symlinked file or parent leading out of it is refused; one that stays inside is followed), opens non-blocking (a FIFO
-cannot hang the after-run), takes only a regular file as checked on the opened file, and is bounded. Otherwise a
+cannot hang the after-run), takes only a regular file as checked on the opened file, and is bounded. Directory
+enumeration also opens non-blocking and checks the opened descriptor through `ReadDir`, so a FIFO replacing a
+declared directory cannot hang the scan. Otherwise a
 planted symlink would pull a host file into the read-back, and from there into a proposed secret or a managed config
 the next run provisions back into the VM. The home is not project config, so the project trust gate does not apply.
 SQLite opens opencode2's database by path, so the probe requires a regular file inside the home first and records
