@@ -2797,3 +2797,24 @@ func TestRunServeOnlyPassesIdleTimeoutToKeeper(t *testing.T) {
 		t.Errorf("keeper idle timeout = %v, want 90s", d)
 	}
 }
+
+// TestRunDryRunVMReportsMaxLifetime pins that a configured lifetime bound is
+// reported on the would-start line's path.
+func TestRunDryRunVMReportsMaxLifetime(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{}, nil
+	}
+	defer func() { prepareSandbox = orig }()
+
+	opts := resolvedRunOptions(t, options.RunOptions{MaxLifetime: 2 * time.Hour})
+	if err := Run(context.Background(), opts, options.ModeSkipVM, ui); err != nil {
+		t.Fatalf("Run dry-run-vm: %v", err)
+	}
+	joined := strings.Join(ui.InfoCalls, "\n")
+	if !strings.Contains(joined, "dry-run: max lifetime 2h") {
+		t.Errorf("info = %v, want a max-lifetime report", ui.InfoCalls)
+	}
+}

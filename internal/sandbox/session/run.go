@@ -282,6 +282,9 @@ func Run(ctx context.Context, opts options.RunOptions, mode options.Mode, ui ter
 	// change behaviour.
 	if mode.SkipsVM() {
 		ui.Infof("dry-run: Would start agent session in VM")
+		if opts.MaxLifetime > 0 {
+			ui.Infof("dry-run: max lifetime %s", opts.MaxLifetime)
+		}
 		return nil
 	}
 
@@ -487,6 +490,9 @@ func Shell(ctx context.Context, opts options.RunOptions, mode options.Mode, ui t
 	// prepare leaves sb nil.
 	if mode.SkipsVM() {
 		ui.Infof("dry-run: Would start interactive shell session")
+		if opts.MaxLifetime > 0 {
+			ui.Infof("dry-run: max lifetime %s", opts.MaxLifetime)
+		}
 		return nil
 	}
 
