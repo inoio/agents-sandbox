@@ -167,6 +167,7 @@ func TestConfigEnvKeysGoldenSet(t *testing.T) {
 		keyAgent, KeyDocker, keyCPUs,
 		keyProvisionHostConfig, KeyOpenLinks,
 		keyAutoStopOnActiveSessions, keyAutoStopTimeout, keyAutoStopMaxSessionRetries,
+		keyMaxLifetime,
 		keyDockerReadyTimeout, keyDaemonReadyTimeout,
 		keyNetworkProfile, keyNetworkDNSServers, keyPorts,
 		keyNetworkInterceptTLS, keyNetworkDisableStrict,

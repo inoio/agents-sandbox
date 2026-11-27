@@ -45,6 +45,10 @@ type RunOptions struct {
 	ConfigSlug  string
 	ReapPolicy  ReapPolicy
 	IdleTimeout time.Duration
+	// MaxLifetime bounds a project VM's total lifetime from creation; zero
+	// means unlimited. It is a create-time option, not compared against a live
+	// VM by reconfig.
+	MaxLifetime time.Duration
 	CPUs        uint8
 	// DockerReadyTimeout and DaemonReadyTimeout override the in-VM Docker
 	// engine's and the agent serve daemon's readiness waits (the

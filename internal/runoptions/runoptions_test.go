@@ -169,6 +169,31 @@ func TestBuildAutoStopTimeout(t *testing.T) {
 	}
 }
 
+// TestBuildMaxLifetime pins the config-to-option mapping: a configured bound
+// reaches RunOptions, and unset stays zero (unlimited).
+func TestBuildMaxLifetime(t *testing.T) {
+	r := viperconfig.NewResolverWithConfig(viperconfig.Config{MaxLifetime: 2 * time.Hour})
+	opts, err := Build(r.Config(), newRunCommand(), &termiotest.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if opts.MaxLifetime != 2*time.Hour {
+		t.Errorf("MaxLifetime = %v; want 2h", opts.MaxLifetime)
+	}
+
+	zero, err := Build(
+		viperconfig.NewResolverWithConfig(viperconfig.Config{}).Config(),
+		newRunCommand(),
+		&termiotest.Mock{},
+	)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if zero.MaxLifetime != 0 {
+		t.Errorf("MaxLifetime = %v, want 0 (unlimited) when unset", zero.MaxLifetime)
+	}
+}
+
 // TestBuildOpenLinksFromConfig covers the config branch: with a
 // resolver, open-links comes from the launcher config.
 func TestBuildOpenLinksFromConfig(t *testing.T) {

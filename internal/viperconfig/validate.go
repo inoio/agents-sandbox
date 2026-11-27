@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/spf13/viper"
 
@@ -24,6 +25,9 @@ func validate(v *viper.Viper) error {
 		return err
 	}
 	if err := validateAutoStopTimeout(v); err != nil {
+		return err
+	}
+	if err := validateMaxLifetime(v); err != nil {
 		return err
 	}
 	if err := validateReadyTimeouts(v); err != nil {
@@ -343,6 +347,30 @@ func validateAutoStopTimeout(v *viper.Viper) error {
 	// of 1 can never differ from 0.
 	if d <= 0 { // gomutants:disable INTEGER_INCREMENT reason="d is already <= 0 at this point, so a bound of 1 is equivalent"
 		return fmt.Errorf("launcher config %s must be > 0, got %v", keyAutoStopTimeout, d)
+	}
+	return nil
+}
+
+// validateMaxLifetime rejects a set max-lifetime the SDK's lifecycle validation
+// would reject at create (ErrInvalidConfig): it must be a positive whole number
+// of seconds. Unset means unlimited and passes.
+func validateMaxLifetime(v *viper.Viper) error {
+	if !v.IsSet(keyMaxLifetime) {
+		return nil
+	}
+	d := v.GetDuration(keyMaxLifetime)
+	if d <= 0 {
+		if s, ok := v.Get(keyMaxLifetime).(string); ok {
+			if parsed, ok := ParseHumanDuration(s); ok {
+				d = parsed
+			}
+		}
+	}
+	if d <= 0 {
+		return fmt.Errorf("launcher config %s must be > 0, got %v", keyMaxLifetime, d)
+	}
+	if d%time.Second != 0 {
+		return fmt.Errorf("launcher config %s must be a whole number of seconds, got %v", keyMaxLifetime, d)
 	}
 	return nil
 }

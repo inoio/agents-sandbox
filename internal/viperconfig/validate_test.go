@@ -239,6 +239,30 @@ func TestValidateReadyTimeouts(t *testing.T) {
 	}
 }
 
+// TestValidateMaxLifetime pins the bound's validation: unset is unlimited and
+// passes; a positive whole number of seconds passes (including a "7d" string);
+// a zero, negative, or sub-second value fails at load.
+func TestValidateMaxLifetime(t *testing.T) {
+	v := viper.New()
+	if err := validateMaxLifetime(v); err != nil {
+		t.Fatalf("validateMaxLifetime() with unset key should pass, got %v", err)
+	}
+	v.Set(keyMaxLifetime, 2*time.Hour)
+	if err := validateMaxLifetime(v); err != nil {
+		t.Fatalf("validateMaxLifetime() with 2h should pass, got %v", err)
+	}
+	v.Set(keyMaxLifetime, "7d")
+	if err := validateMaxLifetime(v); err != nil {
+		t.Fatalf("validateMaxLifetime() with '7d' should pass, got %v", err)
+	}
+	for _, bad := range []any{0, -1 * time.Second, 500 * time.Millisecond} {
+		v.Set(keyMaxLifetime, bad)
+		if err := validateMaxLifetime(v); err == nil {
+			t.Errorf("validateMaxLifetime() with %v should fail", bad)
+		}
+	}
+}
+
 func TestValidateHomeVolumeOnImageChange(t *testing.T) {
 	for value, wantErr := range map[string]bool{"keep": false, "migrate": false, "reset": false, "ask": false, "prompt": true, "": true} {
 		v := viper.New()

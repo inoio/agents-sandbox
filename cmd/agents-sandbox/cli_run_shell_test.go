@@ -1059,3 +1059,16 @@ func TestRunDaemonlessAgentsRejectDaemonOnlyFlags(t *testing.T) {
 		}
 	}
 }
+
+// TestRunRejectsSubSecondMaxLifetimeAtLoad pins that an invalid max-lifetime is
+// rejected when the launcher loads its config, before any VM work.
+func TestRunRejectsSubSecondMaxLifetimeAtLoad(t *testing.T) {
+	initTestProjectDir(t)
+	root, _ := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, "run", "--dry-run-vm")
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{"max-lifetime": "500ms"})
+
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "max-lifetime") {
+		t.Fatalf("run with max-lifetime 500ms: err = %v, want a load error naming max-lifetime", err)
+	}
+}
