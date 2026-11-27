@@ -11,19 +11,36 @@ import (
 
 var errReadlink = errors.New("readlink failed")
 
-func fakeSources(tz, lang string, readlink func(string) (string, error), name, email string) hostenv.Sources {
+func fakeSources(tz string, readlink func(string) (string, error), name, email string) hostenv.Sources {
 	return hostenv.Sources{
 		Getenv: func(key string) string {
-			switch key {
-			case "TZ":
+			if key == "TZ" {
 				return tz
-			case "LC_ALL", "LC_CTYPE", "LANG":
-				return lang
 			}
 			return ""
 		},
 		Readlink:    readlink,
 		GitIdentity: func() (string, string) { return name, email },
+	}
+}
+
+// localeSources builds Sources whose locale variables are set individually, so
+// a test can tell which of LC_ALL/LC_CTYPE/LANG the resolver consults.
+func localeSources(lcAll, lcCtype, lang string) hostenv.Sources {
+	return hostenv.Sources{
+		Getenv: func(key string) string {
+			switch key {
+			case "LC_ALL":
+				return lcAll
+			case "LC_CTYPE":
+				return lcCtype
+			case "LANG":
+				return lang
+			}
+			return ""
+		},
+		Readlink:    failReadlink,
+		GitIdentity: func() (string, string) { return "", "" },
 	}
 }
 
@@ -48,7 +65,7 @@ func TestResolveTimeZone(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := hostenv.Resolve(fakeSources(tt.tz, "", tt.readlink, "", ""), false)
+			got := hostenv.Resolve(fakeSources(tt.tz, tt.readlink, "", ""), false)
 			if got["TZ"] != tt.want {
 				t.Errorf("TZ = %q, want %q", got["TZ"], tt.want)
 			}
@@ -58,18 +75,23 @@ func TestResolveTimeZone(t *testing.T) {
 
 func TestResolveLocale(t *testing.T) {
 	tests := []struct {
-		name string
-		host string
-		want string
+		name    string
+		lcAll   string
+		lcCtype string
+		lang    string
+		want    string
 	}{
-		{"utf-8", "en_US.UTF-8", "C.UTF-8"},
-		{"utf8 no dash", "en_US.utf8", "C.UTF-8"},
-		{"c locale", "C", ""},
-		{"unset", "", ""},
+		{"lang utf-8", "", "", "en_US.UTF-8", "C.UTF-8"},
+		{"lang utf8 no dash", "", "", "en_US.utf8", "C.UTF-8"},
+		{"lc_ctype overrides lang", "", "C", "en_US.UTF-8", ""},
+		{"lc_all overrides lc_ctype", "C", "en_US.UTF-8", "en_US.UTF-8", ""},
+		{"lc_all utf-8 wins", "en_US.UTF-8", "C", "C", "C.UTF-8"},
+		{"c locale", "", "", "C", ""},
+		{"unset", "", "", "", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := hostenv.Resolve(fakeSources("", tt.host, failReadlink, "", ""), false)
+			got := hostenv.Resolve(localeSources(tt.lcAll, tt.lcCtype, tt.lang), false)
 			if got["LANG"] != tt.want {
 				t.Errorf("LANG = %q, want %q", got["LANG"], tt.want)
 			}
@@ -78,7 +100,7 @@ func TestResolveLocale(t *testing.T) {
 }
 
 func TestResolveGitIdentity(t *testing.T) {
-	resolved := hostenv.Resolve(fakeSources("", "", failReadlink, "Ada", "ada@example.com"), false)
+	resolved := hostenv.Resolve(fakeSources("", failReadlink, "Ada", "ada@example.com"), false)
 	for _, key := range []string{"GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME"} {
 		if resolved[key] != "Ada" {
 			t.Errorf("%s = %q, want Ada", key, resolved[key])
@@ -90,19 +112,19 @@ func TestResolveGitIdentity(t *testing.T) {
 		}
 	}
 
-	partial := hostenv.Resolve(fakeSources("", "", failReadlink, "Ada", ""), false)
+	partial := hostenv.Resolve(fakeSources("", failReadlink, "Ada", ""), false)
 	if len(partial) != 0 {
 		t.Errorf("partial identity produced %v, want no git vars", partial)
 	}
 
-	suppressed := hostenv.Resolve(fakeSources("", "", failReadlink, "Ada", "ada@example.com"), true)
+	suppressed := hostenv.Resolve(fakeSources("", failReadlink, "Ada", "ada@example.com"), true)
 	if _, ok := suppressed["GIT_AUTHOR_NAME"]; ok {
 		t.Errorf("a provisioned git config did not suppress the identity: %v", suppressed)
 	}
 }
 
 func TestResolveUnresolvableHostProducesNoDefaults(t *testing.T) {
-	if got := hostenv.Resolve(fakeSources("", "", failReadlink, "", ""), false); len(got) != 0 {
+	if got := hostenv.Resolve(fakeSources("", failReadlink, "", ""), false); len(got) != 0 {
 		t.Errorf("Resolve on an unresolvable host = %v, want empty", got)
 	}
 }
