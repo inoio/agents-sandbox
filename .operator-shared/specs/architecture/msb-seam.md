@@ -10,9 +10,9 @@ read_if: Changing `internal/sandbox/msb` interfaces, its roles/composites, the m
 (the real SDK client and the hand-rolled mock) and because the SDK has identity/no-op edge cases the
 port normalizes (`ConfigMounts`/`ConfigPorts` hide an upstream `UnmarshalJSON` defect;
 `IsUnsupportedOperation`/`IsReplaced`/`IsNotFound`/`IsJobNotRunning` fold error classes). It is **not**
-meant to mirror
-the SDK: the interface method set is exactly what callers use, and SDK types must not be the seam's
-currency.
+meant to mirror the SDK: the interface method set is exactly what callers use, and SDK types are not
+the seam's currency — except the sanctioned full-mirror observation aliases under "Launcher-owned
+types" below.
 
 Issue #196 narrows the adapter to that contract. Phase 0 (dead surface + the `realVolumeHandle`
 silent-zero fix), Phase 1 (role interfaces), Phase 2 (launcher-owned option types), Phase 3

@@ -5,7 +5,7 @@ read_if: Implementing #924 (make the msb port thinner); touching internal/sandbo
 
 # msb adapter: reduce the value-projection layer and the drift register
 
-Status: proposed, revised after builder review. Issue #924. Base: branch `chore/906-msb-sdk-v0.8`
+Status: implemented, revised after builder review. Issue #924. Base: branch `chore/906-msb-sdk-v0.8`
 (SDK v0.8.3), on top of the v0.8 migration; the migration must land first. Supersedes the
 "value-projection" half of `guides/msb-sdk-integration.md` §3.
 
