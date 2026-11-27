@@ -12,3 +12,12 @@ var (
 	_ ImagePruneReport        = msbSdk.ImagePruneReport{}
 	_ msbSdk.ImagePruneReport = ImagePruneReport{}
 )
+
+var (
+	_ StorageReport               = msbSdk.StorageUsageReport{}
+	_ msbSdk.StorageUsageReport   = StorageReport{}
+	_ StorageCategory             = msbSdk.StorageCategoryUsage{}
+	_ msbSdk.StorageCategoryUsage = StorageCategory{}
+	_ StorageItem                 = msbSdk.StorageItemUsage{}
+	_ msbSdk.StorageItemUsage     = StorageItem{}
+)

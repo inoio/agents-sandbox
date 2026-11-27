@@ -324,5 +324,5 @@ func (realMsbClient) StorageUsage(ctx context.Context) (*StorageReport, error) {
 	if err != nil {
 		return nil, err
 	}
-	return storageReportFrom(report), nil
+	return report, nil
 }
