@@ -8,6 +8,8 @@ import (
 	"os"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 )
 
 // RuntimeInstaller ensures the microsandbox runtime is installed on the host.
@@ -65,22 +67,95 @@ type Client interface {
 // fakes and never load the native library or read the developer's real runtime.
 // The real client is exercised by the msb-tagged tests and by the running
 // launcher, not here.
+// newLocalContext is the SDK's local-context constructor as a seam, so a test
+// can assert the destination options without the native library.
+var newLocalContext = msbSdk.NewLocalContext
+
+// localContext resolves agents-sandbox's microsandbox destination, naming the
+// private home explicitly rather than relying on the process-global MSB_HOME.
+// The SDK resolves its configured context per operation, so this resolves per
+// call too; it is a seam so a test can substitute a destination.
+var localContext = func() (*msbSdk.LocalContext, error) {
+	return newLocalContext(msbSdk.LocalOptions{Home: configpaths.MSBHome(), ConfigPath: ""})
+}
+
+func sandboxes() (*msbSdk.Sandboxes, error) {
+	c, err := localContext()
+	if err != nil {
+		return nil, err
+	}
+	return c.Sandboxes(), nil
+}
+
+func volumes() (*msbSdk.Volumes, error) {
+	c, err := localContext()
+	if err != nil {
+		return nil, err
+	}
+	return c.Volumes(), nil
+}
+
+// The sandbox and volume seams route through the explicit destination. They stay
+// package-level function values so unit tests inject fakes without the native
+// library.
 var (
-	getSandbox        = msbSdk.GetSandbox
-	createSandbox     = msbSdk.CreateSandbox
-	listSandboxesWith = msbSdk.ListSandboxesWith
-	getVolume         = msbSdk.GetVolume
-	createVolume      = msbSdk.CreateVolume
-	listVolumes       = msbSdk.ListVolumes
-	removeVolume      = msbSdk.RemoveVolume
-	imageGet          = msbSdk.Image.Get
-	imageList         = msbSdk.Image.List
-	imageRemove       = msbSdk.Image.Remove
-	imageLoad         = msbSdk.Image.Load
-	realImageInspect  = msbSdk.Image.Inspect
-	imagePrune        = msbSdk.Image.Prune
-	storageUsage      = msbSdk.StorageUsage
-	storagePrune      = msbSdk.PruneStorage
+	getSandbox = func(ctx context.Context, name string) (*msbSdk.Sandbox, error) {
+		s, err := sandboxes()
+		if err != nil {
+			return nil, err
+		}
+		return s.Get(ctx, name)
+	}
+	createSandbox = func(ctx context.Context, name string, opts ...msbSdk.SandboxOption) (*msbSdk.Sandbox, error) {
+		s, err := sandboxes()
+		if err != nil {
+			return nil, err
+		}
+		return s.Create(ctx, name, opts...)
+	}
+	listSandboxesWith = func(ctx context.Context, opts ...msbSdk.SandboxListOption) (*msbSdk.SandboxPage, error) {
+		s, err := sandboxes()
+		if err != nil {
+			return nil, err
+		}
+		return s.List(ctx, opts...)
+	}
+	getVolume = func(ctx context.Context, name string) (*msbSdk.Volume, error) {
+		v, err := volumes()
+		if err != nil {
+			return nil, err
+		}
+		return v.Get(ctx, name)
+	}
+	createVolume = func(ctx context.Context, name string, opts ...msbSdk.VolumeOption) (*msbSdk.Volume, error) {
+		v, err := volumes()
+		if err != nil {
+			return nil, err
+		}
+		return v.Create(ctx, name, opts...)
+	}
+	listVolumes = func(ctx context.Context) ([]*msbSdk.Volume, error) {
+		v, err := volumes()
+		if err != nil {
+			return nil, err
+		}
+		return v.List(ctx)
+	}
+	removeVolume = func(ctx context.Context, name string) error {
+		v, err := volumes()
+		if err != nil {
+			return err
+		}
+		return v.Remove(ctx, name)
+	}
+	imageGet         = msbSdk.Image.Get
+	imageList        = msbSdk.Image.List
+	imageRemove      = msbSdk.Image.Remove
+	imageLoad        = msbSdk.Image.Load
+	realImageInspect = msbSdk.Image.Inspect
+	imagePrune       = msbSdk.Image.Prune
+	storageUsage     = msbSdk.StorageUsage
+	storagePrune     = msbSdk.PruneStorage
 )
 
 // realMsbClient delegates to the actual microsandbox SDK.

@@ -900,9 +900,12 @@ func TestGetFactory(t *testing.T) {
 // TestRealMsbClientCreateVolumeError covers the error branch of
 // realMsbClient.CreateVolume (invalid empty name fails before touching a VM).
 func TestRealMsbClientCreateVolumeError(t *testing.T) {
+	swapSeam(t, &localContext, func() (*msbSdk.LocalContext, error) {
+		return &msbSdk.LocalContext{}, nil
+	})
 	c := &realMsbClient{}
 	if _, err := c.CreateVolume(context.Background(), "", VolumeSpec{}); err == nil {
-		t.Error("CreateVolume() with empty name = nil error, want config error")
+		t.Error("CreateVolume() with empty name = nil error, want an error from the uninitialized destination")
 	}
 }
 
