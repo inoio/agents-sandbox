@@ -173,8 +173,8 @@
 #### `specs/vm/` - VM lifecycle and per-VM behaviours
 
 - `specs/vm/`
-  - Description: Per-VM contracts: `lifecycle.md`, `detached-jobs.md`, `idle-timeout.md`, `live-mount-readback.md`, `reconfig-decision.md`, `session-reaper.md`, `startup-hooks.md`, `workspace-bind-permissions.md`.
-  - Read If: Any change to a run/shell/session lifecycle stage or cross-stage value (`prepare.PrepareSandbox`, `session.Run`/`Shell`, the `--dry-run*`/`--serve-only` modes); VM dockerd/agent-serve startup, readiness, or the idle timeout; reading a live VM's mounts or ports (an empty `cfg.Volumes`/`mounts (0)`); the reconfig decision or `ensure-vm.lock`; the reaper's `waitQuiescent`/`ReapPolicy`; a startup hook's interactivity or the `HookInteractive` seam; or the `/workspace` bind permission policy.
+  - Description: Per-VM contracts: `lifecycle.md`, `detached-jobs.md`, `host-environment-defaults.md`, `idle-timeout.md`, `live-mount-readback.md`, `reconfig-decision.md`, `session-reaper.md`, `startup-hooks.md`, `workspace-bind-permissions.md`.
+  - Read If: Any change to a run/shell/session lifecycle stage or cross-stage value (`prepare.PrepareSandbox`, `session.Run`/`Shell`, the `--dry-run*`/`--serve-only` modes); VM dockerd/agent-serve startup, readiness, or the idle timeout; the host facts defaulted into the VM env (time zone, UTF-8 locale, git identity) or a guest `date`/locale/commit-identity that differs from the host; reading a live VM's mounts or ports (an empty `cfg.Volumes`/`mounts (0)`); the reconfig decision or `ensure-vm.lock`; the reaper's `waitQuiescent`/`ReapPolicy`; a startup hook's interactivity or the `HookInteractive` seam; or the `/workspace` bind permission policy.
 
 #### `specs/volumes/` - Home volume recovery/decoupling and volume commands
 
@@ -235,3 +235,6 @@
 - `plans/2026-11-27-msb-filesystem-transfer-plan.md`
   - Description: TDD implementation plan for #920: the `SandboxFS.CopyFromHost`/`CopyToHost` seam and `realSandboxFS` adapter, the cwd-scoped running-VM `vm.CopyProjectFile`, the `sandbox copy`/`cp` CLI command, and the spec/guide/docs/changelog updates.
   - Read If: `sandbox cp`/`sandbox copy`, `vm.CopyProjectFile`, `msb.SandboxFS.CopyFromHost`/`CopyToHost`, or `realSandboxFS`; a `vm:` operand; or the `sandbox copy`/`cp` "dropped" note in `specs/volumes/runtime-management-commands.md`.
+- `plans/2026-11-27-host-environment-defaults.md`
+  - Description: TDD implementation plan for #808: the `internal/sandbox/hostenv` resolver (host time zone, UTF-8 locale, git identity), the `prepare.loadEnvFingerprints` merge under configured env values, the sealed test seam, and the docs/changelog tasks.
+  - Read If: Executing #808, or resuming its inline execution.
