@@ -107,13 +107,9 @@ func Start(bindHost string, skipUpstreamVerify bool, openLog func() (*os.File, e
 	state := new(proxyState)
 	state.recorder = new(recorder)
 	state.caFile = caFile
+	//exhaustruct:ignore // zero-valued counters and status flags are the initial logger state
 	state.log = &proxyLog{
-		mu: sync.Mutex{}, file: nil, openLog: openLog, warnings: 0, bytesWritten: 0,
-		unattributed: 0, maxBytes: 0, truncated: false, writeFailed: false,
-		closed: false,
-		result: proxyLogResult{
-			Path: "", Warnings: 0, UnattributedHandshakes: 0, Truncated: false, WriteFailed: false,
-		},
+		openLog:            openLog,
 		onHandshakeFailure: state.failTunnel,
 	}
 	state.server = &http.Server{
@@ -202,13 +198,14 @@ func (s *proxyState) observeConnect(host string, sessionID uint16) {
 // by IP, so the tunnel is attributed to the host rather than the address. A
 // tunnel opened by hostname, or a handshake without SNI, needs no naming.
 func (s *proxyState) nameTunnel(connectTarget, serverName string, sessionID uint16) {
-	targetHost, _ := splitHostPort(connectTarget)
+	targetHost, port := splitHostPort(connectTarget)
 	parsed := net.ParseIP(targetHost)
 	if serverName == "" || parsed == nil || serverName == parsed.String() {
 		return
 	}
+	connectIP := parsed.String()
 	s.mu.Lock()
-	s.recorder.nameTunnel(sessionID, connectTarget, serverName)
+	s.recorder.nameTunnel(sessionID, connectIP, port, serverName)
 	s.mu.Unlock()
 }
 
@@ -286,10 +283,8 @@ func (s *proxyState) onResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *htt
 func (h Handle) Stop() Observation {
 	if h.state == nil {
 		// gomutants:disable-next-line RETURN_ZERO reason="an empty Observation is the zero value, so zeroing the literal is the identical value"
-		return Observation{
-			Destinations: nil, Attribution: nil, ProxyLog: "", ProxyWarnings: 0,
-			UnattributedHandshakes: 0, ProxyLogTruncated: false, ProxyLogWriteFailed: false,
-		}
+		//exhaustruct:ignore // the empty handle has no destination, attribution, or diagnostic state
+		return Observation{}
 	}
 	return h.state.stop()
 }
@@ -310,17 +305,13 @@ func (s *proxyState) stop() Observation {
 	_ = s.server.Close()
 	// Close waits for a warning callback already in progress. That callback
 	// records the session's handshake failure before the recorder snapshot.
-	logResult := proxyLogResult{
-		Path: "", Warnings: 0, UnattributedHandshakes: 0, Truncated: false, WriteFailed: false,
-	}
+	var logResult proxyLogResult
 	if s.log != nil {
 		logResult = s.log.close()
 	}
 	s.mu.Lock()
-	observation := s.recorder.result(Observation{
-		Destinations: nil, Attribution: nil, ProxyLog: "", ProxyWarnings: 0,
-		UnattributedHandshakes: 0, ProxyLogTruncated: false, ProxyLogWriteFailed: false,
-	})
+	//exhaustruct:ignore // the recorder fills destinations and attribution; Stop sets diagnostic fields below
+	observation := s.recorder.result(Observation{})
 	s.mu.Unlock()
 
 	_ = os.Remove(s.caFile)
@@ -336,13 +327,8 @@ func (s *proxyState) stop() Observation {
 // built without Start.
 func (s *proxyState) logger() *proxyLog {
 	if s.log == nil {
+		//exhaustruct:ignore // counting-only logger starts with zero counters and no file
 		s.log = &proxyLog{
-			mu: sync.Mutex{}, file: nil, openLog: nil, warnings: 0, bytesWritten: 0,
-			unattributed: 0, maxBytes: 0, truncated: false, writeFailed: false,
-			closed: false,
-			result: proxyLogResult{
-				Path: "", Warnings: 0, UnattributedHandshakes: 0, Truncated: false, WriteFailed: false,
-			},
 			onHandshakeFailure: s.failTunnel,
 		}
 	}

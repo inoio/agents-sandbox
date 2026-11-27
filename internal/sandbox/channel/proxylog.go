@@ -11,6 +11,12 @@ const (
 	maxProxyLogBytes        = 1 << 20
 )
 
+// writeProxyLog and closeProxyLog expose the file-failure paths to unit tests.
+var (
+	writeProxyLog = (*os.File).WriteString
+	closeProxyLog = (*os.File).Close
+)
+
 type proxyLogResult struct {
 	Path                   string
 	Warnings               int
@@ -29,7 +35,6 @@ type proxyLog struct {
 	warnings           int
 	unattributed       int
 	bytesWritten       int
-	maxBytes           int
 	truncated          bool
 	writeFailed        bool
 	closed             bool
@@ -91,24 +96,28 @@ func (l *proxyLog) openOnFirstWarning() {
 
 // writeLine keeps log storage below its per-session byte limit.
 func (l *proxyLog) writeLine(line string) {
+	l.writeLineWithinLimit(line, maxProxyLogBytes)
+}
+
+func (l *proxyLog) writeLineWithinLimit(line string, writeLimit int) {
 	if l.file == nil {
 		return
 	}
 	line, lineTruncated := truncateProxyLogLine(line)
 	l.truncated = l.truncated || lineTruncated
-	writeLimit := maxProxyLogBytes
-	if l.maxBytes > 0 && l.maxBytes < writeLimit {
-		writeLimit = l.maxBytes
-	}
-	if len(line) > writeLimit-l.bytesWritten {
+	if !proxyLogHasSpace(l.bytesWritten, len(line), writeLimit) {
 		l.truncated = true
 		return
 	}
-	written, err := l.file.WriteString(line)
+	written, err := writeProxyLog(l.file, line)
 	l.bytesWritten += written
 	if err != nil || written != len(line) {
 		l.writeFailed = true
 	}
+}
+
+func proxyLogHasSpace(bytesWritten, lineBytes, limit int) bool {
+	return lineBytes <= limit-bytesWritten
 }
 
 func safeProxyWarning(format string) (string, bool) {
@@ -131,23 +140,19 @@ func safeProxyWarning(format string) (string, bool) {
 }
 
 func handshakeWarningTarget(args []any) (uint16, string, bool) {
+	var noSession uint16
 	if len(args) < 3 {
-		return 0, "", false
+		return noSession, "", false
 	}
-	var session int64
-	switch value := args[0].(type) {
-	case int64:
-		session = value
-	case int:
-		session = int64(value)
-	default:
-		return 0, "", false
+	rawSession, sessionOK := args[0].(int64)
+	if !sessionOK {
+		return noSession, "", false
 	}
-	target, ok := args[1].(string)
-	if !ok || target == "" {
-		return 0, "", false
+	rawTarget, targetOK := args[1].(string)
+	if !targetOK || rawTarget == "" {
+		return noSession, "", false
 	}
-	return proxySessionID(session), target, true
+	return proxySessionID(rawSession), rawTarget, true
 }
 
 func truncateProxyLogLine(line string) (string, bool) {
@@ -170,7 +175,7 @@ func (l *proxyLog) close() proxyLogResult {
 	path := ""
 	if l.file != nil {
 		path = l.file.Name()
-		if err := l.file.Close(); err != nil {
+		if err := closeProxyLog(l.file); err != nil {
 			l.writeFailed = true
 		}
 		l.file = nil

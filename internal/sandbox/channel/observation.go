@@ -95,7 +95,6 @@ type recorder struct {
 
 type tunnelSession struct {
 	destination *Destination
-	ambiguous   bool
 }
 
 // observe folds one request into the artefact and returns the destination entry
@@ -132,29 +131,23 @@ func (r *recorder) observeTunnel(sessionID uint16, host, ip string, port uint16)
 		r.tunnelsBySession = make(map[uint16]tunnelSession)
 	}
 	if _, ok := r.tunnelsBySession[sessionID]; ok {
-		r.tunnelsBySession[sessionID] = tunnelSession{destination: nil, ambiguous: true}
+		r.tunnelsBySession[sessionID] = tunnelSession{destination: nil}
 		return
 	}
-	r.tunnelsBySession[sessionID] = tunnelSession{destination: tunnel, ambiguous: false}
+	r.tunnelsBySession[sessionID] = tunnelSession{destination: tunnel}
 }
 
 // nameTunnel moves the session's CONNECT entry onto the hostname from its TLS
 // SNI. The IP stays on the named entry; the IP-only entry loses that tunnel and
 // disappears once it has none left. A session number collision or unknown
 // session is left unnamed rather than charging the wrong tunnel.
-func (r *recorder) nameTunnel(sessionID uint16, connectTarget, hostname string) {
-	targetHost, port := splitHostPort(connectTarget)
-	parsed := net.ParseIP(targetHost)
-	if parsed == nil || hostname == "" || hostname == parsed.String() {
-		return
-	}
-	connectIP := parsed.String()
-	tracked, ok := r.tunnelsBySession[sessionID]
-	if !ok || tracked.ambiguous || tracked.destination == nil {
+func (r *recorder) nameTunnel(sessionID uint16, connectIP string, port uint16, hostname string) {
+	tracked := r.tunnelsBySession[sessionID]
+	if tracked.destination == nil {
 		return
 	}
 	tunnel := tracked.destination
-	if tunnel.Host != connectIP || tunnel.IP != connectIP || tunnel.Protocol != ConnectProtocol || tunnel.Port != port {
+	if tunnel.Host != connectIP || tunnel.Port != port {
 		return
 	}
 	for index, destination := range r.destinations {
@@ -167,7 +160,7 @@ func (r *recorder) nameTunnel(sessionID uint16, connectTarget, hostname string) 
 		if tunnel.Count <= 0 {
 			r.destinations = slices.Delete(r.destinations, index, index+1)
 		}
-		r.tunnelsBySession[sessionID] = tunnelSession{destination: named, ambiguous: false}
+		r.tunnelsBySession[sessionID] = tunnelSession{destination: named}
 		return
 	}
 }
@@ -180,12 +173,12 @@ func (r *recorder) failTunnel(sessionID uint16, connectTarget string) bool {
 	if parsed := net.ParseIP(host); parsed != nil {
 		host = parsed.String()
 	}
-	tracked, ok := r.tunnelsBySession[sessionID]
-	if !ok || tracked.ambiguous || tracked.destination == nil {
+	tracked := r.tunnelsBySession[sessionID]
+	if tracked.destination == nil {
 		return false
 	}
 	tunnel := tracked.destination
-	if tunnel.Protocol != ConnectProtocol || tunnel.Port != port || (tunnel.Host != host && tunnel.IP != host) {
+	if tunnel.Port != port || (tunnel.Host != host && tunnel.IP != host) {
 		return false
 	}
 	tunnel.Failed++

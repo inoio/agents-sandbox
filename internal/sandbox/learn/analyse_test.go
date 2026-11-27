@@ -256,6 +256,7 @@ func TestSummarizeExcludesUnverifiedTunnels(t *testing.T) {
 	analysis := Analysis{Observation: channel.Observation{Destinations: []channel.Destination{
 		{Host: "pinned.example", Protocol: channel.ConnectProtocol, Success: true, Count: 1, Failed: 1},
 		{Host: "api.example", Protocol: "https", Success: true, Count: 1},
+		{Host: "attempted.example", Protocol: "https", Success: false, Count: 1},
 	}}}
 
 	summary := summarize(analysis, nil)

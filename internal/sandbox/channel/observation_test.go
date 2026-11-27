@@ -70,7 +70,7 @@ func TestRecorderNamesAnIPTunnelByItsSNIHostname(t *testing.T) {
 	r.observeTunnel(1, "160.79.104.10", "160.79.104.10", 443)
 	r.observeTunnel(2, "160.79.104.10", "160.79.104.10", 443)
 
-	r.nameTunnel(1, "160.79.104.10:443", "api.anthropic.com")
+	r.nameTunnel(1, "160.79.104.10", 443, "api.anthropic.com")
 
 	destinations := r.result(Observation{}).Destinations
 	if len(destinations) != 2 {
@@ -93,7 +93,7 @@ func TestRecorderNamingTheLastIPTunnelRemovesTheIPEntry(t *testing.T) {
 	r := new(recorder)
 	r.observeTunnel(1, "160.79.104.10", "160.79.104.10", 443)
 
-	r.nameTunnel(1, "160.79.104.10:443", "api.anthropic.com")
+	r.nameTunnel(1, "160.79.104.10", 443, "api.anthropic.com")
 
 	destinations := r.result(Observation{}).Destinations
 	if len(destinations) != 1 || destinations[0].Host != "api.anthropic.com" {
@@ -105,7 +105,8 @@ func TestRecorderNameTunnelIgnoresAnUnknownTunnel(t *testing.T) {
 	r := new(recorder)
 	r.observeTunnel(1, "api.example", "", 443)
 
-	r.nameTunnel(1, "203.0.113.7:443", "other.example")
+	r.nameTunnel(1, "203.0.113.7", 443, "other.example")
+	r.nameTunnel(2, "203.0.113.7", 443, "unknown-session.example")
 
 	destinations := r.result(Observation{}).Destinations
 	if len(destinations) != 1 || destinations[0].Host != "api.example" {
@@ -113,17 +114,26 @@ func TestRecorderNameTunnelIgnoresAnUnknownTunnel(t *testing.T) {
 	}
 }
 
-func TestRecorderNameTunnelIgnoresUnusableNames(t *testing.T) {
-	r := new(recorder)
-	r.observeTunnel(1, "203.0.113.7", "203.0.113.7", 443)
+func TestRecorderNameTunnelRequiresTheTrackedHostAndPort(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		host string
+		port uint16
+	}{
+		{name: "host mismatch", host: "198.51.100.8", port: 443},
+		{name: "port mismatch", host: "203.0.113.7", port: 8443},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := new(recorder)
+			r.observeTunnel(1, "203.0.113.7", "203.0.113.7", 443)
 
-	r.nameTunnel(1, "api.example:443", "other.example")
-	r.nameTunnel(1, "203.0.113.7:443", "")
-	r.nameTunnel(1, "203.0.113.7:443", "203.0.113.7")
+			r.nameTunnel(1, tc.host, tc.port, "api.example")
 
-	destinations := r.result(Observation{}).Destinations
-	if len(destinations) != 1 || destinations[0].Host != "203.0.113.7" {
-		t.Fatalf("destinations = %+v, want the IP tunnel unchanged", destinations)
+			destinations := r.result(Observation{}).Destinations
+			if len(destinations) != 1 || destinations[0].Host != "203.0.113.7" {
+				t.Fatalf("destinations = %+v, want the tunnel unchanged", destinations)
+			}
+		})
 	}
 }
 
@@ -133,7 +143,7 @@ func TestRecorderNameTunnelIgnoresAnEntryRemovedBeforeNaming(t *testing.T) {
 	r.destinations = nil
 	r.observeTunnel(2, "other.example", "", 443)
 
-	r.nameTunnel(1, "203.0.113.7:443", "api.example")
+	r.nameTunnel(1, "203.0.113.7", 443, "api.example")
 
 	destinations := r.result(Observation{}).Destinations
 	if len(destinations) != 1 || destinations[0].Host != "other.example" {
@@ -179,7 +189,7 @@ func TestRecorderFailTunnelUsesTheSessionID(t *testing.T) {
 	r := new(recorder)
 	r.observeTunnel(1, "203.0.113.7", "203.0.113.7", 443)
 	r.observeTunnel(2, "203.0.113.7", "203.0.113.7", 443)
-	r.nameTunnel(2, "203.0.113.7:443", "api.example")
+	r.nameTunnel(2, "203.0.113.7", 443, "api.example")
 
 	if !r.failTunnel(1, "203.0.113.7:443") {
 		t.Fatal("failTunnel did not attribute the known session")
@@ -226,7 +236,7 @@ func TestRecorderFailTunnelChargesOnlyTheMatchingTunnel(t *testing.T) {
 func TestRecorderFailTunnelMatchesTheSNIName(t *testing.T) {
 	r := new(recorder)
 	r.observeTunnel(17, "203.0.113.7", "203.0.113.7", 443)
-	r.nameTunnel(17, "203.0.113.7:443", "api.example")
+	r.nameTunnel(17, "203.0.113.7", 443, "api.example")
 
 	if !r.failTunnel(17, "203.0.113.7:443") {
 		t.Fatal("failTunnel did not attribute the named tunnel")
@@ -244,8 +254,8 @@ func TestRecorderFailTunnelCorrelatesConcurrentNamedTunnelsSharingTheIP(t *testi
 	r := new(recorder)
 	r.observeTunnel(1, "203.0.113.7", "203.0.113.7", 443)
 	r.observeTunnel(2, "203.0.113.7", "203.0.113.7", 443)
-	r.nameTunnel(1, "203.0.113.7:443", "api.example")
-	r.nameTunnel(2, "203.0.113.7:443", "www.example")
+	r.nameTunnel(1, "203.0.113.7", 443, "api.example")
+	r.nameTunnel(2, "203.0.113.7", 443, "www.example")
 
 	if !r.failTunnel(2, "203.0.113.7:443") {
 		t.Fatal("failTunnel did not attribute the second session")
@@ -270,16 +280,20 @@ func TestRecorderFailTunnelCorrelatesConcurrentNamedTunnelsSharingTheIP(t *testi
 func TestRecorderLeavesAReusedSessionIDUnattributed(t *testing.T) {
 	r := new(recorder)
 	r.observeTunnel(9, "203.0.113.7", "203.0.113.7", 443)
-	r.nameTunnel(9, "203.0.113.7:443", "api.example")
+	r.nameTunnel(9, "203.0.113.7", 443, "api.example")
 	r.observeTunnel(9, "203.0.113.7", "203.0.113.7", 443)
-	r.nameTunnel(9, "203.0.113.7:443", "www.example")
+	r.nameTunnel(9, "203.0.113.7", 443, "www.example")
 
 	if r.failTunnel(9, "203.0.113.7:443") {
 		t.Fatal("failTunnel charged a reused session ID")
 	}
-	for _, destination := range r.result(Observation{}).Destinations {
+	destinations := r.result(Observation{}).Destinations
+	for _, destination := range destinations {
 		if destination.Failed != 0 {
 			t.Errorf("destination %+v has Failed=%d, want no guessed attribution", destination, destination.Failed)
+		}
+		if destination.Host == "www.example" {
+			t.Errorf("destination %+v was named through a reused session ID", destination)
 		}
 	}
 }

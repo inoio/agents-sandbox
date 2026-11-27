@@ -295,9 +295,11 @@ func TestPrintSummaryReportsDeniedDestinations(t *testing.T) {
 func TestPrintProxyDiagnosticsReportsFailuresAndLogState(t *testing.T) {
 	ui := &termiotest.Mock{}
 	PrintProxyDiagnostics(ui, channel.Observation{
-		Destinations: []channel.Destination{{
-			Host: "pinned.example", Protocol: channel.ConnectProtocol, Success: true, Count: 1, Failed: 1,
-		}},
+		Destinations: []channel.Destination{
+			{Host: "pinned.example", Protocol: channel.ConnectProtocol, Success: true, Count: 1, Failed: 1},
+			{Host: "healthy.example", Protocol: channel.ConnectProtocol, Success: true, Count: 1},
+			{Host: "", Protocol: channel.ConnectProtocol, Success: true, Count: 1, Failed: 1},
+		},
 		ProxyLog:               "/state/learn/proxy-logs/1-unique.log",
 		ProxyWarnings:          3,
 		UnattributedHandshakes: 1,
@@ -306,6 +308,9 @@ func TestPrintProxyDiagnosticsReportsFailuresAndLogState(t *testing.T) {
 	})
 
 	warnings := strings.Join(ui.WarnCalls, "\n")
+	if strings.Contains(warnings, "healthy.example") || strings.Contains(warnings, "TLS interception failed for ,") {
+		t.Errorf("WarnCalls = %v, want only named all-failed destinations", ui.WarnCalls)
+	}
 	for _, want := range []string{
 		"pinned.example", "successful use was not verified", "Possible causes",
 		"1 TLS handshake failure(s)", "could not be tied to a destination", "3",

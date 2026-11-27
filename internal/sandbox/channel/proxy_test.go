@@ -462,6 +462,13 @@ func TestProxyRecordsConnectTunnelWhenMitmHandshakeFails(t *testing.T) {
 			observation.UnattributedHandshakes,
 		)
 	}
+	if observation.ProxyLogTruncated || observation.ProxyLogWriteFailed {
+		t.Errorf(
+			"log status = truncated:%v write-failed:%v, want a complete log",
+			observation.ProxyLogTruncated,
+			observation.ProxyLogWriteFailed,
+		)
+	}
 	if observation.ProxyWarnings == 0 || observation.ProxyLog == "" {
 		t.Fatalf("observation = %+v, want the handshake failure logged", observation)
 	}
@@ -479,6 +486,34 @@ func TestProxyRecordsConnectTunnelWhenMitmHandshakeFails(t *testing.T) {
 	}
 	if observation.ProxyLog != logPath {
 		t.Errorf("ProxyLog = %q, want %q", observation.ProxyLog, logPath)
+	}
+}
+
+func TestProxyStateStopReturnsAllProxyLogStatus(t *testing.T) {
+	state := &proxyState{
+		server:   new(http.Server),
+		recorder: new(recorder),
+		log: &proxyLog{
+			warnings: 1, unattributed: 2, truncated: true, writeFailed: true,
+		},
+	}
+
+	observation := state.stop()
+	if observation.ProxyWarnings != 1 || observation.UnattributedHandshakes != 2 ||
+		!observation.ProxyLogTruncated || !observation.ProxyLogWriteFailed {
+		t.Errorf("Stop observation = %+v, want all proxy log status copied", observation)
+	}
+}
+
+func TestProxyStateFailTunnelReturnsWhetherItMatchedTheSession(t *testing.T) {
+	state := &proxyState{recorder: new(recorder)}
+	state.observeConnect("203.0.113.7:443", 1)
+
+	if !state.failTunnel(1, "203.0.113.7:443") {
+		t.Fatal("failTunnel did not report the matching session")
+	}
+	if state.failTunnel(2, "203.0.113.7:443") {
+		t.Fatal("failTunnel reported a missing session as attributed")
 	}
 }
 

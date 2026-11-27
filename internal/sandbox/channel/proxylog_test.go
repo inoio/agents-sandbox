@@ -44,6 +44,9 @@ func TestProxyLogWritesScrubbedLinesAndCountsThem(t *testing.T) {
 	if result.Warnings != 2 {
 		t.Errorf("Warnings = %d, want 2", result.Warnings)
 	}
+	if result.UnattributedHandshakes != 0 {
+		t.Errorf("UnattributedHandshakes = %d, want only handshake warnings attributed", result.UnattributedHandshakes)
+	}
 	if len(failed) != 1 || failed[0] != "160.79.104.10:443" || len(sessions) != 1 || sessions[0] != 8 {
 		t.Errorf("handshake failures = sessions %v targets %v, want session 8 and its CONNECT target", sessions, failed)
 	}
@@ -61,7 +64,7 @@ func TestProxyLogOmitsUntrustedHeaderArguments(t *testing.T) {
 
 	log.Printf("[%03d] WARN: Cannot read request from mitm'd client %v %v\n", 3, "api.example:443",
 		errors.New(`malformed MIME header line: "Authorization: Bearer header-secret\x00"`))
-	log.close()
+	result := log.close()
 
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -72,6 +75,9 @@ func TestProxyLogOmitsUntrustedHeaderArguments(t *testing.T) {
 	}
 	if !strings.Contains(string(content), "intercepted client request") {
 		t.Errorf("log = %q, want the safe warning category", content)
+	}
+	if result.UnattributedHandshakes != 0 {
+		t.Errorf("close = %+v, want the request warning not treated as a handshake", result)
 	}
 }
 
@@ -115,7 +121,7 @@ func TestProxyLogOmitsURLArguments(t *testing.T) {
 			`parse "https://user:password-secret@example.com:abc/p?token=query-secret": invalid port ":abc" after host`,
 		),
 	)
-	log.close()
+	result := log.close()
 
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -129,6 +135,9 @@ func TestProxyLogOmitsURLArguments(t *testing.T) {
 	if !strings.Contains(string(content), "request URL") {
 		t.Errorf("log = %q, want the safe parse-warning category", content)
 	}
+	if result.UnattributedHandshakes != 0 {
+		t.Errorf("close = %+v, want the URL warning not treated as a handshake", result)
+	}
 }
 
 func TestProxyLogDropsLinesAfterClose(t *testing.T) {
@@ -141,6 +150,25 @@ func TestProxyLogDropsLinesAfterClose(t *testing.T) {
 
 	if result := log.close(); result.Warnings != 1 {
 		t.Errorf("close = %+v, want only the warning before close", result)
+	}
+}
+
+func TestProxyLogDoesNotOpenAfterClose(t *testing.T) {
+	opened := 0
+	var openedFile *os.File
+	log := &proxyLog{openLog: func() (*os.File, error) {
+		opened++
+		var err error
+		openedFile, err = os.CreateTemp(t.TempDir(), "proxy.log")
+		return openedFile, err
+	}}
+	log.close()
+	log.Printf("[%03d] WARN: Cannot parse URL %s: %v\n", int64(1), "https://example.com", errors.New("bad URL"))
+	if openedFile != nil {
+		_ = openedFile.Close()
+	}
+	if opened != 0 {
+		t.Errorf("openLog calls = %d, want no file opened after close", opened)
 	}
 }
 
@@ -195,8 +223,18 @@ func TestProxyLogClosesAfterTheHandshakeCallbackCompletes(t *testing.T) {
 func TestProxyLogCountsHandshakeWithoutCallbackAsUnattributed(t *testing.T) {
 	log := &proxyLog{}
 	log.Printf("[%03d] WARN: Cannot handshake client %v %v\n", 1, "203.0.113.7:443", "EOF")
-	if result := log.close(); result.UnattributedHandshakes != 1 {
+	if result := log.close(); result.UnattributedHandshakes != 1 || result.WriteFailed {
 		t.Errorf("close = %+v, want the missing callback to count an unattributed handshake", result)
+	}
+}
+
+func TestProxyLogRequiresTheHandshakeErrorArgument(t *testing.T) {
+	called := false
+	log := &proxyLog{onHandshakeFailure: func(uint16, string) bool { called = true; return true }}
+	log.Printf(handshakeFailureWarning, int64(1), "api.example:443")
+	result := log.close()
+	if called || result.UnattributedHandshakes != 1 {
+		t.Errorf("close = %+v callback-called=%v, want missing-error warning left unattributed", result, called)
 	}
 }
 
@@ -223,7 +261,7 @@ func TestProxyLogUsesAGenericSafeLineForUnknownWarnings(t *testing.T) {
 	log := &proxyLog{file: file}
 
 	log.Printf("[%03d] WARN: unrecognized warning with embedded-secret\n", int64(3))
-	log.close()
+	result := log.close()
 
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -231,6 +269,9 @@ func TestProxyLogUsesAGenericSafeLineForUnknownWarnings(t *testing.T) {
 	}
 	if strings.Contains(string(content), "embedded-secret") || !strings.Contains(string(content), "details omitted") {
 		t.Errorf("log = %q, want unknown warning details omitted", content)
+	}
+	if result.UnattributedHandshakes != 0 {
+		t.Errorf("close = %+v, want the unknown warning not treated as a handshake", result)
 	}
 }
 
@@ -242,7 +283,7 @@ func TestProxyLogUsesSafeDialErrorCategory(t *testing.T) {
 	}
 	log := &proxyLog{file: file}
 	log.Printf("[%03d] WARN: Error dialing to %s: %s\n", int64(7), "api.example:443", "token=secret-value")
-	log.close()
+	result := log.close()
 
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -251,6 +292,9 @@ func TestProxyLogUsesSafeDialErrorCategory(t *testing.T) {
 	if !strings.Contains(string(content), "could not dial the upstream destination") ||
 		strings.Contains(string(content), "api.example") || strings.Contains(string(content), "secret-value") {
 		t.Errorf("log = %q, want the safe dial category with arguments omitted", content)
+	}
+	if result.UnattributedHandshakes != 0 {
+		t.Errorf("close = %+v, want the dial warning not treated as a handshake", result)
 	}
 }
 
@@ -295,9 +339,10 @@ func TestProxyLogBoundsItsOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	log := &proxyLog{file: file, maxBytes: 80}
-	for index := range 10 {
-		log.Printf("[%03d] WARN: Cannot parse URL %s: %v\n", int64(index), "https://example.com", errors.New("bad URL"))
+	log := &proxyLog{file: file}
+	line, _ := safeProxyWarning("unknown format")
+	for range 10 {
+		log.writeLineWithinLimit(line, 80)
 	}
 	result := log.close()
 
@@ -305,22 +350,73 @@ func TestProxyLogBoundsItsOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(content) > 80 || !result.Truncated || result.Warnings != 10 {
+	if len(content) > 80 || !result.Truncated {
 		t.Errorf(
-			"content bytes=%d result=%+v, want <=80 bytes, truncated, and all 10 warnings counted",
+			"content bytes=%d result=%+v, want <=80 bytes and truncated",
 			len(content),
 			result,
 		)
 	}
 }
 
-func TestProxyLogTruncatesAnOversizedLine(t *testing.T) {
-	line, truncated := truncateProxyLogLine(strings.Repeat("x", maxProxyLogLineBytes+1))
-	if len(line) > maxProxyLogLineBytes || !truncated || !strings.HasSuffix(line, "…\n") {
-		t.Errorf("truncated line length=%d truncated=%v, want the size cap and marker", len(line), truncated)
+func TestProxyLogKeepsLineTruncationStatus(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "proxy.log")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := &proxyLog{file: file}
+	log.writeLine(strings.Repeat("x", 513))
+	log.writeLine("ok\n")
+
+	if result := log.close(); !result.Truncated {
+		t.Errorf("close = %+v, want the earlier oversized line to remain reported as truncated", result)
 	}
 }
 
+func TestProxyLogLineLimitAtBoundary(t *testing.T) {
+	for _, tc := range []struct {
+		inputLength   int
+		wantLength    int
+		wantTruncated bool
+	}{
+		{inputLength: 512, wantLength: 512},
+		{inputLength: 513, wantLength: 512, wantTruncated: true},
+	} {
+		line, truncated := truncateProxyLogLine(strings.Repeat("x", tc.inputLength))
+		if len(line) != tc.wantLength || truncated != tc.wantTruncated {
+			t.Errorf("input=%d got length=%d truncated=%v, want length=%d truncated=%v",
+				tc.inputLength, len(line), truncated, tc.wantLength, tc.wantTruncated)
+		}
+		if truncated && !strings.HasSuffix(line, "…\n") {
+			t.Errorf("truncated line suffix = %q, want marker", line[len(line)-4:])
+		}
+	}
+}
+
+func TestProxyLogByteLimitIsOneMiB(t *testing.T) {
+	if maxProxyLogBytes != 1<<20 {
+		t.Errorf("maxProxyLogBytes = %d, want 1 MiB", maxProxyLogBytes)
+	}
+	for _, tc := range []struct {
+		name         string
+		bytesWritten int
+		lineBytes    int
+		limit        int
+		wantSpace    bool
+	}{
+		{name: "exact fit", bytesWritten: 64, lineBytes: 16, limit: 80, wantSpace: true},
+		{name: "one byte over", bytesWritten: 64, lineBytes: 17, limit: 80},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := proxyLogHasSpace(tc.bytesWritten, tc.lineBytes, tc.limit); got != tc.wantSpace {
+				t.Errorf("proxyLogHasSpace = %v, want %v", got, tc.wantSpace)
+			}
+		})
+	}
+}
+
+//nolint:nilnil // This test exercises an opener that violates its file-or-error contract.
 func TestProxyLogReportsOpenAndWriteFailures(t *testing.T) {
 	t.Run("open", func(t *testing.T) {
 		log := &proxyLog{openLog: func() (*os.File, error) { return nil, errors.New("open failed") }}
@@ -328,6 +424,15 @@ func TestProxyLogReportsOpenAndWriteFailures(t *testing.T) {
 		result := log.close()
 		if !result.WriteFailed || result.Path != "" || result.Warnings != 1 {
 			t.Errorf("close = %+v, want a failed write with one warning and no path", result)
+		}
+	})
+
+	t.Run("nil file without error", func(t *testing.T) {
+		log := &proxyLog{openLog: func() (*os.File, error) { return nil, nil }}
+		log.Printf("[%03d] WARN: Cannot parse URL %s: %v\n", int64(1), "https://example.com", errors.New("bad URL"))
+		result := log.close()
+		if !result.WriteFailed || result.Path != "" || result.Warnings != 1 {
+			t.Errorf("close = %+v, want the nil file reported as a log-write failure", result)
 		}
 	})
 
@@ -347,4 +452,49 @@ func TestProxyLogReportsOpenAndWriteFailures(t *testing.T) {
 			t.Errorf("close = %+v, want a failed write with its path and one warning", result)
 		}
 	})
+}
+
+func TestProxyLogReportsAnErrorAfterWritingTheFullLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "proxy.log")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := writeProxyLog
+	writeProxyLog = func(_ *os.File, line string) (int, error) {
+		return len(line), errors.New("write completion error")
+	}
+	t.Cleanup(func() { writeProxyLog = orig })
+	log := &proxyLog{file: file}
+
+	log.Printf("[%03d] WARN: Cannot parse URL %s: %v\n", int64(1), "https://example.com", errors.New("bad URL"))
+	result := log.close()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.WriteFailed || len(content) != 0 {
+		t.Errorf("close = %+v file bytes=%d, want the injected write error reported", result, len(content))
+	}
+}
+
+func TestProxyLogReportsCloseFailure(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "proxy.log")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := closeProxyLog
+	closeProxyLog = func(*os.File) error { return errors.New("close failed") }
+	t.Cleanup(func() {
+		closeProxyLog = orig
+		_ = file.Close()
+	})
+	log := &proxyLog{file: file}
+	log.Printf("[%03d] WARN: Cannot parse URL %s: %v\n", int64(1), "https://example.com", errors.New("bad URL"))
+
+	result := log.close()
+	if !result.WriteFailed || result.Path != path {
+		t.Errorf("close = %+v, want the close error with the persisted path", result)
+	}
 }
