@@ -208,3 +208,6 @@
 - `plans/2026-11-27-msb-adapter-decisions-design.md`
   - Description: Design for #923, atop the #924 reduction: adopt an explicit `LocalContext` and its `Sandboxes()`/`Volumes()` collections behind the adapter's existing seams, and record decisions for the captured-observation contract, the `Is*` error classes, the enum policy, and the unavailable/redacted inspection zero-value convention.
   - Read If: Working on #923; changing how `internal/sandbox/msb` resolves its destination (`LocalContext`, the `MSB_HOME` pin) or the package-level sandbox/volume seams; or asking why `Status`/`Image`/`Config` are snapshots, why the `Is*` predicates stay, or how an unavailable inspection field is reported.
+- `plans/2026-11-27-msb-adapter-decisions-plan.md`
+  - Description: TDD implementation plan for #923: the explicit `LocalContext` destination plus the contract tests and `msb-seam.md` clauses for the captured-observation, error-class, enum, and unavailable-inspection decisions.
+  - Read If: Executing #923 after its design lands; or resuming it inline.
