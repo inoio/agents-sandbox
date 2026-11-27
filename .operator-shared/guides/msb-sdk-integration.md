@@ -119,9 +119,13 @@ automatically it would be a second recovery policy beside the launcher's prune.
 
 ### 1.6 Filesystem and transfer surface
 
-The seam's `SandboxFS` exposes six methods while the SDK offers `List`, `Stat`, `Copy`, `Rename`,
-`RemoveDir`, `CopyFromHost`, `CopyToHost`, and streams (`docs/sdk/go/filesystem.mdx`). Copying a
-patch out of an isolated workspace is not expressible today.
+The seam's `SandboxFS` exposes `Exists`, `ReadString`, `Mkdir`, `Write`, `Read`, `Remove`,
+`CopyFromHost`, and `CopyToHost`. The first six served the read-back (config/provenance)
+path; `CopyFromHost`/`CopyToHost` were adopted by `sandbox cp` (#920), the bounded
+host↔current-project-VM file transfer, so the SDK's file copy is now reachable through the
+launcher. `List`/`Stat` (`Copy`/`Rename`/`RemoveDir`) and `ReadStream`/`WriteStream` stay
+unused: directory transfer and stdout piping are out of scope, and the filesystem ticket
+owns the surface (SFTP is not a second path to it; see §1.8).
 
 ### 1.7 Create-time knobs and progress
 

@@ -78,6 +78,11 @@ provider-owned split avoids an adapter per consumer.
   register entry. `JobInfo`/`JobLogEntry`/`LogEntry`, `SandboxModificationPlan`, `PruneReport` and
   `DiskCompactionResult` stay launcher-owned because they rename a field type, narrow their fields, or
   carry a method.
+- **Filesystem.** `SandboxFS` is a launcher-owned interface; its `CopyFromHost`/`CopyToHost`
+  transfer methods are implemented by the launcher `realSandboxFS` adapter over the SDK
+  `*SandboxFSOps`, so the SDK type does not itself satisfy the interface. Both take plain
+  paths and return an error; no SDK type crosses the seam. `CopyFromHost` does not create a
+  missing parent directory, so the consumer `sandbox cp` Mkdirs a nested guest parent first.
 - **Live stream handles.** A method-carrying handle the SDK returns is a launcher-owned interface, not
   an SDK alias: `MetricsStream(ctx, interval)` is declared on **both** `SandboxObserver` and
   `SandboxResourceControl` and returns the launcher `MetricsStream` (`Recv(ctx) (*Metrics, error)`;
@@ -250,3 +255,7 @@ files.
   `StorageUsage`/`Metrics` pass the SDK value through unchanged. Consumers are untouched: the aliases
   keep the launcher names, pinned by `alias_contract_test.go` and the unchanged
   `phase4_boundary_test.go`.
+- **Landed (#920):** `SandboxFS` gained `CopyFromHost`/`CopyToHost`, implemented by the new
+  `realSandboxFS` adapter wrapping `*msbSdk.SandboxFSOps` (returned by `realSandbox.FS`).
+  Their consumer is the cwd-scoped `sandbox cp`/`copy` command
+  (specs/volumes/runtime-management-commands.md).

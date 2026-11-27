@@ -694,7 +694,7 @@ agents-sandbox image build
 
 ### sandbox
 
-Parent command that groups sandbox-related subcommands. Most (`run`, `shell`, `stop`, `kill`, `list`) are also available at the top level; `sandbox inspect`, `sandbox remove`, and `sandbox compact` live only under this group.
+Parent command that groups sandbox-related subcommands. Most (`run`, `shell`, `stop`, `kill`, `list`, `copy`) are also available at the top level; `sandbox inspect`, `sandbox remove`, and `sandbox compact` live only under this group.
 
 ```console
 agents-sandbox sandbox run
@@ -784,6 +784,30 @@ agents-sandbox sandbox compact --layers 4            # merge only the oldest 4 l
   - `--root-only` — compact only the root disk; can't be combined with `--disk`
   - `--layers <n>` — merge only the oldest `n` sealed layers (at least 2; default: all)
   - `--format json` — structured output on stdout
+
+#### sandbox copy
+
+Copy a single file between the host and the current checkout's project sandbox, in
+either direction. Exactly one of the two operands is a host path and the other is a
+guest path written as `vm:<absolute-path-inside-the-sandbox>`; both written as `vm:`, or
+neither, is an error. The sandbox is the current checkout's project VM and must be
+running — `copy` never starts a stopped one, and the error names `run` or `shell` as the
+way to start it. When the guest destination's parent directory does not exist, it is
+created first. The transfer is non-destructive, so there is no confirmation prompt and
+no reference guard.
+
+**Aliases:** `sandbox cp`
+
+```console
+agents-sandbox sandbox cp ./patch.diff vm:/workspace/patch.diff   # host → sandbox
+agents-sandbox sandbox cp vm:/workspace/out.log ./out.log         # sandbox → host
+agents-sandbox sandbox cp ./patch.diff vm:/workspace/patch.diff --format json
+```
+
+- **Args:** `src`, `dst` — one a host path, the other a `vm:<guest-path>`
+- **Flags:**
+  - `-q`/`--quiet` — suppress the transfer line
+  - `--format json` — report the copied item (vm, direction, source, destination) on stdout
 
 ---
 
