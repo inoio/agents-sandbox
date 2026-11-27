@@ -146,29 +146,31 @@ command surface and host listener, not SDK-client adoption, and is left as its o
 ## 2. Where further adaptation is possible
 
 The migration settled the mechanical break but left several places where the adapter is thinner or
-thicker than it could be.
+thicker than it could be. #923 settled §2.1, §2.2, §2.4, and §2.5 as recorded decisions; §2.3 remains
+the documented non-goal.
 
-### 2.1 Explicit contexts and collections are still bypassed
+### 2.1 Explicit destination adopted; image and storage stay ambient
 
-The adapter still uses the package-level functions (`msbSdk.GetSandbox`/`CreateSandbox`/
-`ListSandboxesWith`, `msbSdk.GetVolume`/…) rather than a `LocalContext` and its
-`Sandboxes()`/`Volumes()` collections, and it never uses `GetRunningSandbox`/`Sandboxes.GetRunning`
-or `ConfiguredContext()`. Those exist to make destination selection explicit and to keep related
-operations on one provider — the same reason the launcher pins its private `MSB_HOME`. Adopting a
-`LocalContext` would make the launcher's destination explicit rather than an ambient environment
-variable, and would make the handle classes' captured-observation approach a deliberate choice
-rather than a workaround for the missing context.
+The adapter now resolves a `LocalContext{Home}` per operation and routes every sandbox and volume
+operation through its `Sandboxes()`/`Volumes()` collections (the `localContext` seam in `client.go`),
+instead of the ambient package-level `GetSandbox`/`CreateSandbox`/`ListSandboxesWith`/`GetVolume`/…
+functions. The destination is named explicitly rather than read from the process-global `MSB_HOME`,
+which is the same reason the launcher pins its private home. Resolution is per call, as the SDK
+resolves its configured context per operation. The package-level functions remain only for the
+context-less image and storage surfaces (`msbSdk.Image.*`, `StorageUsage`/`PruneStorage`), for which
+the SDK exposes no context collection; `GetRunningSandbox`/`Sandboxes.GetRunning` stays unused, since
+`Connect` keeps its own status gate and deliberate `ErrSandboxNotRunning` construction.
 
-### 2.2 The captured-observation trade-off
+### 2.2 Captured observation: the snapshot stays (decided, #923)
 
 Because the seam interface is synchronous and 0.8's identity/config reads are context-bearing, the
-migration snapshots `Info`/`ConfigJSON` when a handle is resolved and keeps them. This is a sound
-choice, and it retains a failed config read on the handle so a run degrades to "config unreadable"
-rather than failing the lookup. The cost is that `Status()`, `Image()`, `Config()` never refresh and
-can be stale relative to the live VM, and every read-back carries per-handle state. `Info`/`Status`
-are live reads in the SDK; a caller that genuinely needs current state has no seam method for it.
-That is worth a deliberate decision (the seam spec documents the degrade path) rather than an
-accidental contract.
+migration snapshots `Info`/`ConfigJSON` when a handle is resolved and keeps them; it retains a
+failed config read on the handle so a run degrades to "config unreadable" rather than failing the
+lookup. The decision keeps that snapshot: `Status()`, `Image()`, and `Config()` are a documented
+point-in-time contract (`specs/architecture/msb-seam.md`), a consumer that needs current state
+re-resolves the handle, and the freshness-critical path already reads live through the status-gated
+`Connect`. No `LiveStatus`/`LiveConfig` seam method is added, because no consumer needs one and it
+would only invite a stale/live mismatch.
 
 ### 2.3 The mounts/ports read-back is now a documented non-goal, but still hand-rolled
 
@@ -180,24 +182,29 @@ Rust variant spellings, `directory`→`dir` remapping). The removal of the old `
 remains because the SDK still does not expose a typed mount/port model. That is correct as stated —
 the further adaptation, if any, belongs upstream.
 
-### 2.4 Typed errors are still not folded
+### 2.4 Typed errors: the predicates stay (decided, #923)
 
-The six `Is*` predicates in `msb/errors.go` wrap `msbSdk.IsKind`, and `IsJobNotRunning` matches the
-bare string `job_not_running` because the SDK exposes no typed error for it. The SDK already carries
-typed kinds the launcher does not fold (`ErrSandboxNotRunning` — now produced by the migrated
-`Connect` — `ErrSandboxStopTimedOut`, `ErrSandboxStillRunning`, `ErrModificationNotConfirmed`), and
-0.8 adds `ErrResizeWait`/`ErrResizeTimeout` (with `*ResizeWaitError` carrying a reason) plus the
-snapshot-recovery kinds. Exposing seam errors as sentinels would remove the predicates and the
-string match — and the migration now manufactures `msbSdk.Error{Kind: ErrSandboxNotRunning}` by
-hand, which is a signal that a launcher-owned sentinel is the cleaner contract.
+The seven `Is*` predicates in `msb/errors.go` are the seam's named error classes over the SDK's
+typed `*Error{Kind}`; consumers branch on them rather than on SDK kinds, which is exactly what the
+port normalizes. They stay rather than becoming launcher sentinels: Go matches by asking the
+*returned* error whether it is the target, so a sentinel layer would have to wrap essentially every
+SDK error, and one unwrapped path would silently break the contract. `IsJobNotRunning` is the one
+class the SDK does not type — it matches the bare `job_not_running` string, recorded in the seam spec
+as an upstream gap to revisit if the SDK gains a kind. The SDK's further typed kinds
+(`ErrSandboxNotRunning`, `ErrSandboxStopTimedOut`, `ErrSandboxStillRunning`,
+`ErrModificationNotConfirmed`, the 0.8 `ErrResizeWait`/`ErrResizeTimeout`, the snapshot-recovery
+kinds) stay unadopted until a consumer branches on them.
 
-### 2.5 New-line-only items not taken
+### 2.5 New-line-only items: enums and inspection unknowns (decided, #923)
 
-The resource/collection model (§2.1), `SandboxConfigInspection`'s `unavailable`/`redacted` lists (the
-launcher projects `Spec` and marks the bookkeeping `notModeled`), typed enums (only cast to
-strings), and the lean `sdk/go/local` package are all available and unused. The inspection's
-explicit unknown/redacted modelling is the same principle the adapter applies to volume `Info`; the
-launcher does not surface it.
+The typed enums stay launcher string enums: the launcher's string-backed lifecycle types
+(`SandboxStatus`, `BackendKind`, `VolumeKind`, `LogSource`) are the seam's currency, a launcher type
+that renames an SDK enum stays launcher-owned, and `JobInfo.State`/`JobLogEntry.Source` therefore
+surface as plain strings rather than new launcher enum types (`JobInfo.State` has no consumer today).
+The `SandboxConfigInspection`'s `unavailable`/`redacted` lists stay unsurfaced: an unavailable or
+undecodable field projects as the launcher zero value/nil, and consumers treat zero/nil as "unknown"
+(`cfg.Image != ""`, `cfg.MaxMemoryMiB > 0`, `cfg.RootDisk != nil`). The lean `sdk/go/local` package
+remains available and unused.
 
 ## 3. Simplification opportunities (unchanged, and now larger)
 
@@ -262,6 +269,10 @@ the seam would collapse the mapping and its unknown branch.
 - The simplification work in §3 is orthogonal to the migration and was explicitly not taken; if it is
   wanted, do it as its own change so the projection reduction and its drift-register shrink stay
   reviewable.
+- #923 settled §2.1/§2.2/§2.4/§2.5: the adapter resolves an explicit `LocalContext` for sandbox and
+  volume operations, and the captured-observation, error-class, enum, and unknown-value decisions are
+  recorded in `specs/architecture/msb-seam.md` with pinning tests. §2.3 (the mounts/ports read-back)
+  still stands as the documented non-goal, its further adaptation belonging upstream.
 
 ## References
 
