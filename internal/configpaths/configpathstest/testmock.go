@@ -177,6 +177,18 @@ func (m *mockConfigPaths) IgnoredWorktreeConfigDir() string {
 // installing an isolated or explicit config-paths implementation.
 type failFastConfigPaths struct{}
 
+// msbHomeFromEnv opts the fail-fast resolver into serving the private
+// microsandbox home from MSB_HOME instead of panicking. The msb-tagged suites
+// pin their runtime home through MSB_HOME (msbtest/runtime.InstallIsolatedRuntimeHome),
+// while the launcher's sandbox/volume adapter resolves its explicit local
+// destination from configpaths.MSBHome(); this keeps the two on one home. It is
+// read live, so a child process that re-points MSB_HOME follows its parent.
+var msbHomeFromEnv bool
+
+// UseMSBHomeFromEnv makes the fail-fast resolver serve the private
+// microsandbox home from MSB_HOME. Only the msb-tagged test harness calls it.
+func UseMSBHomeFromEnv() { msbHomeFromEnv = true }
+
 func (f *failFastConfigPaths) mustMock() {
 	panic(
 		"GetConfigPaths reached real path resolution; install WithMockConfigPaths(t) or WithRealConfigPaths(t) in the test",
@@ -190,7 +202,18 @@ func (f *failFastConfigPaths) UserSlugConfigDir(_ string) string {
 }
 func (f *failFastConfigPaths) UserCacheDir() string { f.mustMock(); return "" }
 func (f *failFastConfigPaths) UserStateDir() string { f.mustMock(); return "" }
-func (f *failFastConfigPaths) UserDataDir() string  { f.mustMock(); return "" }
+
+// UserDataDir serves the msb harness's home (from MSB_HOME, whose last segment
+// is "msb") when it opted in, and panics otherwise.
+func (f *failFastConfigPaths) UserDataDir() string {
+	if msbHomeFromEnv {
+		if home := os.Getenv("MSB_HOME"); home != "" {
+			return filepath.Dir(filepath.Clean(home))
+		}
+	}
+	f.mustMock()
+	return ""
+}
 
 func (f *failFastConfigPaths) ProjectConfigDirAbs() string {
 	f.mustMock()

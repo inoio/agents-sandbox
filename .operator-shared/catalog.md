@@ -211,3 +211,15 @@
 - `plans/2026-11-27-msb-adapter-decisions-plan.md`
   - Description: TDD implementation plan for #923: the explicit `LocalContext` destination plus the contract tests and `msb-seam.md` clauses for the captured-observation, error-class, enum, and unavailable-inspection decisions.
   - Read If: Executing #923 after its design lands; or resuming it inline.
+- `plans/2026-11-27-msb-lifecycle-design.md`
+  - Description: Design for #916: replace the silent-exec keepalive with the SDK's `Touch`, add an opt-in `max-lifetime` (`WithMaxDuration`) bound, and record `Ping`, `RequestDrain`, `WaitUntilStopped`/`WaitForStatus`, and `Pause`/`Resume` as non-adoptions with reasons.
+  - Read If: `session.keepVMAlive` or its callers, a keepalive that fails to hold a VM, the `max-lifetime`/`auto-stop-timeout` keys, `WithMaxDuration`/`WithIdleTimeout`, or a request to pause/resume or drain a VM.
+- `plans/2026-11-27-msb-metrics-design.md`
+  - Description: Design for #918: replace the pressure watcher's point-read polling with the SDK's `MetricsStream` (with a polling fallback), and defer `AllSandboxMetrics` and the `msb-metrics` OTLP sidecar, restating the unknown-is-not-zero rule.
+  - Read If: `session/pressure_watch.go`, the `SandboxObserver.MetricsStream` seam, a metrics spike missed between point reads, `AllSandboxMetrics`, the `msb-metrics` sidecar, or a nullable metrics field rendering as zero.
+- `plans/2026-11-27-msb-storage-diagnosis-design.md`
+  - Description: Design for #919: surface the SDK's `DiagnoseStorage` in `doctor` and on a VM-start failure, extend `PruneReport` with per-object entries and `Truncated`, and defer `RecoverStorage` as a second recovery policy.
+  - Read If: `internal/sandbox/storage`, `pruning.PruneStorage`, the `PruneReport` entries/`truncated`, `DiagnoseStorage`/`RecoverStorage`, `doctor` storage output, or a VM that will not start with a storage error.
+- `plans/2026-11-27-msb-filesystem-transfer-design.md`
+  - Description: Design for #920: adopt wider `SandboxFS` methods only for a real consumer, settle the FS currency question, and defer the host-transfer methods and a `sandbox cp` command behind the spec's data-portability exclusion (with the command as a user decision).
+  - Read If: `msb.SandboxFS` and its consumers in `reprovision`/`vm`, `CopyFromHost`/`CopyToHost`/`ReadStream`, or a request for a `sandbox cp`/patch-export flow.

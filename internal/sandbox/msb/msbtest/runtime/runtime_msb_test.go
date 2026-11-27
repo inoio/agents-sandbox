@@ -6,9 +6,11 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/hostlock"
 )
 
@@ -115,7 +117,7 @@ func TestSweepSandboxesReportsListFailure(t *testing.T) {
 // resolves its storage root through MSB_HOME — would fail the "catalog ancestor
 // permits path substitution" check on a reused home.
 func TestInstallIsolatedRuntimeHomeSetsMSBHomeOnReuse(t *testing.T) {
-	reuseDir := t.TempDir()
+	reuseDir := filepath.Join(t.TempDir(), msbHomeDirName)
 	t.Setenv(reuseRuntimeHomeEnv, reuseDir)
 	// Register MSB_HOME for restoration: it starts at the home TestMain
 	// installed, and InstallIsolatedRuntimeHome overwrites it through setMSBHome.
@@ -133,11 +135,29 @@ func TestInstallIsolatedRuntimeHomeSetsMSBHomeOnReuse(t *testing.T) {
 	}
 }
 
+// TestInstallIsolatedRuntimeHomeAlignsConfigPaths pins the invariant the msb
+// suite relies on: after installing the isolated home, configpaths.MSBHome() —
+// from which the launcher's explicit local sandbox/volume destination is
+// resolved — names that same home, so the adapter and the SDK's ambient
+// MSB_HOME do not diverge.
+func TestInstallIsolatedRuntimeHomeAlignsConfigPaths(t *testing.T) {
+	// Register MSB_HOME for restoration: it starts at the home TestMain
+	// installed, and InstallIsolatedRuntimeHome overwrites it through setMSBHome.
+	t.Setenv("MSB_HOME", os.Getenv("MSB_HOME"))
+	previousHome := isolatedRuntimeHome
+	t.Cleanup(func() { isolatedRuntimeHome = previousHome })
+	t.Cleanup(InstallIsolatedRuntimeHome())
+
+	if got, want := configpaths.MSBHome(), IsolatedRuntimeHome(); got != want {
+		t.Errorf("configpaths.MSBHome() = %q, want the isolated runtime home %q", got, want)
+	}
+}
+
 // TestInstallIsolatedRuntimeHomeLocksReuseHome pins that a reused home is held
 // under an exclusive lock for the run: two runs sharing a home serialize there
 // instead of one run's sandbox sweep destroying the other's live VMs.
 func TestInstallIsolatedRuntimeHomeLocksReuseHome(t *testing.T) {
-	reuseDir := t.TempDir()
+	reuseDir := filepath.Join(t.TempDir(), msbHomeDirName)
 	t.Setenv(reuseRuntimeHomeEnv, reuseDir)
 	t.Setenv("MSB_HOME", os.Getenv("MSB_HOME"))
 	previousHome := isolatedRuntimeHome

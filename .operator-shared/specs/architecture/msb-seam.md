@@ -87,6 +87,14 @@ provider-owned split avoids an adapter per consumer.
   `SDKVersion`/`RuntimeConfig`/`EnsureRuntime`/`InstallRuntime` use behind `msb`'s
   `PinnedRuntimeVersion`/`EnsureRuntime`/`InstallRuntime` wrappers.
 
+**Destination.** The adapter resolves its microsandbox destination explicitly, per operation: a
+`LocalContext` carrying the launcher's private home (`configpaths.MSBHome()`), whose `Sandboxes()`
+and `Volumes()` collections carry the sandbox and volume operations. The home is named explicitly
+rather than read from the process-global `MSB_HOME` — production keeps the two equal, since
+`runtime.ApplyHome` sets `MSB_HOME` from the same home — and `ConfigPath` stays empty so the
+destination is always local. The launcher is local-only, and the SDK's image and storage surfaces,
+which expose no context collection, stay ambient.
+
 **Captured observations.** A `SandboxHandle`'s `Status`, `Image`, and
 `Config`/`ConfigMounts`/`ConfigPorts` are a point-in-time observation taken when the handle is
 resolved and never refresh. A consumer that needs the live VM state re-resolves the handle (as
@@ -98,7 +106,7 @@ the lookup.
 `IsVolumeAlreadyExists`, `IsSandboxAlreadyExists`, `IsReplaced`, `IsUnsupportedOperation`,
 `IsJobNotRunning`) are the seam's named error classes over the SDK's typed `*Error{Kind}`; consumers
 branch on them rather than on SDK kinds. `IsJobNotRunning` is the one class the SDK does not type: it
-matches `*msbJobError.Code == "job_not_running"`, an upstream gap to revisit if the SDK gains a kind.
+matches `*msbSdk.JobError.Code == "job_not_running"`, an upstream gap to revisit if the SDK gains a kind.
 
 **Unknown values.** An inspection field the provider marks `Unavailable`/`Redacted`, or that the
 adapter cannot decode, projects as the launcher zero value / nil; consumers treat that as "unknown"

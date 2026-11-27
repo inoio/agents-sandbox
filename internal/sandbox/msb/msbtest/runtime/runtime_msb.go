@@ -14,8 +14,15 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/hostlock"
 )
+
+// msbHomeDirName is the final path segment of the private microsandbox home.
+// The launcher's explicit local destination derives the home as
+// <config UserDataDir>/msb, so the isolated test home must end in this segment
+// for configpaths.MSBHome() to name it.
+const msbHomeDirName = "msb"
 
 // isolatedRuntimeHome is the microsandbox home the msb-tagged tests install the
 // SDK-pinned runtime into. It is set in TestMain, before any SDK call, so the
@@ -70,7 +77,11 @@ func acquireReuseLock(dir string) (func(), error) {
 // between runs. Otherwise a fresh temp home is created and removed. Both paths
 // set MSB_HOME: the SDK resolves its FFI cache and all non-setup operations
 // through MSB_HOME, so a reuse that only named the home in RuntimeConfig would
-// leave sandbox creation pointed at the real ~/.microsandbox.
+// leave sandbox creation pointed at the real ~/.microsandbox. Both paths also
+// opt the fail-fast config resolver into serving configpaths.MSBHome() from
+// MSB_HOME, so the launcher's explicit local sandbox/volume destination and the
+// SDK's ambient one name this same home; the home is created under
+// msbHomeDirName for that derivation.
 //
 // Without an isolated home the SDK resolves its default home (~/.microsandbox),
 // so a stale runtime left there by a pre-decoupling agents-sandbox install or a
@@ -79,10 +90,17 @@ func acquireReuseLock(dir string) (func(), error) {
 // The launcher repairs its own private home, not this one, so the tests must
 // provision their own.
 func InstallIsolatedRuntimeHome() func() {
+	configpathstest.UseMSBHomeFromEnv()
 	if dir := os.Getenv(reuseRuntimeHomeEnv); dir != "" {
 		reuseHome, err := filepath.Abs(dir)
 		if err != nil {
 			panic(fmt.Sprintf("resolve reused microsandbox home %s: %v", dir, err))
+		}
+		if filepath.Base(reuseHome) != msbHomeDirName {
+			panic(fmt.Sprintf(
+				"reused microsandbox home %s must be named %q so configpaths.MSBHome() follows MSB_HOME",
+				reuseHome, msbHomeDirName,
+			))
 		}
 		//nolint:gosec // G703: the reusable home path is a local-iteration env var the developer sets
 		if mkdirErr := os.MkdirAll(reuseHome, 0o750); mkdirErr != nil {
@@ -96,13 +114,17 @@ func InstallIsolatedRuntimeHome() func() {
 		isolatedRuntimeHome = reuseHome
 		return release
 	}
-	home, err := os.MkdirTemp("", "agents-sandbox-msb-test-")
+	base, err := os.MkdirTemp("", "agents-sandbox-msb-test-")
 	if err != nil {
 		panic(fmt.Sprintf("create isolated microsandbox home: %v", err))
 	}
+	home := filepath.Join(base, msbHomeDirName)
+	if mkdirErr := os.MkdirAll(home, 0o750); mkdirErr != nil {
+		panic(fmt.Sprintf("create isolated microsandbox home %s: %v", home, mkdirErr))
+	}
 	setMSBHome(home)
 	isolatedRuntimeHome = home
-	return func() { _ = os.RemoveAll(home) }
+	return func() { _ = os.RemoveAll(base) }
 }
 
 // setMSBHome points the SDK at home. The SDK resolves its FFI cache and all

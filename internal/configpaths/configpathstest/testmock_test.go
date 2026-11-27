@@ -114,6 +114,25 @@ func TestFailFastConfigPathsFactory(t *testing.T) {
 	assertPanics(t, func() { f.UserConfigDir() })
 }
 
+// TestFailFastConfigPathsServesMSBHomeFromEnv pins the msb-tagged harness
+// opt-in: once UseMSBHomeFromEnv runs, the fail-fast resolver serves the
+// private microsandbox home from MSB_HOME instead of panicking, so the
+// launcher's explicit local sandbox/volume destination and the SDK's ambient
+// one name the same home. Before the opt-in, real resolution still fails
+// loudly.
+func TestFailFastConfigPathsServesMSBHomeFromEnv(t *testing.T) {
+	t.Cleanup(func() { msbHomeFromEnv = false })
+	home := filepath.Join(t.TempDir(), "msb")
+	t.Setenv("MSB_HOME", home)
+
+	assertPanics(t, func() { _ = (&failFastConfigPaths{}).UserDataDir() })
+
+	UseMSBHomeFromEnv()
+	if got := configpaths.MSBHome(); got != home {
+		t.Errorf("MSBHome() = %q, want %q", got, home)
+	}
+}
+
 func TestGetConfigPathsFailFastDefault(t *testing.T) {
 	defer func() {
 		if recover() == nil {
