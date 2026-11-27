@@ -1261,6 +1261,21 @@ func TestKeepVMAliveDropsCancellation(t *testing.T) {
 
 	sb := &touchRecorder{err: context.Canceled}
 	stop := keepVMAlive(context.Background(), sb, options.DefaultVMIdleTimeout)
+	// Wait for a touch to land before stopping: the canceled-touch path only
+	// exercises the cancellation-drop guard once a Touch has been observed, so
+	// stopping first would let the keeper see keeperCtx.Done() and return nil
+	// without the guard.
+	touched := false
+	for range 50 {
+		if sb.touches.Load() > 0 {
+			touched = true
+			break
+		}
+		time.Sleep(time.Millisecond) //testenv:allow poll until the keeper's first touch lands
+	}
+	if !touched {
+		t.Fatal("keepVMAlive never touched the VM")
+	}
 	if err := stop(); err != nil {
 		t.Errorf("stop() = %v, want nil for a canceled touch", err)
 	}

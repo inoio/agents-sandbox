@@ -1,5 +1,5 @@
 ---
-description: Contract for the VM's creation-time lifetime bounds: the idle timeout default (only in options.DefaultVMIdleTimeout; the config layer carries auto-stop-timeout as-is and never substitutes its own default) and the opt-in max-lifetime total-lifetime bound (zero = unlimited, applied at creation, never compared by reconfig).
+description: Contract for the VM's creation-time lifetime bounds: the idle timeout default (only in options.DefaultVMIdleTimeout; the config layer carries auto-stop-timeout as-is and never substitutes its own default) and the opt-in max-lifetime bound (zero = unlimited, applied at creation, never compared by reconfig, armed per boot).
 read_if: Changing the idle timeout default, Config.AutoStopTimeout/Config.IdleTimeout, RunOptions.IdleTimeout, runoptions.Build, or the VM lifecycle's WithIdleTimeout wiring (#365); or changing max-lifetime/Config.MaxLifetime/RunOptions.MaxLifetime/SandboxSpec.MaxDuration or its WithMaxDuration wiring.
 ---
 
@@ -20,14 +20,15 @@ read_if: Changing the idle timeout default, Config.AutoStopTimeout/Config.IdleTi
 - The fallback is load-bearing: the SDK's `WithIdleTimeout` treats zero as
   *unlimited*, so a zero `RunOptions.IdleTimeout` must never reach the SDK.
 - The idle timer is not the only creation-time bound. `max-lifetime` is a
-  second, opt-in bound on a project VM's **total** lifetime
-  (`RunOptions.MaxLifetime` → `msb.SandboxSpec.MaxDuration` → `WithMaxDuration`),
-  zero meaning unlimited. It is applied at creation only and is never compared
-  by reconfig, exactly like the idle timeout: an existing VM keeps its
-  creation-time value, so changing `max-lifetime` takes effect on the next VM
-  creation. It is distinct from the idle timer in what it counts from —
-  creation, not last activity — so it can expire a VM that is still busy, and a
-  bound below the effective idle timeout caps the session.
+  second, opt-in bound (`RunOptions.MaxLifetime` → `msb.SandboxSpec.MaxDuration`
+  → `WithMaxDuration`), zero meaning unlimited. It is applied at creation only
+  and is never compared by reconfig, exactly like the idle timeout: an existing
+  VM keeps its creation-time value, so changing `max-lifetime` takes effect on
+  the next VM creation. The runtime arms the bound per boot, so it caps the VM's
+  uptime since its last start and the count restarts when a stopped VM is
+  started again. Unlike the idle timer it never resets on activity, so it can
+  expire a VM that is still busy, and a bound below the effective idle timeout
+  caps the session.
 
 ## Why one package
 

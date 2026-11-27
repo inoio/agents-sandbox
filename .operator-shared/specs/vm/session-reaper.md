@@ -13,7 +13,7 @@ read_if: Changing waitQuiescent/quiescenceOf/sessionPoll, options.ReapPolicy, or
 
 ## Contract
 
-After the last client detaches, with `auto-stop-on-active-sessions` false, the reaper holds the VM (keeper exec) while either:
+After the last client detaches, with `auto-stop-on-active-sessions` false, the reaper holds the VM (an SDK `Touch` keepalive; see `specs/vm/detached-jobs.md`) while either:
 
 - any session is `busy` and has no pending, unanswered question; or
 - any session is in `retry` with `attempt` below the cap (`auto-stop-max-session-retries`, default 10).

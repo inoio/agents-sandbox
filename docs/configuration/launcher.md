@@ -146,7 +146,7 @@ Configuration is resolved in this order (later entries override earlier ones):
 | `manual-prune-age`              | `--older-than`           | `AGENTS_SANDBOX_MANUAL_PRUNE_AGE`                               | Default prune age threshold for `prune`, `image prune`, `volume prune`, and `sandbox prune` (`--age` is a deprecated alias)                                                                                               |
 | `auto-stop-on-active-sessions`  | —                        | `AGENTS_SANDBOX_AUTO_STOP_ON_ACTIVE_SESSIONS`                   | Stop VM immediately on client detach without waiting for active sessions (default: false, only in config; `busy` sessions are never cut off)                                                                              |
 | `auto-stop-timeout`             | —                        | `AGENTS_SANDBOX_AUTO_STOP_TIMEOUT`                              | Idle timeout after last client detaches (default: 10s, only in config)                                                                                                                                                    |
-| `max-lifetime`                  | —                        | `AGENTS_SANDBOX_MAX_LIFETIME`                                   | Total VM lifetime from creation, independent of activity; unset means unlimited (a positive whole number of seconds, only in config; applied at creation, a change takes effect on the next VM creation)                 |
+| `max-lifetime`                  | —                        | `AGENTS_SANDBOX_MAX_LIFETIME`                                   | VM uptime since its last start, independent of activity; unset means unlimited (a positive whole number of seconds, only in config; applied at creation, a change takes effect on the next VM creation)                  |
 | `auto-stop-max-session-retries` | —                        | `AGENTS_SANDBOX_AUTO_STOP_MAX_SESSION_RETRIES`                  | Retries to tolerate for a session stuck in `retry` before stopping (default: 10, only in config)                                                                                                                          |
 | `docker-ready-timeout`          | `--docker-ready-timeout` | `AGENTS_SANDBOX_DOCKER_READY_TIMEOUT`                           | How long to wait for the in-VM Docker engine to become ready (default: 30s). `0` uses the default; a negative value is rejected. Raise it on a slow host (for example a nested KVM guest).                          |
 | `daemon-ready-timeout`          | `--daemon-ready-timeout` | `AGENTS_SANDBOX_DAEMON_READY_TIMEOUT`                           | How long to wait for the agent's serve daemon to become ready (default: 60s). `0` uses the default; a negative value is rejected. Raise it on a slow host (for example a nested KVM guest).                          |
@@ -237,7 +237,7 @@ upgrade:
 
 The `auto-prune-age` field (for `run`/`shell` auto-pruning), `manual-prune-age` field (for `prune`/`image prune`/
 `volume prune`/`sandbox prune` default), `auto-stop-timeout` field (for post-detach idle timeout), `max-lifetime`
-field (for the total-lifetime bound), and `upgrade.interval` field (for the self-upgrade check) accept:
+field (for the per-start lifetime bound), and `upgrade.interval` field (for the self-upgrade check) accept:
 
 - Go duration: `"7200000000000ns"`, `"2h"`, `"24h"`
 - Days shorthand: `"7d"`, `"14d"`
