@@ -547,12 +547,16 @@ func (s realMetricsStream) Close() error {
 	return realMetricsStreamClose(s.handle)
 }
 
+// sdkMetricsStream is the SDK call as a method-expression seam, so a unit test
+// runs newMetricsStream's wrapper body without the native library.
+var sdkMetricsStream = (*msbSdk.Sandbox).MetricsStream
+
 // newMetricsStream is the SDK call as a seam returning the launcher handle, so
 // a unit test injects a fake without the native library.
 var newMetricsStream = func(
 	s *msbSdk.Sandbox, ctx context.Context, interval time.Duration,
 ) (MetricsStream, error) {
-	handle, err := s.MetricsStream(ctx, interval)
+	handle, err := sdkMetricsStream(s, ctx, interval)
 	if err != nil {
 		return nil, err
 	}

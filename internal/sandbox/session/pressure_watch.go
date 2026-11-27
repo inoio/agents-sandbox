@@ -105,12 +105,12 @@ func (w *pressureWatcher) tick(
 }
 
 // stream folds streamed samples until the stream ends, an error arrives, or ctx
-// is cancelled. A Recv error before any sample means the stream never produced
-// one (the runtime's no-slot error surfaces on Recv), so it closes the handle
-// and falls back to polling exactly once. A Recv error after a sample is a
-// transport or agentd failure, not the VM stopping: a stopped sandbox ends the
-// stream as (nil, nil), which the clean-end branch below already handles. The
-// error is kept and the loop ends, because polling would only fail. The
+// is cancelled. A stream that ends before delivering any sample — a Recv error,
+// or a clean (nil, nil) end, which is how the runtime reports an exited sandbox
+// or an absent metrics slot — closes the handle and falls back to polling
+// exactly once. Once a sample has arrived, a clean end means the sandbox
+// stopped and a Recv error is a transport or agentd failure; both just end the
+// loop (the error is kept in the summary), because polling would only fail. The
 // goroutine owns Close, so Close never races an in-flight Recv.
 func (w *pressureWatcher) stream(
 	ctx context.Context,
@@ -138,6 +138,9 @@ func (w *pressureWatcher) stream(
 		}
 		if m == nil {
 			_ = stream.Close()
+			if samples == 0 {
+				w.tick(ctx, sb, interval, t)
+			}
 			return
 		}
 		samples++

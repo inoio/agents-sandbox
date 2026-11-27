@@ -16,8 +16,9 @@ import (
 // TestRealMetricsStreamDeliversSamplesAndEnds proves the stream contract the
 // pressure watcher relies on against the real runtime: a running sandbox
 // delivers a sample at the requested interval with a non-zero memory limit, and
-// the stream ends once the sandbox stops, so the watcher stops rather than
-// polling a dead VM (specs/resources/resource-limit-proposal.md §1a).
+// the stream ends cleanly as (nil, nil) once the sandbox stops — the SDK's
+// exited-sandbox signal, not an error — so the watcher takes its clean-end
+// branch rather than polling a dead VM (specs/resources/resource-limit-proposal.md §1a).
 func TestRealMetricsStreamDeliversSamplesAndEnds(t *testing.T) {
 	runtime.EnsureIsolatedRuntime(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
@@ -62,10 +63,15 @@ func TestRealMetricsStreamDeliversSamplesAndEnds(t *testing.T) {
 	if err := sb.Stop(ctx); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
+	// The watcher branches on the end signal, so pin it: the SDK reports an
+	// exited sandbox as a clean (nil, nil) end, not an error.
 	deadline := time.Now().Add(30 * time.Second)
 	for {
 		sample, recvErr := stream.Recv(ctx)
-		if recvErr != nil || sample == nil {
+		if recvErr != nil {
+			t.Fatalf("Recv after Stop error = %v, want a clean (nil, nil) end", recvErr)
+		}
+		if sample == nil {
 			break
 		}
 		if time.Now().After(deadline) {

@@ -243,3 +243,42 @@ func TestRealMetricsStreamRecvAndClose(t *testing.T) {
 		}
 	})
 }
+
+// TestNewMetricsStreamWrapsSDKHandleAndPropagatesError runs newMetricsStream's
+// body — the wrap on success and the error propagation — by swapping the inner
+// SDK seam, so the wrapper is covered without the native library.
+func TestNewMetricsStreamWrapsSDKHandleAndPropagatesError(t *testing.T) {
+	ctx := context.Background()
+	sandbox := &msbSdk.Sandbox{}
+	wantHandle := &msbSdk.MetricsStreamHandle{}
+
+	t.Run("success wraps the SDK handle", func(t *testing.T) {
+		swapSeam(t, &sdkMetricsStream, func(
+			*msbSdk.Sandbox, context.Context, time.Duration,
+		) (*msbSdk.MetricsStreamHandle, error) {
+			return wantHandle, nil
+		})
+
+		stream, err := newMetricsStream(sandbox, ctx, time.Second)
+		if err != nil {
+			t.Fatalf("newMetricsStream() error = %v", err)
+		}
+		wrapped, ok := stream.(realMetricsStream)
+		if !ok || wrapped.handle != wantHandle {
+			t.Fatalf("newMetricsStream() = %#v, want realMetricsStream wrapping the SDK handle", stream)
+		}
+	})
+
+	t.Run("error propagates without a handle", func(t *testing.T) {
+		wantErr := errors.New("sdk boom")
+		swapSeam(t, &sdkMetricsStream, func(
+			*msbSdk.Sandbox, context.Context, time.Duration,
+		) (*msbSdk.MetricsStreamHandle, error) {
+			return nil, wantErr
+		})
+
+		if _, err := newMetricsStream(sandbox, ctx, time.Second); !errors.Is(err, wantErr) {
+			t.Fatalf("newMetricsStream() error = %v, want %v", err, wantErr)
+		}
+	})
+}

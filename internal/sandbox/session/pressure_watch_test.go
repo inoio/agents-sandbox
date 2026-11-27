@@ -407,7 +407,10 @@ func TestPressureWatcherCancelDoesNotRecordReadErr(t *testing.T) {
 		t.Run(cancelErr.Error(), func(t *testing.T) {
 			stubPressureWatchInterval(t)
 			stream := &sampleThenCancelMetricsStream{closed: make(chan struct{}), cancelErr: cancelErr}
-			sb := &msbtest.MockSandbox{MetricsStreamResult: stream}
+			sb := &countingMetricsSandbox{
+				MockSandbox: &msbtest.MockSandbox{MetricsStreamResult: stream},
+				firstSample: make(chan struct{}),
+			}
 
 			summary := startPressureWatcher(context.Background(), sb, pressure.DefaultThreshold())()
 
@@ -419,6 +422,14 @@ func TestPressureWatcherCancelDoesNotRecordReadErr(t *testing.T) {
 					"MinHeadroomFraction = %v, want 0.05 (the streamed sample was folded)",
 					summary.MinHeadroomFraction,
 				)
+			}
+			select {
+			case <-stream.closed:
+			default:
+				t.Error("the stream handle was not closed on the cancellation branch")
+			}
+			if got := sb.callCount(); got != 0 {
+				t.Errorf("Metrics called %d times, want 0 (cancellation must not fall back to polling)", got)
 			}
 		})
 	}
@@ -467,12 +478,48 @@ func TestPressureWatcherClosesHandleOnOpenErrorWithHandle(t *testing.T) {
 	}
 
 	stop := startPressureWatcher(context.Background(), sb, pressure.DefaultThreshold())
-	<-sb.firstSample
+	select {
+	case <-sb.firstSample:
+	case <-time.After(time.Second):
+		t.Fatal("the watcher did not fall back to polling after the guarded open error")
+	}
 	if summary := stop(); !summary.Tripped {
 		t.Fatalf("summary = %+v, want the polled tripped sample after the guarded fallback", summary)
 	}
 	if !stream.DidClose() {
 		t.Error("the handle returned alongside the open error was not closed")
+	}
+	if got := len(sb.MetricsStreamCalls); got != 1 {
+		t.Errorf("MetricsStream opened %d times, want 1", got)
+	}
+}
+
+// TestPressureWatcherFallsBackToPollingOnCleanEndWithoutSample pins that a
+// stream that ends cleanly (nil, nil) before delivering a sample — the
+// runtime's exited-sandbox or absent-slot signal — closes the handle and falls
+// back to polling exactly once, rather than ending silently with no observation.
+func TestPressureWatcherFallsBackToPollingOnCleanEndWithoutSample(t *testing.T) {
+	stubPressureWatchInterval(t)
+	stream := msbtest.NewScriptedMetricsStream()
+	sb := &countingMetricsSandbox{
+		MockSandbox: &msbtest.MockSandbox{
+			MetricsResult:       &msb.Metrics{MemoryBytes: 950 << 20, MemoryLimitBytes: 1000 << 20},
+			MetricsStreamResult: stream,
+		},
+		firstSample: make(chan struct{}),
+	}
+
+	stop := startPressureWatcher(context.Background(), sb, pressure.DefaultThreshold())
+	select {
+	case <-sb.firstSample:
+	case <-time.After(time.Second):
+		t.Fatal("the watcher did not fall back to polling after the clean end with no sample")
+	}
+	if summary := stop(); !summary.Tripped {
+		t.Fatalf("summary = %+v, want the polled tripped sample after a clean end with no sample", summary)
+	}
+	if !stream.DidClose() {
+		t.Error("the cleanly-ended stream handle was not closed before the fallback")
 	}
 	if got := len(sb.MetricsStreamCalls); got != 1 {
 		t.Errorf("MetricsStream opened %d times, want 1", got)
