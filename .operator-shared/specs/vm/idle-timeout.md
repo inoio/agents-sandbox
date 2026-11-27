@@ -1,6 +1,6 @@
 ---
-description: Contract for the VM idle timeout default: it lives only in options.DefaultVMIdleTimeout; the config layer carries auto-stop-timeout as-is and never substitutes its own default.
-read_if: Changing the idle timeout default, Config.AutoStopTimeout/Config.IdleTimeout, RunOptions.IdleTimeout, runoptions.Build, or the VM lifecycle's WithIdleTimeout wiring (#365).
+description: Contract for the VM's creation-time lifetime bounds: the idle timeout default (only in options.DefaultVMIdleTimeout; the config layer carries auto-stop-timeout as-is and never substitutes its own default) and the opt-in max-lifetime total-lifetime bound (zero = unlimited, applied at creation, never compared by reconfig).
+read_if: Changing the idle timeout default, Config.AutoStopTimeout/Config.IdleTimeout, RunOptions.IdleTimeout, runoptions.Build, or the VM lifecycle's WithIdleTimeout wiring (#365); or changing max-lifetime/Config.MaxLifetime/RunOptions.MaxLifetime/SandboxSpec.MaxDuration or its WithMaxDuration wiring.
 ---
 
 # VM idle timeout default
@@ -19,6 +19,15 @@ read_if: Changing the idle timeout default, Config.AutoStopTimeout/Config.IdleTi
   `msbSdk.WithIdleTimeout`.
 - The fallback is load-bearing: the SDK's `WithIdleTimeout` treats zero as
   *unlimited*, so a zero `RunOptions.IdleTimeout` must never reach the SDK.
+- The idle timer is not the only creation-time bound. `max-lifetime` is a
+  second, opt-in bound on a project VM's **total** lifetime
+  (`RunOptions.MaxLifetime` → `msb.SandboxSpec.MaxDuration` → `WithMaxDuration`),
+  zero meaning unlimited. It is applied at creation only and is never compared
+  by reconfig, exactly like the idle timeout: an existing VM keeps its
+  creation-time value, so changing `max-lifetime` takes effect on the next VM
+  creation. It is distinct from the idle timer in what it counts from —
+  creation, not last activity — so it can expire a VM that is still busy, and a
+  bound below the effective idle timeout caps the session.
 
 ## Why one package
 

@@ -33,9 +33,9 @@ reverse.
 | 6 | `ensure-image`     | `prepare.ensureImageStage` → `image.EnsureImage`       | build plan, Docker → runner image, `ImageInfo` with content ref   |
 | 7 | `ensure-home`      | `prepare.ensureHomeStage` → `volume.ResolveHomeVolume` | state, live VM mounts → home volume, `HomeState`, agent version   |
 | 8 | `plan-reconfig`    | `prepare.planReconfigStage`                            | fingerprints, live VM config → recreate/restart, home action      |
-| 9 | `ensure-vm`        | `prepare.ensureVMStage` → `vm.EnsureProjectVM`         | decision, image, home volume → image loaded in msb, VM up         |
+| 9 | `ensure-vm`        | `prepare.ensureVMStage` → `vm.EnsureProjectVM`         | decision, image, home volume, optional `max-lifetime` → image loaded in msb, VM up |
 | 10 | `setup-sandbox`   | `prepare.setupSandboxStage` → `vm.SetUpSandbox`        | config files, boot kind → provisioned config, daemons, target     |
-| 11 | `attach`          | `session.runAttach` / `session.runServeOnlySession`    | VM, target → interactive session or serve-only keeper             |
+| 11 | `attach`          | `session.runAttach` / `session.runServeOnlySession`    | VM, target → interactive session or serve-only keeper that holds the VM with `Touch` |
 
 Stages 1–3 run in `cmd.runStartupStages`, shared by `run` and `shell`, before `session.Run`/`session.Shell`. Stages
 4–10 are the ordered `lifecycle.Stage` list in `prepare.PrepareSandbox`, run by one loop (`lifecycle.Run`); each
@@ -129,7 +129,8 @@ See `specs/vm/reconfig-decision.md`.
 
 **`ensure-vm`.** Creates, starts, recreates or reconnects the project VM, using the handle `plan-reconfig` read instead
 of looking the VM up again. Creation and recreation take the per-project `ensure-vm.lock`; starting or reconnecting to
-an existing VM takes the lock-free fast path (`resolveExistingVM`). A creation first loads the runner image into msb
+an existing VM takes the lock-free fast path (`resolveExistingVM`). Creation includes an optional `max-lifetime`
+total-lifetime bound (`RunOptions.MaxLifetime` → `msb.SandboxSpec.MaxDuration`); a creation first loads the runner image into msb
 unless it is cached with matching content (`createProjectVM` → `image.EnsureLoaded`), then persists the fingerprints
 (`persistConfigHashes`). Returns the boot kind. Skipped under `--dry-run-vm` (no VM, nil sandbox). See
 `specs/vm/reconfig-decision.md`, `specs/identity/sandbox-identity.md`, `specs/vm/idle-timeout.md`.
@@ -145,7 +146,8 @@ daemon readiness waits (`resolvedReadyTimeout`) take `RunOptions.DockerReadyTime
 **`attach`.** Opens the interactive session as a login shell (`runAttach`), with the notify watcher and host link
 opener alongside; `shell` attaches a plain login shell. Under `--serve-only` the attach is replaced by a keeper that
 holds the VM until EOF/SIGINT/SIGTERM (`runServeOnlySession`); both flows hold the client lease through
-`withClientSession`, which releases it before the last-client reap. A keep with no reachable serve binding
+`withClientSession`, which releases it before the last-client reap. The serve-only keeper and the reaper hold the VM
+with the SDK's `Touch` keepalive (`specs/vm/detached-jobs.md`); a keep with no reachable serve binding
 (`reconfigDecision.ServePortDeferred`) makes `serveOnlyMessage` state the agent server is unreachable and withhold the
 connect URL until the next recreate; when it does hand out a URL, its stop hint names the key that can actually cancel
 the run — Ctrl-D for a watched terminal stdin, else Ctrl-C. A deferred keep takes no client lease and runs no reaper —
@@ -247,7 +249,7 @@ stale, keeps the built image and does not reimport it, and fails when the run pa
   `prepare.PrepareSandbox` is ever entered. No build, pull, network version lookup, volume, state write or VM.
 - **`--dry-run-vm`** prepares for real through `plan-reconfig` (the KVM-less mode) and stops before `ensure-vm`. It
   builds the Docker image but loads nothing into msb and never creates a home volume; a fresh project's state stays
-  in memory.
+  in memory. It reports a configured `max-lifetime`.
 - **`--serve-only`** runs every stage; `attach` is replaced by the lease-holding keeper.
 
 ## Invariants

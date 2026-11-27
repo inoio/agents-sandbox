@@ -99,11 +99,12 @@ read_if: Working on the VM's dockerd/agent-serve startup, readiness, or restart 
   so both contribute nothing; only a held sandbox is skipped. The probe uses its own short-lived context rather than the
   caller's: on the serve-only exit path the caller's context is already canceled, and the SDK aborts `Shell` on a canceled
   context, which would silently drop the warning.
-- **Open risk in the sibling keepalive paths, verify in the same pass.** `keepVMAlive` (session reaper), `runServeOnly`,
-  and `waitQuiescent` start a *silent* attached `sleep` exec session to hold the VM, on the stated assumption that
-  `active_exec_sessions > 0` suppresses the idle timer. v0.7.11 changed exactly that aggregate, so if the monitor now
-  resets the timer on attached *output* rather than on session existence, a silent keeper no longer holds the VM. Confirm
-  a `--serve-only`/reaper keeper still keeps the VM alive; if it does not, those paths need a different keepalive.
+- **The keeper holds the VM with `Touch`.** `keepVMAlive` (the session reaper's `waitQuiescent`, and `runServeOnly`) no
+  longer starts a silent `sleep` exec session on the assumption that `active_exec_sessions > 0` suppresses the idle
+  timer — the aggregate v0.7.11 changed. It now calls the SDK's `Touch` keepalive (`SandboxActivity`) at
+  `clamp(idleTimeout/2, 1s, 2s)`, the cadence capped because an existing VM keeps its creation-time idle timeout, which
+  may differ from this run's. A touch the runtime rejects is tolerated (the loop keeps going) and the last error is
+  returned on release, where the caller logs it at Verbose. See `specs/vm/idle-timeout.md`.
 
 ## Verification
 
