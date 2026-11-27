@@ -397,6 +397,13 @@ has_token "$changes_block" 'ci/event-base.sh' \
 has_token "$(job_block changelog)" 'ci/event-base.sh' \
   "ci.yml: 'changelog' does not call ci/event-base.sh (the merge-base must not be re-inlined)"
 
+# A pull request in a stack is evaluated as if it targets the stack base, and
+# GitHub sets GITHUB_BASE_REF to that trunk. The changelog job must diff the
+# branch the pull request directly targets (GH_PR_BASE_REF), or every lower
+# fragment in the stack trips its slug gate.
+has_token "$(job_block changelog)" 'GH_PR_BASE_REF' \
+  "ci.yml: 'changelog' does not pass the pull request's own base (GH_PR_BASE_REF); a stacked PR would diff against the stack trunk"
+
 # Classification lives in the tested ci/classify-changes.sh, never inline: a
 # producer piped into grep's quiet mode fails open once the list outgrows the
 # pipe buffer (the producer dies of SIGPIPE, pipefail reads 141 as a non-match,
