@@ -139,8 +139,32 @@ func TestInstallIsolatedRuntimeHomeSetsMSBHomeOnReuse(t *testing.T) {
 // suite relies on: after installing the isolated home, configpaths.MSBHome() —
 // from which the launcher's explicit local sandbox/volume destination is
 // resolved — names that same home, so the adapter and the SDK's ambient
-// MSB_HOME do not diverge.
+// MSB_HOME do not diverge. Both install paths are covered, because only the
+// fresh path names the home itself and only the reuse path can record the two.
 func TestInstallIsolatedRuntimeHomeAlignsConfigPaths(t *testing.T) {
+	t.Run("fresh", func(t *testing.T) {
+		// The default path takes no lock and creates its own home, so it is safe
+		// even while the ambient AGENTS_SANDBOX_MSB_TEST_HOME of `make test-msb`
+		// points elsewhere.
+		t.Setenv(reuseRuntimeHomeEnv, "")
+		installIsolatedRuntimeHomeAligningConfigPaths(t)
+	})
+	t.Run("reuse", func(t *testing.T) {
+		// Point the reuse home at this test's own directory: with the ambient
+		// AGENTS_SANDBOX_MSB_TEST_HOME set by `make test-msb`, the reuse branch
+		// would otherwise block on the exclusive reuse lock the sibling msb
+		// package's TestMain holds for its whole suite.
+		reuseDir := filepath.Join(t.TempDir(), msbHomeDirName)
+		t.Setenv(reuseRuntimeHomeEnv, reuseDir)
+		installIsolatedRuntimeHomeAligningConfigPaths(t)
+	})
+}
+
+// installIsolatedRuntimeHomeAligningConfigPaths installs the isolated home with
+// the ambient environment already set up by the caller and asserts the alignment
+// invariant, registering the MSB_HOME and isolatedRuntimeHome restoration.
+func installIsolatedRuntimeHomeAligningConfigPaths(t *testing.T) {
+	t.Helper()
 	// Register MSB_HOME for restoration: it starts at the home TestMain
 	// installed, and InstallIsolatedRuntimeHome overwrites it through setMSBHome.
 	t.Setenv("MSB_HOME", os.Getenv("MSB_HOME"))
