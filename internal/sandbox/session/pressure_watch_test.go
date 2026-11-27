@@ -212,19 +212,28 @@ func TestPressureWatcherNilSandboxYieldsZeroSummary(t *testing.T) {
 	}
 }
 
-// contextMetricsStream blocks until its context is done and then returns the
-// context error, mirroring a Recv that observes cancellation.
-type contextMetricsStream struct {
-	closed chan struct{}
-	once   sync.Once
+// sampleThenCancelMetricsStream delivers one sample and then blocks until its
+// context is done, returning its configured cancellation error. It mirrors a
+// Recv that folds a sample and then observes the teardown cancellation, so it
+// reaches the mid-stream cancellation branch (samples > 0) rather than the
+// no-sample fallback.
+type sampleThenCancelMetricsStream struct {
+	closed    chan struct{}
+	cancelErr error
+	once      sync.Once
+	delivered bool
 }
 
-func (s *contextMetricsStream) Recv(ctx context.Context) (*msb.Metrics, error) {
+func (s *sampleThenCancelMetricsStream) Recv(ctx context.Context) (*msb.Metrics, error) {
+	if !s.delivered {
+		s.delivered = true
+		return &msb.Metrics{MemoryBytes: 950 << 20, MemoryLimitBytes: 1000 << 20}, nil
+	}
 	<-ctx.Done()
-	return nil, ctx.Err()
+	return nil, s.cancelErr
 }
 
-func (s *contextMetricsStream) Close() error {
+func (s *sampleThenCancelMetricsStream) Close() error {
 	s.once.Do(func() { close(s.closed) })
 	return nil
 }
@@ -388,21 +397,41 @@ func TestPressureWatcherMidStreamErrorEndsWithoutFallback(t *testing.T) {
 	}
 }
 
-// TestPressureWatcherCancelDoesNotRecordReadErr pins that a normal stop is not
-// reported as a failed read: Recv returning context.Canceled on teardown must
-// leave the summary's ReadErr nil.
+// TestPressureWatcherCancelDoesNotRecordReadErr pins that a normal stop after a
+// folded sample is not reported as a failed read: Recv returning the context
+// error on teardown must leave the summary's ReadErr nil and keep the sample.
+// Reaching the mid-stream branch (samples > 0) is what exercises isCancellation's
+// discrimination between a clean teardown and a real failure.
 func TestPressureWatcherCancelDoesNotRecordReadErr(t *testing.T) {
-	stubPressureWatchInterval(t)
-	stream := &contextMetricsStream{closed: make(chan struct{})}
-	sb := &msbtest.MockSandbox{MetricsStreamResult: stream}
+	for _, cancelErr := range []error{context.Canceled, context.DeadlineExceeded} {
+		t.Run(cancelErr.Error(), func(t *testing.T) {
+			stubPressureWatchInterval(t)
+			stream := &sampleThenCancelMetricsStream{closed: make(chan struct{}), cancelErr: cancelErr}
+			sb := &countingMetricsSandbox{
+				MockSandbox: &msbtest.MockSandbox{MetricsStreamResult: stream},
+				firstSample: make(chan struct{}),
+			}
 
-	summary := startPressureWatcher(context.Background(), sb, pressure.DefaultThreshold())()
+			summary := startPressureWatcher(context.Background(), sb, pressure.DefaultThreshold())()
 
-	if summary.ReadErr != nil {
-		t.Errorf("ReadErr = %v, want nil on a normal stop", summary.ReadErr)
-	}
-	if summary.MinHeadroomFraction != 1.0 {
-		t.Errorf("MinHeadroomFraction = %v, want 1.0", summary.MinHeadroomFraction)
+			if summary.ReadErr != nil {
+				t.Errorf("ReadErr = %v, want nil on a normal stop", summary.ReadErr)
+			}
+			if math.Abs(summary.MinHeadroomFraction-0.05) > 1e-9 {
+				t.Errorf(
+					"MinHeadroomFraction = %v, want 0.05 (the streamed sample was folded)",
+					summary.MinHeadroomFraction,
+				)
+			}
+			select {
+			case <-stream.closed:
+			default:
+				t.Error("the stream handle was not closed on the cancellation branch")
+			}
+			if got := sb.callCount(); got != 0 {
+				t.Errorf("Metrics called %d times, want 0 (cancellation must not fall back to polling)", got)
+			}
+		})
 	}
 }
 
@@ -427,5 +456,72 @@ func TestPressureWatcherTeardownIsBoundedWhenRecvBlocks(t *testing.T) {
 	case <-stream.closedCh:
 	case <-time.After(time.Second):
 		t.Fatal("the handle was not closed after Recv returned")
+	}
+}
+
+// TestPressureWatcherClosesHandleOnOpenErrorWithHandle pins the fallback's
+// handle guard: a MetricsStream that returns a handle alongside an open error
+// must have that handle closed before polling, so the fallback does not leak
+// it. The seam's real and mock implementations return a nil handle on error,
+// so this is the only path that reaches the guard.
+func TestPressureWatcherClosesHandleOnOpenErrorWithHandle(t *testing.T) {
+	stubPressureWatchInterval(t)
+	stream := msbtest.NewScriptedMetricsStream()
+	sb := &countingMetricsSandbox{
+		MockSandbox: &msbtest.MockSandbox{
+			MetricsResult: &msb.Metrics{MemoryBytes: 950 << 20, MemoryLimitBytes: 1000 << 20},
+			MetricsStreamFn: func(context.Context, time.Duration) (msb.MetricsStream, error) {
+				return stream, errors.New("open failed after allocating a handle")
+			},
+		},
+		firstSample: make(chan struct{}),
+	}
+
+	stop := startPressureWatcher(context.Background(), sb, pressure.DefaultThreshold())
+	select {
+	case <-sb.firstSample:
+	case <-time.After(time.Second):
+		t.Fatal("the watcher did not fall back to polling after the guarded open error")
+	}
+	if summary := stop(); !summary.Tripped {
+		t.Fatalf("summary = %+v, want the polled tripped sample after the guarded fallback", summary)
+	}
+	if !stream.DidClose() {
+		t.Error("the handle returned alongside the open error was not closed")
+	}
+	if got := len(sb.MetricsStreamCalls); got != 1 {
+		t.Errorf("MetricsStream opened %d times, want 1", got)
+	}
+}
+
+// TestPressureWatcherFallsBackToPollingOnCleanEndWithoutSample pins that a
+// stream that ends cleanly (nil, nil) before delivering a sample — the
+// runtime's exited-sandbox or absent-slot signal — closes the handle and falls
+// back to polling exactly once, rather than ending silently with no observation.
+func TestPressureWatcherFallsBackToPollingOnCleanEndWithoutSample(t *testing.T) {
+	stubPressureWatchInterval(t)
+	stream := msbtest.NewScriptedMetricsStream()
+	sb := &countingMetricsSandbox{
+		MockSandbox: &msbtest.MockSandbox{
+			MetricsResult:       &msb.Metrics{MemoryBytes: 950 << 20, MemoryLimitBytes: 1000 << 20},
+			MetricsStreamResult: stream,
+		},
+		firstSample: make(chan struct{}),
+	}
+
+	stop := startPressureWatcher(context.Background(), sb, pressure.DefaultThreshold())
+	select {
+	case <-sb.firstSample:
+	case <-time.After(time.Second):
+		t.Fatal("the watcher did not fall back to polling after the clean end with no sample")
+	}
+	if summary := stop(); !summary.Tripped {
+		t.Fatalf("summary = %+v, want the polled tripped sample after a clean end with no sample", summary)
+	}
+	if !stream.DidClose() {
+		t.Error("the cleanly-ended stream handle was not closed before the fallback")
+	}
+	if got := len(sb.MetricsStreamCalls); got != 1 {
+		t.Errorf("MetricsStream opened %d times, want 1", got)
 	}
 }

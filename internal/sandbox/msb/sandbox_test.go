@@ -210,6 +210,79 @@ func TestRealSandboxHandleMetricsStreamDelegatesThroughSeam(t *testing.T) {
 	}
 }
 
+// TestRealMetricsStreamRecvAndClose covers the wrapper's Recv and Close
+// delegation through the method-expression seams, so the adapter lines run
+// without the native library (the SDK handle has no exported constructor).
+func TestRealMetricsStreamRecvAndClose(t *testing.T) {
+	ctx := context.Background()
+	wantMetrics := &Metrics{MemoryBytes: 1 << 20, MemoryLimitBytes: 2 << 20}
+	wantRecvErr := errors.New("recv boom")
+
+	t.Run("Recv delegates", func(t *testing.T) {
+		swapSeam(t, &realMetricsStreamRecv, func(
+			_ *msbSdk.MetricsStreamHandle, _ context.Context,
+		) (*Metrics, error) {
+			return wantMetrics, wantRecvErr
+		})
+
+		got, err := (realMetricsStream{}).Recv(ctx)
+		if got != wantMetrics || !errors.Is(err, wantRecvErr) {
+			t.Fatalf("Recv() = (%v, %v); want (%v, %v)", got, err, wantMetrics, wantRecvErr)
+		}
+	})
+
+	t.Run("Close delegates", func(t *testing.T) {
+		called := false
+		swapSeam(t, &realMetricsStreamClose, func(*msbSdk.MetricsStreamHandle) error {
+			called = true
+			return nil
+		})
+
+		if err := (realMetricsStream{}).Close(); err != nil || !called {
+			t.Fatalf("Close() = %v, called=%v; want nil, true", err, called)
+		}
+	})
+}
+
+// TestNewMetricsStreamWrapsSDKHandleAndPropagatesError runs newMetricsStream's
+// body — the wrap on success and the error propagation — by swapping the inner
+// SDK seam, so the wrapper is covered without the native library.
+func TestNewMetricsStreamWrapsSDKHandleAndPropagatesError(t *testing.T) {
+	ctx := context.Background()
+	sandbox := &msbSdk.Sandbox{}
+	wantHandle := &msbSdk.MetricsStreamHandle{}
+
+	t.Run("success wraps the SDK handle", func(t *testing.T) {
+		swapSeam(t, &sdkMetricsStream, func(
+			*msbSdk.Sandbox, context.Context, time.Duration,
+		) (*msbSdk.MetricsStreamHandle, error) {
+			return wantHandle, nil
+		})
+
+		stream, err := newMetricsStream(sandbox, ctx, time.Second)
+		if err != nil {
+			t.Fatalf("newMetricsStream() error = %v", err)
+		}
+		wrapped, ok := stream.(realMetricsStream)
+		if !ok || wrapped.handle != wantHandle {
+			t.Fatalf("newMetricsStream() = %#v, want realMetricsStream wrapping the SDK handle", stream)
+		}
+	})
+
+	t.Run("error propagates without a handle", func(t *testing.T) {
+		wantErr := errors.New("sdk boom")
+		swapSeam(t, &sdkMetricsStream, func(
+			*msbSdk.Sandbox, context.Context, time.Duration,
+		) (*msbSdk.MetricsStreamHandle, error) {
+			return nil, wantErr
+		})
+
+		if _, err := newMetricsStream(sandbox, ctx, time.Second); !errors.Is(err, wantErr) {
+			t.Fatalf("newMetricsStream() error = %v, want %v", err, wantErr)
+		}
+	})
+}
+
 // TestRealSandboxTouchDelegates pins that the adapter's Touch delegates to the
 // SDK sandbox's Touch (its result is discarded) and propagates the error.
 func TestRealSandboxTouchDelegates(t *testing.T) {

@@ -97,10 +97,12 @@ Three mechanisms compose; the first two run in-session, the third covers everyth
 **(a) Metrics watcher during the session.** In the shared `session.runAttach` path, start a watcher
 goroutine that subscribes to `sb.MetricsStream(ctx, interval)` (default ~2 s, the existing
 `pressureWatchInterval` seam) for the lifetime of the attach. When the stream cannot start, or yields
-no sample at all (a `Recv` error before the first sample, where the runtime's no-slot error surfaces),
-it closes the handle and falls back to polling `sb.Metrics()` at the same interval, exactly once — so a
-sandbox with no live metrics slot degrades exactly as it did before, and a mid-stream `Recv` error
-(the VM stopped) is kept without polling a dead VM. Teardown cancels the watch and waits for it only
+no sample at all — an open error, a `Recv` error before the first sample (where the runtime's no-slot
+error surfaces), or a clean end before the first sample — it closes the handle and falls back to
+polling `sb.Metrics()` at the same interval, exactly once, so a sandbox with no live metrics slot
+degrades exactly as it did before. After a sample, a clean `(nil, nil)` end means the sandbox exited
+(the microsandbox SDK's stream-end signal) and a `Recv` error is a transport or agentd failure; both
+just end the watch without polling a dead VM, the error kept in the summary. Teardown cancels the watch and waits for it only
 until a small bound, so a stream that ignores cancellation cannot block the attach. A metrics reader
 treats an absent field (`MemoryAvailableBytes`, `Upper*`) or an unknown (zero) limit as unknown, never
 as zero: the existing `MemoryLimitBytes == 0` guard keeps an unknown limit from tripping or clearing
