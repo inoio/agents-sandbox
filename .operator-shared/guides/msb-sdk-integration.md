@@ -52,9 +52,10 @@ take the opportunity to restructure the projection layer or add feature capabili
 
 ## 1. Capabilities the launcher still does not use
 
-The migration added no feature capabilities; the whole list below remains open. Most already exist
-in the v0.7 line the launcher left, so they do not depend on this bump. Only the items marked
-**(0.8)** are specific to the new line.
+The migration added no feature capabilities. Most of the list below remains open, and most of it
+already exists in the v0.7 line the launcher left, so it does not depend on this bump; only the
+items marked **(0.8)** are specific to the new line. The one exception is metrics streaming (§1.4):
+`Sandbox.MetricsStream` is now adopted by the in-session pressure watcher.
 
 ### 1.1 Warm start: snapshots, checkpoints, fork, restore
 

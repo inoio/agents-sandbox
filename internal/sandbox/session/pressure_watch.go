@@ -39,10 +39,12 @@ type pressureWatcher struct {
 }
 
 // startPressureWatcher samples metrics until stop is called and returns the
-// summary. It never blocks the caller and never writes to the terminal, a
-// failing read is kept in the summary, and a nil sandbox (dry-run) returns a
-// no-op that yields a zero summary. It prefers the stream and falls back to
-// polling exactly once when the stream cannot deliver.
+// summary. Starting it never blocks the caller; the returned stop func can
+// block for up to metricsStreamStopTimeout waiting for the watch goroutine. It
+// never writes to the terminal, a failing read is kept in the summary, and a
+// nil sandbox (dry-run) returns a no-op that yields a zero summary. It prefers
+// the stream and falls back to polling exactly once when the stream cannot
+// deliver.
 func startPressureWatcher(
 	ctx context.Context,
 	sb msb.SandboxObserver,
@@ -62,6 +64,9 @@ func startPressureWatcher(
 		defer close(done)
 		stream, err := sb.MetricsStream(watchCtx, interval)
 		if err != nil || stream == nil {
+			if stream != nil {
+				_ = stream.Close()
+			}
 			watcher.tick(watchCtx, sb, interval, t)
 			return
 		}
@@ -102,10 +107,11 @@ func (w *pressureWatcher) tick(
 // stream folds streamed samples until the stream ends, an error arrives, or ctx
 // is cancelled. A Recv error before any sample means the stream never produced
 // one (the runtime's no-slot error surfaces on Recv), so it closes the handle
-// and falls back to polling exactly once. A Recv error after a sample means the
-// VM stopped: the error is kept and the loop ends, because polling a dead VM
-// would only fail. The goroutine owns Close, so Close never races an in-flight
-// Recv.
+// and falls back to polling exactly once. A Recv error after a sample is a
+// transport or agentd failure, not the VM stopping: a stopped sandbox ends the
+// stream as (nil, nil), which the clean-end branch below already handles. The
+// error is kept and the loop ends, because polling would only fail. The
+// goroutine owns Close, so Close never races an in-flight Recv.
 func (w *pressureWatcher) stream(
 	ctx context.Context,
 	sb msb.SandboxObserver,
