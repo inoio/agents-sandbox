@@ -3,8 +3,6 @@ package readback
 import (
 	"io/fs"
 	"os"
-	"slices"
-	"strings"
 	"syscall"
 	"time"
 )
@@ -59,17 +57,19 @@ func ReadHomeFile(home, rel string, maxBytes int64) ([]byte, bool) {
 	return file.data, file.data != nil
 }
 
-// readHomeDirectory lists children in name order without following a path out
+// readHomeDirectory lists children without following a path out
 // of the home or blocking on a FIFO. ReadDir checks the opened descriptor is a
 // directory, so replacing the path after open cannot bypass the check.
 func readHomeDirectory(root *os.Root, rel string) []fs.DirEntry {
+	// gomutants:disable-next-line INTEGER_INCREMENT reason="the permission is used only with O_CREATE, which this read-only open never passes"
 	directory, err := root.OpenFile(rel, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	// gomutants:disable-next-line BRANCH_IF reason="a failed open leaves directory nil, whose ReadDir returns ErrInvalid and no entries, so the fall-through also returns nil"
 	if err != nil {
 		return nil
 	}
 	defer func() { _ = directory.Close() }()
+	// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT reason="ReadDir reads all entries for any n <= 0, so -1, 0 and -2 are identical"
 	entries, _ := directory.ReadDir(-1)
-	slices.SortFunc(entries, func(a, b fs.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
 	return entries
 }
 

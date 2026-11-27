@@ -183,9 +183,11 @@ func TestReadHomeDirectoryListsOnlyInHomeDirectories(t *testing.T) {
 
 	for _, path := range []string{"config", "inside"} {
 		entries := readHomeDirectory(root, path)
-		require.Len(t, entries, 2)
-		require.Equal(t, "a.json", entries[0].Name())
-		require.Equal(t, "z.json", entries[1].Name())
+		var names []string
+		for _, entry := range entries {
+			names = append(names, entry.Name())
+		}
+		require.ElementsMatch(t, []string{"a.json", "z.json"}, names)
 	}
 	for _, path := range []string{"missing", "outside", "config/a.json"} {
 		require.Empty(t, readHomeDirectory(root, path), path)
