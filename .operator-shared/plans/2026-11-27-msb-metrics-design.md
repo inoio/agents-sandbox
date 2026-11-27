@@ -109,8 +109,15 @@ type MetricsStream interface {
 }
 ```
 
-- Add `MetricsStream(ctx context.Context, interval time.Duration) (MetricsStream, error)` to
-  `SandboxObserver`; `Metrics` stays the alias.
+- Add `MetricsStream(ctx context.Context, interval time.Duration) (MetricsStream, error)` to **both**
+  `SandboxObserver` and `SandboxResourceControl`; `Metrics` stays the alias. Both roles need it: the
+  watcher takes the live `Sandbox` (an `Observer`), while `resourceproposal.DetectAndOfferMemoryRaise`
+  takes an `msb.SandboxObserver` but is passed a `msb.SandboxHandle` (`prepare/reconfig.go`), which
+  satisfies `Observer` only structurally - its method set comes from `SandboxResourceControl`. Adding
+  the method to `SandboxObserver` alone would break that call site's compilation. With it on both
+  roles the method set is shared, the composite/role-union invariant holds, and `realSandboxHandle`,
+  `realSandbox`, and both mocks implement it (a persisted handle can stream: `realSandboxHandle`
+  wraps the same unified `*msbSdk.Sandbox`).
 - The SDK returns a concrete `*msbSdk.MetricsStreamHandle` with no exported constructor, so a seam
   typed on the SDK handle could not be stubbed. The adapter seam therefore returns the launcher
   interface, wrapping the SDK handle in a launcher `realMetricsStream`:
@@ -155,8 +162,9 @@ prefers the stream and falls back to the existing ticker:
 the watch context, and on exit the goroutine calls `stream.Close()` itself - so `Close` is never
 concurrent with an in-flight `Recv` (the SDK does not establish that combination as safe). The stop
 func cancels the context and waits for the goroutine with a small bound
-(`metricsStreamStopTimeout`, ~2s); if it does not finish, it logs at Verbose and returns the summary
-anyway, leaving the goroutine (and the handle) to close when `Recv` eventually returns. An attach is
+(`metricsStreamStopTimeout`, ~2s); if it does not finish, it returns the summary anyway (the timeout
+is silent: `startPressureWatcher` keeps its signature, so no logger is threaded in), leaving the
+goroutine (and the handle) to close when `Recv` eventually returns. An attach is
 the last thing a run does, so a leaked goroutine at process exit is acceptable; blocking teardown is
 not (`resource-limit-proposal.md` §1a).
 

@@ -206,6 +206,13 @@ func keepVMAlive(ctx context.Context, sb msb.SandboxActivity, idleTimeout time.D
 - The effective idle timeout is threaded to both callers from `RunOptions.IdleTimeout` (defaulted
   through `options.DefaultVMIdleTimeout`) rather than read from a global. The interval uses it only
   as an upper bound through the 2s cap, so a stale value cannot defeat the keeper.
+- `keepVMAlive` takes only `msb.SandboxActivity`, but its callers need both the executor and the
+  keeper: `waitQuiescent` already runs `Shell` (executor) and now touches the VM. Those callers
+  therefore take the composite `msb.Sandbox` (the consumer-narrowing rule's "a function that
+  genuinely spans roles keeps the composite"), whose method set now includes `SandboxActivity`. The
+  `reapOnLastClient`/`withClientSession`/`runServeOnly` chain widens to `msb.Sandbox` with them, and
+  a test double that only satisfied `msb.SandboxExecutor` (e.g. `MockSandboxExecutor`) must become
+  `MockSandbox` at that call site.
 
 ### 3. The `max-lifetime` bound
 

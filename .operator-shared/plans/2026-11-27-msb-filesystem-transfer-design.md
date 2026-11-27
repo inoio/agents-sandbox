@@ -102,8 +102,10 @@ not arbitrary sandboxes, and not VM-to-VM.
 
 ### VM lifecycle
 
-- **A (chosen): require the VM running.** Resolve the cwd project VM and `ConnectOrStart`; a
-  created/stopped/crashed VM fails with "not running; start it with `agents-sandbox run`/`shell`".
+- **A (chosen): require the VM running.** Resolve the cwd project VM, gate on `Status() == running`,
+  and use the status-gated `Connect` (never a boot); a created/stopped/crashed VM fails with "not
+  running; start it with `agents-sandbox run`/`shell`". `ConnectOrStart` is deliberately not used -
+  it would boot a stopped VM, which the no-boot non-goal forbids.
   Safe (no skipped setup), simple, and consistent with `stop`/`kill` operating on an existing VM.
 - **B: boot via the full preparation path (`EnsureProjectVM` + `SetUpSandbox`).** Correct setup, but
   drags the image/home/prepare pipeline into a copy command; rejected for v1.
@@ -137,9 +139,9 @@ mock's `TestFS` gains the two methods (recording copies, backed by its file map)
   `vm:`; the guest path must be absolute. Direction is inferred from which side carries `vm:`.
 - Identity: resolve the cwd checkout identity + agent + legacy adoption (as `sandbox stop`), giving
   the project VM.
-- Lifecycle: `ConnectOrStart` the VM; a VM that is not running is an error (no boot). Copy on its
-  `FS`: `CopyFromHost` for host→VM, `CopyToHost` for VM→host; `Mkdir` the guest parent for a nested
-  destination.
+- Lifecycle: require `Status() == running`, then use the status-gated `Connect` (no `ConnectOrStart`;
+  a stopped VM is an error, not a boot). Copy on its `FS`: `CopyFromHost` for host→VM, `CopyToHost`
+  for VM→host; `Mkdir` the guest parent for a nested destination.
 - Output: one line naming source → destination; `-q/--quiet` suppresses it; `--format json` emits
   the copied item(s). Tree: `sandbox copy` with alias `cp` and the `also: sandbox copy` annotation.
 
