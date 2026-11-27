@@ -200,9 +200,9 @@ remove a legacy VM); the transfer itself is non-destructive. A host→VM copy wh
 file through the `/workspace` bind is refused rather than truncating its own source.
 
 ```console
-agents-sandbox cp ./patch.diff vm:/workspace/patch.diff   # host → VM
+agents-sandbox cp ./patch.diff vm:/workspace/patches/patch.diff   # host → VM
 agents-sandbox cp vm:/workspace/out.log ./out.log         # VM → host
-agents-sandbox cp ./patch.diff vm:/workspace/patch.diff --format json
+agents-sandbox cp ./patch.diff vm:/workspace/patches/patch.diff --format json
 ```
 
 **Aliases:** `sandbox copy`
@@ -829,9 +829,9 @@ than truncating its own source.
 **Aliases:** `sandbox cp`
 
 ```console
-agents-sandbox sandbox cp ./patch.diff vm:/workspace/patch.diff   # host → sandbox
+agents-sandbox sandbox cp ./patch.diff vm:/workspace/patches/patch.diff   # host → sandbox
 agents-sandbox sandbox cp vm:/workspace/out.log ./out.log         # sandbox → host
-agents-sandbox sandbox cp ./patch.diff vm:/workspace/patch.diff --format json
+agents-sandbox sandbox cp ./patch.diff vm:/workspace/patches/patch.diff --format json
 ```
 
 - **Args:** `src`, `dst` — one a host path, the other a `vm:<guest-path>`
