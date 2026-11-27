@@ -330,6 +330,13 @@ func TestCIGuards(t *testing.T) {
 		ciGuardsExpect(t, f.root, 1, "missing a job-level timeout-minutes")
 	})
 
+	t.Run("a sibling workflow job missing timeout-minutes", func(t *testing.T) {
+		t.Parallel()
+		f := newCIGuardsFixture(t)
+		f.write(".github/workflows/pages.yml", ciGuardsUntimedWorkflowContent)
+		ciGuardsExpect(t, f.root, 1, "pages.yml: 'build' is missing a job-level timeout-minutes")
+	})
+
 	t.Run("changes re-inlining the merge-base", func(t *testing.T) {
 		t.Parallel()
 		f := newCIGuardsFixture(t)
@@ -648,6 +655,21 @@ const ciGuardsCodeQLPullRequestBlock = `  pull_request:
       - '.agents-sandbox/**'
       - '.idea/**'
       - '.gitignore'
+`
+
+// ciGuardsUntimedWorkflowContent is a sibling workflow whose second job has no
+// timeout-minutes, so the workflow-wide timeout scan must name pages.yml and
+// the job rather than only ci.yml.
+const ciGuardsUntimedWorkflowContent = `on:
+  workflow_dispatch:
+
+jobs:
+  classify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+  build:
+    needs: [classify]
+    runs-on: ubuntu-latest
 `
 
 // ciGuardsCIContent mirrors the real ci.yml's structure: job keys at two-space

@@ -154,7 +154,10 @@ jobs:
         with:
           go-version-file: .go-version
           cache: true
-      - uses: golangci/golangci-lint-action@v9
+      # Third-party actions are pinned to a commit SHA (Dependabot maintains the
+      # SHA beside its `# vN` comment); GitHub-owned `actions/*` and `github/*`
+      # stay on their moving major tag.
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
         with:
           version: v2.15
@@ -165,23 +168,41 @@ jobs:
       # Compile every package including build-tagged files (`integration`) so a
       # tagged-only compile regression fails on PRs, not just on main/releases.
       - run: make compile-all
-        if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
+        if: ${{ !cancelled() && (github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false') }}
       - run: make validate-fmt
-        if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
+        if: ${{ !cancelled() && (github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false') }}
+      # The gates below are independent of the Go toolchain lane above, so
+      # `!cancelled()` runs each even when an earlier step failed: one push then
+      # surfaces every failure, matching how `scripts/check.sh` reports the local
+      # loop rather than stopping at the first.
       - run: make docs-linkcheck
+        if: ${{ !cancelled() }}
       - run: make docs-linkcheck-test
+        if: ${{ !cancelled() }}
       - run: make ci-guards-check
+        if: ${{ !cancelled() }}
       - run: make ci-guards-check-test
+        if: ${{ !cancelled() }}
       - run: make classify-changes-test
+        if: ${{ !cancelled() }}
       - run: make event-base-test
+        if: ${{ !cancelled() }}
       - run: make actionlint
+        if: ${{ !cancelled() }}
       - run: make shellcheck
+        if: ${{ !cancelled() }}
       - run: make cleanup-branches-test
+        if: ${{ !cancelled() }}
       - run: make envelope-test
+        if: ${{ !cancelled() }}
       - run: make upstream-drift-test
+        if: ${{ !cancelled() }}
       - run: make rebase-status-test
+        if: ${{ !cancelled() }}
       - run: make backport-audit-test
+        if: ${{ !cancelled() }}
       - run: make open-backport-pr-test
+        if: ${{ !cancelled() }}
 
   test:
     name: test
@@ -200,7 +221,7 @@ jobs:
           cache: true
       - run: make coverage-junit
         if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
-      - uses: codecov/codecov-action@v7
+      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
         if: ${{ github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false' }}
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -208,7 +229,7 @@ jobs:
           fail_ci_if_error: false
       - name: Upload test results to Codecov
         if: ${{ !cancelled() && (github.event_name == 'merge_group' || needs.changes.outputs.exec != 'false') }}
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           report_type: test_results
@@ -574,8 +595,14 @@ jobs:
       - name: Install zig
         run: |
           ZIG_VERSION=0.17.1
+          # The published SHA-256 for zig-x86_64-linux-0.17.1.tar.xz (from
+          # https://ziglang.org/download/index.json), verified before the tarball
+          # is unpacked and executed, so a corrupted or swapped download fails
+          # the release instead of building the published binaries.
+          ZIG_SHA256=3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a
           TARBALL=zig-x86_64-linux-${ZIG_VERSION}.tar.xz
           curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/${TARBALL}" -o "/tmp/${TARBALL}"
+          echo "${ZIG_SHA256}  /tmp/${TARBALL}" | sha256sum -c -
           tar -xf "/tmp/${TARBALL}" -C /opt
           rm "/tmp/${TARBALL}"
           echo "/opt/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
@@ -678,7 +705,7 @@ jobs:
           cat checksums.txt
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3
         with:
           tag_name: ${{ github.ref_name }}
           name: "agents-sandbox ${{ github.ref_name }}"

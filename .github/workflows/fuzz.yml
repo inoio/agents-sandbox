@@ -44,6 +44,7 @@ jobs:
   discover:
     name: discover fuzz targets
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       targets: ${{ steps.list.outputs.targets }}
     steps:
