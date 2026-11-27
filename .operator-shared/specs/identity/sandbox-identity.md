@@ -15,6 +15,8 @@ The launcher does not compare IDs itself. It relies on the SDK's identity-aware 
 
 All of this is **same-process**: the launcher relies on a `SandboxHandle`/`Sandbox` it already holds. No cross-process identity is persisted.
 
+Enumeration tolerates the same race. The v0.8 SDK observes each listed entry separately (a list page is only identities), so `ListSandboxes`/`ListVolumes` skip an entry whose observation reports it gone or replaced between the page fetch and the lookup — it is nothing to enumerate — while any other observation error fails the list.
+
 Per-path handling:
 
 - **Prune** (best-effort cleanup): skip-and-report on replaced or gone; removal must never use a bare name.

@@ -14,9 +14,26 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	msb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest/runtime"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
 )
+
+// realMsbGet is the production microsandbox client factory, captured at package
+// init before TestMain installs the fail-fast mock. The read-back through the
+// launcher's own client is what this test asserts, and realMsbClient is
+// unexported in package msb, so capturing here keeps the fail-fast net for every
+// other test in this package.
+var realMsbGet = msb.Get
+
+// installRealMsbGet swaps the launcher's client factory to the captured real one
+// for the duration of the test.
+func installRealMsbGet(t *testing.T) {
+	t.Helper()
+	previous := msb.Get
+	msb.Get = realMsbGet
+	t.Cleanup(func() { msb.Get = previous })
+}
 
 // probeDiskUsage runs the launcher's in-guest disk probe against sb and parses
 // its output.
@@ -96,6 +113,7 @@ func TestRealDiskProbeAndRootGrow(t *testing.T) {
 // larger disk, and proves the new size persists in the sandbox config.
 func growRootDiskAndVerify(t *testing.T, ctx context.Context, name string, sb *msbSdk.Sandbox) {
 	t.Helper()
+	installRealMsbGet(t)
 	handle, err := msbSdk.GetSandbox(ctx, name)
 	if err != nil {
 		t.Fatalf("GetSandbox: %v", err)
@@ -110,11 +128,11 @@ func growRootDiskAndVerify(t *testing.T, ctx context.Context, name string, sb *m
 	if root := probeDiskUsage(t, ctx, sb)[pressure.KindRootDisk].SizeKiB; root < 1800<<10 {
 		t.Errorf("root disk after the grow = %d KiB, want close to 2 GiB", root)
 	}
-	fresh, err := msbSdk.GetSandbox(ctx, name)
+	readBack, err := msb.Get().GetSandbox(ctx, name)
 	if err != nil {
 		t.Fatalf("GetSandbox after grow: %v", err)
 	}
-	if cfg, cfgErr := fresh.Config(); cfgErr != nil || cfg.RootDisk == nil || cfg.RootDisk.SizeMiB != 2048 {
+	if cfg, cfgErr := readBack.Config(); cfgErr != nil || cfg.RootDisk == nil || cfg.RootDisk.SizeMiB != 2048 {
 		t.Errorf("persisted root disk = %+v (err %v), want 2048 MiB", cfg, cfgErr)
 	}
 }

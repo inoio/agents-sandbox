@@ -98,13 +98,17 @@ The launcher types are a curated projection of the SDK, kept honest by three gua
 The drift guard is reflection-based by decision: a `golang.org/x/tools/go/packages` scan of the SDK's
 `With*` constructors would be complete but adds a module dependency, against `AGENTS.md`.
 
-**SDK line pin.** The module stays on the SDK's v0.7 line
-(`github.com/superradcompany/microsandbox/sdk/go`). v0.8 is source-breaking: it removes the SDK's
-`SandboxHandle`/`VolumeHandle`, which `realSandboxHandle`/`realVolumeHandle` wrap, in favour of a
-resource/collection model, and reworks the read-back config shape. A `go get -u ./...` (the release's
-`make upgrade-deps`) that crosses into v0.8 therefore fails to compile; crossing the line is a
-deliberate migration of the adapters above, not a routine bump, so hold the SDK back until that change
-lands.
+**SDK line.** The module tracks the SDK's v0.8 line
+(`github.com/superradcompany/microsandbox/sdk/go`). v0.8 is source-breaking: it removed the SDK's
+`SandboxHandle`/`VolumeHandle` snapshot types and unified the persisted handle and the live sandbox
+into one `*Sandbox` resource (mutable observations moved behind context-bearing `Info`/`Config`/`Status`
+lookups, and `Volume` measurements behind `Info`). The v0.7→v0.8 adapter migration landed with the
+change that bumped the SDK to the v0.8 line. Because the launcher's seam interface is synchronous, the
+adapter captures one `Info` and one config observation when it resolves a handle and keeps them for its
+context-free identity/config methods, retaining a failed config read on the handle so a run can still
+degrade to "config unreadable" rather than fail its lookup (specs/vm/reconfig-decision.md). Live
+operations act on the retained resource. Crossing a further SDK line is again a deliberate adapter
+migration, not a routine bump.
 
 ## The mock
 
@@ -177,3 +181,13 @@ files.
   `internal/sandbox/msb/msbtest` (isolated-runtime helpers in the `msbtest/runtime` leaf), so the
   shipped binary links neither `testing` nor the mock. The mock contract above is unchanged — wide
   composite, roles never embedded, `failFastMsbClient` — only its location moved.
+- **Landed (#906):** the SDK moved to the v0.8 line. `realSandboxHandle` wraps the unified
+  `*msbSdk.Sandbox` and captures its identity (`Info`) and persisted-config (`ConfigJSON`) observations
+  when it is resolved; `realVolumeHandle` wraps `*msbSdk.Volume` and captures its `Info` observation.
+  `sandboxConfigFrom` now projects the read-back `SandboxConfigInspection` (image source, resources,
+  labels), with the image reference and root-disk size decoded from the persisted `RootfsSource`; the
+  `ConfigMounts`/`ConfigPorts` parsers descend into the inspection's `spec`. The launcher-owned
+  interfaces, value types, and the reflection drift register are unchanged in shape, with new registers
+  for the inspection, resource, `VolumeInfo` and `SandboxInfo` structs. `Connect` is status-gated so a
+  read of live VM state never starts a stopped VM, and `Remove` delegates to the resource's
+  identity-bearing `Destroy` so a same-name replacement fails closed.

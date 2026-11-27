@@ -19,7 +19,7 @@ require (
 	github.com/spf13/pflag v1.1.0
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.12.1
-	github.com/superradcompany/microsandbox/sdk/go v0.7.16
+	github.com/superradcompany/microsandbox/sdk/go v0.8.3
 	github.com/titanous/json5 v1.0.0
 	github.com/tonistiigi/fsutil v0.0.0-20261103125000-e075fd9305eb
 	go.yaml.in/yaml/v4 v4.0.0
@@ -92,6 +92,7 @@ require (
 	github.com/spf13/afero v1.15.0 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
+	github.com/superradcompany/microsandbox/sdk/go/core v0.8.3 // indirect
 	github.com/tonistiigi/go-csvvalue v0.0.0-20240814133006-030d3b2625d0 // indirect
 	github.com/tonistiigi/units v0.0.0-20180711220420-6950e57a87ea // indirect
 	github.com/tonistiigi/vt100 v0.0.0-20240514184818-90bafcd6abab // indirect

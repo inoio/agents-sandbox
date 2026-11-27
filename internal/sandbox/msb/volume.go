@@ -1,12 +1,13 @@
 package msb
 
 import (
+	"context"
 	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-// VolumeHandle is the subset of *msb.VolumeHandle that the launcher needs.
+// VolumeHandle is the subset of *msb.Volume that the launcher needs.
 type VolumeHandle interface {
 	Name() string
 	Path() string
@@ -20,38 +21,85 @@ type VolumeHandle interface {
 	Labels() map[string]string
 }
 
-// realVolumeHandle adapts *msbSdk.VolumeHandle to VolumeHandle, translating only
-// the kind enum and delegating the rest. Each delegation target is a
-// package-level seam (a method expression) so the thin adapter is
-// unit-testable without a live VM.
+// realVolumeHandle adapts *msbSdk.Volume to VolumeHandle. The SDK moved the
+// mutable measurements (quota, usage, capacity and labels) behind a
+// context-bearing Info observation while identity (name, path, kind) stays
+// synchronous. The adapter captures one Info observation when the handle is
+// resolved, so the launcher's synchronous interface is preserved; a measurement
+// the provider did not report stays nil or zero rather than becoming a value.
+//
+// Each delegation target is a package-level seam (a method expression or
+// function) so the thin adapter is unit-testable without a live VM.
 type realVolumeHandle struct {
-	handle *msbSdk.VolumeHandle
+	handle *msbSdk.Volume
+	info   *msbSdk.VolumeInfo
 }
 
 var (
-	realVolumeName          = (*msbSdk.VolumeHandle).Name
-	realVolumePath          = (*msbSdk.VolumeHandle).Path
-	realVolumeKind          = (*msbSdk.VolumeHandle).Kind
-	realVolumeCreatedAt     = (*msbSdk.VolumeHandle).CreatedAt
-	realVolumeQuotaMiB      = (*msbSdk.VolumeHandle).QuotaMiB
-	realVolumeUsedBytes     = (*msbSdk.VolumeHandle).UsedBytes
-	realVolumeCapacityBytes = (*msbSdk.VolumeHandle).CapacityBytes
-	realVolumeDiskFormat    = (*msbSdk.VolumeHandle).DiskFormat
-	realVolumeDiskFstype    = (*msbSdk.VolumeHandle).DiskFstype
-	realVolumeLabels        = (*msbSdk.VolumeHandle).Labels
+	realVolumeName = (*msbSdk.Volume).Name
+	realVolumePath = (*msbSdk.Volume).Path
+	realVolumeKind = (*msbSdk.Volume).Kind
+	realVolumeInfo = (*msbSdk.Volume).Info
 )
 
-func (w realVolumeHandle) Name() string         { return realVolumeName(w.handle) }
-func (w realVolumeHandle) Path() string         { return realVolumePath(w.handle) }
-func (w realVolumeHandle) Kind() VolumeKind     { return volumeKindFrom(realVolumeKind(w.handle)) }
-func (w realVolumeHandle) CreatedAt() time.Time { return realVolumeCreatedAt(w.handle) }
-func (w realVolumeHandle) QuotaMiB() *uint32    { return realVolumeQuotaMiB(w.handle) }
-func (w realVolumeHandle) UsedBytes() uint64    { return realVolumeUsedBytes(w.handle) }
-func (w realVolumeHandle) CapacityBytes() *uint64 {
-	return realVolumeCapacityBytes(w.handle)
+// volumeHandleFrom resolves the Info observation the synchronous handle needs
+// and wraps the volume.
+func volumeHandleFrom(ctx context.Context, volume *msbSdk.Volume) (realVolumeHandle, error) {
+	info, err := realVolumeInfo(volume, ctx)
+	if err != nil {
+		return realVolumeHandle{}, err
+	}
+	return realVolumeHandle{handle: volume, info: info}, nil
 }
-func (w realVolumeHandle) DiskFormat() *string { return realVolumeDiskFormat(w.handle) }
-func (w realVolumeHandle) DiskFstype() *string { return realVolumeDiskFstype(w.handle) }
+
+func (w realVolumeHandle) Name() string     { return realVolumeName(w.handle) }
+func (w realVolumeHandle) Path() string     { return realVolumePath(w.handle) }
+func (w realVolumeHandle) Kind() VolumeKind { return volumeKindFrom(realVolumeKind(w.handle)) }
+func (w realVolumeHandle) CreatedAt() time.Time {
+	if w.info == nil || w.info.CreatedAt == nil {
+		return time.Time{}
+	}
+	return *w.info.CreatedAt
+}
+
+func (w realVolumeHandle) QuotaMiB() *uint32 {
+	if w.info == nil {
+		return nil
+	}
+	return w.info.QuotaMiB
+}
+
+func (w realVolumeHandle) UsedBytes() uint64 {
+	if w.info == nil || w.info.UsedBytes == nil {
+		return 0
+	}
+	return *w.info.UsedBytes
+}
+
+func (w realVolumeHandle) CapacityBytes() *uint64 {
+	if w.info == nil {
+		return nil
+	}
+	return w.info.CapacityBytes
+}
+
+func (w realVolumeHandle) DiskFormat() *string {
+	if w.info == nil {
+		return nil
+	}
+	return w.info.DiskFormat
+}
+
+func (w realVolumeHandle) DiskFstype() *string {
+	if w.info == nil {
+		return nil
+	}
+	return w.info.DiskFstype
+}
+
 func (w realVolumeHandle) Labels() map[string]string {
-	return realVolumeLabels(w.handle)
+	if w.info == nil {
+		return nil
+	}
+	return w.info.Labels
 }

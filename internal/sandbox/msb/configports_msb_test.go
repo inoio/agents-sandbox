@@ -16,9 +16,10 @@ import (
 
 // TestRealHandleConfigPortsRoundTrip proves the read-back contract against the
 // real runtime: a sandbox created with published ports persists them in its
-// config_json under network.ports, the SDK's Config() drops them (the gap
-// specs/vm/live-mount-readback.md records), and ConfigPorts() decodes them back.
-// The mock-based decision tests rely on this shape matching the real one.
+// inspection envelope under spec.network.ports, the launcher's read-back model
+// does not carry them (the gap specs/vm/live-mount-readback.md records), and
+// ConfigPorts() decodes them back. The mock-based decision tests rely on this
+// shape matching the real one.
 func TestRealHandleConfigPortsRoundTrip(t *testing.T) {
 	runtime.EnsureIsolatedRuntime(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
@@ -40,17 +41,17 @@ func TestRealHandleConfigPortsRoundTrip(t *testing.T) {
 		t.Fatalf("CreateSandbox: %v", err)
 	}
 	t.Cleanup(func() {
-		cleanupCtx := context.Background()
-		if handle, err := msbSdk.GetSandbox(cleanupCtx, name); err == nil {
-			_ = handle.Remove(cleanupCtx)
-		}
+		_ = msbSdk.RemoveSandbox(context.Background(), name)
 	})
 
 	raw, err := msbSdk.GetSandbox(ctx, name)
 	if err != nil {
 		t.Fatalf("GetSandbox: %v", err)
 	}
-	handle := realSandboxHandle{handle: raw}
+	handle, err := sandboxHandleFrom(ctx, raw)
+	if err != nil {
+		t.Fatalf("resolve handle: %v", err)
+	}
 
 	dropped, err := handle.Config()
 	if err != nil {
@@ -58,7 +59,7 @@ func TestRealHandleConfigPortsRoundTrip(t *testing.T) {
 	}
 	if len(dropped.PortBindings) != 0 {
 		t.Errorf(
-			"Config().PortBindings = %+v, want none: the SDK decode drops the persisted ports",
+			"Config().PortBindings = %+v, want none: the launcher's read-back model does not carry the persisted ports",
 			dropped.PortBindings,
 		)
 	}

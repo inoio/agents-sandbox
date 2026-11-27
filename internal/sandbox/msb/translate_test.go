@@ -8,6 +8,7 @@ package msb
 // the SDK constructors (Task 2.3).
 
 import (
+	"encoding/json"
 	"reflect"
 	"sort"
 	"strings"
@@ -118,6 +119,36 @@ func TestSDKStructFieldsAreClassified(t *testing.T) {
 			diskCompactionDiskResultProjected,
 			diskCompactionDiskResultNotModeled,
 		},
+		{
+			"SandboxConfigInspection",
+			reflect.TypeFor[msbSdk.SandboxConfigInspection](),
+			sandboxConfigInspectionProjected,
+			sandboxConfigInspectionNotModeled,
+		},
+		{
+			"SandboxInspectionSpec",
+			reflect.TypeFor[msbSdk.SandboxInspectionSpec](),
+			sandboxInspectionSpecProjected,
+			sandboxInspectionSpecNotModeled,
+		},
+		{
+			"SandboxResourceInspection",
+			reflect.TypeFor[msbSdk.SandboxResourceInspection](),
+			sandboxResourceInspectionProjected,
+			sandboxResourceInspectionNotModeled,
+		},
+		{
+			"VolumeInfo",
+			reflect.TypeFor[msbSdk.VolumeInfo](),
+			volumeInfoProjected,
+			volumeInfoNotModeled,
+		},
+		{
+			"SandboxInfo",
+			reflect.TypeFor[msbSdk.SandboxInfo](),
+			sandboxInfoProjected,
+			sandboxInfoNotModeled,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -203,13 +234,13 @@ func TestSandboxStatusFromTranslatesValues(t *testing.T) {
 
 func TestBackendKindFromTranslatesValues(t *testing.T) {
 	tests := []struct {
-		in   msbSdk.BackendKind
+		in   msbSdk.ContextKind
 		want BackendKind
 	}{
-		{msbSdk.BackendLocal, BackendLocal},
-		{msbSdk.BackendCloud, BackendCloud},
-		{msbSdk.BackendUnknown, BackendUnknown},
-		{msbSdk.BackendKind(""), BackendKind("")},
+		{msbSdk.ContextLocal, BackendLocal},
+		{msbSdk.ContextRemote, BackendCloud},
+		{msbSdk.ContextKind(""), BackendKind("")},
+		{msbSdk.ContextKind("future-backend"), BackendKind("future-backend")},
 	}
 	for _, tt := range tests {
 		if got := backendKindFrom(tt.in); got != tt.want {
@@ -554,7 +585,7 @@ func TestJobLogOptionsProjectQuery(t *testing.T) {
 		Tail:       &tail,
 		Since:      &since,
 		Until:      &until,
-		Sources:    []string{"stdout", "system"},
+		Sources:    []msbSdk.JobOutputSource{msbSdk.JobOutputStdout, msbSdk.JobOutputSource("system")},
 		FromCursor: "abc",
 		Follow:     true,
 	}
@@ -1292,25 +1323,21 @@ func TestVolumeOptionsProjectKind(t *testing.T) {
 }
 
 func TestSandboxConfigFromProjectsFields(t *testing.T) {
-	owner := &msbSdk.MountOwner{UID: 1000, GID: 1000}
-	rootDisk := msbSdk.RootDisk.Managed(16384)
-	config := sandboxConfigFrom(&msbSdk.SandboxConfig{
-		Image:        "img:1",
-		Labels:       map[string]string{"k": "v"},
-		CPUs:         2,
-		MaxCPUs:      4,
-		MemoryMiB:    1024,
-		MaxMemoryMiB: 2048,
-		RootDisk:     &rootDisk,
-		Volumes: map[string]msbSdk.MountConfig{
-			"/data": msbSdk.Mount.Bind("/host", msbSdk.MountOptions{Readonly: true, Owner: owner}),
+	cpus := uint8(2)
+	maxCPUs := uint8(4)
+	maxMemoryMiB := uint32(2048)
+	config := sandboxConfigFrom(&msbSdk.SandboxConfigInspection{
+		Kind: "local",
+		Spec: msbSdk.SandboxInspectionSpec{
+			Image:  json.RawMessage(`{"Oci":{"reference":"img:1","root_disk":{"kind":"managed","size_mib":16384}}}`),
+			Labels: map[string]string{"k": "v"},
+			Resources: msbSdk.SandboxResourceInspection{
+				CPUs:         &cpus,
+				MaxCPUs:      &maxCPUs,
+				MemoryMiB:    1024,
+				MaxMemoryMiB: &maxMemoryMiB,
+			},
 		},
-		PortBindings: []msbSdk.PortBinding{{
-			Bind:      "127.0.0.1",
-			HostPort:  3000,
-			GuestPort: 8080,
-			Protocol:  msbSdk.PortProtocolTCP,
-		}},
 	})
 	if config == nil {
 		t.Fatal("sandboxConfigFrom() = nil, want a config")
@@ -1325,16 +1352,22 @@ func TestSandboxConfigFromProjectsFields(t *testing.T) {
 	if config.RootDisk == nil || config.RootDisk.SizeMiB != 16384 {
 		t.Errorf("RootDisk = %+v, want 16384 MiB", config.RootDisk)
 	}
-	mount, ok := config.Volumes["/data"]
-	if !ok || mount.Kind != MountKindBind || mount.Bind != "/host" || !mount.Readonly {
-		t.Errorf("Volumes[/data] = %+v, want a readonly bind of /host", mount)
+}
+
+func TestSandboxConfigFromUnavailableResourcesAreZero(t *testing.T) {
+	config := sandboxConfigFrom(&msbSdk.SandboxConfigInspection{
+		Spec: msbSdk.SandboxInspectionSpec{
+			Image: json.RawMessage(`{"Oci":{"reference":"img:1"}}`),
+		},
+	})
+	if config == nil {
+		t.Fatal("sandboxConfigFrom() = nil, want a config")
 	}
-	if mount.Owner == nil || mount.Owner.UID != 1000 || mount.Owner.GID != 1000 {
-		t.Errorf("Volumes[/data].Owner = %+v, want the projected owner", mount.Owner)
+	if config.CPUs != 0 || config.MaxCPUs != 0 || config.MaxMemoryMiB != 0 {
+		t.Errorf("sandboxConfigFrom() = %+v, want zero for unavailable resources", config)
 	}
-	if len(config.PortBindings) != 1 || config.PortBindings[0].HostPort != 3000 ||
-		config.PortBindings[0].GuestPort != 8080 || config.PortBindings[0].Protocol != PortProtocolTCP {
-		t.Errorf("PortBindings = %+v, want 127.0.0.1:3000 → 8080/tcp", config.PortBindings)
+	if config.RootDisk != nil {
+		t.Errorf("RootDisk = %+v, want nil when the source records none", config.RootDisk)
 	}
 }
 
@@ -1344,39 +1377,60 @@ func TestSandboxConfigFromNilIsNil(t *testing.T) {
 	}
 }
 
-func TestMountConfigFromProjectsKindAndFields(t *testing.T) {
-	bind := mountConfigFrom(msbSdk.Mount.Bind("/host", msbSdk.MountOptions{
-		Readonly: true,
-		Noexec:   true,
-		QuotaMiB: 128,
-	}))
-	if bind.Kind != MountKindBind || bind.Bind != "/host" || !bind.Readonly || !bind.Noexec || bind.QuotaMiB != 128 {
-		t.Errorf("mountConfigFrom(bind) = %+v, want a readonly noexec bind with a 128 MiB quota", bind)
+// TestDecodeInspectionRootfs covers the persisted RootfsSource forms the
+// inspection reports: a tagged OCI source (with and without a root disk), a bind
+// or disk-image path, a plain string, and the empty and malformed shapes a
+// read-back must tolerate.
+func TestDecodeInspectionRootfs(t *testing.T) {
+	tests := []struct {
+		name         string
+		raw          string
+		wantImage    string
+		wantSizeMiB  uint32
+		wantRootDisk bool
+	}{
+		{
+			name:         "oci with managed root disk",
+			raw:          `{"Oci":{"reference":"alpine:3.19","root_disk":{"kind":"managed","size_mib":8192}}}`,
+			wantImage:    "alpine:3.19",
+			wantSizeMiB:  8192,
+			wantRootDisk: true,
+		},
+		{
+			name:      "oci without root disk",
+			raw:       `{"Oci":{"reference":"alpine:3.19"}}`,
+			wantImage: "alpine:3.19",
+		},
+		{
+			name:         "oci with an unsized managed root disk",
+			raw:          `{"Oci":{"reference":"alpine:3.19","root_disk":{"kind":"managed"}}}`,
+			wantImage:    "alpine:3.19",
+			wantRootDisk: true,
+		},
+		{name: "bind", raw: `{"Bind":{"path":"/host/root"}}`, wantImage: "/host/root"},
+		{name: "disk image", raw: `{"DiskImage":{"path":"/host/disk.raw"}}`, wantImage: "/host/disk.raw"},
+		{name: "plain string", raw: `"alpine:3.19"`, wantImage: "alpine:3.19"},
+		{name: "null", raw: `null`},
+		{name: "empty"},
+		{name: "malformed", raw: `{`},
+		{name: "unknown variant", raw: `{"Future":{"reference":"x"}}`},
+		{name: "oci not an object", raw: `{"Oci":5}`},
+		{name: "bind not an object", raw: `{"Bind":5}`},
+		{name: "disk image not an object", raw: `{"DiskImage":5}`},
 	}
-	if got := mountConfigFrom(msbSdk.MountConfig{}).Kind; got != 0 {
-		t.Errorf("mountConfigFrom(zero).Kind = %v, want 0", got)
-	}
-}
-
-func TestMountConfigsFromPreservesNil(t *testing.T) {
-	if got := mountConfigsFrom(nil); got != nil {
-		t.Errorf("mountConfigsFrom(nil) = %v, want nil", got)
-	}
-}
-
-func TestPortBindingsFromPreservesNilAndFields(t *testing.T) {
-	if got := portBindingsFrom(nil); got != nil {
-		t.Errorf("portBindingsFrom(nil) = %v, want nil", got)
-	}
-	got := portBindingsFrom([]msbSdk.PortBinding{{
-		Bind:      "127.0.0.1",
-		HostPort:  3000,
-		GuestPort: 8080,
-		Protocol:  msbSdk.PortProtocolUDP,
-	}})
-	if len(got) != 1 || got[0].Bind != "127.0.0.1" || got[0].HostPort != 3000 ||
-		got[0].GuestPort != 8080 || got[0].Protocol != PortProtocolUDP {
-		t.Errorf("portBindingsFrom() = %+v, want every field projected", got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			image, rootDisk := decodeInspectionRootfs(json.RawMessage(tt.raw))
+			if image != tt.wantImage {
+				t.Errorf("image = %q, want %q", image, tt.wantImage)
+			}
+			if (rootDisk != nil) != tt.wantRootDisk {
+				t.Fatalf("rootDisk = %+v, want present=%v", rootDisk, tt.wantRootDisk)
+			}
+			if rootDisk != nil && rootDisk.SizeMiB != tt.wantSizeMiB {
+				t.Errorf("rootDisk.SizeMiB = %d, want %d", rootDisk.SizeMiB, tt.wantSizeMiB)
+			}
+		})
 	}
 }
 

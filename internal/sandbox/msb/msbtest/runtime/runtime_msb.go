@@ -187,8 +187,8 @@ func listSandboxesForSweep(ctx context.Context, cursor *string) ([]sweepSandbox,
 	return sandboxes, page.NextCursor, nil
 }
 
-// sdkSweepSandbox adapts a *msbSdk.SandboxHandle to sweepSandbox.
-type sdkSweepSandbox struct{ handle *msbSdk.SandboxHandle }
+// sdkSweepSandbox adapts a *msbSdk.Sandbox to sweepSandbox.
+type sdkSweepSandbox struct{ handle *msbSdk.Sandbox }
 
 func (s sdkSweepSandbox) Name() string { return s.handle.Name() }
 

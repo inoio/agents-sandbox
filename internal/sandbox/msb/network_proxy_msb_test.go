@@ -63,7 +63,9 @@ func TestRealOutboundProxyTraversal(t *testing.T) {
 	// normalization that dropped the proxy from it would not mean the
 	// composition contract failed.
 	if handle, err := msbSdk.GetSandbox(ctx, sandboxName); err == nil {
-		t.Logf("sandbox config: %s", handle.ConfigJSON())
+		if raw, configErr := handle.ConfigJSON(ctx); configErr == nil {
+			t.Logf("sandbox config: %s", raw)
+		}
 	} else {
 		t.Logf("GetSandbox(%q) for the config diagnostic: %v", sandboxName, err)
 	}

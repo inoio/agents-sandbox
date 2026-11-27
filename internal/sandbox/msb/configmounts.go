@@ -7,13 +7,14 @@ import (
 	"strings"
 )
 
-// persistedConfigMounts mirrors the `mounts` array of a persisted sandbox
-// config. The runtime stores a SandboxSpec whose mounts are an internally tagged
-// VolumeMount array, while the Go SDK's SandboxConfig.UnmarshalJSON drops them:
-// Config().Volumes is empty on every read-back. See
+// persistedConfigMounts mirrors the inspection envelope's `spec.mounts` array.
+// The native inspection returns the persisted `SandboxSpec` under `spec`, whose
+// mounts are an internally tagged VolumeMount array. See
 // .operator-shared/specs/vm/live-mount-readback.md.
 type persistedConfigMounts struct {
-	Mounts []persistedMount `json:"mounts"`
+	Spec struct {
+		Mounts []persistedMount `json:"mounts"`
+	} `json:"spec"`
 }
 
 // persistedMount is one entry of that array. Only mounts are read back, so a
@@ -91,8 +92,8 @@ func ParseConfigMounts(configJSON string) (map[string]MountConfig, error) {
 		return nil, fmt.Errorf("parsing persisted sandbox config: %w", err)
 	}
 
-	parsed := make(map[string]MountConfig, len(persisted.Mounts))
-	for _, entry := range persisted.Mounts {
+	parsed := make(map[string]MountConfig, len(persisted.Spec.Mounts))
+	for _, entry := range persisted.Spec.Mounts {
 		mount, err := entry.mountConfig()
 		if errors.Is(err, errUnknownMountType) {
 			continue
