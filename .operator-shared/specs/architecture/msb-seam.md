@@ -100,6 +100,11 @@ the lookup.
 branch on them rather than on SDK kinds. `IsJobNotRunning` is the one class the SDK does not type: it
 matches `*msbJobError.Code == "job_not_running"`, an upstream gap to revisit if the SDK gains a kind.
 
+**Unknown values.** An inspection field the provider marks `Unavailable`/`Redacted`, or that the
+adapter cannot decode, projects as the launcher zero value / nil; consumers treat that as "unknown"
+(`cfg.Image != ""`, `cfg.MaxMemoryMiB > 0`, `cfg.RootDisk != nil`). The `Unavailable`/`Redacted`
+lists themselves are not surfaced.
+
 ## Upstream sync guards
 
 The launcher types are a curated projection of the SDK, kept honest by three guards:
