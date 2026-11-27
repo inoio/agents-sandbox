@@ -300,7 +300,9 @@ func TestRunServeOnlyBlocksUntilCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	got := make(chan error, 1)
 	ui := &termiotest.Mock{}
-	go func() { got <- runServeOnly(ctx, opencodeResolved(t), sb, ui, 4096, true) }()
+	go func() {
+		got <- runServeOnly(ctx, opencodeResolved(t), sb, ui, 4096, options.DefaultVMIdleTimeout, true)
+	}()
 	cancel()
 	select {
 	case err := <-got:
@@ -1640,6 +1642,7 @@ func TestWithClientSessionHandsResolvedAgentToBody(t *testing.T) {
 		state.Key{Slug: "withsessionagent", Agent: "opencode"},
 		&msbtest.MockSandbox{Name_: "test-vm"},
 		options.ReapPolicy{AutoStopOnActiveSessions: true},
+		options.DefaultVMIdleTimeout,
 		ui,
 		alwaysReap,
 		opencodeResolved(t),
@@ -1677,6 +1680,7 @@ func TestWithClientSessionReleasesLeaseBeforeReaping(t *testing.T) {
 		k,
 		sb,
 		options.ReapPolicy{},
+		options.DefaultVMIdleTimeout,
 		ui,
 		alwaysReap,
 		opencodeResolved(t),
@@ -1718,6 +1722,7 @@ func TestWithClientSessionReturnsBodyErrorAfterReaping(t *testing.T) {
 		k,
 		sb,
 		options.ReapPolicy{},
+		options.DefaultVMIdleTimeout,
 		ui,
 		alwaysReap,
 		opencodeResolved(t),
@@ -1756,6 +1761,7 @@ func TestWithClientSessionLeaseFailureStillRunsBody(t *testing.T) {
 		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{AutoStopOnActiveSessions: true},
+		options.DefaultVMIdleTimeout,
 		ui,
 		alwaysReap,
 		opencodeResolved(t),
@@ -1804,6 +1810,7 @@ func TestWithClientSessionReleasesLeaseOnPanic(t *testing.T) {
 			k,
 			&msbtest.MockSandbox{Name_: "test-vm"},
 			options.ReapPolicy{AutoStopOnActiveSessions: true},
+			options.DefaultVMIdleTimeout,
 			ui,
 			alwaysReap,
 			opencodeResolved(t),
@@ -1860,7 +1867,18 @@ func TestRunServeOnlySessionSkipsReapOnNonCanceledError(t *testing.T) {
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(50*time.Millisecond))
 	defer cancel()
 
-	err := runServeOnlySession(ctx, opencodeResolved(t), k, sb, options.ReapPolicy{}, ui, 4096, false, true)
+	err := runServeOnlySession(
+		ctx,
+		opencodeResolved(t),
+		k,
+		sb,
+		options.ReapPolicy{},
+		ui,
+		4096,
+		options.DefaultVMIdleTimeout,
+		false,
+		true,
+	)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("runServeOnlySession = %v, want context.DeadlineExceeded", err)
 	}
@@ -2758,5 +2776,24 @@ func TestShellPostAttachOffer(t *testing.T) {
 	}
 	if selects != 1 {
 		t.Fatalf("Select called %d times from Shell, want 1", selects)
+	}
+}
+
+// TestRunServeOnlyPassesIdleTimeoutToKeeper pins that serve-only derives the
+// keeper interval from the configured idle timeout.
+func TestRunServeOnlyPassesIdleTimeoutToKeeper(t *testing.T) {
+	got := make(chan time.Duration, 1)
+	orig := keepVMAlive
+	keepVMAlive = func(_ context.Context, _ msb.SandboxActivity, idleTimeout time.Duration) func() error {
+		got <- idleTimeout
+		return func() error { return nil }
+	}
+	defer func() { keepVMAlive = orig }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_ = runServeOnly(ctx, opencodeResolved(t), &msbtest.MockSandbox{}, &termiotest.Mock{}, 4096, 90*time.Second, false)
+	if d := <-got; d != 90*time.Second {
+		t.Errorf("keeper idle timeout = %v, want 90s", d)
 	}
 }

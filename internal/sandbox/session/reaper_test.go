@@ -5,6 +5,7 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,6 +19,27 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
+
+// reattachSandbox drives the reattach from the second status poll; embedding
+// MockSandbox supplies the composite (including Touch), and the Shell override
+// keeps the stateful poll counter a plain MockSandbox cannot express.
+type reattachSandbox struct {
+	*msbtest.MockSandbox
+
+	statusPolls  int
+	releaseLease func()
+}
+
+func (s *reattachSandbox) Shell(_ context.Context, command string, _ msb.ExecRequest) (msb.ShellResult, error) {
+	if command != "curl -sf http://127.0.0.1:4096/session/status" {
+		return msbtest.NewTestResult(false, 1, "", "", nil), nil
+	}
+	s.statusPolls++
+	if s.statusPolls == 2 {
+		s.releaseLease, _ = state.AcquireClientLease(state.Key{Slug: "reattachproj", Agent: "opencode"})
+	}
+	return msbtest.NewTestResult(true, 0, `{"s1":{"type":"busy","attempt":0}}`, "", nil), nil
+}
 
 func TestReapOnLastClient_ClientReattachesDuringWait(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
@@ -33,28 +55,12 @@ func TestReapOnLastClient_ClientReattachesDuringWait(t *testing.T) {
 	// The second session-status poll reattaches a client, so the next poll's
 	// client check aborts the reaper. Driving the reattach from the poll replaces
 	// the sleep that only guessed which poll would see it.
-	var statusPolls int
-	var releaseLease func()
+	sb := &reattachSandbox{MockSandbox: &msbtest.MockSandbox{Name_: "test-vm"}}
 	t.Cleanup(func() {
-		if releaseLease != nil {
-			releaseLease()
+		if sb.releaseLease != nil {
+			sb.releaseLease()
 		}
 	})
-	sb := &msbtest.MockSandboxExecutor{
-		ExecFn: func(context.Context, string, []string, msb.ExecRequest) (msb.ShellResult, error) {
-			return msbtest.NewTestResult(true, 0, "", "", nil), nil
-		},
-		ShellFn: func(_ context.Context, command string, _ msb.ExecRequest) (msb.ShellResult, error) {
-			if command != "curl -sf http://127.0.0.1:4096/session/status" {
-				return msbtest.NewTestResult(false, 1, "", "", nil), nil
-			}
-			statusPolls++
-			if statusPolls == 2 {
-				releaseLease, _ = state.AcquireClientLease(leaseKey)
-			}
-			return msbtest.NewTestResult(true, 0, `{"s1":{"type":"busy","attempt":0}}`, "", nil), nil
-		},
-	}
 
 	err := reapOnLastClient(
 		context.Background(),
@@ -62,6 +68,7 @@ func TestReapOnLastClient_ClientReattachesDuringWait(t *testing.T) {
 		leaseKey,
 		sb,
 		options.ReapPolicy{},
+		options.DefaultVMIdleTimeout,
 		ui,
 	)
 	if err != nil {
@@ -97,6 +104,7 @@ func TestReapOnLastClient_NoOpWhenOtherClientsActive(t *testing.T) {
 		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
+		options.DefaultVMIdleTimeout,
 		ui,
 	)
 	if err != nil {
@@ -137,6 +145,7 @@ func TestReapOnLastClient_ClientLeaseHeld_NoReap(t *testing.T) {
 		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
+		options.DefaultVMIdleTimeout,
 		ui,
 	)
 	if err != nil {
@@ -158,6 +167,7 @@ func TestReapOnLastClient_AutoStopOnActiveSessions_ReturnsImmediately(t *testing
 		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{AutoStopOnActiveSessions: true},
+		options.DefaultVMIdleTimeout,
 		ui,
 	)
 	if err != nil {
@@ -208,6 +218,7 @@ func TestReapOnLastClient_WaitMode_IdleFromStart(t *testing.T) {
 		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
+		options.DefaultVMIdleTimeout,
 		ui,
 	)
 	if err != nil {
@@ -235,6 +246,7 @@ func TestReapOnLastClient_WaitMode_EmptyStatus(t *testing.T) {
 		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
+		options.DefaultVMIdleTimeout,
 		ui,
 	)
 	if err != nil {
@@ -272,6 +284,7 @@ func TestReapOnLastClient_WaitMode_RetryBelowCapKeepsWaiting(t *testing.T) {
 		state.Key{Slug: "retrybelowproj", Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
+		options.DefaultVMIdleTimeout,
 		ui,
 	)
 	if !errors.Is(err, context.DeadlineExceeded) {
@@ -321,6 +334,7 @@ func TestReapOnLastClient_WaitMode_RetryAtOrOverCapReaps(t *testing.T) {
 				state.Key{Slug: "retrycapproj", Agent: "opencode"},
 				sb,
 				options.ReapPolicy{},
+				options.DefaultVMIdleTimeout,
 				ui,
 			)
 			if err != nil {
@@ -359,6 +373,7 @@ func TestReapOnLastClient_ContextCancelled(t *testing.T) {
 		state.Key{Slug: "ctxproj", Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
+		options.DefaultVMIdleTimeout,
 		ui,
 	)
 	if err == nil {
@@ -390,6 +405,7 @@ func TestReapOnLastClient_WaitMode_BusyWithQuestionReaps(t *testing.T) {
 		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
+		options.DefaultVMIdleTimeout,
 		ui,
 	)
 	if err != nil {
@@ -422,6 +438,7 @@ func TestReapOnLastClient_WaitMode_BusyWithQuestionErrorKeepsPolling(t *testing.
 		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
+		options.DefaultVMIdleTimeout,
 		ui,
 	)
 	if err == nil {
@@ -454,6 +471,7 @@ func TestReapOnLastClient_NilSandbox_AllModes(t *testing.T) {
 				state.Key{Slug: "nilproj", Agent: "opencode"},
 				nil,
 				tt.policy,
+				options.DefaultVMIdleTimeout,
 				ui,
 			)
 			if err != nil {
@@ -476,6 +494,7 @@ func TestReapOnLastClient_NoSessionStatusProvider_SkipsWait(t *testing.T) {
 		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
+		options.DefaultVMIdleTimeout,
 		ui,
 	)
 	if err != nil {
@@ -521,6 +540,7 @@ func TestReapDoesNotFailSuccessfulAttach(t *testing.T) {
 		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
+		options.DefaultVMIdleTimeout,
 		ui,
 	)
 	if err != nil {
@@ -545,6 +565,7 @@ func TestReapOnLastClientSkipsNonDaemonAgent(t *testing.T) {
 		state.Key{Slug: "slug", Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
+		options.DefaultVMIdleTimeout,
 		ui,
 	); err != nil {
 		t.Fatalf("reapOnLastClient = %v, want nil for agent without session-status endpoints", err)
@@ -575,6 +596,7 @@ func TestReapOnLastClient_CanceledContextStillWarns(t *testing.T) {
 		state.Key{Slug: "canceledprobe", Agent: "opencode"},
 		sb,
 		options.ReapPolicy{AutoStopOnActiveSessions: true},
+		options.DefaultVMIdleTimeout,
 		ui,
 	)
 	if err != nil {
@@ -605,6 +627,7 @@ func TestReapOnLastClient_WarnsWhenContainersRunning(t *testing.T) {
 		state.Key{Slug: "dockerwarnproj", Agent: "opencode"},
 		sb,
 		options.ReapPolicy{AutoStopOnActiveSessions: true},
+		options.DefaultVMIdleTimeout,
 		ui,
 	)
 	if err != nil {
@@ -636,6 +659,7 @@ func TestReapOnLastClient_WarnsWhenContainersRunningWithoutAutoStop(t *testing.T
 		state.Key{Slug: "dockerwarnholdproj", Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
+		options.DefaultVMIdleTimeout,
 		ui,
 	)
 	if err != nil {
@@ -664,6 +688,7 @@ func TestReapOnLastClient_ProbesRegardlessOfDockerSetting(t *testing.T) {
 		state.Key{Slug: "nodockerproj", Agent: "opencode"},
 		sb,
 		options.ReapPolicy{AutoStopOnActiveSessions: true},
+		options.DefaultVMIdleTimeout,
 		ui,
 	)
 	if err != nil {
@@ -690,6 +715,7 @@ func TestReapOnLastClient_NoContainerProbeWhenSandboxNil(t *testing.T) {
 		state.Key{Slug: "nilsandboxproj", Agent: "opencode"},
 		nil,
 		options.ReapPolicy{AutoStopOnActiveSessions: true},
+		options.DefaultVMIdleTimeout,
 		ui,
 	)
 	if err != nil {
@@ -725,6 +751,7 @@ func TestReapOnLastClient_SandboxReplacedOrGoneStopsWaiting(t *testing.T) {
 				state.Key{Slug: "replacedproj-" + tc.name, Agent: "opencode"},
 				sb,
 				options.ReapPolicy{},
+				options.DefaultVMIdleTimeout,
 				ui,
 			)
 			if err != nil {
@@ -1140,56 +1167,88 @@ func checkQuiescence(t *testing.T, name string, busy int, retry retryState, want
 	}
 }
 
-// blockingExecSandbox runs Exec until its context is cancelled and the test
-// releases it, so a test can hold the command open after cancellation.
-type blockingExecSandbox struct {
-	msb.Sandbox
-
-	cancelled chan struct{}
-	release   chan struct{}
+// touchRecorder is a SandboxActivity double that counts touches. The count is
+// atomic: the keeper touches from its own goroutine while the test reads it.
+type touchRecorder struct {
+	touches atomic.Int32
+	err     error
 }
 
-func (s *blockingExecSandbox) Exec(
-	ctx context.Context,
-	_ string,
-	_ []string,
-	_ msb.ExecRequest,
-) (msb.ShellResult, error) {
-	<-ctx.Done()
-	close(s.cancelled)
-	<-s.release
-	return nil, ctx.Err()
+func (r *touchRecorder) Touch(context.Context) error {
+	r.touches.Add(1)
+	return r.err
 }
 
-// TestKeepVMAliveStopEndsTheKeeper pins that stopping the keep-alive cancels
-// its command and blocks until that command has ended.
-func TestKeepVMAliveStopEndsTheKeeper(t *testing.T) {
-	sb := &blockingExecSandbox{
-		Sandbox:   msbtest.NewMockSandbox(msbtest.SandboxOpts{}),
-		cancelled: make(chan struct{}),
-		release:   make(chan struct{}),
+// TestKeeperIntervalClamps pins the keeper cadence: half the idle timeout,
+// floored at 1s and capped at 2s so a stale run-level derivation cannot outrun
+// a reused VM's live timer.
+func TestKeeperIntervalClamps(t *testing.T) {
+	for _, tc := range []struct {
+		idle, want time.Duration
+	}{
+		{0, keeperMinInterval},
+		{1 * time.Second, keeperMinInterval},
+		{2 * time.Second, keeperMinInterval},
+		{4 * time.Second, keeperMaxInterval},
+		{10 * time.Second, keeperMaxInterval},
+		{10 * time.Minute, keeperMaxInterval},
+	} {
+		if got := keeperInterval(tc.idle); got != tc.want {
+			t.Errorf("keeperInterval(%v) = %v, want %v", tc.idle, got, tc.want)
+		}
 	}
-	stop := keepVMAlive(context.Background(), sb)
-	stopped := make(chan struct{})
-	go func() {
-		_ = stop()
-		close(stopped)
-	}()
-	select {
-	case <-sb.cancelled:
-	case <-time.After(2 * time.Second):
-		t.Fatal("stop() did not cancel the keeper command")
+}
+
+// TestKeepVMAliveTouchesUntilStopped pins that the real keeper touches the VM
+// and stops touching once released.
+func TestKeepVMAliveTouchesUntilStopped(t *testing.T) {
+	restore := swapKeeperInterval(t, time.Millisecond)
+	defer restore()
+
+	sb := &touchRecorder{}
+	stop := keepVMAlive(context.Background(), sb, options.DefaultVMIdleTimeout)
+	touched := false
+	for range 50 {
+		if sb.touches.Load() > 0 {
+			touched = true
+			break
+		}
+		time.Sleep(time.Millisecond)
 	}
-	select {
-	case <-stopped:
-		t.Fatal("stop() returned while the keeper command was still running")
-	case <-time.After(50 * time.Millisecond):
+	if !touched {
+		t.Fatal("keepVMAlive never touched the VM")
 	}
-	close(sb.release)
-	select {
-	case <-stopped:
-	case <-time.After(2 * time.Second):
-		t.Fatal("stop() did not return after the keeper command ended")
+	if err := stop(); err != nil {
+		t.Fatalf("stop() = %v, want nil after successful touches", err)
+	}
+	before := sb.touches.Load()
+	time.Sleep(5 * time.Millisecond)
+	if got := sb.touches.Load(); got != before {
+		t.Errorf("keeper touched %d more times after stop()", got-before)
+	}
+}
+
+// TestKeepVMAliveReturnsLastTouchError pins the observability contract: a
+// failing touch is tolerated (the loop keeps going) and the last error is
+// returned by the stop func.
+func TestKeepVMAliveReturnsLastTouchError(t *testing.T) {
+	restore := swapKeeperInterval(t, time.Millisecond)
+	defer restore()
+
+	boom := errors.New("touch boom")
+	sb := &touchRecorder{err: boom}
+	stop := keepVMAlive(context.Background(), sb, options.DefaultVMIdleTimeout)
+	for range 50 {
+		if sb.touches.Load() >= 2 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if sb.touches.Load() < 2 {
+		t.Fatalf("keeper stopped after one touch (%d), want it to tolerate the error and keep going", sb.touches.Load())
+	}
+	if err := stop(); !errors.Is(err, boom) {
+		t.Errorf("stop() = %v, want %v", err, boom)
 	}
 }
 
@@ -1209,11 +1268,84 @@ func TestReapOnLastClient_IdleSessionsSkipTheQuestionPoll(t *testing.T) {
 		},
 	}
 	err := reapOnLastClient(context.Background(), opencodeResolved(t), state.Key{Slug: "idleq", Agent: "opencode"}, sb,
-		options.ReapPolicy{}, &termiotest.Mock{})
+		options.ReapPolicy{}, options.DefaultVMIdleTimeout, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("reapOnLastClient: %v", err)
 	}
 	if slices.Contains(shellCalls, "curl -sf http://127.0.0.1:4096/question") {
 		t.Errorf("question list polled with no busy session: %v", shellCalls)
 	}
+}
+
+// TestReapOnLastClientPassesIdleTimeoutToKeeper pins that the reaper hands the
+// effective idle timeout to the keeper (so the interval is derived, not fixed).
+func TestReapOnLastClientPassesIdleTimeoutToKeeper(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	got := make(chan time.Duration, 1)
+	origKeeper := keepVMAlive
+	keepVMAlive = func(_ context.Context, _ msb.SandboxActivity, idleTimeout time.Duration) func() error {
+		got <- idleTimeout
+		return func() error { return nil }
+	}
+	defer func() { keepVMAlive = origKeeper }()
+
+	sb := &msbtest.MockSandbox{Name_: "test-vm", ShellOut: map[string]msb.ShellResult{
+		"curl -sf http://127.0.0.1:4096/session/status": msbtest.NewTestResult(true, 0, `{}`, "", nil),
+	}}
+	if err := reapOnLastClient(
+		context.Background(),
+		opencodeResolved(t),
+		state.Key{
+			Slug:  "idlek",
+			Agent: "opencode",
+		},
+		sb,
+		options.ReapPolicy{},
+		45*time.Second,
+		&termiotest.Mock{},
+	); err != nil {
+		t.Fatalf("reapOnLastClient: %v", err)
+	}
+	if d := <-got; d != 45*time.Second {
+		t.Errorf("keeper idle timeout = %v, want 45s", d)
+	}
+}
+
+// TestWaitQuiescentLogsKeeperError pins that the reaper logs a keeper that
+// returned an error, so a keepalive that stopped working is visible.
+func TestWaitQuiescentLogsKeeperError(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	boom := errors.New("touch boom")
+	orig := keepVMAlive
+	keepVMAlive = func(context.Context, msb.SandboxActivity, time.Duration) func() error {
+		return func() error { return boom }
+	}
+	defer func() { keepVMAlive = orig }()
+
+	ui := &termiotest.Mock{}
+	sb := &msbtest.MockSandbox{Name_: "test-vm", ShellOut: map[string]msb.ShellResult{
+		"curl -sf http://127.0.0.1:4096/session/status": msbtest.NewTestResult(true, 0, `{}`, "", nil),
+	}}
+	err := reapOnLastClient(context.Background(), opencodeResolved(t),
+		state.Key{Slug: "logkeeper", Agent: "opencode"}, sb, options.ReapPolicy{}, options.DefaultVMIdleTimeout, ui)
+	if err != nil {
+		t.Fatalf("reapOnLastClient: %v", err)
+	}
+	found := false
+	for _, v := range ui.VerboseCalls {
+		if strings.Contains(v, "touch boom") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("keeper error not logged; verbose = %v", ui.VerboseCalls)
+	}
+}
+
+// swapKeeperInterval lowers the keeper cadence for a test and restores it.
+func swapKeeperInterval(t *testing.T, d time.Duration) func() {
+	t.Helper()
+	orig := keeperInterval
+	keeperInterval = func(time.Duration) time.Duration { return d }
+	return func() { keeperInterval = orig }
 }
