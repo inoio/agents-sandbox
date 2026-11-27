@@ -159,16 +159,25 @@ func (realMsbClient) CreateVolume(ctx context.Context, name string, spec VolumeS
 	}
 	handle, err := getVolume(ctx, name)
 	if err != nil {
-		// The volume exists now, and the caller never receives a handle to
-		// remove it, so a failed lookup would orphan it. Remove it best-effort,
-		// detached from the caller's cancellation so a cancelled or
-		// deadline-exceeded ctx cannot skip the cleanup.
-		if removeErr := removeVolume(context.WithoutCancel(ctx), name); removeErr != nil {
-			return nil, errors.Join(err, fmt.Errorf("remove orphaned volume %q: %w", name, removeErr))
-		}
-		return nil, err
+		return nil, orphanedVolumeError(ctx, name, err)
 	}
-	return volumeHandleFrom(ctx, handle)
+	volume, err := volumeHandleFrom(ctx, handle)
+	if err != nil {
+		return nil, orphanedVolumeError(ctx, name, err)
+	}
+	return volume, nil
+}
+
+// orphanedVolumeError removes a volume the caller never received a handle to and
+// returns the resolving error. The removal is best-effort and detached from the
+// caller's cancellation, so a cancelled or deadline-exceeded ctx cannot skip it;
+// a removal failure is joined with the resolving error so the orphan is not
+// silently lost.
+func orphanedVolumeError(ctx context.Context, name string, cause error) error {
+	if removeErr := removeVolume(context.WithoutCancel(ctx), name); removeErr != nil {
+		return errors.Join(cause, fmt.Errorf("remove orphaned volume %q: %w", name, removeErr))
+	}
+	return cause
 }
 
 func (realMsbClient) ListVolumes(ctx context.Context) ([]VolumeHandle, error) {

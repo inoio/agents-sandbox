@@ -2,6 +2,7 @@ package msb
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -33,6 +34,37 @@ func TestAttachEndedAbnormally(t *testing.T) {
 	}
 }
 
+// TestSandboxHandleFromCapturesObservations pins the success path: a resolved
+// handle carries the identity and the decoded config observation, so its image
+// reads back rather than being dropped as unreadable.
+func TestSandboxHandleFromCapturesObservations(t *testing.T) {
+	swapSeam(
+		t,
+		&realSandboxHandleInfo,
+		func(*msbSdk.Sandbox, context.Context) (*msbSdk.SandboxInfo, error) {
+			return &msbSdk.SandboxInfo{Status: msbSdk.SandboxStatusRunning}, nil
+		},
+	)
+	swapSeam(
+		t,
+		&realSandboxHandleConfigJSON,
+		func(*msbSdk.Sandbox, context.Context) (string, error) {
+			return `{"kind":"local","spec":{"image":{"Oci":{"reference":"alpine:3"}}}}`, nil
+		},
+	)
+
+	handle, err := sandboxHandleFrom(context.Background(), &msbSdk.Sandbox{})
+	if err != nil || handle == nil {
+		t.Fatalf("sandboxHandleFrom() = (%v, %v), want a handle, nil", handle, err)
+	}
+	if handle.config == nil {
+		t.Fatal("sandboxHandleFrom() did not decode the config observation")
+	}
+	if got := handle.Image(); got != "alpine:3" {
+		t.Errorf("Image() = %q, want alpine:3", got)
+	}
+}
+
 // TestSandboxHandleFromPropagatesInfoError pins that a failed identity
 // observation fails the handle resolution rather than yielding a handle whose
 // status and timestamps are silently zero.
@@ -51,17 +83,27 @@ func TestSandboxHandleFromPropagatesInfoError(t *testing.T) {
 	}
 }
 
+// TestSandboxConfigInspectionDecodes pins the success value, and
 // TestSandboxConfigInspectionRejectsInvalidJSON pins that a config observation
-// that is not the inspection envelope is reported, so it is not mistaken for an
-// empty config.
+// that is not the inspection envelope is reported (wrapping the JSON error) so
+// it is not mistaken for an empty config.
+func TestSandboxConfigInspectionDecodes(t *testing.T) {
+	inspection, err := sandboxConfigInspection(`{"kind":"local"}`)
+	if err != nil || inspection == nil {
+		t.Fatalf("sandboxConfigInspection() = (%v, %v), want a value, nil", inspection, err)
+	}
+}
+
 func TestSandboxConfigInspectionRejectsInvalidJSON(t *testing.T) {
-	if _, err := sandboxConfigInspection("not json"); err == nil {
-		t.Fatal("sandboxConfigInspection() error = nil, want a decode error")
+	var syntaxErr *json.SyntaxError
+	if _, err := sandboxConfigInspection("not json"); !errors.As(err, &syntaxErr) {
+		t.Fatalf("sandboxConfigInspection() error = %v, want it to wrap the JSON syntax error", err)
 	}
 }
 
 // TestRealSandboxHandleTimestamps pins that the identity observation's
-// timestamps are forwarded, and that an unavailable observation stays zero.
+// timestamps are forwarded, and that a present observation with an absent
+// timestamp stays zero rather than dereferencing nil.
 func TestRealSandboxHandleTimestamps(t *testing.T) {
 	createdAt := time.Unix(1_700_000_000, 0)
 	updatedAt := time.Unix(1_700_000_100, 0)
@@ -74,5 +116,13 @@ func TestRealSandboxHandleTimestamps(t *testing.T) {
 	}
 	if got := h.UpdatedAt(); !got.Equal(updatedAt) {
 		t.Errorf("UpdatedAt() = %v, want %v", got, updatedAt)
+	}
+
+	absent := realSandboxHandle{handle: &msbSdk.Sandbox{}, info: &msbSdk.SandboxInfo{}}
+	if got := absent.CreatedAt(); !got.IsZero() {
+		t.Errorf("CreatedAt() with no observation timestamp = %v, want zero time", got)
+	}
+	if got := absent.UpdatedAt(); !got.IsZero() {
+		t.Errorf("UpdatedAt() with no observation timestamp = %v, want zero time", got)
 	}
 }

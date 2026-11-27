@@ -373,7 +373,6 @@ func TestRealSandboxHandleOperationsReturnErrors(t *testing.T) {
 	swapSeam(t, &realSandboxHandleKill, func(*msbSdk.Sandbox, context.Context, ...msbSdk.KillOption) error {
 		return cause
 	})
-	swapSeam(t, &realSandboxRemove, func(context.Context, string) error { return cause })
 	swapSeam(t, &realSandboxHandleDestroy, func(*msbSdk.Sandbox, context.Context, ...msbSdk.DestroyOption) error {
 		return cause
 	})
@@ -1069,15 +1068,15 @@ func TestRealSandboxHandleConfigErrorIsSurfaced(t *testing.T) {
 }
 
 func TestRealSandboxHandleAccessors(t *testing.T) {
-	swapSeam(t, &realSandboxName, func(*msbSdk.Sandbox) string { return "" })
-	swapSeam(t, &realSandboxID, func(*msbSdk.Sandbox) string { return "" })
-	swapSeam(t, &realSandboxBackendKind, func(*msbSdk.Sandbox) msbSdk.ContextKind { return "" })
+	swapSeam(t, &realSandboxName, func(*msbSdk.Sandbox) string { return "vm-name" })
+	swapSeam(t, &realSandboxID, func(*msbSdk.Sandbox) string { return "vm-id" })
+	swapSeam(t, &realSandboxBackendKind, func(*msbSdk.Sandbox) msbSdk.ContextKind { return msbSdk.ContextLocal })
 	h := &realSandboxHandle{handle: &msbSdk.Sandbox{}}
-	if got := h.Name(); got != "" {
-		t.Errorf("Name() = %q, want empty", got)
+	if got := h.Name(); got != "vm-name" {
+		t.Errorf("Name() = %q, want vm-name", got)
 	}
-	if got := h.ID(); got != "" {
-		t.Errorf("ID() = %q, want empty", got)
+	if got := h.ID(); got != "vm-id" {
+		t.Errorf("ID() = %q, want vm-id", got)
 	}
 	if got := h.Status(); got != SandboxStatus("") {
 		t.Errorf("Status() = %q, want empty", got)
@@ -1088,8 +1087,8 @@ func TestRealSandboxHandleAccessors(t *testing.T) {
 	if !h.CreatedAt().Equal(time.Time{}) {
 		t.Errorf("CreatedAt() = %v, want zero time", h.CreatedAt())
 	}
-	if got := h.BackendKind(); got != BackendKind("") {
-		t.Errorf("BackendKind() = %q, want empty", got)
+	if got := h.BackendKind(); got != BackendLocal {
+		t.Errorf("BackendKind() = %q, want %q", got, BackendLocal)
 	}
 	if got := h.Image(); got != "" {
 		t.Errorf("Image() = %q, want empty (no config snapshot)", got)
@@ -1208,7 +1207,15 @@ func TestRealSandboxHandleConfigImageConnect(t *testing.T) {
 	})
 
 	t.Run("Image reads empty on a config error", func(t *testing.T) {
-		broken := realSandboxHandle{handle: &msbSdk.Sandbox{}, configErr: errors.New("no config")}
+		broken := realSandboxHandle{
+			handle: &msbSdk.Sandbox{},
+			config: &msbSdk.SandboxConfigInspection{
+				Spec: msbSdk.SandboxInspectionSpec{
+					Image: json.RawMessage(`{"Oci":{"reference":"stale:1"}}`),
+				},
+			},
+			configErr: errors.New("no config"),
+		}
 		if got := broken.Image(); got != "" {
 			t.Fatalf("Image() = %q, want empty on a config error", got)
 		}
@@ -1657,6 +1664,42 @@ func TestCreateVolumeRemovesTheOrphanWhenGetVolumeFails(t *testing.T) {
 
 	if _, err := (&realMsbClient{}).CreateVolume(ctx, "vol", VolumeSpec{}); !errors.Is(err, wantErr) {
 		t.Fatalf("CreateVolume() error = %v, want %v", err, wantErr)
+	}
+	if removedName != "vol" {
+		t.Errorf("removed volume = %q, want %q", removedName, "vol")
+	}
+	if removedCtxErr != nil {
+		t.Errorf("cleanup context err = %v, want a context detached from the caller", removedCtxErr)
+	}
+}
+
+// TestCreateVolumeRemovesTheOrphanWhenInfoFails pins that a volume whose create
+// and lookup succeed but whose Info observation fails is not orphaned: the
+// observation error surfaces and the volume is removed by name, detached from
+// the caller's cancellation, exactly as a failed lookup is.
+func TestCreateVolumeRemovesTheOrphanWhenInfoFails(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	swapSeam(t, &createVolume, func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (*msbSdk.Volume, error) {
+		return &msbSdk.Volume{}, nil
+	})
+	swapSeam(t, &getVolume, func(context.Context, string) (*msbSdk.Volume, error) {
+		cancel() // the run is abandoned before the orphan can be cleaned up
+		return &msbSdk.Volume{}, nil
+	})
+	infoErr := errors.New("info boom")
+	swapSeam(t, &realVolumeInfo, func(*msbSdk.Volume, context.Context) (*msbSdk.VolumeInfo, error) {
+		return nil, infoErr
+	})
+	var removedName string
+	var removedCtxErr error
+	swapSeam(t, &removeVolume, func(cleanupCtx context.Context, name string) error {
+		removedName = name
+		removedCtxErr = cleanupCtx.Err()
+		return nil
+	})
+
+	if _, err := (&realMsbClient{}).CreateVolume(ctx, "vol", VolumeSpec{}); !errors.Is(err, infoErr) {
+		t.Fatalf("CreateVolume() error = %v, want %v", err, infoErr)
 	}
 	if removedName != "vol" {
 		t.Errorf("removed volume = %q, want %q", removedName, "vol")

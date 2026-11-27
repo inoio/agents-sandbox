@@ -189,5 +189,5 @@ files.
   `ConfigMounts`/`ConfigPorts` parsers descend into the inspection's `spec`. The launcher-owned
   interfaces, value types, and the reflection drift register are unchanged in shape, with new registers
   for the inspection, resource, `VolumeInfo` and `SandboxInfo` structs. `Connect` is status-gated so a
-  read of live VM state never starts a stopped VM, and `Remove` uses the SDK's name-based
-  `RemoveSandbox`.
+  read of live VM state never starts a stopped VM, and `Remove` delegates to the resource's
+  identity-bearing `Destroy` so a same-name replacement fails closed.

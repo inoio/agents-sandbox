@@ -260,11 +260,13 @@ func (w realSandboxHandle) Kill(ctx context.Context, opts LifecycleOptions) erro
 	return realSandboxHandleKill(w.handle, ctx, killOptions...)
 }
 
-// Remove deletes the persisted state of a stopped sandbox by name. The SDK's
-// resource-level removal is name-based, so a same-name replacement is guarded
-// by the caller's prior running check rather than by captured identity.
+// Remove deletes a stopped sandbox's persisted state through the retained
+// resource's identity-bearing Destroy, never by bare name: the v0.8 SDK's
+// name-based msbSdk.RemoveSandbox cannot report a same-name replacement, so
+// acting on it would delete a stranger's sandbox
+// (specs/identity/sandbox-identity.md).
 func (w realSandboxHandle) Remove(ctx context.Context) error {
-	return realSandboxRemove(ctx, realSandboxName(w.handle))
+	return w.Destroy(ctx, LifecycleOptions{})
 }
 
 func (w realSandboxHandle) Destroy(ctx context.Context, opts LifecycleOptions) error {
@@ -345,7 +347,6 @@ var (
 	realSandboxHandleDestroy    = (*msbSdk.Sandbox).Destroy
 	realSandboxHandleModify     = (*msbSdk.Sandbox).Modify
 	realSandboxHandleCompact    = (*msbSdk.Sandbox).Compact
-	realSandboxRemove           = msbSdk.RemoveSandbox
 )
 
 // The connect-or-start delegation targets are package-level seams (method
