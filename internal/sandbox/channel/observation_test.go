@@ -113,6 +113,34 @@ func TestRecorderNameTunnelIgnoresAnUnknownTunnel(t *testing.T) {
 	}
 }
 
+func TestRecorderNameTunnelIgnoresUnusableNames(t *testing.T) {
+	r := new(recorder)
+	r.observeTunnel(1, "203.0.113.7", "203.0.113.7", 443)
+
+	r.nameTunnel(1, "api.example:443", "other.example")
+	r.nameTunnel(1, "203.0.113.7:443", "")
+	r.nameTunnel(1, "203.0.113.7:443", "203.0.113.7")
+
+	destinations := r.result(Observation{}).Destinations
+	if len(destinations) != 1 || destinations[0].Host != "203.0.113.7" {
+		t.Fatalf("destinations = %+v, want the IP tunnel unchanged", destinations)
+	}
+}
+
+func TestRecorderNameTunnelIgnoresAnEntryRemovedBeforeNaming(t *testing.T) {
+	r := new(recorder)
+	r.observeTunnel(1, "203.0.113.7", "203.0.113.7", 443)
+	r.destinations = nil
+	r.observeTunnel(2, "other.example", "", 443)
+
+	r.nameTunnel(1, "203.0.113.7:443", "api.example")
+
+	destinations := r.result(Observation{}).Destinations
+	if len(destinations) != 1 || destinations[0].Host != "other.example" {
+		t.Fatalf("destinations = %+v, want no entry invented for the removed tunnel", destinations)
+	}
+}
+
 func destinationByHost(t *testing.T, destinations []Destination, host string) Destination {
 	t.Helper()
 	for _, destination := range destinations {

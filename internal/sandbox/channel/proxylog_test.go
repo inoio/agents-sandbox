@@ -234,6 +234,61 @@ func TestProxyLogUsesAGenericSafeLineForUnknownWarnings(t *testing.T) {
 	}
 }
 
+func TestProxyLogUsesSafeDialErrorCategory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "proxy.log")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := &proxyLog{file: file}
+	log.Printf("[%03d] WARN: Error dialing to %s: %s\n", int64(7), "api.example:443", "token=secret-value")
+	log.close()
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), "could not dial the upstream destination") ||
+		strings.Contains(string(content), "api.example") || strings.Contains(string(content), "secret-value") {
+		t.Errorf("log = %q, want the safe dial category with arguments omitted", content)
+	}
+}
+
+func TestProxyLogCountsMalformedHandshakeArgumentsAsUnattributed(t *testing.T) {
+	cases := map[string][]any{
+		"bad session type": {"session", "api.example:443", errors.New("EOF")},
+		"missing target":   {int64(1), "", errors.New("EOF")},
+		"bad target type":  {int64(1), 443, errors.New("EOF")},
+	}
+	for name, arguments := range cases {
+		t.Run(name, func(t *testing.T) {
+			log := &proxyLog{}
+			log.Printf(handshakeFailureWarning, arguments...)
+			result := log.close()
+			if result.Warnings != 1 || result.UnattributedHandshakes != 1 {
+				t.Errorf("close = %+v, want malformed handshake counted as unattributed", result)
+			}
+		})
+	}
+}
+
+func TestProxyLogClosesAFileReturnedWithAnOpenError(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "proxy.log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := &proxyLog{openLog: func() (*os.File, error) { return file, errors.New("open failed") }}
+	log.Printf("[%03d] WARN: Cannot parse URL %s: %v\n", int64(1), "https://example.com", errors.New("bad URL"))
+	result := log.close()
+
+	if !result.WriteFailed || result.Path != "" {
+		t.Errorf("close = %+v, want an open failure and no persisted path", result)
+	}
+	if _, err := file.Stat(); err == nil {
+		t.Error("proxy log kept a file that arrived with an open error")
+	}
+}
+
 func TestProxyLogBoundsItsOutput(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "proxy.log")
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)

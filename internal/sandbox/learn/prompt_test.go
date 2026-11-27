@@ -328,6 +328,36 @@ func TestPrintProxyDiagnosticsReportsFailuresAndLogState(t *testing.T) {
 	if len(clean.WarnCalls) != 0 {
 		t.Errorf("WarnCalls = %v, want nothing for a clean session", clean.WarnCalls)
 	}
+	PrintProxyDiagnostics(nil, channel.Observation{ProxyWarnings: 1})
+
+	for _, tc := range []struct {
+		name        string
+		observation channel.Observation
+		want        string
+	}{
+		{
+			name: "write failure",
+			observation: channel.Observation{
+				ProxyLog: "/state/learn/proxy-logs/2-session.log", ProxyWarnings: 1, ProxyLogWriteFailed: true,
+			},
+			want: "log may be incomplete",
+		},
+		{
+			name: "truncation",
+			observation: channel.Observation{
+				ProxyLog: "/state/learn/proxy-logs/3-session.log", ProxyWarnings: 1, ProxyLogTruncated: true,
+			},
+			want: "log was truncated",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ui := &termiotest.Mock{}
+			PrintProxyDiagnostics(ui, tc.observation)
+			if len(ui.WarnCalls) != 1 || !strings.Contains(ui.WarnCalls[0], tc.want) {
+				t.Errorf("WarnCalls = %v, want %q", ui.WarnCalls, tc.want)
+			}
+		})
+	}
 }
 
 // TestFinishPropagatesSaveFailure pins that a failed capture save aborts the
