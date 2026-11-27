@@ -105,6 +105,12 @@ when the sandbox is created, so a proposed change to it takes effect at the next
 If agents-sandbox cannot attribute a secret to a destination, it leaves the secret in the sandbox home rather than
 guessing where it is safe to send.
 
+If an agent's own login stored an API key in plain text in the sandbox home, for example `codex login --with-api-key`
+with a real key or a Console key pasted into claude-code's `/login`, learn mode proposes to move it out: the key becomes
+an env secret in your per-slug config, and codex's `~/.codex/auth.json` is provisioned from the host with the
+secret's placeholder, replacing the plain-text key at the next start. A ChatGPT sign-in you make in the VM later is
+left alone. claude-code reads the key from the secret; run `/logout` in it once so it drops the stored key.
+
 ## Review a session later
 
 If the process that started the learning session is gone — you closed the terminal, or the launcher was killed —

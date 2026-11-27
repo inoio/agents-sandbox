@@ -11,11 +11,103 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
+	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 const settingSlug = "widget-bbb"
+
+func TestWriteSettingAtPreservesCaseDistinctPaths(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	testutil.WritePath(t, path, "home:\n  .Codex/auth.json: original.json\n")
+	if err := WriteSettingAt(dir, []string{"home", ".codex/auth.json"}, "new.json"); err != nil {
+		t.Fatal(err)
+	}
+	manifest, _, err := homeconfig.ReadHomeFromConfigDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest) != 2 || manifest[".Codex/auth.json"].Source != "original.json" ||
+		manifest[".codex/auth.json"].Source != "new.json" {
+		t.Fatalf("case-distinct home targets were changed: %+v", manifest)
+	}
+}
+
+func TestValidateSettingAtDoesNotWrite(t *testing.T) {
+	for _, initial := range []string{"", "# keep this comment\nhome: {}\n"} {
+		t.Run(initial, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "config.yaml")
+			if initial != "" {
+				testutil.WritePath(t, path, initial)
+			}
+			if err := ValidateSettingAt(dir, []string{"home", ".codex/auth.json"}, "auth.json"); err != nil {
+				t.Fatal(err)
+			}
+			got, err := os.ReadFile(path)
+			if initial == "" {
+				if !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("validation created a config file: %q, %v", got, err)
+				}
+			} else if err != nil || string(got) != initial {
+				t.Fatalf("validation changed the config: %q, %v", got, err)
+			}
+		})
+	}
+}
+
+func TestValidateSettingAtRefusesAnEmptyDirectory(t *testing.T) {
+	t.Chdir(t.TempDir())
+	err := ValidateSettingAt("", []string{"home", ".codex/auth.json"}, "auth.json")
+	if err == nil || !strings.Contains(err.Error(), "config dir is empty") {
+		t.Fatalf("unresolved config directory: got %v, want an explicit refusal", err)
+	}
+	if _, statErr := os.Stat("config.yaml"); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("validation touched the working directory: %v", statErr)
+	}
+}
+
+func TestValidateSettingAtReportsDocumentEditErrors(t *testing.T) {
+	for _, entry := range []struct {
+		name, content, message string
+	}{
+		{"config.json", `{}`, "unsupported config file format"},
+		{"config.yaml", "home: [\n", "invalid YAML"},
+		{"config.yml", "home: scalar\n", "below a scalar"},
+	} {
+		t.Run(entry.name+entry.content, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, entry.name)
+			testutil.WritePath(t, path, entry.content)
+			err := ValidateSettingAt(dir, []string{"home", ".codex/auth.json"}, "auth.json")
+			if err == nil || !strings.Contains(err.Error(), entry.message) {
+				t.Fatalf("ValidateSettingAt: got %v, want %q", err, entry.message)
+			}
+			got, readErr := os.ReadFile(path)
+			if readErr != nil || string(got) != entry.content {
+				t.Fatalf("validation changed the config: %q, %v", got, readErr)
+			}
+		})
+	}
+}
+
+func TestWriteSettingAtReportsAWriteFailure(t *testing.T) {
+	blocker := filepath.Join(t.TempDir(), "not-a-directory")
+	testutil.WritePath(t, blocker, "unchanged")
+	err := WriteSettingAt(filepath.Join(blocker, "config"), []string{"home", ".codex/auth.json"}, "auth.json")
+	if err == nil {
+		t.Fatal("writing beneath a regular file succeeded")
+	}
+	if _, ok := errors.AsType[*os.PathError](err); !ok {
+		t.Fatalf("write failure lost its filesystem cause: %v", err)
+	}
+	got, readErr := os.ReadFile(blocker)
+	if readErr != nil || string(got) != "unchanged" {
+		t.Fatalf("write failure changed the parent file: %q, %v", got, readErr)
+	}
+}
 
 // TestLayerSettingOwnerPrefersProjectLayer pins the precedence order: when the
 // project config sets the key, its directory wins even though the lower user

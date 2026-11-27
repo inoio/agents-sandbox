@@ -395,3 +395,21 @@ func TestAnalyseDerivesSecretFindingFromReadBack(t *testing.T) {
 		t.Errorf("finding = %+v, want the OPENAI_API_KEY secret write", applied[0])
 	}
 }
+
+// TestSecretValueResolvesAnExposedLoginKey pins that a key a harness's login
+// stored in plain text resolves for the secret it moves into, skipping an
+// exposed key of another env var and one without a value.
+func TestSecretValueResolvesAnExposedLoginKey(t *testing.T) {
+	analysis := Analysis{
+		ReadBack: readback.ReadBack{Exposed: []readback.ExposedKey{
+			{EnvVar: "ANTHROPIC_API_KEY", Value: "sk-ant"},
+			{EnvVar: "OPENAI_API_KEY", Value: ""},
+			{EnvVar: "OPENAI_API_KEY", Value: "sk-proj"},
+		}},
+	}
+
+	value, ok := analysis.SecretValue()(analyser.SecretWrite{EnvVar: "OPENAI_API_KEY"})
+	if !ok || value != "sk-proj" {
+		t.Errorf("SecretValue = (%q, %v), want (sk-proj, true)", value, ok)
+	}
+}

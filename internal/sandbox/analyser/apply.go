@@ -11,6 +11,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/atomicwrite"
 	"github.com/inoio/agents-sandbox/internal/configdecode"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/projecttrust"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -221,11 +222,7 @@ func planWrites(finding Finding, opts ApplyOptions) ([]plannedWrite, *refusal) {
 			plans = append(plans, plannedWrite{write: write, dir: dir, secretValue: ""})
 			continue
 		}
-		if write.ManagedConfig != nil {
-			plans = append(plans, plannedWrite{write: write, dir: dir, secretValue: ""})
-			continue
-		}
-		if refusal := planConfigKey(write, dir, opts); refusal != nil {
+		if refusal := planConfigWrite(write, dir, opts); refusal != nil {
 			return nil, refusal
 		}
 		plans = append(plans, plannedWrite{write: write, dir: dir, secretValue: ""})
@@ -233,11 +230,22 @@ func planWrites(finding Finding, opts ApplyOptions) ([]plannedWrite, *refusal) {
 	return plans, nil
 }
 
+func planConfigWrite(write Write, dir string, opts ApplyOptions) *refusal {
+	if write.HomeFile != nil {
+		return planHomeFile(write.HomeFile, dir, opts)
+	}
+	if write.ManagedConfig != nil {
+		return nil
+	}
+	return planConfigKey(write, dir, opts)
+}
+
 // writeOnlyRendersText reports whether a write is declarative: it names no
 // config key, secret, file mode, or managed config, so it makes no machine
 // change and only its Text is meaningful.
 func writeOnlyRendersText(write Write) bool {
-	return write.ConfigKey == "" && write.Secret == nil && write.FileMode == nil && write.ManagedConfig == nil
+	return write.ConfigKey == "" && write.Secret == nil && write.FileMode == nil && write.ManagedConfig == nil &&
+		write.HomeFile == nil
 }
 
 // planTarget resolves a write's directory and refuses a per-slug config write
@@ -261,6 +269,18 @@ func planTarget(write Write, opts ApplyOptions) (string, *refusal) {
 			return "", refusal
 		}
 		return dir, nil
+	}
+	if write.HomeFile != nil {
+		if write.Scope == ScopeProject {
+			return "", &refusal{
+				note: "a provisioned home file is not written to the project scope; only the per-slug user scope owns it",
+				err:  "",
+			}
+		}
+		if refusal := validateManagedConfigName(write.HomeFile.Name); refusal != nil {
+			return "", refusal
+		}
+		return opts.Paths.UserSlugConfigDir(opts.Slug), nil
 	}
 	if write.Scope == ScopeProject {
 		if opts.CheckoutSlug == "" {
@@ -420,9 +440,34 @@ func planConfigKey(write Write, dir string, opts ApplyOptions) *refusal {
 	return nil
 }
 
+func planHomeFile(home *HomeFileWrite, dir string, opts ApplyOptions) *refusal {
+	for _, scopeDir := range []string{dir, opts.Paths.ProjectConfigDir()} {
+		manifest, _, err := homeconfig.ReadHomeFromConfigDir(scopeDir)
+		if err != nil {
+			return &refusal{note: fmt.Sprintf("%s cannot be read for editing: %v", scopeDir, err), err: err.Error()}
+		}
+		for target := range manifest {
+			if filepath.Clean(target) == filepath.Clean(home.Target) {
+				return &refusal{
+					note: fmt.Sprintf(
+						"home target %s is already configured in %s; it is not replaced",
+						home.Target,
+						scopeDir,
+					),
+					err: "",
+				}
+			}
+		}
+	}
+	if err := viperconfig.ValidateSettingAt(dir, []string{"home", home.Target}, homeFileSetting(home)); err != nil {
+		return &refusal{note: fmt.Sprintf("%s cannot be edited: %v", dir, err), err: err.Error()}
+	}
+	return nil
+}
+
 // configDirEditable reports whether the config file a write would edit in dir
 // can be edited format-preservingly: a directory with no config file (a new YAML
-// file may be created) or one holding a YAML file. A JSON, JSONC, JSON5, or TOML
+// file may be created) or one holding a YAML file. A JSON, JSONC, or JSON5
 // file is not editable, so the caller skips rather than corrupt the document.
 func configDirEditable(dir string) (bool, error) {
 	// A directory with no config file reports no path, whose empty extension
@@ -546,6 +591,9 @@ func executeWrite(plan plannedWrite, opts ApplyOptions) (string, error) {
 	if write.ManagedConfig != nil {
 		return plan.dir, executeManagedConfig(plan)
 	}
+	if write.HomeFile != nil {
+		return plan.dir, executeHomeFile(plan)
+	}
 	if write.Scope == ScopeProject {
 		return plan.dir, executeProjectSetting(plan, opts)
 	}
@@ -567,6 +615,29 @@ func executeFileMode(plan plannedWrite) error {
 // dir.
 func secretFilePath(dir string) string {
 	return filepath.Join(dir, configpaths.EnvSecretFileName+".yaml")
+}
+
+// homeFileDir is the directory under a scope that holds its provisioned home
+// files, so the home: source stays relative to the scope's config file.
+const homeFileDir = "home"
+
+// executeHomeFile writes the home file under the scope's home/ directory and
+// maps its target to it with keep-login in the scope's config.
+func executeHomeFile(plan plannedWrite) error {
+	home := plan.write.HomeFile
+	source := filepath.Join(homeFileDir, home.Name)
+	if err := atomicwrite.WriteFileMode(filepath.Join(plan.dir, source), home.Content, 0o600); err != nil {
+		// gomutants:disable-next-line ERRORF_WRAP reason="the applier reports the error only as ApplyResult.Err text, where %w and %v render the same"
+		return fmt.Errorf("write home file %s: %w", source, err)
+	}
+	return viperconfig.WriteSettingAt(plan.dir, []string{"home", home.Target}, homeFileSetting(home))
+}
+
+func homeFileSetting(home *HomeFileWrite) map[string]any {
+	return map[string]any{
+		"source":     filepath.ToSlash(filepath.Join(homeFileDir, home.Name)),
+		"keep-login": true,
+	}
 }
 
 // executeManagedConfig writes one managed agent config file atomically, creating

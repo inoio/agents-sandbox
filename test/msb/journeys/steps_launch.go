@@ -69,18 +69,25 @@ func StepSeedStub() Step {
 			return err
 		}
 		c.Stub = provider
-		seeds := driver.Seeds{HomeManifest: c.Spec.Seeds.HomeManifest}
-		if c.Harness.Stub.HomeFiles != nil {
-			seeds = seeds.Merge(driver.Seeds{HomeManifest: c.Harness.Stub.HomeFiles(provider.Addr())})
-		}
-		if ca := stubCA(c); ca != nil {
-			seeds = seeds.Merge(driver.Seeds{HomeManifest: map[string]string{stubCAHomePath: string(ca)}})
-		}
-		if err := seeds.Apply(c.Home, ""); err != nil {
+		if err := stubSeeds(c).Apply(c.Home, ""); err != nil {
 			return fmt.Errorf("seed the home: %w", err)
 		}
 		return nil
 	}}
+}
+
+// stubSeeds are the home seeds StepSeedStub provisions for the started stub:
+// the harness's startup seeds, its adapter's stub files, and the stub's test CA
+// when it serves TLS. A later step overlays its own files on them.
+func stubSeeds(c *Context) driver.Seeds {
+	seeds := driver.Seeds{HomeManifest: c.Spec.Seeds.HomeManifest}
+	if c.Harness.Stub.HomeFiles != nil {
+		seeds = seeds.Merge(driver.Seeds{HomeManifest: c.Harness.Stub.HomeFiles(c.Stub.Addr())})
+	}
+	if ca := stubCA(c); ca != nil {
+		seeds = seeds.Merge(driver.Seeds{HomeManifest: map[string]string{stubCAHomePath: string(ca)}})
+	}
+	return seeds
 }
 
 // StepLaunch starts the built launcher under the journey's isolated environment

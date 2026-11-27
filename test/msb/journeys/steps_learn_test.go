@@ -2,6 +2,7 @@ package journeys
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -218,5 +219,107 @@ func TestObservedHostProblemFindsTheStubsHost(t *testing.T) {
 	}
 	if err := observedHostProblem(learnDir, "stub.test"); err != nil {
 		t.Errorf("the stub's host observed: err = %v", err)
+	}
+}
+
+func TestPlaceholderNotKey(t *testing.T) {
+	store := exposedLoginKeys[codexAgentName]
+	if err := placeholderNotKey(`{"OPENAI_API_KEY":"${OPENAI_API_KEY}"}`, store); err != nil {
+		t.Errorf("the placeholdered store: %v", err)
+	}
+	for name, text := range map[string]string{
+		"the key":                 `{"OPENAI_API_KEY":"` + exposedLoginKeyValue + `"}`,
+		"the key and placeholder": `{"a":"${OPENAI_API_KEY}","b":"` + exposedLoginKeyValue + `"}`,
+		"no placeholder":          `{"OPENAI_API_KEY":"$MSB_OPENAI_API_KEY"}`,
+	} {
+		if placeholderNotKey(text, store) == nil {
+			t.Errorf("%s: want an error", name)
+		}
+	}
+}
+
+func TestProvisionedStoreDeclared(t *testing.T) {
+	const declaredConfig = "home:\n  .codex/auth.json:\n    source: home/codex-auth.json\n    keep-login: true\n"
+	const placeholderStore = `{"OPENAI_API_KEY":"${OPENAI_API_KEY}"}`
+	for _, entry := range []struct {
+		name, config, content string
+		copies                int
+		wantError             string
+	}{
+		{"valid declaration", declaredConfig, placeholderStore, 1, ""},
+		{"missing config", "", placeholderStore, 1, "read the per-slug config"},
+		{"wrong target", strings.Replace(declaredConfig, ".codex/auth.json:", ".other/auth.json:", 1), placeholderStore, 1, "does not provision"},
+		{"missing keep-login", "home:\n  .codex/auth.json: home/codex-auth.json\n", placeholderStore, 1, "with keep-login"},
+		{"no source", declaredConfig, placeholderStore, 0, "want one provisioned store"},
+		{"multiple sources", declaredConfig, placeholderStore, 2, "want one provisioned store"},
+		{"plain-text key", declaredConfig, `{"OPENAI_API_KEY":"` + exposedLoginKeyValue + `"}`, 1, "still holds the plain-text key"},
+		{"no placeholder", declaredConfig, `{}`, 1, "does not hold the"},
+	} {
+		t.Run(entry.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if entry.config != "" {
+				writeTestFile(t, filepath.Join(dir, "config.yaml"), entry.config)
+			}
+			for index := range entry.copies {
+				name := "codex-auth.json"
+				if index > 0 {
+					name = fmt.Sprintf("extra-auth-%d.json", index)
+				}
+				writeTestFile(t, filepath.Join(dir, "home", name), entry.content)
+			}
+			err := provisionedStoreDeclared(dir, exposedLoginKeys[codexAgentName])
+			if entry.wantError == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), entry.wantError) {
+				t.Fatalf("got %v, want %q", err, entry.wantError)
+			}
+			if entry.config == "" && !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("missing config lost its filesystem cause: %v", err)
+			}
+		})
+	}
+}
+
+func TestHoldsPlaceholderNotKeyReadsTheStore(t *testing.T) {
+	for _, entry := range []struct {
+		name, content, wantError string
+	}{
+		{"placeholder", `{"OPENAI_API_KEY":"${OPENAI_API_KEY}"}`, ""},
+		{"plain-text key", `{"OPENAI_API_KEY":"` + exposedLoginKeyValue + `"}`, "still holds the plain-text key"},
+		{"no placeholder", `{}`, "does not hold the"},
+	} {
+		t.Run(entry.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "auth.json")
+			writeTestFile(t, path, entry.content)
+			err := holdsPlaceholderNotKey(path, exposedLoginKeys[codexAgentName])
+			if entry.wantError == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), entry.wantError) {
+				t.Fatalf("got %v, want %q", err, entry.wantError)
+			}
+		})
+	}
+	t.Run("missing store", func(t *testing.T) {
+		err := holdsPlaceholderNotKey(filepath.Join(t.TempDir(), "missing.json"), exposedLoginKeys[codexAgentName])
+		if !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("missing store: got %v, want the filesystem cause", err)
+		}
+	})
+}
+
+// writeTestFile writes content to path, creating its directory.
+func writeTestFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }

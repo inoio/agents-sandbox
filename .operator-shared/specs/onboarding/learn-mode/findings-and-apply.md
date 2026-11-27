@@ -28,7 +28,7 @@ One finding shape serves both a learning session and config-only analysis (`conf
   user-set project entry. When the project layer owns a proposed key, the applier reports the finding and skips
   the write.
 - **A per-slug write is YAML-only.** The applier edits a config file format-preservingly by rewriting its document
-  tree, so a per-slug config in JSON, JSONC, JSON5, or TOML is reported and skipped rather than converted to YAML.
+  tree, so a per-slug config in JSON, JSONC, or JSON5 is reported and skipped rather than converted to YAML.
 - **A harden move writes two scopes.** A static secret wrongly committed in the project scope is removed from the
   project config and added at the per-slug user scope; the removal is harden's "reduce" contract, which the
   proposal never invokes. Both writes are trust-gated and applied together (or neither).
@@ -38,10 +38,14 @@ One finding shape serves both a learning session and config-only analysis (`conf
 
 ## The credential store
 
-**The managed layer never owns the credential store.** `reprovision.Provision` writes merged and mirror files
+**The managed layer never owns a renewing credential store.** `reprovision.Provision` writes merged and mirror files
 unconditionally on every start, so a managed file that carries a login entry the agent refreshed in the sandbox
 would destroy it. The copy-back therefore never targets a file the agent refreshes, and never adds a `home:` or
-provision rule for the credential store. Static secrets go to `env.secret.yaml` and appear as placeholders in the
+provision rule for a store holding a renewing login. The one exception is a **static** store that held a plain-text
+API key (see [exposed login keys](home-read-back.md#exposed-login-keys)): the proposal provisions it from the
+per-slug scope with the secret's placeholder through a `keep-login` `home:` entry, which skips the target while it
+holds a renewing login (a refresh token), so a login the user later makes in the VM is not overwritten. The
+provisioned store survives a home-volume reset, which a write into the home volume would not. Static secrets go to `env.secret.yaml` and appear as placeholders in the
 managed agent config; login entries stay only in the persistent sandbox home. The secret writer never persists a spec
 with an empty value or with neither hosts nor an explicit dangerous flag — `BuildSecretsFromSpecs` would drop it — so
 a finding that cannot produce a provisionable spec writes nothing.
@@ -188,6 +192,20 @@ finding.
   when the evidence changes. The hash is canonical — list fields are sorted — so it is stable across runs for the
   same observation and changes with any evidence change. The record lives in the user state dir, keyed by repo slug,
   so it survives a config-dir reset and is shared by clones.
+- A **report-only** finding (a write that carries only text) makes no machine change: the applier asks nothing and
+  records no decline, and every caller that applies findings (the after-run summary and the `config learn` replay)
+  prints its evidence and guidance as a warning.
+- An **exposed login key** is applied as one finding: the key becomes an env secret in the per-slug scope (its
+  value read from the store, in memory only) and, for a harness that reads it from its store (codex), the store is
+  provisioned with the secret's `${ENVVAR}` placeholder. Both writes apply together, since a placeholder without its
+  secret breaks the harness. A harness that reads the key from its environment (claude-code) gets the secret and a
+  one-time follow-up (`/logout`) for the key its existing home volume still holds.
+- Before any write of an exposed-key finding, the applier validates the proposed `home:` document edit and refuses
+  an existing mapping to the same target in the per-slug or project scope (including an equivalent relative spelling).
+  Literal guest-path segments match case-sensitively. A refusal leaves the secret and provisioned source untouched;
+  unexpected filesystem failures during execution are reported as failures, not guaranteed to roll back.
+- `keep-login` has the same semantics for VM provisioning and `config provision --target`: a JSON store with a
+  non-empty refresh token is preserved. An absent, unreadable, or unrecognised store is provisioned from the source.
 - A non-interactive run writes no proposal and prints one line naming the command that produces it. `--learn` is
   refused together with `--serve-only` at option resolution (a learning session attaches a TUI). A `--dry-run` returns
   before the channel starts, and a `--dry-run-vm` prepares but skips the VM, so neither writes a session record or runs

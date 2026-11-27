@@ -110,42 +110,75 @@ func lookupKeyFold(mapping map[string]any, key string) (any, bool) {
 // (writing nothing) when dir holds a non-YAML config file, so a JSON5/JSON/JSONC
 // file is never corrupted. A YAML file is edited through its document tree, so
 // unrelated keys and the user's comments, spacing and styles survive. An edited
-// file keeps its permissions; a created one is private (0600).
+// file keeps its permissions; a created one is private (0600). key is a dotted
+// path (network.egress-allow).
 func WriteSetting(dir, key string, value any) error {
-	if dir == "" {
-		return fmt.Errorf("config dir is empty; the config path did not resolve")
-	}
-	path, ext, found, err := configdecode.FindFile(dir)
+	return writeSetting(dir, strings.Split(key, "."), value, false)
+}
+
+// WriteSettingAt is WriteSetting for a key path given as segments, for a key
+// whose own name holds a dot: a home: target such as .codex/auth.json. Segments
+// match exactly, so case-distinct guest paths remain distinct.
+func WriteSettingAt(dir string, keyPath []string, value any) error {
+	return writeSetting(dir, keyPath, value, true)
+}
+
+// ValidateSettingAt checks the same document edit as WriteSettingAt without
+// writing anything. Filesystem failures during the later write remain possible.
+func ValidateSettingAt(dir string, keyPath []string, value any) error {
+	_, err := prepareSetting(dir, keyPath, value, true)
+	return err
+}
+
+type settingEdit struct {
+	path, sourcePath string
+	data             []byte
+	mode             os.FileMode
+}
+
+func writeSetting(dir string, keyPath []string, value any, caseSensitive bool) error {
+	edit, err := prepareSetting(dir, keyPath, value, caseSensitive)
 	if err != nil {
 		return err
 	}
-	if !found {
-		path = filepath.Join(dir, "config.yaml")
-		_, err = writeYAMLSetting(path, nil, 0o600, key, value)
+	if err := atomicwrite.WriteFileMode(edit.path, edit.data, edit.mode); err != nil {
 		return err
 	}
+	projectguard.Accept(edit.sourcePath, edit.data)
+	return nil
+}
+
+func prepareSetting(dir string, keyPath []string, value any, caseSensitive bool) (settingEdit, error) {
+	if dir == "" {
+		return settingEdit{}, fmt.Errorf("config dir is empty; the config path did not resolve")
+	}
+	path, ext, found, err := configdecode.FindFile(dir)
+	if err != nil {
+		return settingEdit{}, err
+	}
+	if !found {
+		path = filepath.Join(dir, "config.yaml")
+		data, editErr := editYAMLSetting(path, nil, keyPath, value, caseSensitive)
+		return settingEdit{path: path, sourcePath: path, data: data, mode: 0o600}, editErr
+	}
 	if ext != extYAML && ext != extYML {
-		return ErrUnsupportedConfigFormat
+		return settingEdit{}, ErrUnsupportedConfigFormat
 	}
 	// Edit the link target, not the link: atomicwrite renames its temporary
 	// file over path, which would replace a symlinked config with a regular file.
 	target, err := evalSymlinks(path)
 	if err != nil {
-		return fmt.Errorf("resolve config file link %s: %w", path, err)
+		return settingEdit{}, fmt.Errorf("resolve config file link %s: %w", path, err)
 	}
 	info, statErr := os.Stat(target)
 	// The file is read as the approved project config it must still be, so a
 	// change made since the approval is never edited into an approved file.
 	data, readErr := projectguard.ReadFile(path, configread.ReadFile)
 	if joined := errors.Join(statErr, readErr); joined != nil {
-		return fmt.Errorf("read config file %s: %w", path, joined)
+		return settingEdit{}, fmt.Errorf("read config file %s: %w", path, joined)
 	}
-	edited, err := writeYAMLSetting(target, data, info.Mode().Perm(), key, value)
-	if err != nil {
-		return err
-	}
-	projectguard.Accept(path, edited)
-	return nil
+	edited, err := editYAMLSetting(target, data, keyPath, value, caseSensitive)
+	return settingEdit{path: target, sourcePath: path, data: edited, mode: info.Mode().Perm()}, err
 }
 
 // RemoveSetting deletes key from the config file in dir, preserving every other
@@ -227,7 +260,7 @@ func removeDocumentValue(document *oneyaml.Document, keyPath []string) ([]byte, 
 	if root.Kind() != oneyaml.MappingNode {
 		return nil, errors.New("config file root is not a mapping")
 	}
-	_, valueNode, found := resolveExistingPath(root, keyPath)
+	_, valueNode, found := resolveExistingPath(root, keyPath, false)
 	if !found {
 		return nil, nil
 	}
@@ -241,25 +274,24 @@ func removeDocumentValue(document *oneyaml.Document, keyPath []string) ([]byte, 
 	return document.Bytes(), nil
 }
 
-// writeYAMLSetting applies key=value to the YAML document in data, writes the
-// result atomically to path with mode perm, and returns the written bytes. An
-// empty data set starts a new document.
-func writeYAMLSetting(path string, data []byte, perm os.FileMode, key string, value any) ([]byte, error) {
+// editYAMLSetting returns the edited document bytes without writing them.
+// An empty data set starts a new document.
+func editYAMLSetting(path string, data []byte, keyPath []string, value any, caseSensitive bool) ([]byte, error) {
 	document, err := oneyaml.Parse(data, oneyaml.Untrusted())
 	if err != nil {
 		return nil, yamlfmt.WrapErr(path, err)
 	}
-	edited, err := setDocumentValue(document, strings.Split(key, "."), value)
+	edited, err := setDocumentValue(document, keyPath, value, caseSensitive)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
-	return edited, atomicwrite.WriteFileMode(path, edited, perm)
+	return edited, nil
 }
 
 // setDocumentValue sets the dotted key to value on document and returns the new
 // document bytes. An existing entry is replaced in place (keeping its spelling,
 // comments and style); a missing key is added, creating intermediate mappings.
-func setDocumentValue(document *oneyaml.Document, keyPath []string, value any) ([]byte, error) {
+func setDocumentValue(document *oneyaml.Document, keyPath []string, value any, caseSensitive bool) ([]byte, error) {
 	root := document.Root()
 	if !root.IsValid() {
 		if err := document.Set("", nestedValue(keyPath, value)); err != nil {
@@ -270,7 +302,7 @@ func setDocumentValue(document *oneyaml.Document, keyPath []string, value any) (
 	if root.Kind() != oneyaml.MappingNode {
 		return nil, errors.New("config file root is not a mapping")
 	}
-	tokens, valueNode, found := resolveExistingPath(root, keyPath)
+	tokens, valueNode, found := resolveExistingPath(root, keyPath, caseSensitive)
 	if found {
 		if err := ensureReplaceableValue(root, valueNode, keyPath); err != nil {
 			return nil, err
@@ -297,14 +329,13 @@ func setDocumentValue(document *oneyaml.Document, keyPath []string, value any) (
 	return edited, nil
 }
 
-// resolveExistingPath walks keyPath through root, matching each segment
-// case-insensitively, and reports the actual key spellings of the longest
+// resolveExistingPath walks keyPath through root and reports the key spellings of the longest
 // existing prefix, the node the full path resolves to, and whether it resolved.
-func resolveExistingPath(root oneyaml.Node, keyPath []string) ([]string, oneyaml.Node, bool) {
+func resolveExistingPath(root oneyaml.Node, keyPath []string, caseSensitive bool) ([]string, oneyaml.Node, bool) {
 	var tokens []string
 	current := root
 	for _, segment := range keyPath {
-		key, next, ok := findEntryFold(current, segment)
+		key, next, ok := findEntry(current, segment, caseSensitive)
 		if !ok {
 			// gomutants:disable-next-line RETURN_ZERO reason="the caller reads the node only when found is true, so the not-found node is discarded"
 			return tokens, current, false
@@ -316,14 +347,11 @@ func resolveExistingPath(root oneyaml.Node, keyPath []string) ([]string, oneyaml
 	return tokens, current, true
 }
 
-// findEntryFold returns the key and value nodes of the mapping entry whose key
-// matches segment case-insensitively, mirroring viper's case-insensitive
-// resolution so an existing `Memory:` entry is edited there rather than
-// duplicated. Entries yields nothing for a non-mapping, so a scalar or sequence
-// yields no entry.
-func findEntryFold(mapping oneyaml.Node, segment string) (oneyaml.Node, oneyaml.Node, bool) {
+// findEntry matches config keys case-insensitively unless the caller addresses
+// literal path segments. A non-mapping yields no entry.
+func findEntry(mapping oneyaml.Node, segment string, caseSensitive bool) (oneyaml.Node, oneyaml.Node, bool) {
 	for existingKey, existingValue := range mapping.Entries() {
-		if strings.EqualFold(existingKey.Value(), segment) {
+		if existingKey.Value() == segment || (!caseSensitive && strings.EqualFold(existingKey.Value(), segment)) {
 			return existingKey, existingValue, true
 		}
 	}

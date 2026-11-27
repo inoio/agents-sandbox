@@ -1,6 +1,7 @@
 package journeys
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"go.yaml.in/yaml/v4"
@@ -311,4 +313,106 @@ func observedHostProblem(learnDir, host string) error {
 		}
 	}
 	return fmt.Errorf("the saved observation names no destination for %q (saw %v)", host, observed)
+}
+
+// StepSeedExposedLoginKey stores a plain-text key in the harness's login store,
+// over the stub seeds: it adds the key field to the seeded file (claude-code's
+// ~/.claude.json carries its onboarding state) or starts the file with it.
+func StepSeedExposedLoginKey() Step {
+	return Step{Name: "the harness's login store holds a plain-text API key", Run: func(c *Context) error {
+		store, ok := exposedLoginKeys[c.Agent]
+		if !ok {
+			return fmt.Errorf("no exposed login key store is recorded for %s", c.Agent)
+		}
+		seeds := stubSeeds(c)
+		document := map[string]any{}
+		if seeded, ok := seeds.HomeManifest[store.path]; ok {
+			if err := json.Unmarshal([]byte(seeded), &document); err != nil {
+				return fmt.Errorf("parse the seeded %s: %w", store.path, err)
+			}
+		}
+		document[store.field] = exposedLoginKeyValue
+		seeds = seeds.Merge(driver.Seeds{HomeManifest: map[string]string{store.path: mustJSON(document)}})
+		return seeds.Apply(c.Home, "")
+	}}
+}
+
+// StepAssertExposedLoginKeyMoved checks that the saved proposal moved the key
+// into the per-slug scope: an env secret for the provider's host and, where
+// the harness reads the key from its store, a keep-login home: entry that
+// provisions the store with the secret's placeholder.
+func StepAssertExposedLoginKeyMoved() Step {
+	return AsCheck(Step{Name: "the per-slug scope holds the key as a secret", Run: func(c *Context) error {
+		dir, err := journeyScopeDir(c)
+		if err != nil {
+			return err
+		}
+		store := exposedLoginKeys[c.Agent]
+		if err := assertSecretScope(dir, scopeExpectation{
+			envVar: store.envVar, hosts: []string{store.host}, configKeys: nil, placeholder: false,
+		}); err != nil {
+			return err
+		}
+		if !store.provisioned {
+			return nil
+		}
+		return provisionedStoreDeclared(dir, store)
+	}})
+}
+
+// provisionedStoreDeclared checks dir's config for the store's keep-login home:
+// entry and its host copy for the secret's placeholder, without the key.
+func provisionedStoreDeclared(dir string, store exposedLoginKey) error {
+	config, err := os.ReadFile(filepath.Join(dir, "config.yaml"))
+	if err != nil {
+		return fmt.Errorf("read the per-slug config: %w", err)
+	}
+	if !strings.Contains(string(config), store.path) || !strings.Contains(string(config), "keep-login: true") {
+		return fmt.Errorf("the per-slug config does not provision %s with keep-login:\n%s", store.path, config)
+	}
+	// The pattern is a fixed, valid glob, so Glob cannot fail on it.
+	copies, _ := filepath.Glob(filepath.Join(dir, "home", "*"))
+	if len(copies) != 1 {
+		return fmt.Errorf("want one provisioned store under %s/home, got %v", dir, copies)
+	}
+	return holdsPlaceholderNotKey(copies[0], store)
+}
+
+// holdsPlaceholderNotKey checks that the file at path holds the secret's
+// placeholder and not the plain-text key.
+func holdsPlaceholderNotKey(path string, store exposedLoginKey) error {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	return placeholderNotKey(string(content), store)
+}
+
+// placeholderNotKey checks text for the secret's placeholder and against the key.
+func placeholderNotKey(text string, store exposedLoginKey) error {
+	if strings.Contains(text, exposedLoginKeyValue) {
+		return fmt.Errorf("the store still holds the plain-text key: %s", text)
+	}
+	if !strings.Contains(text, "${"+store.envVar+"}") {
+		return fmt.Errorf("the store does not hold the ${%s} placeholder: %s", store.envVar, text)
+	}
+	return nil
+}
+
+// StepAssertProvisionedLoginStore checks, in the VM, that the launcher now
+// provisions the store with the placeholder in place of the plain-text key: a
+// shell client provisions the home on connecting. A harness that reads the key
+// from its environment has no store to check.
+func StepAssertProvisionedLoginStore() Step {
+	return AsCheck(Step{Name: "the VM's login store holds the placeholder, not the key", Run: func(c *Context) error {
+		store := exposedLoginKeys[c.Agent]
+		if !store.provisioned {
+			return nil
+		}
+		code, ses, err := runInShell(c, "cat ~/"+store.path)
+		if err != nil || code != 0 {
+			return fmt.Errorf("read ~/%s in the VM (exit %d): %w", store.path, code, err)
+		}
+		return placeholderNotKey(driver.StripANSI(ses.Output()), store)
+	}})
 }

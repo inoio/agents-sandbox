@@ -49,8 +49,9 @@ its shape is covered: `grok-build` declares `~/.grok/auth.json` only, withholdin
 `experimental_bearer_token` is classified, and a value in its `http_headers` or `query_params` tables is secret unless
 the name is known configuration (`api-version`), so the host seed and the write-back (`RefuseUndeclaredSecretKeys`)
 refuse such a file rather than copy it. The guard also refuses two harmless codex keys whose names carry a secret
-marker (`env_key_instructions`, `credential_file`): a refusal, never a leak. Its `auth.json` stays a login store, never
-read, in either `auth_mode`; #873 tracks learning an API-key-mode key and `env_key` references. `claude-code`
+marker (`env_key_instructions`, `credential_file`): a refusal, never a leak. Its `auth.json` stays a login store; only an
+API-key login's plain-text key in it is moved out (see [exposed login keys](#exposed-login-keys)); #873 tracks
+`env_key` references. `claude-code`
 withholds `~/.claude/settings.json` for the same reason, and more strictly: it is also excluded from the inline walk
 and the first-run host seed (`readback.SkipsInlineCredentials`), because it carries credentials in values whose key
 names no secret (custom auth headers, a proxy URL with userinfo, hook commands, `apiKeyHelper`).
@@ -86,6 +87,30 @@ The read is bounded because the sandboxed agent controls the database. A credent
 only through a length-capped SQL projection, and a store whose rows exceed the probe's bound is recorded unreadable
 rather than loaded into host memory; the probe still contributes exactly one manifest entry, carrying the unreadable
 sentinel digest.
+
+## Exposed login keys
+
+A harness's own API-key login can store the key in plain text in the home volume, where it bypasses the secret
+mechanism. codex's `codex login --with-api-key` writes `OPENAI_API_KEY` into `~/.codex/auth.json` (its ChatGPT login
+leaves that field null). claude-code's `/login` with a Console key writes `primaryApiKey` into `~/.claude.json`, its
+global config; its subscription login lives in `.credentials.json`, and `/logout` clears the key (both read from the
+claude-code 2.1.331 binary, not from a real Console login).
+
+The read-back reports such a store as **exposed**: the store, the env secret that replaces the key, that secret's API
+hosts, the key itself (in memory only, for the secret write), and how the store is provisioned in its place (codex's
+API-key `auth.json` with the placeholder; nothing for claude-code, which reads the key from its environment). The key
+is not a static credential of the store, so the store stays a login store for every other purpose. A key that is a
+secret's guest value (microsandbox's default `$MSB_<NAME>`, or an explicit `${…}` reference) is not exposed, which is
+what the documented route and the provisioned store leave; a custom `placeholder:` is not recognised and reads as a
+plain-text key.
+
+The store is read directly, not through the manifest, so declaring an exposed-key store adds nothing to the config
+write-back (`~/.claude.json` also holds onboarding and per-project state that must never be copied). The sandboxed
+agent controls the home, so the read stays inside it (`os.Root`: a symlinked file or parent leading out is refused),
+opens non-blocking (a FIFO cannot hang the after-run), takes only a regular file as checked on the opened file, and is
+bounded. An exposed key yields a finding that moves it out (see [findings and apply](findings-and-apply.md#applying));
+learn mode never writes the home volume itself: a write there would not survive a home-volume reset, so the store is
+provisioned from the host instead.
 
 ## Baseline manifest
 

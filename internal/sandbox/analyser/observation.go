@@ -41,7 +41,7 @@ type SessionFacts struct {
 // proposed allow set is the current allow set plus only the destinations the
 // session actually used. A denied destination is evidence, never an allow entry.
 func ObservationFindings(s SessionFacts) []Finding {
-	findings := s.secretFindings()
+	findings := append(s.secretFindings(), exposedKeyFindings(s.ReadBack.Exposed)...)
 	if networkFinding, ok := s.networkFinding(); ok {
 		findings = append([]Finding{networkFinding}, findings...)
 	}

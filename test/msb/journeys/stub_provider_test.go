@@ -287,3 +287,16 @@ func TestTurnProtocolForRoutesEachProtocolsTurnPath(t *testing.T) {
 		}
 	}
 }
+
+func TestStepSeedStubReportsASeedFailure(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home-is-a-file")
+	if err := os.WriteFile(home, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &Context{TB: t, Agent: "opencode2", Harness: opencode2Harness, Home: home}
+
+	err := StepSeedStub().Run(ctx)
+	if err == nil || !strings.Contains(err.Error(), "seed the home") {
+		t.Fatalf("StepSeedStub = %v, want a seed-the-home error", err)
+	}
+}

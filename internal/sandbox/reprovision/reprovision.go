@@ -25,8 +25,9 @@ const defaultSandboxUser = "dev"
 const rootUser = "root"
 
 // Provision reconciles the agent's main config with the launcher's content
-// (reconcileMainConfig), and writes each home file, the drop-in copy, and the
-// mirror into the sandbox. For that it creates parent directories as
+// (reconcileMainConfig), and writes each home file (but a keep-login target
+// holding a renewing login), the drop-in copy, and the mirror into the
+// sandbox. For that it creates parent directories as
 // needed, removes the marked stale paths, then chowns every written path and
 // created directory to the runtime user so the files are readable by the agent
 // and startup hooks. The SDK's file writes create root-owned files and
@@ -58,7 +59,7 @@ func Provision(ctx context.Context, sb msb.SandboxExecutor, cf *ConfigFiles) (re
 		files map[string][]byte
 		kind  string
 	}{
-		{cf.HomeFiles, "home file"},
+		{homeFilesToWrite(store.read, cf.HomeFiles, cf.KeepLogin), "home file"},
 		{cf.filesBesideMainConfig(cf.Provisioned), "provisioned file"},
 		{cf.Mirror, "mirror file"},
 	}

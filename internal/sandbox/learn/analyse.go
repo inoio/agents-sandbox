@@ -75,13 +75,20 @@ func proposedSecretEnvVars(findings []analyser.Finding) []string {
 }
 
 // SecretValue resolves a proposed static secret's value in memory, matched by
-// env-var name; the value is never persisted. An earlier same-env-var credential
+// env-var name, from a static credential or a plain-text login key; the value
+// is never persisted beyond the secret it is written to. An earlier same-env-var credential
 // with an empty value is skipped, so a non-empty source still resolves.
 func (a Analysis) SecretValue() func(analyser.SecretWrite) (string, bool) {
 	return func(write analyser.SecretWrite) (string, bool) {
 		for _, credential := range a.ReadBack.Static {
 			if credential.EnvVar == write.EnvVar && credential.Value != "" {
 				return credential.Value, true
+			}
+		}
+		// A key a harness's login stored in plain text moves into its secret.
+		for _, exposed := range a.ReadBack.Exposed {
+			if exposed.EnvVar == write.EnvVar && exposed.Value != "" {
+				return exposed.Value, true
 			}
 		}
 		return "", false

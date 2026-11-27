@@ -21,6 +21,7 @@ var chmodPath = os.Chmod
 // exact config the launcher would provision into a sandbox, such as seeding a
 // KVM guest's home.
 func Materialize(cf *ConfigFiles, vmHome, targetDir string) error {
+	store := hostConfigStore{vmHome: vmHome, targetDir: targetDir}
 	// Remove stale targets first so a previous materialization cannot shadow the
 	// files written below. Best-effort, as Provision's removal is: the merged
 	// config is written to the last-loaded filename, so a failed removal is
@@ -32,14 +33,14 @@ func Materialize(cf *ConfigFiles, vmHome, targetDir string) error {
 		}
 		_ = os.Remove(dest)
 	}
-	if err := reconcileMainConfig(hostConfigStore{vmHome: vmHome, targetDir: targetDir}, cf); err != nil {
+	if err := reconcileMainConfig(store, cf); err != nil {
 		return fmt.Errorf("materialize the agent's main config: %w", err)
 	}
 	groups := []struct {
 		files map[string][]byte
 		kind  string
 	}{
-		{cf.HomeFiles, "home file"},
+		{homeFilesToWrite(store.read, cf.HomeFiles, cf.KeepLogin), "home file"},
 		{cf.filesBesideMainConfig(cf.Provisioned), "provisioned file"},
 		{cf.Mirror, "mirror file"},
 	}

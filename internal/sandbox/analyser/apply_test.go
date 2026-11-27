@@ -138,6 +138,51 @@ func TestApplyManagedConfigWritesTheFile(t *testing.T) {
 	}
 }
 
+func TestApplyManagedConfigDoesNotTreatAgentConfigAsLauncherConfig(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	directory := filepath.Join(paths.UserSlugConfigDir(testSlug), "opencode2")
+	require.NoError(t, os.MkdirAll(directory, 0o700))
+	testutil.WritePath(t, filepath.Join(directory, "config.json"), `{"model":"existing"}`)
+	ui, answered := interactiveUI()
+	const content = `{"model":"learned"}`
+
+	results := Apply([]Finding{managedConfigFinding("opencode.learned.jsonc", content)}, ApplyOptions{
+		Paths: paths, Slug: testSlug, Agent: testManagedConfigAgent, UI: ui, Mode: options.ModeRun,
+	})
+
+	require.Equal(t, OutcomeApplied, results[0].Outcome, "%+v", results[0])
+	require.Equal(t, 1, *answered)
+	require.JSONEq(t, content, readFile(t, filepath.Join(directory, "opencode.learned.jsonc")))
+	require.JSONEq(t, `{"model":"existing"}`, readFile(t, filepath.Join(directory, "config.json")))
+}
+
+func TestApplyRefusesAnUnreadableProjectHomeManifestBeforeWriting(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	slugDirectory := paths.UserSlugConfigDir(testSlug)
+	projectPath := filepath.Join(paths.ProjectConfigDir(), "config.yaml")
+	const projectConfig = "home: [\n"
+	testutil.WritePath(t, projectPath, projectConfig)
+	ui, answered := interactiveUI()
+
+	results := Apply([]Finding{exposedKeyFindingFor(t, exposedCodexKey)}, ApplyOptions{
+		Paths: paths, Slug: testSlug, Agent: "codex", UI: ui, Mode: options.ModeRun,
+		SecretValue: func(SecretWrite) (string, bool) { return exposedCodexKey.Value, true },
+	})
+
+	require.Equal(t, OutcomeSkipped, results[0].Outcome)
+	require.Contains(t, results[0].Note, paths.ProjectConfigDir())
+	require.Contains(t, results[0].Note, "cannot be read for editing")
+	require.NotEmpty(t, results[0].Err)
+	require.Empty(t, results[0].WroteDirs)
+	require.Zero(t, *answered)
+	require.Equal(t, projectConfig, readFile(t, projectPath))
+	require.NoFileExists(t, filepath.Join(slugDirectory, "env.secret.yaml"))
+	require.NoFileExists(t, filepath.Join(slugDirectory, "config.yaml"))
+	require.NoDirExists(t, filepath.Join(slugDirectory, "home"))
+}
+
 // TestApplyManagedConfigWritesEveryWrite pins that every managed-config write of
 // a finding is written: the plan loop must continue past a managed-config write
 // rather than stop at it, so a finding carrying more than one managed file lands
