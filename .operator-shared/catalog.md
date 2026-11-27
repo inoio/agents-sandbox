@@ -196,3 +196,9 @@
 - `plans/2026-11-21-msb-journeys.md`
   - Description: Implementation plan for #793, the first slice of the harness-journeys acceptance harness: host-side libvirt KVM-guest tooling (`scripts/kvm-guest.sh` + `make kvm-*`), the `test/harness`→`test/msb/startup` rename with the shared untagged `test/msb/driver`, the gate-scope changes (dead-code `test/` filter, ambient scan over non-test `.go` under `test/`, the production-closure contract test), `make test-msb-journeys` with the named-step journey model, and the learn-mode journeys (UC1, UC4, `config learn`, attribution) plus the surface-sweep block.
   - Read If: Executing #793; working on `scripts/kvm-guest.sh` or the `make kvm-*` targets; the `test/msb/{driver,startup,journeys}` rename and layout; the journeys' `Journey`/`Step` model; or the dead-code/ambient `test/` gate scope.
+- `plans/2026-11-27-msb-projection-reduction-design.md`
+  - Description: Design for #924, making the msb seam's currency a stated rule (behavior-bearing launcher types vs pure-data observation aliases) so the value-projection layer and its reflection drift register shrink and stay bounded. Records the three approaches, the measured inventory, and the chosen strict variant.
+  - Read If: Changing which `internal/sandbox/msb` types are launcher-owned vs SDK aliases; the seam's currency rule; or the drift-register scope.
+- `plans/2026-11-27-msb-projection-reduction-plan.md`
+  - Description: TDD implementation plan for #924: five alias tasks, one register-scope task, and a spec/changelog task, atop the v0.8 migration branch.
+  - Read If: Executing #924, or resuming its inline execution (ledger under `.superpowers/sdd/`).
