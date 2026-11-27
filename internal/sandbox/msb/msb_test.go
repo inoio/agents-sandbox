@@ -1474,6 +1474,34 @@ func TestRealMsbClientLists(t *testing.T) {
 	}
 }
 
+// TestRealMsbClientListResolutionErrors pins that a handle whose observation
+// cannot be captured fails the list rather than yielding a silently empty
+// handle.
+func TestRealMsbClientListResolutionErrors(t *testing.T) {
+	ctx := context.Background()
+	cause := errors.New("observation boom")
+
+	swapSeam(t, &listSandboxesWith, func(context.Context, ...msbSdk.SandboxListOption) (*msbSdk.SandboxPage, error) {
+		return &msbSdk.SandboxPage{Sandboxes: []*msbSdk.Sandbox{{}}}, nil
+	})
+	swapSeam(t, &realSandboxHandleInfo, func(*msbSdk.Sandbox, context.Context) (*msbSdk.SandboxInfo, error) {
+		return nil, cause
+	})
+	if _, err := (&realMsbClient{}).ListSandboxes(ctx, nil); !errors.Is(err, cause) {
+		t.Fatalf("ListSandboxes() error = %v, want %v", err, cause)
+	}
+
+	swapSeam(t, &listVolumes, func(context.Context) ([]*msbSdk.Volume, error) {
+		return []*msbSdk.Volume{{}}, nil
+	})
+	swapSeam(t, &realVolumeInfo, func(*msbSdk.Volume, context.Context) (*msbSdk.VolumeInfo, error) {
+		return nil, cause
+	})
+	if _, err := (&realMsbClient{}).ListVolumes(ctx); !errors.Is(err, cause) {
+		t.Fatalf("ListVolumes() error = %v, want %v", err, cause)
+	}
+}
+
 // TestRealMsbClientListSandboxesPagination drives the paging loop and the label
 // and cursor option branches. The first page carries the label option; the
 // second, reached through NextCursor, adds the cursor option.

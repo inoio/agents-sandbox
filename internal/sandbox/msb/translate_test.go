@@ -1414,6 +1414,9 @@ func TestDecodeInspectionRootfs(t *testing.T) {
 		{name: "empty"},
 		{name: "malformed", raw: `{`},
 		{name: "unknown variant", raw: `{"Future":{"reference":"x"}}`},
+		{name: "oci not an object", raw: `{"Oci":5}`},
+		{name: "bind not an object", raw: `{"Bind":5}`},
+		{name: "disk image not an object", raw: `{"DiskImage":5}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
