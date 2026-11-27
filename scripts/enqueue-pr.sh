@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# enqueue-pr.sh - put pull requests into the merge queue: wait for their checks,
-# then enqueue them; with --stack, land a stack of PRs bottom-up.
+# enqueue-pr.sh - put pull requests into the merge queue: wait for their
+# required checks, then enqueue them; with --stack, land a stack of PRs bottom-up.
 #
 # `main` merges only through the merge queue and repo auto-merge is disabled, so
 # `gh pr merge` is refused. The request goes through the REST async merge
@@ -88,11 +88,15 @@ refuse_if_conflicted() {
 # freshly pushed PR is not mistaken for a failure; any other result returns at
 # once, so a real failure still reaches the watch below. A conflict that appears
 # while waiting aborts at once — its checks will never report.
+#
+# Every read is scoped with `--required`: the merge queue is gated by the
+# ruleset's required checks, and an advisory red check (codecov/patch, mutation,
+# hermetic) is not one of them, so it must not hold the enqueue back.
 wait_for_checks() {
   local attempt result
   for ((attempt = 0; attempt < 30; attempt++)); do
     refuse_if_conflicted || return 1
-    if result="$(gh pr checks "$pr" 2>&1)"; then return 0; fi
+    if result="$(gh pr checks "$pr" --required 2>&1)"; then return 0; fi
     [[ "$result" == *"no checks reported"* ]] || return 0
     sleep "$ENQUEUE_PR_RETRY_SECONDS"
   done
@@ -112,9 +116,9 @@ head_commit() {
 # checks, green or red. So a watch counts only for the head it started on:
 # after a pass the head is read again, and a moved head is watched anew; after
 # a failure the script settles, watches anew when the head moved, and otherwise
-# confirms the failure with a plain `gh pr checks` (exit 1 = a failed check)
-# before it stands. It sets watched_head to the commit whose checks passed, which
-# the enqueue pins.
+# confirms the failure with a plain `gh pr checks --required` (exit 1 = a failed
+# required check) before it stands. It sets watched_head to the commit whose
+# checks passed, which the enqueue pins.
 watch_checks() {
   refuse_if_conflicted || return 1
   wait_for_checks || return 1
@@ -123,7 +127,7 @@ watch_checks() {
   for ((attempt = 0; attempt < 3; attempt++)); do
     head_before="$(head_commit)"
     status=0
-    gh pr checks "$pr" --watch --fail-fast >/dev/null 2>&1 || status=$?
+    gh pr checks "$pr" --required --watch --fail-fast >/dev/null 2>&1 || status=$?
     if [[ "$status" == 8 ]]; then
       printf 'enqueue-pr: PR #%s is not ready: its checks are still pending\n' "$pr" >&2
       return 1
@@ -142,7 +146,7 @@ watch_checks() {
         return 0
       fi
       status=0
-      gh pr checks "$pr" >/dev/null 2>&1 || status=$?
+      gh pr checks "$pr" --required >/dev/null 2>&1 || status=$?
       if [[ "$status" == 1 ]]; then
         printf 'enqueue-pr: PR #%s checks did not pass\n' "$pr" >&2
         return 1
