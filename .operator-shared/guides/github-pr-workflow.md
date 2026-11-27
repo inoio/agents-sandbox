@@ -32,10 +32,48 @@ each PR whose base is the previous PR's branch onto `main` once that one merged,
 until it merges, so a PR never enters the queue while the PR under it is still open. The list starts at
 the stack's bottom PR. It refuses a PR based on an unmerged branch outside the list, and stops
 when the queue drops a PR (three polls outside the queue). The repo does not delete merged branches,
-so GitHub does not retarget a stacked PR by itself.
+so GitHub does not retarget a manually stacked PR by itself.
 
 `gh pr checks <n> --watch` (and `gh run watch`) wait for results in one call — prefer them over a
 `sleep`/`gh pr checks` poll loop.
+
+## Native GitHub stacks
+
+GitHub also models a stack itself: a PR carries a `stack` object (its number, size, position, and
+`base.ref`), readable with `gh api repos/{owner}/{repo}/pulls/<n> --jq .stack` and listed with
+`gh api repos/{owner}/{repo}/stacks`. The stack's **trunk** is the base branch of its bottom PR
+(usually `main`), and every PR is evaluated — and the whole stack lands — against the trunk, not the
+branch a mid-stack PR directly targets. A stack rooted on another branch merges into *that* branch, so
+a stack whose bottom PR still targets an already-merged feature branch would land there rather than
+`main`; retarget the bottom PR first.
+
+A PR's base is **fixed while it is in a stack**: `gh pr edit <n> --base main` is refused ("Cannot
+change the base branch because the pull request is part of a stack"), and the Stacks API has no
+base-changing endpoint. To move the trunk, dissolve the stack and retarget the bottom PR:
+
+```
+gh api --method POST repos/{owner}/{repo}/stacks/<stack_number>/unstack   # lift the open PRs
+gh pr edit <bottom> --base main
+```
+
+Then land the PRs bottom-up as a manual stack with `scripts/enqueue-pr.sh --stack <bottom> … <top>`.
+The script refuses the bottom PR when it is based on a merged branch that is not `main` — its base is
+neither `main` nor the previous PR's head — so retarget it before running the script. A native stack
+left intact lands bottom-up the same way, and GitHub rebases the remaining PRs onto the trunk as each
+one merges. (Deleting the stack's base branch also makes GitHub retarget the stack to the default
+branch, but a merged branch is not deleted here by convention.)
+
+Changing a PR's base — retargeting it, or dissolving a stack — fires `pull_request` `edited`, which
+`ci.yml` does not subscribe to, so its checks do **not** re-run: a red check from before the change
+persists until the branch is updated. `gh pr update-branch <n>` merges the current base into the
+branch and re-reports the checks, and it also clears the stale-branch `codecov/patch` miss (codecov
+measures the head merged with the base, so a branch behind `main` shows a spurious patch miss — see
+`specs/testing/test-coverage.md`). `scripts/enqueue-pr.sh` retargets a base but does not update the
+branch, so update each upper PR after the one below merges before enqueueing it.
+
+The `changelog` slug gate diffs each PR against the branch it directly targets (the CI job passes
+`GH_PR_BASE_REF`), so a mid-stack PR's diff no longer carries the lower PRs' fragments and their slugs
+do not trip it. See `specs/ci/ci-pipeline.md`.
 
 ## Bot-authored PRs need a workflow approval
 

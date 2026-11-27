@@ -115,6 +115,11 @@ jobs:
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           GITHUB_SHA: ${{ github.sha }}
           GITHUB_BASE_REF: ${{ github.base_ref }}
+          # A pull request in a stack is evaluated as if it targets the stack
+          # base, so GITHUB_BASE_REF carries that trunk; passing the branch it
+          # directly targets keeps the presence and slug rules on the pull
+          # request's own changeset, not the whole stack's.
+          GH_PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
           GITHUB_BEFORE: ${{ github.event.before }}
           GITHUB_MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
         run: |
