@@ -56,7 +56,6 @@ func TestSDKStructFieldsAreClassified(t *testing.T) {
 		{"JobLogEntry", reflect.TypeFor[msbSdk.JobLogEntry](), jobLogEntryProjected, jobLogEntryNotModeled},
 		{"ExecFailure", reflect.TypeFor[msbSdk.ExecFailure](), execFailureProjected, execFailureNotModeled},
 		{"LogEntry", reflect.TypeFor[msbSdk.LogEntry](), logEntryProjected, logEntryNotModeled},
-		{"Metrics", reflect.TypeFor[msbSdk.Metrics](), metricsProjected, metricsNotModeled},
 		{
 			"SandboxConfig",
 			reflect.TypeFor[msbSdk.SandboxConfig](),
@@ -575,35 +574,6 @@ func TestLogEntriesFromPreservesNilAndFields(t *testing.T) {
 	if len(got) != 1 || got[0].Source != LogSourceSystem || got[0].SessionID != &session ||
 		!got[0].Timestamp.Equal(time.Unix(3, 0)) || string(got[0].Data) != "oom" || got[0].Cursor != "c2" {
 		t.Errorf("logEntriesFrom() = %+v, want every field projected", got)
-	}
-}
-
-func TestMetricsFromProjectsFieldsAndNil(t *testing.T) {
-	if got := metricsFrom(nil); got != nil {
-		t.Errorf("metricsFrom(nil) = %v, want nil", got)
-	}
-	available := uint64(1)
-	limit := uint64(4096 << 20)
-	metrics := metricsFrom(&msbSdk.Metrics{
-		CPUPercent:           12.5,
-		VCPUTimeNs:           99,
-		MemoryBytes:          1024,
-		MemoryAvailableBytes: &available,
-		MemoryLimitBytes:     limit,
-		DiskReadBytes:        1,
-		DiskWriteBytes:       2,
-		NetRxBytes:           3,
-		NetTxBytes:           4,
-		Uptime:               5 * time.Second,
-	})
-	if metrics == nil {
-		t.Fatal("metricsFrom() = nil, want metrics")
-	}
-	if metrics.CPUPercent != 12.5 || metrics.VCPUTimeNs != 99 || metrics.MemoryBytes != 1024 ||
-		metrics.MemoryAvailableBytes != &available || metrics.MemoryLimitBytes != limit ||
-		metrics.DiskReadBytes != 1 || metrics.DiskWriteBytes != 2 ||
-		metrics.NetRxBytes != 3 || metrics.NetTxBytes != 4 || metrics.Uptime != 5*time.Second {
-		t.Errorf("metricsFrom() = %+v, want every field projected", metrics)
 	}
 }
 

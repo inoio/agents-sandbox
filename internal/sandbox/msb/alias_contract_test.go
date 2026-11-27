@@ -21,3 +21,8 @@ var (
 	_ StorageItem                 = msbSdk.StorageItemUsage{}
 	_ msbSdk.StorageItemUsage     = StorageItem{}
 )
+
+var (
+	_ Metrics        = msbSdk.Metrics{}
+	_ msbSdk.Metrics = Metrics{}
+)

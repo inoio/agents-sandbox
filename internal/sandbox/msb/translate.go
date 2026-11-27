@@ -161,27 +161,6 @@ var (
 	}
 	logEntryNotModeled = map[string]string{}
 
-	// metricsProjected names every field of msbSdk.Metrics the launcher
-	// projects onto Metrics; metricsNotModeled is empty because every field
-	// is projected.
-	metricsProjected = map[string]struct{}{
-		"CPUPercent":              {},
-		"VCPUTimeNs":              {},
-		"MemoryBytes":             {},
-		"MemoryAvailableBytes":    {},
-		"MemoryHostResidentBytes": {},
-		"MemoryLimitBytes":        {},
-		"DiskReadBytes":           {},
-		"DiskWriteBytes":          {},
-		"NetRxBytes":              {},
-		"NetTxBytes":              {},
-		"UpperUsedBytes":          {},
-		"UpperFreeBytes":          {},
-		"UpperHostAllocatedBytes": {},
-		"Uptime":                  {},
-	}
-	metricsNotModeled = map[string]string{}
-
 	// sandboxConfigProjected names every field of msbSdk.SandboxConfig the
 	// adapter sets through a creation option.
 	sandboxConfigProjected = map[string]struct{}{
@@ -687,30 +666,6 @@ func logEntriesFrom(entries []msbSdk.LogEntry) []LogEntry {
 		}
 	}
 	return out
-}
-
-// metricsFrom translates the SDK metrics snapshot field for field. A nil
-// snapshot stays nil.
-func metricsFrom(metrics *msbSdk.Metrics) *Metrics {
-	if metrics == nil {
-		return nil
-	}
-	return &Metrics{
-		CPUPercent:              metrics.CPUPercent,
-		VCPUTimeNs:              metrics.VCPUTimeNs,
-		MemoryBytes:             metrics.MemoryBytes,
-		MemoryAvailableBytes:    metrics.MemoryAvailableBytes,
-		MemoryHostResidentBytes: metrics.MemoryHostResidentBytes,
-		MemoryLimitBytes:        metrics.MemoryLimitBytes,
-		DiskReadBytes:           metrics.DiskReadBytes,
-		DiskWriteBytes:          metrics.DiskWriteBytes,
-		NetRxBytes:              metrics.NetRxBytes,
-		NetTxBytes:              metrics.NetTxBytes,
-		UpperUsedBytes:          metrics.UpperUsedBytes,
-		UpperFreeBytes:          metrics.UpperFreeBytes,
-		UpperHostAllocatedBytes: metrics.UpperHostAllocatedBytes,
-		Uptime:                  metrics.Uptime,
-	}
 }
 
 // sandboxStatusFrom translates the SDK sandbox status onto the launcher enum.
