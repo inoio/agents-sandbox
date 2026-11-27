@@ -195,6 +195,7 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 	rootCmd.AddCommand(buildSandboxCmd(ui))
 	rootCmd.AddCommand(buildStopCmd(ui))
 	rootCmd.AddCommand(buildKillCmd(ui))
+	rootCmd.AddCommand(buildCopyCmd(ui))
 	rootCmd.AddCommand(buildPruneCmd(ui))
 	rootCmd.AddCommand(buildDFCmd(ui))
 	rootCmd.AddCommand(buildStorageCmd(ui))
