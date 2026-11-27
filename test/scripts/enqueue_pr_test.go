@@ -47,7 +47,7 @@ func TestEnqueuePr(t *testing.T) {
 		assertStatus(t, result, 0)
 		assertContains(t, "stdout", result.Stdout, "its head moved to new-head")
 		assertContains(t, "argv", h.argv(), "sha=new-head")
-		if watches := strings.Count(h.argv(), "pr checks 42 --watch"); watches != 2 {
+		if watches := strings.Count(h.argv(), "pr checks 42 --required --watch"); watches != 2 {
 			t.Errorf("watched %d times, want 2 (the old head, then the new one)", watches)
 		}
 	})
@@ -62,7 +62,7 @@ func TestEnqueuePr(t *testing.T) {
 		assertStatus(t, result, 1)
 		assertContains(t, "stderr", result.Stderr, "checks did not pass")
 		assertNotContains(t, "argv", h.argv(), "merge-async")
-		if watches := strings.Count(h.argv(), "pr checks 42 --watch"); watches != 1 {
+		if watches := strings.Count(h.argv(), "pr checks 42 --required --watch"); watches != 1 {
 			t.Errorf("watched %d times, want 1", watches)
 		}
 	})
@@ -153,7 +153,7 @@ func TestEnqueuePr(t *testing.T) {
 
 		assertStatus(t, result, 1)
 		assertContains(t, "stderr", result.Stderr, "has merge conflicts")
-		assertNotContains(t, "argv", h.argv(), "pr checks 41 --watch")
+		assertNotContains(t, "argv", h.argv(), "pr checks 41 --required --watch")
 		assertNotContains(t, "argv", h.argv(), "merge-async")
 	})
 
@@ -171,7 +171,7 @@ func TestEnqueuePr(t *testing.T) {
 
 		assertStatus(t, result, 1)
 		assertContains(t, "stderr", result.Stderr, "has merge conflicts")
-		assertNotContains(t, "argv", h.argv(), "pr checks 42 --watch")
+		assertNotContains(t, "argv", h.argv(), "pr checks 42 --required --watch")
 		assertNotContains(t, "argv", h.argv(), "merge-async")
 	})
 
@@ -222,7 +222,9 @@ func TestEnqueuePr(t *testing.T) {
 
 		assertStatus(t, result, 0)
 		assertContains(t, "argv", h.argv(), "pr view 42 --json state -q .state")
-		assertContains(t, "argv", h.argv(), "pr checks 42 --watch --fail-fast")
+		// The watch is scoped to the ruleset's required checks, so an advisory
+		// red check (codecov/patch) cannot block the enqueue.
+		assertContains(t, "argv", h.argv(), "pr checks 42 --required --watch --fail-fast")
 		assertContains(t, "argv", h.argv(), "api -X PUT repos/{owner}/{repo}/pulls/42/merge-async")
 		assertContains(t, "argv", h.argv(), "merge_action=merge_queue")
 		assertContains(t, "argv", h.argv(), "sha=abc123")

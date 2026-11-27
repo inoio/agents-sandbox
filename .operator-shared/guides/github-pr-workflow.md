@@ -22,7 +22,9 @@ through the merge queue, and the two side effects that commonly stall one.
    The GraphQL `enqueuePullRequest` mutation also works for a plain PR but is **refused for a PR that
    was stacked on another one**, which is why the script uses the REST call for every PR.
    `scripts/enqueue-pr.sh <n>` does the wait-and-enqueue in one call, and refuses (non-zero) a PR that
-   has merge conflicts, since a conflicted PR runs no checks and the queue will eject it.
+   has merge conflicts, since a conflicted PR runs no checks and the queue will eject it. It watches
+   exactly the required checks (`gh pr checks --required`), so a red advisory check (`codecov/patch`,
+   `mutation`, `hermetic`) does not hold an enqueue back — only a required failure or a conflict does.
 3. The queue rebuilds the PR on the current `main` and re-runs the required checks there, so a PR
    that only passed against a stale base is rejected. `integration` is skipped on the queue ref (a
    skipped required check reports Success), so the queue does not pay the image build.
