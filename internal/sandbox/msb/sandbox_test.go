@@ -126,3 +126,26 @@ func TestRealSandboxHandleTimestamps(t *testing.T) {
 		t.Errorf("UpdatedAt() with no observation timestamp = %v, want zero time", got)
 	}
 }
+
+// TestSandboxHandleStatusIsCaptured pins the captured-observation contract:
+// Status() reports the observation taken when the handle was resolved, not a
+// fresh lookup. A consumer that needs live state re-resolves the handle or uses
+// the status-gated Connect.
+func TestSandboxHandleStatusIsCaptured(t *testing.T) {
+	status := msbSdk.SandboxStatusRunning
+	swapSeam(t, &realSandboxHandleInfo, func(*msbSdk.Sandbox, context.Context) (*msbSdk.SandboxInfo, error) {
+		return &msbSdk.SandboxInfo{Status: status}, nil
+	})
+	swapSeam(t, &realSandboxHandleConfigJSON, func(*msbSdk.Sandbox, context.Context) (string, error) {
+		return `{"kind":"local"}`, nil
+	})
+
+	handle, err := sandboxHandleFrom(context.Background(), &msbSdk.Sandbox{})
+	if err != nil {
+		t.Fatalf("sandboxHandleFrom() error = %v", err)
+	}
+	status = msbSdk.SandboxStatusStopped
+	if got := handle.Status(); got != SandboxStatusRunning {
+		t.Errorf("Status() after the live status changed = %q, want the captured %q", got, SandboxStatusRunning)
+	}
+}

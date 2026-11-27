@@ -84,6 +84,13 @@ provider-owned split avoids an adapter per consumer.
   `SDKVersion`/`RuntimeConfig`/`EnsureRuntime`/`InstallRuntime` use behind `msb`'s
   `PinnedRuntimeVersion`/`EnsureRuntime`/`InstallRuntime` wrappers.
 
+**Captured observations.** A `SandboxHandle`'s `Status`, `Image`, and
+`Config`/`ConfigMounts`/`ConfigPorts` are a point-in-time observation taken when the handle is
+resolved and never refresh. A consumer that needs the live VM state re-resolves the handle (as
+`vm.FindProjectVM` does) or uses the status-gated `Connect`, which reads live. A failed config
+observation is retained on the handle, so a run degrades to "config unreadable" rather than failing
+the lookup.
+
 ## Upstream sync guards
 
 The launcher types are a curated projection of the SDK, kept honest by three guards:
