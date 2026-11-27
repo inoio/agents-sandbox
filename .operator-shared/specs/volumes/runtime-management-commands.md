@@ -126,12 +126,14 @@ portability features.
   that migration first (not dry-runnable); the transfer itself is not destructive, so
   there is no confirmation, no reference guard, and `--dry-run` is not meaningful. A
   nested guest destination's parent directory is created before the copy. A host→VM
-  copy whose guest destination resolves to the same host file through the `/workspace`
-  bind is refused rather than attempted — `/workspace` is the host checkout bind, so
-  the SDK would truncate the source before reading it. `-q/--quiet` suppresses the
-  transfer line; `--format json` reports the copied item (vm, direction, source,
-  destination). VM↔VM transfer, directory transfer, and addressing a named/arbitrary
-  VM are out of scope.
+  copy whose guest destination resolves to the same host file through the managed
+  `/workspace` bind or a configured read-write bind mount is refused rather than
+  attempted — those are host-backed, so the SDK would truncate the source before
+  reading it. A readonly or non-host-backed (named/tmpfs/disk) mount is excluded, and
+  a mount-read failure still leaves the static `/workspace` guard in place. `-q/--quiet`
+  suppresses the transfer line; `--format json` reports the copied item (vm, direction,
+  source, destination). VM↔VM transfer, directory transfer, and addressing a
+  named/arbitrary VM are out of scope.
 - `sandbox start`/`restart`/`exec`/`logs`/`metrics`/`pause`/`resume`/`wait` —
   excluded: lifecycle/exec surface agents-sandbox does not expose.
 - `sandbox modify`/`fork`/`snap`/`ssh`/`install` — excluded: no fit for the

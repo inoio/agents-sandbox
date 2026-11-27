@@ -124,28 +124,207 @@ func TestCopyProjectFileAllowsWorkspaceDestinationThatIsNotTheSource(t *testing.
 	}
 }
 
-func TestWorkspaceBindHostPath(t *testing.T) {
-	const bindRoot = "/host/checkout"
+// TestCopyProjectFileAllowsExistingDistinctWorkspaceDestination pins the
+// both-stat-succeed-and-differ arm of the guard: an existing host file at the
+// mapped destination that is not the source proceeds to the copy.
+func TestCopyProjectFileAllowsExistingDistinctWorkspaceDestination(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	dir := t.TempDir()
+	t.Chdir(dir)
+	source := filepath.Join(dir, "src.diff")
+	destination := filepath.Join(dir, "dst.diff")
+	for _, path := range []string{source, destination} {
+		if err := os.WriteFile(path, []byte("payload"), 0o644); err != nil {
+			t.Fatalf("seed %s: %v", path, err)
+		}
+	}
+	fs := msbtest.NewTestFS(nil)
+	client := &msbtest.MockMsbClient{}
+	client.SetGotSandbox(runningCopyHandle(fs))
+	ui := termiotest.NewTestMock(t)
+
+	if _, err := CopyProjectFile(context.Background(), configpaths.Get(), client,
+		CopyHostToVM, source, "/workspace/dst.diff", &ui, "opencode"); err != nil {
+		t.Fatalf("CopyProjectFile() error = %v", err)
+	}
+	want := msbtest.MockCopyCall{Source: source, Destination: "/workspace/dst.diff"}
+	if got := fs.CopiedFromHost; len(got) != 1 || got[0] != want {
+		t.Errorf("CopiedFromHost = %+v, want [%+v]", got, want)
+	}
+}
+
+func TestHostDestForGuest(t *testing.T) {
+	binds := []hostBind{
+		{guest: "/workspace", host: "/host/checkout"},
+		{guest: "/workspace/sub", host: "/host/sub"},
+		{guest: "/data", host: "/host/data"},
+	}
 	for _, tc := range []struct {
 		name      string
 		guestPath string
 		want      string
 		wantOK    bool
 	}{
-		{"the bind root itself", "/workspace", bindRoot, true},
-		{"a file under the bind", "/workspace/sub/f", filepath.Join(bindRoot, "sub", "f"), true},
+		{"the bind root itself", "/workspace", "/host/checkout", true},
+		{"a file under the bind", "/workspace/f", "/host/checkout/f", true},
 		{"a sibling prefix does not match", "/workspaceX/f", "", false},
-		{"a cleaned path through the bind", "/workspace/../workspace/f", filepath.Join(bindRoot, "f"), true},
-		{"a path outside the bind", "/etc/passwd", "", false},
+		{"a cleaned path through the bind", "/workspace/../workspace/f", "/host/checkout/f", true},
+		{"the longest matching mount wins", "/workspace/sub/f", "/host/sub/f", true},
+		{"a second mount", "/data/f", "/host/data/f", true},
+		{"a path outside every bind", "/etc/passwd", "", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, ok := workspaceBindHostPath(bindRoot, tc.guestPath)
+			got, ok := hostDestForGuest(tc.guestPath, binds)
 			if ok != tc.wantOK || got != tc.want {
-				t.Errorf("workspaceBindHostPath(%q, %q) = (%q, %v), want (%q, %v)",
-					bindRoot, tc.guestPath, got, ok, tc.want, tc.wantOK)
+				t.Errorf("hostDestForGuest(%q) = (%q, %v), want (%q, %v)",
+					tc.guestPath, got, ok, tc.want, tc.wantOK)
 			}
 		})
 	}
+}
+
+// TestCopyProjectFileRefusesConfiguredBindSelfCopy pins that the guard covers
+// every host-backed read-write bind, not just /workspace: a configured rw bind
+// whose guest destination aliases the source is refused.
+func TestCopyProjectFileRefusesConfiguredBindSelfCopy(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	t.Chdir(t.TempDir())
+	hostDir := t.TempDir()
+	source := filepath.Join(hostDir, "big.bin")
+	if err := os.WriteFile(source, []byte("payload"), 0o644); err != nil {
+		t.Fatalf("seed source: %v", err)
+	}
+	fs := msbtest.NewTestFS(nil)
+	handle := runningCopyHandle(fs)
+	handle.Mounts = map[string]msb.MountConfig{
+		"/data": msb.Mount.Bind(hostDir, msb.MountOptions{}),
+	}
+	client := &msbtest.MockMsbClient{}
+	client.SetGotSandbox(handle)
+	ui := termiotest.NewTestMock(t)
+
+	_, err := CopyProjectFile(context.Background(), configpaths.Get(), client,
+		CopyHostToVM, source, "/data/big.bin", &ui, "opencode")
+	if err == nil || !strings.Contains(err.Error(), "would overwrite its own source") {
+		t.Fatalf("error = %v, want a self-copy refusal through the configured bind", err)
+	}
+	if len(fs.CopiedFromHost) != 0 || len(fs.Mkdirs) != 0 {
+		t.Errorf("a refused copy must touch nothing: fromHost=%v mkdirs=%v", fs.CopiedFromHost, fs.Mkdirs)
+	}
+	if got, readErr := os.ReadFile(source); readErr != nil || string(got) != "payload" {
+		t.Errorf("source = %q, %v; want it left intact", got, readErr)
+	}
+}
+
+// TestCopyProjectFileAllowsReadonlyBindSelfCopy pins that a readonly bind is
+// excluded from the guard: a readonly destination cannot truncate, so the copy
+// proceeds.
+func TestCopyProjectFileAllowsReadonlyBindSelfCopy(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	t.Chdir(t.TempDir())
+	hostDir := t.TempDir()
+	source := filepath.Join(hostDir, "big.bin")
+	if err := os.WriteFile(source, []byte("payload"), 0o644); err != nil {
+		t.Fatalf("seed source: %v", err)
+	}
+	fs := msbtest.NewTestFS(nil)
+	handle := runningCopyHandle(fs)
+	handle.Mounts = map[string]msb.MountConfig{
+		"/data": msb.Mount.Bind(hostDir, msb.MountOptions{Readonly: true}),
+	}
+	client := &msbtest.MockMsbClient{}
+	client.SetGotSandbox(handle)
+	ui := termiotest.NewTestMock(t)
+
+	if _, err := CopyProjectFile(context.Background(), configpaths.Get(), client,
+		CopyHostToVM, source, "/data/big.bin", &ui, "opencode"); err != nil {
+		t.Fatalf("CopyProjectFile() error = %v, want a readonly bind to be excluded", err)
+	}
+	if len(fs.CopiedFromHost) != 1 {
+		t.Errorf("CopiedFromHost = %+v, want the copy to proceed", fs.CopiedFromHost)
+	}
+}
+
+// TestCopyProjectFileIgnoresNonHostBackedMounts pins that named and tmpfs mounts
+// carry no host path and so are not part of the guard.
+func TestCopyProjectFileIgnoresNonHostBackedMounts(t *testing.T) {
+	for name, mount := range map[string]msb.MountConfig{
+		"named": msb.Mount.Named("vol", msb.MountOptions{}),
+		"tmpfs": msb.Mount.Tmpfs(msb.TmpfsOptions{}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			configpathstest.WithMockConfigPaths(t)
+			t.Chdir(t.TempDir())
+			fs := msbtest.NewTestFS(nil)
+			handle := runningCopyHandle(fs)
+			handle.Mounts = map[string]msb.MountConfig{"/data": mount}
+			client := &msbtest.MockMsbClient{}
+			client.SetGotSandbox(handle)
+			ui := termiotest.NewTestMock(t)
+
+			if _, err := CopyProjectFile(context.Background(), configpaths.Get(), client,
+				CopyHostToVM, "/host/big.bin", "/data/big.bin", &ui, "opencode"); err != nil {
+				t.Fatalf("CopyProjectFile() error = %v, want the mount ignored", err)
+			}
+			if len(fs.CopiedFromHost) != 1 {
+				t.Errorf("CopiedFromHost = %+v, want the copy to proceed", fs.CopiedFromHost)
+			}
+		})
+	}
+}
+
+// TestCopyProjectFileWorkspaceGuardSurvivesMountReadError pins that a
+// ConfigMounts failure does not block the copy: the static /workspace mapping
+// still refuses an aliasing copy and still lets a non-aliasing one through.
+func TestCopyProjectFileWorkspaceGuardSurvivesMountReadError(t *testing.T) {
+	t.Run("self-copy still refused", func(t *testing.T) {
+		configpathstest.WithMockConfigPaths(t)
+		dir := t.TempDir()
+		t.Chdir(dir)
+		source := filepath.Join(dir, "big.bin")
+		if err := os.WriteFile(source, []byte("payload"), 0o644); err != nil {
+			t.Fatalf("seed source: %v", err)
+		}
+		fs := msbtest.NewTestFS(nil)
+		handle := runningCopyHandle(fs)
+		handle.MountsErr = errors.New("mount read boom")
+		client := &msbtest.MockMsbClient{}
+		client.SetGotSandbox(handle)
+		ui := termiotest.NewTestMock(t)
+
+		_, err := CopyProjectFile(context.Background(), configpaths.Get(), client,
+			CopyHostToVM, source, "/workspace/big.bin", &ui, "opencode")
+		if err == nil || !strings.Contains(err.Error(), "would overwrite its own source") {
+			t.Fatalf("error = %v, want the static /workspace mapping to still refuse", err)
+		}
+		if len(fs.CopiedFromHost) != 0 {
+			t.Errorf("CopiedFromHost = %+v, want none", fs.CopiedFromHost)
+		}
+	})
+
+	t.Run("non-aliasing copy proceeds", func(t *testing.T) {
+		configpathstest.WithMockConfigPaths(t)
+		dir := t.TempDir()
+		t.Chdir(dir)
+		source := filepath.Join(dir, "patch.diff")
+		if err := os.WriteFile(source, []byte("payload"), 0o644); err != nil {
+			t.Fatalf("seed source: %v", err)
+		}
+		fs := msbtest.NewTestFS(nil)
+		handle := runningCopyHandle(fs)
+		handle.MountsErr = errors.New("mount read boom")
+		client := &msbtest.MockMsbClient{}
+		client.SetGotSandbox(handle)
+		ui := termiotest.NewTestMock(t)
+
+		if _, err := CopyProjectFile(context.Background(), configpaths.Get(), client,
+			CopyHostToVM, source, "/workspace/other.diff", &ui, "opencode"); err != nil {
+			t.Fatalf("CopyProjectFile() error = %v", err)
+		}
+		if len(fs.CopiedFromHost) != 1 {
+			t.Errorf("CopiedFromHost = %+v, want the copy to proceed", fs.CopiedFromHost)
+		}
+	})
 }
 
 func TestCopyProjectFileVMToHostCopiesWithoutMkdir(t *testing.T) {

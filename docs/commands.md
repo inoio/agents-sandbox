@@ -197,7 +197,8 @@ operands is a host path and the other is a guest path written as `vm:<absolute-p
 `vm:`, or neither, is an error. The VM must be running — `copy` never starts a stopped one. The checkout is resolved
 like `stop` and `kill`, so a checkout with a pending legacy project identity applies that migration first (which can
 remove a legacy VM); the transfer itself is non-destructive. A host→VM copy whose guest destination is the same host
-file through the `/workspace` bind is refused rather than truncating its own source.
+file through the managed `/workspace` bind or a configured read-write mount is refused rather than truncating its own
+source.
 
 ```console
 agents-sandbox cp ./patch.diff vm:/workspace/patches/patch.diff   # host → VM
@@ -823,8 +824,8 @@ way to start it. The checkout is resolved like `stop` and `kill`, so a pending l
 project identity is migrated first (which can remove a legacy VM); the transfer itself is
 non-destructive, so there is no confirmation prompt and no reference guard. When the guest
 destination's parent directory does not exist, it is created first. A host→VM copy whose
-guest destination is the same host file through the `/workspace` bind is refused rather
-than truncating its own source.
+guest destination is the same host file through the managed `/workspace` bind or a
+configured read-write mount is refused rather than truncating its own source.
 
 **Aliases:** `sandbox cp`
 
