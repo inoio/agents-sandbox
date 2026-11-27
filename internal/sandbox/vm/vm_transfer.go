@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path"
+	"path/filepath"
+	"strings"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
@@ -59,6 +62,13 @@ func CopyProjectFile(
 	identity, err := git.ResolveIdentity(".")
 	if err != nil {
 		return CopyResult{}, err
+	}
+	if direction == CopyHostToVM && hostToVMOverwritesSource(identity.BindRoot, hostPath, guestPath) {
+		return CopyResult{}, fmt.Errorf(
+			"refusing to copy %s -> %s: /workspace is the host checkout bind, so the source and destination are the same file and the copy would overwrite its own source",
+			hostPath,
+			guestPath,
+		)
 	}
 	// cp has no dry run, so a pending legacy identity is applied as run does.
 	adoption, err := AdoptLegacyIdentity(ctx, paths, mclient, identity, a.Name(), true, ui)
@@ -115,4 +125,42 @@ func copyFile(
 		return fmt.Errorf("copy %s -> %s: %w", hostPath, guestPath, err)
 	}
 	return nil
+}
+
+// hostToVMOverwritesSource reports whether a host→VM copy would truncate its own
+// source. /workspace is a bind of the host checkout, so a guest destination under
+// it can resolve to the source host file; the SDK opens that destination with
+// truncate before it reads, emptying the file. The guard stays bounded to the
+// /workspace bind (configured user mounts are out of scope). A stat failure on
+// either side proceeds, leaving the transfer's own error to surface.
+func hostToVMOverwritesSource(bindRoot, hostPath, guestPath string) bool {
+	destPath, ok := workspaceBindHostPath(bindRoot, guestPath)
+	if !ok {
+		return false
+	}
+	source, err := os.Stat(hostPath)
+	if err != nil {
+		return false
+	}
+	dest, err := os.Stat(destPath)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(source, dest)
+}
+
+// workspaceBindHostPath maps a guest path under the /workspace bind to its host
+// file. The match is on the exact /workspace segment, so a sibling such as
+// /workspaceX is not under the bind. The guest path is absolute (enforced by the
+// command); path.Clean collapses any `..` before matching.
+func workspaceBindHostPath(bindRoot, guestPath string) (string, bool) {
+	clean := path.Clean(guestPath)
+	if clean == "/workspace" {
+		return bindRoot, true
+	}
+	const prefix = "/workspace/"
+	if !strings.HasPrefix(clean, prefix) {
+		return "", false
+	}
+	return filepath.Join(bindRoot, clean[len(prefix):]), true
 }

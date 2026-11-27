@@ -3,6 +3,8 @@ package vm
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -54,6 +56,93 @@ func TestCopyProjectFileHostToVMCreatesNestedGuestParent(t *testing.T) {
 	if result.Direction != CopyHostToVM || result.HostPath != "/host/patch.diff" ||
 		result.GuestPath != "/workspace/sub/patch.diff" {
 		t.Errorf("result = %+v", result)
+	}
+}
+
+// TestCopyProjectFileRefusesWorkspaceSelfCopy pins the data-loss guard: /workspace
+// is the host checkout bind, so a host→VM copy whose guest destination maps back
+// to the source host file would truncate that source (the SDK opens the guest
+// sink with truncate before it reads). The copy is refused before any directory
+// is created and leaves the source intact.
+func TestCopyProjectFileRefusesWorkspaceSelfCopy(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	dir := t.TempDir()
+	t.Chdir(dir)
+	source := filepath.Join(dir, "big.bin")
+	if err := os.WriteFile(source, []byte("payload"), 0o644); err != nil {
+		t.Fatalf("seed source: %v", err)
+	}
+	fs := msbtest.NewTestFS(nil)
+	client := &msbtest.MockMsbClient{}
+	client.SetGotSandbox(runningCopyHandle(fs))
+	ui := termiotest.NewTestMock(t)
+
+	_, err := CopyProjectFile(context.Background(), configpaths.Get(), client,
+		CopyHostToVM, source, "/workspace/big.bin", &ui, "opencode")
+	if err == nil || !strings.Contains(err.Error(), "would overwrite its own source") {
+		t.Fatalf("error = %v, want a self-copy refusal naming the overwrite", err)
+	}
+	if !strings.Contains(err.Error(), source) || !strings.Contains(err.Error(), "/workspace/big.bin") {
+		t.Errorf("error = %v, want it to name both the source and the guest destination", err)
+	}
+	if len(fs.CopiedFromHost) != 0 {
+		t.Errorf("CopiedFromHost = %+v, want none for a refused self-copy", fs.CopiedFromHost)
+	}
+	if len(fs.Mkdirs) != 0 {
+		t.Errorf("Mkdirs = %v, want no directories created for a refused copy", fs.Mkdirs)
+	}
+	if got, readErr := os.ReadFile(source); readErr != nil || string(got) != "payload" {
+		t.Errorf("source = %q, %v; want it left intact", got, readErr)
+	}
+}
+
+// TestCopyProjectFileAllowsWorkspaceDestinationThatIsNotTheSource pins that the
+// self-copy guard only fires for the same host file: a /workspace destination
+// naming a different guest file proceeds.
+func TestCopyProjectFileAllowsWorkspaceDestinationThatIsNotTheSource(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	dir := t.TempDir()
+	t.Chdir(dir)
+	source := filepath.Join(dir, "patch.diff")
+	if err := os.WriteFile(source, []byte("payload"), 0o644); err != nil {
+		t.Fatalf("seed source: %v", err)
+	}
+	fs := msbtest.NewTestFS(nil)
+	client := &msbtest.MockMsbClient{}
+	client.SetGotSandbox(runningCopyHandle(fs))
+	ui := termiotest.NewTestMock(t)
+
+	if _, err := CopyProjectFile(context.Background(), configpaths.Get(), client,
+		CopyHostToVM, source, "/workspace/other.diff", &ui, "opencode"); err != nil {
+		t.Fatalf("CopyProjectFile() error = %v", err)
+	}
+	want := msbtest.MockCopyCall{Source: source, Destination: "/workspace/other.diff"}
+	if got := fs.CopiedFromHost; len(got) != 1 || got[0] != want {
+		t.Errorf("CopiedFromHost = %+v, want [%+v]", got, want)
+	}
+}
+
+func TestWorkspaceBindHostPath(t *testing.T) {
+	const bindRoot = "/host/checkout"
+	for _, tc := range []struct {
+		name      string
+		guestPath string
+		want      string
+		wantOK    bool
+	}{
+		{"the bind root itself", "/workspace", bindRoot, true},
+		{"a file under the bind", "/workspace/sub/f", filepath.Join(bindRoot, "sub", "f"), true},
+		{"a sibling prefix does not match", "/workspaceX/f", "", false},
+		{"a cleaned path through the bind", "/workspace/../workspace/f", filepath.Join(bindRoot, "f"), true},
+		{"a path outside the bind", "/etc/passwd", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := workspaceBindHostPath(bindRoot, tc.guestPath)
+			if ok != tc.wantOK || got != tc.want {
+				t.Errorf("workspaceBindHostPath(%q, %q) = (%q, %v), want (%q, %v)",
+					bindRoot, tc.guestPath, got, ok, tc.want, tc.wantOK)
+			}
+		})
 	}
 }
 

@@ -194,7 +194,10 @@ agents-sandbox kill -f     # kill and remove VM state (also a stopped or never-s
 
 Copy a single file between the host and the current checkout's project VM, in either direction. Exactly one of the two
 operands is a host path and the other is a guest path written as `vm:<absolute-path-inside-the-VM>`; both written as
-`vm:`, or neither, is an error. The VM must be running — `copy` never starts a stopped one.
+`vm:`, or neither, is an error. The VM must be running — `copy` never starts a stopped one. The checkout is resolved
+like `stop` and `kill`, so a checkout with a pending legacy project identity applies that migration first (which can
+remove a legacy VM); the transfer itself is non-destructive. A host→VM copy whose guest destination is the same host
+file through the `/workspace` bind is refused rather than truncating its own source.
 
 ```console
 agents-sandbox cp ./patch.diff vm:/workspace/patch.diff   # host → VM
@@ -816,9 +819,12 @@ either direction. Exactly one of the two operands is a host path and the other i
 guest path written as `vm:<absolute-path-inside-the-sandbox>`; both written as `vm:`, or
 neither, is an error. The sandbox is the current checkout's project VM and must be
 running — `copy` never starts a stopped one, and the error names `run` or `shell` as the
-way to start it. When the guest destination's parent directory does not exist, it is
-created first. The transfer is non-destructive, so there is no confirmation prompt and
-no reference guard.
+way to start it. The checkout is resolved like `stop` and `kill`, so a pending legacy
+project identity is migrated first (which can remove a legacy VM); the transfer itself is
+non-destructive, so there is no confirmation prompt and no reference guard. When the guest
+destination's parent directory does not exist, it is created first. A host→VM copy whose
+guest destination is the same host file through the `/workspace` bind is refused rather
+than truncating its own source.
 
 **Aliases:** `sandbox cp`
 

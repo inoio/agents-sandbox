@@ -121,12 +121,17 @@ portability features.
   path and the other a `vm:<guest-path>` (an absolute path inside the VM); both `vm:`
   or neither is an error. The VM is the cwd checkout's project VM (resolved like
   `sandbox stop`/`kill`, including a legacy adopted slug) and must be **running** —
-  cp never boots a stopped VM, naming `run`/`shell` in the error. A nested guest
-  destination's parent directory is created before the copy. The transfer is not
-  destructive, so there is no confirmation, no reference guard, and `--dry-run` is
-  not meaningful. `-q/--quiet` suppresses the transfer line; `--format json` reports
-  the copied item (vm, direction, source, destination). VM↔VM transfer, directory
-  transfer, and addressing a named/arbitrary VM are out of scope.
+  cp never boots a stopped VM, naming `run`/`shell` in the error. Identity resolution
+  matches `stop`/`kill`, so a checkout with a pending legacy project identity applies
+  that migration first (not dry-runnable); the transfer itself is not destructive, so
+  there is no confirmation, no reference guard, and `--dry-run` is not meaningful. A
+  nested guest destination's parent directory is created before the copy. A host→VM
+  copy whose guest destination resolves to the same host file through the `/workspace`
+  bind is refused rather than attempted — `/workspace` is the host checkout bind, so
+  the SDK would truncate the source before reading it. `-q/--quiet` suppresses the
+  transfer line; `--format json` reports the copied item (vm, direction, source,
+  destination). VM↔VM transfer, directory transfer, and addressing a named/arbitrary
+  VM are out of scope.
 - `sandbox start`/`restart`/`exec`/`logs`/`metrics`/`pause`/`resume`/`wait` —
   excluded: lifecycle/exec surface agents-sandbox does not expose.
 - `sandbox modify`/`fork`/`snap`/`ssh`/`install` — excluded: no fit for the
