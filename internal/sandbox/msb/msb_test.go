@@ -1017,6 +1017,24 @@ func TestRealMsbClientImageInspectDetailNilConfig(t *testing.T) {
 	}
 }
 
+// TestRealMsbClientImageInspectNilConfig pins the nil-config passthrough: an
+// inspect with no config returns a nil config and no error, as the removed
+// projector did.
+func TestRealMsbClientImageInspectNilConfig(t *testing.T) {
+	previous := realImageInspect
+	t.Cleanup(func() { realImageInspect = previous })
+	realImageInspect = func(_ context.Context, _ string) (*msbSdk.ImageDetail, error) {
+		return &msbSdk.ImageDetail{}, nil
+	}
+	config, err := (&realMsbClient{}).ImageInspect(context.Background(), "ref")
+	if err != nil {
+		t.Fatalf("ImageInspect() error = %v", err)
+	}
+	if config != nil {
+		t.Errorf("ImageInspect() = %+v, want nil config", config)
+	}
+}
+
 // TestRealMsbClientImageInspectDetailHandleAndError covers the ImageHandle
 // branch (metadata copied off the handle) and the inspect-error branch of the
 // ImageInspectDetail adapter.

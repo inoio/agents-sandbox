@@ -234,7 +234,7 @@ func (realMsbClient) ImagePrune(ctx context.Context) (*ImagePruneReport, error) 
 	if err != nil {
 		return nil, err
 	}
-	return imagePruneReportFrom(report), nil
+	return report, nil
 }
 
 func (realMsbClient) PruneStorage(
@@ -296,7 +296,7 @@ func (realMsbClient) ImageInspect(ctx context.Context, ref string) (*ImageConfig
 	if err != nil {
 		return nil, err
 	}
-	return imageConfigFrom(detail.Config), nil
+	return detail.Config, nil
 }
 
 func (realMsbClient) ImageInspectDetail(ctx context.Context, ref string) (*ImageDetail, error) {
@@ -304,7 +304,7 @@ func (realMsbClient) ImageInspectDetail(ctx context.Context, ref string) (*Image
 	if err != nil {
 		return nil, err
 	}
-	out := &ImageDetail{Layers: imageLayersFrom(detail.Layers)}
+	out := &ImageDetail{Layers: detail.Layers}
 	if detail.ImageHandle != nil {
 		out.Reference = detail.Reference()
 		out.ManifestDigest = detail.ManifestDigest()
@@ -313,8 +313,8 @@ func (realMsbClient) ImageInspectDetail(ctx context.Context, ref string) (*Image
 		out.SizeBytes = detail.SizeBytes()
 		out.CreatedAt = detail.CreatedAt()
 	}
-	if config := imageConfigFrom(detail.Config); config != nil {
-		out.Config = *config
+	if detail.Config != nil {
+		out.Config = *detail.Config
 	}
 	return out, nil
 }
@@ -324,5 +324,5 @@ func (realMsbClient) StorageUsage(ctx context.Context) (*StorageReport, error) {
 	if err != nil {
 		return nil, err
 	}
-	return storageReportFrom(report), nil
+	return report, nil
 }

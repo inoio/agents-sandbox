@@ -322,7 +322,7 @@ func (w realSandboxHandle) Metrics(ctx context.Context) (*Metrics, error) {
 	if err != nil {
 		return nil, err
 	}
-	return metricsFrom(metrics), nil
+	return metrics, nil
 }
 
 func (w realSandboxHandle) Logs(ctx context.Context, query LogQuery) ([]LogEntry, error) {
@@ -500,7 +500,7 @@ func (s realSandbox) Metrics(ctx context.Context) (*Metrics, error) {
 	if err != nil {
 		return nil, err
 	}
-	return metricsFrom(metrics), nil
+	return metrics, nil
 }
 
 func (s realSandbox) Logs(ctx context.Context, query LogQuery) ([]LogEntry, error) {

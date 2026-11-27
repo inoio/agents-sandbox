@@ -1,6 +1,10 @@
 package msb
 
-import "time"
+import (
+	"time"
+
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+)
 
 // JobInfo is the launcher-owned projection of a detached job's metadata.
 // Timestamps are Unix milliseconds. Optional fields stay nil when the runtime
@@ -22,14 +26,8 @@ type JobInfo struct {
 	TimedOut      bool
 }
 
-// ExecFailure carries a detached job's structured launch failure.
-type ExecFailure struct {
-	Kind      string
-	Errno     *int
-	ErrnoName string
-	Message   string
-	Path      string
-}
+// ExecFailure is the SDK's structured detached-job launch-failure observation.
+type ExecFailure = msbSdk.ExecFailure
 
 // JobLogEntry is one retained output record of a detached job. Data holds the
 // original output bytes and Cursor a job-specific replay token.
@@ -60,21 +58,6 @@ type LogEntry struct {
 	Cursor    string
 }
 
-// Metrics is a launcher-owned snapshot of a sandbox's resource usage. Optional
-// values stay nil when the runtime cannot measure them.
-type Metrics struct {
-	CPUPercent              float64
-	VCPUTimeNs              uint64
-	MemoryBytes             uint64
-	MemoryAvailableBytes    *uint64
-	MemoryHostResidentBytes *uint64
-	MemoryLimitBytes        uint64
-	DiskReadBytes           uint64
-	DiskWriteBytes          uint64
-	NetRxBytes              uint64
-	NetTxBytes              uint64
-	UpperUsedBytes          *uint64
-	UpperFreeBytes          *uint64
-	UpperHostAllocatedBytes *uint64
-	Uptime                  time.Duration
-}
+// Metrics is the SDK's resource-usage observation. Optional values stay nil
+// when the runtime cannot measure them; the launcher surfaces it directly.
+type Metrics = msbSdk.Metrics

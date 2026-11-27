@@ -47,24 +47,6 @@ func TestSDKStructFieldsAreClassified(t *testing.T) {
 			jobLogNotModeled,
 		},
 		{
-			"StorageUsageReport",
-			reflect.TypeFor[msbSdk.StorageUsageReport](),
-			storageUsageReportProjected,
-			storageUsageReportNotModeled,
-		},
-		{
-			"StorageCategoryUsage",
-			reflect.TypeFor[msbSdk.StorageCategoryUsage](),
-			storageCategoryProjected,
-			storageCategoryNotModeled,
-		},
-		{
-			"StorageItemUsage",
-			reflect.TypeFor[msbSdk.StorageItemUsage](),
-			storageItemProjected,
-			storageItemNotModeled,
-		},
-		{
 			"StoragePruneReport",
 			reflect.TypeFor[msbSdk.StoragePruneReport](),
 			storagePruneReportProjected,
@@ -72,17 +54,7 @@ func TestSDKStructFieldsAreClassified(t *testing.T) {
 		},
 		{"JobInfo", reflect.TypeFor[msbSdk.JobInfo](), jobInfoProjected, jobInfoNotModeled},
 		{"JobLogEntry", reflect.TypeFor[msbSdk.JobLogEntry](), jobLogEntryProjected, jobLogEntryNotModeled},
-		{"ExecFailure", reflect.TypeFor[msbSdk.ExecFailure](), execFailureProjected, execFailureNotModeled},
 		{"LogEntry", reflect.TypeFor[msbSdk.LogEntry](), logEntryProjected, logEntryNotModeled},
-		{"Metrics", reflect.TypeFor[msbSdk.Metrics](), metricsProjected, metricsNotModeled},
-		{"ImageConfig", reflect.TypeFor[msbSdk.ImageConfig](), imageConfigProjected, imageConfigNotModeled},
-		{
-			"ImagePruneReport",
-			reflect.TypeFor[msbSdk.ImagePruneReport](),
-			imagePruneReportProjected,
-			imagePruneReportNotModeled,
-		},
-		{"ImageLayer", reflect.TypeFor[msbSdk.ImageLayer](), imageLayerProjected, imageLayerNotModeled},
 		{
 			"SandboxConfig",
 			reflect.TypeFor[msbSdk.SandboxConfig](),
@@ -112,42 +84,6 @@ func TestSDKStructFieldsAreClassified(t *testing.T) {
 			reflect.TypeFor[msbSdk.DiskCompactionResult](),
 			diskCompactionResultProjected,
 			diskCompactionResultNotModeled,
-		},
-		{
-			"DiskCompactionDiskResult",
-			reflect.TypeFor[msbSdk.DiskCompactionDiskResult](),
-			diskCompactionDiskResultProjected,
-			diskCompactionDiskResultNotModeled,
-		},
-		{
-			"SandboxConfigInspection",
-			reflect.TypeFor[msbSdk.SandboxConfigInspection](),
-			sandboxConfigInspectionProjected,
-			sandboxConfigInspectionNotModeled,
-		},
-		{
-			"SandboxInspectionSpec",
-			reflect.TypeFor[msbSdk.SandboxInspectionSpec](),
-			sandboxInspectionSpecProjected,
-			sandboxInspectionSpecNotModeled,
-		},
-		{
-			"SandboxResourceInspection",
-			reflect.TypeFor[msbSdk.SandboxResourceInspection](),
-			sandboxResourceInspectionProjected,
-			sandboxResourceInspectionNotModeled,
-		},
-		{
-			"VolumeInfo",
-			reflect.TypeFor[msbSdk.VolumeInfo](),
-			volumeInfoProjected,
-			volumeInfoNotModeled,
-		},
-		{
-			"SandboxInfo",
-			reflect.TypeFor[msbSdk.SandboxInfo](),
-			sandboxInfoProjected,
-			sandboxInfoNotModeled,
 		},
 	}
 	for _, tt := range tests {
@@ -461,86 +397,6 @@ func TestStoragePruneOptionsProjectRequest(t *testing.T) {
 	}
 }
 
-func TestStorageReportFromProjectsFields(t *testing.T) {
-	count := uint64(2)
-	logical := uint64(100)
-	allocated := uint64(80)
-	inUse := true
-	reclaimable := false
-	report := storageReportFrom(&msbSdk.StorageUsageReport{
-		Images: msbSdk.StorageCategoryUsage{
-			Count:          &count,
-			LogicalBytes:   &logical,
-			AllocatedBytes: &allocated,
-			Items: []msbSdk.StorageItemUsage{{
-				Name:           "agents-sandbox/x:latest",
-				Path:           "/msb/images/x",
-				LogicalBytes:   &logical,
-				AllocatedBytes: &allocated,
-				InUse:          &inUse,
-				Reclaimable:    &reclaimable,
-				Reasons:        []string{"tagged"},
-			}},
-			Notes: []string{"pinned"},
-		},
-		Snapshots:      msbSdk.StorageCategoryUsage{Count: &count},
-		Sandboxes:      msbSdk.StorageCategoryUsage{Count: &count},
-		Volumes:        msbSdk.StorageCategoryUsage{Count: &count},
-		BranchMemory:   msbSdk.StorageCategoryUsage{Count: &count},
-		SnapshotMemory: msbSdk.StorageCategoryUsage{Count: &count},
-		Notes:          []string{"report note"},
-	})
-	if report == nil {
-		t.Fatal("storageReportFrom() = nil, want a report")
-	}
-	if report.Images.Count != &count || report.Images.LogicalBytes != &logical ||
-		report.Images.AllocatedBytes != &allocated {
-		t.Errorf("images totals = %+v, want the projected pointers", report.Images)
-	}
-	if report.Images.InUse != nil || report.Images.ReclaimableLogicalBytes != nil {
-		t.Errorf("images nil counters = %+v, want nil", report.Images)
-	}
-	if len(report.Images.Items) != 1 {
-		t.Fatalf("images items = %d, want 1", len(report.Images.Items))
-	}
-	item := report.Images.Items[0]
-	if item.Name != "agents-sandbox/x:latest" || item.Path != "/msb/images/x" ||
-		item.InUse != &inUse || item.Reclaimable != &reclaimable ||
-		len(item.Reasons) != 1 || item.Reasons[0] != "tagged" {
-		t.Errorf("item = %+v, want every field projected", item)
-	}
-	for name, category := range map[string]StorageCategory{
-		"Snapshots":      report.Snapshots,
-		"Sandboxes":      report.Sandboxes,
-		"Volumes":        report.Volumes,
-		"BranchMemory":   report.BranchMemory,
-		"SnapshotMemory": report.SnapshotMemory,
-	} {
-		if category.Count != &count {
-			t.Errorf("%s count = %v, want the projected pointer", name, category.Count)
-		}
-	}
-	if len(report.Notes) != 1 || report.Notes[0] != "report note" {
-		t.Errorf("notes = %v, want the report note", report.Notes)
-	}
-}
-
-func TestStorageReportFromNilIsNil(t *testing.T) {
-	if got := storageReportFrom(nil); got != nil {
-		t.Errorf("storageReportFrom(nil) = %v, want nil", got)
-	}
-}
-
-func TestStorageCategoryFromPreservesNilCollections(t *testing.T) {
-	category := storageCategoryFrom(msbSdk.StorageCategoryUsage{})
-	if category.Items != nil {
-		t.Errorf("Items = %v, want nil for a nil SDK collection", category.Items)
-	}
-	if category.Notes != nil {
-		t.Errorf("Notes = %v, want nil for a nil SDK collection", category.Notes)
-	}
-}
-
 func TestPruneReportFromProjectsTotals(t *testing.T) {
 	physical := uint64(4096)
 	report := pruneReportFrom(&msbSdk.StoragePruneReport{
@@ -681,127 +537,6 @@ func TestLogEntriesFromPreservesNilAndFields(t *testing.T) {
 	if len(got) != 1 || got[0].Source != LogSourceSystem || got[0].SessionID != &session ||
 		!got[0].Timestamp.Equal(time.Unix(3, 0)) || string(got[0].Data) != "oom" || got[0].Cursor != "c2" {
 		t.Errorf("logEntriesFrom() = %+v, want every field projected", got)
-	}
-}
-
-func TestImageConfigFromProjectsFields(t *testing.T) {
-	config := imageConfigFrom(&msbSdk.ImageConfig{
-		Digest:     "sha256:abc",
-		Env:        []string{"A=1"},
-		Cmd:        []string{"/bin/bash"},
-		Entrypoint: []string{"/entry"},
-		WorkingDir: "/workspace",
-		User:       "dev",
-		Labels:     map[string]string{"k": "v"},
-		StopSignal: "SIGTERM",
-	})
-	if config == nil {
-		t.Fatal("imageConfigFrom() = nil, want config")
-	}
-	if config.Digest != "sha256:abc" || config.WorkingDir != "/workspace" ||
-		config.User != "dev" || config.StopSignal != "SIGTERM" {
-		t.Errorf("imageConfigFrom() = %+v, want every scalar field projected", config)
-	}
-	if len(config.Env) != 1 || config.Env[0] != "A=1" {
-		t.Errorf("Env = %v, want [A=1]", config.Env)
-	}
-	if len(config.Cmd) != 1 || config.Cmd[0] != "/bin/bash" {
-		t.Errorf("Cmd = %v, want [/bin/bash]", config.Cmd)
-	}
-	if len(config.Entrypoint) != 1 || config.Entrypoint[0] != "/entry" {
-		t.Errorf("Entrypoint = %v, want [/entry]", config.Entrypoint)
-	}
-	if config.Labels["k"] != "v" {
-		t.Errorf("Labels = %v, want k=v", config.Labels)
-	}
-}
-
-func TestImageConfigFromNilIsNil(t *testing.T) {
-	if got := imageConfigFrom(nil); got != nil {
-		t.Errorf("imageConfigFrom(nil) = %v, want nil", got)
-	}
-}
-
-func TestImageLayersFromPreservesNilAndFields(t *testing.T) {
-	if got := imageLayersFrom(nil); got != nil {
-		t.Errorf("imageLayersFrom(nil) = %v, want nil", got)
-	}
-	compressed := int64(1024)
-	erofs := int64(2048)
-	got := imageLayersFrom([]msbSdk.ImageLayer{{
-		DiffID:              "sha256:layer0",
-		BlobDigest:          "sha256:blob0",
-		MediaType:           "application/vnd.oci.image.layer.v1.tar+gzip",
-		CompressedSizeBytes: &compressed,
-		ErofsSizeBytes:      &erofs,
-		Position:            2,
-	}})
-	if len(got) != 1 {
-		t.Fatalf("imageLayersFrom() = %v, want one layer", got)
-	}
-	layer := got[0]
-	if layer.DiffID != "sha256:layer0" || layer.BlobDigest != "sha256:blob0" ||
-		layer.MediaType != "application/vnd.oci.image.layer.v1.tar+gzip" ||
-		layer.CompressedSizeBytes != &compressed || layer.ErofsSizeBytes != &erofs ||
-		layer.Position != 2 {
-		t.Errorf("imageLayersFrom() = %+v, want every field projected", layer)
-	}
-}
-
-func TestImagePruneReportFromProjectsFields(t *testing.T) {
-	reclaimed := uint64(2048)
-	report := imagePruneReportFrom(&msbSdk.ImagePruneReport{
-		SkippedInUse:     4,
-		ImageRefsRemoved: 1,
-		ManifestsRemoved: 2,
-		LayersRemoved:    3,
-		FsmetaRemoved:    1,
-		VMDKRemoved:      1,
-		BytesReclaimed:   &reclaimed,
-	})
-	if report == nil {
-		t.Fatal("imagePruneReportFrom() = nil, want report")
-	}
-	if report.SkippedInUse != 4 || report.ImageRefsRemoved != 1 ||
-		report.ManifestsRemoved != 2 || report.LayersRemoved != 3 ||
-		report.FsmetaRemoved != 1 || report.VMDKRemoved != 1 ||
-		report.BytesReclaimed != &reclaimed {
-		t.Errorf("imagePruneReportFrom() = %+v, want every field projected", report)
-	}
-}
-
-func TestImagePruneReportFromNilIsNil(t *testing.T) {
-	if got := imagePruneReportFrom(nil); got != nil {
-		t.Errorf("imagePruneReportFrom(nil) = %v, want nil", got)
-	}
-}
-
-func TestMetricsFromProjectsFieldsAndNil(t *testing.T) {
-	if got := metricsFrom(nil); got != nil {
-		t.Errorf("metricsFrom(nil) = %v, want nil", got)
-	}
-	available := uint64(1)
-	limit := uint64(4096 << 20)
-	metrics := metricsFrom(&msbSdk.Metrics{
-		CPUPercent:           12.5,
-		VCPUTimeNs:           99,
-		MemoryBytes:          1024,
-		MemoryAvailableBytes: &available,
-		MemoryLimitBytes:     limit,
-		DiskReadBytes:        1,
-		DiskWriteBytes:       2,
-		NetRxBytes:           3,
-		NetTxBytes:           4,
-		Uptime:               5 * time.Second,
-	})
-	if metrics == nil {
-		t.Fatal("metricsFrom() = nil, want metrics")
-	}
-	if metrics.CPUPercent != 12.5 || metrics.VCPUTimeNs != 99 || metrics.MemoryBytes != 1024 ||
-		metrics.MemoryAvailableBytes != &available || metrics.MemoryLimitBytes != limit ||
-		metrics.DiskReadBytes != 1 || metrics.DiskWriteBytes != 2 ||
-		metrics.NetRxBytes != 3 || metrics.NetTxBytes != 4 || metrics.Uptime != 5*time.Second {
-		t.Errorf("metricsFrom() = %+v, want every field projected", metrics)
 	}
 }
 
@@ -1515,15 +1250,5 @@ func TestDiskCompactionResultFromProjectsFields(t *testing.T) {
 func TestDiskCompactionResultFromNilIsNil(t *testing.T) {
 	if got := diskCompactionResultFrom(nil); got != nil {
 		t.Errorf("diskCompactionResultFrom(nil) = %v, want nil", got)
-	}
-}
-
-func TestDiskCompactionDisksFromPreservesNil(t *testing.T) {
-	if got := diskCompactionDisksFrom(nil); got != nil {
-		t.Errorf("diskCompactionDisksFrom(nil) = %v, want nil", got)
-	}
-	disks := diskCompactionResultFrom(&msbSdk.DiskCompactionResult{}).Disks
-	if disks != nil {
-		t.Errorf("diskCompactionResultFrom(no disks).Disks = %v, want nil", disks)
 	}
 }

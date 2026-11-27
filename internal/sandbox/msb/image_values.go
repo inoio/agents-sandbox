@@ -1,36 +1,13 @@
 package msb
 
-// ImageConfig is the launcher-owned projection of a cached image's parsed OCI
-// config block. Optional fields stay nil when the runtime does not report
-// them, so unknown never reads as zero.
-type ImageConfig struct {
-	Digest     string
-	Env        []string
-	Cmd        []string
-	Entrypoint []string
-	WorkingDir string
-	User       string
-	Labels     map[string]string
-	StopSignal string
-}
+import msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-// ImageLayer is one layer of an image manifest.
-type ImageLayer struct {
-	DiffID              string
-	BlobDigest          string
-	MediaType           string
-	CompressedSizeBytes *int64
-	ErofsSizeBytes      *int64
-	Position            int32
-}
+// ImageConfig is the SDK's parsed OCI image-config observation. The launcher
+// surfaces it directly rather than mirroring its fields.
+type ImageConfig = msbSdk.ImageConfig
 
-// ImagePruneReport summarizes the artifacts a runtime image prune removed.
-type ImagePruneReport struct {
-	SkippedInUse     uint32
-	ImageRefsRemoved uint32
-	ManifestsRemoved uint32
-	LayersRemoved    uint32
-	FsmetaRemoved    uint32
-	VMDKRemoved      uint32
-	BytesReclaimed   *uint64
-}
+// ImageLayer is the SDK's one-layer-of-an-image-manifest observation.
+type ImageLayer = msbSdk.ImageLayer
+
+// ImagePruneReport is the SDK's image-prune summary observation.
+type ImagePruneReport = msbSdk.ImagePruneReport

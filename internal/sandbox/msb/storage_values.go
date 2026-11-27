@@ -1,40 +1,16 @@
 package msb
 
-// StorageReport is the launcher-owned projection of the runtime's storage
-// observation. Optional counters stay nil when the runtime cannot measure
-// them, so unknown never reads as zero.
-type StorageReport struct {
-	Images         StorageCategory
-	Snapshots      StorageCategory
-	Sandboxes      StorageCategory
-	Volumes        StorageCategory
-	BranchMemory   StorageCategory
-	SnapshotMemory StorageCategory
-	Notes          []string
-}
+import msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-// StorageCategory observes one storage category's totals and, when reported,
-// its detailed items.
-type StorageCategory struct {
-	Count                   *uint64
-	InUse                   *uint64
-	LogicalBytes            *uint64
-	AllocatedBytes          *uint64
-	ReclaimableLogicalBytes *uint64
-	Items                   []StorageItem
-	Notes                   []string
-}
+// StorageReport is the SDK's runtime storage-usage observation. The launcher
+// surfaces it directly rather than mirroring its fields.
+type StorageReport = msbSdk.StorageUsageReport
 
-// StorageItem describes one object or shared-cache component in a category.
-type StorageItem struct {
-	Name           string
-	Path           string
-	LogicalBytes   *uint64
-	AllocatedBytes *uint64
-	InUse          *bool
-	Reclaimable    *bool
-	Reasons        []string
-}
+// StorageCategory is the SDK's per-category storage observation.
+type StorageCategory = msbSdk.StorageCategoryUsage
+
+// StorageItem is the SDK's one-object-in-a-storage-category observation.
+type StorageItem = msbSdk.StorageItemUsage
 
 // PruneRequest selects unused runtime backing; zero values prune without an
 // age filter.

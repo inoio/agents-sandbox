@@ -10,9 +10,9 @@ read_if: Changing `internal/sandbox/msb` interfaces, its roles/composites, the m
 (the real SDK client and the hand-rolled mock) and because the SDK has identity/no-op edge cases the
 port normalizes (`ConfigMounts`/`ConfigPorts` hide an upstream `UnmarshalJSON` defect;
 `IsUnsupportedOperation`/`IsReplaced`/`IsNotFound`/`IsJobNotRunning` fold error classes). It is **not**
-meant to mirror
-the SDK: the interface method set is exactly what callers use, and SDK types must not be the seam's
-currency.
+meant to mirror the SDK: the interface method set is exactly what callers use, and SDK types are not
+the seam's currency — except the sanctioned full-mirror observation aliases under "Launcher-owned
+types" below.
 
 Issue #196 narrows the adapter to that contract. Phase 0 (dead surface + the `realVolumeHandle`
 silent-zero fix), Phase 1 (role interfaces), Phase 2 (launcher-owned option types), Phase 3
@@ -59,15 +59,21 @@ provider-owned split avoids an adapter per consumer.
   `CompactionRequest`, …), never `...msbSdk.*Option`. The adapter owns one translation function per
   family, calling the SDK `With*` constructors it maps. A launcher struct that merely embeds or
   returns an SDK option is an anti-goal.
-- **Values out.** The interfaces return launcher-owned value types, not `*msbSdk.Metrics`,
-  `*msbSdk.StorageUsageReport`, `*msbSdk.ImageConfig`, `msbSdk.JobInfo`, enum types, etc.
-  `ImageDetail`/`ParseConfigMounts`/`ParseConfigPorts` are the existing model; Phase 4b added the
-  read-back `SandboxConfig`/`RootDiskConfig`, `ModifyOptions`/`SandboxModificationPlan`/
-  `ModificationConflict`, `DiskCompactionResult`/`DiskCompactionDiskResult`, and the
-  `ModificationPolicy` string enum. `ConfigMounts`/`ConfigPorts` now return the launcher `MountConfig`/
-  `PortBinding`. Aliases that must stay distinct from an SDK enum keep their values verbatim (e.g.
-  `msb.SandboxStatus` string-mirrors `msbSdk.SandboxStatus` so `string(x)` and `==` keep working), and
-  the sync guards below cover them.
+- **Values out.** The interfaces return a launcher-owned type wherever the port adds behavior: request
+  inputs, any returned type the launcher branches on, any type whose field types the launcher renames
+  (an SDK enum to a launcher string), any type the launcher deliberately narrows, and any type carrying
+  methods. `ImageDetail`/`ParseConfigMounts`/`ParseConfigPorts` are the existing model; Phase 4b added
+  the read-back `SandboxConfig`/`RootDiskConfig`, `ModifyOptions`/`SandboxModificationPlan`,
+  `DiskCompactionResult`, and the `ModificationPolicy` string enum. `ConfigMounts`/`ConfigPorts` return
+  the launcher `MountConfig`/`PortBinding`. Aliases that must stay distinct from an SDK enum keep their
+  values verbatim (e.g. `msb.SandboxStatus` string-mirrors `msbSdk.SandboxStatus` so `string(x)` and
+  `==` keep working), and the sync guards below cover them.
+- **Observation aliases.** A full-mirror, pure-data SDK observation with no enum field and no method is
+  the seam's currency as an **alias** (`type Metrics = msbSdk.Metrics`), not a launcher struct: the
+  launcher keeps the name while the compiler guards field drift, so the alias needs no projector and no
+  register entry. `JobInfo`/`JobLogEntry`/`LogEntry`, `SandboxModificationPlan`, `PruneReport` and
+  `DiskCompactionResult` stay launcher-owned because they rename a field type, narrow their fields, or
+  carry a method.
 - **Target.** No production file outside `internal/sandbox/msb` imports `msbSdk`, pinned by
   `phase4_boundary_test.go` (no residue: the boundary has zero exemptions). The scan scopes to this
   module: a nested directory carrying its own `go.mod` owns its own import graph and is skipped, so
@@ -84,11 +90,13 @@ The launcher types are a curated projection of the SDK, kept honest by three gua
 
 1. **The compiler** — adapter `With*` calls and field reads fail to build on an SDK rename, signature
    change, or removal.
-2. **A reflection drift test** — for every SDK struct the interface exposes, a contract test reflects
-   over its fields and asserts each is either projected by the launcher type or listed in a
+2. **A reflection drift test** — for every SDK struct a launcher-owned type **mirrors**, a contract test
+   reflects over its fields and asserts each is either projected by the launcher type or listed in a
    reason-bearing `notModeled` allowlist beside the translator (unexported fields get a "set
    internally" reason). A new upstream field fails the test on the dependabot SDK bump — the moment
-   to decide whether to wire the capability. The guard is field-level, not option-level.
+   to decide whether to wire the capability. The guard is field-level, not option-level. It does not
+   cover observation aliases or SDK structs the adapter only reads internally: for those the compiler
+   is the sole guard, because a new field on an observation needs no decision.
 3. **A documented residue** — `JobExecOption`/`JobListOption` and the `Stop`/`Kill`/`Destroy` options
    mutate unexported SDK structs (`jobExecConfig`, `lifecycleOptions`, `destroyOptions`), so
    reflection cannot see them; they reduce to plain scalars (`JobSpec`, `JobQuery`,
@@ -191,3 +199,13 @@ files.
   for the inspection, resource, `VolumeInfo` and `SandboxInfo` structs. `Connect` is status-gated so a
   read of live VM state never starts a stopped VM, and `Remove` delegates to the resource's
   identity-bearing `Destroy` so a same-name replacement fails closed.
+- **Landed (#924):** the value-projection layer was cut to the behavior-bearing types. The full-mirror,
+  pure-data observations are now SDK aliases (`ImageConfig`, `ImageLayer`, `ImagePruneReport`,
+  `StorageReport`/`StorageCategory`/`StorageItem`, `Metrics`, `ExecFailure`, `DiskCompactionDiskResult`,
+  `ModificationConflict`), so their launcher structs and `XFrom` projectors are gone and their register
+  pairs with them. The register also dropped the pairs for the SDK structs the adapter only reads
+  internally (`VolumeInfo`, `SandboxInfo`, and the inspection envelope), so it now covers only the
+  launcher-owned input and read-back mirrors. `ImageInspect`/`ImageInspectDetail`/`ImagePrune`/
+  `StorageUsage`/`Metrics` pass the SDK value through unchanged. Consumers are untouched: the aliases
+  keep the launcher names, pinned by `alias_contract_test.go` and the unchanged
+  `phase4_boundary_test.go`.
