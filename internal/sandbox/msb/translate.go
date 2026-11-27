@@ -104,6 +104,19 @@ var (
 		"DryRun": "the caller issued the prune, so the dry-run echo adds nothing",
 	}
 
+	// pruneEntryProjected names every field of msbSdk.MemoryCacheEntry the
+	// launcher projects onto PruneEntry; pruneEntryNotModeled is empty because
+	// every field is projected.
+	pruneEntryProjected = map[string]struct{}{
+		"Path":           {},
+		"Kind":           {},
+		"LogicalBytes":   {},
+		"AllocatedBytes": {},
+		"State":          {},
+		"Error":          {},
+	}
+	pruneEntryNotModeled = map[string]string{}
+
 	// jobInfoProjected names every field of msbSdk.JobInfo the launcher
 	// projects onto JobInfo; jobInfoNotModeled is empty because every field
 	// is projected.

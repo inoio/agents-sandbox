@@ -52,6 +52,12 @@ func TestSDKStructFieldsAreClassified(t *testing.T) {
 			storagePruneReportProjected,
 			storagePruneReportNotModeled,
 		},
+		{
+			"MemoryCacheEntry",
+			reflect.TypeFor[msbSdk.MemoryCacheEntry](),
+			pruneEntryProjected,
+			pruneEntryNotModeled,
+		},
 		{"JobInfo", reflect.TypeFor[msbSdk.JobInfo](), jobInfoProjected, jobInfoNotModeled},
 		{"JobLogEntry", reflect.TypeFor[msbSdk.JobLogEntry](), jobLogEntryProjected, jobLogEntryNotModeled},
 		{"LogEntry", reflect.TypeFor[msbSdk.LogEntry](), logEntryProjected, logEntryNotModeled},
