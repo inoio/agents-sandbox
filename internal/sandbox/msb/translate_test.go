@@ -1090,7 +1090,12 @@ func TestSandboxConfigFromProjectsFields(t *testing.T) {
 }
 
 func TestSandboxConfigFromUnavailableResourcesAreZero(t *testing.T) {
+	// The provider's Unavailable/Redacted path lists are informational: the
+	// adapter projects the fields themselves, so an unavailable resource reads
+	// as its zero value and consumers treat zero/nil as unknown.
 	config := sandboxConfigFrom(&msbSdk.SandboxConfigInspection{
+		Unavailable: []string{"spec.resources.cpus", "spec.resources.max_memory_mib"},
+		Redacted:    []string{"spec.env"},
 		Spec: msbSdk.SandboxInspectionSpec{
 			Image: json.RawMessage(`{"Oci":{"reference":"img:1"}}`),
 		},

@@ -123,7 +123,12 @@ func TestReadBackOpenCode2(t *testing.T) {
 // volume handle's path directly.
 func readBackHomeVolumePath(t *testing.T, ctx context.Context, volumeName string) string {
 	t.Helper()
-	configpathstest.WithMockConfigPaths(t)
+	// The volume was created through the real client, which resolves its
+	// destination from MSB_HOME; the adapter's HomeVolumePath resolves the same
+	// volume from configpaths.MSBHome(). Opt the mock into serving that home so
+	// the lookup agrees with the creation, while state stays rooted in the mock
+	// temp tree.
+	configpathstest.WithMockConfigPathsMSBHomeFromEnv(t)
 	key := state.Key{Slug: readbackProjectSlug, Agent: readbackAgentName}
 	if err := state.WithHomeState(key, func(cur *state.HomeState, _ bool) (bool, error) {
 		cur.HomeVolume = volumeName

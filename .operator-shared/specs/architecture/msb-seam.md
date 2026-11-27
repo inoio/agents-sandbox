@@ -67,7 +67,10 @@ provider-owned split avoids an adapter per consumer.
   `DiskCompactionResult`, and the `ModificationPolicy` string enum. `ConfigMounts`/`ConfigPorts` return
   the launcher `MountConfig`/`PortBinding`. Aliases that must stay distinct from an SDK enum keep their
   values verbatim (e.g. `msb.SandboxStatus` string-mirrors `msbSdk.SandboxStatus` so `string(x)` and
-  `==` keep working), and the sync guards below cover them.
+  `==` keep working), and the sync guards below cover them. The lifecycle enums stay string-backed
+  launcher types (`SandboxStatus` mirrors the SDK's string values so `string(x)` and `==` keep
+  working); `JobInfo.State` and `JobLogEntry.Source` surface the SDK enum as a plain `string` because
+  the launcher renames it, so no SDK enum crosses the seam.
 - **Observation aliases.** A full-mirror, pure-data SDK observation with no enum field and no method is
   the seam's currency as an **alias** (`type Metrics = msbSdk.Metrics`), not a launcher struct: the
   launcher keeps the name while the compiler guards field drift, so the alias needs no projector and no
@@ -83,6 +86,32 @@ provider-owned split avoids an adapter per consumer.
   `runtime` dropped it with the runtime-residue follow-up, which moved its
   `SDKVersion`/`RuntimeConfig`/`EnsureRuntime`/`InstallRuntime` use behind `msb`'s
   `PinnedRuntimeVersion`/`EnsureRuntime`/`InstallRuntime` wrappers.
+
+**Destination.** The adapter resolves its microsandbox destination explicitly, per operation: a
+`LocalContext` carrying the launcher's private home (`configpaths.MSBHome()`), whose `Sandboxes()`
+and `Volumes()` collections carry the sandbox and volume operations. The home is named explicitly
+rather than read from the process-global `MSB_HOME` — production keeps the two equal, since
+`runtime.ApplyHome` sets `MSB_HOME` from the same home — and `ConfigPath` stays empty so the
+destination is always local. The launcher is local-only, and the SDK's image and storage surfaces,
+which expose no context collection, stay ambient.
+
+**Captured observations.** A `SandboxHandle`'s `Status`, `Image`, and
+`Config`/`ConfigMounts`/`ConfigPorts` are a point-in-time observation taken when the handle is
+resolved and never refresh. A consumer that needs the live VM state re-resolves the handle (as
+`vm.FindProjectVM` does) or uses the status-gated `Connect`, which reads live. A failed config
+observation is retained on the handle, so a run degrades to "config unreadable" rather than failing
+the lookup.
+
+**Error classes.** The adapter's `Is*` predicates (`IsNotFound`, `IsVolumeNotFound`,
+`IsVolumeAlreadyExists`, `IsSandboxAlreadyExists`, `IsReplaced`, `IsUnsupportedOperation`,
+`IsJobNotRunning`) are the seam's named error classes over the SDK's typed `*Error{Kind}`; consumers
+branch on them rather than on SDK kinds. `IsJobNotRunning` is the one class the SDK does not type: it
+matches `*msbSdk.JobError.Code == "job_not_running"`, an upstream gap to revisit if the SDK gains a kind.
+
+**Unknown values.** An inspection field the provider marks `Unavailable`/`Redacted`, or that the
+adapter cannot decode, projects as the launcher zero value / nil; consumers treat that as "unknown"
+(`cfg.Image != ""`, `cfg.MaxMemoryMiB > 0`, `cfg.RootDisk != nil`). The `Unavailable`/`Redacted`
+lists themselves are not surfaced.
 
 ## Upstream sync guards
 

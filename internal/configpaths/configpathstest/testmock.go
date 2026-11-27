@@ -13,6 +13,10 @@ import (
 type mockConfigPaths struct {
 	baseDir string
 	homeErr error
+	// msbHomeFromEnv makes UserDataDir serve the private microsandbox home from
+	// MSB_HOME instead of the temp baseDir, so configpaths.MSBHome() names the
+	// home the msb-tagged harness installed.
+	msbHomeFromEnv bool
 	// created records the directories this instance already made, so a repeated
 	// accessor call skips the os.MkdirAll the config layer would otherwise pay
 	// on every accessor call within one test.
@@ -30,6 +34,28 @@ func FailFastConfigPaths() configpaths.ConfigPaths { return &failFastConfigPaths
 
 func WithMockConfigPaths(t *testing.T) {
 	t.Helper() // gomutants:disable STATEMENT_REMOVE reason="t.Helper only affects the stack trace a failing test reports, so removing it cannot change observable test behaviour"
+	withMockConfigPaths(t, false)
+}
+
+// WithMockConfigPathsMSBHomeFromEnv establishes the temp-rooted mock, then opts
+// it into serving the private microsandbox home from MSB_HOME the way
+// UseMSBHomeFromEnv does for the fail-fast resolver. An msb-tagged test that
+// creates a volume through the real client (which resolves its destination from
+// MSB_HOME) and then resolves the volume's host path through the adapter (which
+// resolves it from configpaths.MSBHome()) needs both to name one home; the
+// state directories stay rooted in the temp tree, which is why the mock is still
+// installed.
+//
+// The opt-in is scoped to the installed mock and reset by cleanup with it, so it
+// does not leak across tests. Only the msb-tagged harness uses it; every other
+// test keeps the temp baseDir.
+func WithMockConfigPathsMSBHomeFromEnv(t *testing.T) {
+	t.Helper() // gomutants:disable STATEMENT_REMOVE reason="t.Helper only affects the stack trace a failing test reports, so removing it cannot change observable test behaviour"
+	withMockConfigPaths(t, true)
+}
+
+func withMockConfigPaths(t *testing.T, msbHomeFromEnv bool) {
+	t.Helper() // gomutants:disable STATEMENT_REMOVE reason="t.Helper only affects the stack trace a failing test reports, so removing it cannot change observable test behaviour"
 	orig := configpaths.Get
 	tempDir := t.TempDir()
 	// Point $HOME at the mock tree as well, so any stray os.UserHomeDir or
@@ -38,8 +64,21 @@ func WithMockConfigPaths(t *testing.T) {
 	// agent's own ~/.config/opencode) from leaking into the real home. Do not
 	// mark such tests t.Parallel: t.Setenv forbids it.
 	t.Setenv("HOME", ensureMockConfigDirectory(filepath.Join(tempDir, "home")))
-	configpaths.Get = func() configpaths.ConfigPaths { return &mockConfigPaths{baseDir: tempDir} }
+	configpaths.Get = func() configpaths.ConfigPaths {
+		return &mockConfigPaths{baseDir: tempDir, msbHomeFromEnv: msbHomeFromEnv}
+	}
 	t.Cleanup(func() { configpaths.Get = orig })
+}
+
+// msbHomeFromEnvMSBHome returns filepath.Dir(filepath.Clean(MSB_HOME)) — the
+// user-data dir whose "msb" child is the private microsandbox home — or "" when
+// MSB_HOME is unset.
+func msbHomeFromEnvMSBHome() string {
+	home := os.Getenv("MSB_HOME")
+	if home == "" {
+		return ""
+	}
+	return filepath.Dir(filepath.Clean(home))
 }
 
 // WithMockConfigPathsHomeError installs a mock whose UserHomeDir fails, so tests
@@ -146,6 +185,11 @@ func (m *mockConfigPaths) UserStateDir() string {
 }
 
 func (m *mockConfigPaths) UserDataDir() string {
+	if m.msbHomeFromEnv {
+		if home := msbHomeFromEnvMSBHome(); home != "" {
+			return home
+		}
+	}
 	return m.ensureDir(filepath.Join(m.baseDir, "userdata"))
 }
 
@@ -177,6 +221,18 @@ func (m *mockConfigPaths) IgnoredWorktreeConfigDir() string {
 // installing an isolated or explicit config-paths implementation.
 type failFastConfigPaths struct{}
 
+// msbHomeFromEnv opts the fail-fast resolver into serving the private
+// microsandbox home from MSB_HOME instead of panicking. The msb-tagged suites
+// pin their runtime home through MSB_HOME (msbtest/runtime.InstallIsolatedRuntimeHome),
+// while the launcher's sandbox/volume adapter resolves its explicit local
+// destination from configpaths.MSBHome(); this keeps the two on one home. It is
+// read live, so a child process that re-points MSB_HOME follows its parent.
+var msbHomeFromEnv bool
+
+// UseMSBHomeFromEnv makes the fail-fast resolver serve the private
+// microsandbox home from MSB_HOME. Only the msb-tagged test harness calls it.
+func UseMSBHomeFromEnv() { msbHomeFromEnv = true }
+
 func (f *failFastConfigPaths) mustMock() {
 	panic(
 		"GetConfigPaths reached real path resolution; install WithMockConfigPaths(t) or WithRealConfigPaths(t) in the test",
@@ -190,7 +246,18 @@ func (f *failFastConfigPaths) UserSlugConfigDir(_ string) string {
 }
 func (f *failFastConfigPaths) UserCacheDir() string { f.mustMock(); return "" }
 func (f *failFastConfigPaths) UserStateDir() string { f.mustMock(); return "" }
-func (f *failFastConfigPaths) UserDataDir() string  { f.mustMock(); return "" }
+
+// UserDataDir serves the msb harness's home (from MSB_HOME, whose last segment
+// is "msb") when it opted in, and panics otherwise.
+func (f *failFastConfigPaths) UserDataDir() string {
+	if msbHomeFromEnv {
+		if home := msbHomeFromEnvMSBHome(); home != "" {
+			return home
+		}
+	}
+	f.mustMock()
+	return ""
+}
 
 func (f *failFastConfigPaths) ProjectConfigDirAbs() string {
 	f.mustMock()
