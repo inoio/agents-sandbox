@@ -76,6 +76,7 @@ func TestAliasSetIsExactlyTheObservations(t *testing.T) {
 		"LogEntry":                LogEntry{},
 		"SandboxModificationPlan": SandboxModificationPlan{},
 		"PruneReport":             PruneReport{},
+		"PruneEntry":              PruneEntry{},
 		"DiskCompactionResult":    DiskCompactionResult{},
 		"ExecRequest":             ExecRequest{},
 		"JobSpec":                 JobSpec{},
