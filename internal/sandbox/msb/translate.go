@@ -224,48 +224,6 @@ var (
 	}
 	metricsNotModeled = map[string]string{}
 
-	// imageConfigProjected names every field of msbSdk.ImageConfig the
-	// launcher projects onto ImageConfig; imageConfigNotModeled is empty
-	// because every field is projected.
-	imageConfigProjected = map[string]struct{}{
-		"Digest":     {},
-		"Env":        {},
-		"Cmd":        {},
-		"Entrypoint": {},
-		"WorkingDir": {},
-		"User":       {},
-		"Labels":     {},
-		"StopSignal": {},
-	}
-	imageConfigNotModeled = map[string]string{}
-
-	// imagePruneReportProjected names every field of
-	// msbSdk.ImagePruneReport the launcher projects onto ImagePruneReport;
-	// imagePruneReportNotModeled is empty because every field is projected.
-	imagePruneReportProjected = map[string]struct{}{
-		"SkippedInUse":     {},
-		"ImageRefsRemoved": {},
-		"ManifestsRemoved": {},
-		"LayersRemoved":    {},
-		"FsmetaRemoved":    {},
-		"VMDKRemoved":      {},
-		"BytesReclaimed":   {},
-	}
-	imagePruneReportNotModeled = map[string]string{}
-
-	// imageLayerProjected names every field of msbSdk.ImageLayer the
-	// launcher projects onto ImageLayer; imageLayerNotModeled is empty
-	// because every field is projected.
-	imageLayerProjected = map[string]struct{}{
-		"DiffID":              {},
-		"BlobDigest":          {},
-		"MediaType":           {},
-		"CompressedSizeBytes": {},
-		"ErofsSizeBytes":      {},
-		"Position":            {},
-	}
-	imageLayerNotModeled = map[string]string{}
-
 	// sandboxConfigProjected names every field of msbSdk.SandboxConfig the
 	// adapter sets through a creation option.
 	sandboxConfigProjected = map[string]struct{}{
@@ -850,61 +808,6 @@ func metricsFrom(metrics *msbSdk.Metrics) *Metrics {
 		UpperFreeBytes:          metrics.UpperFreeBytes,
 		UpperHostAllocatedBytes: metrics.UpperHostAllocatedBytes,
 		Uptime:                  metrics.Uptime,
-	}
-}
-
-// imageConfigFrom translates the SDK image config block field for field. A nil
-// config stays nil.
-func imageConfigFrom(config *msbSdk.ImageConfig) *ImageConfig {
-	if config == nil {
-		return nil
-	}
-	return &ImageConfig{
-		Digest:     config.Digest,
-		Env:        config.Env,
-		Cmd:        config.Cmd,
-		Entrypoint: config.Entrypoint,
-		WorkingDir: config.WorkingDir,
-		User:       config.User,
-		Labels:     config.Labels,
-		StopSignal: config.StopSignal,
-	}
-}
-
-// imageLayersFrom translates a slice of SDK image layers, preserving nil as
-// nil.
-func imageLayersFrom(layers []msbSdk.ImageLayer) []ImageLayer {
-	if layers == nil {
-		return nil
-	}
-	out := make([]ImageLayer, len(layers))
-	for i, layer := range layers {
-		out[i] = ImageLayer{
-			DiffID:              layer.DiffID,
-			BlobDigest:          layer.BlobDigest,
-			MediaType:           layer.MediaType,
-			CompressedSizeBytes: layer.CompressedSizeBytes,
-			ErofsSizeBytes:      layer.ErofsSizeBytes,
-			Position:            layer.Position,
-		}
-	}
-	return out
-}
-
-// imagePruneReportFrom translates the SDK image prune report field for field.
-// A nil report stays nil.
-func imagePruneReportFrom(report *msbSdk.ImagePruneReport) *ImagePruneReport {
-	if report == nil {
-		return nil
-	}
-	return &ImagePruneReport{
-		SkippedInUse:     report.SkippedInUse,
-		ImageRefsRemoved: report.ImageRefsRemoved,
-		ManifestsRemoved: report.ManifestsRemoved,
-		LayersRemoved:    report.LayersRemoved,
-		FsmetaRemoved:    report.FsmetaRemoved,
-		VMDKRemoved:      report.VMDKRemoved,
-		BytesReclaimed:   report.BytesReclaimed,
 	}
 }
 
