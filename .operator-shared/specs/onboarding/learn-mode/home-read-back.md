@@ -112,6 +112,20 @@ bounded. An exposed key yields a finding that moves it out (see [findings and ap
 learn mode never writes the home volume itself: a write there would not survive a home-volume reset, so the store is
 provisioned from the host instead.
 
+## Reading an agent-controlled home
+
+The sandboxed agent controls the home volume, so every read-back read of it — the manifest, a dotenv, the inline
+walk, the endpoint hosts, exposed login keys, and the write-back's candidate file (`ReadHomeFile`) — stays inside the home (`os.Root`: a
+symlinked file or parent leading out of it is refused; one that stays inside is followed), opens non-blocking (a FIFO
+cannot hang the after-run), takes only a regular file as checked on the opened file, and is bounded. Directory
+enumeration also opens non-blocking and checks the opened descriptor through `ReadDir`, so a FIFO replacing a
+declared directory cannot hang the scan. Otherwise a
+planted symlink would pull a host file into the read-back, and from there into a proposed secret or a managed config
+the next run provisions back into the VM. The home is not project config, so the project trust gate does not apply.
+SQLite opens opencode2's database by path, so the probe requires a regular file inside the home first and records
+anything else unreadable; a swap between that check and the open remains possible. Host-side reads (the first-run
+seed) follow symlinks, as a user's dotfiles legitimately may be.
+
 ## Baseline manifest
 
 Change detection rests on a manifest of the agent config dirs and the known credential paths — **path, size, mtime,

@@ -89,6 +89,18 @@ func TestReadDoesNotFollowAStoreSymlink(t *testing.T) {
 	require.Empty(t, readBack.Exposed, "a symlink the agent planted is never followed out of the home")
 }
 
+func TestReadReportsAKeyThroughAnInHomeStoreSymlink(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	writeFile(t, home, ".codex/stored-auth.json", `{"OPENAI_API_KEY":"sk-proj-real"}`)
+	require.NoError(t, os.Symlink("stored-auth.json", filepath.Join(home, ".codex", "auth.json")))
+
+	readBack, err := Read(home, "codex", Manifest{})
+
+	require.NoError(t, err)
+	require.Equal(t, []ExposedKey{codexExposedKey}, readBack.Exposed)
+}
+
 func TestReadDoesNotInspectAnOversizedStore(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()

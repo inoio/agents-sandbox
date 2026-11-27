@@ -123,7 +123,7 @@ func (f ManagedConfigFacts) sanitize(
 	indirectionKey string,
 	secretEnvVars map[string]bool,
 ) (string, bool) {
-	content, ok := readback.ReadCappedFile(filepath.Join(f.Home, configPath), readback.MaxHashedBytes)
+	content, ok := readback.ReadHomeFile(f.Home, configPath, readback.MaxHashedBytes)
 	if !ok {
 		f.warnf(
 			"skipping managed agent config %s: unreadable or over the %d-byte cap",

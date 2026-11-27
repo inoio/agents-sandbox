@@ -11,8 +11,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-
-	"github.com/inoio/agents-sandbox/internal/projectguard"
 )
 
 func TestReadClassifiesStaticAndLogin(t *testing.T) {
@@ -319,23 +317,6 @@ func TestReadMissingDeclaredPaths(t *testing.T) {
 	require.Empty(t, rb.ConfigPaths)
 	require.Empty(t, rb.Static)
 	require.Empty(t, rb.Login)
-}
-
-// TestReadPropagatesAWalkRefusal: a declared path the projectguard refuses to
-// list aborts the read rather than reporting fewer config facts.
-func TestReadPropagatesAWalkRefusal(t *testing.T) {
-	home := t.TempDir()
-	dir := filepath.Join(home, ".config/opencode")
-	require.NoError(t, os.MkdirAll(dir, 0o750))
-	gone := filepath.Join(dir, "gone.jsonc")
-	t.Cleanup(projectguard.Install(
-		[]string{dir},
-		map[string]projectguard.Approval{gone: projectguard.ApprovalOf([]byte("x"))},
-	))
-
-	_, err := Read(home, "opencode", Manifest{})
-
-	require.ErrorIs(t, err, projectguard.ErrNotApproved)
 }
 
 // TestReadDoesNotListAProbeAsAConfigPath: a credential probe's entry carries no
