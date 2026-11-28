@@ -66,3 +66,53 @@ func TestProxyConnectionsRejectsAnAcceptRacingWithAbort(t *testing.T) {
 	}
 	connections.wait()
 }
+
+func assertProxyConnectionsRejectsUntrackableWebsocketConnections(t *testing.T) {
+	t.Helper()
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	connections := &proxyConnections{active: make(map[*proxyConnection]struct{})}
+	tracked := &proxyConnection{Conn: server, owner: connections}
+	connections.active[tracked] = struct{}{}
+
+	if connections.attachWebsocket("", nil) {
+		t.Fatal("attachWebsocket accepted an empty remote address")
+	}
+	connections.stopping = true
+	if connections.attachWebsocket(server.RemoteAddr().String(), nil) {
+		t.Fatal("attachWebsocket accepted a connection after shutdown began")
+	}
+	connections.stopping = false
+	if connections.attachWebsocket("different-remote", nil) {
+		t.Fatal("attachWebsocket matched an unrelated remote address")
+	}
+}
+
+func assertProxyConnectionRejectsIOAfterWebsocketRelayShutdown(t *testing.T) {
+	t.Helper()
+	client, peer := net.Pipe()
+	defer peer.Close()
+
+	relay := newWebsocketRelay(7, &proxyLog{})
+	relay.setClient(client)
+	connection := &proxyConnection{Conn: client}
+	connection.setWebsocketRelay(relay)
+	relay.shutdown()
+
+	if _, err := connection.Read(make([]byte, 1)); !errors.Is(err, net.ErrClosed) {
+		t.Errorf("Read after relay shutdown = %v, want net.ErrClosed", err)
+	}
+	if _, err := connection.Write([]byte("x")); !errors.Is(err, net.ErrClosed) {
+		t.Errorf("Write after relay shutdown = %v, want net.ErrClosed", err)
+	}
+}
+
+func TestProxyConnectionsRejectsUntrackableWebsocketConnections(t *testing.T) {
+	assertProxyConnectionsRejectsUntrackableWebsocketConnections(t)
+}
+
+func TestProxyConnectionRejectsIOAfterWebsocketRelayShutdown(t *testing.T) {
+	assertProxyConnectionRejectsIOAfterWebsocketRelayShutdown(t)
+}

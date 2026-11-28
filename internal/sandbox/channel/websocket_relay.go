@@ -84,10 +84,9 @@ type websocketRelay struct {
 	group     *websocketRelayGroup
 
 	mu       sync.Mutex
-	changed  *sync.Cond
 	client   net.Conn
 	upstream io.ReadWriteCloser
-	active   int
+	active   sync.WaitGroup
 	pending  [2]bool
 	stopping bool
 
@@ -101,7 +100,6 @@ func newWebsocketRelay(sessionID uint16, logger *proxyLog) *websocketRelay {
 	relay := &websocketRelay{
 		sessionID: sessionID, logger: logger, group: group, shutdownDone: make(chan struct{}),
 	}
-	relay.changed = sync.NewCond(&relay.mu)
 	return relay
 }
 
@@ -123,7 +121,7 @@ func (r *websocketRelay) beginIO() bool {
 	if r.stopping {
 		return false
 	}
-	r.active++
+	r.active.Add(1)
 	return true
 }
 
@@ -154,9 +152,8 @@ func (r *websocketRelay) finishIO(direction int, write bool, count, requested in
 	if cancelWarning {
 		r.group.cancelPendingWarning()
 	}
-	r.active--
-	r.changed.Broadcast()
 	r.mu.Unlock()
+	r.active.Done()
 }
 
 func (r *websocketRelay) shutdown() {
@@ -172,11 +169,7 @@ func (r *websocketRelay) shutdown() {
 			_ = upstream.Close()
 		}
 
-		r.mu.Lock()
-		for r.active > 0 {
-			r.changed.Wait()
-		}
-		r.mu.Unlock()
+		r.active.Wait()
 		r.group.waitForWarnings()
 		r.logger.unregisterWebsocketRelay(r.sessionID, r.group)
 		close(r.shutdownDone)

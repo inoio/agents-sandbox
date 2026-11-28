@@ -1331,3 +1331,88 @@ func TestStopWaitsForDirectWebSocketResetWarning(t *testing.T) {
 		t.Fatal("Stop did not finish after recording the WebSocket reset warning")
 	}
 }
+
+func assertOnResponseLeavesUntrackedWebsocketResponsesUnchanged(t *testing.T) {
+	t.Helper()
+	response := &http.Response{StatusCode: http.StatusOK, Header: make(http.Header)}
+	if got := (&proxyState{}).onResponse(response, &goproxy.ProxyCtx{UserData: &Destination{}}); got != response {
+		t.Fatal("onResponse replaced a response without proxy request data")
+	}
+
+	destination := &Destination{}
+	response = &http.Response{
+		StatusCode: http.StatusSwitchingProtocols,
+		Header: http.Header{
+			"Connection": {"Upgrade"},
+			"Upgrade":    {"websocket"},
+		},
+		Body: io.NopCloser(strings.NewReader("upstream response")),
+	}
+	state := &proxyState{
+		log:         &proxyLog{},
+		connections: &proxyConnections{},
+	}
+	requestData := &proxyRequest{destination: destination, websocket: true}
+	if got := state.onResponse(response, &goproxy.ProxyCtx{UserData: requestData}); got != response {
+		t.Fatal("onResponse replaced an upgrade response without a read-write body")
+	}
+	if !destination.Success {
+		t.Error("an upstream upgrade response did not mark the destination successful")
+	}
+}
+
+func assertOnResponseRejectsAnUntrackableWebsocketUpgrade(t *testing.T) {
+	t.Helper()
+	upstream, peer := net.Pipe()
+	defer peer.Close()
+	destination := &Destination{}
+	response := &http.Response{
+		Status:     "101 Switching Protocols",
+		StatusCode: http.StatusSwitchingProtocols,
+		Header: http.Header{
+			"Connection": {"Upgrade"},
+			"Upgrade":    {"websocket"},
+		},
+		Body: upstream,
+	}
+	state := &proxyState{
+		log:         &proxyLog{},
+		connections: &proxyConnections{stopping: true},
+	}
+	requestData := &proxyRequest{
+		destination:   destination,
+		websocket:     true,
+		sessionID:     7,
+		remoteAddress: "pipe",
+	}
+
+	got := state.onResponse(response, &goproxy.ProxyCtx{UserData: requestData})
+	if got.StatusCode != http.StatusBadGateway || got.Status != "502 Bad Gateway" {
+		t.Fatalf("upgrade response = %q (%d), want 502 Bad Gateway", got.Status, got.StatusCode)
+	}
+	if got.Header.Get("Connection") != "" || got.Header.Get("Upgrade") != "" || !got.Close {
+		t.Errorf(
+			"rejected response headers/close = %v/%v, want upgrade headers cleared and connection closed",
+			got.Header,
+			got.Close,
+		)
+	}
+	body, err := io.ReadAll(got.Body)
+	if err != nil {
+		t.Fatalf("read rejection body: %v", err)
+	}
+	if string(body) != "observation proxy could not track this WebSocket connection\n" {
+		t.Errorf("rejection body = %q", body)
+	}
+	if !destination.Success {
+		t.Error("accepted upstream upgrade did not retain its destination success evidence")
+	}
+}
+
+func TestOnResponseLeavesUntrackedWebsocketResponsesUnchanged(t *testing.T) {
+	assertOnResponseLeavesUntrackedWebsocketResponsesUnchanged(t)
+}
+
+func TestOnResponseRejectsAnUntrackableWebsocketUpgrade(t *testing.T) {
+	assertOnResponseRejectsAnUntrackableWebsocketUpgrade(t)
+}

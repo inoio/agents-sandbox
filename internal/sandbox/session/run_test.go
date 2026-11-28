@@ -21,6 +21,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/notify"
 	"github.com/inoio/agents-sandbox/internal/opener"
+	"github.com/inoio/agents-sandbox/internal/sandbox/learn"
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
@@ -800,6 +801,25 @@ func TestRunLearnPreservesTheCaptureOnCancelledContext(t *testing.T) {
 	}
 	if !fake.stopped {
 		t.Error("Stop did not run")
+	}
+}
+
+func TestFinishLearnAfterRunWarnsWhenPreservingTheCaptureFails(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	ui := &termiotest.Mock{}
+	fake := &fakeLearnRun{preserveErr: errors.New("preserve boom")}
+
+	finishLearnAfterRun(ctx, fake, learn.FinishInput{UI: ui})
+
+	if fake.finished {
+		t.Error("Finish ran on a cancelled context")
+	}
+	if !fake.preserved {
+		t.Error("PreserveForReplay did not run")
+	}
+	if !warnContains(ui, "preserving the session for config learn failed") {
+		t.Errorf("WarnCalls = %v, want the preservation failure warning", ui.WarnCalls)
 	}
 }
 

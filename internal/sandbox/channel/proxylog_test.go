@@ -261,6 +261,69 @@ func TestProxyLogRedactsWebsocketUpgradeWriteDetails(t *testing.T) {
 	}
 }
 
+func assertProxyLogLeavesPendingWebsocketWarningForMalformedSessionID(t *testing.T) {
+	t.Helper()
+	logger := &proxyLog{}
+	group := logger.registerWebsocketRelay(7)
+	group.addPendingWarning()
+	logger.Printf(websocketCopyWarning, 7, errors.New("connection reset"))
+
+	group.mu.Lock()
+	pending := group.pending
+	group.mu.Unlock()
+	if pending != 1 {
+		t.Fatalf("pending warnings = %d, want malformed session ID not to release a relay", pending)
+	}
+	group.cancelPendingWarning()
+	logger.unregisterWebsocketRelay(7, group)
+}
+
+func assertProxyWarningSessionIDRejectsMissingAndUnexpectedValues(t *testing.T) {
+	t.Helper()
+	for _, arguments := range [][]any{nil, {7}, {"7"}} {
+		if _, ok := proxyWarningSessionID(arguments); ok {
+			t.Errorf("proxyWarningSessionID(%v) succeeded, want false", arguments)
+		}
+	}
+	if sessionID, ok := proxyWarningSessionID([]any{int64(7)}); !ok || sessionID != 7 {
+		t.Errorf("proxyWarningSessionID(int64(7)) = %d, %v, want 7, true", sessionID, ok)
+	}
+}
+
+func assertProxyLogIgnoresUnmatchedWebsocketRelayUnregistration(t *testing.T) {
+	t.Helper()
+	logger := &proxyLog{}
+	registered := logger.registerWebsocketRelay(7)
+	unmatched := newWebsocketRelayGroup()
+	logger.unregisterWebsocketRelay(7, unmatched)
+
+	logger.mu.Lock()
+	got := logger.websocketRelays[7]
+	logger.mu.Unlock()
+	if got != registered {
+		t.Fatal("unmatched relay unregistration removed the registered group")
+	}
+	logger.unregisterWebsocketRelay(7, registered)
+	logger.mu.Lock()
+	got = logger.websocketRelays[7]
+	logger.mu.Unlock()
+	if got != nil {
+		t.Error("idle relay group remains registered")
+	}
+}
+
+func TestProxyLogLeavesPendingWebsocketWarningForMalformedSessionID(t *testing.T) {
+	assertProxyLogLeavesPendingWebsocketWarningForMalformedSessionID(t)
+}
+
+func TestProxyWarningSessionIDRejectsMissingAndUnexpectedValues(t *testing.T) {
+	assertProxyWarningSessionIDRejectsMissingAndUnexpectedValues(t)
+}
+
+func TestProxyLogIgnoresUnmatchedWebsocketRelayUnregistration(t *testing.T) {
+	assertProxyLogIgnoresUnmatchedWebsocketRelayUnregistration(t)
+}
+
 func TestProxyLogReportsAHandshakeWarningWithItsTargetOnly(t *testing.T) {
 	var sessions []uint16
 	var targets []string

@@ -607,6 +607,60 @@ func TestArtefactStoreSaveMkdirFailure(t *testing.T) {
 	assertWrapsCause(t, err)
 }
 
+func assertArtefactStoreSaveReservationFailure(t *testing.T) {
+	t.Helper()
+	withStateDir(t, t.TempDir())
+	originalCreateArtefactFile := createArtefactFile
+	createArtefactFile = func(string, string) (*os.File, error) {
+		return nil, errors.New("reservation failed")
+	}
+	t.Cleanup(func() { createArtefactFile = originalCreateArtefactFile })
+
+	_, err := Save("my-checkout", 1763458200, sampleObservation())
+	if err == nil || !strings.Contains(err.Error(), "reserve learn artefact path") {
+		t.Fatalf("Save reservation error = %v, want the reservation failure", err)
+	}
+	assertWrapsCause(t, err)
+}
+
+func assertArtefactStoreSaveReservationCloseFailure(t *testing.T) {
+	t.Helper()
+	stateDir := t.TempDir()
+	withStateDir(t, stateDir)
+	dir := filepath.Join(stateDir, learnStateDirName, "my-checkout")
+	if err := os.MkdirAll(dir, artefactDirMode); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	reservation, err := os.CreateTemp(dir, "1763458200-*.json")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	reservedPath := reservation.Name()
+	if err := reservation.Close(); err != nil {
+		t.Fatalf("Close setup reservation: %v", err)
+	}
+	originalCreateArtefactFile := createArtefactFile
+	createArtefactFile = func(string, string) (*os.File, error) { return reservation, nil }
+	t.Cleanup(func() { createArtefactFile = originalCreateArtefactFile })
+
+	_, err = Save("my-checkout", 1763458200, sampleObservation())
+	if err == nil || !strings.Contains(err.Error(), "close learn artefact reservation") {
+		t.Fatalf("Save reservation-close error = %v, want the close failure", err)
+	}
+	if _, statErr := os.Stat(reservedPath); !os.IsNotExist(statErr) {
+		t.Errorf("failed reservation %q remains (stat error = %v)", reservedPath, statErr)
+	}
+	assertWrapsCause(t, err)
+}
+
+func TestArtefactStoreSaveReservationFailure(t *testing.T) {
+	assertArtefactStoreSaveReservationFailure(t)
+}
+
+func TestArtefactStoreSaveReservationCloseFailure(t *testing.T) {
+	assertArtefactStoreSaveReservationCloseFailure(t)
+}
+
 // Save reports an artefact it cannot encode: a timestamp outside the JSON range
 // fails the marshal before any file is written.
 func TestArtefactStoreSaveMarshalFailure(t *testing.T) {

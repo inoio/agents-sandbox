@@ -178,19 +178,15 @@ func TestFinishRecordsTheArtefactPath(t *testing.T) {
 	}
 }
 
-func TestPreserveForReplaySavesObservationAndKeepsSessionRecord(t *testing.T) {
+func runWithRecordedBaseline(t *testing.T, key state.Key, observation channel.Observation) *Run {
+	t.Helper()
 	configpathstest.WithMockConfigPaths(t)
-	k := state.Key{Slug: "proj", Agent: "opencode"}
-	seedHomeVolume(t, k, "vol-1")
+	seedHomeVolume(t, key, "vol-1")
 	stubLearnReadback(t, "/home/vol", readback.Manifest{})
 
-	wantObservation := channel.Observation{
-		ProxyLog:      "/state/learn/proxy-logs/1-session.log",
-		ProxyWarnings: 1,
-	}
 	originalStartObservation := startObservation
 	startObservation = func(string, network.Policy, time.Time) (channel.Observer, error) {
-		return fixedObserver{observation: wantObservation}, nil
+		return fixedObserver{observation: observation}, nil
 	}
 	t.Cleanup(func() { startObservation = originalStartObservation })
 
@@ -198,9 +194,19 @@ func TestPreserveForReplaySavesObservationAndKeepsSessionRecord(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
-	if _, err := run.CaptureBaseline(context.Background(), k, "opencode"); err != nil {
+	if _, err := run.CaptureBaseline(context.Background(), key, key.Agent); err != nil {
 		t.Fatalf("CaptureBaseline: %v", err)
 	}
+	return run
+}
+
+func TestPreserveForReplaySavesObservationAndKeepsSessionRecord(t *testing.T) {
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	wantObservation := channel.Observation{
+		ProxyLog:      "/state/learn/proxy-logs/1-session.log",
+		ProxyWarnings: 1,
+	}
+	run := runWithRecordedBaseline(t, k, wantObservation)
 
 	ui := &termiotest.Mock{}
 	if err := run.PreserveForReplay(ui); err != nil {
@@ -228,6 +234,63 @@ func TestPreserveForReplaySavesObservationAndKeepsSessionRecord(t *testing.T) {
 	}
 	if !warnContains(ui, wantObservation.ProxyLog) {
 		t.Errorf("WarnCalls = %v, want the proxy log path", ui.WarnCalls)
+	}
+}
+
+func TestPreserveForReplaySkipsPassiveAndAlreadySavedCaptures(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	saved := false
+	originalSave := saveArtefact
+	saveArtefact = func(string, int64, channel.Observation) (string, error) {
+		saved = true
+		return "/state/capture.json", nil
+	}
+	t.Cleanup(func() { saveArtefact = originalSave })
+
+	if err := Passive(network.Policy{}).PreserveForReplay(nil); err != nil {
+		t.Fatalf("PreserveForReplay on a passive run: %v", err)
+	}
+	alreadySaved := &Run{
+		observer:        fixedObserver{},
+		sessionRecorded: true,
+		record:          state.LearnSession{ArtefactPath: "/state/capture.json"},
+	}
+	if err := alreadySaved.PreserveForReplay(nil); err != nil {
+		t.Fatalf("PreserveForReplay on an already saved run: %v", err)
+	}
+	if saved {
+		t.Error("PreserveForReplay rewrote an unavailable or already saved capture")
+	}
+}
+
+func TestPreserveForReplayPropagatesSaveFailure(t *testing.T) {
+	key := state.Key{Slug: "proj", Agent: "opencode"}
+	run := runWithRecordedBaseline(t, key, channel.Observation{})
+	originalSave := saveArtefact
+	saveArtefact = func(string, int64, channel.Observation) (string, error) {
+		return "", errors.New("save boom")
+	}
+	t.Cleanup(func() { saveArtefact = originalSave })
+
+	err := run.PreserveForReplay(&termiotest.Mock{})
+	if err == nil || !strings.Contains(err.Error(), "save the learn capture for replay") {
+		t.Fatalf("PreserveForReplay error = %v, want the wrapped save failure", err)
+	}
+}
+
+func TestPreserveForReplayPropagatesRecordFailure(t *testing.T) {
+	key := state.Key{Slug: "proj", Agent: "opencode"}
+	run := runWithRecordedBaseline(t, key, channel.Observation{})
+	originalSave, originalRecord := saveArtefact, recordLearnSession
+	saveArtefact = func(string, int64, channel.Observation) (string, error) {
+		return filepath.Join(t.TempDir(), "capture.json"), nil
+	}
+	recordLearnSession = func(state.Key, state.LearnSession) error { return errors.New("record boom") }
+	t.Cleanup(func() { saveArtefact, recordLearnSession = originalSave, originalRecord })
+
+	err := run.PreserveForReplay(&termiotest.Mock{})
+	if err == nil || !strings.Contains(err.Error(), "record the learn capture path for replay") {
+		t.Fatalf("PreserveForReplay error = %v, want the wrapped record failure", err)
 	}
 }
 
