@@ -56,6 +56,9 @@
 - `guides/github-pr-workflow.md`
   - Description: The PR mechanics `guides/github-issue-workflow.md` does not cover: landing through the `main` merge queue (also a stack of PRs, bottom-up), the `GITHUB_TOKEN` bot-PR approval, and naming a changelog fragment's slug.
   - Read If: Opening, merging, or troubleshooting a PR; enqueueing one into the merge queue or landing stacked PRs; a bot PR that reports no checks; or naming a `changelog.d/` fragment before the PR number is known.
+- `guides/harness-config-schema-evidence.md`
+  - Description: Dated inventory of official configuration schemas/docs and agents-sandbox seed/read-back coverage for each built-in harness; distinguishes schema validity from transfer authorization.
+  - Read If: Adding or reviewing a strict transfer policy for a built-in harness, assessing whether an upstream schema is version-matched or credential-safe, or deciding which harnesses need separate #849 follow-ups.
 - `guides/go-version-support.md`
   - Description: The module's minimum Go version and why it cannot be lower, with the evidence and primary sources.
   - Read If: Changing the `go` directive, `.go-version`, or a Go pin; asking whether a lower Go version can be advertised; or diagnosing a dependency/promoted-field/GOTOOLCHAIN "requires a newer Go" error.

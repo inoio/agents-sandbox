@@ -41,6 +41,9 @@ This is a TDD plan, not a claim that the security policies or their implementati
 
 **Owners:** `internal/configdecode`, `internal/sandbox/readback`, `internal/agent`; no production enablement yet.
 
+- [ ] Use the dated [harness schema evidence guide](../guides/harness-config-schema-evidence.md) as the
+  inventory baseline. Revalidate each entry against current-main profiles/docs and the exact installed/tested
+  harness version; the guide is evidence with explicit gaps, not an authorization list.
 - [ ] Inspect current-main parser APIs for duplicate-key/source-location support before choosing an API.
   JSON5 currently reduces objects to maps; a second decode of that map cannot recover duplicates. Prefer
   existing parser facilities. If adequate strict parsing needs a dependency change or a bounded syntax
