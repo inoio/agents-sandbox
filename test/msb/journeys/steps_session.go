@@ -52,6 +52,9 @@ func StepConfigureLauncherEnv() Step {
 		if stubCA(c) != nil {
 			vars[stubCAEnv] = stubCAGuestPath
 		}
+		if len(c.Stub.CAPEM()) != 0 {
+			vars[stubCAEnv] = secretCombinedCAGuestPath
+		}
 		if err := driver.SeedLauncherEnv(c.Home, vars); err != nil {
 			return err
 		}

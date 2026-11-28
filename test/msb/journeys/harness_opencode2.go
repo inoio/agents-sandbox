@@ -33,6 +33,16 @@ var opencode2Harness = Harness{
 			return map[string]string{opencodeStubConfigTarget: opencodeProviderDocument(addr)}
 		},
 	},
+	Secret: &SecretFacts{
+		EnvVar: stubCredentialEnvVar,
+		Header: "authorization",
+		Prefix: "Bearer ",
+		Stub: StubSetup{HomeFiles: func(addr string) map[string]string {
+			return map[string]string{
+				opencodeStubConfigTarget: opencodeProviderDocumentWithKey(addr, "{env:"+stubCredentialEnvVar+"}"),
+			}
+		}},
+	},
 	Drive: Driving{
 		// opencode2's write tool takes the file as `path` (opencode 1.x named
 		// it `filePath`); a wrong key is a tool error the turn survives, so only
@@ -90,11 +100,15 @@ func jsonObject(fields map[string]string) string {
 // that selects it, a separate small model for side requests such as the
 // session title, and the stub as the only enabled provider.
 func opencodeProviderDocument(addr string) string {
+	return opencodeProviderDocumentWithKey(addr, stubProviderAPIKey)
+}
+
+func opencodeProviderDocumentWithKey(addr, key string) string {
 	document := map[string]any{
 		"provider": map[string]any{
 			stubProviderID: map[string]any{
 				"npm":     opencodeProviderNPM,
-				"options": map[string]any{"baseURL": addr + "/v1", "apiKey": stubProviderAPIKey},
+				"options": map[string]any{"baseURL": addr + "/v1", "apiKey": key},
 				"models":  map[string]any{stubProviderModel: map[string]any{}, stubTitleModel: map[string]any{}},
 			},
 		},
