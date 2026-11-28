@@ -2,7 +2,6 @@ package driver
 
 import (
 	"errors"
-	"io"
 	"math"
 	"os"
 	"os/exec"
@@ -229,59 +228,45 @@ func TestTapUntilMarkerReportsChildExit(t *testing.T) {
 }
 
 // fillStalledPTY fills a raw pty's input buffer until it can accept no more, so
-// the next write to the master cannot complete. It writes one large buffer from
-// a goroutine: a blocking pty write accepts up to the kernel buffer's capacity
-// and then waits for a reader that never comes, which is the stalled state.
+// the next write to the master cannot complete. Polling before each one-byte
+// write keeps the helper nonblocking even when the descriptor has O_NONBLOCK off.
 func fillStalledPTY(t *testing.T, ses *Session) {
 	t.Helper()
 
-	type writeResult struct {
-		bufferFull bool
-		err        error
-	}
-	done := make(chan writeResult, 1)
-	go func() {
-		defer close(done)
-		remaining := make([]byte, 1<<20)
-		for len(remaining) > 0 {
-			written, err := unix.Write(ses.fd, remaining)
-			if written > 0 {
-				remaining = remaining[written:]
+	pollFD := []unix.PollFd{{Fd: int32(ses.fd), Events: unix.POLLOUT}}
+	buffer := []byte{0}
+	const maxFillBytes = 1 << 20
+	filled := 0
+	for filled < maxFillBytes {
+		ready, err := unix.Poll(pollFD, 0)
+		if err != nil {
+			if errors.Is(err, unix.EINTR) {
+				continue
 			}
-			if err != nil {
-				switch {
-				case errors.Is(err, unix.EINTR):
-					continue
-				case errors.Is(err, unix.EAGAIN), errors.Is(err, unix.EWOULDBLOCK):
-					done <- writeResult{bufferFull: true}
-					return
-				default:
-					done <- writeResult{err: err}
-					return
-				}
+			t.Fatalf("poll pty input: %v", err)
+		}
+		if ready == 0 {
+			if filled == 0 {
+				t.Fatal("pty input was not writable before filling it")
 			}
-			if written == 0 {
-				done <- writeResult{err: io.ErrNoProgress}
-				return
-			}
-		}
-		done <- writeResult{}
-	}()
-	t.Cleanup(func() {
-		for range done {
-		}
-	})
-	select {
-	case result := <-done:
-		if result.err != nil {
-			t.Fatalf("fill pty input buffer: %v", result.err)
-		}
-		if result.bufferFull {
 			return
 		}
-		t.Fatal("pty input buffer never filled: a large write completed")
-	case <-time.After(500 * time.Millisecond):
+		written, err := unix.Write(ses.fd, buffer)
+		if err != nil {
+			if errors.Is(err, unix.EINTR) {
+				continue
+			}
+			if errors.Is(err, unix.EAGAIN) || errors.Is(err, unix.EWOULDBLOCK) {
+				return
+			}
+			t.Fatalf("fill pty input buffer: %v", err)
+		}
+		if written == 0 {
+			t.Fatal("fill pty input buffer: write made no progress")
+		}
+		filled += written
 	}
+	t.Fatal("pty input buffer never filled: one MiB of polled writes completed")
 }
 
 // TestPTYWriteReportsAStalledSlave pins the write bound: a slave that has
