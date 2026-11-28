@@ -77,6 +77,9 @@ that the provider key reaches only the hosts the docs name for its `env.secret`.
   The CLI, runoptions, image, and readback contract tests derive their agent lists from the registry.
 - **Harness:** the `driver.Specs` entry and the Ctrl-C/Ctrl-D comment; the quit-key table, the buffer split, the
   egress paragraph, and the cold-home build count in `specs/testing/harness-smoke-tests.md`.
+- **Journeys:** add the harness adapter in `test/msb/journeys/harness_<name>.go` and register it in `Harnesses`;
+  add the harness to `placedHarnesses` in `table.go`. For each scenario, add the harness to its `Harnesses` list or
+  record an exemption in `table.go`, then regenerate `test/msb/journeys/JOURNEYS.md`.
 - **Docs:** `docs/configuration/agent.md` is the canonical list. It takes:
   - the profile bullet under *Built-in agents*;
   - the snippet bullet and the TOML/YAML/JSON list;
