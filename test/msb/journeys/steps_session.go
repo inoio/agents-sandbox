@@ -81,7 +81,8 @@ func StepConfigureLauncher() Step {
 
 // StepScriptWriteFile makes the stub answer the next turn with the harness's
 // tool call that writes content to name in the project, through the adapter's
-// WriteFileCall.
+// WriteFileCall. It removes any previous fixture first, so a reused project
+// cannot satisfy the file assertion without a new tool write.
 func StepScriptWriteFile(name, content string) Step {
 	return Step{Name: "the stub answers the next turn by writing " + strconv.Quote(name), Run: func(c *Context) error {
 		if c.Stub == nil {
@@ -90,9 +91,24 @@ func StepScriptWriteFile(name, content string) Step {
 		if c.Harness.Drive.WriteFileCall == nil {
 			return fmt.Errorf("the %s adapter declares no WriteFileCall", c.Agent)
 		}
+		if err := clearProjectFixture(c.ProjectDir(), name); err != nil {
+			return err
+		}
 		c.Stub.ScriptToolCall(c.Harness.Drive.WriteFileCall(path.Join(guestWorkspace, name), content))
 		return nil
 	}}
+}
+
+func clearProjectFixture(project, name string) error {
+	root, err := os.OpenRoot(project)
+	if err != nil {
+		return fmt.Errorf("open the journey project: %w", err)
+	}
+	defer func() { _ = root.Close() }()
+	if err = root.Remove(name); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("clear the previous project fixture %q: %w", name, err)
+	}
+	return nil
 }
 
 // StepAssertProjectFile waits until the harness wrote name in the project on

@@ -127,13 +127,13 @@ Scenario: attribution-observed-pair
 
 ## core-session
 
-Runs on: opencode2, claude-code, codex, pi, oh-my-pi, hermes, opencode
+Runs on: opencode2, claude-code, codex, pi, oh-my-pi, hermes, opencode, kimi-code
 
 Network profile: `host`
 
 Not yet:
 
-- goose, grok-build, kimi-code, mistral-vibe, qwen-code: core session on this harness lands with the full rollout, #794
+- goose, grok-build, mistral-vibe, qwen-code: core session on this harness lands with the full rollout, #794
 
 ```gherkin
 Scenario: core-session
