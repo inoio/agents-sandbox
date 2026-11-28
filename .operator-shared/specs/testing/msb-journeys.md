@@ -344,7 +344,9 @@ in seconds on the shared project and assert only state in their own HOME.
 ### Secret-substitution spike (#794)
 
 `secret-substitution-spike` (opencode2) asks whether the host-gateway route can support promotion check B.
-It is opt-in through `AGENTS_SANDBOX_JOURNEYS_SECRET_SPIKE=1` until the route is verified. It runs on its
+It is opt-in through `AGENTS_SANDBOX_JOURNEYS_SECRET_SPIKE=1`: the KVM-host probe on msb 0.8.3 completes a real HTTPS turn
+and verifies the guest placeholder, but the stub receives that unchanged placeholder, not the key. Thus
+the host-gateway route does not establish substitution; B needs an intercepted stub route. It runs on its
 own project because secrets and interception are creation-time settings; it does not change core-session.
 
 - The key is synthetic and lives only in the isolated host's `env.secret.yaml`, scoped to the gateway and

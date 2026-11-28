@@ -2,7 +2,7 @@ package journeys
 
 const secretSpikeEnv = "AGENTS_SANDBOX_JOURNEYS_SECRET_SPIKE"
 
-const secretSpikeReason = "the host-gateway route has not yet been verified to substitute a secret over HTTPS; see #794"
+const secretSpikeReason = "the host-gateway HTTPS route completes turns but delivers the unchanged secret placeholder; see #794"
 
 // secretSpikeJourney tests the host-gateway route before promotion check B can
 // become a core-session assertion. It needs its own VM because secrets and TLS
