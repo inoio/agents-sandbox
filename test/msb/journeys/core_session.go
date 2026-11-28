@@ -25,6 +25,7 @@ var coreSessionJourney = Journey{
 	Name: "core-session",
 	Harnesses: []string{
 		opencode2AgentName, claudeCodeAgentName, codexAgentName, piAgentName, ohMyPiAgentName, hermesAgentName,
+		opencodeAgentName,
 	},
 	Network: hostGatewayNetwork,
 	Steps: []Step{
