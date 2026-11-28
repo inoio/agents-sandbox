@@ -1,6 +1,6 @@
 ---
-description: Contract for agents-sandbox's microsandbox management surface — volume/image/sandbox inspection, image and sandbox removal, sandbox disk compaction, a top-level `df` plus a `storage` group alias, and uniform `-q`/`--format json`/`--yes`/`--older-than` conventions — deliberately bounded, not a mirror of msb's lifecycle, data-portability, registry, cloud, or self-install surface.
-read_if: Volume/image/sandbox inspection, removal, and disk-compaction commands, the `df`/`storage` accounting commands, prune confirmation/format flags, or command-surface consistency conventions.
+description: Contract for agents-sandbox's microsandbox management surface — volume/image/sandbox inspection, image and sandbox removal, sandbox disk compaction, a bounded `sandbox copy` host↔project-VM file transfer, a top-level `df` plus a `storage` group alias, and uniform `-q`/`--format json`/`--yes`/`--older-than` conventions — deliberately bounded, not a mirror of msb's lifecycle, data-portability, registry, cloud, or self-install surface.
+read_if: Volume/image/sandbox inspection, removal, disk-compaction, and the bounded host↔project-VM file-transfer (`sandbox copy`/`cp`) commands, the `df`/`storage` accounting commands, prune confirmation/format flags, or command-surface consistency conventions.
 ---
 
 # Runtime management commands
@@ -13,8 +13,8 @@ own objects (volumes, images, sandboxes) with msb's own tooling; the `volume rem
 replacement.
 
 This spec defines the rest of the **management** surface agents-sandbox provides so a user can inspect and reclaim its
-runtime objects without an `msb` binary: object inspection, object removal, storage accounting, and uniform prune
-controls. It is a deliberately bounded slice of msb's CLI — not a front-end to msb, and not a mirror of its lifecycle or
+runtime objects without an `msb` binary: object inspection, object removal, storage accounting, uniform prune
+controls, and a bounded host↔project-VM file transfer. It is a deliberately bounded slice of msb's CLI — not a front-end to msb, and not a mirror of its lifecycle or
 portability features.
 
 ## Goals
@@ -23,6 +23,7 @@ portability features.
   volumes, cached runner images, and project sandboxes/VMs.
 - Provide explicit removal of volumes and images by name.
 - Provide opt-in compaction of project VM disks.
+- Provide a bounded, cwd-scoped transfer of a single file between the host and the current checkout's project VM.
 - Provide storage accounting over the private home (a `df` equivalent) and a
   `storage` command group.
 - Make the listing/prune surface consistent: machine-readable output, quiet
@@ -115,8 +116,24 @@ portability features.
   mount, mutually exclusive with `--root-only`), `--root-only`, `--layers` (the
   oldest N sealed layers, minimum 2; default all), `-q/--quiet` (suppresses stdout),
   and `--format json`.
-- `sandbox copy`/`cp` — dropped: host↔VM transfer is the excluded
-  data-portability surface, not part of the bounded management surface.
+- `sandbox copy`/`cp <src> <dst>` — transfer a single file between the host and
+  the current checkout's project VM, either direction. Exactly one operand is a host
+  path and the other a `vm:<guest-path>` (an absolute path inside the VM); both `vm:`
+  or neither is an error. The VM is the cwd checkout's project VM (resolved like
+  `sandbox stop`/`kill`, including a legacy adopted slug) and must be **running** —
+  cp never boots a stopped VM, naming `run`/`shell` in the error. Identity resolution
+  matches `stop`/`kill`, so a checkout with a pending legacy project identity applies
+  that migration first (not dry-runnable); the transfer itself is not destructive, so
+  there is no confirmation, no reference guard, and `--dry-run` is not meaningful. A
+  nested guest destination's parent directory is created before the copy. A host→VM
+  copy whose guest destination resolves to the same host file through the managed
+  `/workspace` bind or a configured read-write bind mount is refused rather than
+  attempted — those are host-backed, so the SDK would truncate the source before
+  reading it. A readonly or non-host-backed (named/tmpfs/disk) mount is excluded, and
+  a mount-read failure still leaves the static `/workspace` guard in place. `-q/--quiet`
+  suppresses the transfer line; `--format json` reports the copied item (vm, direction,
+  source, destination). VM↔VM transfer, directory transfer, and addressing a
+  named/arbitrary VM are out of scope.
 - `sandbox start`/`restart`/`exec`/`logs`/`metrics`/`pause`/`resume`/`wait` —
   excluded: lifecycle/exec surface agents-sandbox does not expose.
 - `sandbox modify`/`fork`/`snap`/`ssh`/`install` — excluded: no fit for the

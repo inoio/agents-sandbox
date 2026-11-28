@@ -249,6 +249,23 @@ func TestSummarizeDoesNotCountADeniedHostsTunnel(t *testing.T) {
 	}
 }
 
+// TestSummarizeExcludesUnverifiedTunnels: a tunnel whose every terminating
+// handshake failed is not verified application use, while the egress proposal
+// keeps it conservatively.
+func TestSummarizeExcludesUnverifiedTunnels(t *testing.T) {
+	analysis := Analysis{Observation: channel.Observation{Destinations: []channel.Destination{
+		{Host: "pinned.example", Protocol: channel.ConnectProtocol, Success: true, Count: 1, Failed: 1},
+		{Host: "api.example", Protocol: "https", Success: true, Count: 1},
+		{Host: "attempted.example", Protocol: "https", Success: false, Count: 1},
+	}}}
+
+	summary := summarize(analysis, nil)
+
+	if summary.ServicesReached != 1 {
+		t.Errorf("ServicesReached = %d, want only the verified request", summary.ServicesReached)
+	}
+}
+
 // TestSummarizeLeavesOutAddressOnlyTunnels: a tunnel still recorded under an IP
 // carried no attributable request, so it is not a service the session reached,
 // matching what the egress lock proposes.

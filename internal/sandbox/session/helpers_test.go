@@ -13,6 +13,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/prepare"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 // stubHostOpener swaps the host-opener seams. The watch stub blocks until its
@@ -147,8 +148,10 @@ type fakeLearnRun struct {
 	passive     bool
 	stopped     bool
 	finished    bool
+	preserved   bool
 	baselineErr error
 	finishErr   error
+	preserveErr error
 	finishInput learn.FinishInput
 	events      *[]string
 }
@@ -176,6 +179,12 @@ func (f *fakeLearnRun) Finish(_ context.Context, in learn.FinishInput) error {
 	f.finished = true
 	f.finishInput = in
 	return f.finishErr
+}
+
+func (f *fakeLearnRun) PreserveForReplay(termio.Logger) error {
+	f.record("preserve")
+	f.preserved = true
+	return f.preserveErr
 }
 
 func (f *fakeLearnRun) record(event string) {

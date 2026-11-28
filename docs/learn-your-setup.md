@@ -81,26 +81,38 @@ When you exit, agents-sandbox reports what it learned and offers three choices:
 | Save all | Write every proposed change without asking |
 | Not now | Write nothing |
 
+If the proxy cannot complete a TLS handshake, the report names the host or IP when it can identify the tunnel. This
+means the client may pin certificates, may not trust the sandbox CA, or may have another TLS problem; the proxy cannot
+diagnose the exact cause. A tunnel whose every handshake failed is not counted as verified service use, but it stays in
+the proposed allow list because a pinned client may work outside learn mode. If the proxy cannot tie a failure to one
+tunnel, it reports the unattributed count instead of guessing. When the proxy logged problems, the report names its log
+file under the launcher's state directory (`learn/proxy-logs/`). The log stores fixed warning summaries, not raw proxy
+arguments, is capped at 1 MiB per session, and is removed after 30 days.
+
 ## What it proposes
 
 Learn mode writes to your **per-slug user config** (`~/.config/agents-sandbox/<repo-slug>/`), keyed by the repository
 so every clone of it shares the same settings. It proposes:
 
-- a `network.egress-allow` set — the hostnames the session used, added to the ones you already allow, with
-  `network.profile: none` so nothing else is reachable. The review lists every hostname, and the entries you already
-  allow, before you apply it. Under the strict-hostname mode a hostname rule admits only an intercepted connection, so
-  the lock also sets `network.intercept-tls: on` unless interception is already on or `disable-strict` is set. Hosts
-  the session did not use, such as a sign-in refresh endpoint, are not on the list; add them yourself if the agent
-  needs them later;
+- a `network.egress-allow` set — the destinations the session successfully reached or whose named CONNECT tunnel the
+  proxy accepted, added to the ones you already allow, with `network.profile: none` so nothing else is reachable. A
+  tunnel whose every TLS handshake failed stays in the set as a conservative fallback, but does not count as verified
+  service use. A tunnel still known only by IP is not added. The review lists every destination, and the entries you
+  already allow, before you apply it. Under the strict-hostname mode a hostname rule admits only an intercepted
+  connection, so the lock also sets `network.intercept-tls: on` unless interception is already on or `disable-strict`
+  is set. Destinations the session did not observe, such as a sign-in refresh endpoint, are not on the list; add them
+  yourself if the agent needs them later;
 - a static secret for each credential it can attribute to a destination;
 - a managed copy of each agent config file the session created or changed that the launcher merges, written to the same
   per-slug user config with each static secret value replaced by a placeholder. The value itself goes to
   `env.secret.yaml`; a file that holds only a sign-in, a credential the launcher cannot attribute to a destination, a
   value that looks like a credential it cannot replace, or more than one YAML document, stays in the sandbox.
 
-It never removes a setting you wrote and never widens your network policy: the proposed allow set is your current set
-plus only what the session reached, and a denied destination is reported but never allowed. The network policy applies
-when the sandbox is created, so a proposed change to it takes effect at the next start, which may recreate the sandbox.
+It never removes a setting you wrote or adds an unobserved destination: the proposed allow set is your current set plus
+destinations with a successful response or a named CONNECT tunnel the proxy accepted, and a denied destination is
+reported but never allowed. An accepted tunnel with failed TLS handshakes stays allowed but is not reported as verified
+service use. The network policy applies when the sandbox is created, so a proposed change to it takes effect at the next
+start, which may recreate the sandbox.
 
 If agents-sandbox cannot attribute a secret to a destination, it leaves the secret in the sandbox home rather than
 guessing where it is safe to send.
@@ -119,6 +131,9 @@ agents-sandbox records the session so you can review it later:
 ```console
 agents-sandbox config learn
 ```
+
+If the run context is cancelled after the session baseline is captured, the observation is saved for `config learn`
+without opening the interactive after-run prompt.
 
 If the sandbox home has been recreated since, agents-sandbox reports that and discards the record rather than analysing
 the new home against stale facts.

@@ -17,17 +17,25 @@ const observedViaProxy = "proxy-terminate"
 // leak: no request body, no header value, no query. It is the frozen contract
 // the after-run analysis reads.
 type Destination struct {
-	Host      string    `json:"host"`       // Host header / SNI
-	IP        string    `json:"ip"`         // literal IP when the CONNECT target is an IP; empty for a hostname target (unknown to the analyser)
-	Port      uint16    `json:"port"`       // port the request used
-	Protocol  string    `json:"protocol"`   // "https" | "http" | "connect" | "socks5" | "tcp"; empty only when a recorded denial named none
-	Path      string    `json:"path"`       // request path, never a query
-	Success   bool      `json:"success"`    // a response arrived, or — for a "connect" entry — the tunnel was accepted
-	Denied    bool      `json:"denied"`     // our proxy's dial to it failed; not a sandbox-policy denial (the runtime enforces egress before our proxy under T2)
-	Count     int       `json:"count"`      // requests observed to this destination
-	FirstSeen time.Time `json:"first_seen"` // first request observed
-	LastSeen  time.Time `json:"last_seen"`  // most recent request observed
-	Channel   string    `json:"channel"`    // which observer saw it, e.g. "proxy-terminate"
+	Host      string    `json:"host"`             // Host header / SNI
+	IP        string    `json:"ip"`               // literal IP when the CONNECT target is an IP; empty for a hostname target (unknown to the analyser)
+	Port      uint16    `json:"port"`             // port the request used
+	Protocol  string    `json:"protocol"`         // "https" | "http" | "connect" | "socks5" | "tcp"; empty only when a recorded denial named none
+	Path      string    `json:"path"`             // request path, never a query
+	Success   bool      `json:"success"`          // a response arrived, or — for a "connect" entry — the tunnel was accepted
+	Denied    bool      `json:"denied"`           // our proxy's dial to it failed; not a sandbox-policy denial (the runtime enforces egress before our proxy under T2)
+	Count     int       `json:"count"`            // requests observed to this destination
+	FirstSeen time.Time `json:"first_seen"`       // first request observed
+	LastSeen  time.Time `json:"last_seen"`        // most recent request observed
+	Channel   string    `json:"channel"`          // which observer saw it, e.g. "proxy-terminate"
+	Failed    int       `json:"failed,omitempty"` // tunnels whose terminating TLS handshake the client aborted
+}
+
+// HandshakeFailed reports whether d is a tunnel whose every terminating TLS
+// handshake failed: a client that pins its certificates, or one missing the
+// session CA trust (#812). The two look the same to the proxy.
+func (d Destination) HandshakeFailed() bool {
+	return d.Protocol == ConnectProtocol && d.Count > 0 && d.Failed >= d.Count
 }
 
 // ConnectProtocol is the protocol of an accepted CONNECT tunnel's entry.
@@ -61,6 +69,17 @@ type Attribution struct {
 type Observation struct {
 	Destinations []Destination `json:"destinations"`
 	Attribution  []Attribution `json:"attribution"`
+	// ProxyLog is the session's proxy log file, empty when no log was created.
+	ProxyLog string `json:"proxy_log,omitempty"`
+	// ProxyWarnings counts warnings, including those omitted after the log cap.
+	ProxyWarnings int `json:"proxy_warnings,omitempty"`
+	// UnattributedHandshakes counts failures that could not be tied to one
+	// CONNECT session and destination without guessing.
+	UnattributedHandshakes int `json:"unattributed_handshakes,omitempty"`
+	// ProxyLogTruncated reports that the bounded log omitted warning lines.
+	ProxyLogTruncated bool `json:"proxy_log_truncated,omitempty"`
+	// ProxyLogWriteFailed reports an open, write, or close error.
+	ProxyLogWriteFailed bool `json:"proxy_log_write_failed,omitempty"`
 }
 
 // recorder accumulates the artefact as requests are observed. Its methods take
@@ -69,8 +88,13 @@ type Observation struct {
 // valid for the recorder's lifetime and a caller can keep it from the request
 // hook until the response hook.
 type recorder struct {
-	destinations []*Destination
-	attribution  []Attribution
+	destinations     []*Destination
+	attribution      []Attribution
+	tunnelsBySession map[uint16]tunnelSession
+}
+
+type tunnelSession struct {
+	destination *Destination
 }
 
 // observe folds one request into the artefact and returns the destination entry
@@ -96,25 +120,69 @@ func (r *recorder) observe(host, ip, path, protocol string, port uint16, headerN
 	return destination
 }
 
-// nameTunnel moves one tunnel opened to ip:port onto hostname, the name the
-// client sent as TLS SNI. The msb runtime opens its tunnels by IP and names the
-// host only in the handshake, so without this every tunnel would be recorded
-// under an address. The IP stays on the named entry; the IP-only entry loses
-// the one tunnel and disappears once it has none left. A tunnel this recorder
-// never saw is ignored.
-func (r *recorder) nameTunnel(ip string, port uint16, hostname string) {
-	for index, tunnel := range r.destinations {
-		if tunnel.Host != ip || tunnel.IP != ip || tunnel.Protocol != ConnectProtocol || tunnel.Port != port {
+// observeTunnel records an accepted CONNECT and associates it with goproxy's
+// session number. The logger carries the same 16-bit session number in a
+// handshake warning, so SNI naming and failure accounting can follow one
+// tunnel even when other hosts share its IP.
+func (r *recorder) observeTunnel(sessionID uint16, host, ip string, port uint16) {
+	tunnel := r.observe(host, ip, "", ConnectProtocol, port, nil)
+	tunnel.Success = true
+	if r.tunnelsBySession == nil {
+		r.tunnelsBySession = make(map[uint16]tunnelSession)
+	}
+	if _, ok := r.tunnelsBySession[sessionID]; ok {
+		r.tunnelsBySession[sessionID] = tunnelSession{destination: nil}
+		return
+	}
+	r.tunnelsBySession[sessionID] = tunnelSession{destination: tunnel}
+}
+
+// nameTunnel moves the session's CONNECT entry onto the hostname from its TLS
+// SNI. The IP stays on the named entry; the IP-only entry loses that tunnel and
+// disappears once it has none left. A session number collision or unknown
+// session is left unnamed rather than charging the wrong tunnel.
+func (r *recorder) nameTunnel(sessionID uint16, connectIP string, port uint16, hostname string) {
+	tracked := r.tunnelsBySession[sessionID]
+	if tracked.destination == nil {
+		return
+	}
+	tunnel := tracked.destination
+	if tunnel.Host != connectIP || tunnel.Port != port {
+		return
+	}
+	for index, destination := range r.destinations {
+		if destination != tunnel {
 			continue
 		}
-		named := r.observe(hostname, ip, "", ConnectProtocol, port, nil)
+		named := r.observe(hostname, connectIP, "", ConnectProtocol, port, nil)
 		named.Success = true
 		tunnel.Count--
 		if tunnel.Count <= 0 {
 			r.destinations = slices.Delete(r.destinations, index, index+1)
 		}
+		r.tunnelsBySession[sessionID] = tunnelSession{destination: named}
 		return
 	}
+}
+
+// failTunnel records a failed terminating handshake on the CONNECT session that
+// goproxy names in its warning. A missing, reused, or mismatched session is left
+// unattributed rather than charged to a plausible but unverified destination.
+func (r *recorder) failTunnel(sessionID uint16, connectTarget string) bool {
+	host, port := splitHostPort(connectTarget)
+	if parsed := net.ParseIP(host); parsed != nil {
+		host = parsed.String()
+	}
+	tracked := r.tunnelsBySession[sessionID]
+	if tracked.destination == nil {
+		return false
+	}
+	tunnel := tracked.destination
+	if tunnel.Port != port || (tunnel.Host != host && tunnel.IP != host) {
+		return false
+	}
+	tunnel.Failed++
+	return true
 }
 
 // deny records that a request to a destination was refused by this proxy's own
@@ -147,6 +215,7 @@ func (r *recorder) deny(host, ip, path, protocol string, port uint16) {
 			FirstSeen: time.Time{},
 			LastSeen:  time.Time{},
 			Channel:   observedViaProxy,
+			Failed:    0,
 		})
 	}
 }
@@ -156,11 +225,17 @@ func (r *recorder) deny(host, ip, path, protocol string, port uint16) {
 // recorder's own entries win for a destination or attribution both sides record,
 // which makes result(Observation{}) the recorder's own sorted artefact.
 func (r *recorder) result(obs Observation) Observation {
+	//exhaustruct:ignore // the proxy log is set by stop, not by the recorder
 	combined := Observation{
 		Destinations: append(make([]Destination, 0, len(obs.Destinations)+len(r.destinations)), obs.Destinations...),
 		Attribution: append(
 			append(make([]Attribution, 0, len(obs.Attribution)+len(r.attribution)), obs.Attribution...),
 			r.attribution...),
+		ProxyLog:               obs.ProxyLog,
+		ProxyWarnings:          obs.ProxyWarnings,
+		UnattributedHandshakes: obs.UnattributedHandshakes,
+		ProxyLogTruncated:      obs.ProxyLogTruncated,
+		ProxyLogWriteFailed:    obs.ProxyLogWriteFailed,
 	}
 	for _, destination := range r.destinations {
 		combined.Destinations = append(combined.Destinations, *destination)
@@ -194,6 +269,7 @@ func (r *recorder) destination(host, ip, path, protocol string, port uint16) *De
 		FirstSeen: time.Time{},
 		LastSeen:  time.Time{},
 		Channel:   observedViaProxy,
+		Failed:    0,
 	}
 	r.destinations = append(r.destinations, destination)
 	return destination

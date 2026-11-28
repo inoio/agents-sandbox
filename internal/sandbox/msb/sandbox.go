@@ -388,8 +388,12 @@ type realSandbox struct {
 	sandbox *msbSdk.Sandbox
 }
 
+// realSandboxFilesystem is the SDK filesystem lookup as a seam, so the adapter's
+// wrapping is unit-testable without a live VM.
+var realSandboxFilesystem = (*msbSdk.Sandbox).FS
+
 func (s realSandbox) FS() SandboxFS {
-	return s.sandbox.FS()
+	return realSandboxFS{SandboxFSOps: realSandboxFilesystem(s.sandbox)}
 }
 
 func (s realSandbox) Shell(ctx context.Context, command string, req ExecRequest) (ShellResult, error) {

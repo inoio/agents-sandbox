@@ -4,11 +4,12 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 )
 
@@ -17,10 +18,11 @@ import (
 // on, the sandbox pointed at our proxy, and the channel CA projected as a path
 // the runtime trusts upstream (R1: UpstreamCACerts takes paths, not PEM).
 func TestStartObservation(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
 	base := network.Policy{Profiles: []network.Profile{network.ProfileNone}}
 
 	const bindHost = "127.0.0.1"
-	observer, err := StartObservation(bindHost, base)
+	observer, err := StartObservation(bindHost, base, time.Unix(1, 0))
 	if err != nil {
 		t.Fatalf("StartObservation: %v", err)
 	}
@@ -55,6 +57,7 @@ func TestStartObservation(t *testing.T) {
 // origin transport: with it set, a self-signed upstream round-trips through the
 // channel; without it, the same upstream is rejected.
 func TestStartObservationForwardsSkipUpstreamVerify(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
 	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -73,7 +76,7 @@ func TestStartObservationForwardsSkipUpstreamVerify(t *testing.T) {
 			observer, err := StartObservation("127.0.0.1", network.Policy{
 				Profiles: []network.Profile{network.ProfileNone},
 				Observe:  network.ObserveConfig{SkipUpstreamVerify: tc.skipUpstreamVerify},
-			})
+			}, time.Unix(1, 0))
 			if err != nil {
 				t.Fatalf("StartObservation: %v", err)
 			}
@@ -106,44 +109,55 @@ func requestThroughObserver(t *testing.T, obs Observer, target string) bool {
 }
 
 // Stop tears the proxy down and returns the artefact, and a second call is a
-// no-op that returns the same artefact. A recorded request drives a non-empty
-// artefact, so the identical-return assertion is not vacuous.
+// no-op that returns the same artefact. The default-verify origin transport
+// rejects the self-signed upstream, so the artefact carries a proxy log; the
+// identical-return assertion therefore covers the log path, which a plain-HTTP
+// request (no warning) would leave untested.
 func TestObserverStopIsIdempotent(t *testing.T) {
-	observer, err := StartObservation("127.0.0.1", network.Policy{Profiles: []network.Profile{network.ProfileNone}})
+	configpathstest.WithMockConfigPaths(t)
+	observer, err := StartObservation(
+		"127.0.0.1",
+		network.Policy{Profiles: []network.Profile{network.ProfileNone}},
+		time.Unix(1, 0),
+	)
 	if err != nil {
 		t.Fatalf("StartObservation: %v", err)
 	}
 
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer upstream.Close()
 
-	proxyURL, err := url.Parse("http://" + observer.Overlay().Proxy.Address)
-	if err != nil {
-		t.Fatalf("parse proxy address: %v", err)
+	if requestThroughObserver(t, observer, upstream.URL) {
+		t.Fatal("the self-signed upstream was served, want the default verification to reject it")
 	}
-	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}}
-	resp, err := client.Get(upstream.URL + "/v1/chat")
-	if err != nil {
-		t.Fatalf("request through proxy: %v", err)
-	}
-	resp.Body.Close()
 
 	first := observer.Stop()
 	if len(first.Destinations) == 0 {
 		t.Fatalf("Stop returned no destinations, want the recorded request: %+v", first)
 	}
+	if first.ProxyLog == "" || first.ProxyWarnings == 0 {
+		t.Fatalf("Stop returned no proxy log, want the rejected upstream's warning: %+v", first)
+	}
 	second := observer.Stop()
 	if !reflect.DeepEqual(first, second) {
 		t.Errorf("second Stop returned a different artefact:\n first %+v\nsecond %+v", first, second)
+	}
+	if second.ProxyLog == "" {
+		t.Errorf("second Stop cleared ProxyLog: %+v", second)
 	}
 }
 
 // StartObservation propagates a Start failure to the caller instead of returning
 // an Observer around a proxy that never bound.
 func TestStartObservationPropagatesStartFailure(t *testing.T) {
-	observer, err := StartObservation("[::1]", network.Policy{Profiles: []network.Profile{network.ProfileNone}})
+	configpathstest.WithMockConfigPaths(t)
+	observer, err := StartObservation(
+		"[::1]",
+		network.Policy{Profiles: []network.Profile{network.ProfileNone}},
+		time.Unix(1, 0),
+	)
 	if err == nil {
 		observer.Stop()
 		t.Fatal("StartObservation with an unparseable bind host returned no error")

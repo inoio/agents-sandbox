@@ -7,8 +7,11 @@
 #
 #   push          the event's `before` commit, if it is a real commit. A created
 #                 branch (all-zero `before`) or a missing one is undecidable.
-#   pull_request  the merge base of the base branch and `GITHUB_SHA`. A failed
-#                 fetch or an unresolvable merge base is undecidable.
+#   pull_request  the merge base of the pull request's base branch and
+#                 `GITHUB_SHA`. `GH_PR_BASE_REF`, when set, names the branch the
+#                 pull request directly targets; otherwise `GITHUB_BASE_REF` is
+#                 used. A failed fetch or an unresolvable merge base is
+#                 undecidable.
 #   merge_group   the event's `base_sha`, if non-empty.
 #
 # Anything else (`schedule`, `workflow_dispatch`, an unknown event) is
@@ -20,10 +23,10 @@
 # `changes` job fails closed (treats the failure as "everything changed"), the
 # `changelog` job degrades to a shape-only check. See specs/ci/ci-pipeline.md.
 #
-# Reads GITHUB_EVENT_NAME, GITHUB_SHA, GITHUB_BASE_REF, GITHUB_BEFORE, and
-# GITHUB_MERGE_GROUP_BASE_SHA from the environment and operates on the git repo
-# at the current directory. Prints the base SHA to stdout and exits 0, or prints
-# a diagnostic to stderr and exits 1.
+# Reads GITHUB_EVENT_NAME, GITHUB_SHA, GITHUB_BASE_REF, GH_PR_BASE_REF,
+# GITHUB_BEFORE, and GITHUB_MERGE_GROUP_BASE_SHA from the environment and
+# operates on the git repo at the current directory. Prints the base SHA to
+# stdout and exits 0, or prints a diagnostic to stderr and exits 1.
 
 set -euo pipefail
 
@@ -41,7 +44,11 @@ case "${GITHUB_EVENT_NAME:-}" in
     printf '%s\n' "$before"
     ;;
   pull_request)
-    base_ref="${GITHUB_BASE_REF:-}"
+    # A pull request in a stack is evaluated as if it targets the stack base, so
+    # GitHub sets GITHUB_BASE_REF to that trunk. A caller that needs the pull
+    # request's own changeset (the changelog job) passes the branch it directly
+    # targets as GH_PR_BASE_REF; prefer it so the diff is the pull request's own.
+    base_ref="${GH_PR_BASE_REF:-${GITHUB_BASE_REF:-}}"
     if [[ -z "$base_ref" ]]; then
       undecidable "pull_request without GITHUB_BASE_REF"
     fi

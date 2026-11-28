@@ -120,19 +120,59 @@ func TestEventBase(t *testing.T) {
 			t.Errorf("stdout = %q, want %q", result.Stdout, f.tip.String()+"\n")
 		}
 	})
+
+	// GitHub evaluates a stacked pull request as if it targets the stack base and
+	// sets GITHUB_BASE_REF to that trunk. The changelog job passes the branch the
+	// pull request directly targets as GH_PR_BASE_REF so its own changeset — not
+	// the whole stack's — is diffed.
+	t.Run("pull_request prefers the branch it directly targets", func(t *testing.T) {
+		t.Parallel()
+		f := seedEventBaseFixture(t)
+
+		result := runEventBase(t, f, "pull_request", map[string]string{
+			"GITHUB_BASE_REF": "main",
+			"GH_PR_BASE_REF":  "feature",
+			"GITHUB_SHA":      f.child.String(),
+		})
+
+		assertStatus(t, result, 0)
+		if result.Stdout != f.feature.String()+"\n" {
+			t.Errorf("stdout = %q, want %q", result.Stdout, f.feature.String()+"\n")
+		}
+	})
+
+	t.Run("pull_request falls back to GITHUB_BASE_REF without an own base", func(t *testing.T) {
+		t.Parallel()
+		f := seedEventBaseFixture(t)
+
+		result := runEventBase(t, f, "pull_request", map[string]string{
+			"GITHUB_BASE_REF": "main",
+			"GH_PR_BASE_REF":  "",
+			"GITHUB_SHA":      f.child.String(),
+		})
+
+		assertStatus(t, result, 0)
+		if result.Stdout != f.tip.String()+"\n" {
+			t.Errorf("stdout = %q, want %q", result.Stdout, f.tip.String()+"\n")
+		}
+	})
 }
 
 // eventBaseFixture is the repository and commit hashes the resolver's cases need:
-// base (A) and tip (B) on main, plus feature (C) forked at B.
+// base (A) and tip (B) on main, feature (C) forked at B, and child (D) forked at
+// C — the top of a stack whose own base is feature while GitHub's GITHUB_BASE_REF
+// carries main.
 type eventBaseFixture struct {
 	repo    *Repo
 	base    plumbing.Hash
 	tip     plumbing.Hash
 	feature plumbing.Hash
+	child   plumbing.Hash
 }
 
 // seedEventBaseFixture builds A -> B on main with a feature branch forked at B
-// adding C, pushed to a local bare origin so the pull_request fetch resolves.
+// adding C and a child branch forked at C adding D, pushed to a local bare
+// origin so the pull_request fetch resolves offline.
 func seedEventBaseFixture(tb testing.TB) eventBaseFixture {
 	tb.Helper()
 	repo := New(tb)
@@ -145,9 +185,13 @@ func seedEventBaseFixture(tb testing.TB) eventBaseFixture {
 	repo.Checkout("feature")
 	repo.Write("file", "c\n")
 	feature := repo.Commit("c")
+	repo.SetBranch("child", feature)
+	repo.Checkout("child")
+	repo.Write("file", "d\n")
+	child := repo.Commit("d")
 	repo.Checkout("main")
 	repo.Push(tb)
-	return eventBaseFixture{repo: repo, base: base, tip: tip, feature: feature}
+	return eventBaseFixture{repo: repo, base: base, tip: tip, feature: feature, child: child}
 }
 
 // runEventBase runs ci/event-base.sh in the fixture with a scrubbed event
@@ -157,6 +201,7 @@ func runEventBase(t *testing.T, f eventBaseFixture, event string, extra map[stri
 	env := map[string]string{
 		"GITHUB_EVENT_NAME":           event,
 		"GITHUB_BASE_REF":             "",
+		"GH_PR_BASE_REF":              "",
 		"GITHUB_BEFORE":               "",
 		"GITHUB_MERGE_GROUP_BASE_SHA": "",
 		"GITHUB_SHA":                  "",

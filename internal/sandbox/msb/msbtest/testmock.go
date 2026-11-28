@@ -1010,16 +1010,26 @@ func NewMockSandbox(opts SandboxOpts) msb.Sandbox {
 	}
 }
 
+// MockCopyCall records one transfer: Source is the from-side path and
+// Destination the to-side path, whichever direction the copy ran.
+type MockCopyCall struct {
+	Source      string
+	Destination string
+}
+
 // TestFS is a test double for SandboxFS that supports configurable file contents
 // and error injection.
 type TestFS struct {
-	Contents map[string][]byte
-	ReadErr  error
-	WriteErr error
-	MkdirErr error
-	Writes   map[string][]byte
-	Mkdirs   []string
-	Removed  []string
+	Contents       map[string][]byte
+	ReadErr        error
+	WriteErr       error
+	MkdirErr       error
+	CopyErr        error
+	Writes         map[string][]byte
+	Mkdirs         []string
+	Removed        []string
+	CopiedFromHost []MockCopyCall
+	CopiedToHost   []MockCopyCall
 }
 
 // NewTestFS creates a SandboxFS backed by the given files. Files is a map from
@@ -1074,6 +1084,22 @@ func (t *TestFS) Read(_ context.Context, path string) ([]byte, error) {
 
 func (t *TestFS) Remove(_ context.Context, path string) error {
 	t.Removed = append(t.Removed, path)
+	return nil
+}
+
+func (t *TestFS) CopyFromHost(_ context.Context, hostPath, guestPath string) error {
+	if t.CopyErr != nil {
+		return t.CopyErr
+	}
+	t.CopiedFromHost = append(t.CopiedFromHost, MockCopyCall{Source: hostPath, Destination: guestPath})
+	return nil
+}
+
+func (t *TestFS) CopyToHost(_ context.Context, guestPath, hostPath string) error {
+	if t.CopyErr != nil {
+		return t.CopyErr
+	}
+	t.CopiedToHost = append(t.CopiedToHost, MockCopyCall{Source: guestPath, Destination: hostPath})
 	return nil
 }
 

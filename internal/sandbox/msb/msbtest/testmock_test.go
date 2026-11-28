@@ -259,3 +259,33 @@ func TestMockSandboxTouch(t *testing.T) {
 		t.Error("TouchFn was not called")
 	}
 }
+
+// TestTestFSRecordsCopies pins that the filesystem double records each transfer
+// with the side-correct paths, so a consumer's copy can be asserted.
+func TestTestFSRecordsCopies(t *testing.T) {
+	ctx := context.Background()
+	fs := NewTestFS(nil)
+
+	if err := fs.CopyFromHost(ctx, "host.txt", "/guest.txt"); err != nil {
+		t.Fatalf("CopyFromHost() error = %v", err)
+	}
+	if err := fs.CopyToHost(ctx, "/guest.txt", "out.txt"); err != nil {
+		t.Fatalf("CopyToHost() error = %v", err)
+	}
+	if got := fs.CopiedFromHost; len(got) != 1 ||
+		got[0] != (MockCopyCall{Source: "host.txt", Destination: "/guest.txt"}) {
+		t.Errorf("CopiedFromHost = %+v", got)
+	}
+	if got := fs.CopiedToHost; len(got) != 1 || got[0] != (MockCopyCall{Source: "/guest.txt", Destination: "out.txt"}) {
+		t.Errorf("CopiedToHost = %+v", got)
+	}
+
+	cause := errors.New("copy boom")
+	failing := &TestFS{CopyErr: cause}
+	if err := failing.CopyFromHost(ctx, "a", "/b"); !errors.Is(err, cause) {
+		t.Errorf("CopyFromHost() error = %v, want %v", err, cause)
+	}
+	if err := failing.CopyToHost(ctx, "/b", "a"); !errors.Is(err, cause) {
+		t.Errorf("CopyToHost() error = %v, want %v", err, cause)
+	}
+}

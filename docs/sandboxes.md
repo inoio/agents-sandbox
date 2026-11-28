@@ -20,6 +20,7 @@ where you do; the sections that follow carry the detail.
 | See all sandboxes | `agents-sandbox list` |
 | Stop the project sandbox | `agents-sandbox stop` |
 | Remove the project sandbox | `agents-sandbox sandbox remove <name>` |
+| Copy a file in or out of the project sandbox | `agents-sandbox sandbox cp <src> <dst>` |
 | Merge the disk layers of long-lived sandboxes | `agents-sandbox sandbox compact --dry-run`, then `agents-sandbox sandbox compact` |
 | Reclaim stale sandboxes, images, and internal state | `agents-sandbox prune --dry-run`, then `agents-sandbox prune --yes` |
 | Remove a whole project (sandbox, home volume, image, state) | `agents-sandbox prune --purge [<slug>]` |

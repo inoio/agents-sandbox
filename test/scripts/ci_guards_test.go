@@ -351,6 +351,17 @@ func TestCIGuards(t *testing.T) {
 		ciGuardsExpect(t, f.root, 1, "'changelog' does not call ci/event-base.sh")
 	})
 
+	t.Run("changelog dropping the pull request's own base", func(t *testing.T) {
+		t.Parallel()
+		f := newCIGuardsFixture(t)
+		f.replace(
+			".github/workflows/ci.yml",
+			"          GH_PR_BASE_REF: ${{ github.event.pull_request.base.ref }}\n",
+			"",
+		)
+		ciGuardsExpect(t, f.root, 1, "does not pass the pull request's own base")
+	})
+
 	t.Run("on.push.branches dropping release/*", func(t *testing.T) {
 		t.Parallel()
 		f := newCIGuardsFixture(t)
@@ -729,6 +740,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Compute changed files
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+          GH_PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          GITHUB_BEFORE: ${{ github.event.before }}
+          GITHUB_MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
         run: |
           set -euo pipefail
           base=$(ci/event-base.sh || true)

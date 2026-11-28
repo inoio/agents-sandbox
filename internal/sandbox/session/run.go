@@ -70,6 +70,7 @@ type learnSession interface {
 	Stop() channel.Observation
 	CaptureBaseline(ctx context.Context, k state.Key, agentName string) (string, error)
 	Finish(ctx context.Context, in learn.FinishInput) error
+	PreserveForReplay(ui termio.Logger) error
 }
 
 // learnBegin and learnPassive are the session's learn seams; production uses
@@ -336,11 +337,8 @@ func Run(ctx context.Context, opts options.RunOptions, mode options.Mode, ui ter
 	// is restored by the /etc/profile.d/agents-sandbox-path.sh merge.
 	attachErr := runAttach(ctx, k, sb, ses.GuestCWD(), ui, opts, "-l", "-c", setup)
 
-	// The after-run is owned by this process: it runs here, after the attach,
-	// and only when the context is still live. A cancelled context leaves the
-	// recorded session for `config learn`.
-	if learnRun != nil && ctx.Err() == nil {
-		if err := learnRun.Finish(ctx, learn.FinishInput{
+	if learnRun != nil {
+		finishLearnAfterRun(ctx, learnRun, learn.FinishInput{
 			Key:       k,
 			Slug:      opts.ConfigSlug,
 			Agent:     k.Agent,
@@ -350,9 +348,7 @@ func Run(ctx context.Context, opts options.RunOptions, mode options.Mode, ui ter
 			UI:        ui,
 			Mode:      mode,
 			SetByFlag: opts.SetByFlag,
-		}); err != nil {
-			ui.Warnf("learn mode: the after-run failed: %v", err)
-		}
+		})
 	}
 	return attachErr
 }
@@ -364,6 +360,20 @@ func effectiveIdleTimeout(configured time.Duration) time.Duration {
 		return options.DefaultVMIdleTimeout
 	}
 	return configured
+}
+
+// finishLearnAfterRun runs the interactive after-run while its owner context is
+// live. On cancellation it preserves the capture for config learn instead.
+func finishLearnAfterRun(ctx context.Context, learnRun learnSession, in learn.FinishInput) {
+	if ctx.Err() == nil {
+		if err := learnRun.Finish(ctx, in); err != nil {
+			in.UI.Warnf("learn mode: the after-run failed: %v", err)
+		}
+		return
+	}
+	if err := learnRun.PreserveForReplay(in.UI); err != nil {
+		in.UI.Warnf("learn mode: preserving the session for config learn failed: %v", err)
+	}
 }
 
 // withClientSession owns the client-lease lifecycle shared by the attach and

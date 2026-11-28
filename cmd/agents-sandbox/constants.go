@@ -39,6 +39,7 @@ const (
 	cmdEdit       = "edit"
 	cmdRemove     = "remove"
 	cmdInspect    = "inspect"
+	cmdCopy       = "copy"
 	cmdCompact    = "compact"
 	cmdState      = "state"
 	cmdRepair     = "repair"
@@ -106,6 +107,7 @@ var (
 	cmdVolumeAliases  = []string{"vol"}
 	cmdSandboxAliases = []string{"sb"}
 	cmdRemoveAliases  = []string{"rm"}
+	cmdCopyAliases    = []string{"cp"}
 )
 
 // namedArg represents a named positional argument for display in usage and tree output.

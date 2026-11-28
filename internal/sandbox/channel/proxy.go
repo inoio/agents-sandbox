@@ -9,6 +9,8 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
+	"io"
 	"math/big"
 	"net"
 	"net/http"
@@ -63,7 +65,22 @@ type proxyState struct {
 	recorder *recorder
 	caFile   string
 
+	log            *proxyLog
+	connections    *proxyConnections
+	requestContext context.Context
+	cancelRequests context.CancelFunc
+	transport      *http.Transport
+	stopOnce       sync.Once
+	observation    Observation
+
 	mu sync.Mutex
+}
+
+type proxyRequest struct {
+	destination   *Destination
+	websocket     bool
+	sessionID     uint16
+	remoteAddress string
 }
 
 // Start binds an observation proxy on a host-loopback port with a freshly
@@ -80,7 +97,10 @@ type proxyState struct {
 // proxy forwards cannot reach an impostor; it is the
 // network.observe.skip-upstream-verify escape hatch for a host whose egress is
 // transparently intercepted with a private CA the system roots do not include.
-func Start(bindHost string, skipUpstreamVerify bool) (Handle, error) {
+//
+// openLog opens the session's proxy log; it is called on the first warning
+// only, so a clean session creates no file. A nil openLog only counts.
+func Start(bindHost string, skipUpstreamVerify bool, openLog func() (*os.File, error)) (Handle, error) {
 	if bindHost == "" {
 		bindHost = "127.0.0.1"
 	}
@@ -102,15 +122,23 @@ func Start(bindHost string, skipUpstreamVerify bool) (Handle, error) {
 	state := new(proxyState)
 	state.recorder = new(recorder)
 	state.caFile = caFile
+	state.requestContext, state.cancelRequests = context.WithCancel(context.Background())
+	//exhaustruct:ignore // accepted connections are registered lazily
+	state.connections = &proxyConnections{Listener: listener}
+	//exhaustruct:ignore // zero-valued counters and status flags are the initial logger state
+	state.log = &proxyLog{
+		openLog:            openLog,
+		onHandshakeFailure: state.failTunnel,
+	}
 	state.server = &http.Server{
-		Handler: terminateProxy(ca, state, skipUpstreamVerify),
+		Handler: proxyHandler{Handler: terminateProxy(ca, state, skipUpstreamVerify)},
 		// A defensive ceiling on reading a request's headers; the value is not
 		// a contract and a local test server answers before it can fire.
 		// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT,ARITHMETIC_BASE reason="a defensive ReadHeaderTimeout cannot be observed by a local test server and the value is not a contract"
 		ReadHeaderTimeout: 30 * time.Second,
 	}
 	go func() {
-		_ = state.server.Serve(listener)
+		_ = state.server.Serve(state.connections)
 	}()
 
 	return Handle{
@@ -130,13 +158,14 @@ func Start(bindHost string, skipUpstreamVerify bool) (Handle, error) {
 // not a sandbox-policy denial.
 func terminateProxy(ca tls.Certificate, state *proxyState, skipUpstreamVerify bool) *goproxy.ProxyHttpServer {
 	proxy := goproxy.NewProxyHttpServer()
-	// goproxy's own logger warns unconditionally; route it to a discard so it
-	// cannot interleave with the agent's TUI during a learning session.
-	proxy.Logger = discardLogger{}
+	// goproxy's own logger warns unconditionally; route it to the session log
+	// so it cannot interleave with the agent's TUI during a learning session.
+	proxy.Logger = state.logger()
 	// The observation proxy is the sandbox's egress, so it dials upstream
 	// directly instead of honouring a host proxy environment variable.
 	proxy.Tr.Proxy = nil
 	proxy.ConnectDial = nil
+	state.transport = proxy.Tr
 	// goproxy's origin transport verifies upstream certificates by default;
 	// keep that unless the operator opted out for a host whose egress is
 	// transparently intercepted. Verification is what stops a forwarded
@@ -152,8 +181,8 @@ func terminateProxy(ca tls.Certificate, state *proxyState, skipUpstreamVerify bo
 		TLSConfig: mitmTLSConfig(ca, state.nameTunnel),
 	}
 	proxy.OnRequest().HandleConnect(goproxy.FuncHttpsHandler(
-		func(host string, _ *goproxy.ProxyCtx) (*goproxy.ConnectAction, string) {
-			state.observeConnect(host)
+		func(host string, ctx *goproxy.ProxyCtx) (*goproxy.ConnectAction, string) {
+			state.observeConnect(host, proxySessionID(ctx.Session))
 			return mitm, host
 		},
 	))
@@ -162,13 +191,6 @@ func terminateProxy(ca tls.Certificate, state *proxyState, skipUpstreamVerify bo
 	return proxy
 }
 
-// discardLogger swallows goproxy's unconditional log output, so a warning from
-// the proxy library cannot interleave with the agent's TUI during a learning
-// session.
-type discardLogger struct{}
-
-func (discardLogger) Printf(string, ...any) {}
-
 // observeConnect records a CONNECT target as a value-free "connect" destination
 // and marks it successful, because the proxy accepts the tunnel. A client that
 // pins certificates or speaks a non-HTTP protocol never produces an inner
@@ -176,7 +198,7 @@ func (discardLogger) Printf(string, ...any) {}
 // the request inside the tunnel is never seen (nil header names). A host that
 // also terminates appears twice — once here as "connect" and once as its own
 // "https" destination with attribution.
-func (s *proxyState) observeConnect(host string) {
+func (s *proxyState) observeConnect(host string, sessionID uint16) {
 	hostname, port := splitHostPort(host)
 	ip := ""
 	if parsed := net.ParseIP(hostname); parsed != nil {
@@ -187,25 +209,27 @@ func (s *proxyState) observeConnect(host string) {
 	}
 
 	s.mu.Lock()
-	destination := s.recorder.observe(hostname, ip, "", ConnectProtocol, port, nil)
-	destination.Success = true
+	s.recorder.observeTunnel(sessionID, hostname, ip, port)
 	s.mu.Unlock()
 }
 
 // nameTunnel records the SNI hostname a client sent through a tunnel it opened
 // by IP, so the tunnel is attributed to the host rather than the address. A
 // tunnel opened by hostname, or a handshake without SNI, needs no naming.
-func (s *proxyState) nameTunnel(connectTarget, serverName string) {
-	hostname, port := splitHostPort(connectTarget)
-	parsed := net.ParseIP(hostname)
+func (s *proxyState) nameTunnel(connectTarget, serverName string, sessionID uint16) {
+	targetHost, port := splitHostPort(connectTarget)
+	parsed := net.ParseIP(targetHost)
 	if serverName == "" || parsed == nil || serverName == parsed.String() {
 		return
 	}
-	hostname = parsed.String()
+	connectIP := parsed.String()
 	s.mu.Lock()
-	s.recorder.nameTunnel(hostname, port, serverName)
+	s.recorder.nameTunnel(sessionID, connectIP, port, serverName)
 	s.mu.Unlock()
 }
+
+// proxySessionID returns the 16-bit session number goproxy writes in warnings.
+func proxySessionID(session int64) uint16 { return uint16(session & 0xFFFF) }
 
 // splitHostPort returns a CONNECT target's host and port, leaving the port zero
 // when the target carries none.
@@ -243,11 +267,22 @@ func (s *proxyState) onRequest(req *http.Request, ctx *goproxy.ProxyCtx) (*http.
 	destination := s.recorder.observe(host, ip, path, protocol, port, observedCredentialHeaders(req.Header))
 	s.mu.Unlock()
 
-	ctx.UserData = destination
+	ctx.UserData = &proxyRequest{
+		destination:   destination,
+		websocket:     isWebsocketUpgrade(req.Header),
+		sessionID:     proxySessionID(ctx.Session),
+		remoteAddress: req.RemoteAddr,
+	}
 	ctx.RoundTripper = goproxy.RoundTripperFunc(
 		func(roundTripReq *http.Request, roundTripCtx *goproxy.ProxyCtx) (*http.Response, error) {
+			if s.requestContext != nil {
+				requestContext, cancel := context.WithCancel(roundTripReq.Context())
+				stopCancellation := context.AfterFunc(s.requestContext, cancel)
+				context.AfterFunc(requestContext, func() { stopCancellation() })
+				roundTripReq = roundTripReq.Clone(requestContext)
+			}
 			response, err := roundTripCtx.Proxy.Tr.RoundTrip(roundTripReq)
-			if err != nil {
+			if err != nil && !s.cancelledRequest(err) {
 				s.mu.Lock()
 				s.recorder.deny(host, ip, path, protocol, port)
 				s.mu.Unlock()
@@ -258,6 +293,10 @@ func (s *proxyState) onRequest(req *http.Request, ctx *goproxy.ProxyCtx) (*http.
 	return req, nil
 }
 
+func (s *proxyState) cancelledRequest(err error) bool {
+	return s.requestContext != nil && s.requestContext.Err() != nil && errors.Is(err, context.Canceled)
+}
+
 // onResponse marks the destination of a completed request successful. A nil
 // response — a round-trip error already recorded as a denial — is returned
 // unchanged.
@@ -265,12 +304,68 @@ func (s *proxyState) onResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *htt
 	if resp == nil {
 		return resp
 	}
-	if destination, ok := ctx.UserData.(*Destination); ok {
+	requestData, ok := ctx.UserData.(*proxyRequest)
+	if !ok {
+		return resp
+	}
+	if destination := requestData.destination; destination != nil {
 		s.mu.Lock()
 		destination.Success = true
 		s.mu.Unlock()
 	}
+	if !requestData.websocket || resp.StatusCode != http.StatusSwitchingProtocols ||
+		!isWebsocketUpgrade(resp.Header) {
+		return resp
+	}
+	upstream, ok := resp.Body.(io.ReadWriteCloser)
+	if !ok || s.connections == nil || s.log == nil {
+		return resp
+	}
+	relay := newWebsocketRelay(requestData.sessionID, s.log)
+	relay.setUpstream(upstream)
+	if !s.connections.attachWebsocket(requestData.remoteAddress, relay) {
+		relay.shutdown()
+		return rejectWebsocketUpgrade(resp)
+	}
+	resp.Body = trackedWebsocketBody{body: upstream, relay: relay}
 	return resp
+}
+
+func isWebsocketUpgrade(header http.Header) bool {
+	return containsHeaderToken(header, "Connection", "Upgrade") &&
+		containsHeaderToken(header, "Upgrade", "websocket")
+}
+
+func containsHeaderToken(header http.Header, name, want string) bool {
+	for key, values := range header {
+		if !strings.EqualFold(key, name) {
+			continue
+		}
+		for _, value := range values {
+			for token := range strings.SplitSeq(value, ",") {
+				if strings.EqualFold(strings.TrimSpace(token), want) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func rejectWebsocketUpgrade(response *http.Response) *http.Response {
+	const message = "observation proxy could not track this WebSocket connection\n"
+	if response.Body != nil {
+		_ = response.Body.Close()
+	}
+	response.StatusCode = http.StatusBadGateway
+	response.Status = "502 Bad Gateway"
+	response.Header.Del("Connection")
+	response.Header.Del("Upgrade")
+	response.Header.Set("Content-Type", "text/plain; charset=utf-8")
+	response.Body = io.NopCloser(strings.NewReader(message))
+	response.ContentLength = int64(len(message))
+	response.Close = true
+	return response
 }
 
 // Stop tears the proxy down, removes its CA file, and returns the scrubbed
@@ -278,7 +373,8 @@ func (s *proxyState) onResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *htt
 func (h Handle) Stop() Observation {
 	if h.state == nil {
 		// gomutants:disable-next-line RETURN_ZERO reason="an empty Observation is the zero value, so zeroing the literal is the identical value"
-		return Observation{Destinations: nil, Attribution: nil}
+		//exhaustruct:ignore // the empty handle has no destination, attribution, or diagnostic state
+		return Observation{}
 	}
 	return h.state.stop()
 }
@@ -292,17 +388,66 @@ func (h Handle) CAPEM() string { return h.caPEM }
 // removes the file.
 func (h Handle) CAFile() string { return h.caFile }
 
-// stop closes the server, removes the CA file, and returns the artefact. It is
-// idempotent.
+// stop closes the server, removes the CA file, closes the session log, and
+// returns the artefact naming the log when it holds anything. It is idempotent.
 func (s *proxyState) stop() Observation {
-	s.mu.Lock()
-	// Close is idempotent, so a second Stop needs no flag to stay a no-op.
+	s.stopOnce.Do(s.finish)
+	return s.observation
+}
+
+func (s *proxyState) finish() {
+	if s.log != nil {
+		s.log.beginShutdown()
+	}
+	if s.connections != nil {
+		s.connections.abort()
+	}
+	if s.cancelRequests != nil {
+		s.cancelRequests()
+	}
 	_ = s.server.Close()
-	observation := s.recorder.result(Observation{Destinations: nil, Attribution: nil})
+	if s.connections != nil {
+		s.connections.wait()
+	}
+	if s.transport != nil {
+		s.transport.CloseIdleConnections()
+	}
+	var logResult proxyLogResult
+	if s.log != nil {
+		logResult = s.log.close()
+	}
+	s.mu.Lock()
+	//exhaustruct:ignore // the recorder fills destinations and attribution; Stop sets diagnostic fields below
+	observation := s.recorder.result(Observation{})
 	s.mu.Unlock()
 
 	_ = os.Remove(s.caFile)
-	return observation
+	observation.ProxyLog = logResult.Path
+	observation.ProxyWarnings = logResult.Warnings
+	observation.UnattributedHandshakes = logResult.UnattributedHandshakes
+	observation.ProxyLogTruncated = logResult.Truncated
+	observation.ProxyLogWriteFailed = logResult.WriteFailed
+	s.observation = observation
+}
+
+// logger returns the state's session log, or a counting-only one for a state
+// built without Start.
+func (s *proxyState) logger() *proxyLog {
+	if s.log == nil {
+		//exhaustruct:ignore // counting-only logger starts with zero counters and no file
+		s.log = &proxyLog{
+			onHandshakeFailure: s.failTunnel,
+		}
+	}
+	return s.log
+}
+
+// failTunnel records a handshake the client aborted on the tunnel it belongs to.
+func (s *proxyState) failTunnel(sessionID uint16, connectTarget string) bool {
+	s.mu.Lock()
+	attributed := s.recorder.failTunnel(sessionID, connectTarget)
+	s.mu.Unlock()
+	return attributed
 }
 
 // generateCA creates a fresh self-signed CA for one proxy, returned parsed (for

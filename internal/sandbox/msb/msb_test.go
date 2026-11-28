@@ -575,14 +575,6 @@ func TestRealStreamHandleRecvAndClose(t *testing.T) {
 	})
 }
 
-func TestRealSandboxFS(t *testing.T) {
-	sb := &realSandbox{sandbox: &msbSdk.Sandbox{}}
-	fs := sb.FS()
-	if fs == nil {
-		t.Fatal("FS() returned nil")
-	}
-}
-
 // TestRealClientEnsureInstalledPassesPrivateHome asserts the ensure call names
 // the private home explicitly.
 func TestRealClientEnsureInstalledPassesPrivateHome(t *testing.T) {

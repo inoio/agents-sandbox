@@ -1,6 +1,11 @@
 package channel
 
-import "github.com/inoio/agents-sandbox/internal/sandbox/network"
+import (
+	"os"
+	"time"
+
+	"github.com/inoio/agents-sandbox/internal/sandbox/network"
+)
 
 // Observer is a running observation channel: the overlay a run applies to its
 // network options before the VM is prepared, and the teardown that returns the
@@ -30,8 +35,14 @@ type observer struct {
 // The invocation is S7's: S7 starts the observer before prepareSandbox, assigns
 // opts.Network = obs.Overlay() there, and calls Stop at teardown. This subplan
 // does not touch session/options/prepare/vm.
-func StartObservation(bindHost string, base network.Policy) (Observer, error) {
-	handle, err := Start(bindHost, base.Observe.SkipUpstreamVerify)
+//
+// The proxy's warnings go to a unique, bounded log under
+// <UserStateDir>/learn/proxy-logs/, prefixed by startedAt and opened on the first
+// warning only.
+func StartObservation(bindHost string, base network.Policy, startedAt time.Time) (Observer, error) {
+	handle, err := Start(bindHost, base.Observe.SkipUpstreamVerify, func() (*os.File, error) {
+		return openSessionLog(startedAt)
+	})
 	if err != nil {
 		return nil, err
 	}

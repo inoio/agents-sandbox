@@ -91,11 +91,34 @@ type FinishInput struct {
 	SetByFlag func(string) bool
 }
 
+// PreserveForReplay stops an active channel and saves its observation for
+// config learn without running the interactive after-run. It is used when the
+// owning run context was cancelled after the baseline had been recorded.
+func (r *Run) PreserveForReplay(ui termio.Logger) error {
+	observation := r.Stop()
+	PrintProxyDiagnostics(ui, observation)
+	if r.Passive() || !r.sessionRecorded || r.record.ArtefactPath != "" {
+		return nil
+	}
+
+	path, err := saveArtefact(r.key.Slug, r.startedAt.Unix(), observation)
+	if err != nil {
+		return fmt.Errorf("save the learn capture for replay: %w", err)
+	}
+	r.record.ArtefactPath = path
+	if err := recordLearnSession(r.key, r.record); err != nil {
+		r.record.ArtefactPath = ""
+		return fmt.Errorf("record the learn capture path for replay: %w", err)
+	}
+	return nil
+}
+
 // Finish tears the channel down, saves the artefact, runs the analysis in this
 // process, prints the summary, and clears the session record. A passive Run
 // saves no artefact.
 func (r *Run) Finish(ctx context.Context, in FinishInput) error {
 	observation := r.Stop()
+	PrintProxyDiagnostics(in.UI, observation)
 
 	artefactPath := ""
 	if !r.Passive() {
@@ -154,6 +177,50 @@ func printSummary(ui termio.UI, summary Summary) {
 		ui.Infof("Denied destinations (never auto-allowed): %s", strings.Join(summary.Denied, ", "))
 	}
 	PrintReported(ui, summary.Results)
+}
+
+// PrintProxyDiagnostics reports observation failures before later analysis or
+// capture storage can fail. The observation records only a value-free log path
+// and destination/handshake facts.
+func PrintProxyDiagnostics(ui termio.Logger, observation channel.Observation) {
+	if ui == nil {
+		return
+	}
+	handshakeHosts := map[string]bool{}
+	for _, destination := range observation.Destinations {
+		if destination.HandshakeFailed() && destination.Host != "" {
+			handshakeHosts[destination.Host] = true
+		}
+	}
+	if hosts := sortedKeys(handshakeHosts); len(hosts) > 0 {
+		ui.Warnf(
+			"TLS interception failed for %s; successful use was not verified. Possible causes include certificate pinning or missing sandbox CA trust.",
+			strings.Join(hosts, ", "),
+		)
+	}
+	if observation.UnattributedHandshakes > 0 {
+		ui.Warnf(
+			"%d TLS handshake failure(s) could not be tied to a destination without guessing.",
+			observation.UnattributedHandshakes,
+		)
+	}
+	if observation.ProxyWarnings == 0 {
+		return
+	}
+	if observation.ProxyLog == "" {
+		ui.Warnf("The learn proxy reported %d warning(s), but its log could not be created.", observation.ProxyWarnings)
+		return
+	}
+	status := ""
+	switch {
+	case observation.ProxyLogWriteFailed && observation.ProxyLogTruncated:
+		status = " (log is incomplete and truncated)"
+	case observation.ProxyLogWriteFailed:
+		status = " (log may be incomplete)"
+	case observation.ProxyLogTruncated:
+		status = " (log was truncated)"
+	}
+	ui.Warnf("The learn proxy logged %d warning(s): %s%s", observation.ProxyWarnings, observation.ProxyLog, status)
 }
 
 // PrintReported warns with each report-only finding's evidence and guidance.

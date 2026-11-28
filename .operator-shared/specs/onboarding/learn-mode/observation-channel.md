@@ -139,6 +139,36 @@ request succeeded or was denied, the request path, and the credential-bearing he
 request bodies or header **values**. A raw flow capture is scrubbed of values before it is kept. `IP` is empty for a
 hostname target (the analyser treats it as unknown, not as a resolved address).
 
+**Failed handshakes are reported, not treated as verified use.** The proxy records each terminating handshake failure
+on the exact CONNECT entry (`Failed`) when it can identify the tunnel. A tunnel whose every terminating handshake
+failed is not counted as a verified service in the after-run. It stays in the proposed egress allow set: certificate
+pinning and missing session-CA trust look the same to the proxy, and a pinned client may work outside learn mode. When
+the session is identifiable, the warning names the host or IP and describes possible causes, not a diagnosis; otherwise
+the after-run reports an unattributed failure count.
+
+**Handshake failures use goproxy's session number, not an IP heuristic.** goproxy includes its 16-bit session number and
+the CONNECT target in the handshake warning. The channel associates that number with the accepted CONNECT, follows it
+when SNI names the tunnel, and charges the failure only when both the session and target still match. A missing,
+mismatched, or reused session number is left unattributed and counted in the artefact; the channel never guesses which
+host behind a shared IP failed.
+
+**The proxy log is a separate, bounded diagnostic file.** The proxy's warnings go to a unique
+`<UserStateDir>/learn/proxy-logs/<startUnix>-<unique>.log` file (0600), opened on the first warning only, so a clean
+session writes nothing and same-second sessions never share a file. The logger writes a fixed, value-free message for
+known warning formats and a generic message for unknown formats; it never formats goproxy's arguments, which may carry
+URLs, queries, or header values. Each line is capped at 512 bytes and each session log at 1 MiB. `ProxyWarnings` counts
+all warnings even after truncation. Open, write, and close failures and truncation are reported separately. The log
+never goes to the terminal, where it would interleave with the agent's TUI. It is not deleted with the session's
+capture (the after-run deletes that), so the after-run can name it; `Prune` expires it after 30 days like an artefact,
+whether the session finished, was cancelled, or its after-run failed. The log carries no raw request value, so it does
+not weaken invariant 3.
+
+**Stop is a completed teardown and a frozen observation.** The channel closes the listener and every accepted
+connection, including hijacked CONNECT tunnels, cancels in-flight upstream requests, and waits for the connection
+workers to complete before closing the diagnostic log and taking the observation snapshot. Pending genuine handshake
+failures reach the snapshot; socket-close and request-cancellation errors caused by shutdown do not become proxy
+warnings or policy denials. Concurrent and repeated Stop calls return the same completed observation.
+
 A destination is identified by host, IP, port, path, and protocol, so the same host reached on two ports — two
 CONNECT tunnels, say — is two entries, each with its own port and count, rather than one entry whose port is
 whichever request arrived last.

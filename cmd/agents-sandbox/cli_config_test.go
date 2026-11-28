@@ -1210,6 +1210,41 @@ func TestConfigLearnAnalyseFailure(t *testing.T) {
 	}
 }
 
+func TestConfigLearnPrintsProxyDiagnosticsBeforeAnalyseFailure(t *testing.T) {
+	initTestProjectDir(t)
+	configpathstest.WithMockConfigPaths(t)
+	key := learnTestKey(t)
+	artefactPath, err := channel.Save(key.Slug, 1763458200, channel.Observation{
+		Destinations: []channel.Destination{{
+			Host: "pinned.example", Protocol: channel.ConnectProtocol, Success: true, Count: 1, Failed: 1,
+		}},
+		ProxyLog:      "/state/learn/proxy-logs/1763458200-session.log",
+		ProxyWarnings: 2,
+	})
+	if err != nil {
+		t.Fatalf("save diagnostic capture: %v", err)
+	}
+	seedLearnState(t, key, state.LearnSession{HomeVolume: "vol-1", ArtefactPath: artefactPath})
+	stubLearnHomeVolume(t, "/home/vol")
+
+	orig := learnAnalyse
+	learnAnalyse = func(context.Context, learn.Analysis, termio.UI, options.Mode, func(string) bool) (learn.Summary, error) {
+		return learn.Summary{}, errors.New("analyse boom")
+	}
+	t.Cleanup(func() { learnAnalyse = orig })
+
+	ui := &termiotest.Mock{}
+	if err := runConfigLearn(learnBareCmd(), ui); err == nil || !strings.Contains(err.Error(), "analyse boom") {
+		t.Fatalf("runConfigLearn error = %v, want the analysis failure", err)
+	}
+	warnings := strings.Join(ui.WarnCalls, "\n")
+	for _, want := range []string{"pinned.example", "successful use was not verified", "1763458200-session.log"} {
+		if !strings.Contains(warnings, want) {
+			t.Errorf("WarnCalls = %v, want diagnostic text %q despite the analysis failure", ui.WarnCalls, want)
+		}
+	}
+}
+
 // TestConfigLearnWarnsWhenClearingTheRecordFails pins that a failed clear is a
 // warning, not a failed command.
 func TestConfigLearnWarnsWhenClearingTheRecordFails(t *testing.T) {
