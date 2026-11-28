@@ -2,6 +2,8 @@ package journeys
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,6 +34,8 @@ type StubProvider interface {
 	// Requests returns the requests the stub served so far, in arrival order,
 	// so a journey can assert that a turn reached it.
 	Requests() []StubRequest
+	// CAPEM returns the test CA for an HTTPS stub, nil for HTTP.
+	CAPEM() []byte
 	// Stop closes the listener. It is idempotent.
 	Stop()
 }
@@ -46,6 +50,38 @@ type StubRequest struct {
 	Side bool
 	// DecodeError is why the request body did not decode, empty when it did.
 	DecodeError string
+	// TLS records the actual incoming transport, not the advertised scheme.
+	TLS bool
+	// Credential digests allow exact assertions without retaining header values
+	// in request diagnostics. Only a single, non-empty header value is accepted.
+	authorization [sha256.Size]byte
+	apiKey        [sha256.Size]byte
+}
+
+// HasCredential reports whether the request carried exactly value in the named
+// Authorization or X-Api-Key header (case-insensitive name). Empty, absent,
+// duplicate, and unsupported headers never match.
+func (r StubRequest) HasCredential(header, value string) bool {
+	if value == "" {
+		return false
+	}
+	digest := sha256.Sum256([]byte(value))
+	switch {
+	case strings.EqualFold(header, "Authorization"):
+		return r.authorization == digest
+	case strings.EqualFold(header, "X-Api-Key"):
+		return r.apiKey == digest
+	default:
+		return false
+	}
+}
+
+func credentialDigest(header http.Header, name string) [sha256.Size]byte {
+	values := header.Values(name)
+	if len(values) != 1 || values[0] == "" {
+		return [sha256.Size]byte{}
+	}
+	return sha256.Sum256([]byte(values[0]))
 }
 
 // The synthetic provider the seeded config declares: an OpenAI-compatible
@@ -79,13 +115,22 @@ const stubReadHeaderTimeout = 30 * time.Second
 // The advertised origin is stubOriginEnv (default stubOriginDefault); the port
 // is always the listener's. The listener is closed by tb.Cleanup as well as by
 // Stop.
-//
-// The stub serves plain HTTP so the agent's request traverses the terminating
-// proxy with no CA or skip-upstream-verify wiring; the proxy records the
-// destination by its advertised host. A host accept that switches the override
-// to https must also enable network.observe.skip-upstream-verify, because the
-// stub's certificate is not trusted.
 func StartStubProvider(tb driver.TB) (StubProvider, error) {
+	return startStubProvider(tb, nil)
+}
+
+// StartTLSStubProvider serves HTTPS on the host gateway with a fresh test CA.
+// The client must trust CAPEM; trusting it proves transport only, not that msb
+// intercepted the connection or substituted a secret.
+func StartTLSStubProvider(tb driver.TB) (StubProvider, error) {
+	certificates, err := newStubTLS()
+	if err != nil {
+		return nil, err
+	}
+	return startStubProvider(tb, certificates)
+}
+
+func startStubProvider(tb driver.TB, certificates *stubTLS) (StubProvider, error) {
 	tb.Helper()
 
 	//testenv:allow the stub is a real host-side listener the terminating proxy dials
@@ -102,6 +147,7 @@ func StartStubProvider(tb driver.TB) (StubProvider, error) {
 	provider := &stubProvider{
 		listener: listener,
 		addr:     stubOrigin() + ":" + port,
+		tls:      certificates,
 	}
 	provider.server = &http.Server{
 		Handler: provider,
@@ -110,7 +156,15 @@ func StartStubProvider(tb driver.TB) (StubProvider, error) {
 		ReadHeaderTimeout: stubReadHeaderTimeout,
 	}
 	tb.Cleanup(provider.Stop)
-	go func() { _ = provider.server.Serve(listener) }()
+	if certificates == nil {
+		go func() { _ = provider.server.Serve(listener) }()
+	} else {
+		provider.addr = "https://" + stubGatewayHost + ":" + port
+		provider.server.TLSConfig = &tls.Config{
+			Certificates: []tls.Certificate{certificates.server}, MinVersion: tls.VersionTLS12,
+		}
+		go func() { _ = provider.server.ServeTLS(listener, "", "") }()
+	}
 	return provider, nil
 }
 
@@ -120,6 +174,7 @@ type stubProvider struct {
 	listener net.Listener
 	addr     string
 	once     sync.Once
+	tls      *stubTLS
 
 	mu       sync.Mutex
 	requests []StubRequest
@@ -129,6 +184,14 @@ type stubProvider struct {
 
 // Addr returns the advertised origin, scheme://host:port.
 func (p *stubProvider) Addr() string { return p.addr }
+
+// CAPEM returns the test CA for an HTTPS stub, nil for HTTP.
+func (p *stubProvider) CAPEM() []byte {
+	if p.tls == nil {
+		return nil
+	}
+	return append([]byte(nil), p.tls.caPEM...)
+}
 
 // Stop closes the listener. It is idempotent, so tb.Cleanup may run it after a
 // test already did.
@@ -154,7 +217,10 @@ func (p *stubProvider) ServeHTTP(response http.ResponseWriter, request *http.Req
 	}
 	recorded := StubRequest{
 		Method: request.Method, Path: request.URL.Path, Model: completion.Model, Side: completion.side(),
-		DecodeError: decodeError,
+		DecodeError:   decodeError,
+		TLS:           request.TLS != nil,
+		authorization: credentialDigest(request.Header, "Authorization"),
+		apiKey:        credentialDigest(request.Header, "X-Api-Key"),
 	}
 	p.record(recorded)
 	if decodeErr != nil && isTurnPath(request.URL.Path) {
