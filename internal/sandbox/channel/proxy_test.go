@@ -1139,7 +1139,7 @@ func TestStopWaitsForPendingHandshakeDiagnostics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	proxy := handle.state.server.Handler.(*goproxy.ProxyHttpServer)
+	proxy := handle.state.server.Handler.(proxyHandler).Handler.(*goproxy.ProxyHttpServer)
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var releaseOnce sync.Once
@@ -1172,5 +1172,59 @@ func TestStopWaitsForPendingHandshakeDiagnostics(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Stop did not complete after the handshake diagnostic was released")
+	}
+}
+
+func TestStopClosesADirectWebSocketUpgrade(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		connection, buffered, err := writer.(http.Hijacker).Hijack()
+		if err != nil {
+			return
+		}
+		defer connection.Close()
+		_, _ = buffered.WriteString(
+			"HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n",
+		)
+		_ = buffered.Flush()
+		_, _ = io.Copy(connection, buffered)
+	}))
+	defer upstream.Close()
+	handle, err := Start("127.0.0.1", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	//testenv:allow the test dials its own loopback proxy to exercise a direct WebSocket upgrade
+	connection, err := net.DialTimeout("tcp", handle.Addr, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	_ = connection.SetDeadline(time.Now().Add(5 * time.Second))
+	_, err = io.WriteString(connection, "GET "+upstream.URL+"/socket HTTP/1.1\r\nHost: "+
+		strings.TrimPrefix(upstream.URL, "http://")+"\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := bufio.NewReader(connection)
+	response, err := http.ReadResponse(reader, nil)
+	if err != nil || response.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("upgrade response = %v, %v", response, err)
+	}
+	if _, err := io.WriteString(connection, "ping"); err != nil {
+		t.Fatal(err)
+	}
+	echo := make([]byte, 4)
+	if _, err := io.ReadFull(reader, echo); err != nil || string(echo) != "ping" {
+		t.Fatalf("upgrade relay = %q, %v", echo, err)
+	}
+	stopped := make(chan Observation, 1)
+	go func() { stopped <- handle.Stop() }()
+	select {
+	case first := <-stopped:
+		if second := handle.Stop(); !reflect.DeepEqual(first, second) {
+			t.Errorf("Stop changed its WebSocket snapshot: first=%+v second=%+v", first, second)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not join the direct WebSocket upgrade")
 	}
 }

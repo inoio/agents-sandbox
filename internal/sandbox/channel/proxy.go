@@ -123,7 +123,7 @@ func Start(bindHost string, skipUpstreamVerify bool, openLog func() (*os.File, e
 		onHandshakeFailure: state.failTunnel,
 	}
 	state.server = &http.Server{
-		Handler: terminateProxy(ca, state, skipUpstreamVerify),
+		Handler: proxyHandler{Handler: terminateProxy(ca, state, skipUpstreamVerify)},
 		// A defensive ceiling on reading a request's headers; the value is not
 		// a contract and a local test server answers before it can fire.
 		// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT,ARITHMETIC_BASE reason="a defensive ReadHeaderTimeout cannot be observed by a local test server and the value is not a contract"
