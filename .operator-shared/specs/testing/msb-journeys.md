@@ -240,7 +240,7 @@ source of truth and its steps are type-checked. It reads as Gherkin anyway:
   would rewrite). A flagless command such as `config learn` gets the journey's agent through
   `AGENTS_SANDBOX_AGENT`. The adapter grows a field only when a journey needs it.
 
-The learn-mode journeys cover **opencode2 and oh-my-pi**; core-session covers opencode2, claude-code, codex,
+The learn-mode journeys cover **opencode2 and oh-my-pi**; core-session covers opencode, opencode2, claude-code, codex,
 pi, oh-my-pi, and hermes; `harness-login` covers codex, claude-code, opencode2, pi, and oh-my-pi; `mcp-oauth-login`
 covers opencode, codex, claude-code, opencode2, pi, oh-my-pi, and hermes. Only codex has the provider-login
 journey's persisted API-key check. The rest of the #852 slice is blocked by the
@@ -250,9 +250,8 @@ the read-back finds no host-scoped credential to learn (the exemption reasons in
 
 ### Rules the harnesses taught
 
-Six core-session harnesses joined with an adapter each and no harness branch in shared code (the refactor
-hypothesis of #851 held at every step). OpenCode v1 now has a login-only adapter for MCP OAuth; the shared
-journey steps still have no harness branch. What they taught is now the rule:
+Seven core-session harnesses joined with an adapter each and no harness branch in shared code (the refactor hypothesis of
+#851 held at every step). What they taught is now the rule:
 
 - **A harness's natural config is often closed to the journey.** Its own config file is frequently the
   launcher's merged-config target or a reserved `home:` target, so the adapter has three routes to the stub:
@@ -288,7 +287,9 @@ journey steps still have no harness branch. What they taught is now the rule:
 ### Adapter facts per harness
 
 - **opencode (v1):** the model stub comes from a `home:` provider file; remote MCP uses the merged `mcp` snippet
-  and `opencode mcp auth <name>` from the VM shell. It has no provider-login adapter yet.
+  and `opencode mcp auth <name>` from the VM shell. Core-session uses `write` with `filePath` and
+  `--continue`; side requests use the small model. It has no provider-login or learn adapter and does
+  not inherit opencode2's daemon diagnostics.
 - **opencode2:** a provider file through `home:` (`opencode.json`), `write` with `path`, `--continue`; a
   `small_model` for side requests; the S1-verified learn profile (SQLite credential probe). A new session can
   get opencode2's built-in default model (`opencode/big-pickle`) instead of the configured one, in roughly one
