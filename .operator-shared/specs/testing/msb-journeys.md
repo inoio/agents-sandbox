@@ -241,7 +241,7 @@ source of truth and its steps are type-checked. It reads as Gherkin anyway:
   `AGENTS_SANDBOX_AGENT`. The adapter grows a field only when a journey needs it.
 
 The learn-mode journeys cover **opencode2 and oh-my-pi**; core-session covers opencode, opencode2, claude-code, codex,
-pi, oh-my-pi, and hermes; `harness-login` covers codex, claude-code, opencode2, pi, and oh-my-pi; `mcp-oauth-login`
+pi, oh-my-pi, hermes, and kimi-code; `harness-login` covers codex, claude-code, opencode2, pi, and oh-my-pi; `mcp-oauth-login`
 covers opencode, codex, claude-code, opencode2, pi, oh-my-pi, and hermes. Only codex has the provider-login
 journey's persisted API-key check. The rest of the #852 slice is blocked by the
 product, not the suite: on claude-code, codex, and pi
@@ -250,7 +250,7 @@ the read-back finds no host-scoped credential to learn (the exemption reasons in
 
 ### Rules the harnesses taught
 
-Seven core-session harnesses joined with an adapter each and no harness branch in shared code (the refactor hypothesis of
+Eight core-session harnesses joined with an adapter each and no harness branch in shared code (the refactor hypothesis of
 #851 held at every step). What they taught is now the rule:
 
 - **A harness's natural config is often closed to the journey.** Its own config file is frequently the
@@ -286,6 +286,9 @@ Seven core-session harnesses joined with an adapter each and no harness branch i
 
 ### Adapter facts per harness
 
+- **kimi-code:** an OpenAI provider and model in a `config*.toml` snippet, `Write` with `path`, `--auto`
+  for unattended tool approval, and `--continue`; the snippet disables automatic session titles, so
+  observed model requests are main-model turns with tools. It reuses the smoke's workspace-trust seed.
 - **opencode (v1):** the model stub comes from a `home:` provider file; remote MCP uses the merged `mcp` snippet
   and `opencode mcp auth <name>` from the VM shell. Core-session uses `write` with `filePath` and
   `--continue`; side requests use the small model. It has no provider-login or learn adapter and does
@@ -329,7 +332,9 @@ first run (A), real turn (C), second client (E), and persistence (D) over one pr
   **not** cover the first-run menu on any harness; the learn-mode journeys do.
 - **C:** the stub answers the first turn with the harness's own write-file tool call (the adapter's
   `WriteFileCall`, e.g. opencode2's `write` with `path`/`content`), then with its text reply; the file
-  appears in the project on the host, owned by the host user, and the reply shows. The stub numbers its
+  appears in the project on the host, owned by the host user, and the reply shows. A stale fixture from
+  a previous run cannot satisfy C: the current run must write it anew even on a reused suite root.
+  Fixture cleanup is confined to the journey's project. The stub numbers its
   replies (`stub-reply-1`, …), and a reply check accepts only a reply sent after the client's last prompt and
   shown after it, so a repainted earlier reply cannot pass.
 - **E:** a second `run` attaches to the same VM while the first runs; it gets no reconfig prompt, and both
