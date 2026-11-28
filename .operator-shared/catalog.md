@@ -38,6 +38,9 @@
 - `guides/buildkit-engine-compatibility.md`
   - Description: Which Docker-API engines survive each BuildKit mechanism when building the runner image, per engine family, plus the render's feature-safety and BuildKit-only syntax.
   - Read If: Considering support for another Docker-API engine (or a builder-selection/fallback change) by evaluating which engines survive each BuildKit mechanism, or diagnosing a runner-image build that fails on a non-Docker engine.
+- `guides/config-transfer-policy-review.md`
+  - Description: Adversarial review checklist for automatic config transfer: structural credential identity, policy authorization, secret dependencies, parse ambiguity, and lifecycle validation.
+  - Read If: Changing the host seed or managed-config sanitizer, defining key-path policies, or diagnosing credential-name collisions, orphan placeholders, or unrelated settings changed by substitution.
 - `guides/dead-code-detection-go.md`
   - Description: How to run x/tools `deadcode` to find production code only tests keep alive, and why staticcheck U1000 cannot.
   - Read If: Looking for dead or unreferenced production code, auditing whether a seam is still wired, or evaluating a dead-code linter; for the gate, the pin, or the `//deadcode:ignore` marker, read `specs/ci/quality-gates.md`.
@@ -137,8 +140,8 @@
 #### `specs/onboarding/` - First-run guidance and learn mode
 
 - `specs/onboarding/`
-  - Description: `onboarding.md` (the first-run contract) and the learn-mode hub `learn-mode.md` with subspecs `learn-mode/observation-channel.md`, `learn-mode/home-read-back.md`, and `learn-mode/findings-and-apply.md`.
-  - Read If: Working on `internal/firstrun` (the `Offer`/`Prompt` menu, `BuildFacts`, the UC4 `SeedFromHost`) or its `RootState` decision record, `provision-host-config`, `config harden`, first-run guidance, credential/auth handling, the doctor output/troubleshooting anchors, or the Get started docs; or on learn mode — the after-run analyser, a `run --learn`/`config learn` surface, a learned network policy or secret proposal, the observation channel, the home read-back, or the finding and applier contract.
+  - Description: `onboarding.md` (the first-run contract) and the learn-mode hub `learn-mode.md` with subspecs `learn-mode/observation-channel.md`, `learn-mode/home-read-back.md`, `learn-mode/findings-and-apply.md`, and `learn-mode/config-transfer.md`.
+  - Read If: Working on `internal/firstrun` (the `Offer`/`Prompt` menu, `BuildFacts`, the UC4 `SeedFromHost`) or its `RootState` decision record, `provision-host-config`, `config harden`, first-run guidance, credential/auth handling, the doctor output/troubleshooting anchors, or the Get started docs; or on learn mode — the after-run analyser, a `run --learn`/`config learn` surface, a learned network policy or secret proposal, the observation channel, the home read-back, the strict config-transfer policy/credential identity, or the finding and applier contract.
 
 #### `specs/release/` - Release branching, assets, self-upgrade, darwin cross-build
 
@@ -238,3 +241,6 @@
 - `plans/2026-11-27-host-environment-defaults.md`
   - Description: TDD implementation plan for #808: the `internal/sandbox/hostenv` resolver (host time zone, UTF-8 locale, git identity), the `prepare.loadEnvFingerprints` merge under configured env values, the sealed test seam, and the docs/changelog tasks.
   - Read If: Executing #808, or resuming its inline execution.
+- `plans/2026-11-28-strict-config-transfer.md`
+  - Description: TDD plan for the strict automatic config-transfer boundary, including the policy/parser feasibility gate, structural credential identities, dependent writes, and whole-config acceptance.
+  - Read If: Executing #849 after the #897 assessment; defining transfer policies or implementing the sanitizer refactor, collision refusal, Apply dependencies, or their operational acceptance tests.

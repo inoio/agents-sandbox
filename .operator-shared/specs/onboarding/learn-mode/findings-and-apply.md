@@ -52,6 +52,12 @@ a finding that cannot produce a provisionable spec writes nothing.
 
 ## The agent-config write-back
 
+The [strict automatic-transfer contract](config-transfer.md) is the target replacement for #849. The
+heuristic behavior described below is the current implementation, not evidence that the strict target
+is implemented. In particular, proposed secret entries do not yet establish successful Apply dependencies.
+A follow-up (not #849) adds one confirmation for a changed security-relevant write-back candidate under
+`Save all`; the current accept-all semantics in Applying below remain in force until that lands.
+
 The after-run copies an agent config file the session authored into the per-slug user scope's agent config
 directory as a managed snippet, so the launcher owns it on the next run. Each **static secret value** in the copied
 content is replaced by its **placeholder**, which is also recorded on the secret's `env.secret.yaml` entry, so the
