@@ -15,6 +15,8 @@ func (fakeStubProvider) Replies() []string { return nil }
 
 func (fakeStubProvider) Stop() {}
 
+func (fakeStubProvider) CAPEM() []byte { return nil }
+
 // recordingStubProvider is a StubProvider whose served requests a test sets.
 type recordingStubProvider struct {
 	fakeStubProvider

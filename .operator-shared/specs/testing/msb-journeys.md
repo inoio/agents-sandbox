@@ -137,7 +137,13 @@ reached the stub and completed. The provider config declares a separate `small_m
 opencode uses for side requests such as the session title, and the stub answers it with a different text: a title
 on screen cannot pass for the turn's reply, and a title request does not count as the turn.
 
-- **Protocol: plain HTTP.** The stub needs no CA, and the run needs no `network.observe.skip-upstream-verify`.
+- **Protocol: HTTP by default.** The default stub needs no CA, and the run needs no
+  `network.observe.skip-upstream-verify`. `StartTLSStubProvider` serves real HTTPS on the host gateway with a
+  fresh test CA (`CAPEM`). A successful TLS request proves transport only, not interception or substitution.
+- **Auth evidence.** Each recorded request reports its actual TLS transport and supports exact credential
+  checks for `Authorization` and `x-api-key` through `HasCredential`. Only digests are retained, never raw
+  header values; missing, empty, or duplicate credentials cannot satisfy the check. Auth checks must name
+  the expected credential explicitly: recording a request alone does not authenticate it.
 - **Provider config.** The harness adapter's `Stub.HomeFiles(addr)` returns the VM-home-relative config manifest
   (`driver.SeedLauncherConfig`'s target→content map); for opencode2 it is one target, opencode's `.config/opencode/opencode.json`
   (the file opencode actually reads; `config.json < opencode.json < opencode.jsonc`), holding an

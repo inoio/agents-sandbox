@@ -1,10 +1,15 @@
 package journeys
 
 import (
+	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -13,6 +18,166 @@ import (
 	"testing"
 	"time"
 )
+
+func TestStubRecordsCredentialsWithoutRetainingTheirValues(t *testing.T) {
+	for _, header := range []string{"Authorization", "X-Api-Key"} {
+		t.Run(header, func(t *testing.T) {
+			provider := startTestStub(t)
+			const credential = "synthetic-auth-evidence-only"
+			request, err := http.NewRequestWithContext(
+				t.Context(),
+				http.MethodGet,
+				stubLoopbackURL(t, provider)+"/v1/models",
+				nil,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request.Header.Set(header, credential)
+			client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{Proxy: nil}}
+			response, err := client.Do(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = response.Body.Close()
+			recorded := provider.Requests()[0]
+			if !recorded.HasCredential(strings.ToLower(header), credential) {
+				t.Fatal("the request did not record the credential")
+			}
+			for _, value := range []string{"", "wrong-key", "${STUB_API_KEY}"} {
+				if recorded.HasCredential(header, value) {
+					t.Error("a missing, wrong, or placeholder credential matched")
+				}
+			}
+			if recorded.HasCredential("Cookie", credential) || recorded.TLS {
+				t.Error("recorded an unrelated header or TLS on a plain HTTP request")
+			}
+			if strings.Contains(fmt.Sprintf("%+v", recorded), credential) {
+				t.Error("request diagnostics retain the credential value")
+			}
+		})
+	}
+}
+
+func TestTLSStubServesWithItsOwnCAAndRecordsTLS(t *testing.T) {
+	provider, err := StartTLSStubProvider(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	address, err := url.Parse(provider.Addr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if address.Scheme != "https" || address.Hostname() != stubGatewayHost {
+		t.Fatalf("TLS stub advertises %q, want HTTPS on the host gateway", provider.Addr())
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(provider.CAPEM()) {
+		t.Fatal("TLS stub supplied no CA")
+	}
+	transport := &http.Transport{
+		Proxy:           nil,
+		TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12},
+		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return new(net.Dialer).DialContext(ctx, network, net.JoinHostPort("127.0.0.1", address.Port()))
+		},
+	}
+	t.Cleanup(transport.CloseIdleConnections)
+	for _, failure := range []string{"untrusted CA", "wrong hostname"} {
+		t.Run(failure, func(t *testing.T) {
+			untrusted := transport.Clone()
+			if failure == "untrusted CA" {
+				untrusted.TLSClientConfig.RootCAs = x509.NewCertPool()
+			} else {
+				untrusted.TLSClientConfig.ServerName = "wrong-host.invalid"
+			}
+			t.Cleanup(untrusted.CloseIdleConnections)
+			client := &http.Client{Timeout: 5 * time.Second, Transport: untrusted}
+			response, requestErr := client.Get(provider.Addr() + "/v1/models")
+			if requestErr == nil {
+				_ = response.Body.Close()
+				t.Fatal("an untrusted TLS connection succeeded")
+			}
+			if len(provider.Requests()) != 0 {
+				t.Fatal("a failed TLS handshake recorded an HTTP request")
+			}
+		})
+	}
+	client := &http.Client{Timeout: 5 * time.Second, Transport: transport}
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, provider.Addr()+"/v1/models", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer synthetic-tls-key")
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("TLS stub status = %d, want 200", response.StatusCode)
+	}
+	recorded := provider.Requests()[0]
+	if !recorded.TLS || !recorded.HasCredential("Authorization", "Bearer synthetic-tls-key") {
+		t.Fatalf("TLS request lacks transport or credential evidence: %+v", recorded)
+	}
+	provider.Stop()
+	assertStubUnreachable(t, "http://127.0.0.1:"+address.Port()+"/v1/models")
+}
+
+func TestStubDoesNotAcceptMissingOrAmbiguousCredentials(t *testing.T) {
+	for _, header := range []string{"Authorization", "X-Api-Key"} {
+		for _, values := range [][]string{nil, {""}, {"key", "other"}, {"key", "key"}} {
+			t.Run(fmt.Sprintf("%s/%d-values/%s", header, len(values), strings.Join(values, "-")), func(t *testing.T) {
+				provider := startTestStub(t)
+				request, err := http.NewRequestWithContext(
+					t.Context(),
+					http.MethodGet,
+					stubLoopbackURL(t, provider)+"/v1/models",
+					nil,
+				)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, value := range values {
+					request.Header.Add(header, value)
+				}
+				client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{Proxy: nil}}
+				response, err := client.Do(request)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_ = response.Body.Close()
+				if provider.Requests()[0].HasCredential(header, "key") {
+					t.Fatal("an absent, empty, or duplicate credential matched")
+				}
+			})
+		}
+	}
+}
+
+func TestStubCAIsPrivateToEachTLSListener(t *testing.T) {
+	plain := startTestStub(t)
+	if plain.CAPEM() != nil {
+		t.Fatal("an HTTP listener supplied a CA")
+	}
+	first, err := StartTLSStubProvider(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := StartTLSStubProvider(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(first.CAPEM()) == string(second.CAPEM()) || first.Addr() == second.Addr() {
+		t.Fatal("TLS listeners share a CA or an address")
+	}
+	certificate := first.CAPEM()
+	certificate[0] = '!'
+	if first.CAPEM()[0] == '!' {
+		t.Fatal("CAPEM exposed mutable listener state")
+	}
+}
 
 // TestStartStubProviderBindsAndAdvertises pins the stub's own contract: it binds
 // a real host-side listener, advertises the (overridden) origin on the
