@@ -331,6 +331,7 @@ func TestSideRequestRuleCoversEachHarnesssRequestKinds(t *testing.T) {
 	)
 	observed := map[string]struct{ side, turns []string }{
 		opencodeAgentName:   {side: []string{smallModel}, turns: []string{turn}},
+		kimiAgentName:       {side: nil, turns: []string{turn}},
 		opencode2AgentName:  {side: []string{smallModel}, turns: []string{turn}},
 		claudeCodeAgentName: {side: []string{smallModel}, turns: []string{turn}},
 		codexAgentName:      {side: []string{toolLess}, turns: []string{turn}},

@@ -156,6 +156,7 @@ type MCPFacts struct {
 // has one (TestEveryDrivenHarnessHasAnAdapter).
 var Harnesses = map[string]Harness{
 	opencodeAgentName:   opencodeHarness,
+	kimiAgentName:       kimiHarness,
 	opencode2AgentName:  opencode2Harness,
 	claudeCodeAgentName: claudeCodeHarness,
 	codexAgentName:      codexHarness,

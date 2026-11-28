@@ -85,7 +85,7 @@ func TestStepUseClientSwitchesTheActiveClient(t *testing.T) {
 
 func TestStepScriptWriteFileArmsTheAdaptersCall(t *testing.T) {
 	stub := &armingStub{}
-	ctx := &Context{TB: t, Stub: stub, Harness: opencode2Harness}
+	ctx := &Context{TB: t, Stub: stub, Harness: opencode2Harness, Project: t.TempDir()}
 
 	if err := StepScriptWriteFile("journey.txt", "hi").Run(ctx); err != nil {
 		t.Fatalf("StepScriptWriteFile: %v", err)
@@ -95,6 +95,49 @@ func TestStepScriptWriteFileArmsTheAdaptersCall(t *testing.T) {
 	}
 	if err := StepScriptWriteFile("x", "y").Run(&Context{TB: t, Stub: stub}); err == nil {
 		t.Error("an adapter without WriteFileCall: got nil error")
+	}
+}
+
+func TestStepScriptWriteFileCannotPassOnAStaleFixture(t *testing.T) {
+	project := t.TempDir()
+	path := filepath.Join(project, "journey.txt")
+	if err := os.WriteFile(path, []byte("hi"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &Context{TB: t, Project: project, Stub: &armingStub{}, Harness: opencode2Harness}
+	if err := StepScriptWriteFile("journey.txt", "hi").Run(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := stepAssertProjectFile("journey.txt", "hi", time.Millisecond).Run(ctx); err == nil {
+		t.Fatal("the file check passed without a new tool write")
+	}
+}
+
+func TestStepScriptWriteFileKeepsFixtureCleanupInsideTheProject(t *testing.T) {
+	outer := t.TempDir()
+	project := filepath.Join(outer, "project")
+	if err := os.Mkdir(project, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(outer, "outside.txt")
+	if err := os.WriteFile(outside, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outer, filepath.Join(project, "outside")); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"../outside.txt", outside, "outside/outside.txt"} {
+		stub := &armingStub{}
+		ctx := &Context{TB: t, Project: project, Stub: stub, Harness: opencode2Harness}
+		if err := StepScriptWriteFile(name, "hi").Run(ctx); err == nil {
+			t.Errorf("the cleanup accepted an outside path %q", name)
+		}
+		if stub.call.Name != "" {
+			t.Error("the tool call was armed after a failed cleanup")
+		}
+	}
+	if content, err := os.ReadFile(outside); err != nil || string(content) != "keep" {
+		t.Fatalf("the cleanup touched a file outside the project: %q, %v", content, err)
 	}
 }
 
