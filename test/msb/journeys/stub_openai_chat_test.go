@@ -318,7 +318,8 @@ func TestStubTreatsAToolLessRequestAsASideRequest(t *testing.T) {
 // TestSideRequestRuleCoversEachHarnesssRequestKinds pins, per harness, which of
 // the rule's three request shapes (a turn with tools, a small-model request, a
 // tool-less main-model request) its side requests and turns took on a KVM host,
-// and that every driven harness is listed. The shapes are the rule's, not
+// and that every harness in core-session is listed. Login-only journeys do not
+// issue a model prompt and need no provider request shape. The shapes are the rule's, not
 // captured bodies: a harness whose side request carries tools on the main
 // model, or whose turn carries none, breaks the rule and must be configured
 // around it (as oh-my-pi's adapter is) before the rule changes.
@@ -350,11 +351,9 @@ func TestSideRequestRuleCoversEachHarnesssRequestKinds(t *testing.T) {
 			}
 		}
 	}
-	for _, journey := range Journeys {
-		for _, name := range journey.Harnesses {
-			if _, ok := observed[name]; !ok {
-				t.Errorf("journey %q drives %s, whose side and turn requests are not pinned here", journey.Name, name)
-			}
+	for _, name := range coreSessionJourney.Harnesses {
+		if _, ok := observed[name]; !ok {
+			t.Errorf("core-session drives %s, whose side and turn requests are not pinned here", name)
 		}
 	}
 }

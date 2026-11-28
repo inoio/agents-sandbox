@@ -74,6 +74,25 @@ func TestRunJourneyStopsAtAFailedAction(t *testing.T) {
 	}
 }
 
+func TestRunHarnessCellSchedulesParallelismAndReleasesItsSlot(t *testing.T) {
+	for _, serial := range []bool{false, true} {
+		t.Run(fmt.Sprintf("serial=%t", serial), func(t *testing.T) {
+			parallel := false
+			ran := false
+			slots := make(chan struct{}, 1)
+			runHarnessCell(Journey{SerialHarnesses: serial}, func() { parallel = true }, slots, func() {
+				ran = true
+				if len(slots) != 1 || parallel == serial {
+					t.Errorf("occupied slots %d, parallel %t, serial %t", len(slots), parallel, serial)
+				}
+			})
+			if !ran || len(slots) != 0 {
+				t.Fatalf("ran %t, slots left %d; want execution and a released slot", ran, len(slots))
+			}
+		})
+	}
+}
+
 func TestRunJourneyRecordsAFailedCheckAndContinues(t *testing.T) {
 	var ran []string
 	journey := Journey{Name: "j", Steps: []Step{

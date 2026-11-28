@@ -181,13 +181,15 @@ Scenario: core-session
 
 ## harness-login
 
-Runs on: codex
+Runs on: codex, claude-code, opencode2, pi, oh-my-pi
 
 Network profile: `none`
 
+Harnesses run serially (shared host callback ports).
+
 Not yet:
 
-- claude-code, goose, grok-build, hermes, kimi-code, mistral-vibe, oh-my-pi, opencode, opencode2, pi, qwen-code: the login journey starts with codex; other harnesses follow (#875)
+- goose, grok-build, hermes, kimi-code, mistral-vibe, opencode, qwen-code: the provider-login journey covers loopback browser flows in the current adapter set; other auth modes remain in the harness rollout (#794, #875)
 
 ```gherkin
 Scenario: harness-login
@@ -201,26 +203,26 @@ Scenario: harness-login
   # check
   Then the callback reaches the harness in the VM, behind the host boundary
   And the login command ends
-  When the user signs the harness in with an API key from the shell
-  And the user stops the project VM
+  When the user signs the harness in with an API key from the shell (when an API-key login is available)
+  And the user stops the project VM (when an API-key login is available)
   # check
-  Then the harness reports the stored login from the shell
-  When the user runs `agents-sandbox run`
-  Then the harness TUI comes up
+  Then the harness reports the stored login from the shell (when an API-key login is available)
+  When the user runs `agents-sandbox run` (when an API-key login is available)
+  Then the harness TUI comes up (when an API-key login is available)
   # check
-  And the harness starts signed in
-  When the user quits the harness and the launcher exits 0
+  And the harness starts signed in (when an API-key login is available)
+  When the user quits the harness and the launcher exits 0 (when an API-key login is available)
 ```
 
 ## mcp-oauth-login
 
-Runs on: codex, claude-code, opencode2
+Runs on: opencode, codex, claude-code, opencode2, pi, oh-my-pi, hermes
 
 Network profile: `host`
 
 Not yet:
 
-- goose, grok-build, hermes, kimi-code, mistral-vibe, oh-my-pi, opencode, pi, qwen-code: the MCP sign-in journey covers this harness once its MCP facts are recorded (#875)
+- goose, grok-build, kimi-code, mistral-vibe, qwen-code: the MCP-OAuth journey covers remote OAuth flows in the current adapter set; other harnesses remain in the rollout (#794, #875)
 
 ```gherkin
 Scenario: mcp-oauth-login
@@ -235,8 +237,12 @@ Scenario: mcp-oauth-login
   When the user signs in at the authorization server in the browser
   Then the MCP sign-in completes with a token exchange in the VM
   When the user stops the project VM
+  And only MCP calls after the VM stop count as persistence evidence
   And the user runs `agents-sandbox run`
   Then the harness TUI comes up
+  # check
+  And the launcher boots the stopped VM again
+  When the harness checks the MCP connection when startup is lazy
   # check
   And the harness calls the MCP server with the sign-in's token
   When the user quits the harness and the launcher exits 0

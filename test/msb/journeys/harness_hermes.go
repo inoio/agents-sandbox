@@ -33,6 +33,20 @@ var hermesHarness = Harness{
 		// Enter while hermes works stops the turn ("enter interrupt").
 		EnterInterrupts: true,
 	},
+	MCP: &MCPFacts{
+		Snippets: func(name, url string) map[string]string {
+			return map[string]string{hermesMCPJourneySnippet: hermesMCPConfig(name, url)}
+		},
+		// Hermes checks for a display before consulting BROWSER. This dummy
+		// value enables the runner's xdg-open shim, not a real display server.
+		LoginCommand: func(name string) string { return "DISPLAY=:journeys hermes mcp login " + shellQuote(name) },
+	},
+}
+
+const hermesMCPJourneySnippet = "config-journeys-mcp.yaml"
+
+func hermesMCPConfig(name, url string) string {
+	return fmt.Sprintf("mcp_servers:\n  %q:\n    url: %q\n    auth: oauth\n", name, url)
 }
 
 // hermesInputHintMarker is the hint row hermes draws under its input line.

@@ -10,6 +10,18 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configmerge"
 )
 
+func TestPiMCPRequiresATrustedHTTPSAuthorizationServer(t *testing.T) {
+	if !Harnesses[piAgentName].MCP.TLS {
+		t.Fatal("Pi's OAuth token endpoint must use HTTPS on the host gateway")
+	}
+}
+
+func TestOhMyPiCallbackMarkerMatchesTheProviderPage(t *testing.T) {
+	if got := Harnesses[ohMyPiAgentName].Login.CallbackMarker; got != "Authentication successful" {
+		t.Fatalf("callback marker = %q, want the provider template's exact spelling", got)
+	}
+}
+
 func TestPiModelsDocumentDeclaresTheStubProvider(t *testing.T) {
 	var document struct {
 		Providers map[string]struct {

@@ -201,6 +201,41 @@ func TestAttributionJourneyDrivesABroadBaseline(t *testing.T) {
 	}
 }
 
+func TestBrowserLoginJourneyCoversLoopbackHarnesses(t *testing.T) {
+	if !loginJourney.SerialHarnesses {
+		t.Error("provider-login harnesses must run serially because they forward the same host callback port")
+	}
+	want := []string{codexAgentName, claudeCodeAgentName, opencode2AgentName, piAgentName, ohMyPiAgentName}
+	for _, name := range want {
+		if !slices.Contains(loginJourney.Harnesses, name) {
+			t.Errorf("harness-login does not cover %s", name)
+		}
+		if _, exempted := Exemptions[loginJourney.Name][name]; exempted {
+			t.Errorf("harness-login still exempts %s", name)
+		}
+	}
+}
+
+func TestMCPLoginJourneyCoversOAuthHarnesses(t *testing.T) {
+	want := []string{
+		"opencode",
+		codexAgentName,
+		claudeCodeAgentName,
+		opencode2AgentName,
+		piAgentName,
+		ohMyPiAgentName,
+		hermesAgentName,
+	}
+	for _, name := range want {
+		if !slices.Contains(mcpLoginJourney.Harnesses, name) {
+			t.Errorf("mcp-oauth-login does not cover %s", name)
+		}
+		if _, exempted := Exemptions[mcpLoginJourney.Name][name]; exempted {
+			t.Errorf("mcp-oauth-login still exempts %s", name)
+		}
+	}
+}
+
 // TestEveryJourneyStepIsNamedAndRunnable pins the runner's contract: a step
 // failure names the step, so every step carries a non-empty Name, a keyword, and
 // a Run, and a journey is non-empty.

@@ -70,8 +70,8 @@ var learnBlockers = map[string]string{
 const (
 	rolloutLearnReason     = "learn mode on this harness lands with the full rollout, #794"
 	rolloutCoreReason      = "core session on this harness lands with the full rollout, #794"
-	loginReason            = "the login journey starts with codex; other harnesses follow (#875)"
-	mcpLoginReason         = "the MCP sign-in journey covers this harness once its MCP facts are recorded (#875)"
+	loginReason            = "the provider-login journey covers loopback browser flows in the current adapter set; other auth modes remain in the harness rollout (#794, #875)"
+	mcpLoginReason         = "the MCP-OAuth journey covers remote OAuth flows in the current adapter set; other harnesses remain in the rollout (#794, #875)"
 	exposedLoginKeyReason  = "learn mode inspects only codex's and claude-code's login stores for a plain-text API key (#873, #892)"
 	proxySpikeExemptReason = "the proxy spike asks whether a stub route passes the learn proxy, which one harness answers (#793)"
 )

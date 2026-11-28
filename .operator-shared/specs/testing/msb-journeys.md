@@ -1,6 +1,6 @@
 ---
-description: Design for harness journeys - a second `msb`-tagged suite (`test/msb/journeys`) that drives full user journeys through real harnesses (v1: learn mode on opencode2), the shared untagged `test/msb/driver` package, the startup smoke `test/msb/startup`, the "everything under test/ is test code" gate scope with the production-closure contract test, and the surface-sweep promotion flow.
-read_if: Working on the msb journeys suite (`test/msb/journeys`, `make test-msb-journeys`), the shared `test/msb/driver` package, the startup smoke (`test/msb/startup`), the dead-code/ambient "test/ is test code" gate scope, the production-closure contract test, or wiring the release surface sweep to the journeys suite.
+description: Contract for the msb-tagged harness journeys (`test/msb/journeys`): learn mode, core sessions, provider browser login, MCP OAuth, the shared untagged driver, startup smoke, the test-code gate scope, and the surface-sweep promotion flow.
+read_if: Working on `test/msb/journeys`, `make test-msb-journeys`, the provider-login or MCP-OAuth journeys, the shared `test/msb/driver` package, the startup smoke, the dead-code/ambient `test/` gate scope, the production-closure contract test, or wiring the release surface sweep to the journeys suite.
 ---
 
 # Harness journeys (msb) — design
@@ -195,6 +195,9 @@ source of truth and its steps are type-checked. It reads as Gherkin anyway:
   one run reports every broken check that does not block the chain.
 - **Parallel harnesses, serial journeys.** The journeys run one after another; a journey's harnesses run in
   parallel, as many at once as `driver.HarnessConcurrency` allows (the startup smoke's memory-sized limit).
+  A journey with `SerialHarnesses` runs each harness and its subtest cleanup before starting the next:
+  `harness-login` needs this because several providers use port 1455, which their separate VMs isolate but
+  their host callback forwarders cannot share.
   Parallel cells never share a VM (each harness has its own project). The journeys on a harness's shared
   project share its VM and its **home volume**, which outlives a journey (a host config one provisions is still
   there for the next), so their table order is part of what they assert. Running journeys in parallel was
@@ -221,32 +224,35 @@ source of truth and its steps are type-checked. It reads as Gherkin anyway:
   and a learn journey needs the first-run menu). The smoke's host files are not seeded: the first-run menu reads
   host files as host setup, and a journey's host setup is its own (`StepSeedHostConfig`).
 - **Harness adapter.** Everything a step needs to know about a harness beyond starting and quitting it
-  (`driver.Spec`, shared with the startup smoke) lives in its `Harness` adapter (`Harnesses`), in three parts:
-  `Stub` (how it reaches the stub: `HomeFiles` through the `home:` manifest, `Env` through the launcher env file,
-  `Snippets` merged into its own config), `Drive` (how a journey drives its TUI: `ReadyMarker`, `LaunchArgs`,
-  `ResumeArgs`, `WriteFileCall`, and `Setup`, the harness's own first-start screen), `Login` (how it signs in,
-  for the login journey), and `Learn` (what learn mode
-  finds: its host config and credential store, the credential env var the read-back derives, the managed-config
-  keys, whether the managed config can hold the credential; nil without learn coverage). A learn journey
-  (`LearnMode`) says only which evidence its path produces (`ScopeWant`: config keys, placeholder); the values come
-  from `Learn`, and a placeholder is expected only where `ManagedConfigHoldsCredential` says the harness's managed
-  config can hold one, and the completeness test requires `Learn` for every harness a learn journey lists. A step or
-  journey carries no harness's path or format literal: the scope checks read every config dir of the agent,
-  recursively (skipping `node_modules`), and the login-store check fails on the store's file name or its
-  content under any name (so a store fixture holds no static value the host seed would rewrite). A flagless command such as
-  `config learn` gets the journey's agent through `AGENTS_SANDBOX_AGENT`. The adapter grows a field only when a
-  journey needs it.
+  (`driver.Spec`, shared with the startup smoke) lives in its `Harness` adapter (`Harnesses`). Its `Stub` group
+  declares how the harness reaches the model stub (`HomeFiles` through the `home:` manifest, `Env` through the
+  launcher env file, or `Snippets` merged into its config); `Drive` declares readiness and TUI behavior;
+  `Learn` declares the files and facts learn mode reads; `Login` declares a provider-browser flow and, where
+  available, a persistent API-key login; `MCP` declares a remote server and its OAuth command through a home file,
+  config snippet, or project file. `Learn`, `Login`, and `MCP` are nil when no journey covers that capability. MCP
+  home files are added to the `home:` manifest only in `mcp-oauth-login`, so a model journey does not inherit an MCP
+  server.
+  A learn journey (`LearnMode`) says only which evidence its path produces (`ScopeWant`: config keys, placeholder);
+  the values come from `Learn`, and a placeholder is expected only where `ManagedConfigHoldsCredential` says the
+  harness's managed config can hold one. A step or journey carries no harness's path or format literal: the scope
+  checks read every config dir of the agent, recursively (skipping `node_modules`), and the login-store check fails
+  on the store's file name or its content under any name (so a store fixture holds no static value the host seed
+  would rewrite). A flagless command such as `config learn` gets the journey's agent through
+  `AGENTS_SANDBOX_AGENT`. The adapter grows a field only when a journey needs it.
 
 The learn-mode journeys cover **opencode2 and oh-my-pi**; core-session covers opencode2, claude-code, codex,
-pi, oh-my-pi, and hermes; the login journeys cover codex, and the MCP sign-in also claude-code and opencode2. The rest of the #852 slice is blocked by the
+pi, oh-my-pi, and hermes; `harness-login` covers codex, claude-code, opencode2, pi, and oh-my-pi; `mcp-oauth-login`
+covers opencode, codex, claude-code, opencode2, pi, oh-my-pi, and hermes. Only codex has the provider-login
+journey's persisted API-key check. The rest of the #852 slice is blocked by the
 product, not the suite: on claude-code, codex, and pi
 the read-back finds no host-scoped credential to learn (the exemption reasons in `table.go` name each blocker:
 #821, #873, #820/#849). The rollout harnesses are #794.
 
 ### Rules the harnesses taught
 
-Six harnesses joined with an adapter each and no harness branch in shared code (the refactor hypothesis of
-#851 held at every step). What they taught is now the rule:
+Six core-session harnesses joined with an adapter each and no harness branch in shared code (the refactor
+hypothesis of #851 held at every step). OpenCode v1 now has a login-only adapter for MCP OAuth; the shared
+journey steps still have no harness branch. What they taught is now the rule:
 
 - **A harness's natural config is often closed to the journey.** Its own config file is frequently the
   launcher's merged-config target or a reserved `home:` target, so the adapter has three routes to the stub:
@@ -281,6 +287,8 @@ Six harnesses joined with an adapter each and no harness branch in shared code (
 
 ### Adapter facts per harness
 
+- **opencode (v1):** the model stub comes from a `home:` provider file; remote MCP uses the merged `mcp` snippet
+  and `opencode mcp auth <name>` from the VM shell. It has no provider-login adapter yet.
 - **opencode2:** a provider file through `home:` (`opencode.json`), `write` with `path`, `--continue`; a
   `small_model` for side requests; the S1-verified learn profile (SQLite credential probe). A new session can
   get opencode2's built-in default model (`opencode/big-pickle`) instead of the configured one, in roughly one
@@ -296,15 +304,18 @@ Six harnesses joined with an adapter each and no harness branch in shared code (
 - **pi:** a `models.json` provider through `home:`, `--model stub/stub`, `write` with `path`, `--continue`.
   Its screen is up before its startup ends, and a prompt submitted then gets "Startup is still in progress"
   with the text kept; `Drive.StartupBusyMarker` makes the prompt step press Enter again while the notice
-  shows and no turn arrived, ending on a turn at the stub or a screen quiet for a few scaled rechecks.
+  shows and no turn arrived, ending on a turn at the stub or a screen quiet for a few scaled rechecks. Its MCP
+  OAuth server is in the user-level `mcp.json` and signs in through `pi mcp login`.
 - **oh-my-pi:** pi's adapter with `models.yml`, plus a snippet that turns off the setup wizard, forked titles,
   and predictions (they would take numbered replies); `smol` on the stub's small model; its status line as the
   readiness marker. In learn journeys its wizard is left with `Drive.Setup`, and its key lives in `models.yml`,
   which the read-back reads but neither seed nor write-back copies (`Learn.ManagedConfigHoldsCredential` false,
   so UC4 covers the copy of a credential-free settings file and its dotenv fixture guards the store exclusion).
+  Its MCP OAuth server is in the user-level `mcp.json` and signs in through `omp -p '/mcp reauth <name>'`.
 - **hermes:** a `custom` OpenAI-compatible provider in a `config*.yaml` snippet, `write_file` with `path`,
   `--continue`; the hint row under its input line as the readiness marker (its banner precedes input); it probes
-  `GET /v1/models` and `POST /api/show` before its first turn. It dominates core-session's wall time.
+  `GET /v1/models` and `POST /api/show` before its first turn. It dominates core-session's wall time. Its MCP OAuth
+  server is in a `mcp_servers` YAML snippet and signs in through `hermes mcp login`.
 
 ### The core-session journey
 
@@ -342,23 +353,36 @@ home volume. The journey's launcher finds a fake host opener first on `PATH` (na
 `xdg-open`, `open` on macOS) that records links instead of opening them, so no run opens a real browser; each
 login link must reach it unchanged and name a loopback `redirect_uri`.
 
-**`harness-login`** (codex; `Login` facts) runs without egress:
+**`harness-login`** (codex, claude-code, opencode2, pi, oh-my-pi; `Login` facts) runs without egress. Each adapter
+asserts its authorization link reaches the fake browser unchanged, names a loopback callback, and returns to the
+harness through the host forwarder. The API-key login persistence checks run only for codex, whose adapter provides
+the shell login command, status command, and sign-in marker:
 
+- **Invoke the CLI, not its TUI.** `Login.BrowserCommand` runs from `agents-sandbox shell`; neither the adapter's
+  model-selection flags nor OpenCode's `AttachCommand` may prefix an auth subcommand. opencode2's shell login
+  explicitly connects to the launcher's server on port 4096 instead of discovering a separate background service.
+  oh-my-pi's ChatGPT subscription login uses its `openai-codex` OAuth provider.
 - **Return leg.** The journey requests the provider login's callback on the host's loopback with the link's
-  `state` and a dummy code. The answer must be the harness's own page (`Login.CallbackMarker`, which the
-  forwarder's own answers lack) behind the host boundary: a sandboxing CSP and no `Set-Cookie`. The harness's
-  token exchange then fails; that is expected.
+  `state`, a dummy code, and any `Login.CallbackParameters` the provider expects (Pi's OpenAI flow requires an
+  issued `client_id`, supplied as a dummy since there is no provider). The answer must be the harness's own page
+  (`Login.CallbackMarker`, which the
+  forwarder's own answers lack) behind the host boundary: a sandboxing CSP and no `Set-Cookie`. It does not
+  complete a provider token exchange; the journey stops a manual-code fallback after this check where needed.
+  Claude Code holds the response through the failed token exchange, so its expected marker is the provider's
+  failure page, not its MCP success page. Page provenance is the assertion, not a successful provider login.
 - **Login persistence.** An API-key login typed into `agents-sandbox shell` writes the login store in the VM's
   home, outside the `home:` manifest, which would re-provision it and mask a loss. After `agents-sandbox stop`,
   the harness reports the login (`Login.Status`, exit 0) and starts without its sign-in screen
-  (`Login.SignInMarker`). Without the login both checks fail, which is how they were validated.
+  (`Login.SignInMarker`). The conditional persistence steps retain their action/check kinds: a failed status check
+  does not prevent the independent sign-in-screen check or the normal quit. Without the login both checks fail,
+  which is how they were validated.
 
-**`mcp-oauth-login`** (codex, claude-code, opencode2; `MCP` facts) runs under `host`, which admits only the host
+**`mcp-oauth-login`** (opencode, codex, claude-code, opencode2, pi, oh-my-pi, hermes; `MCP` facts) runs under `host`, which admits only the host
 gateway (disjoint from `public`), so no connection reaches a real provider (DNS queries still resolve upstream):
 
 - **A full OAuth login.** A stub authorization server on the host (`StubOAuthServer`) guards a stub MCP server
-  the harness's way declares (`MCP.Snippets`, `MCP.ProjectFiles`; claude-code reads its servers from the
-  project's `.mcp.json`). The harness's sign-in runs the whole flow: the MCP endpoint's 401 names the
+  the harness's way declares (`MCP.HomeFiles`, `MCP.Snippets`, or `MCP.ProjectFiles`; claude-code reads its servers
+  from the project's `.mcp.json`). The harness's sign-in runs the whole flow: the MCP endpoint's 401 names the
   protected-resource metadata, the harness registers a client, the opener hands the authorize link to the fake
   browser, which follows the server's redirect to the callback on the host loopback, the forwarder replays it
   into the VM, and the harness exchanges the code with its PKCE verifier (the stub issues a token only for a
@@ -367,14 +391,29 @@ gateway (disjoint from `public`), so no connection reaches a real provider (DNS 
   other redirect targets before returning a code.
 - **Every endpoint is on the host gateway's origin** (codex refuses an authorize endpoint on another origin); the
   opener takes that name for a remote host, and only the fake browser resolves it to the host loopback.
-- **TLS where the harness insists.** claude-code and opencode2 send OAuth credentials only over HTTPS (loopback
+- **TLS where the harness insists.** claude-code, opencode2, and Pi send OAuth credentials only over HTTPS (loopback
   exempt), so for them (`MCP.TLS`) the stub serves HTTPS with a fresh test CA: the journey provisions the CA
   through the `home:` manifest and points `NODE_EXTRA_CA_CERTS` (Node and Bun) at it through the env file, and
-  the fake browser trusts it too. codex accepts the plain-HTTP stub.
-- **Sign-in in the shell where `run` cannot pass a subcommand** (`MCP.LoginCommand`): opencode2's attach command
-  puts the working directory before any argument, and claude-code's `LaunchArgs` precede it.
+  the fake browser trusts it too. The current OpenCode, Codex, oh-my-pi, and Hermes cells use the plain-HTTP
+  stub.
+- **Harness-specific declarations and commands.** OpenCode uses a merged config snippet; Pi and oh-my-pi use their
+  user-level `mcp.json` files through `MCP.HomeFiles`; Hermes uses a YAML config snippet. `MCP.LoginArgs` invokes
+  Codex's auth subcommand through `run`. `MCP.LoginCommand` invokes OpenCode v1, Claude Code, opencode2, Pi,
+  oh-my-pi, and Hermes from `agents-sandbox shell`, where their commands are available without changing the attach
+  command's arguments. opencode2 explicitly targets the launcher's server on port 4096. `stubSeeds` includes
+  `MCP.HomeFiles` only when the OAuth server is present, so core-session
+  does not inherit these MCP declarations.
+- **Triggering a browser in headless Hermes.** Hermes checks for `DISPLAY`/`WAYLAND_DISPLAY` before it consults
+  `BROWSER`. Its test login command supplies a dummy `DISPLAY`, so Python's browser opener reaches the runner's
+  `BROWSER=xdg-open` spool shim. No display socket is mounted or contacted. This verifies the transport when
+  Hermes attempts to open a browser, not automatic opening under its default headless behavior.
 - **The token persists.** After `agents-sandbox stop` the next run calls the MCP server with a token the
-  sign-in issued; only calls after the sign-in count.
+  sign-in issued. The request history is cleared after the stop and before the next launch, so an earlier daemon
+  request cannot satisfy the assertion; the next launch must also report that it restarted the existing VM.
+  A harness that starts from its cached tool catalogue without a live connection declares `MCP.CallPrompt`:
+  oh-my-pi runs `/mcp test` in its TUI after restart (print mode dispatches only `/mcp reauth`, not `/mcp test`).
+  The positive token assertion still requires a
+  live request from that harness, so a warm catalogue cannot hide a lost credential.
 
 ### Production-closure gate
 

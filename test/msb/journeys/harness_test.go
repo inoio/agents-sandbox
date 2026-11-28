@@ -2,6 +2,7 @@ package journeys
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -28,8 +29,8 @@ func TestEveryDrivenHarnessHasAnAdapter(t *testing.T) {
 	}
 }
 
-// Each MCP adapter declares the server where its harness reads it: snippet
-// names its launcher merges, or project files.
+// Each MCP adapter declares the server where its harness reads it: a home file,
+// a snippet the launcher merges, or a project file.
 func TestMCPAdaptersDeclareTheServerTheHarnessesWay(t *testing.T) {
 	const url = "https://host.microsandbox.internal:1/mcp"
 	for name, adapter := range Harnesses {
@@ -60,8 +61,75 @@ func TestMCPAdaptersDeclareTheServerTheHarnessesWay(t *testing.T) {
 				declared = declared || strings.Contains(content, url)
 			}
 		}
+		if mcp.HomeFiles != nil {
+			for _, content := range mcp.HomeFiles(stubMCPServerName, url) {
+				declared = declared || strings.Contains(content, url)
+			}
+		}
 		if !declared {
-			t.Errorf("%s: no snippet or project file names the server's URL", name)
+			t.Errorf("%s: no home file, snippet, or project file names the server's URL", name)
+		}
+	}
+}
+
+func TestBrowserLoginAdaptersDeclareLoopbackFlows(t *testing.T) {
+	for _, name := range []string{
+		codexAgentName,
+		claudeCodeAgentName,
+		opencode2AgentName,
+		piAgentName,
+		ohMyPiAgentName,
+	} {
+		adapter, ok := Harnesses[name]
+		if !ok {
+			t.Errorf("%s has no journey adapter", name)
+			continue
+		}
+		if adapter.Login == nil {
+			t.Errorf("%s has no browser-login facts", name)
+			continue
+		}
+		if adapter.Login.BrowserCommand == "" {
+			t.Errorf("%s has no browser-login command", name)
+		}
+		if adapter.Login.CallbackMarker == "" {
+			t.Errorf("%s has no callback-page marker", name)
+		}
+		needsFallbackCleanup := slices.Contains(
+			[]string{claudeCodeAgentName, piAgentName, ohMyPiAgentName},
+			name,
+		)
+		if needsFallbackCleanup != (len(adapter.Login.StopKeys) > 0) {
+			t.Errorf("%s StopKeys = %v, want fallback cleanup %t", name, adapter.Login.StopKeys, needsFallbackCleanup)
+		}
+		hasAPIKeyLogin := adapter.Login.APIKey != nil
+		hasStoredLoginChecks := adapter.Login.Status != "" && adapter.Login.SignInMarker != ""
+		if hasAPIKeyLogin != hasStoredLoginChecks {
+			t.Errorf("%s has incomplete API-key persistence facts", name)
+		}
+	}
+}
+
+func TestMCPJourneyAdaptersDeclareRemoteOAuth(t *testing.T) {
+	for _, name := range []string{
+		"opencode",
+		codexAgentName,
+		claudeCodeAgentName,
+		opencode2AgentName,
+		piAgentName,
+		ohMyPiAgentName,
+		hermesAgentName,
+	} {
+		adapter, ok := Harnesses[name]
+		if !ok {
+			t.Errorf("%s has no journey adapter", name)
+			continue
+		}
+		if adapter.MCP == nil {
+			t.Errorf("%s has no remote-MCP OAuth facts", name)
+		}
+		if !slices.Contains(mcpLoginJourney.Harnesses, name) {
+			t.Errorf("mcp-oauth-login does not cover %s", name)
 		}
 	}
 }

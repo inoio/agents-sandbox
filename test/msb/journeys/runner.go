@@ -20,6 +20,17 @@ type journeyTB interface {
 	Skipf(format string, args ...any)
 }
 
+// runHarnessCell schedules one harness within its journey. Serial journeys
+// finish each cell, including its subtest cleanup, before the next starts.
+func runHarnessCell(journey Journey, parallel func(), slots chan struct{}, run func()) {
+	if !journey.SerialHarnesses {
+		parallel()
+	}
+	slots <- struct{}{}
+	defer func() { <-slots }()
+	run()
+}
+
 // skipJourneyError is the error a step returns to skip the rest of its journey,
 // for an opt-in journey that was not opted into.
 type skipJourneyError struct {

@@ -41,7 +41,7 @@ var codexHarness = Harness{
 		// `codex login` starts the ChatGPT browser login: a callback server on
 		// port 1455 in the VM and no paste fallback. codex answers a callback
 		// it cannot complete with its error page.
-		BrowserArgs:    []string{"login"},
+		BrowserCommand: "codex login",
 		CallbackMarker: "Codex Sign-in",
 		// codex takes the key only from a pipe, not a terminal.
 		APIKey: func(key string) string {

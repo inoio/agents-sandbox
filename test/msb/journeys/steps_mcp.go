@@ -102,14 +102,7 @@ func StepLaunchMCPLogin() Step {
 			launchClient(c, []string{runCommand}, mcp.LoginArgs(stubMCPServerName))
 			return nil
 		}
-		launchClient(c, []string{"shell"}, nil)
-		ses := c.Session
-		if err := ses.WaitForMarker(shellPromptMarker, scaled(shellPromptTimeout)); err != nil {
-			return err
-		}
-		// One write: the command must run once, and the shell exits with its
-		// status, which StepAssertMCPLoginCompleted reads.
-		return ses.Write([]byte(mcp.LoginCommand(stubMCPServerName) + "; exit\r"))
+		return launchShellCommand(c, mcp.LoginCommand(stubMCPServerName))
 	}}
 }
 
@@ -144,9 +137,20 @@ func StepAssertMCPLoginCompleted() Step {
 		if len(c.OAuth.Issued()) == 0 {
 			return fmt.Errorf("the stub issued no token (requests: %+v)", c.OAuth.Requests())
 		}
-		// Keep the sign-in's tokens and record only the calls after it, so a
-		// later check sees the stored login in use, not the sign-in's own call.
+		// Keep the sign-in's token identities; the request history is reset
+		// after the VM has stopped, before testing their persisted use.
 		c.SignInTokens = c.OAuth.Issued()
+		return nil
+	}}
+}
+
+// StepResetMCPCalls runs after stopping the VM, so neither the login itself nor
+// a daemon request before shutdown can satisfy the post-restart assertion.
+func StepResetMCPCalls() Step {
+	return Step{Name: "only MCP calls after the VM stop count as persistence evidence", Run: func(c *Context) error {
+		if c.OAuth == nil || len(c.SignInTokens) == 0 {
+			return errors.New("no completed MCP sign-in on the context")
+		}
 		c.OAuth.ResetAuthorizedMCPCalls()
 		return nil
 	}}
@@ -156,8 +160,36 @@ func StepAssertMCPLoginCompleted() Step {
 // after it started.
 const mcpCallTimeout = 30 * time.Second
 
+// StepCallMCPServer connects explicitly when a harness's cached catalogue makes
+// its normal startup lazy. The next assertion still requires a real request
+// authenticated with the sign-in's token after the VM stop.
+func StepCallMCPServer() Step {
+	return Step{Name: "the harness checks the MCP connection when startup is lazy", Run: func(c *Context) error {
+		mcp, err := mcpFacts(c)
+		if err != nil {
+			return err
+		}
+		if mcp.CallPrompt == nil {
+			return nil
+		}
+		ses, err := session(c)
+		if err != nil {
+			return err
+		}
+		if err = typeUntilEchoed(
+			ses,
+			mcp.CallPrompt(stubMCPServerName),
+			promptTypeAttempts,
+			scaled(promptEchoWait),
+		); err != nil {
+			return err
+		}
+		return ses.Write([]byte("\r"))
+	}}
+}
+
 // StepAssertMCPCalledWithToken checks that, after the sign-in completed, the
-// harness called the stub's MCP server with a token the sign-in issued: the
+// restarted harness called the stub's MCP server with a token the sign-in issued: the
 // stored MCP login is in use, not a later login or refresh.
 func StepAssertMCPCalledWithToken() Step {
 	return AsCheck(Step{Name: "the harness calls the MCP server with the sign-in's token", Run: func(c *Context) error {
