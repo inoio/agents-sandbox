@@ -223,11 +223,14 @@ If the owning process is gone (killed harness, closed terminal), the session rec
 `config learn` performs the same analysis later. A recorded session whose home volume has since been recreated is
 reported and discarded, not analysed.
 
+If the run context is cancelled after the baseline is recorded, an active channel is stopped and its final observation
+and proxy-log reference are persisted for `config learn`, without opening the interactive after-run prompt.
+
 The record lives in the per-`(checkout, agent)` home state, holding the session's start time, the home volume it was
 taken against, the capture's path, and the baseline manifest — paths and a digest, never a value (invariant 3). The
-after-run is owned by the process that started the session, so it runs before the record is cleared and the capture
-deleted; `config learn`, which resolves the same record for the current checkout and agent, is the replay for a process
-that is gone.
+capture path identifies one session even when multiple sessions start in the same Unix second. The after-run is owned by
+the process that started the session, so it runs before the record is cleared and the capture deleted; `config learn`,
+which resolves the same record for the current checkout and agent, is the replay for a process that is gone.
 
 ## `config harden`
 

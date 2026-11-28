@@ -53,7 +53,7 @@ func sampleObservation() Observation {
 
 // Save then Load round-trips the artefact through the file the run leaves
 // behind. The write lands under the state dir's learn/<checkoutSlug>/ tree,
-// keyed by the session's start time, and the loaded value equals what was saved.
+// prefixed by the session's start time, and the loaded value equals what was saved.
 func TestArtefactStoreRoundTrips(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
@@ -64,9 +64,10 @@ func TestArtefactStoreRoundTrips(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	want := filepath.Join(configpaths.Get().UserStateDir(), "learn", "my-checkout", "1763458200.json")
-	if path != want {
-		t.Errorf("Save path = %q, want %q", path, want)
+	wantDir := filepath.Join(configpaths.Get().UserStateDir(), "learn", "my-checkout")
+	if filepath.Dir(path) != wantDir || !strings.HasPrefix(filepath.Base(path), "1763458200-") ||
+		!strings.HasSuffix(path, ".json") {
+		t.Errorf("Save path = %q, want a unique 1763458200-*.json file under %s", path, wantDir)
 	}
 
 	loaded, err := Load(path)
@@ -74,6 +75,48 @@ func TestArtefactStoreRoundTrips(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	assertObservationEqual(t, obs, loaded)
+}
+
+func assertArtefactStoreSameSecondSessionsHaveDistinctPaths(t *testing.T) {
+	t.Helper()
+	configpathstest.WithMockConfigPaths(t)
+
+	firstObservation := sampleObservation()
+	firstObservation.Destinations[0].Host = "first.example.com"
+	firstObservation.Attribution[0].Host = "first.example.com"
+	secondObservation := sampleObservation()
+	secondObservation.Destinations[0].Host = "second.example.com"
+	secondObservation.Attribution[0].Host = "second.example.com"
+
+	firstPath, err := Save("same-checkout", 1763458200, firstObservation)
+	if err != nil {
+		t.Fatalf("Save first session: %v", err)
+	}
+	secondPath, err := Save("same-checkout", 1763458200, secondObservation)
+	if err != nil {
+		t.Fatalf("Save second session: %v", err)
+	}
+	if firstPath == secondPath {
+		t.Fatalf("same-second sessions share capture path %q", firstPath)
+	}
+
+	for _, testCase := range []struct {
+		path string
+		want Observation
+	}{
+		{path: firstPath, want: firstObservation},
+		{path: secondPath, want: secondObservation},
+	} {
+		got, err := Load(testCase.path)
+		if err != nil {
+			t.Fatalf("Load %q: %v", testCase.path, err)
+		}
+		assertObservationEqual(t, testCase.want, got)
+	}
+}
+
+func TestArtefactStoreSameSecondSessionsHaveDistinctPaths(t *testing.T) {
+	assertArtefactStoreSameSecondSessionsHaveDistinctPaths(t)
 }
 
 // The artefact is written 0600: it is state, not shared, so no group or other
@@ -590,9 +633,16 @@ func TestArtefactStoreSaveWriteFailure(t *testing.T) {
 	if err := os.MkdirAll(dir, artefactDirMode); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	if err := os.Mkdir(filepath.Join(dir, "1763458200.json"), artefactDirMode); err != nil {
+	reservedPath := filepath.Join(dir, "write-fails.json")
+	if err := os.Mkdir(reservedPath, artefactDirMode); err != nil {
 		t.Fatalf("Mkdir target: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(reservedPath, "keep"), []byte("x"), 0o600); err != nil {
+		t.Fatalf("WriteFile in target: %v", err)
+	}
+	originalCreateArtefactFile := createArtefactFile
+	createArtefactFile = func(string, string) (*os.File, error) { return os.Open(reservedPath) }
+	t.Cleanup(func() { createArtefactFile = originalCreateArtefactFile })
 
 	_, err := Save("my-checkout", 1763458200, sampleObservation())
 	if err == nil {

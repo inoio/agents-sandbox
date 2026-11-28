@@ -188,6 +188,79 @@ func TestProxyLogDoesNotOpenAfterClose(t *testing.T) {
 	}
 }
 
+func TestProxyLogCompletesWebsocketIOWarnings(t *testing.T) {
+	formats := []string{
+		websocketCopyWarning,
+		"[%03d] WARN: Cannot write response header from mitm'd client: %v\n",
+		"[%03d] WARN: Cannot flush response header from mitm'd client: %v\n",
+		"[%03d] WARN: Hijack error: %v\n",
+	}
+	for _, format := range formats {
+		t.Run(format, func(t *testing.T) {
+			log := &proxyLog{}
+			group := log.registerWebsocketRelay(7)
+			group.addPendingWarning()
+			log.Printf(format, int64(7), errors.New("connection reset"))
+
+			group.mu.Lock()
+			pending := group.pending
+			group.mu.Unlock()
+			if pending != 0 {
+				t.Errorf("pending warnings = %d, want the matching goproxy warning to complete it", pending)
+			}
+		})
+	}
+}
+
+func TestProxyLogCompletesCancelledWebsocketWarningDuringShutdown(t *testing.T) {
+	log := &proxyLog{}
+	group := log.registerWebsocketRelay(7)
+	group.addPendingWarning()
+	log.beginShutdown()
+
+	log.Printf(websocketCopyWarning, int64(7), context.Canceled)
+
+	group.mu.Lock()
+	pending := group.pending
+	group.mu.Unlock()
+	if pending != 0 {
+		t.Errorf("pending warnings = %d, want shutdown cancellation to release the relay", pending)
+	}
+}
+
+func TestProxyLogRedactsWebsocketUpgradeWriteDetails(t *testing.T) {
+	for _, testCase := range []struct {
+		format string
+		want   string
+	}{
+		{format: websocketWriteHeaderWarning, want: "WebSocket upgrade response"},
+		{format: websocketFlushHeaderWarning, want: "WebSocket upgrade response"},
+		{format: websocketHijackWarning, want: "hand off the WebSocket connection"},
+	} {
+		t.Run(testCase.format, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "proxy.log")
+			file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)
+			if err != nil {
+				t.Fatal(err)
+			}
+			log := &proxyLog{file: file}
+			log.Printf(testCase.format, int64(7), errors.New("private-address-and-error"))
+			if result := log.close(); result.Warnings != 1 {
+				t.Fatalf("close = %+v, want one warning", result)
+			}
+
+			content, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(content), "private-address-and-error") ||
+				!strings.Contains(string(content), testCase.want) {
+				t.Errorf("log = %q, want safe category %q and no error details", content, testCase.want)
+			}
+		})
+	}
+}
+
 func TestProxyLogReportsAHandshakeWarningWithItsTargetOnly(t *testing.T) {
 	var sessions []uint16
 	var targets []string

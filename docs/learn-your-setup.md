@@ -132,6 +132,9 @@ agents-sandbox records the session so you can review it later:
 agents-sandbox config learn
 ```
 
+If the run context is cancelled after the session baseline is captured, the observation is saved for `config learn`
+without opening the interactive after-run prompt.
+
 If the sandbox home has been recreated since, agents-sandbox reports that and discards the record rather than analysing
 the new home against stale facts.
 

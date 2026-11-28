@@ -36,12 +36,14 @@ var recordLearnSession = state.RecordLearnSession
 // the recorded session (updated with the artefact path at teardown), and the
 // session start.
 type Run struct {
-	observer  channel.Observer
-	base      network.Policy
-	home      string
-	baseline  readback.Manifest
-	record    state.LearnSession
-	startedAt time.Time
+	observer        channel.Observer
+	base            network.Policy
+	home            string
+	baseline        readback.Manifest
+	key             state.Key
+	record          state.LearnSession
+	sessionRecorded bool
+	startedAt       time.Time
 }
 
 // Begin starts the observation channel over base and returns the Run that owns
@@ -102,6 +104,7 @@ func (r *Run) CaptureBaseline(ctx context.Context, k state.Key, agentName string
 	}
 	r.home = home
 	r.baseline = manifest
+	r.key = k
 	//exhaustruct:ignore // ArtefactPath is set at teardown, when the artefact is saved
 	r.record = state.LearnSession{
 		StartedAt:  r.startedAt,
@@ -111,6 +114,7 @@ func (r *Run) CaptureBaseline(ctx context.Context, k state.Key, agentName string
 	if err := recordLearnSession(k, r.record); err != nil {
 		return "", err
 	}
+	r.sessionRecorded = true
 	return home, nil
 }
 

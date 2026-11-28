@@ -22,14 +22,13 @@ const learnStateDirName = "learn"
 const artefactDirMode = 0o700
 
 // Save writes the scrubbed artefact for one session under
-// <UserStateDir>/learn/<checkoutSlug>/<sessionStartUnix>.json (mode 0600) and
+// <UserStateDir>/learn/<checkoutSlug>/<sessionStartUnix>-<unique>.json (mode 0600) and
 // returns its path. Only the value-free Observation is written; no raw capture
 // is ever persisted, so a header value, request body, or query can never reach
 // disk through this call (hub invariant 3).
 //
-// The write is atomic and replaces any artefact a previous save of the same
-// session left at that path. A user state dir that is not absolute is refused,
-// so a capture is never written relative to the process's working directory.
+// The write is atomic. A user state dir that is not absolute is refused, so a
+// capture is never written relative to the process's working directory.
 func Save(checkoutSlug string, startedUnix int64, obs Observation) (string, error) {
 	stateDir := configpaths.Get().UserStateDir()
 	if !filepath.IsAbs(stateDir) {
@@ -45,8 +44,19 @@ func Save(checkoutSlug string, startedUnix int64, obs Observation) (string, erro
 		return "", fmt.Errorf("encode observation: %w", err)
 	}
 
-	path := filepath.Join(dir, strconv.FormatInt(startedUnix, 10)+".json")
+	reservation, err := createArtefactFile(dir, strconv.FormatInt(startedUnix, 10)+"-*.json")
+	if err != nil {
+		return "", fmt.Errorf("reserve learn artefact path: %w", err)
+	}
+	path := reservation.Name()
+	if err := reservation.Close(); err != nil {
+		_ = os.Remove(path)
+		return "", fmt.Errorf("close learn artefact reservation: %w", err)
+	}
 	if err := atomicwrite.WriteFileMode(path, data, 0o600); err != nil {
+		if !errors.Is(err, atomicwrite.ErrInstalled) {
+			_ = os.Remove(path)
+		}
 		return "", fmt.Errorf("write observation: %w", err)
 	}
 	return path, nil
@@ -81,7 +91,10 @@ func Delete(path string) error {
 // expires with the artefacts, however its session ended.
 const proxyLogDirName = "proxy-logs"
 
-var createSessionLogFile = os.CreateTemp
+var (
+	createSessionLogFile = os.CreateTemp
+	createArtefactFile   = os.CreateTemp
+)
 
 // openSessionLog creates the proxy log of the session started at startedAt:
 // <UserStateDir>/learn/proxy-logs/<startUnix>-<unique>.log, mode 0600. The

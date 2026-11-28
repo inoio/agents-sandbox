@@ -2,6 +2,7 @@ package driver
 
 import (
 	"errors"
+	"io"
 	"math"
 	"os"
 	"os/exec"
@@ -234,13 +235,50 @@ func TestTapUntilMarkerReportsChildExit(t *testing.T) {
 func fillStalledPTY(t *testing.T, ses *Session) {
 	t.Helper()
 
-	done := make(chan struct{})
+	type writeResult struct {
+		bufferFull bool
+		err        error
+	}
+	done := make(chan writeResult, 1)
 	go func() {
 		defer close(done)
-		_, _ = unix.Write(ses.fd, make([]byte, 1<<20))
+		remaining := make([]byte, 1<<20)
+		for len(remaining) > 0 {
+			written, err := unix.Write(ses.fd, remaining)
+			if written > 0 {
+				remaining = remaining[written:]
+			}
+			if err != nil {
+				switch {
+				case errors.Is(err, unix.EINTR):
+					continue
+				case errors.Is(err, unix.EAGAIN), errors.Is(err, unix.EWOULDBLOCK):
+					done <- writeResult{bufferFull: true}
+					return
+				default:
+					done <- writeResult{err: err}
+					return
+				}
+			}
+			if written == 0 {
+				done <- writeResult{err: io.ErrNoProgress}
+				return
+			}
+		}
+		done <- writeResult{}
 	}()
+	t.Cleanup(func() {
+		for range done {
+		}
+	})
 	select {
-	case <-done:
+	case result := <-done:
+		if result.err != nil {
+			t.Fatalf("fill pty input buffer: %v", result.err)
+		}
+		if result.bufferFull {
+			return
+		}
 		t.Fatal("pty input buffer never filled: a large write completed")
 	case <-time.After(500 * time.Millisecond):
 	}

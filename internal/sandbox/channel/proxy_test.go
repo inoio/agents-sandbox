@@ -1228,3 +1228,106 @@ func TestStopClosesADirectWebSocketUpgrade(t *testing.T) {
 		t.Fatal("Stop did not join the direct WebSocket upgrade")
 	}
 }
+
+type gatedCopyLogger struct {
+	next    goproxy.Logger
+	started chan struct{}
+	release <-chan struct{}
+	once    *sync.Once
+}
+
+func (l gatedCopyLogger) Printf(format string, arguments ...any) {
+	if format == websocketCopyWarning {
+		l.once.Do(func() {
+			close(l.started)
+			<-l.release
+		})
+	}
+	l.next.Printf(format, arguments...)
+}
+
+func TestStopWaitsForDirectWebSocketResetWarning(t *testing.T) {
+	upgraded := make(chan struct{})
+	reset := make(chan struct{})
+	var resetOnce sync.Once
+	triggerReset := func() { resetOnce.Do(func() { close(reset) }) }
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		connection, buffered, err := writer.(http.Hijacker).Hijack()
+		if err != nil {
+			return
+		}
+		_, _ = buffered.WriteString(
+			"HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n",
+		)
+		_ = buffered.Flush()
+		close(upgraded)
+		<-reset
+		if tcpConnection, ok := connection.(*net.TCPConn); ok {
+			_ = tcpConnection.SetLinger(0)
+		}
+		_ = connection.Close()
+	}))
+	defer upstream.Close()
+	defer triggerReset()
+	logPath := filepath.Join(t.TempDir(), "proxy.log")
+	handle, err := Start("127.0.0.1", false, func() (*os.File, error) {
+		return os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY, 0o600)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer handle.Stop()
+	proxy := handle.state.server.Handler.(proxyHandler).Handler.(*goproxy.ProxyHttpServer)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unblockLogger := func() { releaseOnce.Do(func() { close(release) }) }
+	defer unblockLogger()
+	proxy.Logger = gatedCopyLogger{next: proxy.Logger, started: started, release: release, once: new(sync.Once)}
+
+	//testenv:allow the test dials its own freshly bound loopback proxy
+	client, err := net.DialTimeout("tcp", handle.Addr, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	_ = client.SetDeadline(time.Now().Add(5 * time.Second))
+	_, err = io.WriteString(client, "GET "+upstream.URL+"/socket HTTP/1.1\r\nHost: "+
+		strings.TrimPrefix(upstream.URL, "http://")+"\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := http.ReadResponse(bufio.NewReader(client), nil)
+	if err != nil || response.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("upgrade response = %v, %v", response, err)
+	}
+	select {
+	case <-upgraded:
+	case <-time.After(5 * time.Second):
+		t.Fatal("upstream did not establish the WebSocket")
+	}
+	triggerReset()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("upstream reset did not reach goproxy's WebSocket relay warning")
+	}
+
+	stopped := make(chan Observation, 1)
+	go func() { stopped <- handle.Stop() }()
+	select {
+	case observation := <-stopped:
+		unblockLogger()
+		t.Fatalf("Stop returned before the reset warning was recorded: %+v", observation)
+	case <-time.After(50 * time.Millisecond):
+	}
+	unblockLogger()
+	select {
+	case observation := <-stopped:
+		if observation.ProxyWarnings == 0 || observation.ProxyLog != logPath {
+			t.Errorf("Stop observation = %+v, want the reset warning and its log", observation)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop did not finish after recording the WebSocket reset warning")
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
@@ -174,6 +175,59 @@ func TestFinishRecordsTheArtefactPath(t *testing.T) {
 	}
 	if record.ArtefactPath == "" {
 		t.Error("ArtefactPath was not recorded; config learn could not load the capture")
+	}
+}
+
+func TestPreserveForReplaySavesObservationAndKeepsSessionRecord(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	seedHomeVolume(t, k, "vol-1")
+	stubLearnReadback(t, "/home/vol", readback.Manifest{})
+
+	wantObservation := channel.Observation{
+		ProxyLog:      "/state/learn/proxy-logs/1-session.log",
+		ProxyWarnings: 1,
+	}
+	originalStartObservation := startObservation
+	startObservation = func(string, network.Policy, time.Time) (channel.Observer, error) {
+		return fixedObserver{observation: wantObservation}, nil
+	}
+	t.Cleanup(func() { startObservation = originalStartObservation })
+
+	run, err := Begin(network.Policy{Profiles: []network.Profile{network.ProfileNone}})
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	if _, err := run.CaptureBaseline(context.Background(), k, "opencode"); err != nil {
+		t.Fatalf("CaptureBaseline: %v", err)
+	}
+
+	ui := &termiotest.Mock{}
+	if err := run.PreserveForReplay(ui); err != nil {
+		t.Fatalf("PreserveForReplay: %v", err)
+	}
+
+	record, ok, err := state.ReadLearnSession(k)
+	if err != nil || !ok {
+		t.Fatalf("ReadLearnSession = ok=%v err=%v, want the replay record", ok, err)
+	}
+	if record.ArtefactPath == "" {
+		t.Fatal("ArtefactPath is empty, so config learn cannot replay the observation")
+	}
+	gotObservation, err := channel.Load(record.ArtefactPath)
+	if err != nil {
+		t.Fatalf("Load preserved observation: %v", err)
+	}
+	if gotObservation.ProxyLog != wantObservation.ProxyLog ||
+		gotObservation.ProxyWarnings != wantObservation.ProxyWarnings {
+		t.Errorf(
+			"preserved observation = %+v, want proxy log %q and one warning",
+			gotObservation,
+			wantObservation.ProxyLog,
+		)
+	}
+	if !warnContains(ui, wantObservation.ProxyLog) {
+		t.Errorf("WarnCalls = %v, want the proxy log path", ui.WarnCalls)
 	}
 }
 

@@ -64,10 +64,12 @@ func TestStepSeedLearnSessionSeedsIsolatedStateAndPreservesHomeVolume(t *testing
 	if dir := filepath.Dir(record.ArtefactPath); dir != wantDir {
 		t.Errorf("artefact dir = %q, want %q", dir, wantDir)
 	}
-	// Pinned literally, not via learnArtefactStartedUnix: a symbolic expectation
-	// moves with a mutated constant, so it could never fail.
-	if file := filepath.Base(record.ArtefactPath); file != "1763458200.json" {
-		t.Errorf("artefact file = %q, want %q", file, "1763458200.json")
+	// Pin the timestamp prefix literally, not via learnArtefactStartedUnix: a
+	// symbolic expectation moves with a mutated constant, so it could never fail.
+	file := filepath.Base(record.ArtefactPath)
+	uniqueSuffix := strings.TrimSuffix(strings.TrimPrefix(file, "1763458200-"), ".json")
+	if !strings.HasPrefix(file, "1763458200-") || !strings.HasSuffix(file, ".json") || uniqueSuffix == "" {
+		t.Errorf("artefact file = %q, want a unique 1763458200-*.json name", file)
 	}
 	observation, err := channel.Load(record.ArtefactPath)
 	if err != nil {
@@ -171,7 +173,7 @@ func TestStepAssertLearnArtefactGone(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatalf("create learn dir: %v", err)
 	}
-	artefact := filepath.Join(dir, "1763458200.json")
+	artefact := filepath.Join(dir, "1763458200-random.json")
 	if err := os.WriteFile(artefact, []byte("{}"), 0o600); err != nil {
 		t.Fatalf("write %s: %v", artefact, err)
 	}

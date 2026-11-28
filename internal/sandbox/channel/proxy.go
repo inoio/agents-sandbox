@@ -10,6 +10,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
+	"io"
 	"math/big"
 	"net"
 	"net/http"
@@ -73,6 +74,13 @@ type proxyState struct {
 	observation    Observation
 
 	mu sync.Mutex
+}
+
+type proxyRequest struct {
+	destination   *Destination
+	websocket     bool
+	sessionID     uint16
+	remoteAddress string
 }
 
 // Start binds an observation proxy on a host-loopback port with a freshly
@@ -259,7 +267,12 @@ func (s *proxyState) onRequest(req *http.Request, ctx *goproxy.ProxyCtx) (*http.
 	destination := s.recorder.observe(host, ip, path, protocol, port, observedCredentialHeaders(req.Header))
 	s.mu.Unlock()
 
-	ctx.UserData = destination
+	ctx.UserData = &proxyRequest{
+		destination:   destination,
+		websocket:     isWebsocketUpgrade(req.Header),
+		sessionID:     proxySessionID(ctx.Session),
+		remoteAddress: req.RemoteAddr,
+	}
 	ctx.RoundTripper = goproxy.RoundTripperFunc(
 		func(roundTripReq *http.Request, roundTripCtx *goproxy.ProxyCtx) (*http.Response, error) {
 			if s.requestContext != nil {
@@ -291,12 +304,68 @@ func (s *proxyState) onResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *htt
 	if resp == nil {
 		return resp
 	}
-	if destination, ok := ctx.UserData.(*Destination); ok {
+	requestData, ok := ctx.UserData.(*proxyRequest)
+	if !ok {
+		return resp
+	}
+	if destination := requestData.destination; destination != nil {
 		s.mu.Lock()
 		destination.Success = true
 		s.mu.Unlock()
 	}
+	if !requestData.websocket || resp.StatusCode != http.StatusSwitchingProtocols ||
+		!isWebsocketUpgrade(resp.Header) {
+		return resp
+	}
+	upstream, ok := resp.Body.(io.ReadWriteCloser)
+	if !ok || s.connections == nil || s.log == nil {
+		return resp
+	}
+	relay := newWebsocketRelay(requestData.sessionID, s.log)
+	relay.setUpstream(upstream)
+	if !s.connections.attachWebsocket(requestData.remoteAddress, relay) {
+		relay.shutdown()
+		return rejectWebsocketUpgrade(resp)
+	}
+	resp.Body = trackedWebsocketBody{body: upstream, relay: relay}
 	return resp
+}
+
+func isWebsocketUpgrade(header http.Header) bool {
+	return containsHeaderToken(header, "Connection", "Upgrade") &&
+		containsHeaderToken(header, "Upgrade", "websocket")
+}
+
+func containsHeaderToken(header http.Header, name, want string) bool {
+	for key, values := range header {
+		if !strings.EqualFold(key, name) {
+			continue
+		}
+		for _, value := range values {
+			for token := range strings.SplitSeq(value, ",") {
+				if strings.EqualFold(strings.TrimSpace(token), want) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func rejectWebsocketUpgrade(response *http.Response) *http.Response {
+	const message = "observation proxy could not track this WebSocket connection\n"
+	if response.Body != nil {
+		_ = response.Body.Close()
+	}
+	response.StatusCode = http.StatusBadGateway
+	response.Status = "502 Bad Gateway"
+	response.Header.Del("Connection")
+	response.Header.Del("Upgrade")
+	response.Header.Set("Content-Type", "text/plain; charset=utf-8")
+	response.Body = io.NopCloser(strings.NewReader(message))
+	response.ContentLength = int64(len(message))
+	response.Close = true
+	return response
 }
 
 // Stop tears the proxy down, removes its CA file, and returns the scrubbed

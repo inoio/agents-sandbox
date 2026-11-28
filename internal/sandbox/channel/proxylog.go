@@ -9,9 +9,13 @@ import (
 )
 
 const (
-	handshakeFailureWarning = "[%03d] WARN: Cannot handshake client %v %v\n"
-	maxProxyLogLineBytes    = 512
-	maxProxyLogBytes        = 1 << 20
+	handshakeFailureWarning     = "[%03d] WARN: Cannot handshake client %v %v\n"
+	websocketCopyWarning        = "[%03d] WARN: Error copying to client: %s\n"
+	websocketWriteHeaderWarning = "[%03d] WARN: Cannot write response header from mitm'd client: %v\n"
+	websocketFlushHeaderWarning = "[%03d] WARN: Cannot flush response header from mitm'd client: %v\n"
+	websocketHijackWarning      = "[%03d] WARN: Hijack error: %v\n"
+	maxProxyLogLineBytes        = 512
+	maxProxyLogBytes            = 1 << 20
 )
 
 // writeProxyLog and closeProxyLog expose the file-failure paths to unit tests.
@@ -43,6 +47,7 @@ type proxyLog struct {
 	closed             bool
 	stopping           bool
 	result             proxyLogResult
+	websocketRelays    map[uint16]*websocketRelayGroup
 	onHandshakeFailure func(sessionID uint16, connectTarget string) bool
 }
 
@@ -62,13 +67,42 @@ func (l *proxyLog) Printf(format string, args ...any) {
 	if l.closed {
 		return
 	}
+	completesWebsocketIO := completesWebsocketIOWarning(format)
 	if l.stopping && shutdownWarning(argumentsError(args)) {
+		if completesWebsocketIO {
+			l.completePendingWebsocketWarning(args)
+		}
 		return
 	}
 	l.warnings++
 	l.recordHandshakeFailure(handshakeFailure, gotHandshakeSession, sessionID, connectTarget)
+	if completesWebsocketIO {
+		l.completePendingWebsocketWarning(args)
+	}
 	l.openOnFirstWarning()
 	l.writeLine(line)
+}
+
+func completesWebsocketIOWarning(format string) bool {
+	switch format {
+	case websocketCopyWarning, websocketWriteHeaderWarning, websocketFlushHeaderWarning, websocketHijackWarning:
+		return true
+	default:
+		return false
+	}
+}
+
+// completePendingWebsocketWarning is called under l.mu after goproxy reports a
+// tracked WebSocket I/O failure. It also runs for shutdown errors, which are
+// omitted from the log but must still release the relay's join.
+func (l *proxyLog) completePendingWebsocketWarning(args []any) {
+	sessionID, ok := proxyWarningSessionID(args)
+	if !ok {
+		return
+	}
+	if group := l.websocketRelays[sessionID]; group != nil {
+		group.completePendingWarning()
+	}
 }
 
 func argumentsError(arguments []any) error {
@@ -145,6 +179,33 @@ func proxyLogHasSpace(bytesWritten, lineBytes, limit int) bool {
 	return lineBytes <= limit-bytesWritten
 }
 
+func (l *proxyLog) registerWebsocketRelay(sessionID uint16) *websocketRelayGroup {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.websocketRelays == nil {
+		l.websocketRelays = make(map[uint16]*websocketRelayGroup)
+	}
+	group := l.websocketRelays[sessionID]
+	if group == nil {
+		group = newWebsocketRelayGroup()
+		l.websocketRelays[sessionID] = group
+	}
+	group.retain()
+	return group
+}
+
+func (l *proxyLog) unregisterWebsocketRelay(sessionID uint16, group *websocketRelayGroup) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.websocketRelays[sessionID] != group {
+		return
+	}
+	group.release()
+	if group.idle() {
+		delete(l.websocketRelays, sessionID)
+	}
+}
+
 func safeProxyWarning(format string) (string, bool) {
 	switch format {
 	case handshakeFailureWarning:
@@ -159,9 +220,27 @@ func safeProxyWarning(format string) (string, bool) {
 		return "WARN: could not read the upstream response (details redacted).\n", false
 	case "[%03d] WARN: Error dialing to %s: %s\n":
 		return "WARN: could not dial the upstream destination (details redacted).\n", false
+	case websocketCopyWarning:
+		return "WARN: could not relay a WebSocket frame (details redacted).\n", false
+	case websocketWriteHeaderWarning, websocketFlushHeaderWarning:
+		return "WARN: could not send a WebSocket upgrade response (details redacted).\n", false
+	case websocketHijackWarning:
+		return "WARN: could not hand off the WebSocket connection (details redacted).\n", false
 	default:
 		return "WARN: proxy warning (details omitted).\n", false
 	}
+}
+
+func proxyWarningSessionID(args []any) (uint16, bool) {
+	var noSession uint16
+	if len(args) == 0 {
+		return noSession, false
+	}
+	rawSession, ok := args[0].(int64)
+	if !ok {
+		return noSession, false
+	}
+	return proxySessionID(rawSession), true
 }
 
 func handshakeWarningTarget(args []any) (uint16, string, bool) {
@@ -169,15 +248,15 @@ func handshakeWarningTarget(args []any) (uint16, string, bool) {
 	if len(args) < 3 {
 		return noSession, "", false
 	}
-	rawSession, sessionOK := args[0].(int64)
-	if !sessionOK {
+	sessionID, ok := proxyWarningSessionID(args)
+	if !ok {
 		return noSession, "", false
 	}
-	rawTarget, targetOK := args[1].(string)
-	if !targetOK || rawTarget == "" {
+	target, targetOK := args[1].(string)
+	if !targetOK || target == "" {
 		return noSession, "", false
 	}
-	return proxySessionID(rawSession), rawTarget, true
+	return sessionID, target, true
 }
 
 func truncateProxyLogLine(line string) (string, bool) {

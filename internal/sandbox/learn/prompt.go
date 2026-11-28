@@ -91,6 +91,28 @@ type FinishInput struct {
 	SetByFlag func(string) bool
 }
 
+// PreserveForReplay stops an active channel and saves its observation for
+// config learn without running the interactive after-run. It is used when the
+// owning run context was cancelled after the baseline had been recorded.
+func (r *Run) PreserveForReplay(ui termio.Logger) error {
+	observation := r.Stop()
+	PrintProxyDiagnostics(ui, observation)
+	if r.Passive() || !r.sessionRecorded || r.record.ArtefactPath != "" {
+		return nil
+	}
+
+	path, err := saveArtefact(r.key.Slug, r.startedAt.Unix(), observation)
+	if err != nil {
+		return fmt.Errorf("save the learn capture for replay: %w", err)
+	}
+	r.record.ArtefactPath = path
+	if err := recordLearnSession(r.key, r.record); err != nil {
+		r.record.ArtefactPath = ""
+		return fmt.Errorf("record the learn capture path for replay: %w", err)
+	}
+	return nil
+}
+
 // Finish tears the channel down, saves the artefact, runs the analysis in this
 // process, prints the summary, and clears the session record. A passive Run
 // saves no artefact.

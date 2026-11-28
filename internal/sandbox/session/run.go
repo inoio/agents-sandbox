@@ -70,6 +70,7 @@ type learnSession interface {
 	Stop() channel.Observation
 	CaptureBaseline(ctx context.Context, k state.Key, agentName string) (string, error)
 	Finish(ctx context.Context, in learn.FinishInput) error
+	PreserveForReplay(ui termio.Logger) error
 }
 
 // learnBegin and learnPassive are the session's learn seams; production uses
@@ -337,10 +338,10 @@ func Run(ctx context.Context, opts options.RunOptions, mode options.Mode, ui ter
 	attachErr := runAttach(ctx, k, sb, ses.GuestCWD(), ui, opts, "-l", "-c", setup)
 
 	// The after-run is owned by this process: it runs here, after the attach,
-	// and only when the context is still live. A cancelled context leaves the
-	// recorded session for `config learn`.
-	if learnRun != nil && ctx.Err() == nil {
-		if err := learnRun.Finish(ctx, learn.FinishInput{
+	// and only when the context is still live. A cancelled context saves its
+	// observation for `config learn` without opening the interactive prompt.
+	if learnRun != nil {
+		finishInput := learn.FinishInput{
 			Key:       k,
 			Slug:      opts.ConfigSlug,
 			Agent:     k.Agent,
@@ -350,8 +351,13 @@ func Run(ctx context.Context, opts options.RunOptions, mode options.Mode, ui ter
 			UI:        ui,
 			Mode:      mode,
 			SetByFlag: opts.SetByFlag,
-		}); err != nil {
-			ui.Warnf("learn mode: the after-run failed: %v", err)
+		}
+		if ctx.Err() == nil {
+			if err := learnRun.Finish(ctx, finishInput); err != nil {
+				ui.Warnf("learn mode: the after-run failed: %v", err)
+			}
+		} else if err := learnRun.PreserveForReplay(ui); err != nil {
+			ui.Warnf("learn mode: preserving the session for config learn failed: %v", err)
 		}
 	}
 	return attachErr
