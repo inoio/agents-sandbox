@@ -291,3 +291,33 @@ Scenario: learn-exposed-login-key
   # check
   Then the VM's login store holds the placeholder, not the key
 ```
+
+## secret-substitution-spike
+
+Runs on: opencode2
+
+Network profile: `host`
+
+Not yet:
+
+- claude-code, codex, goose, grok-build, hermes, kimi-code, mistral-vibe, oh-my-pi, opencode, pi, qwen-code: the secret-substitution route spike starts with opencode2 (#794)
+
+```gherkin
+Scenario: secret-substitution-spike
+  Given the run opts in with AGENTS_SANDBOX_JOURNEYS_SECRET_SPIKE
+  And the journey runs on a project of its own (secret)
+  And a fresh isolated home
+  And the HTTPS stub uses a host-scoped env secret instead of a plain key
+  And the launcher is configured with the harness's stub settings
+  When the user runs `agents-sandbox run`
+  Then the harness TUI comes up
+  # check
+  And the VM environment holds only the secret placeholder
+  When the user sends the prompt "journeys secret substitution turn"
+  Then the stub provider served the turn
+  # check
+  And the harness shows the stub's reply
+  # check
+  And the HTTPS model turn carries the substituted secret, not its placeholder
+  When the user quits the harness and the launcher exits 0
+```

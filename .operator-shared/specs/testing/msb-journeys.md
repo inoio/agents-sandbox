@@ -227,10 +227,11 @@ source of truth and its steps are type-checked. It reads as Gherkin anyway:
   and a learn journey needs the first-run menu). The smoke's host files are not seeded: the first-run menu reads
   host files as host setup, and a journey's host setup is its own (`StepSeedHostConfig`).
 - **Harness adapter.** Everything a step needs to know about a harness beyond starting and quitting it
-  (`driver.Spec`, shared with the startup smoke) lives in its `Harness` adapter (`Harnesses`), in three parts:
+  (`driver.Spec`, shared with the startup smoke) lives in its `Harness` adapter (`Harnesses`):
   `Stub` (how it reaches the stub: `HomeFiles` through the `home:` manifest, `Env` through the launcher env file,
   `Snippets` merged into its own config), `Drive` (how a journey drives its TUI: `ReadyMarker`, `LaunchArgs`,
-  `ResumeArgs`, `WriteFileCall`, and `Setup`, the harness's own first-start screen), `Login` (how it signs in,
+  `ResumeArgs`, `WriteFileCall`, and `Setup`, the harness's own first-start screen), `Secret` (the stub setup
+  using a secret env var and its outgoing auth header), `Login` (how it signs in,
   for the login journey), and `Learn` (what learn mode
   finds: its host config and credential store, the credential env var the read-back derives, the managed-config
   keys, whether the managed config can hold the credential; nil without learn coverage). A learn journey
@@ -339,6 +340,23 @@ the file check notices it: the adapter's tool call is pinned by a unit test to t
 harness's tool schema names (read from a recorded request). The journey runs on its own project (`StepOwnProject`), because it restarts and attaches twice, and
 under the `host` profile the stub route needs. Per-journey projects stay opt-in: the learn-mode journeys run
 in seconds on the shared project and assert only state in their own HOME.
+
+### Secret-substitution spike (#794)
+
+`secret-substitution-spike` (opencode2) asks whether the host-gateway route can support promotion check B.
+It is opt-in through `AGENTS_SANDBOX_JOURNEYS_SECRET_SPIKE=1` until the route is verified. It runs on its
+own project because secrets and interception are creation-time settings; it does not change core-session.
+
+- The key is synthetic and lives only in the isolated host's `env.secret.yaml`, scoped to the gateway and
+  `authorization`. The provider config reads an env var, not a plain key. An explicit placeholder makes
+  the guest-side comparison independent of the runtime's default placeholder spelling.
+- A startup hook combines the runtime interception CA and the stub's test CA before the harness starts.
+  The test never disables certificate verification. Keeping both CAs avoids a false failure from replacing
+  the runtime's trust with the stub's trust.
+- A shell client compares the VM env var to the configured placeholder without printing its value or
+  sending the key to the VM. The model turn must complete over HTTPS and the stub must receive the key,
+  not the placeholder. Model probes, title requests, and a mixture of substituted and unsubstituted turns
+  cannot satisfy that assertion. Neither a successful TLS connection nor a displayed reply alone proves B.
 
 ### The login journeys (#875)
 

@@ -15,6 +15,7 @@ var Journeys = []Journey{
 	mcpLoginJourney,
 	proxySpikeJourney,
 	exposedLoginKeyJourney,
+	secretSpikeJourney,
 }
 
 // placedHarnesses lists every registered agent the journey table has placed.
@@ -89,6 +90,11 @@ var Exemptions = map[string]map[string]string{
 	loginJourney.Name:       exemptionsFor(loginJourney, loginReason, nil),
 	mcpLoginJourney.Name:    exemptionsFor(mcpLoginJourney, mcpLoginReason, nil),
 	proxySpikeJourney.Name:  exemptionsFor(proxySpikeJourney, proxySpikeExemptReason, nil),
+	secretSpikeJourney.Name: exemptionsFor(
+		secretSpikeJourney,
+		"the secret-substitution route spike starts with opencode2 (#794)",
+		nil,
+	),
 	exposedLoginKeyJourney.Name: exemptionsFor(
 		exposedLoginKeyJourney, exposedLoginKeyReason, nil,
 	),

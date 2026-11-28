@@ -14,6 +14,17 @@ type Harness struct {
 	Login *LoginFacts
 	// MCP is nil for a harness the MCP sign-in journey does not cover yet.
 	MCP *MCPFacts
+	// Secret declares how the harness authenticates through a secret env var.
+	Secret *SecretFacts
+}
+
+// SecretFacts replaces the ordinary dummy-key stub setup with one that reads
+// EnvVar. Header and Prefix describe the corresponding outgoing auth field.
+type SecretFacts struct {
+	Stub   StubSetup
+	EnvVar string
+	Header string
+	Prefix string
 }
 
 // StubSetup is how a harness is pointed at the stub provider at addr. A

@@ -23,8 +23,8 @@ const (
 
 // stubCAEnv names the variable Node and Bun read extra trusted CAs from, so a
 // harness built on either trusts the stub's test CA. It replaces any other
-// value, such as the CA msb's TLS interception sets; a journey with a TLS stub
-// therefore runs under `host`, where no traffic is intercepted.
+// value, such as the CA msb's TLS interception sets. A secret-substitution
+// journey therefore points it at a bundle of the runtime and stub CAs.
 const stubCAEnv = "NODE_EXTRA_CA_CERTS"
 
 // stubTLS is a test CA and a server certificate it issued for the VM's name
@@ -94,10 +94,13 @@ func newStubTLS() (*stubTLS, error) {
 	}, nil
 }
 
-// stubCA is the test CA the journey's stub OAuth server serves HTTPS with, or
+// stubCA is the test CA the journey's model or OAuth stub serves HTTPS with, or
 // nil. A journey that needs it starts that stub before it seeds the home and
 // the launcher env, which provision the CA and point the harness at it.
 func stubCA(c *Context) []byte {
+	if c.Stub != nil && len(c.Stub.CAPEM()) != 0 {
+		return c.Stub.CAPEM()
+	}
 	if c.OAuth == nil {
 		return nil
 	}
