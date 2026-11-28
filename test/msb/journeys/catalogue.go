@@ -28,6 +28,9 @@ func renderCatalogue(journeys []Journey, exemptions map[string]map[string]string
 		if journey.Network != "" {
 			text.WriteString("\nNetwork profile: `" + journey.Network + "`\n")
 		}
+		if journey.SerialHarnesses {
+			text.WriteString("\nHarnesses run serially (shared host callback ports).\n")
+		}
 		writeExemptions(&text, exemptions[journey.Name])
 		text.WriteString("\n```gherkin\nScenario: " + journey.Name + "\n")
 		for _, step := range journey.Steps {

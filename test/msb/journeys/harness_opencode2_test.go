@@ -21,6 +21,16 @@ func TestOpencode2AdapterSeedsTheSameProviderAsHostConfig(t *testing.T) {
 	}
 }
 
+func TestOpencode2BrowserLoginSelectsTheOAuthMethod(t *testing.T) {
+	want := "opencode2 auth login openai --method chatgpt-browser --server http://127.0.0.1:4096"
+	if opencode2Harness.Login == nil {
+		t.Fatal("opencode2 has no browser-login facts")
+	}
+	if got := opencode2Harness.Login.BrowserCommand; got != want {
+		t.Errorf("browser login args = %v, want %v", got, want)
+	}
+}
+
 // TestOpencodeProviderDocumentCarriesAnInlineCredential pins the credential a
 // learn-mode journey observes: the provider document's options carry a literal
 // apiKey, which the read-back classifies as a static credential scoped by the

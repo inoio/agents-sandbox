@@ -1,5 +1,7 @@
 package journeys
 
+import "github.com/inoio/agents-sandbox/test/msb/driver"
+
 // claudeCodeAgentName is claude-code's registered agent name.
 const claudeCodeAgentName = "claude-code"
 
@@ -24,6 +26,13 @@ var claudeCodeHarness = Harness{
 				"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
 			}
 		},
+	},
+	Login: &LoginFacts{
+		BrowserCommand: "claude auth login",
+		// Provider auth answers only after exchanging the code. With no
+		// egress the expected page reports failure, unlike the MCP callback.
+		CallbackMarker: "Sign-in was canceled or failed.",
+		StopKeys:       []byte{driver.CtrlC},
 	},
 	MCP: &MCPFacts{
 		// claude-code reads its servers from the project's .mcp.json, and a

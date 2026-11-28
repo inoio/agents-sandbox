@@ -10,15 +10,17 @@ import "github.com/inoio/agents-sandbox/test/msb/driver"
 //     harness in the VM through the host forwarder. No provider is involved,
 //     so the harness's token exchange fails; the journey asserts the sandbox's
 //     part.
-//   - An API-key login from the shell stores a login in the VM's home, which
-//     must survive a VM stop: the harness reports it and starts signed in.
+//   - Where the adapter provides an API-key login, the shell stores a login in
+//     the VM's home, which must survive a VM stop: the harness reports it and
+//     starts signed in.
 //
-// It runs on its own project, so the stored login stays out of the harness's
-// shared home volume, and without egress: no step reaches a real provider.
+// It runs on its own project, so Codex's stored login stays out of the shared
+// home volume, and without egress: no step reaches a real provider.
 var loginJourney = Journey{
-	Name:      "harness-login",
-	Harnesses: []string{codexAgentName},
-	Network:   driver.NetworkNone,
+	Name:            "harness-login",
+	Harnesses:       []string{codexAgentName, claudeCodeAgentName, opencode2AgentName, piAgentName, ohMyPiAgentName},
+	Network:         driver.NetworkNone,
+	SerialHarnesses: true,
 	Steps: []Step{
 		Given(StepOwnProject("login")),
 		And(StepFreshHome()),
@@ -29,13 +31,13 @@ var loginJourney = Journey{
 		When(StepBrowserReturnsToCallback()),
 		Then(StepAssertCallbackReachedHarness()),
 		And(StepWaitLoginEnds()),
-		When(StepSignInWithAPIKey()),
-		And(StepStopVM()),
-		Then(StepAssertLoginStored()),
-		When(StepLaunch(runCommand)),
-		Then(StepWaitReady()),
-		And(StepAssertNoSignIn()),
-		When(StepQuitToExit()),
+		whenAPIKeyLogin(When(StepSignInWithAPIKey())),
+		whenAPIKeyLogin(And(StepStopVM())),
+		whenAPIKeyLogin(Then(StepAssertLoginStored())),
+		whenAPIKeyLogin(When(StepLaunch(runCommand))),
+		whenAPIKeyLogin(Then(StepWaitReady())),
+		whenAPIKeyLogin(And(StepAssertNoSignIn())),
+		whenAPIKeyLogin(When(StepQuitToExit())),
 	},
 }
 
@@ -49,9 +51,17 @@ var loginJourney = Journey{
 // issued. It runs on its own project and under the `host` profile, which
 // admits only the host gateway the stubs listen behind.
 var mcpLoginJourney = Journey{
-	Name:      "mcp-oauth-login",
-	Harnesses: []string{codexAgentName, claudeCodeAgentName, opencode2AgentName},
-	Network:   hostGatewayNetwork,
+	Name: "mcp-oauth-login",
+	Harnesses: []string{
+		opencodeAgentName,
+		codexAgentName,
+		claudeCodeAgentName,
+		opencode2AgentName,
+		piAgentName,
+		ohMyPiAgentName,
+		hermesAgentName,
+	},
+	Network: hostGatewayNetwork,
 	Steps: []Step{
 		Given(StepOwnProject("mcp")),
 		And(StepFreshHome()),
@@ -64,8 +74,11 @@ var mcpLoginJourney = Journey{
 		When(StepBrowserSignsIn()),
 		Then(StepAssertMCPLoginCompleted()),
 		When(StepStopVM()),
+		And(StepResetMCPCalls()),
 		And(StepLaunch(runCommand)),
 		Then(StepWaitReady()),
+		And(StepAssertVMRestarted()),
+		When(StepCallMCPServer()),
 		And(StepAssertMCPCalledWithToken()),
 		When(StepQuitToExit()),
 	},

@@ -7,6 +7,12 @@ import (
 	"testing"
 )
 
+func TestClaudeCodeProviderCallbackExpectsTheFailedExchangePage(t *testing.T) {
+	if got := claudeCodeHarness.Login.CallbackMarker; got != "Sign-in was canceled or failed." {
+		t.Fatalf("callback marker = %q, want the provider's page after the deliberately failed token exchange", got)
+	}
+}
+
 func TestClaudeCodeStubEnvPointsTheMessagesEndpointAtTheStub(t *testing.T) {
 	const addr = "http://stub.test:1234"
 	env := claudeCodeHarness.Stub.Env(addr)

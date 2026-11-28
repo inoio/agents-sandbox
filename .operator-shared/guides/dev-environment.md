@@ -99,3 +99,11 @@ what bounds it, not a size cap.
   gomutants is memory-heavy (a per-package sweep spawns many test binaries) and its load
   reliably OOMs the VM, which has no swap. Run it on the host, or read the advisory `mutation`
   CI job's sticky PR comment instead. See `guides/mutation-testing.md`.
+
+## Reused journey cache on a KVM host
+
+If a journey fails before attaching with `volume setup failed: create prefill sandbox` and a Docker Hub
+`Not authorized` error naming the locally built project image, retry that cell with a fresh, short
+`MSB_REUSE_ROOT` before diagnosing the harness login. A stale shared reuse root can exhibit this even after
+the image prebuild reports success; the same Codex login passes with its own fresh root. Keep the failing
+root for diagnosis rather than deleting another session's shared cache.

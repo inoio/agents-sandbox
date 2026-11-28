@@ -35,16 +35,17 @@ func StepFakeHostBrowser() Step {
 	}}
 }
 
-// StepLaunchLogin starts the harness's browser login (the adapter's
-// LoginArgs) under `agents-sandbox run`.
+// StepLaunchLogin starts the harness's browser login from agents-sandbox shell.
 func StepLaunchLogin() Step {
 	return Step{Name: "the user starts the harness's browser login", Run: func(c *Context) error {
 		login, err := loginFacts(c)
 		if err != nil {
 			return err
 		}
-		launchClient(c, []string{runCommand}, login.BrowserArgs)
-		return nil
+		if login.BrowserCommand == "" {
+			return errors.New("the adapter declares no browser-login command")
+		}
+		return launchShellCommand(c, login.BrowserCommand)
 	}}
 }
 
@@ -96,8 +97,12 @@ func StepBrowserReturnsToCallback() Step {
 		if c.Login == nil {
 			return errors.New("no login link on the context; wait for it first")
 		}
+		login, err := loginFacts(c)
+		if err != nil {
+			return err
+		}
 		answer, err := returnToCallback(
-			callbackURL(c.Login),
+			callbackURL(c.Login, login.CallbackParameters),
 			scaled(loginCallbackTimeout),
 		)
 		if err != nil {
@@ -175,17 +180,49 @@ const loginExitTimeout = time.Minute
 // stored login.
 const signInSettle = 10 * time.Second
 
-// StepWaitLoginEnds waits until the active client's login command exited,
-// whatever its outcome.
+// StepWaitLoginEnds waits until the active client's login command exits. If the
+// adapter declares StopKeys, it stops an interactive fallback after checking
+// the callback instead of waiting for a real provider login.
 func StepWaitLoginEnds() Step {
 	return Step{Name: "the login command ends", Run: func(c *Context) error {
+		login, err := loginFacts(c)
+		if err != nil {
+			return err
+		}
 		ses, err := session(c)
 		if err != nil {
 			return err
 		}
+		if len(login.StopKeys) > 0 && !ses.HasExited() {
+			if err = ses.Write(login.StopKeys); err != nil {
+				return fmt.Errorf("stop the browser login's fallback prompt: %w", err)
+			}
+		}
 		_, err = ses.WaitExit(scaled(loginExitTimeout))
 		return err
 	}}
+}
+
+// whenAPIKeyLogin limits a persistence step to adapters with an API-key login,
+// preserving its action/check kind so the runner still records independent
+// assertion failures and continues through the normal quit.
+func whenAPIKeyLogin(step Step) Step {
+	run := step.Run
+	step.Name += " (when an API-key login is available)"
+	step.Run = func(c *Context) error {
+		login, err := loginFacts(c)
+		if err != nil {
+			return err
+		}
+		if login.APIKey == nil {
+			return nil
+		}
+		if login.Status == "" || login.SignInMarker == "" {
+			return errors.New("the adapter's API-key login lacks stored-login checks")
+		}
+		return run(c)
+	}
+	return step
 }
 
 // StepSignInWithAPIKey signs the harness in from `agents-sandbox shell` with

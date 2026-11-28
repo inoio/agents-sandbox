@@ -12,6 +12,17 @@ import (
 // earlier can be lost.
 const keyRetypeInterval = 2 * time.Second
 
+// launchShellCommand waits for a new shell's prompt and submits command once.
+// The shell exits with the command's status, which the caller checks after
+// completing any interactive exchange.
+func launchShellCommand(c *Context, command string) error {
+	launchClient(c, []string{"shell"}, nil)
+	if err := c.Session.WaitForMarker(shellPromptMarker, scaled(shellPromptTimeout)); err != nil {
+		return err
+	}
+	return c.Session.Write([]byte(command + "; exit\r"))
+}
+
 // typeUntilExit types input into ses until the process exits or budget
 // elapses. The input must end the process (a shell line ending in exit), so a
 // repeat only runs once more when the first was lost.

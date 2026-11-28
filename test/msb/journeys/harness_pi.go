@@ -12,8 +12,10 @@ const (
 // models.json, oh-my-pi a YAML models.yml of the same shape. JSON is YAML, so
 // both get the same document.
 const (
-	piModelsPath     = ".pi/agent/models.json"
-	ohMyPiModelsPath = ".omp/agent/models.yml"
+	piModelsPath        = ".pi/agent/models.json"
+	ohMyPiModelsPath    = ".omp/agent/models.yml"
+	piMCPConfigPath     = ".pi/agent/mcp.json"
+	ohMyPiMCPConfigPath = ".omp/agent/mcp.json"
 )
 
 // ohMyPiSetupSnippet is the launcher snippet oh-my-pi's journey settings go in;
@@ -38,6 +40,21 @@ composer:
 // marker, its status line as the readiness marker.
 func ohMyPiHarness() Harness {
 	harness := piFamilyHarness(ohMyPiModelsPath)
+	harness.Login = &LoginFacts{
+		BrowserCommand: "omp login openai-codex",
+		CallbackMarker: "Authentication successful",
+		StopKeys:       []byte{driver.CtrlC},
+	}
+	harness.MCP = &MCPFacts{
+		HomeFiles: func(name, url string) map[string]string {
+			return map[string]string{ohMyPiMCPConfigPath: piMCPConfig(name, url)}
+		},
+		LoginCommand: func(name string) string {
+			return "omp -p " + shellQuote("/mcp reauth "+name)
+		},
+		// Print mode dispatches only /mcp reauth; /mcp test must run in the TUI.
+		CallPrompt: func(name string) string { return "/mcp test " + name },
+	}
 	harness.Stub.Snippets = func(string) map[string]string {
 		return map[string]string{ohMyPiSetupSnippet: ohMyPiSetupConfig}
 	}
@@ -75,6 +92,19 @@ func piFamilyHarness(modelsPath string) Harness {
 				return map[string]string{modelsPath: piModelsDocument(addr)}
 			},
 		},
+		Login: &LoginFacts{
+			BrowserCommand:     "pi auth login openai",
+			CallbackParameters: map[string]string{"client_id": "journeys-client"},
+			CallbackMarker:     "Authentication successful",
+			StopKeys:           []byte{driver.CtrlC},
+		},
+		MCP: &MCPFacts{
+			TLS: true,
+			HomeFiles: func(name, url string) map[string]string {
+				return map[string]string{piMCPConfigPath: piMCPConfig(name, url)}
+			},
+			LoginCommand: func(name string) string { return "pi mcp login " + shellQuote(name) },
+		},
 		Drive: Driving{
 			LaunchArgs: []string{"--model", stubProviderID + "/" + stubProviderModel},
 			WriteFileCall: func(guestPath, content string) ToolCall {
@@ -84,6 +114,14 @@ func piFamilyHarness(modelsPath string) Harness {
 			StartupBusyMarker: piStartupBusyMarker,
 		},
 	}
+}
+
+func piMCPConfig(name, url string) string {
+	return mustJSON(map[string]any{
+		"mcpServers": map[string]any{
+			name: map[string]string{"type": "http", "url": url},
+		},
+	})
 }
 
 // piModelsDocument renders the models file that declares the stub provider at

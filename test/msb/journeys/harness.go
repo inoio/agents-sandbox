@@ -1,10 +1,9 @@
 package journeys
 
 // Harness is what a journey's steps need to know about one harness beyond how
-// to start and quit it (driver.Spec, which the startup smoke shares), in three
-// parts: how it reaches the stub, how a journey drives it, and what learn mode
-// finds in it. A journey never names a harness's paths or formats itself; it
-// asks the adapter.
+// to start and quit it (driver.Spec, which the startup smoke shares): how it
+// reaches the stub, how a journey drives it, how it logs in, and what learn mode
+// finds in it. A journey asks the adapter for harness-specific paths and formats.
 type Harness struct {
 	Stub  StubSetup
 	Drive Driving
@@ -104,14 +103,21 @@ type LearnFacts struct {
 // LoginFacts is how a harness signs in: its own logins, which the login journey
 // drives through the sandbox, and how it shows a stored login.
 type LoginFacts struct {
-	// BrowserArgs are the agent arguments that start its browser login, which
-	// opens an authorization link naming a loopback callback in the VM.
-	BrowserArgs []string
+	// BrowserCommand starts the browser login from agents-sandbox shell, without
+	// the TUI's model flags or attach-command arguments.
+	BrowserCommand string
+	// CallbackParameters are extra query parameters the synthetic provider
+	// callback needs, besides its code and state.
+	CallbackParameters map[string]string
 	// CallbackMarker is text the page the harness answers a login callback
 	// with shows, which the host forwarder's own answers lack.
 	CallbackMarker string
-	// APIKey is the shell command that signs the harness in with key and
-	// stores the login in the harness's home.
+	// StopKeys ends the browser login after its callback when the harness leaves
+	// an interactive fallback prompt open instead of exiting.
+	StopKeys []byte
+	// APIKey, when set, is the shell command that signs the harness in with a
+	// key and stores the login in the harness's home. Status and SignInMarker
+	// then describe how the journey checks that persisted login.
 	APIKey func(key string) string
 	// Status is the shell command that exits 0 only while a login is stored.
 	Status string
@@ -123,6 +129,9 @@ type LoginFacts struct {
 // MCPFacts is how a harness uses a remote MCP server behind OAuth: how the
 // server is declared, and how the harness signs in to it.
 type MCPFacts struct {
+	// HomeFiles renders home-relative MCP declarations (path to content), for
+	// a harness that reads its servers from a user-level file.
+	HomeFiles func(name, url string) map[string]string
 	// Snippets renders the launcher snippets (file name to content) that
 	// declare the remote MCP server name at url in the harness's config.
 	Snippets func(name, url string) map[string]string
@@ -135,15 +144,18 @@ type MCPFacts struct {
 	// TLS marks a harness that sends OAuth credentials only over HTTPS, so
 	// the stub serves HTTPS with a test CA the VM is told to trust.
 	TLS bool
-	// LoginCommand, for a harness whose CLI subcommands `run` cannot pass,
-	// is the shell command that signs in to the MCP server name, typed into
-	// `agents-sandbox shell` instead.
+	// LoginCommand is the shell command that signs in to the MCP server name,
+	// typed into `agents-sandbox shell` when the adapter uses a shell-based flow.
 	LoginCommand func(name string) string
+	// CallPrompt is a TUI command that connects to the server after restart
+	// when startup reuses a catalogue without making a live request.
+	CallPrompt func(name string) string
 }
 
 // Harnesses maps an agent name to its adapter. Every harness a journey drives
 // has one (TestEveryDrivenHarnessHasAnAdapter).
 var Harnesses = map[string]Harness{
+	opencodeAgentName:   opencodeHarness,
 	opencode2AgentName:  opencode2Harness,
 	claudeCodeAgentName: claudeCodeHarness,
 	codexAgentName:      codexHarness,

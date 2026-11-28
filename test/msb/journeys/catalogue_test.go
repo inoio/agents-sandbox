@@ -56,6 +56,16 @@ func TestRenderCatalogueShowsTheScenarioAndExemptions(t *testing.T) {
 	}
 }
 
+func TestRenderCatalogueIdentifiesSerialHarnesses(t *testing.T) {
+	const note = "Harnesses run serially (shared host callback ports)."
+	for _, serial := range []bool{false, true} {
+		text := renderCatalogue([]Journey{{Name: "login", SerialHarnesses: serial}}, nil)
+		if strings.Contains(text, note) != serial {
+			t.Errorf("SerialHarnesses=%t: catalogue = %q", serial, text)
+		}
+	}
+}
+
 // firstDifference names the first line where got and want differ.
 func firstDifference(got, want string) string {
 	gotLines, wantLines := strings.Split(got, "\n"), strings.Split(want, "\n")

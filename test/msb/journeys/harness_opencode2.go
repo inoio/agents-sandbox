@@ -43,6 +43,12 @@ var opencode2Harness = Harness{
 		ResumeArgs:  []string{continueFlag},
 		Diagnostics: opencode2Diagnostics,
 	},
+	Login: &LoginFacts{
+		// OpenAI has several auth methods; pin the browser method so the CLI
+		// never waits for a method-selection prompt.
+		BrowserCommand: "opencode2 auth login openai --method chatgpt-browser --server http://127.0.0.1:4096",
+		CallbackMarker: "Authorization successful",
+	},
 	MCP: &MCPFacts{
 		// A launcher snippet merged into opencode's config declares the
 		// remote server; `run` cannot pass a subcommand to the attach client,
@@ -52,7 +58,9 @@ var opencode2Harness = Harness{
 				"mcp": map[string]any{name: map[string]any{"type": "remote", "url": url}},
 			})}
 		},
-		LoginCommand: func(name string) string { return "opencode2 mcp auth " + shellQuote(name) },
+		LoginCommand: func(name string) string {
+			return "opencode2 mcp auth " + shellQuote(name) + " --server http://127.0.0.1:4096"
+		},
 		// opencode2 sends OAuth credentials only over TLS.
 		TLS: true,
 	},

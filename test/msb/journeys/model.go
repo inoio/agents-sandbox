@@ -156,6 +156,9 @@ type Journey struct {
 	Name      string
 	Harnesses []string
 	Network   string
+	// SerialHarnesses prevents host callback-port collisions between harnesses
+	// whose provider logins use the same fixed loopback port.
+	SerialHarnesses bool
 	// LearnMode marks a learn-mode journey: every harness it lists must declare
 	// learn facts (Harness.Learn).
 	LearnMode bool

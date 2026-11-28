@@ -84,6 +84,9 @@ func stubSeeds(c *Context) driver.Seeds {
 	if c.Harness.Stub.HomeFiles != nil {
 		seeds = seeds.Merge(driver.Seeds{HomeManifest: c.Harness.Stub.HomeFiles(c.Stub.Addr())})
 	}
+	if c.OAuth != nil && c.Harness.MCP != nil && c.Harness.MCP.HomeFiles != nil {
+		seeds = seeds.Merge(driver.Seeds{HomeManifest: c.Harness.MCP.HomeFiles(stubMCPServerName, c.OAuth.MCPURL())})
+	}
 	if ca := stubCA(c); ca != nil {
 		seeds = seeds.Merge(driver.Seeds{HomeManifest: map[string]string{stubCAHomePath: string(ca)}})
 	}

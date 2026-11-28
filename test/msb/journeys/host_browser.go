@@ -200,18 +200,20 @@ func onHostLoopback(target *url.URL) string {
 }
 
 // callbackURL is the browser's return address for login: the callback on the
-// host's IPv4 loopback with the link's state and loginCallbackCode.
-func callbackURL(login *LoginLink) string {
-	query := url.Values{"code": {loginCallbackCode}}
+// host's IPv4 loopback with the link's state, loginCallbackCode, and any extra
+// provider-specific parameters. The original callback's query is preserved.
+func callbackURL(login *LoginLink, parameters map[string]string) string {
+	query := login.Callback.Query()
+	for key, value := range parameters {
+		query.Set(key, value)
+	}
+	query.Set("code", loginCallbackCode)
 	if login.State != "" {
 		query.Set("state", login.State)
 	}
-	target := url.URL{
-		Scheme:   "http",
-		Host:     net.JoinHostPort("127.0.0.1", login.Callback.Port()),
-		Path:     login.Callback.Path,
-		RawQuery: query.Encode(),
-	}
+	target := *login.Callback
+	target.Host = net.JoinHostPort("127.0.0.1", login.Callback.Port())
+	target.RawQuery = query.Encode()
 	return target.String()
 }
 

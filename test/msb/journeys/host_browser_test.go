@@ -40,7 +40,7 @@ func TestParseLoginLinkNeedsALoopbackCallback(t *testing.T) {
 
 func TestCallbackURLReturnsToTheHostLoopbackWithTheState(t *testing.T) {
 	callback, _ := url.Parse("http://localhost:1455/auth/callback")
-	got, err := url.Parse(callbackURL(&LoginLink{Callback: callback, State: "the-state"}))
+	got, err := url.Parse(callbackURL(&LoginLink{Callback: callback, State: "the-state"}, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,6 +48,25 @@ func TestCallbackURLReturnsToTheHostLoopbackWithTheState(t *testing.T) {
 	if got.Host != "127.0.0.1:1455" || got.Path != "/auth/callback" ||
 		query.Get("state") != "the-state" || query.Get("code") != loginCallbackCode {
 		t.Errorf("callback URL = %s, want the host loopback port 1455 with the state and code", got)
+	}
+}
+
+func TestCallbackURLCarriesTheAdaptersProviderParameters(t *testing.T) {
+	callback, err := url.Parse("http://localhost:1455/auth/callback?nonce=retained")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parameters := Harnesses[piAgentName].Login.CallbackParameters
+	got, err := url.Parse(callbackURL(&LoginLink{Callback: callback, State: "the-state"}, parameters))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Query().Get("client_id") != "journeys-client" || got.Query().Get("nonce") != "retained" ||
+		got.Query().Get("state") != "the-state" || got.Query().Get("code") != loginCallbackCode {
+		t.Fatalf("Pi callback = %s, want the issued client ID, original query, code, and state", got)
+	}
+	if parameters["client_id"] != "journeys-client" || len(parameters) != 1 {
+		t.Fatalf("callback construction mutated adapter parameters: %v", parameters)
 	}
 }
 

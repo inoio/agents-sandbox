@@ -43,7 +43,7 @@
   - Read If: Looking for dead or unreferenced production code, auditing whether a seam is still wired, or evaluating a dead-code linter; for the gate, the pin, or the `//deadcode:ignore` marker, read `specs/ci/quality-gates.md`.
 - `guides/dev-environment.md`
   - Description: The development VM's installed CLI tools, its `GOCACHE` placement, and its standing environment limitations.
-  - Read If: Choosing a CLI tool for a task, or hitting an environment limitation such as an unusable SSH remote, an absent CI run on a conflicted PR, a self-signed-cert docker build failure, a "catalog ancestor ... permits path substitution" error from the launcher's runtime home, or a mutation sweep that OOMs the VM; or questioning why `GOCACHE` is not on the home volume.
+  - Read If: Choosing a CLI tool for a task, or hitting an environment limitation such as an unusable SSH remote, an absent CI run on a conflicted PR, a self-signed-cert docker build failure, a "catalog ancestor ... permits path substitution" error from the launcher's runtime home, or a mutation sweep that OOMs the VM; a host journey's prefill failing with Docker Hub `Not authorized` for a local project image despite a successful prebuild; or questioning why `GOCACHE` is not on the home volume.
 - `guides/github-issue-workflow.md`
   - Description: How this repo tracks work on GitHub with the `gh` CLI, including the triage label vocabulary.
   - Read If: Creating, reading, labeling, or closing a GitHub issue; resolving the label vocabulary the `maintain` skill uses; or working through a skill that publishes to or reads from the issue tracker.
@@ -168,7 +168,7 @@
 
 - `specs/testing/`
   - Description: Test contracts: `test-coverage.md`, `test-isolation.md`, `harness-smoke-tests.md`, `msb-journeys.md`, `release-surface-testing.md`, `shell-script-harnesses.md`.
-  - Read If: Deciding what to test or triaging a failing `codecov/patch`/`codecov/project`; adding a test package/`TestMain`/double, debugging a test that reads real host state or fails under `-count>1`, the `//testenv:allow` ambient gate, or a state/config write to an unresolved root; the harness smoke tests (`make test-msb`/`test-msb-cold`) or the harness journeys suite (`test/msb/journeys`, `make test-msb-journeys`); a Go `test/scripts` harness or the `RunScript`/`gittest`/`fakecmd` helpers; or verifying a release before tagging or running the surface sweep.
+  - Read If: Deciding what to test or triaging a failing `codecov/patch`/`codecov/project`; adding a test package/`TestMain`/double, debugging a test that reads real host state or fails under `-count>1`, the `//testenv:allow` ambient gate, or a state/config write to an unresolved root; the harness smoke tests (`make test-msb`/`test-msb-cold`) or the journeys suite (`test/msb/journeys`, `make test-msb-journeys`, provider browser-login or MCP OAuth coverage); a Go `test/scripts` harness or the `RunScript`/`gittest`/`fakecmd` helpers; or verifying a release before tagging or running the surface sweep.
 
 #### `specs/vm/` - VM lifecycle and per-VM behaviours
 
