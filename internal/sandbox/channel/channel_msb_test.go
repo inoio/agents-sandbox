@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest/runtime"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
@@ -69,6 +70,7 @@ const channelGuestCommand = `wget -q -O /dev/null -T 20 --header "Authorization:
 var realMsbGet = sandboxmsb.Get
 
 func TestChannelRealSessionThroughProxy(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
 	// TestMain installs the isolated microsandbox home for the whole package, so
 	// the developer's real msb state is untouched; it also sweeps any sandbox a
 	// failed test left behind. EnsureIsolatedRuntime resolves the runtime into
@@ -81,7 +83,7 @@ func TestChannelRealSessionThroughProxy(t *testing.T) {
 		Profiles:    []network.Profile{network.ProfileNone},
 		EgressAllow: []string{channelDestinationHost},
 	}
-	observer, err := StartObservation("127.0.0.1", base)
+	observer, err := StartObservation("127.0.0.1", base, time.Unix(1, 0))
 	if err != nil {
 		t.Fatalf("StartObservation: %v", err)
 	}

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/channel"
@@ -145,7 +146,7 @@ func TestCaptureBaselineNoHomeVolume(t *testing.T) {
 // than driving a Run around a channel that never started.
 func TestBeginPropagatesStartObservationFailure(t *testing.T) {
 	orig := startObservation
-	startObservation = func(string, network.Policy) (channel.Observer, error) {
+	startObservation = func(string, network.Policy, time.Time) (channel.Observer, error) {
 		return nil, errors.New("bind boom")
 	}
 	t.Cleanup(func() { startObservation = orig })

@@ -21,6 +21,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/notify"
 	"github.com/inoio/agents-sandbox/internal/opener"
+	"github.com/inoio/agents-sandbox/internal/sandbox/learn"
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
@@ -761,10 +762,9 @@ func TestRunLearnFinishReceivesCapturedHomeAndBase(t *testing.T) {
 	}
 }
 
-// TestRunLearnSkipsFinishOnCancelledContext pins that the after-run is owned by
-// this process only while its context is live: a cancelled context leaves the
-// record for config learn and skips Finish.
-func TestRunLearnSkipsFinishOnCancelledContext(t *testing.T) {
+// TestRunLearnPreservesTheCaptureOnCancelledContext pins that cancellation skips
+// the interactive after-run but leaves its observation available to config learn.
+func TestRunLearnPreservesTheCaptureOnCancelledContext(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	key := state.Key{Slug: "learncancel", Agent: "opencode"}
 	ui := &termiotest.Mock{}
@@ -796,8 +796,30 @@ func TestRunLearnSkipsFinishOnCancelledContext(t *testing.T) {
 	if fake.finished {
 		t.Error("Finish ran on a cancelled context; the record must be left for config learn")
 	}
+	if !fake.preserved {
+		t.Error("the cancelled run did not preserve its observation for config learn")
+	}
 	if !fake.stopped {
 		t.Error("Stop did not run")
+	}
+}
+
+func TestFinishLearnAfterRunWarnsWhenPreservingTheCaptureFails(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	ui := &termiotest.Mock{}
+	fake := &fakeLearnRun{preserveErr: errors.New("preserve boom")}
+
+	finishLearnAfterRun(ctx, fake, learn.FinishInput{UI: ui})
+
+	if fake.finished {
+		t.Error("Finish ran on a cancelled context")
+	}
+	if !fake.preserved {
+		t.Error("PreserveForReplay did not run")
+	}
+	if !warnContains(ui, "preserving the session for config learn failed") {
+		t.Errorf("WarnCalls = %v, want the preservation failure warning", ui.WarnCalls)
 	}
 }
 

@@ -151,12 +151,14 @@ finding.
   no finding is emitted, and the proposal asks nothing at apply time. A static credential with no configured env-var
   name cannot be scoped and is likewise not proposed. A learned value never produces `allow_any_host_dangerous`.
 - **Network changes are proposed as a diff**: `network.profile = none` plus `network.egress-allow` set to the
-  current allow set **∪** the observed-and-used destinations, where observed-and-used means a destination the
-  session reached successfully and that was not denied. It never widens: no current allow entry is removed and no
-  denied destination enters the allow set. Denied destinations are reported separately and never auto-allowed. The
-  diff's *current* allow set is the user's policy **before** the channel overlay is applied: the overlay injects the
-  observation proxy's address and its upstream CA only so the session can be observed, so neither is ever fed back as
-  a proposed egress entry nor written to the user's config.
+  current allow set **∪** the observed destinations. A successful response is used; an accepted CONNECT tunnel is
+  retained as a conservative candidate, even when every terminating handshake failed. Pinning and missing session-CA
+  trust look the same to the proxy, so a failed tunnel may still work outside learn mode. The after-run does not count
+  an all-failed tunnel as verified service use, but the egress proposal keeps it. The diff never adds an unobserved
+  destination, removes a current allow entry, or adds a denied destination. Denied destinations are reported separately
+  and never auto-allowed. The diff's *current* allow set is the user's policy **before** the
+  channel overlay is applied: the overlay injects the observation proxy's address and its upstream CA only so the
+  session can be observed, so neither is ever fed back as a proposed egress entry nor written to the user's config.
 - **Entries are hostnames where the channel saw one.** The channel names each tunnel by its TLS SNI (the runtime
   opens tunnels by IP); a request from a client that sends no SNI to an IP literal is still proposed under that IP. A tunnel
   still recorded under an IP is not use: the requests inside any tunnel are recorded on their own entries, so an
@@ -221,11 +223,14 @@ If the owning process is gone (killed harness, closed terminal), the session rec
 `config learn` performs the same analysis later. A recorded session whose home volume has since been recreated is
 reported and discarded, not analysed.
 
+If the run context is cancelled after the baseline is recorded, an active channel is stopped and its final observation
+and proxy-log reference are persisted for `config learn`, without opening the interactive after-run prompt.
+
 The record lives in the per-`(checkout, agent)` home state, holding the session's start time, the home volume it was
 taken against, the capture's path, and the baseline manifest — paths and a digest, never a value (invariant 3). The
-after-run is owned by the process that started the session, so it runs before the record is cleared and the capture
-deleted; `config learn`, which resolves the same record for the current checkout and agent, is the replay for a process
-that is gone.
+capture path identifies one session even when multiple sessions start in the same Unix second. The after-run is owned by
+the process that started the session, so it runs before the record is cleared and the capture deleted; `config learn`,
+which resolves the same record for the current checkout and agent, is the replay for a process that is gone.
 
 ## `config harden`
 

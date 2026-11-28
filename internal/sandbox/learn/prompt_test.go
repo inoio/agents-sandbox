@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
@@ -177,6 +178,122 @@ func TestFinishRecordsTheArtefactPath(t *testing.T) {
 	}
 }
 
+func runWithRecordedBaseline(t *testing.T, key state.Key, observation channel.Observation) *Run {
+	t.Helper()
+	configpathstest.WithMockConfigPaths(t)
+	seedHomeVolume(t, key, "vol-1")
+	stubLearnReadback(t, "/home/vol", readback.Manifest{})
+
+	originalStartObservation := startObservation
+	startObservation = func(string, network.Policy, time.Time) (channel.Observer, error) {
+		return fixedObserver{observation: observation}, nil
+	}
+	t.Cleanup(func() { startObservation = originalStartObservation })
+
+	run, err := Begin(network.Policy{Profiles: []network.Profile{network.ProfileNone}})
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	if _, err := run.CaptureBaseline(context.Background(), key, key.Agent); err != nil {
+		t.Fatalf("CaptureBaseline: %v", err)
+	}
+	return run
+}
+
+func TestPreserveForReplaySavesObservationAndKeepsSessionRecord(t *testing.T) {
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	wantObservation := channel.Observation{
+		ProxyLog:      "/state/learn/proxy-logs/1-session.log",
+		ProxyWarnings: 1,
+	}
+	run := runWithRecordedBaseline(t, k, wantObservation)
+
+	ui := &termiotest.Mock{}
+	if err := run.PreserveForReplay(ui); err != nil {
+		t.Fatalf("PreserveForReplay: %v", err)
+	}
+
+	record, ok, err := state.ReadLearnSession(k)
+	if err != nil || !ok {
+		t.Fatalf("ReadLearnSession = ok=%v err=%v, want the replay record", ok, err)
+	}
+	if record.ArtefactPath == "" {
+		t.Fatal("ArtefactPath is empty, so config learn cannot replay the observation")
+	}
+	gotObservation, err := channel.Load(record.ArtefactPath)
+	if err != nil {
+		t.Fatalf("Load preserved observation: %v", err)
+	}
+	if gotObservation.ProxyLog != wantObservation.ProxyLog ||
+		gotObservation.ProxyWarnings != wantObservation.ProxyWarnings {
+		t.Errorf(
+			"preserved observation = %+v, want proxy log %q and one warning",
+			gotObservation,
+			wantObservation.ProxyLog,
+		)
+	}
+	if !warnContains(ui, wantObservation.ProxyLog) {
+		t.Errorf("WarnCalls = %v, want the proxy log path", ui.WarnCalls)
+	}
+}
+
+func TestPreserveForReplaySkipsPassiveAndAlreadySavedCaptures(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	saved := false
+	originalSave := saveArtefact
+	saveArtefact = func(string, int64, channel.Observation) (string, error) {
+		saved = true
+		return "/state/capture.json", nil
+	}
+	t.Cleanup(func() { saveArtefact = originalSave })
+
+	if err := Passive(network.Policy{}).PreserveForReplay(nil); err != nil {
+		t.Fatalf("PreserveForReplay on a passive run: %v", err)
+	}
+	alreadySaved := &Run{
+		observer:        fixedObserver{},
+		sessionRecorded: true,
+		record:          state.LearnSession{ArtefactPath: "/state/capture.json"},
+	}
+	if err := alreadySaved.PreserveForReplay(nil); err != nil {
+		t.Fatalf("PreserveForReplay on an already saved run: %v", err)
+	}
+	if saved {
+		t.Error("PreserveForReplay rewrote an unavailable or already saved capture")
+	}
+}
+
+func TestPreserveForReplayPropagatesSaveFailure(t *testing.T) {
+	key := state.Key{Slug: "proj", Agent: "opencode"}
+	run := runWithRecordedBaseline(t, key, channel.Observation{})
+	originalSave := saveArtefact
+	saveArtefact = func(string, int64, channel.Observation) (string, error) {
+		return "", errors.New("save boom")
+	}
+	t.Cleanup(func() { saveArtefact = originalSave })
+
+	err := run.PreserveForReplay(&termiotest.Mock{})
+	if err == nil || !strings.Contains(err.Error(), "save the learn capture for replay") {
+		t.Fatalf("PreserveForReplay error = %v, want the wrapped save failure", err)
+	}
+}
+
+func TestPreserveForReplayPropagatesRecordFailure(t *testing.T) {
+	key := state.Key{Slug: "proj", Agent: "opencode"}
+	run := runWithRecordedBaseline(t, key, channel.Observation{})
+	originalSave, originalRecord := saveArtefact, recordLearnSession
+	saveArtefact = func(string, int64, channel.Observation) (string, error) {
+		return filepath.Join(t.TempDir(), "capture.json"), nil
+	}
+	recordLearnSession = func(state.Key, state.LearnSession) error { return errors.New("record boom") }
+	t.Cleanup(func() { saveArtefact, recordLearnSession = originalSave, originalRecord })
+
+	err := run.PreserveForReplay(&termiotest.Mock{})
+	if err == nil || !strings.Contains(err.Error(), "record the learn capture path for replay") {
+		t.Fatalf("PreserveForReplay error = %v, want the wrapped record failure", err)
+	}
+}
+
 // TestExitChoicesReviewSaveAllNotNow pins the three exit choices, their order,
 // and that Not now is the default (last).
 func TestExitChoicesReviewSaveAllNotNow(t *testing.T) {
@@ -290,8 +407,90 @@ func TestPrintSummaryReportsDeniedDestinations(t *testing.T) {
 	}
 }
 
+// TestPrintProxyDiagnosticsReportsFailuresAndLogState pins the warning shown
+// before analysis, including ambiguous attribution and incomplete-log status.
+func TestPrintProxyDiagnosticsReportsFailuresAndLogState(t *testing.T) {
+	ui := &termiotest.Mock{}
+	PrintProxyDiagnostics(ui, channel.Observation{
+		Destinations: []channel.Destination{
+			{Host: "pinned.example", Protocol: channel.ConnectProtocol, Success: true, Count: 1, Failed: 1},
+			{Host: "healthy.example", Protocol: channel.ConnectProtocol, Success: true, Count: 1},
+			{Host: "", Protocol: channel.ConnectProtocol, Success: true, Count: 1, Failed: 1},
+		},
+		ProxyLog:               "/state/learn/proxy-logs/1-unique.log",
+		ProxyWarnings:          3,
+		UnattributedHandshakes: 1,
+		ProxyLogTruncated:      true,
+		ProxyLogWriteFailed:    true,
+	})
+
+	warnings := strings.Join(ui.WarnCalls, "\n")
+	if strings.Contains(warnings, "healthy.example") || strings.Contains(warnings, "TLS interception failed for ,") {
+		t.Errorf("WarnCalls = %v, want only named all-failed destinations", ui.WarnCalls)
+	}
+	for _, want := range []string{
+		"pinned.example", "successful use was not verified", "Possible causes",
+		"1 TLS handshake failure(s)", "could not be tied to a destination", "3",
+		"/state/learn/proxy-logs/1-unique.log",
+		"truncated", "incomplete",
+	} {
+		if !strings.Contains(warnings, want) {
+			t.Errorf("WarnCalls = %v, want %q", ui.WarnCalls, want)
+		}
+	}
+
+	openFailed := &termiotest.Mock{}
+	PrintProxyDiagnostics(openFailed, channel.Observation{ProxyWarnings: 1, ProxyLogWriteFailed: true})
+	if len(openFailed.WarnCalls) != 1 || !strings.Contains(openFailed.WarnCalls[0], "could not be created") {
+		t.Errorf("WarnCalls = %v, want the open failure", openFailed.WarnCalls)
+	}
+
+	clean := &termiotest.Mock{}
+	PrintProxyDiagnostics(clean, channel.Observation{})
+	if len(clean.WarnCalls) != 0 {
+		t.Errorf("WarnCalls = %v, want nothing for a clean session", clean.WarnCalls)
+	}
+	PrintProxyDiagnostics(nil, channel.Observation{ProxyWarnings: 1})
+
+	for _, tc := range []struct {
+		name        string
+		observation channel.Observation
+		want        string
+	}{
+		{
+			name: "write failure",
+			observation: channel.Observation{
+				ProxyLog: "/state/learn/proxy-logs/2-session.log", ProxyWarnings: 1, ProxyLogWriteFailed: true,
+			},
+			want: "log may be incomplete",
+		},
+		{
+			name: "truncation",
+			observation: channel.Observation{
+				ProxyLog: "/state/learn/proxy-logs/3-session.log", ProxyWarnings: 1, ProxyLogTruncated: true,
+			},
+			want: "log was truncated",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ui := &termiotest.Mock{}
+			PrintProxyDiagnostics(ui, tc.observation)
+			if len(ui.WarnCalls) != 1 || !strings.Contains(ui.WarnCalls[0], tc.want) {
+				t.Errorf("WarnCalls = %v, want %q", ui.WarnCalls, tc.want)
+			}
+		})
+	}
+}
+
 // TestFinishPropagatesSaveFailure pins that a failed capture save aborts the
-// after-run rather than analysing an unsaved session.
+// after-run rather than analysing an unsaved session, while the proxy
+// diagnostic is printed before the save can fail.
+type fixedObserver struct{ observation channel.Observation }
+
+func (fixedObserver) Overlay() network.Policy { return network.Policy{} }
+
+func (o fixedObserver) Stop() channel.Observation { return o.observation }
+
 func TestFinishPropagatesSaveFailure(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
@@ -302,16 +501,20 @@ func TestFinishPropagatesSaveFailure(t *testing.T) {
 	}
 	t.Cleanup(func() { saveArtefact = orig })
 
-	run, err := Begin(network.Policy{Profiles: []network.Profile{network.ProfileNone}})
-	if err != nil {
-		t.Fatalf("Begin: %v", err)
-	}
+	ui := &termiotest.Mock{}
+	run := &Run{observer: fixedObserver{observation: channel.Observation{
+		ProxyLog:      "/state/learn/proxy-logs/1-session.log",
+		ProxyWarnings: 2,
+	}}}
 
 	finishErr := run.Finish(context.Background(), FinishInput{
-		Key: k, Slug: "proj", Agent: "opencode", Paths: configpaths.Get(), UI: &termiotest.Mock{},
+		Key: k, Slug: "proj", Agent: "opencode", Paths: configpaths.Get(), UI: ui,
 	})
 	if finishErr == nil || !strings.Contains(finishErr.Error(), "save the learn capture") {
 		t.Fatalf("Finish error = %v, want the wrapped save failure", finishErr)
+	}
+	if len(ui.WarnCalls) != 1 || !strings.Contains(ui.WarnCalls[0], "/state/learn/proxy-logs/1-session.log") {
+		t.Errorf("WarnCalls = %v, want the proxy log path despite the capture save failure", ui.WarnCalls)
 	}
 }
 

@@ -158,7 +158,7 @@ func summarize(a Analysis, results []analyser.ApplyResult) Summary {
 		switch {
 		case destination.Denied:
 			denied[destination.Host] = true
-		case destination.Success:
+		case destination.Success && !destination.HandshakeFailed():
 			services[destination.Host] = true
 		}
 	}

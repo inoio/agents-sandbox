@@ -5,6 +5,7 @@ import (
 	"crypto/elliptic"
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 	"io"
 	"math/big"
 	"net"
@@ -161,8 +162,9 @@ func TestLeafIssuerDoesNotCacheAFailedSignature(t *testing.T) {
 func TestMITMTLSConfigFallsBackToTheConnectTargetWithoutSNI(t *testing.T) {
 	ca := testCA(t)
 	var nameCalls []string
-	config, err := mitmTLSConfig(ca, func(target, name string) { nameCalls = append(nameCalls, target+"="+name) })(
-		"127.0.0.1:443", &goproxy.ProxyCtx{})
+	config, err := mitmTLSConfig(ca, func(target, name string, sessionID uint16) {
+		nameCalls = append(nameCalls, fmt.Sprintf("%s=%s#%d", target, name, sessionID))
+	})("127.0.0.1:443", &goproxy.ProxyCtx{Session: 65537})
 	if err != nil {
 		t.Fatalf("mitmTLSConfig: %v", err)
 	}
@@ -177,8 +179,8 @@ func TestMITMTLSConfigFallsBackToTheConnectTargetWithoutSNI(t *testing.T) {
 		t.Fatalf("GetCertificate: %v", err)
 	}
 	verifiedLeaf(t, ca, *named, "api.example")
-	if len(nameCalls) != 1 || nameCalls[0] != "127.0.0.1:443=api.example" {
-		t.Errorf("server names learned = %v, want only the SNI handshake reported", nameCalls)
+	if len(nameCalls) != 1 || nameCalls[0] != "127.0.0.1:443=api.example#1" {
+		t.Errorf("server names learned = %v, want the SNI and masked goproxy session", nameCalls)
 	}
 	if !config.SessionTicketsDisabled {
 		t.Error("session tickets are on; a resumed handshake would skip GetCertificate and leave its tunnel unnamed")

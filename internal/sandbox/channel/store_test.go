@@ -53,7 +53,7 @@ func sampleObservation() Observation {
 
 // Save then Load round-trips the artefact through the file the run leaves
 // behind. The write lands under the state dir's learn/<checkoutSlug>/ tree,
-// keyed by the session's start time, and the loaded value equals what was saved.
+// prefixed by the session's start time, and the loaded value equals what was saved.
 func TestArtefactStoreRoundTrips(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
@@ -64,9 +64,10 @@ func TestArtefactStoreRoundTrips(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	want := filepath.Join(configpaths.Get().UserStateDir(), "learn", "my-checkout", "1763458200.json")
-	if path != want {
-		t.Errorf("Save path = %q, want %q", path, want)
+	wantDir := filepath.Join(configpaths.Get().UserStateDir(), "learn", "my-checkout")
+	if filepath.Dir(path) != wantDir || !strings.HasPrefix(filepath.Base(path), "1763458200-") ||
+		!strings.HasSuffix(path, ".json") {
+		t.Errorf("Save path = %q, want a unique 1763458200-*.json file under %s", path, wantDir)
 	}
 
 	loaded, err := Load(path)
@@ -74,6 +75,48 @@ func TestArtefactStoreRoundTrips(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	assertObservationEqual(t, obs, loaded)
+}
+
+func assertArtefactStoreSameSecondSessionsHaveDistinctPaths(t *testing.T) {
+	t.Helper()
+	configpathstest.WithMockConfigPaths(t)
+
+	firstObservation := sampleObservation()
+	firstObservation.Destinations[0].Host = "first.example.com"
+	firstObservation.Attribution[0].Host = "first.example.com"
+	secondObservation := sampleObservation()
+	secondObservation.Destinations[0].Host = "second.example.com"
+	secondObservation.Attribution[0].Host = "second.example.com"
+
+	firstPath, err := Save("same-checkout", 1763458200, firstObservation)
+	if err != nil {
+		t.Fatalf("Save first session: %v", err)
+	}
+	secondPath, err := Save("same-checkout", 1763458200, secondObservation)
+	if err != nil {
+		t.Fatalf("Save second session: %v", err)
+	}
+	if firstPath == secondPath {
+		t.Fatalf("same-second sessions share capture path %q", firstPath)
+	}
+
+	for _, testCase := range []struct {
+		path string
+		want Observation
+	}{
+		{path: firstPath, want: firstObservation},
+		{path: secondPath, want: secondObservation},
+	} {
+		got, err := Load(testCase.path)
+		if err != nil {
+			t.Fatalf("Load %q: %v", testCase.path, err)
+		}
+		assertObservationEqual(t, testCase.want, got)
+	}
+}
+
+func TestArtefactStoreSameSecondSessionsHaveDistinctPaths(t *testing.T) {
+	assertArtefactStoreSameSecondSessionsHaveDistinctPaths(t)
 }
 
 // The artefact is written 0600: it is state, not shared, so no group or other
@@ -175,7 +218,9 @@ func assertArtefactKeys(t *testing.T, obs Observation) {
 		"destinations": true, "attribution": true,
 		"host": true, "ip": true, "port": true, "protocol": true, "path": true,
 		"success": true, "denied": true, "count": true, "first_seen": true,
-		"last_seen": true, "channel": true,
+		"last_seen": true, "channel": true, "failed": true,
+		"proxy_log": true, "proxy_warnings": true, "unattributed_handshakes": true,
+		"proxy_log_truncated": true, "proxy_log_write_failed": true,
 		"credential": true, "header_names": true, "saw_real": true,
 		"saw_placeholder": true,
 	}
@@ -210,6 +255,73 @@ func collectKeys(node any) []string {
 
 // Load of a path that was never written errors rather than returning an empty
 // artefact, so a caller cannot mistake a missing capture for an empty session.
+// TestOpenSessionLogLivesUnderTheLearnStateDir: the proxy log is a unique 0600
+// file under <UserStateDir>/learn/proxy-logs/, prefixed by the session start, so
+// concurrent sessions do not append to each other's diagnostics and Prune
+// expires each file like an artefact.
+func TestOpenSessionLogLivesUnderTheLearnStateDir(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+
+	startedAt := time.Unix(1763458200, 0)
+	first, err := openSessionLog(startedAt)
+	if err != nil {
+		t.Fatalf("openSessionLog: %v", err)
+	}
+	second, err := openSessionLog(startedAt)
+	if err != nil {
+		t.Fatalf("open second session log: %v", err)
+	}
+	if first.Name() == second.Name() {
+		t.Fatalf("same-second sessions share log path %q", first.Name())
+	}
+	if _, err := first.WriteString("warning\n"); err != nil {
+		t.Fatalf("the proxy log is not writable: %v", err)
+	}
+	if _, err := second.WriteString("second warning\n"); err != nil {
+		t.Fatalf("the second proxy log is not writable: %v", err)
+	}
+	_ = first.Close()
+	_ = second.Close()
+
+	wantDir := filepath.Join(configpaths.Get().UserStateDir(), "learn", "proxy-logs")
+	for _, file := range []*os.File{first, second} {
+		if filepath.Dir(file.Name()) != wantDir || !strings.HasPrefix(filepath.Base(file.Name()), "1763458200-") {
+			t.Errorf("log path = %q, want a unique 1763458200-* file under %s", file.Name(), wantDir)
+		}
+		info, err := os.Stat(file.Name())
+		if err != nil || info.Mode().Perm() != 0o600 {
+			t.Fatalf("log = %v %v, want a 0600 file", info, err)
+		}
+	}
+
+	past := time.Now().Add(-time.Hour)
+	for _, file := range []*os.File{first, second} {
+		if err := os.Chtimes(file.Name(), past, past); err != nil {
+			t.Fatalf("Chtimes: %v", err)
+		}
+	}
+	if removed, err := Prune(time.Now().Add(-time.Minute)); err != nil || removed != 2 {
+		t.Fatalf("Prune = (%d, %v), want 2 removed", removed, err)
+	}
+	for _, file := range []*os.File{first, second} {
+		if _, err := os.Stat(file.Name()); !os.IsNotExist(err) {
+			t.Errorf("an expired proxy log %s survived Prune (stat err %v)", file.Name(), err)
+		}
+	}
+}
+
+func TestOpenSessionLogRefusesARelativeStateDir(t *testing.T) {
+	// A mutant that drops the absolute-path check must not write into the
+	// package directory.
+	t.Chdir(t.TempDir())
+	orig := configpaths.Get
+	configpaths.Get = func() configpaths.ConfigPaths { return relativeStateConfigPaths{} }
+	t.Cleanup(func() { configpaths.Get = orig })
+	if _, err := openSessionLog(time.Unix(1, 0)); err == nil {
+		t.Error("openSessionLog accepted a relative state dir")
+	}
+}
+
 func TestArtefactLoadMissingFile(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
@@ -400,6 +512,9 @@ func (relativeStateConfigPaths) UserStateDir() string { return "relative-user-st
 // A relative user state dir is refused rather than silently writing the capture
 // into the process's working directory.
 func TestArtefactStoreRefusesRelativeStateDir(t *testing.T) {
+	// A mutant that drops the absolute-path check must not write into the
+	// package directory.
+	t.Chdir(t.TempDir())
 	orig := configpaths.Get
 	configpaths.Get = func() configpaths.ConfigPaths { return relativeStateConfigPaths{} }
 	t.Cleanup(func() { configpaths.Get = orig })
@@ -447,6 +562,34 @@ func chmodAt(t *testing.T, path string, mode os.FileMode) {
 
 // Save reports the directory it cannot create: a state dir under a regular file
 // cannot hold the learn tree.
+func TestOpenSessionLogMkdirFailure(t *testing.T) {
+	stateFile := filepath.Join(t.TempDir(), "state-is-a-file")
+	if err := os.WriteFile(stateFile, []byte("x"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	withStateDir(t, stateFile)
+
+	_, err := openSessionLog(time.Unix(1, 0))
+	if err == nil || !strings.Contains(err.Error(), "proxy log directory") {
+		t.Fatalf("openSessionLog under a regular file = %v, want the directory error", err)
+	}
+	assertWrapsCause(t, err)
+}
+
+func TestOpenSessionLogOpenFailure(t *testing.T) {
+	stateDir := t.TempDir()
+	withStateDir(t, stateDir)
+	orig := createSessionLogFile
+	createSessionLogFile = func(string, string) (*os.File, error) { return nil, errChannelSeam }
+	t.Cleanup(func() { createSessionLogFile = orig })
+
+	_, err := openSessionLog(time.Unix(1, 0))
+	if err == nil || !strings.Contains(err.Error(), "open the learn proxy log") {
+		t.Fatalf("openSessionLog onto a directory = %v, want the open error", err)
+	}
+	assertWrapsCause(t, err)
+}
+
 func TestArtefactStoreSaveMkdirFailure(t *testing.T) {
 	stateFile := filepath.Join(t.TempDir(), "state-is-a-file")
 	if err := os.WriteFile(stateFile, []byte("x"), 0o600); err != nil {
@@ -462,6 +605,60 @@ func TestArtefactStoreSaveMkdirFailure(t *testing.T) {
 		t.Errorf("Save mkdir error = %q, want it to name the directory it could not create", err)
 	}
 	assertWrapsCause(t, err)
+}
+
+func assertArtefactStoreSaveReservationFailure(t *testing.T) {
+	t.Helper()
+	withStateDir(t, t.TempDir())
+	originalCreateArtefactFile := createArtefactFile
+	createArtefactFile = func(string, string) (*os.File, error) {
+		return nil, errors.New("reservation failed")
+	}
+	t.Cleanup(func() { createArtefactFile = originalCreateArtefactFile })
+
+	_, err := Save("my-checkout", 1763458200, sampleObservation())
+	if err == nil || !strings.Contains(err.Error(), "reserve learn artefact path") {
+		t.Fatalf("Save reservation error = %v, want the reservation failure", err)
+	}
+	assertWrapsCause(t, err)
+}
+
+func assertArtefactStoreSaveReservationCloseFailure(t *testing.T) {
+	t.Helper()
+	stateDir := t.TempDir()
+	withStateDir(t, stateDir)
+	dir := filepath.Join(stateDir, learnStateDirName, "my-checkout")
+	if err := os.MkdirAll(dir, artefactDirMode); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	reservation, err := os.CreateTemp(dir, "1763458200-*.json")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	reservedPath := reservation.Name()
+	if err := reservation.Close(); err != nil {
+		t.Fatalf("Close setup reservation: %v", err)
+	}
+	originalCreateArtefactFile := createArtefactFile
+	createArtefactFile = func(string, string) (*os.File, error) { return reservation, nil }
+	t.Cleanup(func() { createArtefactFile = originalCreateArtefactFile })
+
+	_, err = Save("my-checkout", 1763458200, sampleObservation())
+	if err == nil || !strings.Contains(err.Error(), "close learn artefact reservation") {
+		t.Fatalf("Save reservation-close error = %v, want the close failure", err)
+	}
+	if _, statErr := os.Stat(reservedPath); !os.IsNotExist(statErr) {
+		t.Errorf("failed reservation %q remains (stat error = %v)", reservedPath, statErr)
+	}
+	assertWrapsCause(t, err)
+}
+
+func TestArtefactStoreSaveReservationFailure(t *testing.T) {
+	assertArtefactStoreSaveReservationFailure(t)
+}
+
+func TestArtefactStoreSaveReservationCloseFailure(t *testing.T) {
+	assertArtefactStoreSaveReservationCloseFailure(t)
 }
 
 // Save reports an artefact it cannot encode: a timestamp outside the JSON range
@@ -490,9 +687,16 @@ func TestArtefactStoreSaveWriteFailure(t *testing.T) {
 	if err := os.MkdirAll(dir, artefactDirMode); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	if err := os.Mkdir(filepath.Join(dir, "1763458200.json"), artefactDirMode); err != nil {
+	reservedPath := filepath.Join(dir, "write-fails.json")
+	if err := os.Mkdir(reservedPath, artefactDirMode); err != nil {
 		t.Fatalf("Mkdir target: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(reservedPath, "keep"), []byte("x"), 0o600); err != nil {
+		t.Fatalf("WriteFile in target: %v", err)
+	}
+	originalCreateArtefactFile := createArtefactFile
+	createArtefactFile = func(string, string) (*os.File, error) { return os.Open(reservedPath) }
+	t.Cleanup(func() { createArtefactFile = originalCreateArtefactFile })
 
 	_, err := Save("my-checkout", 1763458200, sampleObservation())
 	if err == nil {

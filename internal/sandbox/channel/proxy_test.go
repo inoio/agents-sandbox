@@ -60,7 +60,7 @@ func proxyClient(t *testing.T, handle Handle) *http.Client {
 func TestProxyRecordsDestinationAndCredentialHeaderName(t *testing.T) {
 	// The upstream is httptest's self-signed TLS server; skip upstream
 	// verification so the test exercises observation, not certificate trust.
-	handle, err := Start("127.0.0.1", true)
+	handle, err := Start("127.0.0.1", true, nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestProxyStreamsSSEResponseIncrementally(t *testing.T) {
 	// A plain-HTTP upstream keeps the test on the default (verifying) origin
 	// transport: streaming is transport-agnostic, and httptest's TLS server is
 	// self-signed, which the default transport now rejects.
-	handle, err := Start("127.0.0.1", false)
+	handle, err := Start("127.0.0.1", false, nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -223,7 +223,7 @@ func TestProxyStreamsSSEResponseIncrementally(t *testing.T) {
 // issued for that hostname, or the runtime rejects the handshake and the
 // agent's request never leaves the VM.
 func TestProxyTerminatesForTheSNIHostnameOfAnIPConnect(t *testing.T) {
-	handle, err := Start("127.0.0.1", true)
+	handle, err := Start("127.0.0.1", true, nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -295,7 +295,7 @@ func TestProxyTerminatesForTheSNIHostnameOfAnIPConnect(t *testing.T) {
 }
 
 func TestProxyRecordsDeniedDestination(t *testing.T) {
-	handle, err := Start("127.0.0.1", false)
+	handle, err := Start("127.0.0.1", false, nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -339,7 +339,7 @@ func TestProxyRecordsDeniedDestination(t *testing.T) {
 // self-signed one) is rejected and the request is recorded as a denial — a
 // forwarded credential can never reach an impostor.
 func TestProxyVerifiesUpstreamCertificateByDefault(t *testing.T) {
-	handle, err := Start("127.0.0.1", false)
+	handle, err := Start("127.0.0.1", false, nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -371,7 +371,7 @@ func TestProxyVerifiesUpstreamCertificateByDefault(t *testing.T) {
 // skip-upstream-verify lets the same self-signed upstream round-trip, proving
 // the opt-out reaches the origin dial rather than only the constructor.
 func TestProxySkipsUpstreamVerificationWhenConfigured(t *testing.T) {
-	handle, err := Start("127.0.0.1", true)
+	handle, err := Start("127.0.0.1", true, nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -393,7 +393,10 @@ func TestProxySkipsUpstreamVerificationWhenConfigured(t *testing.T) {
 }
 
 func TestProxyRecordsConnectTunnelWhenMitmHandshakeFails(t *testing.T) {
-	handle, err := Start("127.0.0.1", false)
+	logPath := filepath.Join(t.TempDir(), "proxy.log")
+	handle, err := Start("127.0.0.1", false, func() (*os.File, error) {
+		return os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY, 0o600)
+	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -413,9 +416,19 @@ func TestProxyRecordsConnectTunnelWhenMitmHandshakeFails(t *testing.T) {
 			Proxy: http.ProxyURL(&url.URL{Scheme: "http", Host: handle.Addr}),
 		},
 	}
+	handshakeFailed := make(chan struct{}, 1)
+	recordFailure := handle.state.logger().onHandshakeFailure
+	handle.state.logger().onHandshakeFailure = func(sessionID uint16, target string) bool {
+		attributed := recordFailure(sessionID, target)
+		handshakeFailed <- struct{}{}
+		return attributed
+	}
 	if _, err := client.Get(upstream.URL); err == nil {
 		t.Fatal("the untrusted proxy CA should have failed the handshake")
 	}
+	// goproxy logs the failure on its own goroutine once the client's alert
+	// arrives; wait for it, as the after-run does by running long after.
+	<-handshakeFailed
 
 	observation := handle.Stop()
 	if len(observation.Destinations) != 1 {
@@ -440,12 +453,74 @@ func TestProxyRecordsConnectTunnelWhenMitmHandshakeFails(t *testing.T) {
 	if len(observation.Attribution) != 0 {
 		t.Errorf("attribution = %+v, want none for an un-terminated tunnel", observation.Attribution)
 	}
+	if destination.Failed != 1 || !destination.HandshakeFailed() {
+		t.Errorf("destination = %+v, want its one handshake failed", destination)
+	}
+	if observation.UnattributedHandshakes != 0 {
+		t.Errorf(
+			"UnattributedHandshakes = %d, want the session-correlated failure attributed",
+			observation.UnattributedHandshakes,
+		)
+	}
+	if observation.ProxyLogTruncated || observation.ProxyLogWriteFailed {
+		t.Errorf(
+			"log status = truncated:%v write-failed:%v, want a complete log",
+			observation.ProxyLogTruncated,
+			observation.ProxyLogWriteFailed,
+		)
+	}
+	if observation.ProxyWarnings == 0 || observation.ProxyLog == "" {
+		t.Fatalf("observation = %+v, want the handshake failure logged", observation)
+	}
+	logged, err := os.ReadFile(observation.ProxyLog)
+	if err != nil {
+		t.Fatalf("read the proxy log: %v", err)
+	}
+	if !strings.Contains(string(logged), "TLS handshake failed") ||
+		strings.Contains(string(logged), "bad certificate") {
+		t.Errorf("proxy log = %q, want the safe handshake category and no raw cause", logged)
+	}
+	info, err := os.Stat(observation.ProxyLog)
+	if err == nil && info.Mode().Perm() != 0o600 {
+		t.Errorf("proxy log mode = %o, want 0600", info.Mode().Perm())
+	}
+	if observation.ProxyLog != logPath {
+		t.Errorf("ProxyLog = %q, want %q", observation.ProxyLog, logPath)
+	}
+}
+
+func TestProxyStateStopReturnsAllProxyLogStatus(t *testing.T) {
+	state := &proxyState{
+		server:   new(http.Server),
+		recorder: new(recorder),
+		log: &proxyLog{
+			warnings: 1, unattributed: 2, truncated: true, writeFailed: true,
+		},
+	}
+
+	observation := state.stop()
+	if observation.ProxyWarnings != 1 || observation.UnattributedHandshakes != 2 ||
+		!observation.ProxyLogTruncated || !observation.ProxyLogWriteFailed {
+		t.Errorf("Stop observation = %+v, want all proxy log status copied", observation)
+	}
+}
+
+func TestProxyStateFailTunnelReturnsWhetherItMatchedTheSession(t *testing.T) {
+	state := &proxyState{recorder: new(recorder)}
+	state.observeConnect("203.0.113.7:443", 1)
+
+	if !state.failTunnel(1, "203.0.113.7:443") {
+		t.Fatal("failTunnel did not report the matching session")
+	}
+	if state.failTunnel(2, "203.0.113.7:443") {
+		t.Fatal("failTunnel reported a missing session as attributed")
+	}
 }
 
 func TestProxyConnectHostnameRecordsEmptyIP(t *testing.T) {
 	state := &proxyState{recorder: new(recorder)}
 
-	state.observeConnect("api.example:443")
+	state.observeConnect("api.example:443", 1)
 
 	observation := state.recorder.result(Observation{})
 	if len(observation.Destinations) != 1 {
@@ -470,7 +545,7 @@ func TestProxyConnectHostnameRecordsEmptyIP(t *testing.T) {
 }
 
 func TestProxyHandleExposesCAAndStopsIdempotently(t *testing.T) {
-	handle, err := Start("127.0.0.1", false)
+	handle, err := Start("127.0.0.1", false, nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -519,10 +594,75 @@ func TestProxyHandleExposesCAAndStopsIdempotently(t *testing.T) {
 	}
 }
 
+func TestStopCancelsAStalledUpstreamRequest(t *testing.T) {
+	started := make(chan struct{})
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		close(started)
+		<-request.Context().Done()
+	}))
+	defer upstream.Close()
+	handle, err := Start("127.0.0.1", true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer handle.Stop()
+	client := proxyClient(t, handle)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		response, err := client.Get(upstream.URL)
+		if err == nil {
+			_ = response.Body.Close()
+		}
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("request never reached upstream")
+	}
+	stopped := make(chan Observation, 1)
+	go func() { stopped <- handle.Stop() }()
+	select {
+	case observation := <-stopped:
+		if observation.ProxyWarnings != 0 {
+			t.Errorf("Stop logged its own upstream cancellation: %+v", observation)
+		}
+		for _, destination := range observation.Destinations {
+			if destination.Denied {
+				t.Errorf("Stop turned its own cancellation into a denial: %+v", destination)
+			}
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop did not cancel the stalled upstream request")
+	}
+	<-done
+}
+
+// A session that never warns reports no warnings and leaves no log, so the
+// after-run's summary does not claim a problem the clean session never had.
+func TestProxyCleanSessionReportsNoWarnings(t *testing.T) {
+	opened := false
+	handle, err := Start("127.0.0.1", false, func() (*os.File, error) {
+		opened = true
+		return nil, errChannelSeam
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	observation := handle.Stop()
+	if observation.ProxyWarnings != 0 || observation.ProxyLog != "" {
+		t.Errorf("clean session artefact = %+v, want no warnings and no log", observation)
+	}
+	if opened {
+		t.Error("a clean session opened a proxy log, want no file until the first warning")
+	}
+}
+
 // An empty bindHost must mean loopback: the proxy is never bound to every
 // interface, so a blank value cannot expose it on the network.
 func TestStartEmptyBindHostIsLoopback(t *testing.T) {
-	handle, err := Start("", false)
+	handle, err := Start("", false, nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -624,14 +764,10 @@ func TestOnResponsePassesNilThrough(t *testing.T) {
 // dereferencing nil.
 func TestHandleZeroValueStopIsEmpty(t *testing.T) {
 	observation := Handle{}.Stop()
-	if len(observation.Destinations) != 0 || len(observation.Attribution) != 0 {
+	if len(observation.Destinations) != 0 || len(observation.Attribution) != 0 ||
+		observation.ProxyLog != "" || observation.ProxyWarnings != 0 {
 		t.Errorf("zero Handle Stop = %+v, want an empty artefact", observation)
 	}
-}
-
-// discardLogger swallows goproxy's output; calling it must not panic or write.
-func TestDiscardLoggerSwallowsOutput(t *testing.T) {
-	discardLogger{}.Printf("goproxy warning %d", 1)
 }
 
 // Start propagates a CA-generation failure (the key generator cannot produce a
@@ -642,7 +778,7 @@ func TestStartFailsWhenCAKeyGenerationFails(t *testing.T) {
 		return nil, errChannelSeam
 	})
 
-	if _, err := Start("127.0.0.1", false); err == nil {
+	if _, err := Start("127.0.0.1", false, nil); err == nil {
 		t.Error("Start with a failing key generator returned no error")
 	}
 }
@@ -656,7 +792,7 @@ func TestStartFailsWhenCAFileCannotBeWritten(t *testing.T) {
 	}
 	t.Setenv("TMPDIR", notADirectory)
 
-	if _, err := Start("127.0.0.1", false); err == nil {
+	if _, err := Start("127.0.0.1", false, nil); err == nil {
 		t.Error("Start with an unwritable CA temp dir returned no error")
 	}
 }
@@ -667,7 +803,7 @@ func TestStartFailsWhenListenFails(t *testing.T) {
 	caDir := t.TempDir()
 	t.Setenv("TMPDIR", caDir)
 
-	if _, err := Start("[::1]", false); err == nil {
+	if _, err := Start("[::1]", false, nil); err == nil {
 		t.Error("Start with an unparseable bind host returned no error")
 	}
 	assertNoCAFiles(t, caDir)
@@ -777,8 +913,8 @@ func TestTerminateProxyIsQuietAndDialsDirectly(t *testing.T) {
 	state := &proxyState{recorder: new(recorder)}
 
 	proxy := terminateProxy(ca, state, false)
-	if _, ok := proxy.Logger.(discardLogger); !ok {
-		t.Errorf("proxy.Logger = %T, want the discard logger", proxy.Logger)
+	if log, ok := proxy.Logger.(*proxyLog); !ok || log == nil {
+		t.Errorf("proxy.Logger = %#v, want the session proxy log", proxy.Logger)
 	}
 	if proxy.Tr == nil || proxy.Tr.Proxy != nil {
 		t.Error("the observation proxy must dial upstream directly, not via a host proxy env var")
@@ -813,12 +949,12 @@ func TestTerminateProxyForwardsSkipUpstreamVerify(t *testing.T) {
 // better name, so only an IP tunnel with a distinct SNI is renamed.
 func TestProxyStateNamesOnlyIPTunnelsWithAnSNI(t *testing.T) {
 	state := &proxyState{recorder: new(recorder)}
-	state.observeConnect("203.0.113.7:443")
-	state.observeConnect("api.example:443")
+	state.observeConnect("203.0.113.7:443", 1)
+	state.observeConnect("api.example:443", 2)
 
-	state.nameTunnel("api.example:443", "other.example")
-	state.nameTunnel("203.0.113.7:443", "")
-	state.nameTunnel("203.0.113.7:443", "203.0.113.7")
+	state.nameTunnel("api.example:443", "other.example", 2)
+	state.nameTunnel("203.0.113.7:443", "", 1)
+	state.nameTunnel("203.0.113.7:443", "203.0.113.7", 1)
 
 	hosts := map[string]bool{}
 	for _, destination := range state.recorder.result(Observation{}).Destinations {
@@ -828,7 +964,7 @@ func TestProxyStateNamesOnlyIPTunnelsWithAnSNI(t *testing.T) {
 		t.Fatalf("hosts = %v, want both tunnels unchanged", hosts)
 	}
 
-	state.nameTunnel("203.0.113.7:443", "named.example")
+	state.nameTunnel("203.0.113.7:443", "named.example", 1)
 	destinations := state.recorder.result(Observation{}).Destinations
 	if destinationByHost(t, destinations, "named.example").IP != "203.0.113.7" {
 		t.Errorf("destinations = %+v, want the IP tunnel named named.example", destinations)
@@ -838,7 +974,7 @@ func TestProxyStateNamesOnlyIPTunnelsWithAnSNI(t *testing.T) {
 func TestProxyConnectIPHostRecordsIP(t *testing.T) {
 	state := &proxyState{recorder: new(recorder)}
 
-	state.observeConnect("203.0.113.7:443")
+	state.observeConnect("203.0.113.7:443", 1)
 
 	destinations := state.recorder.result(Observation{}).Destinations
 	if len(destinations) != 1 {
@@ -858,8 +994,8 @@ func TestProxyConnectIPHostRecordsIP(t *testing.T) {
 func TestProxyConnectTunnelsOnDifferentPortsStayDistinct(t *testing.T) {
 	state := &proxyState{recorder: new(recorder)}
 
-	state.observeConnect("api.example:443")
-	state.observeConnect("api.example:8443")
+	state.observeConnect("api.example:443", 1)
+	state.observeConnect("api.example:8443", 2)
 
 	destinations := state.recorder.result(Observation{}).Destinations
 	if len(destinations) != 2 {
@@ -895,7 +1031,7 @@ func TestOnResponseNilDoesNotMarkDestination(t *testing.T) {
 // registered when it observes the shutdown, so allow a brief window for that
 // goroutine to run before declaring the listener still open.
 func TestStopClosesProxyListener(t *testing.T) {
-	handle, err := Start("127.0.0.1", false)
+	handle, err := Start("127.0.0.1", false, nil)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -917,4 +1053,366 @@ func TestStopClosesProxyListener(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond) //testenv:allow a negative assertion: the proxy must accept nothing after Stop
 	}
+}
+
+func openProxyTunnel(t *testing.T, handle Handle, target string) net.Conn {
+	t.Helper()
+	//testenv:allow the test dials only the proxy's freshly bound loopback listener
+	connection, err := net.DialTimeout("tcp", handle.Addr, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = connection.Close() })
+	if err := connection.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(connection, "CONNECT "+target+" HTTP/1.1\r\nHost: "+target+"\r\n\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	response, err := http.ReadResponse(bufio.NewReader(connection), nil)
+	if err != nil || response.StatusCode != http.StatusOK {
+		t.Fatalf("CONNECT response = %v, %v", response, err)
+	}
+	return connection
+}
+
+func TestStopClosesAnEstablishedTunnelAndFreezesObservation(t *testing.T) {
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+	handle, err := Start("127.0.0.1", true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer handle.Stop()
+	target := strings.TrimPrefix(upstream.URL, "https://")
+	connection := openProxyTunnel(t, handle, target)
+	pool := x509.NewCertPool()
+	pool.AppendCertsFromPEM([]byte(handle.CAPEM()))
+	secure := tls.Client(connection, &tls.Config{RootCAs: pool, ServerName: "localhost", MinVersion: tls.VersionTLS12})
+	if err := secure.Handshake(); err != nil {
+		t.Fatal(err)
+	}
+
+	first := handle.Stop()
+	_, writeErr := io.WriteString(secure, "GET /after-stop HTTP/1.1\r\nHost: "+target+"\r\n\r\n")
+	if first.ProxyWarnings != 0 {
+		t.Errorf("Stop turned a healthy idle tunnel into a proxy problem: %+v", first)
+	}
+	if writeErr == nil {
+		if response, err := http.ReadResponse(bufio.NewReader(secure), nil); err == nil {
+			_ = response.Body.Close()
+			t.Errorf("the stopped proxy still served a request: %s", response.Status)
+		}
+	}
+	if second := handle.Stop(); !reflect.DeepEqual(first, second) {
+		t.Errorf("Stop changed its snapshot: first=%+v second=%+v", first, second)
+	}
+	results := make(chan Observation, 4)
+	for range 4 {
+		go func() { results <- handle.Stop() }()
+	}
+	for range 4 {
+		if result := <-results; !reflect.DeepEqual(first, result) {
+			t.Errorf("concurrent Stop returned a different snapshot: %+v", result)
+		}
+	}
+}
+
+type gatedHandshakeLogger struct {
+	logger  goproxy.Logger
+	started chan struct{}
+	release chan struct{}
+}
+
+func (l gatedHandshakeLogger) Printf(format string, arguments ...any) {
+	if format == handshakeFailureWarning {
+		close(l.started)
+		<-l.release
+	}
+	l.logger.Printf(format, arguments...)
+}
+
+func TestStopWaitsForPendingHandshakeDiagnostics(t *testing.T) {
+	handle, err := Start("127.0.0.1", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy := handle.state.server.Handler.(proxyHandler).Handler.(*goproxy.ProxyHttpServer)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	defer func() { unblock(); handle.Stop() }()
+	proxy.Logger = gatedHandshakeLogger{logger: proxy.Logger, started: started, release: release}
+	connection := openProxyTunnel(t, handle, "127.0.0.1:443")
+	secure := tls.Client(connection, &tls.Config{ServerName: "localhost", MinVersion: tls.VersionTLS12})
+	if err := secure.Handshake(); err == nil {
+		t.Fatal("an untrusted client unexpectedly accepted the proxy CA")
+	}
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the failed handshake never reached the proxy logger")
+	}
+	stopped := make(chan Observation, 1)
+	go func() { stopped <- handle.Stop() }()
+	select {
+	case result := <-stopped:
+		unblock()
+		t.Fatalf("Stop returned before pending handshake diagnostics: %+v", result)
+	case <-time.After(50 * time.Millisecond):
+	}
+	unblock()
+	select {
+	case observation := <-stopped:
+		if observation.ProxyWarnings != 1 || destinationFor(t, observation.Destinations, ConnectProtocol).Failed != 1 {
+			t.Errorf("Stop lost the pending handshake: %+v", observation)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop did not complete after the handshake diagnostic was released")
+	}
+}
+
+func TestStopClosesADirectWebSocketUpgrade(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		connection, buffered, err := writer.(http.Hijacker).Hijack()
+		if err != nil {
+			return
+		}
+		defer connection.Close()
+		_, _ = buffered.WriteString(
+			"HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n",
+		)
+		_ = buffered.Flush()
+		_, _ = io.Copy(connection, buffered)
+	}))
+	defer upstream.Close()
+	handle, err := Start("127.0.0.1", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	//testenv:allow the test dials its own loopback proxy to exercise a direct WebSocket upgrade
+	connection, err := net.DialTimeout("tcp", handle.Addr, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	_ = connection.SetDeadline(time.Now().Add(5 * time.Second))
+	_, err = io.WriteString(connection, "GET "+upstream.URL+"/socket HTTP/1.1\r\nHost: "+
+		strings.TrimPrefix(upstream.URL, "http://")+"\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := bufio.NewReader(connection)
+	response, err := http.ReadResponse(reader, nil)
+	if err != nil || response.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("upgrade response = %v, %v", response, err)
+	}
+	if _, err := io.WriteString(connection, "ping"); err != nil {
+		t.Fatal(err)
+	}
+	echo := make([]byte, 4)
+	if _, err := io.ReadFull(reader, echo); err != nil || string(echo) != "ping" {
+		t.Fatalf("upgrade relay = %q, %v", echo, err)
+	}
+	stopped := make(chan Observation, 1)
+	go func() { stopped <- handle.Stop() }()
+	select {
+	case first := <-stopped:
+		if second := handle.Stop(); !reflect.DeepEqual(first, second) {
+			t.Errorf("Stop changed its WebSocket snapshot: first=%+v second=%+v", first, second)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not join the direct WebSocket upgrade")
+	}
+}
+
+type gatedCopyLogger struct {
+	next    goproxy.Logger
+	started chan struct{}
+	release <-chan struct{}
+	once    *sync.Once
+}
+
+func (l gatedCopyLogger) Printf(format string, arguments ...any) {
+	if format == websocketCopyWarning {
+		l.once.Do(func() {
+			close(l.started)
+			<-l.release
+		})
+	}
+	l.next.Printf(format, arguments...)
+}
+
+func TestStopWaitsForDirectWebSocketResetWarning(t *testing.T) {
+	upgraded := make(chan struct{})
+	reset := make(chan struct{})
+	var resetOnce sync.Once
+	triggerReset := func() { resetOnce.Do(func() { close(reset) }) }
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		connection, buffered, err := writer.(http.Hijacker).Hijack()
+		if err != nil {
+			return
+		}
+		_, _ = buffered.WriteString(
+			"HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n",
+		)
+		_ = buffered.Flush()
+		close(upgraded)
+		<-reset
+		if tcpConnection, ok := connection.(*net.TCPConn); ok {
+			_ = tcpConnection.SetLinger(0)
+		}
+		_ = connection.Close()
+	}))
+	defer upstream.Close()
+	defer triggerReset()
+	logPath := filepath.Join(t.TempDir(), "proxy.log")
+	handle, err := Start("127.0.0.1", false, func() (*os.File, error) {
+		return os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY, 0o600)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer handle.Stop()
+	proxy := handle.state.server.Handler.(proxyHandler).Handler.(*goproxy.ProxyHttpServer)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unblockLogger := func() { releaseOnce.Do(func() { close(release) }) }
+	defer unblockLogger()
+	proxy.Logger = gatedCopyLogger{next: proxy.Logger, started: started, release: release, once: new(sync.Once)}
+
+	//testenv:allow the test dials its own freshly bound loopback proxy
+	client, err := net.DialTimeout("tcp", handle.Addr, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	_ = client.SetDeadline(time.Now().Add(5 * time.Second))
+	_, err = io.WriteString(client, "GET "+upstream.URL+"/socket HTTP/1.1\r\nHost: "+
+		strings.TrimPrefix(upstream.URL, "http://")+"\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := http.ReadResponse(bufio.NewReader(client), nil)
+	if err != nil || response.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("upgrade response = %v, %v", response, err)
+	}
+	select {
+	case <-upgraded:
+	case <-time.After(5 * time.Second):
+		t.Fatal("upstream did not establish the WebSocket")
+	}
+	triggerReset()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("upstream reset did not reach goproxy's WebSocket relay warning")
+	}
+
+	stopped := make(chan Observation, 1)
+	go func() { stopped <- handle.Stop() }()
+	select {
+	case observation := <-stopped:
+		unblockLogger()
+		t.Fatalf("Stop returned before the reset warning was recorded: %+v", observation)
+	case <-time.After(50 * time.Millisecond):
+	}
+	unblockLogger()
+	select {
+	case observation := <-stopped:
+		if observation.ProxyWarnings == 0 || observation.ProxyLog != logPath {
+			t.Errorf("Stop observation = %+v, want the reset warning and its log", observation)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop did not finish after recording the WebSocket reset warning")
+	}
+}
+
+func assertOnResponseLeavesUntrackedWebsocketResponsesUnchanged(t *testing.T) {
+	t.Helper()
+	response := &http.Response{StatusCode: http.StatusOK, Header: make(http.Header)}
+	if got := (&proxyState{}).onResponse(response, &goproxy.ProxyCtx{UserData: &Destination{}}); got != response {
+		t.Fatal("onResponse replaced a response without proxy request data")
+	}
+
+	destination := &Destination{}
+	response = &http.Response{
+		StatusCode: http.StatusSwitchingProtocols,
+		Header: http.Header{
+			"Connection": {"Upgrade"},
+			"Upgrade":    {"websocket"},
+		},
+		Body: io.NopCloser(strings.NewReader("upstream response")),
+	}
+	state := &proxyState{
+		log:         &proxyLog{},
+		connections: &proxyConnections{},
+	}
+	requestData := &proxyRequest{destination: destination, websocket: true}
+	if got := state.onResponse(response, &goproxy.ProxyCtx{UserData: requestData}); got != response {
+		t.Fatal("onResponse replaced an upgrade response without a read-write body")
+	}
+	if !destination.Success {
+		t.Error("an upstream upgrade response did not mark the destination successful")
+	}
+}
+
+func assertOnResponseRejectsAnUntrackableWebsocketUpgrade(t *testing.T) {
+	t.Helper()
+	upstream, peer := net.Pipe()
+	defer peer.Close()
+	destination := &Destination{}
+	response := &http.Response{
+		Status:     "101 Switching Protocols",
+		StatusCode: http.StatusSwitchingProtocols,
+		Header: http.Header{
+			"Connection": {"Upgrade"},
+			"Upgrade":    {"websocket"},
+		},
+		Body: upstream,
+	}
+	state := &proxyState{
+		log:         &proxyLog{},
+		connections: &proxyConnections{stopping: true},
+	}
+	requestData := &proxyRequest{
+		destination:   destination,
+		websocket:     true,
+		sessionID:     7,
+		remoteAddress: "pipe",
+	}
+
+	got := state.onResponse(response, &goproxy.ProxyCtx{UserData: requestData})
+	if got.StatusCode != http.StatusBadGateway || got.Status != "502 Bad Gateway" {
+		t.Fatalf("upgrade response = %q (%d), want 502 Bad Gateway", got.Status, got.StatusCode)
+	}
+	if got.Header.Get("Connection") != "" || got.Header.Get("Upgrade") != "" || !got.Close {
+		t.Errorf(
+			"rejected response headers/close = %v/%v, want upgrade headers cleared and connection closed",
+			got.Header,
+			got.Close,
+		)
+	}
+	body, err := io.ReadAll(got.Body)
+	if err != nil {
+		t.Fatalf("read rejection body: %v", err)
+	}
+	if string(body) != "observation proxy could not track this WebSocket connection\n" {
+		t.Errorf("rejection body = %q", body)
+	}
+	if !destination.Success {
+		t.Error("accepted upstream upgrade did not retain its destination success evidence")
+	}
+}
+
+func TestOnResponseLeavesUntrackedWebsocketResponsesUnchanged(t *testing.T) {
+	assertOnResponseLeavesUntrackedWebsocketResponsesUnchanged(t)
+}
+
+func TestOnResponseRejectsAnUntrackableWebsocketUpgrade(t *testing.T) {
+	assertOnResponseRejectsAnUntrackableWebsocketUpgrade(t)
 }
